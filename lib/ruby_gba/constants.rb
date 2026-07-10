@@ -1,0 +1,288 @@
+# frozen_string_literal: true
+
+module RubyGBA
+  # GBA hardware constants. Names follow the tonc/libgba conventions
+  # so anyone familiar with GBA development recognizes them immediately.
+  #
+  # The GBA memory map is flat — everything is accessed by address.
+  # There's no OS, no filesystem, just raw memory-mapped hardware.
+  #
+  # Reference: https://problemkaputt.de/gbatek.htm
+  module Constants
+
+    # ========================================================================
+    # Memory Map
+    #
+    # The GBA CPU (ARM7TDMI) sees all hardware as memory addresses.
+    # Each region has a fixed start address and size.
+    # ========================================================================
+
+    # External Work RAM — general purpose heap, large buffers.
+    # 256KB, 16-bit bus (slower than IWRAM).
+    EWRAM_START = 0x02000000
+    EWRAM_SIZE  = 0x00040000  # 256KB
+
+    # Internal Work RAM — stack, hot code, interrupt handlers.
+    # 32KB, 32-bit bus (fastest RAM on the system).
+    IWRAM_START = 0x03000000
+    IWRAM_SIZE  = 0x00008000  # 32KB
+
+    # I/O Registers — control everything: display, sound, DMA, timers, input.
+    # Write to these addresses to configure hardware behavior.
+    IO_START    = 0x04000000
+
+    # Palette RAM — stores colors for backgrounds and sprites.
+    # First 256 entries (512 bytes) = BG palette.
+    # Next 256 entries (512 bytes) = OBJ/sprite palette.
+    # Each entry is a 15-bit RGB color (5 bits per channel).
+    PALETTE_START = 0x05000000
+    PALETTE_SIZE  = 0x00000400  # 1KB (512 colors total)
+    BG_PALETTE    = 0x05000000
+    OBJ_PALETTE   = 0x05000200
+
+    # Video RAM — tile data, tilemaps, or bitmap framebuffers.
+    # Layout depends on which display mode you're using.
+    VRAM_START  = 0x06000000
+    VRAM_SIZE   = 0x00018000  # 96KB
+
+    # Object Attribute Memory — defines up to 128 on-screen sprites.
+    # Each sprite entry is 8 bytes (position, size, tile index, etc).
+    OAM_START   = 0x07000000
+    OAM_SIZE    = 0x00000400  # 1KB (128 sprites x 8 bytes)
+    MAX_SPRITES = 128
+
+    # Game Pak ROM — this is the .gba file, mapped into memory.
+    # Maximum 32MB. Read-only at runtime.
+    ROM_START   = 0x08000000
+    ROM_MAX_SIZE = 0x02000000  # 32MB
+
+    # Game Pak SRAM — battery-backed save memory.
+    # Size varies by cartridge (typically 32KB or 64KB).
+    SRAM_START  = 0x0E000000
+
+    # ========================================================================
+    # Display Control (REG_DISPCNT at 0x04000000)
+    #
+    # This single register controls what the screen shows.
+    # Combine a mode with enable flags: MODE_3 | BG2_ENABLE
+    # ========================================================================
+
+    REG_DISPCNT  = 0x04000000
+    REG_DISPSTAT = 0x04000004  # VBlank/HBlank status and IRQ config
+    REG_VCOUNT   = 0x04000006  # Current scanline being drawn (0-227)
+
+    # Display modes — choose one per scene:
+    MODE_0 = 0x0000  # Tile mode: 4 regular BG layers (most common for RPGs, platformers)
+    MODE_1 = 0x0001  # Tile mode: 2 regular + 1 affine (rotatable) BG
+    MODE_2 = 0x0002  # Tile mode: 2 affine BG layers
+    MODE_3 = 0x0003  # Bitmap: 240x160, 15-bit color, single buffer (simple but slow)
+    MODE_4 = 0x0004  # Bitmap: 240x160, 8-bit indexed, double buffered
+    MODE_5 = 0x0005  # Bitmap: 160x128, 15-bit color, double buffered
+
+    # Layer enable flags — OR these with the mode:
+    BG0_ENABLE      = 0x0100
+    BG1_ENABLE      = 0x0200
+    BG2_ENABLE      = 0x0400
+    BG3_ENABLE      = 0x0800
+    OBJ_ENABLE      = 0x1000  # Enable sprites
+    WIN0_ENABLE     = 0x2000  # Enable window 0 (rectangular clipping region)
+    WIN1_ENABLE     = 0x4000  # Enable window 1
+    OBJ_WIN_ENABLE  = 0x8000  # Enable object window (sprite-shaped clipping)
+
+    # ========================================================================
+    # Background Registers
+    #
+    # Each BG layer has a control register and scroll registers.
+    # BG2/BG3 also have affine (rotation/scale) parameters.
+    # ========================================================================
+
+    REG_BG0CNT  = 0x04000008  # BG0 control (priority, tile base, map base, size)
+    REG_BG1CNT  = 0x0400000A
+    REG_BG2CNT  = 0x0400000C
+    REG_BG3CNT  = 0x0400000E
+
+    # Scroll offsets — write every frame to scroll the background
+    REG_BG0HOFS = 0x04000010  # BG0 horizontal scroll (0-511)
+    REG_BG0VOFS = 0x04000012  # BG0 vertical scroll (0-511)
+    REG_BG1HOFS = 0x04000014
+    REG_BG1VOFS = 0x04000016
+    REG_BG2HOFS = 0x04000018
+    REG_BG2VOFS = 0x0400001A
+    REG_BG3HOFS = 0x0400001C
+    REG_BG3VOFS = 0x0400001E
+
+    # Affine parameters for BG2 — 2x2 rotation/scale matrix + reference point.
+    # PA/PB/PC/PD are 8.8 fixed-point. X/Y are 20.8 fixed-point.
+    REG_BG2PA = 0x04000020  # cos(angle) * scale_x
+    REG_BG2PB = 0x04000022  # sin(angle) * scale_x
+    REG_BG2PC = 0x04000024  # -sin(angle) * scale_y
+    REG_BG2PD = 0x04000026  # cos(angle) * scale_y
+    REG_BG2X  = 0x04000028  # Reference point X (28-bit, 20.8 fixed)
+    REG_BG2Y  = 0x0400002C  # Reference point Y
+
+    # Same for BG3
+    REG_BG3PA = 0x04000030
+    REG_BG3PB = 0x04000032
+    REG_BG3PC = 0x04000034
+    REG_BG3PD = 0x04000036
+    REG_BG3X  = 0x04000038
+    REG_BG3Y  = 0x0400003C
+
+    # ========================================================================
+    # Window Registers — rectangular clipping regions
+    # ========================================================================
+
+    REG_WIN0H   = 0x04000040  # Window 0 horizontal bounds (left, right)
+    REG_WIN1H   = 0x04000042
+    REG_WIN0V   = 0x04000044  # Window 0 vertical bounds (top, bottom)
+    REG_WIN1V   = 0x04000046
+    REG_WININ   = 0x04000048  # Which layers show inside windows
+    REG_WINOUT  = 0x0400004A  # Which layers show outside windows
+
+    # ========================================================================
+    # Key Input — reading the buttons
+    #
+    # REG_KEYINPUT is active-low: bit=0 means pressed, bit=1 means released.
+    # Common pattern: pressed = ~REG_KEYINPUT & KEY_MASK
+    # ========================================================================
+
+    REG_KEYINPUT = 0x04000130
+    REG_KEYCNT   = 0x04000132  # Key interrupt control
+
+    KEY_A      = 0x0001
+    KEY_B      = 0x0002
+    KEY_SELECT = 0x0004
+    KEY_START  = 0x0008
+    KEY_RIGHT  = 0x0010
+    KEY_LEFT   = 0x0020
+    KEY_UP     = 0x0040
+    KEY_DOWN   = 0x0080
+    KEY_R      = 0x0100
+    KEY_L      = 0x0200
+
+    # ========================================================================
+    # Interrupts
+    #
+    # The GBA uses interrupts for VBlank timing, HBlank effects,
+    # timer events, DMA completion, etc.
+    # ========================================================================
+
+    REG_IE  = 0x04000200  # Interrupt enable (which IRQs to listen for)
+    REG_IF  = 0x04000202  # Interrupt flags (which IRQs have fired)
+    REG_IME = 0x04000208  # Master enable (global on/off switch)
+
+    IRQ_VBLANK  = 0x0001  # Fires once per frame (~60Hz) — primary game tick
+    IRQ_HBLANK  = 0x0002  # Fires once per scanline — for raster effects
+    IRQ_VCOUNT  = 0x0004  # Fires at a specific scanline number
+    IRQ_TIMER0  = 0x0008
+    IRQ_TIMER1  = 0x0010
+    IRQ_TIMER2  = 0x0020
+    IRQ_TIMER3  = 0x0040
+    IRQ_SERIAL  = 0x0080  # SIO / link cable transfer complete
+    IRQ_DMA0    = 0x0100
+    IRQ_DMA1    = 0x0200
+    IRQ_DMA2    = 0x0400
+    IRQ_DMA3    = 0x0800
+    IRQ_KEYPAD  = 0x1000  # Button press interrupt
+
+    # ========================================================================
+    # Timers — 4 hardware timers, each with a counter and control register
+    # ========================================================================
+
+    REG_TM0CNT_L = 0x04000100  # Timer 0 counter (read: current value, write: reload value)
+    REG_TM0CNT_H = 0x04000102  # Timer 0 control (prescaler, IRQ, enable)
+    REG_TM1CNT_L = 0x04000104
+    REG_TM1CNT_H = 0x04000106
+    REG_TM2CNT_L = 0x04000108
+    REG_TM2CNT_H = 0x0400010A
+    REG_TM3CNT_L = 0x0400010C
+    REG_TM3CNT_H = 0x0400010E
+
+    TIMER_ENABLE  = 0x0080
+    TIMER_IRQ     = 0x0040
+    TIMER_CASCADE = 0x0004  # Count when the previous timer overflows
+
+    # ========================================================================
+    # DMA — 4 channels for fast memory-to-memory copies
+    #
+    # DMA3 is general purpose (ROM→RAM, RAM→RAM).
+    # DMA1/DMA2 are used for audio streaming.
+    # DMA0 has highest priority.
+    # ========================================================================
+
+    REG_DMA0SAD = 0x040000B0  # Source address
+    REG_DMA0DAD = 0x040000B4  # Destination address
+    REG_DMA0CNT = 0x040000B8  # Word count + control flags
+    REG_DMA1SAD = 0x040000BC
+    REG_DMA1DAD = 0x040000C0
+    REG_DMA1CNT = 0x040000C4
+    REG_DMA2SAD = 0x040000C8
+    REG_DMA2DAD = 0x040000CC
+    REG_DMA2CNT = 0x040000D0
+    REG_DMA3SAD = 0x040000D4  # Most commonly used channel
+    REG_DMA3DAD = 0x040000D8
+    REG_DMA3CNT = 0x040000DC
+
+    DMA_ENABLE     = 0x80000000
+    DMA_IRQ        = 0x40000000  # Fire interrupt on completion
+    DMA_32BIT      = 0x04000000  # Transfer 32 bits at a time (vs 16)
+    DMA_16BIT      = 0x00000000
+    DMA_AT_VBLANK  = 0x10000000  # Start transfer at next VBlank
+    DMA_AT_HBLANK  = 0x20000000  # Start transfer at next HBlank
+
+    # ========================================================================
+    # Sound — PSG channels + Direct Sound control
+    #
+    # The GBA has 4 PSG (programmable sound generator) channels inherited
+    # from the Game Boy, plus 2 DMA-driven PCM channels (Direct Sound A/B).
+    #
+    # Channel 1: Square wave with frequency sweep
+    # Channel 2: Square wave (no sweep) — simplest for beeps/chirps
+    # Channel 3: Programmable waveform
+    # Channel 4: Noise
+    # ========================================================================
+
+    # Master control
+    REG_SOUNDCNT_L = 0x04000080  # PSG channel volume and L/R panning
+    REG_SOUNDCNT_H = 0x04000082  # Direct Sound (DMA audio) control
+    REG_SOUNDCNT_X = 0x04000084  # Master sound enable (bit 7)
+
+    # Channel 1 — square wave with sweep
+    REG_SOUND1CNT_L = 0x04000060  # Sweep (shift, direction, time)
+    REG_SOUND1CNT_H = 0x04000062  # Duty cycle + envelope
+    REG_SOUND1CNT_X = 0x04000064  # Frequency + trigger
+
+    # Channel 2 — square wave (no sweep, simplest for sound effects)
+    REG_SOUND2CNT_L = 0x04000068  # Duty cycle + envelope
+    REG_SOUND2CNT_H = 0x0400006C  # Frequency + trigger
+
+    # Channel 3 — programmable waveform
+    REG_SOUND3CNT_L = 0x04000070
+    REG_SOUND3CNT_H = 0x04000072
+    REG_SOUND3CNT_X = 0x04000074
+    REG_WAVE_RAM    = 0x04000090  # 16 bytes of waveform data
+
+    # Channel 4 — noise
+    REG_SOUND4CNT_L = 0x04000078
+    REG_SOUND4CNT_H = 0x0400007C
+
+    # ========================================================================
+    # Screen
+    # ========================================================================
+
+    SCREEN_WIDTH  = 240
+    SCREEN_HEIGHT = 160
+
+    # ========================================================================
+    # ROM Header Offsets — used when building the .gba file
+    # ========================================================================
+
+    HEADER_ENTRY    = 0x00   # ARM branch instruction to entry point
+    HEADER_LOGO     = 0x04   # Nintendo logo bitmap (0x04..0x9F, 156 bytes)
+    HEADER_TITLE    = 0xA0   # Game title, up to 12 ASCII chars, NUL-padded
+    HEADER_CODE     = 0xAC   # 4-char game code (e.g. "AXVE" = Pokemon Ruby)
+    HEADER_MAKER    = 0xB0   # 2-char maker/publisher code
+    HEADER_FIXED    = 0xB2   # Must be 0x96 — BIOS rejects the ROM otherwise
+    HEADER_CHECKSUM = 0xBD   # Complement checksum of bytes 0xA0..0xBC
+  end
+end
