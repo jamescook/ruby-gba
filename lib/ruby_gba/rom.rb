@@ -1,0 +1,102 @@
+# frozen_string_literal: true
+
+module RubyGBA
+  # Manages a raw GBA ROM byte buffer and writes the cartridge header.
+  #
+  # All offsets reference constants from {RubyGBA::Constants} — no magic
+  # numbers in the logic. This makes it easy to sanity-check header writes
+  # and catch offset mistakes early.
+  #
+  # Reference: https://problemkaputt.de/gbatek-gba-cartridge-header.htm
+  class ROM
+    include Constants
+
+    HEADER_SIZE  = 0xC0
+    ENTRY_OFFSET = HEADER_SIZE  # code starts after the full header
+    TITLE_LENGTH = 12
+    CODE_LENGTH  = 4
+    MAKER_LENGTH = 2
+    FIXED_VALUE  = 0x96
+    CHECKSUM_RANGE = (HEADER_TITLE..0xBC).freeze
+
+    attr_reader :buffer, :code_offset
+
+    def initialize(title:, code:, maker:)
+      @buffer = ("\x00".b) * [512, HEADER_SIZE].max
+      @code_offset = ENTRY_OFFSET
+
+      write_title(title)
+      write_code(code)
+      write_maker(maker)
+      @buffer.setbyte(HEADER_FIXED, FIXED_VALUE)
+    end
+
+    # Append raw bytes at the current code offset and advance.
+    def emit(bytes)
+      grow_if_needed(@code_offset + bytes.bytesize)
+      @buffer[@code_offset, bytes.bytesize] = bytes
+      @code_offset += bytes.bytesize
+    end
+
+    # Overwrite bytes at a specific offset (for patching branch placeholders).
+    def patch(offset, bytes)
+      @buffer[offset, bytes.bytesize] = bytes
+    end
+
+    # Finalize the ROM: write entry branch, header checksum, and validate.
+    #
+    # @param doctor [Boolean] run Doctor validation (default: true).
+    #   Raises ROMError on structural problems. Pass false to skip.
+    def finalize!(doctor: true)
+      # Entry point at 0x00: branch to ENTRY_OFFSET
+      # Branch offset in words from PC+8: (target - 8) / 4 = (0x20 - 8) / 4 = 6
+      entry_branch = [0xEA000000 | ((ENTRY_OFFSET / 4) - 2)].pack("V")
+      @buffer[HEADER_ENTRY, 4] = entry_branch
+
+      # Complement checksum over HEADER_TITLE..0xBC
+      sum = CHECKSUM_RANGE.sum { |i| @buffer.getbyte(i) }
+      @buffer.setbyte(HEADER_CHECKSUM, (-(sum + 0x19)) & 0xFF)
+
+      # Run the Doctor — catch problems now, not in the emulator
+      if doctor
+        result = Doctor.check(self)
+        unless result.ok?
+          raise ROMError, "ROM has errors:\n#{result.report}"
+        end
+      end
+    end
+
+    # Write the ROM to a file.
+    def write(path)
+      File.binwrite(path, @buffer)
+    end
+
+    # ROM size in bytes.
+    def size
+      @buffer.bytesize
+    end
+
+    private
+
+    def write_title(title)
+      padded = title[0, TITLE_LENGTH].ljust(TITLE_LENGTH, "\x00")
+      @buffer[HEADER_TITLE, TITLE_LENGTH] = padded
+    end
+
+    def write_code(code)
+      raise ArgumentError, "game code must be #{CODE_LENGTH} chars" unless code.bytesize == CODE_LENGTH
+      @buffer[HEADER_CODE, CODE_LENGTH] = code
+    end
+
+    def write_maker(maker)
+      raise ArgumentError, "maker code must be #{MAKER_LENGTH} chars" unless maker.bytesize == MAKER_LENGTH
+      @buffer[HEADER_MAKER, MAKER_LENGTH] = maker
+    end
+
+    def grow_if_needed(min_size)
+      return if @buffer.bytesize >= min_size
+      new_size = [@buffer.bytesize * 2, min_size].max
+      @buffer << ("\x00".b) * (new_size - @buffer.bytesize)
+    end
+  end
+end
