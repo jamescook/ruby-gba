@@ -4,19 +4,11 @@ require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 require_relative "test_helper"
 
-# Verifier tests require teek-mgba to be compiled.
-# Skip gracefully if not available.
-begin
-  require "teek/mgba/core"
-  require "teek_mgba"
-  MGBA_AVAILABLE = true
-rescue LoadError
-  MGBA_AVAILABLE = false
-end
-
 class TestVerifier < Minitest::Test
+  include GembaSupport
+
   def setup
-    skip "teek-mgba not available" unless MGBA_AVAILABLE
+    skip_unless_gemba
   end
 
   def test_red_pixel_readback

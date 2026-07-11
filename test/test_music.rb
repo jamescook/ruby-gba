@@ -7,6 +7,7 @@ require_relative "test_helper"
 
 class TestMusic < Minitest::Test
   include RubyGBA::Constants
+  include GembaSupport
 
   def build(doctor: false, &block)
     RubyGBA.build("MUSTEST", code: "BMUS", maker: "01", doctor: doctor, &block)
@@ -296,9 +297,6 @@ class TestMusic < Minitest::Test
   # ========================================================================
 
   def test_music_runs_in_mgba
-    mgba_bin = MGBA_BIN
-    skip "teek-mgba not available — skipping music integration test" if mgba_bin.nil? || mgba_bin.empty?
-
     rom = build do
       display :bitmap
       enable_sound
@@ -320,10 +318,6 @@ class TestMusic < Minitest::Test
       end
     end
 
-    Tempfile.create(["musictest", ".gba"]) do |f|
-      rom.write(f.path)
-      output = `"#{mgba_bin}" --frames 120 --headless "#{f.path}" 2>&1`
-      assert_equal 0, $?.exitstatus, "ROM with music should run: #{output}"
-    end
+    assert_gemba_loads_rom(rom, frames: 120)
   end
 end

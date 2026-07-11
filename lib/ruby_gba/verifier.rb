@@ -6,7 +6,7 @@ module RubyGBA
   # This is the definitive answer to "did my ROM actually draw anything?"
   # Instead of squinting at an emulator window, assert exact pixel values.
   #
-  # Requires teek-mgba to be available (loads Teek::MGBA::Core).
+  # Requires gemba to be available (loads Gemba::Core).
   #
   # @example Verify a pixel
   #   rom = RubyGBA.build("TEST", code: "BTST", maker: "01") do
@@ -170,10 +170,10 @@ module RubyGBA
 
     def load_mgba!
       begin
-        require "teek/mgba/core"  # Ruby class shell
-        require "teek_mgba"       # C extension with actual methods
+        require "gemba/core"  # Ruby class shell
+        require "gemba_ext"   # C extension with actual methods
       rescue LoadError => e
-        raise LoadError, "Verifier requires teek-mgba (gem install teek-mgba). Original error: #{e.message}"
+        raise LoadError, "Verifier requires gemba (gem install gemba). Original error: #{e.message}"
       end
     end
 
@@ -184,7 +184,7 @@ module RubyGBA
       require "tempfile"
       Tempfile.create(["verify", ".gba"]) do |f|
         @rom.write(f.path)
-        core = Teek::MGBA::Core.new(f.path)
+        core = Gemba::Core.new(f.path)
         @frames.times { core.run_frame }
         @pixels = core.video_buffer
         core.destroy

@@ -5,6 +5,7 @@ require_relative "../lib/ruby_gba"
 require_relative "test_helper"
 
 class TestFont < Minitest::Test
+  include GembaSupport
   F = RubyGBA::Font
 
   # ========================================================================
@@ -152,9 +153,6 @@ class TestFont < Minitest::Test
   end
 
   def test_draw_text_runs_in_mgba
-    mgba_bin = MGBA_BIN
-    skip "teek-mgba not found" unless mgba_bin
-
     rom = build do
       display :bitmap
       clear_screen :black
@@ -163,10 +161,6 @@ class TestFont < Minitest::Test
       halt
     end
 
-    Tempfile.create(["fonttest", ".gba"]) do |f|
-      rom.write(f.path)
-      output = `"#{mgba_bin}" --frames 5 --headless "#{f.path}" 2>&1`
-      assert_equal 0, $?.exitstatus, "ROM should run: #{output}"
-    end
+    assert_gemba_loads_rom(rom, frames: 5)
   end
 end

@@ -1,6 +1,5 @@
 require_relative "lib/ruby_gba/version"
 
-# TODO: add teek-mbga once it's on rubygems
 Gem::Specification.new do |spec|
   spec.name          = "ruby-gba"
   spec.version       = RubyGBA::VERSION
@@ -19,4 +18,6 @@ Gem::Specification.new do |spec|
 
   spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "minitest", "~> 6.0"
+  # Emulator used by the Verifier and integration tests; tests skip gracefully if absent.
+  spec.add_development_dependency "gemba", "~> 0.2"
 end

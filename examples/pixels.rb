@@ -2,7 +2,7 @@
 # frozen_string_literal: true
 
 # Generates a GBA ROM that displays colored pixels and rectangles.
-# Load in any GBA emulator (mGBA, teek-mgba, etc.) to see the output.
+# Load in any GBA emulator (mGBA, gemba, etc.) to see the output.
 #
 # Usage:
 #   ruby examples/pixels.rb
