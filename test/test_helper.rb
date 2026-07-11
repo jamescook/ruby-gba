@@ -3,44 +3,42 @@
 require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 
-# Find teek-mgba binary. Lookup order:
-#   1. MGBA_BIN env var (explicit override)
-#   2. Installed gem
-#   3. Sibling directory (~/open_source/teek-mgba alongside ~/open_source/ruby-gba)
-#   4. PATH
-def self.find_mgba_bin
-  from_env = ENV.fetch("MGBA_BIN", nil)
-  return from_env if from_env && !from_env.empty?
-
-  candidates = []
-
-  begin
-    spec = Gem::Specification.find_by_name("teek-mgba")
-    candidates << File.join(spec.bin_dir, "teek-mgba")
-  rescue Gem::MissingSpecError
-    # not installed as a gem
+# Shared helpers for tests that exercise the gemba emulator in-process.
+#
+# Include this in a test class instead of copy-pasting begin/require/rescue
+# blocks or per-test availability guards.
+module GembaSupport
+  # Whether the in-process gemba Core can be loaded. Memoized: the require is
+  # attempted once per run.
+  def self.gem_available?
+    return @gem_available unless @gem_available.nil?
+    @gem_available =
+      begin
+        require "gemba/core"  # Ruby class shell
+        require "gemba_ext"   # C extension with the real methods
+        true
+      rescue LoadError
+        false
+      end
   end
 
-  candidates << File.expand_path("../../teek-mgba/bin/teek-mgba", __dir__)
-
-  path = `which teek-mgba 2>/dev/null`.strip
-  candidates << path unless path.empty?
-
-  # Return first candidate that exists and can load its dependencies.
-  # --version exits before loading C extensions, so we test with --frames
-  # on a minimal ROM to verify the full stack works.
-  candidates.each do |bin|
-    next unless File.exist?(bin)
-    require "tempfile"
-    rom = RubyGBA.build("TST", code: "BTST", maker: "01") { halt }
-    Tempfile.create(["mgba_check", ".gba"]) do |f|
-      rom.write(f.path)
-      system(bin, "--frames", "1", "--headless", f.path, out: File::NULL, err: File::NULL)
-      return bin if $?.success?
-    end
+  # Skip the current test unless the in-process gemba emulator is available.
+  def skip_unless_gemba
+    skip "gemba not available (gem install gemba)" unless GembaSupport.gem_available?
   end
 
-  nil
+  # Load +rom+ into gemba and run it headless for +frames+ frames, asserting it
+  # loads and runs without raising. Skips when gemba isn't installed. Returns a
+  # RubyGBA::Verifier so callers can make pixel assertions on the rendered frame:
+  #
+  #   v = assert_gemba_loads_rom(rom, frames: 30)
+  #   assert v.red?(120, 80)
+  def assert_gemba_loads_rom(rom, frames: 10)
+    skip_unless_gemba
+    verifier = RubyGBA::Verifier.new(rom, frames: frames)
+    verifier.pixel(0, 0) # force gemba to load the ROM and run the frames
+    verifier
+  rescue StandardError => e
+    flunk "gemba failed to load/run ROM after #{frames} frames: #{e.class}: #{e.message}"
+  end
 end
-
-MGBA_BIN = find_mgba_bin

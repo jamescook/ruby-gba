@@ -6,6 +6,7 @@ require_relative "test_helper"
 
 class TestDMA < Minitest::Test
   include RubyGBA::Constants
+  include GembaSupport
 
   def build(doctor: false, &block)
     RubyGBA.build("DMATEST", code: "BDMA", maker: "01", doctor: doctor, &block)
@@ -105,20 +106,13 @@ class TestDMA < Minitest::Test
   # ========================================================================
 
   def test_clear_screen_renders_in_mgba
-    begin
-      require "teek/mgba/core"
-      require "teek_mgba"
-    rescue LoadError
-      skip "teek-mgba not compiled"
-    end
-
     rom = build do
       display :bitmap
       clear_screen :red
       halt
     end
 
-    verifier = RubyGBA::Verifier.new(rom, frames: 5)
+    verifier = assert_gemba_loads_rom(rom, frames: 5)
     # Center pixel should be red
     assert verifier.red?(120, 80), "center should be red after clear_screen :red"
     # Corners too
@@ -127,13 +121,6 @@ class TestDMA < Minitest::Test
   end
 
   def test_dma_fill_rect_renders_in_mgba
-    begin
-      require "teek/mgba/core"
-      require "teek_mgba"
-    rescue LoadError
-      skip "teek-mgba not compiled"
-    end
-
     rom = build do
       display :bitmap
       clear_screen :black
@@ -141,7 +128,7 @@ class TestDMA < Minitest::Test
       halt
     end
 
-    verifier = RubyGBA::Verifier.new(rom, frames: 5)
+    verifier = assert_gemba_loads_rom(rom, frames: 5)
     # Inside the rect should be green
     assert verifier.green?(120, 80), "center of rect should be green"
     # Outside should be black
@@ -149,9 +136,6 @@ class TestDMA < Minitest::Test
   end
 
   def test_game_loop_with_clear_screen_runs
-    mgba_bin = MGBA_BIN
-    skip "teek-mgba not found" unless mgba_bin
-
     rom = build do
       display :bitmap
       game_loop do
@@ -161,11 +145,7 @@ class TestDMA < Minitest::Test
       end
     end
 
-    Tempfile.create(["dmaloop", ".gba"]) do |f|
-      rom.write(f.path)
-      output = `"#{mgba_bin}" --frames 10 --headless "#{f.path}" 2>&1`
-      assert_equal 0, $?.exitstatus, "ROM should run: #{output}"
-    end
+    assert_gemba_loads_rom(rom, frames: 10)
   end
 
   private

@@ -39,18 +39,11 @@ class TestTestPatterns < Minitest::Test
   end
 end
 
-# Verifier-based tests — only run if mGBA is available
-begin
-  require "teek/mgba/core"
-  require "teek_mgba"
-  MGBA_AVAILABLE_FOR_PATTERNS = true
-rescue LoadError
-  MGBA_AVAILABLE_FOR_PATTERNS = false
-end
-
 class TestTestPatternsRendering < Minitest::Test
+  include GembaSupport
+
   def setup
-    skip "teek-mgba not available" unless MGBA_AVAILABLE_FOR_PATTERNS
+    skip_unless_gemba
   end
 
   def test_solid_fill_renders_red

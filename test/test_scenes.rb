@@ -6,6 +6,7 @@ require_relative "test_helper"
 
 class TestScenes < Minitest::Test
   include RubyGBA::Constants
+  include GembaSupport
 
   def build(doctor: false, &block)
     RubyGBA.build("SCNTEST", code: "BSCN", maker: "01", doctor: doctor, &block)
@@ -161,9 +162,6 @@ class TestScenes < Minitest::Test
   # ========================================================================
 
   def test_scenes_run_in_mgba
-    mgba_bin = MGBA_BIN
-    skip "teek-mgba not found" unless mgba_bin
-
     rom = build do
       display :bitmap
 
@@ -186,10 +184,6 @@ class TestScenes < Minitest::Test
       end
     end
 
-    Tempfile.create(["scenetest", ".gba"]) do |f|
-      rom.write(f.path)
-      output = `"#{mgba_bin}" --frames 30 --headless "#{f.path}" 2>&1`
-      assert_equal 0, $?.exitstatus, "ROM should run: #{output}"
-    end
+    assert_gemba_loads_rom(rom, frames: 30)
   end
 end

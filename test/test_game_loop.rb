@@ -6,6 +6,7 @@ require_relative "test_helper"
 
 class TestGameLoop < Minitest::Test
   include RubyGBA::Constants
+  include GembaSupport
 
   def build(doctor: false, &block)
     RubyGBA.build("LOOPTEST", code: "BLPT", maker: "01", doctor: doctor, &block)
@@ -155,9 +156,6 @@ class TestGameLoop < Minitest::Test
   end
 
   def test_game_loop_runs_in_mgba
-    mgba_bin = MGBA_BIN
-    skip "teek-mgba not found" unless mgba_bin
-
     rom = build do
       display :bitmap
       set :counter, 0
@@ -167,11 +165,7 @@ class TestGameLoop < Minitest::Test
       end
     end
 
-    Tempfile.create(["looptest", ".gba"]) do |f|
-      rom.write(f.path)
-      output = `"#{mgba_bin}" --frames 10 --headless "#{f.path}" 2>&1`
-      assert_equal 0, $?.exitstatus, "ROM should run without crashing: #{output}"
-    end
+    assert_gemba_loads_rom(rom, frames: 10)
   end
 
   private

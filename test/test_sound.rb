@@ -6,6 +6,7 @@ require_relative "test_helper"
 
 class TestSound < Minitest::Test
   include RubyGBA::Constants
+  include GembaSupport
 
   def build(doctor: false, &block)
     RubyGBA.build("SNDTEST", code: "BSND", maker: "01", doctor: doctor, &block)
@@ -250,9 +251,6 @@ class TestSound < Minitest::Test
   # ========================================================================
 
   def test_sound_runs_in_mgba
-    mgba_bin = MGBA_BIN
-    skip "teek-mgba not found" unless mgba_bin
-
     rom = build do
       display :bitmap
       enable_sound
@@ -267,10 +265,6 @@ class TestSound < Minitest::Test
       end
     end
 
-    Tempfile.create(["soundtest", ".gba"]) do |f|
-      rom.write(f.path)
-      output = `"#{mgba_bin}" --frames 30 --headless "#{f.path}" 2>&1`
-      assert_equal 0, $?.exitstatus, "ROM with sound should run: #{output}"
-    end
+    assert_gemba_loads_rom(rom, frames: 30)
   end
 end

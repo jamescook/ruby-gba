@@ -121,16 +121,17 @@ puts "Wrote /tmp/debug_blocks.gba"
 puts
 
 # ============================================================
-# Run in mGBA
+# Run in gemba (in-process)
 # ============================================================
-if File.exist?(MGBA_BIN)
+if GembaSupport.gem_available?
   ["/tmp/debug_bigrect.gba", "/tmp/debug_blocks.gba"].each do |path|
-    puts "Running: #{MGBA_BIN} --frames 100 --headless #{path}"
-    output = `"#{MGBA_BIN}" --frames 100 --headless "#{path}" 2>&1`
-    puts "Exit: #{$?.exitstatus}"
-    puts output unless output.strip.empty?
+    puts "Running #{path} in gemba for 100 frames..."
+    core = Gemba::Core.new(path)
+    100.times { core.run_frame }
+    core.destroy
+    puts "OK"
     puts "-" * 40
   end
 else
-  puts "teek-mgba not found at #{MGBA_BIN} — skipping run"
+  puts "gemba not available — skipping run (gem install gemba)"
 end
