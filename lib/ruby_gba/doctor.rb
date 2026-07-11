@@ -55,6 +55,7 @@ module RubyGBA
     def run
       check_minimum_size
       check_fixed_byte
+      check_logo
       check_checksum
       check_entry_branch
       check_code_region
@@ -78,6 +79,21 @@ module RubyGBA
       val = @buf.getbyte(HEADER_FIXED)
       if val != 0x96
         @errors << "Fixed byte at 0xB2 is 0x#{format('%02X', val)} — must be 0x96 or BIOS/mGBA will reject the ROM"
+      end
+    end
+
+    def check_logo
+      logo_len = HEADER_LOGO_BYTES.bytesize
+      return if @buf.bytesize < HEADER_LOGO + logo_len
+      actual = @buf[HEADER_LOGO, logo_len].b
+      return if actual == HEADER_LOGO_BYTES
+
+      if actual.each_byte.all?(&:zero?)
+        @errors << "Nintendo logo (0x04..0x9F) is all zeros — the BIOS validates it on boot, " \
+                   "so the ROM won't run on real hardware or accuracy-focused emulators (mGBA skips the check)"
+      else
+        @errors << "Nintendo logo (0x04..0x9F) doesn't match the required bytes — " \
+                   "the BIOS will reject the ROM on real hardware"
       end
     end
 

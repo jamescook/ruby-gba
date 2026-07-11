@@ -25,6 +25,7 @@ module RubyGBA
       @buffer = ("\x00".b) * [512, HEADER_SIZE].max
       @code_offset = ENTRY_OFFSET
 
+      write_logo
       write_title(title)
       write_code(code)
       write_maker(maker)
@@ -77,6 +78,13 @@ module RubyGBA
     end
 
     private
+
+    # The GBA BIOS validates the 156-byte Nintendo logo at 0x04..0x9F on boot.
+    # It sits outside the header checksum range (0xA0..0xBC), so writing it here
+    # doesn't affect the checksum computed in finalize!.
+    def write_logo
+      @buffer[HEADER_LOGO, HEADER_LOGO_BYTES.bytesize] = HEADER_LOGO_BYTES
+    end
 
     def write_title(title)
       padded = title[0, TITLE_LENGTH].ljust(TITLE_LENGTH, "\x00")
