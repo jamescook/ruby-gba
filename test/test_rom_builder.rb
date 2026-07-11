@@ -37,6 +37,25 @@ class TestRomBuilder < Minitest::Test
     assert_equal expected, buf.getbyte(0xBD), "checksum"
   end
 
+  def test_build_embeds_nintendo_logo
+    require "digest"
+    rom = RubyGBA.build("LOGOTEST", code: "BLGO", maker: "01") do
+      entry { loop_forever }
+    end
+
+    logo = rom.buffer[0x04, 156]
+    refute logo.bytes.all?(&:zero?), "logo region (0x04..0x9F) must not be all zeros"
+
+    # Pinned against the canonical Nintendo logo hash — a single wrong byte
+    # fails the GBA BIOS boot check on real hardware. This is deliberately
+    # independent of Constants::HEADER_LOGO_BYTES so it catches a bad constant.
+    assert_equal "17daa0fec02fc33c0f6abb549a8b80b6613b48ee",
+                 Digest::SHA1.hexdigest(logo), "logo must match the canonical Nintendo logo"
+
+    # Logo must fill exactly 0x04..0x9F and not spill into the title at 0xA0.
+    assert_equal "LOGOTEST\x00\x00\x00\x00", rom.buffer[0xA0, 12], "title intact after logo"
+  end
+
   def test_write_creates_file
     rom = RubyGBA.build("WRITETEST", code: "BWTE", maker: "99") do
       entry { loop_forever }

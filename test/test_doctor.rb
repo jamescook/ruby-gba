@@ -41,6 +41,26 @@ class TestDoctor < Minitest::Test
     assert result.errors.any? { |e| e.include?("checksum") }
   end
 
+  def test_empty_logo_detected
+    rom = RubyGBA::ROM.new(title: "NOLOGO", code: "BNLG", maker: "01")
+    rom.finalize!(doctor: false)
+    rom.buffer[0x04, 156] = "\x00".b * 156  # wipe the Nintendo logo
+    result = RubyGBA::Doctor.check(rom)
+    refute result.ok?
+    assert result.errors.any? { |e| e.include?("logo") && e.include?("all zeros") },
+           "Expected error about empty logo, got: #{result.report}"
+  end
+
+  def test_corrupt_logo_detected
+    rom = RubyGBA::ROM.new(title: "BADLOGO", code: "BBLG", maker: "01")
+    rom.finalize!(doctor: false)
+    rom.buffer.setbyte(0x50, rom.buffer.getbyte(0x50) ^ 0xFF)  # flip one logo byte
+    result = RubyGBA::Doctor.check(rom)
+    refute result.ok?
+    assert result.errors.any? { |e| e.include?("logo") },
+           "Expected error about corrupt logo, got: #{result.report}"
+  end
+
   def test_missing_entry_branch_detected
     rom = RubyGBA::ROM.new(title: "BAD", code: "BBAD", maker: "01")
     # Don't finalize — no entry branch written
