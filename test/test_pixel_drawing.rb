@@ -94,8 +94,8 @@ class TestPixelDrawing < Minitest::Test
     # fill_rect(5x5 = 25 pixels) should emit way more instructions.
     # Both ROMs may have the same buffer size (minimum 512), so compare
     # the actual non-zero content length after the entry offset.
-    small_code = rom_small.buffer[0x20..].rstrip("\x00").bytesize
-    big_code = rom_big.buffer[0x20..].rstrip("\x00").bytesize
+    small_code = rom_small.buffer[0x20..].sub(/\x00+\z/, "").bytesize
+    big_code = rom_big.buffer[0x20..].sub(/\x00+\z/, "").bytesize
     assert_operator big_code, :>, small_code
   end
 

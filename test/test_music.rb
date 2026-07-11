@@ -297,6 +297,7 @@ class TestMusic < Minitest::Test
 
   def test_music_runs_in_mgba
     mgba_bin = MGBA_BIN
+    skip "teek-mgba not available — skipping music integration test" if mgba_bin.nil? || mgba_bin.empty?
 
     rom = build do
       display :bitmap
@@ -319,10 +320,8 @@ class TestMusic < Minitest::Test
       end
     end
 
-    # FIXME: Should probably complain if mgba_bin is nil/empty
     Tempfile.create(["musictest", ".gba"]) do |f|
       rom.write(f.path)
-      puts "!!!!! - #{mgba_bin}"
       output = `"#{mgba_bin}" --frames 120 --headless "#{f.path}" 2>&1`
       assert_equal 0, $?.exitstatus, "ROM with music should run: #{output}"
     end
