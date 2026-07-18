@@ -3,16 +3,16 @@
 require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 
-# Exercises the interpreter core: run hand-built IR::Build programs in Ruby and
-# assert the resulting variable state — no hardware, no emulator, no ROM.
-class TestIRInterpreter < Minitest::Test
+# The Ruby backend: run hand-built IR::Build programs in Ruby and assert the
+# resulting variable state — no hardware, no emulator, no ROM.
+class TestIRBackendRuby < Minitest::Test
   include RubyGBA::IR::Build
 
-  Interpreter = RubyGBA::IR::Interpreter
+  Ruby = RubyGBA::IR::Backends::Ruby
   Int32 = RubyGBA::IR::Int32
 
   def run_ir(node, **opts)
-    Interpreter.new.run(node, **opts)
+    Ruby.new.run(node, **opts)
   end
 
   def test_set_and_read
@@ -110,11 +110,11 @@ class TestIRInterpreter < Minitest::Test
   end
 
   def test_call_to_undefined_func_raises
-    assert_raises(Interpreter::ProgramError) { run_ir(program(call(:ghost))) }
+    assert_raises(Ruby::ProgramError) { run_ir(program(call(:ghost))) }
   end
 
   def test_draw_ops_are_rejected_by_the_core
-    err = assert_raises(Interpreter::ProgramError) { run_ir(program(pixel(1, 2, :red))) }
+    err = assert_raises(Ruby::ProgramError) { run_ir(program(pixel(1, 2, :red))) }
     assert_match(/hardware/, err.message)
   end
 end
