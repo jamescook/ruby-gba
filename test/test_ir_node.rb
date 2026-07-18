@@ -67,7 +67,6 @@ class TestIRNode < Minitest::Test
     assert_equal :draw,    pixel(1, 2, :red).category
     assert_equal :control, loop_.category
     assert_equal :value,   int(1).category
-    assert_equal :label,   label(:start).category
   end
 
   def test_unknown_kind_is_flagged_not_guessed
@@ -76,7 +75,6 @@ class TestIRNode < Minitest::Test
 
   def test_predicates
     assert int(1).value?
-    assert label(:x).label?
     assert loop_.control?
     assert set(:x, 1).statement?
     refute int(1).statement?
@@ -172,7 +170,6 @@ class TestIRNode < Minitest::Test
         pixel(:x, 80, :red),
         call(:update),
       ),
-      label(:done),                                             # label
       halt,
     )
 

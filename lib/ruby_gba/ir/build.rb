@@ -116,16 +116,6 @@ module RubyGBA
         Node.new(:binop, op: op, lhs: wrap(lhs), rhs: wrap(rhs))
       end
 
-      # --- labels and references to them ---
-
-      def label(name)
-        Node.new(:label, name: name)
-      end
-
-      def label_ref(name)
-        Node.new(:label_ref, name: name)
-      end
-
       # Coerce a bare operand into a value node so every operand is uniform:
       # an Integer becomes an +int+ literal, a Symbol becomes a +var_ref+, and a
       # Node passes through untouched.
