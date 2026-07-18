@@ -4,6 +4,7 @@ require_relative "ir/int32"
 require_relative "ir/node"
 require_relative "ir/build"
 require_relative "ir/backends"
+require_relative "ir/guardrails"
 
 module RubyGBA
   # The intermediate representation (IR): the plain-Ruby op-tree the DSL builds
