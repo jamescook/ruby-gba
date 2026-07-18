@@ -13,20 +13,23 @@ module RubyGBA
     # same tree could equally be lowered to, say, JavaScript. Keep
     # target-specific detail in the lowering pass, never in this model.
     #
-    # Three shapes of node share this one class:
+    # Two shapes of node share this one class:
     #
     #   * Statement nodes — the program itself: a variable op (+set+, +add+), a
-    #     draw op (+pixel+, +fill_rect+), or control flow (+if+, +loop+).
-    #     Control-flow statements hold their nested statements in #children.
+    #     draw op (+pixel+, +fill_rect+), or control flow (+if+, +loop+, +func+,
+    #     +call+). Control-flow statements hold their nested statements in
+    #     #children.
     #
     #   * Value nodes — an expression operand: a literal +int+, a +var_ref+, or a
     #     +binop+ combining two other value nodes. A value lives inside another
     #     node's #attrs (e.g. the value a +set+ assigns), never in #children.
     #
-    #   * Label nodes — +label+ marks a jump/call target by name; +label_ref+
-    #     (and a +call+'s +target+) refers to one. Resolving those names to
-    #     concrete locations is the lowering pass's job, not this model's —
-    #     which is exactly what lets a branch refer to a label defined later.
+    # Control flow is *structured* — nesting, not jumps — so there are no labels
+    # or gotos here. A +call+ names its +func+ target, and a consumer (an
+    # interpreter, or a backend that lowers to machine code) resolves that name,
+    # which is what lets a call refer to a func defined later. Labels and branch
+    # targets are only an artifact of flattening this structure into linear code,
+    # so they live in the backend that does the flattening, not in the IR.
     class Node
       # Every kind's category. Having one table means validation passes, the
       # inspector, and the lowering pass can all ask a node its category instead
@@ -48,13 +51,10 @@ module RubyGBA
 
         # expression values — operands, live inside another node's #attrs
         int: :value, var_ref: :value, binop: :value, neg: :value,
-
-        # jump / call targets and references to them
-        label: :label, label_ref: :label,
       }.freeze
 
       # The distinct categories, in a stable order (useful for coverage checks).
-      CATEGORIES = %i[root var draw control value label].freeze
+      CATEGORIES = %i[root var draw control value].freeze
 
       attr_reader :kind, :attrs, :children
       attr_accessor :parent, :source
@@ -72,7 +72,7 @@ module RubyGBA
         children.each { |c| add_child(c) }
       end
 
-      # The node's category (:root/:var/:draw/:control/:value/:label), or
+      # The node's category (:root/:var/:draw/:control/:value), or
       # :unknown for a kind we don't recognize — catching a typo'd kind here
       # beats a mysterious failure two passes downstream.
       def category
@@ -83,16 +83,12 @@ module RubyGBA
         category == :value
       end
 
-      def label?
-        category == :label
-      end
-
       def control?
         category == :control
       end
 
       # A statement is anything that belongs in the program tree (as opposed to
-      # an operand value or a bare label reference).
+      # an operand value).
       def statement?
         %i[root var draw control].include?(category)
       end

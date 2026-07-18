@@ -105,10 +105,6 @@ class TestIRBackendRuby < Minitest::Test
     assert_equal 2, i[:x]
   end
 
-  def test_label_is_an_inert_marker
-    assert_equal 1, run_ir(program(label(:start), set(:x, 1)))[:x]
-  end
-
   def test_call_to_undefined_func_raises
     assert_raises(Ruby::ProgramError) { run_ir(program(call(:ghost))) }
   end

@@ -73,9 +73,8 @@ module RubyGBA
           case node.kind
           when :program
             node.children.each { |child| exec(child) }
-          when :func, :label, :label_ref
-            # func bodies run only via `call`; a label is an inert marker here
-            # (the structured IR has no goto that would jump to one).
+          when :func
+            # A func body runs only when something `call`s it, never inline here.
             nil
           when :set
             @vars[node[:var]] = eval_value(node[:value])
