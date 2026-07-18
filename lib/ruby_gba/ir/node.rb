@@ -51,6 +51,9 @@ module RubyGBA
 
         # expression values — operands, live inside another node's #attrs
         int: :value, var_ref: :value, binop: :value, neg: :value,
+
+        # input reads — an operand whose value comes from the gamepad
+        held: :value, pressed: :value,
       }.freeze
 
       # The distinct categories, in a stable order (useful for coverage checks).
