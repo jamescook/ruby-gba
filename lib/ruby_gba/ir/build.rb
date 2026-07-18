@@ -116,6 +116,18 @@ module RubyGBA
         Node.new(:binop, op: op, lhs: wrap(lhs), rhs: wrap(rhs))
       end
 
+      # --- input reads (value operands, e.g. inside an `if_` condition) ---
+
+      # 1 while +button+ is down, else 0.
+      def held(button)
+        Node.new(:held, button: button)
+      end
+
+      # 1 only on the frame +button+ first goes down (a fresh press), else 0.
+      def pressed(button)
+        Node.new(:pressed, button: button)
+      end
+
       # Coerce a bare operand into a value node so every operand is uniform:
       # an Integer becomes an +int+ literal, a Symbol becomes a +var_ref+, and a
       # Node passes through untouched.
