@@ -1,0 +1,61 @@
+# frozen_string_literal: true
+
+require "minitest/autorun"
+require_relative "../lib/ruby_gba"
+
+# Pins the IR's integer contract: signed 32-bit two's-complement with
+# wraparound, signed ordering. Every backend (register-based today, a float64
+# interpreter later) must agree with this.
+class TestIRInt32 < Minitest::Test
+  Int32 = RubyGBA::IR::Int32
+
+  def test_signed_32bit_range
+    assert_equal(-2_147_483_648, Int32::MIN)
+    assert_equal 2_147_483_647, Int32::MAX
+  end
+
+  def test_wrap_leaves_in_range_values_alone
+    assert_equal 0, Int32.wrap(0)
+    assert_equal 100, Int32.wrap(100)
+    assert_equal(-5, Int32.wrap(-5))
+    assert_equal Int32::MAX, Int32.wrap(Int32::MAX)
+    assert_equal Int32::MIN, Int32.wrap(Int32::MIN)
+  end
+
+  def test_wrap_reads_the_top_bit_as_sign
+    assert_equal Int32::MIN, Int32.wrap(0x8000_0000) # most-negative, not big positive
+    assert_equal(-1, Int32.wrap(0xFFFF_FFFF))        # all ones is -1
+    assert_equal 0, Int32.wrap(0x1_0000_0000)        # 2**32 wraps to 0
+  end
+
+  # --- the acceptance criterion: a wrapping add ---
+  def test_add_wraps_at_the_positive_boundary
+    assert_equal Int32::MIN, Int32.add(Int32::MAX, 1) # 2**31 - 1  + 1  ->  -2**31
+  end
+
+  def test_sub_wraps_at_the_negative_boundary
+    assert_equal Int32::MAX, Int32.sub(Int32::MIN, 1) # -2**31 - 1  ->  2**31 - 1
+  end
+
+  def test_mul_wraps
+    assert_equal 12, Int32.mul(3, 4)
+    assert_equal 0, Int32.mul(0x1_0000, 0x1_0000)     # 2**32 wraps to 0
+    assert_equal Int32::MIN, Int32.mul(0x4000_0000, 2) # 2**31 wraps to -2**31
+  end
+
+  def test_neg_of_min_stays_min
+    # -(-2**31) = 2**31, which has no positive representation and wraps back —
+    # the classic two's-complement edge every backend must reproduce.
+    assert_equal Int32::MIN, Int32.neg(Int32::MIN)
+    assert_equal(-5, Int32.neg(5))
+  end
+
+  # --- the acceptance criterion: a signed compare near the boundary ---
+  def test_cmp_is_signed_not_unsigned
+    # 0xFFFF_FFFF is -1, so it is LESS than 1 — the opposite of an unsigned
+    # comparison of the raw bits.
+    assert_equal(-1, Int32.cmp(0xFFFF_FFFF, 1))
+    assert_equal 1, Int32.cmp(Int32::MAX, Int32::MIN) # max > min, signed
+    assert_equal 0, Int32.cmp(42, 42)
+  end
+end

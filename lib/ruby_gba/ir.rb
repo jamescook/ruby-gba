@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "ir/int32"
 require_relative "ir/node"
 require_relative "ir/build"
 
