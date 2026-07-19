@@ -29,6 +29,10 @@ module RubyGBA
       affine:       MODE_2 | BG2_ENABLE,       # 2 rotatable BG layers
     }.freeze
 
+    # Shorthand for the IR node constructors, so DSL methods can build tree
+    # nodes as terse Build.set(...) calls.
+    Build = IR::Build
+
     def initialize(rom)
       @rom = rom
       @variables = {}          # name → { address:, initial: }
@@ -37,7 +41,21 @@ module RubyGBA
       @dump_requests = []      # function names to disassemble after emit
       @songs = {}              # name → Music::SongContext
       @debug_halted = false
+
+      # The IR tree the DSL is building, in parallel with the ARM bytes it still
+      # emits. While the migration is in progress the bytes stay authoritative and
+      # this tree is only inspected by tests; once every method builds IR, the
+      # backend lowers this tree and the byte emission goes away. New statements
+      # attach to the container on top of the stack (the program root, or an open
+      # control-flow block once those are migrated).
+      @program = Build.program
+      @container_stack = [@program]
+      @suppress_record = false
     end
+
+    # The IR tree built so far (the whole program). Lets tests assert the DSL
+    # constructs the right tree without lowering it to a ROM.
+    attr_reader :program
 
     # --- RAM Variables ---
 
@@ -47,6 +65,7 @@ module RubyGBA
     # @param name [Symbol] variable name
     # @param value [Integer] value to store
     def set(name, value)
+      record(Build.set(name, value))
       ensure_var(name)
       addr = @variables[name][:address]
       emit_store_immediate(addr, value)
@@ -86,6 +105,7 @@ module RubyGBA
     # @param name [Symbol] variable name
     # @param operand [Integer, Symbol] value to add
     def add(name, operand)
+      record(Build.add(name, operand))
       ensure_var(name)
       load_var_into(10, name)
 
@@ -113,6 +133,7 @@ module RubyGBA
     # @param name [Symbol] variable name
     # @param operand [Integer, Symbol] value to subtract
     def sub(name, operand)
+      record(Build.sub(name, operand))
       ensure_var(name)
       load_var_into(10, name)
 
@@ -137,6 +158,7 @@ module RubyGBA
     # Flip a variable's sign: var = -var.
     # Useful for reversing direction vectors.
     def negate(name)
+      record(Build.negate(name))
       ensure_var(name)
       load_var_into(10, name)
       @rom.emit(ASM.rsb_imm(10, 10, 0))
@@ -149,6 +171,7 @@ module RubyGBA
     # @param dest [Symbol] destination variable
     # @param src [Symbol] source variable
     def copy(dest, src)
+      record(Build.copy(dest, src))
       ensure_var(dest)
       ensure_var(src)
       load_var_into(10, src)
@@ -158,6 +181,7 @@ module RubyGBA
     # Absolute value: var = |var|
     # If var < 0, negate it. Otherwise leave it.
     def abs(name)
+      record(Build.abs(name))
       ensure_var(name)
       load_var_into(10, name)
       @rom.emit(ASM.cmp_imm(10, 0))
@@ -173,6 +197,7 @@ module RubyGBA
     # Make a variable negative: var = -|var|
     # If var > 0, negate it. Otherwise leave it.
     def negate_abs(name)
+      record(Build.negate_abs(name))
       ensure_var(name)
       load_var_into(10, name)
       @rom.emit(ASM.cmp_imm(10, 0))
@@ -191,11 +216,16 @@ module RubyGBA
     # @param min_val [Integer] minimum value
     # @param max_val [Integer] maximum value
     def clamp(name, min_val, max_val)
-      if_lt name, min_val do
-        set name, min_val
-      end
-      if_gt name, max_val do
-        set name, max_val
+      record(Build.clamp(name, min_val, max_val))
+      # The IR clamp is one node; the legacy bytes still expand it into a pair of
+      # compares, so don't let those inner set/if calls record their own nodes.
+      without_recording do
+        if_lt name, min_val do
+          set name, min_val
+        end
+        if_gt name, max_val do
+          set name, max_val
+        end
       end
     end
 
@@ -1093,6 +1123,37 @@ module RubyGBA
       addr = @next_var_addr
       @next_var_addr += 4
       @variables[name] = { address: addr, initial: 0 }
+    end
+
+    # --- IR tree construction (built in parallel with the ARM bytes) ---
+
+    # Attach a freshly built IR node to the open container and return it. A no-op
+    # while recording is suppressed (see #without_recording).
+    def record(node)
+      @container_stack.last.add_child(node) unless @suppress_record
+      node
+    end
+
+    # Build a container node, attach it, and keep it open while the block runs so
+    # nested statements land inside it — then close it. The block-taking control
+    # methods use this as they migrate.
+    def push_container(node)
+      record(node)
+      @container_stack.push(node)
+      yield
+    ensure
+      @container_stack.pop
+    end
+
+    # Run a block without recording IR — for a composite method (e.g. clamp) that
+    # records its own single node but still emits its expansion through other,
+    # recording DSL methods in bytes.
+    def without_recording
+      previous = @suppress_record
+      @suppress_record = true
+      yield
+    ensure
+      @suppress_record = previous
     end
 
     def validate_coords!(x, y)
