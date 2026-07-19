@@ -95,7 +95,7 @@ module RubyGBA
 
         # Lower a program to a finalized ROM. Runs the emit pass, resolves jumps,
         # then hands the machine code to ROM for header/entry/checksum.
-        def lower(program, title: "IRLOWER", code: "IRLO", maker: "98")
+        def lower(program, title: "IRLOWER", code: "IRLO", maker: "98", doctor: true)
           collect_definitions(program)
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
           emit_input_init if @uses_pressed
@@ -105,7 +105,7 @@ module RubyGBA
 
           rom = ROM.new(title: title, code: code, maker: maker)
           rom.emit(@code)
-          rom.finalize!
+          rom.finalize!(doctor: doctor)
           rom
         end
 
