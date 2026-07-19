@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "stringio"
 require_relative "../lib/ruby_gba"
 
 class TestInspector < Minitest::Test
@@ -377,44 +378,41 @@ class TestInspector < Minitest::Test
   # ========================================================================
 
   def test_dump_func_prints_output
-    output = capture_io do
-      RubyGBA.build("TEST", code: "BTST", maker: "01", doctor: false) do
-        func :my_func do
-          set :x, 42
-        end
-        dump_func :my_func
-        halt
+    out = StringIO.new
+    RubyGBA.build("TEST", code: "BTST", maker: "01", doctor: false, out: out) do
+      func :my_func do
+        set :x, 42
       end
-    end.first
+      dump_func :my_func
+      halt
+    end
 
-    assert_includes output, "func :my_func"
-    assert_includes output, "PUSH"
-    assert_includes output, "POP"
+    assert_includes out.string, "func :my_func"
+    assert_includes out.string, "PUSH"
+    assert_includes out.string, "POP"
   end
 
   def test_dump_func_works_with_scene_name
-    output = capture_io do
-      RubyGBA.build("TEST", code: "BTST", maker: "01", doctor: false) do
-        scene :title do
-          set :x, 1
-        end
-        dump_func :title
-        halt
+    out = StringIO.new
+    RubyGBA.build("TEST", code: "BTST", maker: "01", doctor: false, out: out) do
+      scene :title do
+        set :x, 1
       end
-    end.first
+      dump_func :title
+      halt
+    end
 
-    assert_includes output, "_scene_title"
-    assert_includes output, "PUSH"
+    assert_includes out.string, "_scene_title"
+    assert_includes out.string, "PUSH"
   end
 
   def test_dump_func_warns_on_unknown
-    output = capture_io do
-      RubyGBA.build("TEST", code: "BTST", maker: "01", doctor: false) do
-        dump_func :nonexistent
-        halt
-      end
-    end.last  # stderr
+    err = StringIO.new
+    RubyGBA.build("TEST", code: "BTST", maker: "01", doctor: false, err: err) do
+      dump_func :nonexistent
+      halt
+    end
 
-    assert_includes output, "not found"
+    assert_includes err.string, "not found"
   end
 end

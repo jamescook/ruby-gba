@@ -57,6 +57,9 @@ module RubyGBA
     # constructs the right tree without lowering it to a ROM.
     attr_reader :program
 
+    # Function names queued by dump_func, disassembled from the lowered ROM.
+    attr_reader :dump_requests
+
     # --- RAM Variables ---
 
     # Set a variable's value. If the variable hasn't been declared yet,
@@ -337,8 +340,8 @@ module RubyGBA
     #   draw_text "HELLO"      # ← never emitted
     #   game_loop { ... }      # ← never emitted
     def debug_halt
-      warn "[ruby-gba] debug_halt at code offset 0x#{format('%04X', @rom.code_offset)} — " \
-           "ROM truncated here. Remove debug_halt when done."
+      warn "[ruby-gba] debug_halt — ROM truncated here. Remove debug_halt when done."
+      record(Build.halt) # the lowered ROM stops (branches to self) at this point
       @rom.emit(ASM.loop_forever)
       @debug_halted = true
       throw :debug_halt
@@ -458,37 +461,6 @@ module RubyGBA
     #   dump_func :update_cpu
     def dump_func(name)
       @dump_requests << name
-    end
-
-    # Print queued dump_func requests. Called by RubyGBA.build after emit.
-    def process_dump_requests
-      return if @dump_requests.empty?
-
-      inspector = Inspector.from_rom(@rom)
-
-      @dump_requests.each do |name|
-        # Try both raw name and scene-prefixed name
-        info = @functions[name] || @functions[:"_scene_#{name}"]
-        display_name = @functions.key?(name) ? name : "_scene_#{name}"
-
-        unless info&.fetch(:entry)
-          warn "[dump_func] :#{name} not found or not emitted"
-          next
-        end
-
-        entry = info[:entry]
-        end_offset = info[:end] || @rom.code_offset
-
-        puts "=== func :#{display_name} (0x#{entry.to_s(16).upcase}..0x#{end_offset.to_s(16).upcase}) ==="
-        offset = entry
-        while offset < end_offset
-          inst = @rom.buffer[offset, 4].unpack1("V")
-          desc, = inspector.send(:disassemble, inst, Array.new(16, 0))
-          puts "  0x#{offset.to_s(16).upcase.rjust(4, '0')}: #{desc}"
-          offset += 4
-        end
-        puts
-      end
     end
 
     # Emit all pending function bodies and patch forward references.

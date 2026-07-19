@@ -78,7 +78,7 @@ module RubyGBA
           :== => %i[eq ne], :!= => %i[ne eq],
         }.freeze
 
-        attr_reader :code, :labels
+        attr_reader :code, :labels, :func_ranges
 
         def initialize
           @code = +"".b          # emitted machine code; byte 0 is where execution starts
@@ -87,6 +87,7 @@ module RubyGBA
           @vars = {}             # variable name -> IWRAM address
           @next_var = IWRAM_START
           @funcs = {}            # func name -> its IR node (emitted after the main body)
+          @func_ranges = {}      # func name -> byte span in @code (for dump_func)
           @defined_sounds = {}   # name -> musical params (from define_sound)
           @songs = {}            # name -> :song node (from song)
           @label_seq = 0
@@ -301,10 +302,12 @@ module RubyGBA
 
           emit(ASM.loop_forever) # fall-through guard
           @funcs.each do |name, fnode|
+            start = pos
             place_label(func_label(name))
             emit(ASM.push(14))                          # push {lr}
             fnode.children.each { |stmt| emit_statement(stmt) }
             emit(ASM.pop(15))                           # pop {pc}  (return)
+            @func_ranges[name] = (start...pos)          # byte span, for dump_func
           end
         end
 
