@@ -65,6 +65,7 @@ class TestIRNode < Minitest::Test
     assert_equal :root,    program.category
     assert_equal :var,     set(:x, 1).category
     assert_equal :draw,    pixel(1, 2, :red).category
+    assert_equal :sound,   beep(:high).category
     assert_equal :control, loop_.category
     assert_equal :value,   int(1).category
   end
@@ -157,6 +158,57 @@ class TestIRNode < Minitest::Test
   end
 
   # ========================================================================
+  # audio ops are plain data too — no channels, no registers in sight
+  # ========================================================================
+
+  def test_sound_ops_are_sound_category
+    assert_equal :sound, enable_sound.category
+    assert_equal :sound, define_sound(:hit, frequency: 880).category
+    assert_equal :sound, beep(440).category
+    assert_equal :sound, song(:tune, events: [], total_frames: 0).category
+    assert_equal :sound, play_song(:tune).category
+    assert_equal :sound, stop_music.category
+  end
+
+  def test_sound_ops_are_statements_not_values
+    assert enable_sound.statement?
+    assert beep(:high).statement?
+    refute beep(:high).value?
+  end
+
+  def test_define_sound_captures_its_envelope
+    n = define_sound(:paddle_hit, frequency: 880, duty: :quarter, decay: :fast, volume: 12)
+    assert_equal :define_sound, n.kind
+    assert_equal :paddle_hit, n[:name]
+    assert_equal 880, n[:frequency]
+    assert_equal :quarter, n[:duty]
+    assert_equal 12, n[:volume]
+  end
+
+  def test_beep_keeps_overrides_nil_until_resolved
+    # A bare frequency with no overrides: the nils mean "use the defaults", and
+    # resolving them is a backend's job, not the constructor's.
+    n = beep(440)
+    assert_equal 440, n[:tone]
+    assert_nil n[:duty]
+    assert_nil n[:volume]
+  end
+
+  def test_song_stores_a_resolved_score
+    n = song(:gameplay, events: [[0, 262], [30, 330]], total_frames: 60, volume: 10)
+    assert_equal :song, n.kind
+    assert_equal [[0, 262], [30, 330]], n[:events]
+    assert_equal 60, n[:total_frames]
+    assert_equal 10, n[:volume]
+  end
+
+  def test_a_song_node_survives_to_h_with_its_score_intact
+    # events is a bare array of pairs (not value nodes); to_h must keep it as-is.
+    h = song(:tune, events: [[0, 262]], total_frames: 30).to_h
+    assert_equal [[0, 262]], h[:attrs][:events]
+  end
+
+  # ========================================================================
   # structural equality & to_h
   # ========================================================================
 
@@ -185,12 +237,14 @@ class TestIRNode < Minitest::Test
   def test_a_full_program_covers_all_categories_headlessly
     prog = program(
       display(:bitmap),                                          # draw
+      enable_sound,                                             # sound
       set(:x, 100),                                              # var + value
       loop_(                                                     # control
         wait_vblank,
         if_(binop(:>, var_ref(:x), int(200)), set(:x, 0)),      # value cond
         add(:x, 1),
         pixel(:x, 80, :red),
+        beep(:high),
         call(:update),
       ),
       halt,

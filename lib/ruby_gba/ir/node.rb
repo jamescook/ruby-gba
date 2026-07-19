@@ -45,6 +45,12 @@ module RubyGBA
         display: :draw, pixel: :draw, fill_rect: :draw, clear_screen: :draw,
         draw_rect_at: :draw, draw_text: :draw, dma_fill_rect: :draw, blit: :draw,
 
+        # audio operations. define_sound and song are definitions (like func):
+        # named registries the audio triggers refer to. beep is a one-off effect,
+        # play_song advances a defined song, stop_music silences it.
+        enable_sound: :sound, define_sound: :sound, beep: :sound,
+        song: :sound, play_song: :sound, stop_music: :sound,
+
         # control flow — these carry nested statements in #children
         # (a scene is just a named func, so it needs no kind of its own; `case`
         # is multi-way dispatch that each backend expands to a chain of ifs)
@@ -59,7 +65,7 @@ module RubyGBA
       }.freeze
 
       # The distinct categories, in a stable order (useful for coverage checks).
-      CATEGORIES = %i[root var draw control value].freeze
+      CATEGORIES = %i[root var draw sound control value].freeze
 
       attr_reader :kind, :attrs, :children
       attr_accessor :parent, :source
@@ -95,7 +101,7 @@ module RubyGBA
       # A statement is anything that belongs in the program tree (as opposed to
       # an operand value).
       def statement?
-        %i[root var draw control].include?(category)
+        %i[root var draw sound control].include?(category)
       end
 
       def leaf?
