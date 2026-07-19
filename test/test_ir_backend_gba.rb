@@ -55,11 +55,6 @@ class TestIRBackendGBA < Minitest::Test
     assert_raises(GBA::LoweringError) { lower(program(call(:ghost), halt)) }
   end
 
-  def test_pressed_is_not_lowered_yet
-    err = assert_raises(GBA::LoweringError) { lower(program(if_(pressed(:a), halt))) }
-    assert_match(/pressed/, err.message)
-  end
-
   # ---- the ROM is well-formed (Doctor runs inside finalize!) ----
 
   def test_a_drawing_program_finalizes_into_a_valid_rom
@@ -136,5 +131,45 @@ class TestIRBackendGBA < Minitest::Test
     ))
     v = assert_gemba_loads_rom(rom)
     assert v.black?(10, 10)
+  end
+
+  KEY_START = RubyGBA::Constants::KEY_START
+
+  def test_pressed_program_lowers_to_a_valid_rom
+    rom = lower(program(
+      display(:bitmap),
+      loop_(wait_vblank, if_(pressed(:start), pixel(10, 10, :red))),
+    ))
+    assert_instance_of RubyGBA::ROM, rom
+  end
+
+  def test_pressed_does_not_fire_without_input
+    rom = lower(program(
+      display(:bitmap),
+      clear_screen(:black),
+      loop_(wait_vblank, if_(pressed(:start), pixel(10, 10, :red))),
+    ))
+    v = assert_gemba_loads_rom(rom, frames: 5)
+    assert v.black?(10, 10)
+  end
+
+  def test_pressed_fires_once_on_the_down_edge
+    # Each fresh press advances :count, and we plot a pixel at (count, 0). Holding
+    # start across many frames must advance count by exactly one — pressed is the
+    # edge, not the level — so the pixel lands at (1, 0), never (2, 0).
+    rom = lower(program(
+      display(:bitmap),
+      set(:count, 0),
+      loop_(
+        wait_vblank,
+        if_(pressed(:start), add(:count, 1)),
+        clear_screen(:black),
+        pixel(:count, 0, :red),
+      ),
+    ))
+
+    v = assert_gemba_loads_rom(rom, frames: 6, keys: KEY_START) # start held every frame
+    assert v.red?(1, 0), "one down-edge => count == 1 => pixel at (1, 0)"
+    assert v.black?(2, 0), "holding must not count as repeated presses"
   end
 end

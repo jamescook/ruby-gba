@@ -33,9 +33,9 @@ module GembaSupport
   #
   #   v = assert_gemba_loads_rom(rom, frames: 30)
   #   assert v.red?(120, 80)
-  def assert_gemba_loads_rom(rom, frames: 10)
+  def assert_gemba_loads_rom(rom, frames: 10, **opts)
     skip_unless_gemba
-    verifier = RubyGBA::Verifier.new(rom, frames: frames)
+    verifier = RubyGBA::Verifier.new(rom, frames: frames, **opts)
     verifier.pixel(0, 0) # force gemba to load the ROM and run the frames
     verifier
   rescue StandardError => e

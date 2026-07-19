@@ -56,6 +56,16 @@ module RubyGBA
           r: KEY_R, l: KEY_L,
         }.freeze
 
+        # Hidden variables for edge-detected input. Each holds the set of buttons
+        # that were down as of a frame — this frame and the previous one — stored
+        # active-high (a 1 bit means the button is down). `pressed` is "down now,
+        # up last frame" = CUR_KEYS AND NOT PREV_KEYS. They're snapshotted once per
+        # vblank so every check within a frame compares against the same previous
+        # frame, exactly like the interpreter does.
+        CUR_KEYS = :__cur_keys
+        PREV_KEYS = :__prev_keys
+        KEY_MASK = 0x3FF # the ten button bits
+
         ACC = 0   # accumulator register
         TMP = 1   # temporary / I/O address register
         ADDR = 12 # variable address scratch
@@ -78,12 +88,15 @@ module RubyGBA
           @next_var = IWRAM_START
           @funcs = {}            # func name -> its IR node (emitted after the main body)
           @label_seq = 0
+          @uses_pressed = false  # whether the program reads edge-detected input
         end
 
         # Lower a program to a finalized ROM. Runs the emit pass, resolves jumps,
         # then hands the machine code to ROM for header/entry/checksum.
         def lower(program, title: "IRLOWER", code: "IRLO", maker: "98")
           collect_functions(program)
+          @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
+          emit_input_init if @uses_pressed
           program.children.each { |stmt| emit_statement(stmt) }
           emit_functions
           resolve_fixups
@@ -348,6 +361,10 @@ module RubyGBA
           emit(ASM.load_halfword(TMP, ACC))
           emit(ASM.cmp_imm(TMP, 160))
           emit(ASM.branch_cond(:lt, -2))  # not yet at line 160: keep waiting
+
+          # A new frame begins now, so refresh the input snapshot: last frame's
+          # keys become "previous", and we latch this frame's keys as "current".
+          snapshot_keys if @uses_pressed
         end
 
         # --- value expressions --------------------------------------------------
@@ -362,10 +379,7 @@ module RubyGBA
             emit(ASM.rsb_imm(ACC, ACC, 0))
           when :binop then eval_binop(node)
           when :held then eval_held(node[:button])
-          when :pressed
-            raise LoweringError,
-                  "the GBA backend does not lower `pressed` yet — edge-detected input " \
-                  "is tracked separately so it can match the interpreter's frame model"
+          when :pressed then eval_pressed(node[:button])
           else
             raise LoweringError, "the GBA backend cannot evaluate #{node.kind.inspect}"
           end
@@ -418,6 +432,46 @@ module RubyGBA
           emit_branch(:bcond, done, cond: :ne) # bit not zero => not held => leave 0
           emit(ASM.load_immediate(ACC, 1))
           place_label(done)
+        end
+
+        # `pressed` is the down-edge: down this frame, up last frame. The snapshots
+        # are active-high, so newly-pressed buttons = CUR_KEYS AND NOT PREV_KEYS;
+        # test the button's bit in that.
+        def eval_pressed(button)
+          mask = BUTTON_BIT.fetch(button) do
+            raise LoweringError, "unknown button #{button.inspect}"
+          end
+          load_var(ACC, CUR_KEYS)
+          load_var(TMP, PREV_KEYS)
+          emit(ASM.mvn_reg(TMP, TMP))          # ~prev
+          emit(ASM.and_reg(ACC, ACC, TMP))     # cur & ~prev = buttons newly down
+          emit(ASM.tst_imm(ACC, mask))
+          done = gensym
+          emit(ASM.load_immediate(ACC, 0))
+          emit_branch(:bcond, done, cond: :eq) # bit zero => not a fresh press => 0
+          emit(ASM.load_immediate(ACC, 1))
+          place_label(done)
+        end
+
+        # Start both snapshots empty (no button pressed) before the game runs.
+        def emit_input_init
+          emit(ASM.load_immediate(ACC, 0))
+          store_var(ACC, CUR_KEYS)
+          store_var(ACC, PREV_KEYS)
+        end
+
+        # Once per frame: shift this frame's "current" into "previous", then latch
+        # the live key state as the new "current". The key register is active-low,
+        # so invert it and keep the ten button bits to get an active-high set.
+        def snapshot_keys
+          load_var(ACC, CUR_KEYS)
+          store_var(ACC, PREV_KEYS)              # previous = last frame's current
+          emit(ASM.load_immediate(TMP, REG_KEYINPUT))
+          emit(ASM.load_halfword(ACC, TMP))
+          emit(ASM.mvn_reg(ACC, ACC))            # invert: 1 bit now means "down"
+          emit(ASM.lsl_imm(ACC, ACC, 22))        # drop everything above the
+          emit(ASM.lsr_imm(ACC, ACC, 22))        # ten button bits
+          store_var(ACC, CUR_KEYS)               # current = this frame's keys
         end
 
         # --- variables & small emit primitives ----------------------------------

@@ -29,9 +29,13 @@ module RubyGBA
 
     # @param rom [RubyGBA::ROM] a finalized ROM
     # @param frames [Integer] how many frames to run before reading pixels (default: 2)
-    def initialize(rom, frames: 2)
+    # @param keys [Integer, #call, nil] held-button input for each frame — an
+    #   active-high bitmask (bit per button, matching KEY_*), or a callable given
+    #   the frame number returning one. nil means no buttons held.
+    def initialize(rom, frames: 2, keys: nil)
       @rom = rom
       @frames = frames
+      @keys = keys
       @pixels = nil
       @width = SCREEN_WIDTH
       @height = SCREEN_HEIGHT
@@ -185,10 +189,20 @@ module RubyGBA
       Tempfile.create(["verify", ".gba"]) do |f|
         @rom.write(f.path)
         core = Gemba::Core.new(f.path)
-        @frames.times { core.run_frame }
+        @frames.times do |frame|
+          core.set_keys(keys_for(frame)) if @keys
+          core.run_frame
+        end
         @pixels = core.video_buffer
         core.destroy
       end
+    end
+
+    # The held-button bitmask for a given frame (0 if none configured).
+    def keys_for(frame)
+      return 0 unless @keys
+
+      @keys.respond_to?(:call) ? @keys.call(frame) : @keys
     end
 
     def validate_coords!(x, y)
