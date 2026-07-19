@@ -163,8 +163,14 @@ module RubyGBA
         word = @buf[offset, 4].unpack1("V")
         break if word == 0 && offset > entry_target + 4
 
-        # Track what the code does
-        has_halt = true if word == 0xEAFFFFFE
+        # An unconditional backward (or self) branch sends control flow back
+        # rather than off the end — a deliberate terminator. Both a plain halt
+        # (branch-to-self) and a game_loop (a backward branch to the loop top)
+        # look like this. Stop scanning: nothing after it runs by fall-through.
+        if unconditional_backward_branch?(word, offset)
+          has_halt = true
+          break
+        end
 
         # Detect STRH instructions and check targets
         if (word & 0x0FF000F0) == 0x01C000B0
@@ -180,7 +186,6 @@ module RubyGBA
         end
 
         instruction_count += 1
-        break if word == 0xEAFFFFFE
         offset += 4
       end
 
@@ -191,6 +196,21 @@ module RubyGBA
       if has_vram_write && !has_display_write
         @warnings << "Writing to memory but no display mode detected — pixels won't show without setting REG_DISPCNT (display mode)"
       end
+    end
+
+    # True when +word+ (at byte +offset+) is an unconditional branch (B, with
+    # the "always" condition) whose target is at or before itself — i.e. a
+    # backward or self branch that loops instead of falling through. A call (BL)
+    # returns, and a conditional branch can fall through, so neither counts.
+    def unconditional_backward_branch?(word, offset)
+      return false unless (word >> 24) == 0xEA # B, condition = AL
+
+      imm24 = word & 0x00FFFFFF
+      imm24 -= 0x0100_0000 if imm24 >= 0x0080_0000 # sign-extend the 24-bit field
+      # ARM computes a branch target from PC, which runs two instructions (8
+      # bytes) ahead of the branch itself.
+      target = offset + 8 + (imm24 * 4)
+      target <= offset
     end
 
     def entry_target

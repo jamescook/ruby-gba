@@ -80,6 +80,42 @@ class TestDoctor < Minitest::Test
            "Expected warning about missing halt"
   end
 
+  def test_game_loop_rom_is_not_warned_about_missing_halt
+    # A game_loop is a deliberate infinite loop that ends in a *backward*
+    # branch, not a fall-through — it must not trip the "no halt" warning.
+    rom = RubyGBA.build("LOOP", code: "BLPG", maker: "01", doctor: false) do
+      display :bitmap
+      game_loop do
+        wait_vblank
+      end
+    end
+    result = RubyGBA::Doctor.check(rom)
+    refute result.warnings.any? { |w| w.include?("halt") },
+           "game_loop backward branch should count as a terminator, got: #{result.report}"
+  end
+
+  def test_unconditional_backward_branch_is_a_valid_terminator
+    rom = RubyGBA::ROM.new(title: "BACK", code: "BBCK", maker: "01")
+    rom.emit(RubyGBA::ASM.nop)
+    rom.emit(RubyGBA::ASM.branch(-1)) # unconditional branch back to the nop
+    rom.finalize!(doctor: false)
+    result = RubyGBA::Doctor.check(rom)
+    refute result.warnings.any? { |w| w.include?("halt") },
+           "an unconditional backward branch loops rather than falling off the end"
+  end
+
+  def test_conditional_backward_branch_still_warns
+    # A conditional branch can fall through, so on its own it is NOT a
+    # terminator — this guards the fix against being too broad.
+    rom = RubyGBA::ROM.new(title: "COND", code: "BCND", maker: "01")
+    rom.emit(RubyGBA::ASM.nop)
+    rom.emit(RubyGBA::ASM.branch_cond(:ne, -1))
+    rom.finalize!(doctor: false)
+    result = RubyGBA::Doctor.check(rom)
+    assert result.warnings.any? { |w| w.include?("halt") },
+           "a conditional branch can fall through and must still warn"
+  end
+
   def test_doctor_on_by_default_in_build
     # Valid ROM should build fine with doctor on
     rom = RubyGBA.build("OK", code: "BROK", maker: "01") do
