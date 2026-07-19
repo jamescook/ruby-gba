@@ -114,4 +114,38 @@ class TestRomBuilder < Minitest::Test
     assert_equal "01", buf[0xB0, 2], "maker code preserved"
     assert_equal 0x96, buf.getbyte(0xB2), "fixed byte preserved"
   end
+
+  # ---- power-of-two padding (real GBA carts are power-of-two sized) ----
+
+  def power_of_two?(number)
+    number.positive? && (number & (number - 1)).zero?
+  end
+
+  def test_finalize_pads_the_rom_up_to_a_power_of_two
+    rom = RubyGBA::ROM.new(title: "PAD", code: "TEST", maker: "01")
+    rom.emit("\xAB".b * 5000)
+    rom.finalize!(doctor: false)
+    assert power_of_two?(rom.size), "ROM size #{rom.size} should be a power of two"
+  end
+
+  def test_finalize_pads_to_the_smallest_fitting_power_of_two
+    rom = RubyGBA::ROM.new(title: "PAD", code: "TEST", maker: "01")
+    rom.emit("\xAB".b * 5000)
+    before = rom.size
+    rom.finalize!(doctor: false)
+    assert_operator rom.size, :>=, before
+    assert_operator rom.size / 2, :<, before, "halving the size would no longer fit the code"
+  end
+
+  def test_padding_preserves_the_code_and_zero_fills_the_rest
+    rom = RubyGBA::ROM.new(title: "PAD", code: "TEST", maker: "01")
+    start = rom.code_offset
+    payload = "\xAB\xCD".b * 100
+    rom.emit(payload)
+    rom.finalize!(doctor: false)
+
+    assert_equal payload, rom.buffer[start, payload.bytesize], "emitted code untouched by padding"
+    tail = rom.buffer[(start + payload.bytesize)..]
+    assert tail.bytes.all?(&:zero?), "everything past the code is zero padding"
+  end
 end
