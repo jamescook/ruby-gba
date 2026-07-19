@@ -34,10 +34,11 @@ module RubyGBA
       builder.process_dump_requests # dump_func still reads the builder's byte ROM
     end
 
-    # The DSL built an inspectable IR tree as the block ran; lower that tree to a
-    # ROM. (The builder still emits ARM bytes too, for now — they're ignored here
-    # and removed once the migration settles.)
-    IR::Backends::GBA.new.lower(builder.program, title: title, code: code, maker: maker,
-                                                  doctor: builder.debug_halted? ? false : doctor)
+    # The DSL built an IR tree as the block ran. Turn it into a ROM in two steps,
+    # both behind this single call so building stays one operation: lower the tree
+    # to machine code, then assemble that code into a cartridge.
+    machine_code = IR::Backends::GBA.new.lower(builder.program)
+    ROM.assemble(machine_code, title: title, code: code, maker: maker,
+                               doctor: builder.debug_halted? ? false : doctor)
   end
 end
