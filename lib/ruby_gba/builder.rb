@@ -855,6 +855,7 @@ module RubyGBA
       raise ArgumentError, "enable_sound already called — only call it once" if @sound_enabled
       @sound_enabled = true
 
+      record(Build.enable_sound)
       Sound::Registers.enable.each { |address, value| emit_write_reg16(address, value) }
     end
 
@@ -870,6 +871,7 @@ module RubyGBA
     #   define_sound :paddle_hit, frequency: 880, duty: :quarter, decay: :fast
     #   define_sound :wall_bounce, frequency: 440
     def define_sound(name, frequency:, duty: :half, decay: :fast, volume: 15)
+      record(Build.define_sound(name, frequency: frequency, duty: duty, decay: decay, volume: volume))
       @custom_sounds ||= {}
       @custom_sounds[name] = { frequency: frequency, duty: duty, decay: decay, volume: volume }
     end
@@ -891,6 +893,7 @@ module RubyGBA
     def beep(tone, duty: nil, decay: nil, volume: nil)
       raise ArgumentError, "call enable_sound before beep" unless @sound_enabled
 
+      record(Build.beep(tone, duty: duty, decay: decay, volume: volume))
       effect = Sound.resolve_effect(tone, duty: duty, decay: decay, volume: volume,
                                           defined: @custom_sounds || {})
       Sound::Registers.channel2(**effect).each do |address, value|
@@ -919,6 +922,11 @@ module RubyGBA
       ctx = Music::SongContext.new
       ctx.instance_eval(&block)
       @songs[name] = ctx
+
+      # In the IR a song carries its already-resolved score (frame/frequency
+      # pairs) and length, so every backend replays the same tune.
+      record(Build.song(name, events: ctx.events, total_frames: ctx.total_frames,
+                              duty: ctx.duty, volume: ctx.volume))
     end
 
     # Emit a looping music sequencer for a previously defined song.
@@ -940,29 +948,36 @@ module RubyGBA
         raise ArgumentError, "unknown song :#{name}. Define it with `song :#{name} do ... end`"
       end
 
-      # Internal frame counter variable for this song
-      counter_var = :"_music_frame_#{name}"
-      ensure_var(counter_var)
+      # One play_song node in the IR; the bytes still unroll the whole sequencer
+      # (counter + per-frame note triggers), so keep those inner add/if/set calls
+      # from recording their own nodes.
+      record(Build.play_song(name))
+      without_recording do
+        # Internal frame counter variable for this song
+        counter_var = :"_music_frame_#{name}"
+        ensure_var(counter_var)
 
-      # Increment frame counter each call
-      add counter_var, 1
+        # Increment frame counter each call
+        add counter_var, 1
 
-      # Emit note triggers: if counter == frame_offset, trigger channel 1
-      ctx.events.each do |frame_offset, freq_hz|
-        if_eq counter_var, frame_offset do
-          emit_ch1_note(freq_hz, ctx.duty, ctx.volume)
+        # Emit note triggers: if counter == frame_offset, trigger channel 1
+        ctx.events.each do |frame_offset, freq_hz|
+          if_eq counter_var, frame_offset do
+            emit_ch1_note(freq_hz, ctx.duty, ctx.volume)
+          end
         end
-      end
 
-      # Loop: if counter >= total_frames, reset to 0
-      if_ge counter_var, ctx.total_frames do
-        set counter_var, 0
+        # Loop: if counter >= total_frames, reset to 0
+        if_ge counter_var, ctx.total_frames do
+          set counter_var, 0
+        end
       end
     end
 
     # Silence the music channel (channel 1).
     # Call this when transitioning to a scene that shouldn't have music.
     def stop_music
+      record(Build.stop_music)
       Sound::Registers.stop_music.each { |address, value| emit_write_reg16(address, value) }
     end
 

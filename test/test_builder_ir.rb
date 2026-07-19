@@ -188,4 +188,68 @@ class TestBuilderIR < Minitest::Test
     end
     assert_equal 3, Ruby.new.run(got)[:x]
   end
+
+  # ---- sound ----
+
+  def test_sound_ops_build_a_matching_ir_tree
+    got = tree do
+      enable_sound
+      define_sound :hit, frequency: 880, duty: :quarter, decay: :fast, volume: 12
+      song :tune do
+        tempo 120        # 30 frames per quarter note
+        note :C4, :quarter # C4 = 262 Hz, at frame 0
+        rest :quarter      # rest at frame 30
+      end
+      beep :hit
+      play_song :tune
+      stop_music
+    end
+
+    assert_equal program(
+      enable_sound,
+      define_sound(:hit, frequency: 880, duty: :quarter, decay: :fast, volume: 12),
+      song(:tune, events: [[0, 262], [30, 0]], total_frames: 60, duty: :half, volume: 12),
+      beep(:hit),
+      play_song(:tune),
+      stop_music,
+    ), got
+  end
+
+  def test_the_built_sound_tree_runs_in_the_interpreter
+    got = tree do
+      enable_sound
+      beep :high
+      stop_music
+    end
+    audio = Ruby.new.run(got).audio
+    assert_equal [:enabled], audio[0]
+    assert_equal 880, audio[1][1][:frequency] # :high resolves to 880 Hz
+    assert_equal [:stop_music], audio.last
+  end
+
+  # ---- everything together: draws + sound + control + funcs in one tree ----
+
+  def test_a_full_mini_program_builds_and_runs
+    got = tree do
+      display :bitmap
+      enable_sound
+      var :score, 0
+      func :award do
+        add :score, 1
+        beep :high
+      end
+      game_loop do
+        wait_vblank
+        call :award
+        if_ge :score, 2 do
+          stop_music
+          halt
+        end
+      end
+    end
+
+    i = Ruby.new.run(got)
+    assert_equal 2, i[:score]
+    assert_equal 2, i.audio.count { |e| e[0] == :beep } # awarded twice
+  end
 end
