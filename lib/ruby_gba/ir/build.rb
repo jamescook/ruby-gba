@@ -54,6 +54,17 @@ module RubyGBA
         Node.new(:negate, var: var)
       end
 
+      # Absolute value: var = |var| (negates it only when it's negative).
+      def abs(var)
+        Node.new(:abs, var: var)
+      end
+
+      # Force negative: var = -|var| (negates it only when it's positive). Handy
+      # for pinning a direction, e.g. making a velocity point one specific way.
+      def negate_abs(var)
+        Node.new(:negate_abs, var: var)
+      end
+
       def clamp(var, min, max)
         Node.new(:clamp, var: var, min: min, max: max)
       end

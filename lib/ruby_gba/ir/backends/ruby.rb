@@ -143,6 +143,14 @@ module RubyGBA
             @vars[node[:dest]] = @vars[node[:src]]
           when :negate
             @vars[node[:var]] = Int32.neg(@vars[node[:var]])
+          when :abs
+            # |v|: flip it only when it's negative.
+            v = @vars[node[:var]]
+            @vars[node[:var]] = v.negative? ? Int32.neg(v) : v
+          when :negate_abs
+            # -|v|: flip it only when it's positive.
+            v = @vars[node[:var]]
+            @vars[node[:var]] = v.positive? ? Int32.neg(v) : v
           when :clamp
             @vars[node[:var]] = clamp_value(@vars[node[:var]], node[:min], node[:max])
           when :if
