@@ -93,20 +93,19 @@ module RubyGBA
           @uses_pressed = false  # whether the program reads edge-detected input
         end
 
-        # Lower a program to a finalized ROM. Runs the emit pass, resolves jumps,
-        # then hands the machine code to ROM for header/entry/checksum.
-        def lower(program, title: "IRLOWER", code: "IRLO", maker: "98", doctor: true)
+        # Lower a program to finished GBA machine code: run the emit pass and
+        # resolve the jumps, then return the raw code bytes. Packaging them into a
+        # cartridge — header, entry branch, checksum, padding — is ROM.assemble's
+        # job; this method knows only how to compile the IR, not how a ROM is laid
+        # out.
+        def lower(program)
           collect_definitions(program)
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
           emit_input_init if @uses_pressed
           program.children.each { |stmt| emit_statement(stmt) }
           emit_functions
           resolve_fixups
-
-          rom = ROM.new(title: title, code: code, maker: maker)
-          rom.emit(@code)
-          rom.finalize!(doctor: doctor)
-          rom
+          @code
         end
 
         private

@@ -14,8 +14,9 @@ class TestIRBackendGBA < Minitest::Test
 
   GBA = RubyGBA::IR::Backends::GBA
 
+  # Lower a program to machine code, then assemble it into a runnable ROM.
   def lower(program)
-    GBA.new.lower(program)
+    RubyGBA::ROM.assemble(GBA.new.lower(program), title: "IRLOWER", code: "IRLO", maker: "98")
   end
 
   # Decode the branch/call word at byte +at+ back into the target byte offset it
