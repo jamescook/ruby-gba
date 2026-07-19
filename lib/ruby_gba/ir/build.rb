@@ -188,6 +188,12 @@ module RubyGBA
         Node.new(:halt)
       end
 
+      # A raw escape hatch: pre-assembled target bytes a native backend appends
+      # verbatim. Not portable — only for patterns the DSL can't express.
+      def raw(bytes)
+        Node.new(:raw, bytes: bytes)
+      end
+
       # --- expression values (the AST an assignment or condition is built from) ---
 
       def int(number)

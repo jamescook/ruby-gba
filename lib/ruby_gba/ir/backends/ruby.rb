@@ -203,6 +203,10 @@ module RubyGBA
             exec_play_song(node[:name])
           when :stop_music
             @audio << [:stop_music]
+          when :raw
+            raise ProgramError,
+                  "raw is a GBA-only escape hatch — the interpreter can't run " \
+                  "machine bytes, so avoid `entry` in code you want to run headlessly"
           else
             raise ProgramError,
                   "the Ruby backend cannot execute #{node.kind.inspect} " \

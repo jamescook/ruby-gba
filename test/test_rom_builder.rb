@@ -111,8 +111,6 @@ class TestRomBuilder < Minitest::Test
   end
 
   def test_nop_emits_correctly
-    skip "nop via `entry` is a raw-ASM escape hatch that builds no IR; pending " \
-         "the entry-reconciliation decision (:raw node vs retire)"
     rom = RubyGBA.build("NOPTEST", code: "BNOP", maker: "01") do
       entry do
         nop

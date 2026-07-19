@@ -250,8 +250,9 @@ module RubyGBA
     # Define the entry point code block (low-level).
     # Instructions inside the block are emitted starting at offset 0x20.
     def entry(&block)
-      ctx = EntryContext.new(@rom)
+      ctx = EntryContext.new
       ctx.instance_eval(&block)
+      record(Build.raw(ctx.bytes))
     end
 
     # Set the display mode.
@@ -1202,17 +1203,21 @@ module RubyGBA
     end
 
     # Low-level entry context for raw instruction emission.
+    # Collects the raw ARM emitted inside an `entry` block into a byte string,
+    # which becomes a raw IR node the backend appends verbatim.
     class EntryContext
-      def initialize(rom)
-        @rom = rom
+      attr_reader :bytes
+
+      def initialize
+        @bytes = +"".b
       end
 
       def loop_forever
-        @rom.emit(ASM.loop_forever)
+        @bytes << ASM.loop_forever
       end
 
       def nop
-        @rom.emit(ASM.nop)
+        @bytes << ASM.nop
       end
     end
   end

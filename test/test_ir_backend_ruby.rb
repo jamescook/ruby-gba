@@ -130,6 +130,13 @@ class TestIRBackendRuby < Minitest::Test
     assert_raises(Ruby::ProgramError) { run_ir(program(call(:ghost))) }
   end
 
+  def test_raw_bytes_cannot_run_in_the_interpreter
+    # raw target code is a GBA-only escape hatch; the headless interpreter has no
+    # way to execute machine bytes, so it refuses them with a clear error.
+    err = assert_raises(Ruby::ProgramError) { run_ir(program(raw("\x00\x00\x00\x00".b))) }
+    assert_match(/raw .*escape hatch|GBA-only/i, err.message)
+  end
+
   def test_case_var_dispatches_to_the_matching_scene
     i = run_ir(program(
       set(:state, 1),
