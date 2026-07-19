@@ -37,7 +37,7 @@ module RubyGBA
         # otherwise-endless game loop and then inspect the state.
         DEFAULT_MAX_STEPS = 1_000_000
 
-        attr_reader :vars, :screen, :log, :frame, :display_mode
+        attr_reader :vars, :screen, :log, :frame, :display_mode, :audio
 
         def initialize
           @vars = Hash.new(0)      # variable store; an unwritten variable reads as 0
@@ -49,6 +49,10 @@ module RubyGBA
           @frame = 0               # vblanks elapsed
           @display_mode = nil      # the mode a `display` op selected, if any
           @log = []               # observable events: [:vblank, n], [:halt]
+          @defined_sounds = {}     # name -> musical params (from define_sound)
+          @songs = {}              # name -> :song node (from song)
+          @music_frames = Hash.new(0) # per-song frame counter for play_song
+          @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
         end
 
         # Execute a program (or any statement node) until it ends naturally, hits
@@ -58,7 +62,7 @@ module RubyGBA
           @max_steps = max_steps
           @steps = 0
           @stopped_at_budget = false
-          collect_functions(node)
+          collect_definitions(node)
           catch(:halt) { exec(node) }
           self
         end
@@ -93,11 +97,24 @@ module RubyGBA
 
         private
 
-        # Register every func defined anywhere in the tree up front, so a `call`
-        # can reach a func defined later in the program (a forward reference) —
-        # the same resolve-names-first move the GBA lowering makes with labels.
-        def collect_functions(node)
-          node.walk { |n| @funcs[n[:name]] = n if n.kind == :func }
+        # Register every definition in the tree up front — funcs, named sound
+        # effects, and songs — so an op can refer to one defined later in the
+        # program (a forward reference), the same resolve-names-first move the GBA
+        # lowering makes with labels.
+        def collect_definitions(node)
+          node.walk do |n|
+            case n.kind
+            when :func
+              @funcs[n[:name]] = n
+            when :define_sound
+              @defined_sounds[n[:name]] = {
+                frequency: n[:frequency], duty: n[:duty],
+                decay: n[:decay], volume: n[:volume]
+              }
+            when :song
+              @songs[n[:name]] = n
+            end
+          end
         end
 
         def tick!
@@ -166,6 +183,18 @@ module RubyGBA
                               node[:w], node[:h], resolve_color(node[:color]))
           when :draw_text
             exec_draw_text(node)
+          when :enable_sound
+            @audio << [:enabled]
+          when :define_sound, :song
+            # Definitions: gathered up front, so reaching one inline does nothing
+            # (just like a func body).
+            nil
+          when :beep
+            @audio << [:beep, resolve_effect(node)]
+          when :play_song
+            exec_play_song(node[:name])
+          when :stop_music
+            @audio << [:stop_music]
           else
             raise ProgramError,
                   "the Ruby backend cannot execute #{node.kind.inspect} " \
@@ -198,6 +227,27 @@ module RubyGBA
           Font.each_pixel(node[:text]) do |dx, dy|
             @screen.set_pixel(x + dx, y + dy, color)
           end
+        end
+
+        # Resolve a beep's tone + overrides into the concrete musical values that
+        # played — the shared rule, so the interpreter and the ROM agree on what a
+        # given beep means.
+        def resolve_effect(node)
+          Sound.resolve_effect(node[:tone], duty: node[:duty], decay: node[:decay],
+                                            volume: node[:volume], defined: @defined_sounds)
+        end
+
+        # Advance a song by one frame and record any note that lands on this frame
+        # (frequency 0 is a rest). The counter increments first, then wraps at the
+        # song's length so it loops — matching how the ROM sequences the same song.
+        def exec_play_song(name)
+          song = @songs[name] || raise(ProgramError, "play_song for undefined song #{name.inspect}")
+          frame = @music_frames[name] + 1
+          song[:events].each do |offset, frequency|
+            @audio << [:note, name, frequency] if offset == frame
+          end
+          frame = 0 if frame >= song[:total_frames]
+          @music_frames[name] = frame
         end
 
         # Multi-way dispatch: call the scene/func for the clause whose value equals

@@ -132,6 +132,49 @@ class TestIRBackendRubyHardware < Minitest::Test
     assert_match(/triangle/, err.message)
   end
 
+  # ---- audio (an observable record of what would play) ----
+
+  def test_sound_ops_are_recorded_in_the_audio_log
+    i = run_ir(program(enable_sound, beep(:high), stop_music))
+    assert_equal [:enabled], i.audio[0]
+    assert_equal :beep, i.audio[1][0]
+    assert_equal 880, i.audio[1][1][:frequency] # :high resolves to 880 Hz
+    assert_equal [:stop_music], i.audio[2]
+  end
+
+  def test_beep_resolves_a_defined_sound_by_name
+    i = run_ir(program(
+      enable_sound,
+      define_sound(:paddle, frequency: 500, duty: :quarter, decay: :fast, volume: 12),
+      beep(:paddle),
+    ))
+    effect = i.audio.find { |e| e[0] == :beep }[1]
+    assert_equal 500, effect[:frequency]
+    assert_equal :quarter, effect[:duty]
+  end
+
+  def test_a_beep_override_wins_over_the_preset
+    i = run_ir(program(enable_sound, beep(:high, volume: 3)))
+    assert_equal 3, i.audio.find { |e| e[0] == :beep }[1][:volume]
+  end
+
+  def test_play_song_triggers_notes_frame_by_frame_and_loops
+    i = run_ir(program(
+      enable_sound,
+      song(:tune, events: [[1, 262], [2, 330]], total_frames: 4),
+      set(:n, 0),
+      loop_(
+        wait_vblank,
+        play_song(:tune),
+        add(:n, 1),
+        if_(binop(:>=, var_ref(:n), int(5)), halt),
+      ),
+    ))
+    notes = i.audio.select { |e| e[0] == :note }
+    # frames 1,2 fire 262,330; frame 4 wraps the counter; frame 5 fires 262 again.
+    assert_equal [[:note, :tune, 262], [:note, :tune, 330], [:note, :tune, 262]], notes
+  end
+
   # ---- observation log ----
 
   def test_log_records_vblank_ticks_and_halt
