@@ -229,6 +229,40 @@ class TestIRBackendGBA < Minitest::Test
     assert_match(/even/, err.message)
   end
 
+  # ---- sound: lower it, then read the audio that actually came out ----
+  # The exact register values are pinned by the pure-function tests in
+  # test_sound_module.rb (shared with the legacy emitter). These prove the
+  # lowered ROM really drives the hardware to make (or not make) sound.
+
+  def test_a_lowered_beep_actually_plays_sound
+    rom = lower(program(enable_sound, beep(:high), halt))
+    v = assert_gemba_loads_rom(rom, frames: 8)
+    assert v.sound?, "an enabled beep should produce audible PCM"
+  end
+
+  def test_enabling_sound_without_a_beep_stays_silent
+    rom = lower(program(enable_sound, halt))
+    v = assert_gemba_loads_rom(rom, frames: 8)
+    assert v.silent?, "no beep means no sound"
+  end
+
+  def test_play_song_drives_the_music_channel
+    rom = lower(program(
+      display(:bitmap),
+      enable_sound,
+      song(:tune, events: [[1, 262], [2, 330], [3, 392]], total_frames: 8),
+      loop_(wait_vblank, play_song(:tune)),
+    ))
+    v = assert_gemba_loads_rom(rom, frames: 10)
+    assert v.sound?, "play_song should trigger notes on the music channel"
+  end
+
+  def test_play_song_for_an_undefined_song_is_a_lowering_error
+    assert_raises(GBA::LoweringError) do
+      lower(program(enable_sound, play_song(:ghost), halt))
+    end
+  end
+
   def test_case_var_dispatches_to_the_active_scene
     # state == 1 -> the :playing scene draws blue; :title (state 0) draws red.
     rom = lower(program(

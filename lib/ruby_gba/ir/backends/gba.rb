@@ -87,6 +87,8 @@ module RubyGBA
           @vars = {}             # variable name -> IWRAM address
           @next_var = IWRAM_START
           @funcs = {}            # func name -> its IR node (emitted after the main body)
+          @defined_sounds = {}   # name -> musical params (from define_sound)
+          @songs = {}            # name -> :song node (from song)
           @label_seq = 0
           @uses_pressed = false  # whether the program reads edge-detected input
         end
@@ -94,7 +96,7 @@ module RubyGBA
         # Lower a program to a finalized ROM. Runs the emit pass, resolves jumps,
         # then hands the machine code to ROM for header/entry/checksum.
         def lower(program, title: "IRLOWER", code: "IRLO", maker: "98")
-          collect_functions(program)
+          collect_definitions(program)
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
           emit_input_init if @uses_pressed
           program.children.each { |stmt| emit_statement(stmt) }
@@ -109,12 +111,25 @@ module RubyGBA
 
         private
 
-        # Register every func defined anywhere in the tree so a `call` can reach a
-        # func defined later (a forward reference), the same up-front name pass the
-        # Ruby backend does. Func bodies are emitted after the main code, never
-        # inline, so the main flow doesn't run into them.
-        def collect_functions(program)
-          program.walk { |node| @funcs[node[:name]] = node if node.kind == :func }
+        # Register every definition in the tree up front — funcs, named sound
+        # effects, and songs — so a later reference can reach one defined earlier
+        # or later (a forward reference). Func bodies are emitted after the main
+        # code, never inline, so the main flow doesn't run into them; sounds and
+        # songs are pure data with nothing to emit on their own.
+        def collect_definitions(program)
+          program.walk do |node|
+            case node.kind
+            when :func
+              @funcs[node[:name]] = node
+            when :define_sound
+              @defined_sounds[node[:name]] = {
+                frequency: node[:frequency], duty: node[:duty],
+                decay: node[:decay], volume: node[:volume]
+              }
+            when :song
+              @songs[node[:name]] = node
+            end
+          end
         end
 
         # --- emit helpers -------------------------------------------------------
@@ -187,6 +202,11 @@ module RubyGBA
           when :dma_fill_rect then emit_dma_fill_rect(node)
           when :draw_rect_at then emit_draw_rect_at(node)
           when :draw_text then emit_draw_text(node)
+          when :enable_sound then emit_enable_sound
+          when :define_sound, :song then nil # definitions: collected, nothing to emit
+          when :beep then emit_beep(node)
+          when :play_song then emit_play_song(node)
+          when :stop_music then emit_stop_music
           else
             raise LoweringError, "the GBA backend cannot lower #{node.kind.inspect} yet"
           end
@@ -468,6 +488,77 @@ module RubyGBA
           raise LoweringError,
                 "#{kind} needs an even, positive width (got #{w}) — the fast " \
                 "block fill moves two pixels per step"
+        end
+
+        # --- audio ---------------------------------------------------------------
+        #
+        # Each op resolves to a short list of sound-register writes via the shared
+        # Sound module, so the ROM and the interpreter play the same thing. A write
+        # is just "put this 16-bit value at this register address."
+
+        def emit_writes(writes)
+          writes.each { |address, value| write_reg16(address, value) }
+        end
+
+        # Power on the audio hardware.
+        def emit_enable_sound
+          emit_writes(Sound::Registers.enable)
+        end
+
+        # A one-off sound effect on channel 2. Resolve the beep to concrete musical
+        # values (a defined-sound name, a preset, or a raw frequency), then write
+        # the channel-2 registers.
+        def emit_beep(node)
+          effect = Sound.resolve_effect(node[:tone], duty: node[:duty], decay: node[:decay],
+                                                     volume: node[:volume], defined: @defined_sounds)
+          emit_writes(Sound::Registers.channel2(**effect))
+        end
+
+        # Silence the music channel.
+        def emit_stop_music
+          emit_writes(Sound::Registers.stop_music)
+        end
+
+        # Advance a song by one frame. A per-song counter in IWRAM ticks up; each
+        # note whose frame matches the counter triggers, and once the counter
+        # reaches the song's length it wraps to 0 so the tune loops. This unrolls
+        # the whole score into frame comparisons — the same sequencer the legacy
+        # emitter builds, so migrated songs sound identical.
+        def emit_play_song(node)
+          song = @songs.fetch(node[:name]) do
+            raise LoweringError, "play_song for undefined song #{node[:name].inspect}"
+          end
+          counter = :"_music_frame_#{node[:name]}"
+
+          load_var(ACC, counter)             # counter += 1
+          emit(ASM.add_imm(ACC, ACC, 1))
+          store_var(ACC, counter)
+
+          song[:events].each do |frame, frequency|
+            skip = gensym
+            load_var(ACC, counter)
+            compare_acc_to(frame)
+            emit_branch(:bcond, skip, cond: :ne) # counter != this note's frame? skip it
+            emit_writes(Sound::Registers.channel1_note(frequency: frequency,
+                                                       duty: song[:duty], volume: song[:volume]))
+            place_label(skip)
+          end
+
+          wrap = gensym                        # loop: if counter >= length, reset to 0
+          load_var(ACC, counter)
+          compare_acc_to(song[:total_frames])
+          emit_branch(:bcond, wrap, cond: :lt)
+          emit(ASM.load_immediate(ACC, 0))
+          store_var(ACC, counter)
+          place_label(wrap)
+        end
+
+        # Compare the accumulator to a constant. The constant loads into a temp
+        # first, so any 32-bit value works (the immediate compare form only encodes
+        # small constants, and frame counts can exceed that).
+        def compare_acc_to(value)
+          emit(ASM.load_immediate(TMP, value))
+          emit(ASM.cmp_reg(ACC, TMP))
         end
 
         # Busy-wait for the vertical blank — the brief pause between drawn frames,
