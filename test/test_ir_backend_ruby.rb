@@ -110,4 +110,25 @@ class TestIRBackendRuby < Minitest::Test
   def test_call_to_undefined_func_raises
     assert_raises(Ruby::ProgramError) { run_ir(program(call(:ghost))) }
   end
+
+  def test_case_var_dispatches_to_the_matching_scene
+    i = run_ir(program(
+      set(:state, 1),
+      set(:hit, 0),
+      case_(:state, 0 => :title, 1 => :playing),
+      func(:title, set(:hit, 100)),
+      func(:playing, set(:hit, 200)),
+    ))
+    assert_equal 200, i[:hit] # state == 1 ran :playing, not :title
+  end
+
+  def test_case_var_with_no_matching_clause_does_nothing
+    i = run_ir(program(
+      set(:state, 9),
+      set(:hit, 0),
+      case_(:state, 0 => :title),
+      func(:title, set(:hit, 1)),
+    ))
+    assert_equal 0, i[:hit]
+  end
 end

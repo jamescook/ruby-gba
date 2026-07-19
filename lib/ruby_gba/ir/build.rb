@@ -94,6 +94,13 @@ module RubyGBA
         Node.new(:call, target: name)
       end
 
+      # Multi-way dispatch on a variable: run the scene/func whose value matches.
+      # A scene is just a func, so the targets are func names. +clauses+ maps each
+      # value to a target name, e.g. case_(:state, 0 => :title, 1 => :playing).
+      def case_(var, clauses)
+        Node.new(:case, var: var, clauses: clauses.to_a)
+      end
+
       def wait_vblank
         Node.new(:wait_vblank)
       end

@@ -134,6 +134,8 @@ module RubyGBA
             loop { node.children.each { |child| exec(child) } }
           when :call
             exec_call(node[:target])
+          when :case
+            exec_case(node)
           when :halt
             @log << [:halt]
             throw :halt
@@ -171,6 +173,15 @@ module RubyGBA
         def exec_call(name)
           func = @funcs[name] || raise(ProgramError, "call to undefined func #{name.inspect}")
           func.children.each { |child| exec(child) }
+        end
+
+        # Multi-way dispatch: call the scene/func for the clause whose value equals
+        # the variable. Values are distinct, so this runs at most one scene.
+        def exec_case(node)
+          value = @vars[node[:var]]
+          node[:clauses].each do |clause_value, target|
+            exec_call(target) if value == clause_value
+          end
         end
 
         # Evaluate an operand to a signed 32-bit integer. Operands are normally

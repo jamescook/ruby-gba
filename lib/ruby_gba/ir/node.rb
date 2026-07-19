@@ -46,8 +46,10 @@ module RubyGBA
         draw_rect_at: :draw, draw_text: :draw, dma_fill_rect: :draw, blit: :draw,
 
         # control flow — these carry nested statements in #children
+        # (a scene is just a named func, so it needs no kind of its own; `case`
+        # is multi-way dispatch that each backend expands to a chain of ifs)
         if: :control, loop: :control, func: :control, call: :control,
-        scene: :control, case: :control, wait_vblank: :control, halt: :control,
+        case: :control, wait_vblank: :control, halt: :control,
 
         # expression values — operands, live inside another node's #attrs
         int: :value, var_ref: :value, binop: :value, neg: :value,

@@ -133,6 +133,13 @@ class TestIRNode < Minitest::Test
     assert_equal 2, expr[:rhs][:rhs][:value]
   end
 
+  def test_case_builds_a_dispatch_node
+    n = case_(:state, 0 => :title, 1 => :playing)
+    assert_equal :case, n.kind
+    assert_equal :state, n[:var]
+    assert_equal [[0, :title], [1, :playing]], n[:clauses]
+  end
+
   # ========================================================================
   # structural equality & to_h
   # ========================================================================
