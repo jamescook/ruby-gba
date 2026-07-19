@@ -39,7 +39,7 @@ module RubyGBA
 
         # variable operations — read/modify a named variable
         set: :var, add: :var, sub: :var, copy: :var, negate: :var,
-        abs: :var, clamp: :var,
+        abs: :var, negate_abs: :var, clamp: :var,
 
         # drawing / display operations
         display: :draw, pixel: :draw, fill_rect: :draw, clear_screen: :draw,

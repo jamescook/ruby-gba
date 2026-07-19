@@ -173,6 +173,34 @@ class TestIRBackendGBA < Minitest::Test
     assert v.black?(2, 0), "holding must not count as repeated presses"
   end
 
+  # ---- abs / negate_abs (observed by driving a pixel coordinate) ----
+
+  def test_abs_makes_a_negative_value_positive
+    # v = -5, abs -> 5; plotting at (v, 0) lands at x=5. If abs left it negative
+    # the coordinate would clip off-screen and nothing would appear at (5, 0).
+    rom = lower(program(
+      display(:bitmap), clear_screen(:black),
+      set(:v, 5), negate(:v), abs(:v),
+      pixel(:v, 0, :red), halt,
+    ))
+    v = assert_gemba_loads_rom(rom)
+    assert v.red?(5, 0)
+    assert v.black?(4, 0)
+  end
+
+  def test_negate_abs_leaves_an_already_negative_value
+    # v = -6, negate_abs -> still -6 (not +6); +20 brings it on-screen at 14.
+    # A wrong flip to +6 would put the pixel at 26 instead.
+    rom = lower(program(
+      display(:bitmap), clear_screen(:black),
+      set(:v, 6), negate(:v), negate_abs(:v), add(:v, 20),
+      pixel(:v, 0, :red), halt,
+    ))
+    v = assert_gemba_loads_rom(rom)
+    assert v.red?(14, 0)
+    assert v.black?(26, 0)
+  end
+
   # ---- extended draws: dma_fill_rect / draw_rect_at / draw_text ----
 
   def test_dma_fill_rect_paints_its_block

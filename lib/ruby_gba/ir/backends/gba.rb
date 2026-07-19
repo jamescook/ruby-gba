@@ -188,6 +188,8 @@ module RubyGBA
           when :sub then emit_accumulate(node, :sub_reg)
           when :copy then emit_copy(node)
           when :negate then emit_negate(node)
+          when :abs then emit_conditional_negate(node[:var], skip_when: :ge)
+          when :negate_abs then emit_conditional_negate(node[:var], skip_when: :le)
           when :clamp then emit_clamp(node)
           when :if then emit_if(node)
           when :loop then emit_loop(node)
@@ -235,6 +237,20 @@ module RubyGBA
           load_var(ACC, node[:var])
           emit(ASM.rsb_imm(ACC, ACC, 0))   # r0 = 0 - r0
           store_var(ACC, node[:var])
+        end
+
+        # Negate a variable only when it sits on one side of zero — the shared
+        # shape of abs (|v|: negate when < 0, so skip when >= 0) and negate_abs
+        # (-|v|: negate when > 0, so skip when <= 0). Compare to zero, jump over
+        # the negate when the value is already on the wanted side.
+        def emit_conditional_negate(var, skip_when:)
+          load_var(ACC, var)
+          emit(ASM.cmp_imm(ACC, 0))
+          done = gensym
+          emit_branch(:bcond, done, cond: skip_when)
+          emit(ASM.rsb_imm(ACC, ACC, 0))
+          place_label(done)
+          store_var(ACC, var)
         end
 
         # Clamp a variable into [min, max] with two compare-and-maybe-replace steps.

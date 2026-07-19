@@ -157,6 +157,13 @@ class TestIRNode < Minitest::Test
     assert_equal 6, n[:h]
   end
 
+  def test_abs_and_negate_abs_are_var_ops
+    assert_equal :var, abs(:v).category
+    assert_equal :var, negate_abs(:v).category
+    assert_equal :v, abs(:v)[:var]
+    assert_equal :v, negate_abs(:v)[:var]
+  end
+
   # ========================================================================
   # audio ops are plain data too — no channels, no registers in sight
   # ========================================================================

@@ -57,6 +57,25 @@ class TestIRBackendRuby < Minitest::Test
     assert_equal 100, i[:c]
   end
 
+  def test_abs_and_negate_abs
+    i = run_ir(program(
+      set(:a, 7), abs(:a),                     # positive stays: 7
+      set(:b, 9), negate(:b), abs(:b),         # -9 -> 9
+      set(:c, 4), negate_abs(:c),              # 4 -> -4
+      set(:d, 6), negate(:d), negate_abs(:d),  # -6 stays -6 (already negative)
+    ))
+    assert_equal 7, i[:a]
+    assert_equal 9, i[:b]
+    assert_equal(-4, i[:c])
+    assert_equal(-6, i[:d])
+  end
+
+  def test_abs_and_negate_abs_leave_zero_alone
+    i = run_ir(program(set(:z, 0), abs(:z), set(:w, 0), negate_abs(:w)))
+    assert_equal 0, i[:z]
+    assert_equal 0, i[:w]
+  end
+
   def test_if_runs_only_when_condition_is_nonzero
     i = run_ir(program(
       set(:x, 5),
