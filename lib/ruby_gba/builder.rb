@@ -780,38 +780,11 @@ module RubyGBA
 
     # --- Sound ---
 
-    # Duty cycle presets — controls the wave shape (timbre).
-    #   :eighth  (12.5%) — thin, buzzy
-    #   :quarter (25%)   — classic Game Boy
-    #   :half    (50%)   — full, clean square wave (default)
-    #   :three_quarter (75%) — same as 25% inverted
-    DUTY_CYCLES = {
-      eighth:         0,  # 12.5%
-      quarter:        1,  # 25%
-      half:           2,  # 50%
-      square:         2,  # alias for :half
-      three_quarter:  3,  # 75%
-    }.freeze
-
-    # Decay speed presets — how quickly the chirp fades to silence.
-    # Envelope steps down volume by 1 every (step_value / 64) seconds.
-    # With volume 15: total fade time = 15 * step_value / 64 seconds.
-    DECAY_PRESETS = {
-      fast:   1,  # ~0.23s fade
-      medium: 3,  # ~0.7s fade
-      slow:   5,  # ~1.2s fade
-      none:   0,  # sustains until next trigger
-    }.freeze
-
-    # Built-in sound presets for common game sounds.
-    # Each is a hash of { frequency:, duty:, decay:, volume: }.
-    SOUND_PRESETS = {
-      high:       { frequency: 880,  duty: :half,    decay: :fast,   volume: 15 },
-      low:        { frequency: 220,  duty: :half,    decay: :fast,   volume: 15 },
-      blip:       { frequency: 1200, duty: :quarter, decay: :fast,   volume: 12 },
-      thud:       { frequency: 110,  duty: :half,    decay: :medium, volume: 15 },
-      score:      { frequency: 660,  duty: :half,    decay: :medium, volume: 15 },
-    }.freeze
+    # Built-in sound presets for common game sounds — the shared table, so the
+    # DSL and the IR backends resolve a preset name to the same sound. The wave
+    # shape / fade / frequency encoding lives in Sound::Registers, shared the same
+    # way (so a beep sounds identical whether emitted here or lowered from the IR).
+    SOUND_PRESETS = Sound::PRESETS
 
     # Enable the GBA sound hardware. Call once at the top of your build block.
     # Without this, all beep calls are silent.
@@ -819,16 +792,7 @@ module RubyGBA
       raise ArgumentError, "enable_sound already called — only call it once" if @sound_enabled
       @sound_enabled = true
 
-      # Master enable (SOUNDCNT_X bit 7)
-      emit_write_reg16(REG_SOUNDCNT_X, 0x0080)
-
-      # Channels 1+2 on both speakers, max PSG volume
-      # bits 0-2: right volume (7), bits 4-6: left volume (7)
-      # bit 8: ch1 right, bit 9: ch2 right, bit 12: ch1 left, bit 13: ch2 left
-      emit_write_reg16(REG_SOUNDCNT_L, 0x3377)
-
-      # PSG output ratio = 100% (bits 0-1 = 2)
-      emit_write_reg16(REG_SOUNDCNT_H, 0x0002)
+      Sound::Registers.enable.each { |address, value| emit_write_reg16(address, value) }
     end
 
     # Define a named sound preset for use with beep.
@@ -864,37 +828,11 @@ module RubyGBA
     def beep(tone, duty: nil, decay: nil, volume: nil)
       raise ArgumentError, "call enable_sound before beep" unless @sound_enabled
 
-      if tone.is_a?(Symbol)
-        preset = (@custom_sounds || {})[tone] || SOUND_PRESETS.fetch(tone) do
-          raise ArgumentError, "unknown sound preset :#{tone}. " \
-            "Built-in: #{SOUND_PRESETS.keys.join(', ')}. Use define_sound to add custom presets."
-        end
-        freq_hz = preset[:frequency]
-        duty    ||= preset[:duty]
-        decay   ||= preset[:decay]
-        volume  ||= preset[:volume]
-      else
-        freq_hz = tone
-        duty    ||= :half
-        decay   ||= :fast
-        volume  ||= 15
+      effect = Sound.resolve_effect(tone, duty: duty, decay: decay, volume: volume,
+                                          defined: @custom_sounds || {})
+      Sound::Registers.channel2(**effect).each do |address, value|
+        emit_write_reg16(address, value)
       end
-
-      duty_bits  = DUTY_CYCLES.fetch(duty) { raise ArgumentError, "unknown duty cycle: #{duty}" }
-      decay_step = DECAY_PRESETS.fetch(decay) { raise ArgumentError, "unknown decay: #{decay}" }
-
-      # SOUND2CNT_L: duty (bits 6-7) | volume (bits 12-15) | envelope down (bit 11=0) | step (bits 8-10)
-      cnt_l = (duty_bits << 6) | (volume << 12) | (decay_step << 8)
-
-      # Frequency value: freq_hz = 131072 / (2048 - freq_val)
-      # So: freq_val = 2048 - 131072 / freq_hz
-      freq_val = (2048 - (131_072.0 / freq_hz)).round.clamp(0, 2047)
-
-      # SOUND2CNT_H: frequency (bits 0-10) | trigger (bit 15)
-      cnt_h = 0x8000 | freq_val
-
-      emit_write_reg16(REG_SOUND2CNT_L, cnt_l)
-      emit_write_reg16(REG_SOUND2CNT_H, cnt_h)
     end
 
     # --- Music ---
@@ -962,10 +900,7 @@ module RubyGBA
     # Silence the music channel (channel 1).
     # Call this when transitioning to a scene that shouldn't have music.
     def stop_music
-      # Write zero envelope (volume=0) to silence channel 1
-      emit_write_reg16(REG_SOUND1CNT_H, 0x0000)
-      # Trigger with freq=0 to stop
-      emit_write_reg16(REG_SOUND1CNT_X, 0x8000)
+      Sound::Registers.stop_music.each { |address, value| emit_write_reg16(address, value) }
     end
 
     # --- Text ---
@@ -1125,24 +1060,8 @@ module RubyGBA
     # Emit channel 1 note trigger (used by play_song).
     # freq_hz=0 means rest (silence the channel).
     def emit_ch1_note(freq_hz, duty, volume)
-      duty_bits = DUTY_CYCLES.fetch(duty) { raise ArgumentError, "unknown duty cycle: #{duty}" }
-
-      if freq_hz == 0
-        # Rest: silence channel 1 (zero envelope)
-        emit_write_reg16(REG_SOUND1CNT_H, 0x0000)
-        emit_write_reg16(REG_SOUND1CNT_X, 0x8000)
-      else
-        # No sweep for music notes
-        emit_write_reg16(REG_SOUND1CNT_L, 0x0000)
-
-        # Envelope: duty + volume, no decay (sustain until next note)
-        cnt_h = (duty_bits << 6) | (volume << 12)
-        emit_write_reg16(REG_SOUND1CNT_H, cnt_h)
-
-        # Frequency + trigger
-        freq_val = (2048 - (131_072.0 / freq_hz)).round.clamp(0, 2047)
-        cnt_x = 0x8000 | freq_val
-        emit_write_reg16(REG_SOUND1CNT_X, cnt_x)
+      Sound::Registers.channel1_note(frequency: freq_hz, duty: duty, volume: volume).each do |address, value|
+        emit_write_reg16(address, value)
       end
     end
 
