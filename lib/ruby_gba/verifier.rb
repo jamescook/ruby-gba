@@ -37,6 +37,7 @@ module RubyGBA
       @frames = frames
       @keys = keys
       @pixels = nil
+      @audio = nil
       @width = SCREEN_WIDTH
       @height = SCREEN_HEIGHT
       load_mgba!
@@ -120,6 +121,30 @@ module RubyGBA
       nil
     end
 
+    # --- audio ---
+    #
+    # The counterpart to reading pixels: read the sound that actually came out.
+    # gemba mixes each frame to stereo PCM and we concatenate the whole run, so
+    # these ask "what did the speaker do?" rather than trusting the ROM's bytes.
+
+    # Total absolute amplitude across every PCM sample captured — 0 is perfect
+    # silence. A deliberately crude "did any sound come out?" measure that doesn't
+    # care about pitch or waveform, only whether the hardware made noise.
+    def audio_energy
+      ensure_rendered!
+      @audio.unpack("s<*").sum(&:abs)
+    end
+
+    # True when the run produced no sound at all (energy exactly 0).
+    def silent?
+      audio_energy.zero?
+    end
+
+    # True when the run produced any sound.
+    def sound?
+      !silent?
+    end
+
     # Dump a text grid showing what colors are on screen.
     # Each character represents an 8x8 tile area.
     # @return [String] visual map of the screen
@@ -184,14 +209,18 @@ module RubyGBA
     def ensure_rendered!
       return if @pixels
 
-      # Write ROM to a temp file, load in mGBA, run frames, read pixels
+      # Write ROM to a temp file, load in mGBA, run frames, read back the final
+      # frame's pixels and the whole run's audio. Audio drains per frame, so we
+      # concatenate each frame's chunk to hear the entire run, not just the last.
       require "tempfile"
       Tempfile.create(["verify", ".gba"]) do |f|
         @rom.write(f.path)
         core = Gemba::Core.new(f.path)
+        @audio = +"".b
         @frames.times do |frame|
           core.set_keys(keys_for(frame)) if @keys
           core.run_frame
+          @audio << core.audio_buffer
         end
         @pixels = core.video_buffer
         core.destroy
