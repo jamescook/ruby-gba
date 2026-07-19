@@ -3,8 +3,29 @@
 require "minitest/autorun"
 require "tempfile"
 require_relative "../lib/ruby_gba"
+require_relative "test_helper"
 
 class TestRomBuilder < Minitest::Test
+  include GembaSupport
+
+  def test_debug_halt_truncates_the_rom
+    # Everything up to debug_halt lowers and runs; everything after is dropped,
+    # so the lowered ROM stops there. The blue clear runs, the red one never does.
+    rom = nil
+    capture_io do # swallow the debug_halt reminder warning
+      rom = RubyGBA.build("DBGHLT", code: "BDBG", maker: "01", doctor: false) do
+        display :bitmap
+        clear_screen :blue
+        debug_halt
+        clear_screen :red # never reached
+      end
+    end
+
+    v = assert_gemba_loads_rom(rom, frames: 5)
+    assert v.blue?(120, 80), "the pre-debug_halt draw rendered"
+    refute v.red?(120, 80), "everything after debug_halt is dropped"
+  end
+
   def test_build_produces_valid_header
     rom = RubyGBA.build("TEEKTEST", code: "BTKE", maker: "01") do
       halt # lowers to a branch-to-self at the code start
