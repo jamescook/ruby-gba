@@ -177,6 +177,7 @@ module RubyGBA
           when :if then emit_if(node)
           when :loop then emit_loop(node)
           when :call then emit_branch(:bl, func_label(node[:target]))
+          when :case then emit_case(node)
           when :halt then emit(ASM.loop_forever)
           when :wait_vblank then emit_wait_vblank
           when :display then emit_display(node)
@@ -271,6 +272,17 @@ module RubyGBA
 
         def func_label(name)
           "func_#{name}"
+        end
+
+        # Multi-way dispatch lowers to one "if the variable equals this value, call
+        # that scene" per clause — reusing the ordinary if/compare/call path, so
+        # each comparison reloads the variable itself and no register survives a
+        # scene call (the old case_var r10-reload workaround isn't needed).
+        def emit_case(node)
+          node[:clauses].each do |value, target|
+            test = Build.binop(:==, Build.var_ref(node[:var]), Build.int(value))
+            emit_statement(Build.if_(test, Build.call(target)))
+          end
         end
 
         # --- hardware / drawing -------------------------------------------------

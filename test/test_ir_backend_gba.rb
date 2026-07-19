@@ -172,4 +172,20 @@ class TestIRBackendGBA < Minitest::Test
     assert v.red?(1, 0), "one down-edge => count == 1 => pixel at (1, 0)"
     assert v.black?(2, 0), "holding must not count as repeated presses"
   end
+
+  def test_case_var_dispatches_to_the_active_scene
+    # state == 1 -> the :playing scene draws blue; :title (state 0) draws red.
+    rom = lower(program(
+      display(:bitmap),
+      clear_screen(:black),
+      set(:state, 1),
+      case_(:state, 0 => :title, 1 => :playing),
+      halt,
+      func(:title, pixel(10, 10, :red)),
+      func(:playing, pixel(20, 20, :blue)),
+    ))
+    v = assert_gemba_loads_rom(rom)
+    assert v.blue?(20, 20), "state == 1 should run the :playing scene"
+    assert v.black?(10, 10), "the :title scene must not run"
+  end
 end
