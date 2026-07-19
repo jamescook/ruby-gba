@@ -229,6 +229,7 @@ module RubyGBA
     DMA_16BIT      = 0x00000000
     DMA_AT_VBLANK  = 0x10000000  # Start transfer at next VBlank
     DMA_AT_HBLANK  = 0x20000000  # Start transfer at next HBlank
+    DMA_SRC_FIXED  = 0x01000000  # Keep re-reading the same source word (for fills)
 
     # ========================================================================
     # Sound — PSG channels + Direct Sound control

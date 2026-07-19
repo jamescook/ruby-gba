@@ -140,6 +140,22 @@ class TestIRNode < Minitest::Test
     assert_equal [[0, :title], [1, :playing]], n[:clauses]
   end
 
+  def test_draw_ops_are_draw_category
+    assert_equal :draw, draw_text("HI", 0, 0, :white).category
+    assert_equal :draw, draw_rect_at(:x, :y, 4, 4, :white).category
+    assert_equal :draw, dma_fill_rect(0, 0, 4, 4, :white).category
+  end
+
+  def test_draw_rect_at_wraps_its_runtime_position
+    # position flows through value nodes (so a variable coord works), while the
+    # size stays a plain compile-time constant.
+    n = draw_rect_at(:ball_x, 40, 4, 6, :white)
+    assert_equal var_ref(:ball_x), n[:x]
+    assert_equal int(40), n[:y]
+    assert_equal 4, n[:w]
+    assert_equal 6, n[:h]
+  end
+
   # ========================================================================
   # structural equality & to_h
   # ========================================================================
