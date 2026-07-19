@@ -322,6 +322,7 @@ module RubyGBA
 
     # Stop execution (branch to self). Use after drawing static scenes.
     def halt
+      record(Build.halt)
       @rom.emit(ASM.loop_forever)
     end
 
@@ -354,6 +355,7 @@ module RubyGBA
     # Two-phase: wait for current VBlank to end, then wait for next VBlank to start.
     # Uses r0 (address) and r1 (scanline value).
     def wait_vblank
+      record(Build.wait_vblank)
       # Load REG_VCOUNT address into r0
       @rom.emit(ASM.load_immediate(0, REG_VCOUNT))
 
@@ -386,8 +388,11 @@ module RubyGBA
     def game_loop(&block)
       loop_start = @rom.code_offset
 
-      # Emit the block's instructions
-      instance_eval(&block)
+      # Emit the block's instructions inside a loop node so nested statements
+      # attach to it in the IR tree.
+      push_container(Build.loop_) do
+        instance_eval(&block)
+      end
 
       # Branch back to loop start
       # Distance in words: (loop_start - current_pc) / 4
@@ -422,6 +427,7 @@ module RubyGBA
     #
     # @param name [Symbol] function name
     def call(name)
+      record(Build.call(name))
       @functions[name] ||= { block: nil, entry: nil, calls: [] }
 
       call_pos = @rom.code_offset
@@ -497,8 +503,12 @@ module RubyGBA
         # Emit: PUSH {lr}
         @rom.emit(ASM.push(14))
 
-        # Emit function body
-        instance_eval(&info[:block])
+        # Emit function body. The block is only evaluated here (funcs are deferred
+        # so call/func order in the DSL doesn't matter), so this is also where the
+        # func's IR node and its body get built.
+        push_container(Build.func(name)) do
+          instance_eval(&info[:block])
+        end
 
         # Emit: POP {pc} to return
         @rom.emit(ASM.pop(15))
@@ -549,32 +559,39 @@ module RubyGBA
 
       ensure_var(var_name)
 
-      # Emit: for each case, reload var + CMP + BNE skip + BL scene.
-      # We reload before each comparison because the called scene
-      # may clobber r10 (used for variable operations like add/sub).
-      ctx.cases.each do |value, raw_name|
-        scene_name = :"_scene_#{raw_name}"
+      # In the IR this is one case node dispatching on the variable; the targets
+      # are the scene subroutines (each scene is a func named _scene_<name>).
+      clauses = ctx.cases.map { |value, raw_name| [value, :"_scene_#{raw_name}"] }
+      record(Build.case_(var_name, clauses))
 
-        load_var_into(10, var_name)
+      # The bytes still expand into a reload-compare-call chain (reloading the
+      # variable before each compare because a called scene may clobber r10). Keep
+      # those inner call()s from recording their own nodes into the tree.
+      without_recording do
+        ctx.cases.each do |value, raw_name|
+          scene_name = :"_scene_#{raw_name}"
 
-        encoding = ASM.encode_rotated_immediate(value)
-        if encoding
-          @rom.emit(ASM.cmp_imm(10, value))
-        else
-          @rom.emit(ASM.load_immediate(11, value))
-          @rom.emit(ASM.cmp_reg(10, 11))
+          load_var_into(10, var_name)
+
+          encoding = ASM.encode_rotated_immediate(value)
+          if encoding
+            @rom.emit(ASM.cmp_imm(10, value))
+          else
+            @rom.emit(ASM.load_immediate(11, value))
+            @rom.emit(ASM.cmp_reg(10, 11))
+          end
+
+          # Skip the call if not equal
+          branch_pos = @rom.code_offset
+          @rom.emit(ASM.branch_cond(:ne, 0))  # placeholder
+
+          call(scene_name)
+
+          # Patch the skip branch
+          block_end = @rom.code_offset
+          skip_words = (block_end - branch_pos) / 4
+          @rom.patch(branch_pos, ASM.branch_cond(:ne, skip_words))
         end
-
-        # Skip the call if not equal
-        branch_pos = @rom.code_offset
-        @rom.emit(ASM.branch_cond(:ne, 0))  # placeholder
-
-        call(scene_name)
-
-        # Patch the skip branch
-        block_end = @rom.code_offset
-        skip_words = (block_end - branch_pos) / 4
-        @rom.patch(branch_pos, ASM.branch_cond(:ne, skip_words))
       end
     end
 
@@ -597,28 +614,30 @@ module RubyGBA
     def if_held(button, &block)
       mask = BUTTON_MASKS.fetch(button) { raise ArgumentError, "unknown button: #{button}" }
 
-      # Read REG_KEYINPUT into r8
-      @rom.emit(ASM.load_immediate(9, REG_KEYINPUT))
-      @rom.emit(ASM.load_halfword(8, 9))
+      push_container(Build.if_(Build.held(button))) do
+        # Read REG_KEYINPUT into r8
+        @rom.emit(ASM.load_immediate(9, REG_KEYINPUT))
+        @rom.emit(ASM.load_halfword(8, 9))
 
-      # Test the button bit: TST r8, #mask (AND but discard result, just set flags)
-      # Active-low: bit=0 means pressed. So if (input & mask) != 0, button is NOT pressed.
-      # We want to skip the block when NOT pressed, so: branch over block if (input & mask) != 0
-      # TST sets Z flag if result is 0 (meaning button IS pressed).
-      # BNE = branch if Z=0 = branch if NOT pressed = skip block.
-      @rom.emit(ASM.tst_imm(8, mask))
+        # Test the button bit: TST r8, #mask (AND but discard result, just set flags)
+        # Active-low: bit=0 means pressed. So if (input & mask) != 0, button is NOT pressed.
+        # We want to skip the block when NOT pressed, so: branch over block if (input & mask) != 0
+        # TST sets Z flag if result is 0 (meaning button IS pressed).
+        # BNE = branch if Z=0 = branch if NOT pressed = skip block.
+        @rom.emit(ASM.tst_imm(8, mask))
 
-      # Placeholder branch — we'll patch the offset after emitting the block
-      branch_pos = @rom.code_offset
-      @rom.emit(ASM.branch_cond(:ne, 0))  # placeholder
+        # Placeholder branch — we'll patch the offset after emitting the block
+        branch_pos = @rom.code_offset
+        @rom.emit(ASM.branch_cond(:ne, 0))  # placeholder
 
-      # Emit the block
-      instance_eval(&block)
+        # Emit the block
+        instance_eval(&block)
 
-      # Patch the branch to skip over the block
-      block_end = @rom.code_offset
-      skip_words = (block_end - branch_pos) / 4
-      @rom.patch(branch_pos, ASM.branch_cond(:ne, skip_words))
+        # Patch the branch to skip over the block
+        block_end = @rom.code_offset
+        skip_words = (block_end - branch_pos) / 4
+        @rom.patch(branch_pos, ASM.branch_cond(:ne, skip_words))
+      end
     end
 
     # Execute block when a button is first pressed (edge-detected).
@@ -631,39 +650,41 @@ module RubyGBA
     def if_pressed(button, &block)
       mask = BUTTON_MASKS.fetch(button) { raise ArgumentError, "unknown button: #{button}" }
 
-      # Ensure we have a variable to track previous frame's key state
-      ensure_var(:_prev_keys)
+      push_container(Build.if_(Build.pressed(button))) do
+        # Ensure we have a variable to track previous frame's key state
+        ensure_var(:_prev_keys)
 
-      # Read current keys into r8 (active-low, so invert for "pressed = 1")
-      @rom.emit(ASM.load_immediate(9, REG_KEYINPUT))
-      @rom.emit(ASM.load_halfword(8, 9))
-      @rom.emit(ASM.mvn_reg(8, 8))           # r8 = ~input (now bit=1 means pressed)
-      # Mask to 10 button bits: 0x3FF can't be a rotated imm8, so shift away upper bits
-      @rom.emit(ASM.lsl_imm(8, 8, 22))       # shift left to clear upper 22 bits
-      @rom.emit(ASM.lsr_imm(8, 8, 22))       # shift right to restore, upper bits now 0
+        # Read current keys into r8 (active-low, so invert for "pressed = 1")
+        @rom.emit(ASM.load_immediate(9, REG_KEYINPUT))
+        @rom.emit(ASM.load_halfword(8, 9))
+        @rom.emit(ASM.mvn_reg(8, 8))           # r8 = ~input (now bit=1 means pressed)
+        # Mask to 10 button bits: 0x3FF can't be a rotated imm8, so shift away upper bits
+        @rom.emit(ASM.lsl_imm(8, 8, 22))       # shift left to clear upper 22 bits
+        @rom.emit(ASM.lsr_imm(8, 8, 22))       # shift right to restore, upper bits now 0
 
-      # Load previous keys into r9
-      load_var_into(9, :_prev_keys)
+        # Load previous keys into r9
+        load_var_into(9, :_prev_keys)
 
-      # New presses = current & ~previous (pressed now but not last frame)
-      @rom.emit(ASM.mvn_reg(11, 9))          # r11 = ~prev
-      @rom.emit(ASM.and_reg(11, 8, 11))      # r11 = current & ~prev = newly pressed
+        # New presses = current & ~previous (pressed now but not last frame)
+        @rom.emit(ASM.mvn_reg(11, 9))          # r11 = ~prev
+        @rom.emit(ASM.and_reg(11, 8, 11))      # r11 = current & ~prev = newly pressed
 
-      # Save current as previous for next frame
-      store_var_from(8, :_prev_keys)
+        # Save current as previous for next frame
+        store_var_from(8, :_prev_keys)
 
-      # Test if our button is newly pressed
-      @rom.emit(ASM.tst_imm(11, mask))
+        # Test if our button is newly pressed
+        @rom.emit(ASM.tst_imm(11, mask))
 
-      # Skip block if not newly pressed (Z=1 means bit was 0)
-      branch_pos = @rom.code_offset
-      @rom.emit(ASM.branch_cond(:eq, 0))  # placeholder
+        # Skip block if not newly pressed (Z=1 means bit was 0)
+        branch_pos = @rom.code_offset
+        @rom.emit(ASM.branch_cond(:eq, 0))  # placeholder
 
-      instance_eval(&block)
+        instance_eval(&block)
 
-      block_end = @rom.code_offset
-      skip_words = (block_end - branch_pos) / 4
-      @rom.patch(branch_pos, ASM.branch_cond(:eq, skip_words))
+        block_end = @rom.code_offset
+        skip_words = (block_end - branch_pos) / 4
+        @rom.patch(branch_pos, ASM.branch_cond(:eq, skip_words))
+      end
     end
 
     # --- Conditionals ---
@@ -676,6 +697,12 @@ module RubyGBA
       eq: :ne, ne: :eq,
       gt: :le, le: :gt,
       ge: :lt, lt: :ge,
+    }.freeze
+
+    # Maps DSL condition → the IR comparison operator, for building the `if`
+    # node's condition (a binop over the variable and the operand).
+    COND_TO_OP = {
+      eq: :==, ne: :!=, gt: :>, lt: :<, ge: :>=, le: :<=,
     }.freeze
 
     %i[eq ne gt lt ge le].each do |cond|
@@ -1022,39 +1049,44 @@ module RubyGBA
     # @param operand [Integer, Symbol] immediate value or variable name to compare against
     def emit_conditional(cond, var_name, operand, &block)
       inverse = INVERSE_COND.fetch(cond)
+      condition = Build.binop(COND_TO_OP.fetch(cond), Build.var_ref(var_name), Build.wrap(operand))
 
-      # Load variable into r10
-      ensure_var(var_name)
-      load_var_into(10, var_name)
+      # Record an `if` node and gather the block's statements into it, while the
+      # bytes emit the usual compare-and-skip-over-the-block sequence.
+      push_container(Build.if_(condition)) do
+        # Load variable into r10
+        ensure_var(var_name)
+        load_var_into(10, var_name)
 
-      # Compare: CMP r10, #imm or CMP r10, rm
-      if operand.is_a?(Symbol)
-        # Variable vs variable
-        ensure_var(operand)
-        load_var_into(11, operand)
-        @rom.emit(ASM.cmp_reg(10, 11))
-      else
-        # Variable vs immediate
-        encoding = ASM.encode_rotated_immediate(operand)
-        if encoding
-          @rom.emit(ASM.cmp_imm(10, operand))
-        else
-          # Large immediate: load into r11 and compare registers
-          @rom.emit(ASM.load_immediate(11, operand))
+        # Compare: CMP r10, #imm or CMP r10, rm
+        if operand.is_a?(Symbol)
+          # Variable vs variable
+          ensure_var(operand)
+          load_var_into(11, operand)
           @rom.emit(ASM.cmp_reg(10, 11))
+        else
+          # Variable vs immediate
+          encoding = ASM.encode_rotated_immediate(operand)
+          if encoding
+            @rom.emit(ASM.cmp_imm(10, operand))
+          else
+            # Large immediate: load into r11 and compare registers
+            @rom.emit(ASM.load_immediate(11, operand))
+            @rom.emit(ASM.cmp_reg(10, 11))
+          end
         end
+
+        # Branch over block if condition is NOT met (inverse condition)
+        branch_pos = @rom.code_offset
+        @rom.emit(ASM.branch_cond(inverse, 0))  # placeholder
+
+        instance_eval(&block)
+
+        # Patch branch to skip past the block
+        block_end = @rom.code_offset
+        skip_words = (block_end - branch_pos) / 4
+        @rom.patch(branch_pos, ASM.branch_cond(inverse, skip_words))
       end
-
-      # Branch over block if condition is NOT met (inverse condition)
-      branch_pos = @rom.code_offset
-      @rom.emit(ASM.branch_cond(inverse, 0))  # placeholder
-
-      instance_eval(&block)
-
-      # Patch branch to skip past the block
-      block_end = @rom.code_offset
-      skip_words = (block_end - branch_pos) / 4
-      @rom.patch(branch_pos, ASM.branch_cond(inverse, skip_words))
     end
 
     # Emit a DMA3 fill: writes a fixed 32-bit word to a destination address.
