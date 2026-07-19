@@ -13,11 +13,15 @@ class TestBuilderIR < Minitest::Test
   Builder = RubyGBA::Builder
   Ruby = RubyGBA::IR::Backends::Ruby
 
-  # Build through the DSL and hand back the IR tree it constructed.
+  # Build through the DSL and hand back the IR tree it constructed. Functions are
+  # deferred in the DSL (so call/func order is free), so their bodies are only
+  # evaluated — and recorded — when emit_pending_functions runs, just like a real
+  # build does.
   def tree(&block)
     rom = RubyGBA::ROM.new(title: "TEST", code: "TEST", maker: "01")
     builder = Builder.new(rom)
     builder.instance_eval(&block)
+    builder.emit_pending_functions
     builder.program
   end
 
@@ -99,5 +103,89 @@ class TestBuilderIR < Minitest::Test
     assert_equal RubyGBA::Color.resolve(:red), screen.pixel(10, 20)
     assert_equal RubyGBA::Color.resolve(:green), screen.pixel(5, 5)
     assert_equal RubyGBA::Color.resolve(:black), screen.pixel(0, 0)
+  end
+
+  # ---- control flow: nesting, conditions, funcs, dispatch ----
+
+  def test_control_flow_builds_a_nested_ir_tree
+    got = tree do
+      set :x, 0
+      func :bump do
+        add :x, 1
+      end
+      game_loop do
+        wait_vblank
+        if_gt :x, 5 do        # condition becomes a binop over var + operand
+          set :x, 0
+        end
+        call :bump
+        if_held :up do        # condition becomes a held(:up) read
+          add :x, 10
+        end
+      end
+    end
+
+    assert_equal program(
+      set(:x, 0),
+      loop_(
+        wait_vblank,
+        if_(binop(:>, var_ref(:x), int(5)), set(:x, 0)),
+        call(:bump),
+        if_(held(:up), add(:x, 10)),
+      ),
+      func(:bump, add(:x, 1)), # deferred funcs land after the main flow
+    ), got
+  end
+
+  def test_scene_and_case_var_build_func_and_case_nodes
+    got = tree do
+      var :state, 0
+      scene :title do
+        clear_screen :black
+      end
+      scene :playing do
+        clear_screen :white
+      end
+      game_loop do
+        case_var :state do
+          when_val 0, :title
+          when_val 1, :playing
+        end
+      end
+    end
+
+    # A scene is a func named _scene_<name>; case_var is one case node whose
+    # clauses point at those scene funcs.
+    assert_equal program(
+      set(:state, 0),
+      loop_(
+        case_(:state, 0 => :_scene_title, 1 => :_scene_playing),
+      ),
+      func(:_scene_title, clear_screen(:black)),
+      func(:_scene_playing, clear_screen(:white)),
+    ), got
+  end
+
+  def test_if_pressed_builds_a_pressed_condition
+    got = tree { if_pressed(:start) { set :go, 1 } }
+    assert_equal program(if_(pressed(:start), set(:go, 1))), got
+  end
+
+  def test_the_built_control_flow_tree_runs_in_the_interpreter
+    # Build a loop that calls a func until a counter reaches the limit, then run
+    # the exact tree the DSL built and check the counter.
+    got = tree do
+      set :x, 0
+      func :bump do
+        add :x, 1
+      end
+      game_loop do
+        call :bump
+        if_ge :x, 3 do
+          halt
+        end
+      end
+    end
+    assert_equal 3, Ruby.new.run(got)[:x]
   end
 end
