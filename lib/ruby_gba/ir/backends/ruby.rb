@@ -153,6 +153,19 @@ module RubyGBA
             @screen.fill_rect(eval_value(node[:x]), eval_value(node[:y]),
                               eval_value(node[:w]), eval_value(node[:h]),
                               resolve_color(node[:color]))
+          when :dma_fill_rect
+            # Same picture as fill_rect — the "DMA" is only how a console fills it
+            # fast; the pixels that land are identical.
+            @screen.fill_rect(eval_value(node[:x]), eval_value(node[:y]),
+                              eval_value(node[:w]), eval_value(node[:h]),
+                              resolve_color(node[:color]))
+          when :draw_rect_at
+            # A rectangle whose position is computed at run time (x/y may be
+            # variables); the size is a constant.
+            @screen.fill_rect(eval_value(node[:x]), eval_value(node[:y]),
+                              node[:w], node[:h], resolve_color(node[:color]))
+          when :draw_text
+            exec_draw_text(node)
           else
             raise ProgramError,
                   "the Ruby backend cannot execute #{node.kind.inspect} " \
@@ -173,6 +186,18 @@ module RubyGBA
         def exec_call(name)
           func = @funcs[name] || raise(ProgramError, "call to undefined func #{name.inspect}")
           func.children.each { |child| exec(child) }
+        end
+
+        # Render a string with the built-in bitmap font: each set pixel of each
+        # glyph becomes one painted cell, offset from the text's top-left origin.
+        # Off-screen cells clip away in set_pixel, just as they do on hardware.
+        def exec_draw_text(node)
+          x = eval_value(node[:x])
+          y = eval_value(node[:y])
+          color = resolve_color(node[:color])
+          Font.each_pixel(node[:text]) do |dx, dy|
+            @screen.set_pixel(x + dx, y + dy, color)
+          end
         end
 
         # Multi-way dispatch: call the scene/func for the clause whose value equals

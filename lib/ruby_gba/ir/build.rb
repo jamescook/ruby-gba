@@ -76,6 +76,27 @@ module RubyGBA
         Node.new(:clear_screen, color: color)
       end
 
+      # Write a line of text at a fixed top-left origin, drawn with the built-in
+      # bitmap font. +x+/+y+ are compile-time constants.
+      def draw_text(text, x, y, color)
+        Node.new(:draw_text, text: text, x: x, y: y, color: color)
+      end
+
+      # Fill a rectangle whose *position* is decided at run time: +x+/+y+ may be
+      # variables (or constants), while the size +w+/+h+ is a compile-time
+      # constant. This is the moving-object draw — paddles, a ball — as opposed to
+      # +fill_rect+, whose position is fixed when the program is built.
+      def draw_rect_at(x, y, w, h, color)
+        Node.new(:draw_rect_at, x: wrap(x), y: wrap(y), w: w, h: h, color: color)
+      end
+
+      # Fill a rectangle at a fixed position and size — same picture as
+      # +fill_rect+, but a backend is free to blast it in with a block transfer.
+      # Everything (+x+/+y+/+w+/+h+) is a compile-time constant.
+      def dma_fill_rect(x, y, w, h, color)
+        Node.new(:dma_fill_rect, x: x, y: y, w: w, h: h, color: color)
+      end
+
       # --- control flow ---  (bodies are nested statements)
 
       def if_(cond, *body)

@@ -47,6 +47,40 @@ class TestIRBackendRubyHardware < Minitest::Test
     assert_equal 0, i.screen.pixel(8, 5)                      # just outside
   end
 
+  def test_dma_fill_rect_paints_a_block
+    # Same picture as fill_rect — the "DMA" is only how a console fills it fast.
+    i = run_ir(program(dma_fill_rect(4, 6, 4, 2, :red)))
+    assert_equal Color.resolve(:red), i.screen.pixel(4, 6)
+    assert_equal Color.resolve(:red), i.screen.pixel(7, 7) # bottom-right (4+4-1, 6+2-1)
+    assert_equal 0, i.screen.pixel(8, 6)                    # just outside
+  end
+
+  def test_draw_rect_at_positions_the_block_from_variables
+    # The moving-object draw: its position comes from variables at run time.
+    i = run_ir(program(
+      set(:x, 30),
+      set(:y, 40),
+      draw_rect_at(:x, :y, 4, 4, :green),
+    ))
+    assert_equal Color.resolve(:green), i.screen.pixel(30, 40)
+    assert_equal Color.resolve(:green), i.screen.pixel(33, 43) # bottom-right corner
+    assert_equal 0, i.screen.pixel(34, 40)                     # just outside
+  end
+
+  def test_draw_text_renders_glyph_pixels
+    # 'I' in the 5x7 font has a set pixel at its top-left corner (row 0 = 0x0E,
+    # so columns 1..3 are lit) — assert a lit and an unlit cell of the glyph.
+    i = run_ir(program(draw_text("I", 10, 20, :white)))
+    assert_equal Color.resolve(:white), i.screen.pixel(11, 20) # a lit pixel of 'I'
+    assert_equal 0, i.screen.pixel(10, 20)                      # an unlit corner
+  end
+
+  def test_draw_text_skips_unsupported_characters
+    # The font has no '@'; drawing it must not raise, just render nothing.
+    i = run_ir(program(draw_text("@", 0, 0, :white)))
+    assert_equal 0, i.screen.pixel(0, 0)
+  end
+
   def test_off_screen_pixel_is_clipped_without_error
     # The safe-by-default promise: a stray coordinate can't crash a program.
     i = run_ir(program(pixel(999, 999, :red)))

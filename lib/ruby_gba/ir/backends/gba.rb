@@ -184,6 +184,9 @@ module RubyGBA
           when :pixel then emit_pixel(node)
           when :fill_rect then emit_fill_rect(node)
           when :clear_screen then emit_clear_screen(node)
+          when :dma_fill_rect then emit_dma_fill_rect(node)
+          when :draw_rect_at then emit_draw_rect_at(node)
+          when :draw_text then emit_draw_text(node)
           else
             raise LoweringError, "the GBA backend cannot lower #{node.kind.inspect} yet"
           end
@@ -356,9 +359,115 @@ module RubyGBA
           store_word_immediate(word, scratch)                 # hold the fill word in IWRAM
           store_word_immediate(scratch, REG_DMA3SAD)          # source: the fixed word
           store_word_immediate(VRAM_START, REG_DMA3DAD)       # destination: the screen
-          src_fixed = 0x0100_0000                             # keep re-reading the same word
-          control = count | DMA_ENABLE | DMA_32BIT | src_fixed
-          store_word_immediate(control, REG_DMA3CNT)          # kick off the transfer
+          store_word_immediate(dma_fill_control(count), REG_DMA3CNT) # kick off the transfer
+        end
+
+        # A rectangle at a fixed position and size, filled fast with per-row DMA:
+        # each row is one block transfer of a repeated two-pixel word. Rows off the
+        # top/bottom of the screen are skipped.
+        def emit_dma_fill_rect(node)
+          x, y, w, h = constant_ints!(node, :x, :y, :w, :h)
+          even_width!(w, :dma_fill_rect)
+          scratch = hold_fill_word(node[:color])
+          control = dma_fill_control(w / 2)
+
+          h.times do |dy|
+            row = y + dy
+            next unless (0...SCREEN_HEIGHT).cover?(row)
+
+            row_addr = VRAM_START + ((row * SCREEN_WIDTH) + x) * 2
+            fire_dma_fill(scratch, row_addr, control)
+          end
+        end
+
+        # A rectangle whose position is computed at run time (x/y may be
+        # variables), its size a constant. Same per-row DMA fill as
+        # dma_fill_rect, but each row's destination address is built from the
+        # live x/y instead of known up front. r2/r3 hold x/y across the loop;
+        # r4/r5 are address scratch. (No run-time bounds clip yet — the caller is
+        # expected to keep it on-screen, as pong does by clamping.)
+        def emit_draw_rect_at(node)
+          w, h = constant_ints!(node, :w, :h)
+          even_width!(w, :draw_rect_at)
+          scratch = hold_fill_word(node[:color])
+          control = dma_fill_control(w / 2)
+
+          x_reg = 2
+          y_reg = 3
+          eval_value(node[:x])
+          emit(ASM.mov_reg(x_reg, ACC))
+          eval_value(node[:y])
+          emit(ASM.mov_reg(y_reg, ACC))
+
+          h.times do |dy|
+            # r4 = VRAM_START + ((y + dy) * width + x) * 2
+            if dy.zero?
+              emit(ASM.mov_reg(4, y_reg))
+            else
+              emit(ASM.add_imm(4, y_reg, dy))
+            end
+            emit(ASM.load_immediate(5, SCREEN_WIDTH))
+            emit(ASM.mul(4, 5, 4))           # r4 = width * (y + dy)
+            emit(ASM.add_reg(4, 4, x_reg))   # + x
+            emit(ASM.lsl_imm(4, 4, 1))       # * 2 bytes per pixel
+            emit(ASM.load_immediate(5, VRAM_START))
+            emit(ASM.add_reg(4, 4, 5))       # + VRAM base
+
+            store_word_immediate(scratch, REG_DMA3SAD)
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(4, TMP))            # destination is the computed address
+            store_word_immediate(control, REG_DMA3CNT)
+          end
+        end
+
+        # Draw a line of text with the built-in bitmap font. The color loads once,
+        # then every set pixel of every glyph is a single halfword store at its
+        # fixed VRAM address; off-screen pixels are dropped. Positions are constant.
+        def emit_draw_text(node)
+          x, y = constant_ints!(node, :x, :y)
+          emit(ASM.load_immediate(ACC, Color.resolve(node[:color])))
+
+          Font.each_pixel(node[:text]) do |dx, dy|
+            px = x + dx
+            py = y + dy
+            next unless in_bounds?(px, py)
+
+            emit(ASM.load_immediate(TMP, VRAM_START + ((py * SCREEN_WIDTH) + px) * 2))
+            emit(ASM.store_halfword(ACC, TMP))
+          end
+        end
+
+        # Stash a solid fill color as a packed two-pixel word in IWRAM and return
+        # its address — the fixed source a DMA fill re-reads for every pixel.
+        def hold_fill_word(color)
+          value = Color.resolve(color)
+          word = (value << 16) | value
+          scratch = var_addr(:_dma_scratch)
+          store_word_immediate(word, scratch)
+          scratch
+        end
+
+        # The DMA3 control word for a source-fixed 32-bit fill of +count+ words.
+        def dma_fill_control(count)
+          count | DMA_ENABLE | DMA_32BIT | DMA_SRC_FIXED
+        end
+
+        # Point DMA3 at (source, destination), then kick it off — one filled row.
+        def fire_dma_fill(source_addr, dest_addr, control)
+          store_word_immediate(source_addr, REG_DMA3SAD)
+          store_word_immediate(dest_addr, REG_DMA3DAD)
+          store_word_immediate(control, REG_DMA3CNT)
+        end
+
+        # Guard the fast block-fill's even-width assumption: it moves two pixels at
+        # a time, so an odd width would drop the last column (and a width of 0 or 1
+        # would ask DMA for a runaway transfer).
+        def even_width!(w, kind)
+          return if w.positive? && w.even?
+
+          raise LoweringError,
+                "#{kind} needs an even, positive width (got #{w}) — the fast " \
+                "block fill moves two pixels per step"
         end
 
         # Busy-wait for the vertical blank — the brief pause between drawn frames,
