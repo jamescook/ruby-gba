@@ -58,6 +58,11 @@ module RubyGBA
       sum = CHECKSUM_RANGE.sum { |i| @buffer.getbyte(i) }
       @buffer.setbyte(HEADER_CHECKSUM, (-(sum + 0x19)) & 0xFF)
 
+      # Real GBA cartridges are power-of-two sized. Pad up to the next one with
+      # zeros — it's past the checksum range, so this is free, and it keeps the
+      # ROM conventional for flashcarts and real-cart mastering.
+      pad_to_power_of_two
+
       # Run the Doctor — catch problems now, not in the emulator
       if doctor
         result = Doctor.check(self)
@@ -105,6 +110,18 @@ module RubyGBA
       return if @buffer.bytesize >= min_size
       new_size = [@buffer.bytesize * 2, min_size].max
       @buffer << ("\x00".b) * (new_size - @buffer.bytesize)
+    end
+
+    def pad_to_power_of_two
+      target = next_power_of_two(@buffer.bytesize)
+      @buffer << ("\x00".b) * (target - @buffer.bytesize) if target > @buffer.bytesize
+    end
+
+    # The smallest power of two >= n (found by shifting, so no float rounding).
+    def next_power_of_two(n)
+      power = 1
+      power <<= 1 while power < n
+      power
     end
   end
 end
