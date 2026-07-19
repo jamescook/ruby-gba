@@ -97,6 +97,53 @@ module RubyGBA
         Node.new(:dma_fill_rect, x: x, y: y, w: w, h: h, color: color)
       end
 
+      # --- audio ---
+      #
+      # +define_sound+ and +song+ are definitions: they name a sound effect or a
+      # tune without making noise on their own, and a later +beep+ / +play_song+
+      # refers to that name — the same name-resolution +func+/+call+ use. +beep+
+      # and +play_song+ are the ops that actually sound.
+
+      # Power on the audio hardware. Nothing is audible until this runs.
+      def enable_sound
+        Node.new(:enable_sound)
+      end
+
+      # Name a reusable sound effect: a tone at +frequency+ Hz with a wave shape
+      # (+duty+), fade speed (+decay+), and starting +volume+ (0–15). A later
+      # +beep(name)+ plays it.
+      def define_sound(name, frequency:, duty: :half, decay: :fast, volume: 15)
+        Node.new(:define_sound, name: name, frequency: frequency,
+                                duty: duty, decay: decay, volume: volume)
+      end
+
+      # Play a short sound effect now. +tone+ is either a defined-sound name or a
+      # raw frequency in Hz. The keyword overrides default to the named sound's
+      # values (or to the built-in defaults for a raw frequency) when left nil.
+      def beep(tone, duty: nil, decay: nil, volume: nil)
+        Node.new(:beep, tone: tone, duty: duty, decay: decay, volume: volume)
+      end
+
+      # Define a named tune. +events+ is the resolved score — a list of
+      # [frame_offset, frequency_hz] pairs, a rest being frequency 0 — and
+      # +total_frames+ is its length, so the tune loops by wrapping there. The
+      # frame timing is worked out once when the song is written, so every backend
+      # replays the same score. +duty+/+volume+ shape every note.
+      def song(name, events:, total_frames:, duty: :half, volume: 12)
+        Node.new(:song, name: name, events: events, total_frames: total_frames,
+                        duty: duty, volume: volume)
+      end
+
+      # Advance the named tune by one frame — call once per frame in the loop.
+      def play_song(name)
+        Node.new(:play_song, name: name)
+      end
+
+      # Silence the music.
+      def stop_music
+        Node.new(:stop_music)
+      end
+
       # --- control flow ---  (bodies are nested statements)
 
       def if_(cond, *body)
