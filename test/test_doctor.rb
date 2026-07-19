@@ -133,7 +133,7 @@ class TestDoctor < Minitest::Test
 
   def test_report_format
     rom = RubyGBA.build("GOOD", code: "BGOD", maker: "01") do
-      entry { loop_forever }
+      halt
     end
     result = RubyGBA::Doctor.check(rom)
     report = result.report

@@ -25,16 +25,19 @@ module RubyGBA
   # @param doctor [Boolean] run Doctor validation after build (default: true)
   # @return [RubyGBA::ROM] finalized ROM ready to write
   def self.build(title, code:, maker:, doctor: true, &block)
-    rom = ROM.new(title: title, code: code, maker: maker)
-    builder = Builder.new(rom)
+    builder = Builder.new(ROM.new(title: title, code: code, maker: maker))
     catch(:debug_halt) do
       builder.instance_eval(&block)
     end
     unless builder.debug_halted?
       builder.emit_pending_functions
-      builder.process_dump_requests
+      builder.process_dump_requests # dump_func still reads the builder's byte ROM
     end
-    rom.finalize!(doctor: builder.debug_halted? ? false : doctor)
-    rom
+
+    # The DSL built an inspectable IR tree as the block ran; lower that tree to a
+    # ROM. (The builder still emits ARM bytes too, for now — they're ignored here
+    # and removed once the migration settles.)
+    IR::Backends::GBA.new.lower(builder.program, title: title, code: code, maker: maker,
+                                                  doctor: builder.debug_halted? ? false : doctor)
   end
 end

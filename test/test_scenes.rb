@@ -118,43 +118,31 @@ class TestScenes < Minitest::Test
     assert_operator rom.size, :>, 0
   end
 
-  # Regression: case_var must reload the variable before each comparison.
-  # Scene calls clobber r10 (used by add/sub/conditionals), so if case_var
-  # loaded once at the top, later comparisons would use stale r10 values.
-  def test_case_var_reloads_variable_after_scene_call
+  # Regression: case_var must reload the variable before each comparison, since a
+  # called scene clobbers scratch registers. The observable guarantee is that
+  # exactly one scene runs — the matching one — even with a scene between two
+  # other comparisons. Each scene clears the whole screen, so a stale compare
+  # that ran a second scene would leave the wrong color on screen.
+  def test_case_var_dispatches_to_only_the_matching_scene
     rom = build do
       display :bitmap
 
-      scene :title do
-        # This clobbers r10 — add loads var into r10 internally
-        add :frame_count, 1
-      end
+      scene :red_scene   do clear_screen :red end
+      scene :blue_scene  do clear_screen :blue end
+      scene :green_scene do clear_screen :green end
 
-      scene :playing do
-        clear_screen :blue
-      end
-
-      set :state, 0
+      set :state, 1
       case_var :state do
-        when_val 0, :title
-        when_val 1, :playing
+        when_val 0, :red_scene
+        when_val 1, :blue_scene   # the match — runs, then clobbers scratch
+        when_val 2, :green_scene  # must NOT run: state is reloaded, still 1
       end
       halt
     end
 
-    # Extract the code after emit_pending_functions.
-    # Each case branch should have a load_var_into(10, :state) before CMP.
-    # Count how many LDR r10, [r12] instructions appear in the case_var region.
-    code = rom.buffer.byteslice(RubyGBA::ROM::ENTRY_OFFSET, rom.code_offset - RubyGBA::ROM::ENTRY_OFFSET)
-    words = code.unpack("V*")
-
-    # LDR r10, [r12] = 0xE59CA000
-    ldr_r10_r12 = 0xE59CA000
-    load_count = words.count { |w| w == ldr_r10_r12 }
-
-    # Should have at least 2 loads of r10 from r12 (one per when_val case)
-    assert_operator load_count, :>=, 2,
-      "case_var should reload the state variable before each comparison (found #{load_count} loads)"
+    v = assert_gemba_loads_rom(rom, frames: 5)
+    assert v.blue?(120, 80), "state == 1 should run the blue scene"
+    refute v.green?(120, 80), "a stale comparison must not also run the green scene"
   end
 
   # ========================================================================
