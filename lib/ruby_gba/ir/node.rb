@@ -57,6 +57,11 @@ module RubyGBA
         if: :control, loop: :control, func: :control, call: :control,
         case: :control, wait_vblank: :control, halt: :control,
 
+        # a raw escape hatch: pre-assembled target bytes appended verbatim. The
+        # one node that isn't portable — only a native backend can place it, and
+        # the interpreter refuses it. (Proper portability tagging is its own work.)
+        raw: :control,
+
         # expression values — operands, live inside another node's #attrs
         int: :value, var_ref: :value, binop: :value, neg: :value,
 

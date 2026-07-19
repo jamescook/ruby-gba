@@ -56,6 +56,14 @@ class TestIRBackendGBA < Minitest::Test
     assert_raises(GBA::LoweringError) { lower(program(call(:ghost), halt)) }
   end
 
+  def test_raw_bytes_are_appended_verbatim
+    # The escape hatch: a raw node's bytes land in the code exactly as given.
+    bytes = "\x00\xF0\x20\xE3".b # an arbitrary 4-byte ARM word
+    gba = GBA.new
+    gba.lower(program(raw(bytes)))
+    assert_equal bytes, gba.code[0, bytes.bytesize]
+  end
+
   # ---- the ROM is well-formed (Doctor runs inside finalize!) ----
 
   def test_a_drawing_program_finalizes_into_a_valid_rom

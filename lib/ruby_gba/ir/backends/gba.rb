@@ -195,6 +195,7 @@ module RubyGBA
           when :loop then emit_loop(node)
           when :call then emit_branch(:bl, func_label(node[:target]))
           when :case then emit_case(node)
+          when :raw then emit(node[:bytes]) # escape hatch: pre-assembled bytes, verbatim
           when :halt then emit(ASM.loop_forever)
           when :wait_vblank then emit_wait_vblank
           when :display then emit_display(node)
