@@ -65,4 +65,39 @@ class TestBuilderIR < Minitest::Test
     end
     assert_equal 20, Ruby.new.run(got)[:x]
   end
+
+  def test_draw_ops_build_a_matching_ir_tree
+    got = tree do
+      display :bitmap
+      clear_screen :black
+      pixel 10, 20, :red
+      fill_rect 5, 5, 4, 3, :green
+      dma_fill_rect 100, 50, 2, 12, :gray
+      draw_rect_at :ball_x, 40, 4, 4, :white # variable x position
+      draw_text "HI", 40, 30, :white
+    end
+
+    assert_equal program(
+      display(:bitmap),
+      clear_screen(:black),
+      pixel(10, 20, :red),
+      fill_rect(5, 5, 4, 3, :green),
+      dma_fill_rect(100, 50, 2, 12, :gray),
+      draw_rect_at(:ball_x, 40, 4, 4, :white),
+      draw_text("HI", 40, 30, :white),
+    ), got
+  end
+
+  def test_the_built_draw_tree_renders_in_the_interpreter
+    got = tree do
+      display :bitmap
+      clear_screen :black
+      pixel 10, 20, :red
+      fill_rect 5, 5, 4, 3, :green
+    end
+    screen = Ruby.new.run(got).screen
+    assert_equal RubyGBA::Color.resolve(:red), screen.pixel(10, 20)
+    assert_equal RubyGBA::Color.resolve(:green), screen.pixel(5, 5)
+    assert_equal RubyGBA::Color.resolve(:black), screen.pixel(0, 0)
+  end
 end

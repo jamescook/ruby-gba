@@ -262,6 +262,7 @@ module RubyGBA
     # @example Raw (full control)
     #   display MODE_3 | BG2_ENABLE | OBJ_ENABLE
     def display(mode)
+      record(Build.display(mode))
       value = case mode
               when Symbol
                 DISPLAY_MODES.fetch(mode) do
@@ -283,6 +284,7 @@ module RubyGBA
     # @param y [Integer] vertical position (0-159)
     # @param c [Symbol, String, Integer] color (see {Color.resolve})
     def pixel(x, y, c)
+      record(Build.pixel(x, y, c))
       validate_coords!(x, y)
       color_val = Color.resolve(c)
       vram_offset = (y * SCREEN_WIDTH + x) * 2
@@ -297,6 +299,7 @@ module RubyGBA
     # @param h [Integer] height in pixels
     # @param c [Symbol, String, Integer] fill color
     def fill_rect(x, y, w, h, c)
+      record(Build.fill_rect(x, y, w, h, c))
       color_val = Color.resolve(c)
 
       # Load color into r0 once, then reuse for each pixel
@@ -695,6 +698,7 @@ module RubyGBA
     #
     # @param c [Symbol, String, Integer] fill color
     def clear_screen(c)
+      record(Build.clear_screen(c))
       color_val = Color.resolve(c)
       # Pack two 16-bit pixels into one 32-bit word for DMA_32BIT transfer
       word = (color_val << 16) | color_val
@@ -711,6 +715,7 @@ module RubyGBA
     # @param h [Integer] height in pixels
     # @param c [Symbol, String, Integer] fill color
     def dma_fill_rect(x, y, w, h, c)
+      record(Build.dma_fill_rect(x, y, w, h, c))
       color_val = Color.resolve(c)
       word = (color_val << 16) | color_val
       transfers_per_row = w / 2  # 32-bit transfers (2 pixels each)
@@ -736,6 +741,7 @@ module RubyGBA
     # @param h [Integer] height in pixels (build-time constant)
     # @param c [Symbol, String, Integer] fill color
     def draw_rect_at(x_pos, y_pos, w, h, c)
+      record(Build.draw_rect_at(x_pos, y_pos, w, h, c))
       color_val = Color.resolve(c)
       word = (color_val << 16) | color_val
       transfers_per_row = w / 2
@@ -947,6 +953,7 @@ module RubyGBA
     # @param y [Integer] top edge
     # @param c [Symbol, String, Integer] text color
     def draw_text(text, x, y, c)
+      record(Build.draw_text(text, x, y, c))
       color_val = Color.resolve(c)
 
       # Load color once into r0
