@@ -200,6 +200,21 @@ module RubyGBA
         Node.new(:raw, bytes: bytes)
       end
 
+      # --- embedded data ---
+
+      # Embed a named blob of bytes in the ROM. Format-agnostic (a bitmap, a
+      # song's score, ...): +bytes+ is a binary String. A definition — it emits
+      # nothing on its own; a consumer reads it by name.
+      def data(name, bytes)
+        Node.new(:data, name: name, bytes: bytes)
+      end
+
+      # Read one byte (0..255) of a named blob at a fixed index — a value, so it
+      # can drive an operand or a coordinate.
+      def data_byte(name, index)
+        Node.new(:data_byte, name: name, index: index)
+      end
+
       # --- expression values (the AST an assignment or condition is built from) ---
 
       def int(number)

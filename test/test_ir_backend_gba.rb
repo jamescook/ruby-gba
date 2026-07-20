@@ -182,6 +182,28 @@ class TestIRBackendGBA < Minitest::Test
     assert v.black?(2, 0), "holding must not count as repeated presses"
   end
 
+  def test_embedded_data_bytes_land_in_the_code
+    # Deterministic: the blob's bytes are appended to the emitted code (the data
+    # region), so they ship in the ROM.
+    gba = GBA.new
+    gba.lower(program(data(:blob, "\xDE\xAD\xBE\xEF".b), halt))
+    assert_includes gba.code, "\xDE\xAD\xBE\xEF".b
+  end
+
+  def test_a_byte_from_embedded_data_drives_a_pixel
+    # The whole chain on hardware: blob in ROM -> address fixup resolved -> byte
+    # read at run time -> used as a pixel's x. The byte is 10, so red lands at x=10.
+    rom = lower(program(
+      display(:bitmap), clear_screen(:black),
+      data(:coords, "\x0a".b),
+      pixel(data_byte(:coords, 0), 0, :red),
+      halt,
+    ))
+    v = assert_gemba_loads_rom(rom)
+    assert v.red?(10, 0)
+    assert v.black?(11, 0)
+  end
+
   def test_division_drives_a_computed_coordinate
     # x / 3 = 6; plot at (6, 0). The ARM7TDMI can't divide, so this exercises the
     # BIOS Div call in the lowering — and proves the emulator's BIOS runs it.

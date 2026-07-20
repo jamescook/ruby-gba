@@ -63,15 +63,21 @@ module RubyGBA
         # the interpreter refuses it. (Proper portability tagging is its own work.)
         raw: :control,
 
+        # embedded asset data: a named, format-agnostic blob of bytes stored in
+        # the ROM (a definition, like func/song — it emits nothing on its own).
+        # Consumers (a bitmap, a song) reference it by name.
+        data: :data,
+
         # expression values — operands, live inside another node's #attrs
         int: :value, var_ref: :value, binop: :value, neg: :value,
+        data_byte: :value,
 
         # input reads — an operand whose value comes from the gamepad
         held: :value, pressed: :value,
       }.freeze
 
       # The distinct categories, in a stable order (useful for coverage checks).
-      CATEGORIES = %i[root var draw sound control value].freeze
+      CATEGORIES = %i[root var draw sound control data value].freeze
 
       attr_reader :kind, :attrs, :children
       attr_accessor :parent, :source
@@ -107,7 +113,7 @@ module RubyGBA
       # A statement is anything that belongs in the program tree (as opposed to
       # an operand value).
       def statement?
-        %i[root var draw sound control].include?(category)
+        %i[root var draw sound control data].include?(category)
       end
 
       def leaf?

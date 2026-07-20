@@ -51,6 +51,7 @@ module RubyGBA
           @log = []               # observable events: [:vblank, n], [:halt]
           @defined_sounds = {}     # name -> musical params (from define_sound)
           @songs = {}              # name -> :song node (from song)
+          @data = {}               # name -> bytes (embedded data blobs)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
         end
@@ -113,6 +114,8 @@ module RubyGBA
               }
             when :song
               @songs[n[:name]] = n
+            when :data
+              @data[n[:name]] = n[:bytes]
             end
           end
         end
@@ -197,7 +200,7 @@ module RubyGBA
             exec_draw_text(node)
           when :enable_sound
             @audio << [:enabled]
-          when :define_sound, :song
+          when :define_sound, :song, :data
             # Definitions: gathered up front, so reaching one inline does nothing
             # (just like a func body).
             nil
@@ -294,8 +297,19 @@ module RubyGBA
           when :binop then eval_binop(node[:op], eval_value(node[:lhs]), eval_value(node[:rhs]))
           when :held then bool(button_held?(node[:button]))
           when :pressed then bool(button_pressed?(node[:button]))
+          when :data_byte then data_byte(node[:name], node[:index])
           else raise ProgramError, "not a value node: #{node.kind.inspect}"
           end
+        end
+
+        # One byte (0..255) of a named embedded blob, read straight from the
+        # stored bytes — no addresses here, just an index into the data.
+        def data_byte(name, index)
+          bytes = @data.fetch(name) do
+            raise ProgramError, "reference to undefined data #{name.inspect}"
+          end
+          bytes.getbyte(index) ||
+            raise(ProgramError, "data_byte index #{index} is past the end of #{name.inspect}")
         end
 
         # A button is "held" while it's down. It's "pressed" only on the edge —

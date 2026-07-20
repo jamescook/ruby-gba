@@ -105,6 +105,19 @@ class TestIRBackendRuby < Minitest::Test
     assert_equal 0, i[:lo], "the else-branch must not run when the condition is true"
   end
 
+  def test_reads_a_byte_from_embedded_data
+    # A named blob is embedded once and its bytes are readable by (name, index).
+    i = run_ir(program(
+      data(:blob, "\x07\x2a\x63".b),
+      set(:x, data_byte(:blob, 0)),
+      set(:y, data_byte(:blob, 1)),
+      set(:z, data_byte(:blob, 2)),
+    ))
+    assert_equal 0x07, i[:x]
+    assert_equal 0x2a, i[:y]
+    assert_equal 0x63, i[:z]
+  end
+
   def test_division_truncates_toward_zero
     # Matches the console's BIOS Div (and C): quotient rounds toward zero, so a
     # negative result truncates up, never down like Ruby's floor division.

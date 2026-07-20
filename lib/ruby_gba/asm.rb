@@ -121,6 +121,27 @@ module RubyGBA
       instructions.pack("V*")
     end
 
+    # Build a full 32-bit value into reg with a FIXED four-instruction sequence
+    # (MOV + three ORRs, no zero-byte skipping), so the encoding is always 16
+    # bytes whatever the value. That fixed size is what lets a two-pass fixup
+    # reserve the slot up front and patch in the value — e.g. a resolved data
+    # address — later, without shifting everything after it.
+    def load_immediate_fixed(reg, value)
+      value &= 0xFFFFFFFF
+      words = []
+      4.times do |i|
+        byte = (value >> (i * 8)) & 0xFF
+        rotation = (16 - i * 4) & 0xF
+        imm12 = (rotation << 8) | byte
+        words << if i.zero?
+                   0xE3A00000 | (reg << 12) | imm12               # MOV reg, #byte0
+                 else
+                   0xE3800000 | (reg << 16) | (reg << 12) | imm12 # ORR reg, reg, #byteN
+                 end
+      end
+      words.pack("V*")
+    end
+
     # ADD rd, rn, #imm (immediate, must fit in rotated 8-bit)
     # @param rd [Integer] destination register
     # @param rn [Integer] source register
@@ -265,6 +286,12 @@ module RubyGBA
         # U=0 for negative offset
         [0xE5100000 | (rn << 16) | (rd << 12) | ((-offset) & 0xFFF)].pack("V")
       end
+    end
+
+    # LDRB rd, [rn, #offset] — load an unsigned byte (0..255) with immediate
+    # offset. The B (bit 22) is what makes it a byte load instead of a word.
+    def ldrb_offset(rd, rn, offset)
+      [0xE5D00000 | (rn << 16) | (rd << 12) | (offset & 0xFFF)].pack("V")
     end
 
     # STR rd, [rn] — store 32-bit word to address in rn

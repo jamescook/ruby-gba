@@ -90,6 +90,8 @@ module RubyGBA
           @func_ranges = {}      # func name -> byte span in @code (for dump_func)
           @defined_sounds = {}   # name -> musical params (from define_sound)
           @songs = {}            # name -> :song node (from song)
+          @data_blobs = {}       # name -> bytes (embedded data, appended after code)
+          @data_positions = {}   # name -> byte offset of its blob within @code
           @label_seq = 0
           @uses_pressed = false  # whether the program reads edge-detected input
         end
@@ -105,6 +107,7 @@ module RubyGBA
           emit_input_init if @uses_pressed
           program.children.each { |stmt| emit_statement(stmt) }
           emit_functions
+          emit_data_region
           resolve_fixups
           @code
         end
@@ -128,6 +131,8 @@ module RubyGBA
               }
             when :song
               @songs[node[:name]] = node
+            when :data
+              @data_blobs[node[:name]] = node[:bytes]
             end
           end
         end
@@ -159,23 +164,59 @@ module RubyGBA
           emit(ASM.nop)
         end
 
-        # Second pass: every label position is known, so rewrite each placeholder
-        # as a real branch. The word offset is (target - here)/4; ASM folds in the
-        # pipeline adjustment.
+        # Second pass: every label and data-blob position is known now, so patch
+        # each placeholder — a branch to a label, or a load of a blob's address.
         def resolve_fixups
           @fixups.each do |fix|
-            target = @labels.fetch(fix[:target]) do
-              raise LoweringError, "unresolved jump to #{fix[:target].inspect}"
-            end
-            word_offset = (target - fix[:pos]) / 4
-            encoded =
-              case fix[:kind]
-              when :b then ASM.branch(word_offset)
-              when :bcond then ASM.branch_cond(fix[:cond], word_offset)
-              when :bl then ASM.branch_link(word_offset)
-              end
-            @code[fix[:pos], 4] = encoded
+            fix[:kind] == :data_addr ? resolve_data_address(fix) : resolve_branch(fix)
           end
+        end
+
+        # Rewrite a branch placeholder as a real branch. The word offset is
+        # (target - here)/4; ASM folds in the pipeline adjustment.
+        def resolve_branch(fix)
+          target = @labels.fetch(fix[:target]) do
+            raise LoweringError, "unresolved jump to #{fix[:target].inspect}"
+          end
+          word_offset = (target - fix[:pos]) / 4
+          encoded =
+            case fix[:kind]
+            when :b then ASM.branch(word_offset)
+            when :bcond then ASM.branch_cond(fix[:cond], word_offset)
+            when :bl then ASM.branch_link(word_offset)
+            end
+          @code[fix[:pos], 4] = encoded
+        end
+
+        # Patch a data-address load with the blob's run-time address. The blob
+        # sits at +position+ within @code, and ROM.assemble drops @code into the
+        # cartridge right after the header, so its address is the cartridge base
+        # plus the header plus that position.
+        def resolve_data_address(fix)
+          position = @data_positions.fetch(fix[:target]) do
+            raise LoweringError, "reference to undefined data #{fix[:target].inspect}"
+          end
+          address = ROM_START + RubyGBA::ROM::ENTRY_OFFSET + position
+          @code[fix[:pos], 16] = ASM.load_immediate_fixed(fix[:reg], address)
+        end
+
+        # Lay the embedded blobs out after all the code, remembering where each
+        # landed so resolve_data_address can turn a name into an address. Data
+        # after the code means the main flow never runs into it.
+        def emit_data_region
+          @data_blobs.each do |name, bytes|
+            @data_positions[name] = pos
+            emit(bytes)
+          end
+        end
+
+        # Load the run-time address of a named blob into +reg+. The address isn't
+        # known until the data region is placed, so emit a fixed-size placeholder
+        # and record a fixup to patch in the real address. Consumers (a blit's DMA
+        # source, a sequencer's cursor) build on this.
+        def emit_load_data_address(reg, name)
+          @fixups << { pos: pos, kind: :data_addr, reg: reg, target: name }
+          emit(ASM.load_immediate_fixed(reg, 0))
         end
 
         # --- statements ---------------------------------------------------------
@@ -206,7 +247,7 @@ module RubyGBA
           when :draw_rect_at then emit_draw_rect_at(node)
           when :draw_text then emit_draw_text(node)
           when :enable_sound then emit_enable_sound
-          when :define_sound, :song then nil # definitions: collected, nothing to emit
+          when :define_sound, :song, :data then nil # definitions: collected, nothing to emit
           when :beep then emit_beep(node)
           when :play_song then emit_play_song(node)
           when :stop_music then emit_stop_music
@@ -625,9 +666,17 @@ module RubyGBA
           when :binop then eval_binop(node)
           when :held then eval_held(node[:button])
           when :pressed then eval_pressed(node[:button])
+          when :data_byte then eval_data_byte(node)
           else
             raise LoweringError, "the GBA backend cannot evaluate #{node.kind.inspect}"
           end
+        end
+
+        # Read one byte of a named blob: point the address register at the blob,
+        # then load the byte at its fixed index into the accumulator.
+        def eval_data_byte(node)
+          emit_load_data_address(ADDR, node[:name])
+          emit(ASM.ldrb_offset(ACC, ADDR, node[:index]))
         end
 
         # Evaluate lhs and rhs, holding lhs on the stack while rhs is computed, then
