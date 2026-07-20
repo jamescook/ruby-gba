@@ -245,7 +245,8 @@ class TestIRNode < Minitest::Test
     prog = program(
       display(:bitmap),                                          # draw
       enable_sound,                                             # sound
-      set(:x, 100),                                              # var + value
+      data(:blob, "\x0a".b),                                     # data
+      set(:x, data_byte(:blob, 0)),                              # var + value
       loop_(                                                     # control
         wait_vblank,
         if_(binop(:>, var_ref(:x), int(200)), set(:x, 0)),      # value cond
