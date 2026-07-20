@@ -133,8 +133,12 @@ module RubyGBA
   end
 
   # The result of comparing two Values: a yes/no test the program branches on.
-  # Branch by calling `.then` with the block to run when the test holds.
+  # Branch by calling `.then` with the block to run when the test holds. Combine
+  # tests with & (both) and | (either) — Ruby's `&&`/`||` can't be overloaded, so
+  # the single-character forms are the ones that build a combined Condition.
   class Condition
+    Build = IR::Build
+
     def initialize(builder, node)
       @builder = builder
       @node = node
@@ -142,6 +146,17 @@ module RubyGBA
 
     # The IR value node for the test (a comparison binop).
     attr_reader :node
+
+    # Both tests must hold. Parenthesize the operands — `&` binds tighter than the
+    # comparisons: (a > b) & (c < d).
+    def &(other)
+      compose(:and, other)
+    end
+
+    # Either test may hold: (a > b) | (c < d).
+    def |(other)
+      compose(:or, other)
+    end
 
     # Run the block's statements only when the condition holds. Records an `if`
     # node carrying the block, the same shape the low-level if_* verbs build, and
@@ -153,6 +168,19 @@ module RubyGBA
 
       if_node = @builder.record_conditional(@node, &block)
       Branch.new(@builder, if_node)
+    end
+
+    private
+
+    # Build a combined Condition. Both sides must be Conditions — you compose
+    # yes/no tests, not raw numbers (a bare number has no branch meaning here).
+    def compose(op, other)
+      unless other.is_a?(Condition)
+        raise ArgumentError,
+              "compose conditions with & and |, e.g. (a > b) & (c < d) — got #{other.class}"
+      end
+
+      Condition.new(@builder, Build.binop(op, @node, other.node))
     end
   end
 

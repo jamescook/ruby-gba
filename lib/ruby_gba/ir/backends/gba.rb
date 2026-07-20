@@ -644,6 +644,10 @@ module RubyGBA
           when :+ then emit(ASM.add_reg(ACC, TMP, ACC))
           when :- then emit(ASM.sub_reg(ACC, TMP, ACC))
           when :* then emit(ASM.mul(ACC, TMP, ACC))
+          # Condition composition: both sides are already 0/1, so a bitwise
+          # and/or gives the combined 0/1 the branch tests for.
+          when :and then emit(ASM.and_reg(ACC, TMP, ACC))
+          when :or then emit(ASM.orr_reg(ACC, TMP, ACC))
           else emit_comparison(op)
           end
         end

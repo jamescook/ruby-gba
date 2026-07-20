@@ -340,6 +340,9 @@ module RubyGBA
           when :<= then bool(Int32.cmp(lhs, rhs) <= 0)
           when :== then bool(Int32.cmp(lhs, rhs).zero?)
           when :!= then bool(!Int32.cmp(lhs, rhs).zero?)
+          # Condition composition: operands are already 0/1, so combine them.
+          when :and then bool(!lhs.zero? && !rhs.zero?)
+          when :or then bool(!lhs.zero? || !rhs.zero?)
           else raise ProgramError, "unknown binary operator #{op.inspect}"
           end
         end
