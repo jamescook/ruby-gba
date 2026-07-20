@@ -383,6 +383,7 @@ module RubyGBA
     #
     # @param button [Symbol] button name
     def held(button)
+      reject_block!(:held, button) if block_given?
       check_button!(button)
       Condition.new(self, Build.held(button))
     end
@@ -391,6 +392,7 @@ module RubyGBA
     #
     # @param button [Symbol] button name
     def pressed(button)
+      reject_block!(:pressed, button) if block_given?
       check_button!(button)
       Condition.new(self, Build.pressed(button))
     end
@@ -627,6 +629,15 @@ module RubyGBA
       return if BUTTON_MASKS.key?(button)
 
       raise ArgumentError, "unknown button: #{button}"
+    end
+
+    # held/pressed hand back a Condition and take no block. A block here means a
+    # dropped `.then` — the block would attach to held/pressed and be silently
+    # ignored — so name the fix instead of losing the code.
+    def reject_block!(verb, button)
+      raise ArgumentError,
+            "#{verb}(:#{button}) has no block form — write #{verb}(:#{button}).then { ... } " \
+            "(or the block-taking if_#{verb} :#{button} do ... end)"
     end
 
     # Look up a variable's IWRAM address, raising if not declared.
