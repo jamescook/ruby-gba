@@ -334,6 +334,7 @@ module RubyGBA
           when :+ then Int32.add(lhs, rhs)
           when :- then Int32.sub(lhs, rhs)
           when :* then Int32.mul(lhs, rhs)
+          when :/ then Int32.div(lhs, rhs)
           when :> then bool(Int32.cmp(lhs, rhs) > 0)
           when :< then bool(Int32.cmp(lhs, rhs) < 0)
           when :>= then bool(Int32.cmp(lhs, rhs) >= 0)

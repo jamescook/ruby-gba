@@ -105,6 +105,19 @@ class TestIRBackendRuby < Minitest::Test
     assert_equal 0, i[:lo], "the else-branch must not run when the condition is true"
   end
 
+  def test_division_truncates_toward_zero
+    # Matches the console's BIOS Div (and C): quotient rounds toward zero, so a
+    # negative result truncates up, never down like Ruby's floor division.
+    i = run_ir(program(
+      set(:a, 20), set(:qa, binop(:/, var_ref(:a), int(3))),   #  6
+      set(:b, -7), set(:qb, binop(:/, var_ref(:b), int(2))),   # -3 (not -4)
+      set(:c, 7),  set(:qc, binop(:/, var_ref(:c), int(-2))),  # -3
+    ))
+    assert_equal 6, i[:qa]
+    assert_equal(-3, i[:qb])
+    assert_equal(-3, i[:qc])
+  end
+
   def test_signed_comparison_flows_through_conditions
     # x = -1 (0xFFFF_FFFF). Signed, -1 < 1 is true — the opposite of comparing
     # the raw bits as unsigned.

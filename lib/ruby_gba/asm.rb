@@ -321,6 +321,16 @@ module RubyGBA
       [0xE1A00000 | (rd << 12) | rm].pack("V")
     end
 
+    # --- SWI (software interrupt: trap into a BIOS routine) ---
+
+    # SWI #comment — hand control to the BIOS to run one of its built-in routines
+    # (division, decompression, ...). In ARM state the GBA BIOS reads the routine
+    # number from the top byte of the 24-bit comment, so Div (routine 6) is
+    # swi(0x06 << 16). The routine's inputs/outputs are passed in registers.
+    def swi(comment)
+      [0xEF000000 | (comment & 0x00FFFFFF)].pack("V")
+    end
+
     # --- Helpers ---
 
     # Try to encode a 32-bit value as an ARM rotated 8-bit immediate.
