@@ -53,10 +53,12 @@ module RubyGBA
         wrap(-wrap(a))
       end
 
-      # Signed division truncated toward zero — matching the console's BIOS Div
-      # routine and C, NOT Ruby's `/`, which floors toward negative infinity. So
-      # -7 / 2 is -3 here, never -4. Dividing the magnitudes and reapplying the
-      # sign is what gives the truncating behavior.
+      # Signed division truncated toward zero — like the console's BIOS Div (and
+      # C), not Ruby's `/`. Ruby's `/` FLOORS: it steps to the whole number to the
+      # LEFT on the number line, so -7 / 2 is -4, not the -3 we want. That only
+      # bites on negatives. Dividing the magnitudes (both positive, where "left"
+      # and "toward zero" are the same step) then reapplying the sign avoids it:
+      # 7 / 2 = 3, negate -> -3.
       def div(a, b)
         a = wrap(a)
         b = wrap(b)
