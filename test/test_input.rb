@@ -122,18 +122,6 @@ class TestInput < Minitest::Test
     assert_operator rom.size, :>, 0
   end
 
-  def test_if_pressed_uses_prev_keys_variable
-    _rom, builder = build_with_builder do
-      if_pressed :start do
-        set :state, 1
-      end
-      halt
-    end
-
-    assert builder.variables.key?(:_prev_keys),
-      "if_pressed should auto-allocate :_prev_keys variable"
-  end
-
   def test_if_pressed_emits_beq
     rom = build do
       if_pressed :start do
@@ -174,14 +162,6 @@ class TestInput < Minitest::Test
   end
 
   private
-
-  def build_with_builder(doctor: false, &block)
-    rom = RubyGBA::ROM.new(title: "INPTEST", code: "BINP", maker: "01")
-    builder = RubyGBA::Builder.new(rom)
-    builder.instance_eval(&block)
-    rom.finalize!(doctor: doctor)
-    [rom, builder]
-  end
 
   def branch?(inst)
     (inst & 0x0E000000) == 0x0A000000

@@ -3,6 +3,11 @@
 module RubyGBA
   # DSL context for building a GBA ROM.
   #
+  # Each DSL method builds a node in an IR tree — an in-memory description of what
+  # the program does — and returns. {RubyGBA.build} lowers the finished tree to a
+  # ROM once the block ends. Building the whole tree before lowering any of it is
+  # what lets a {#call} refer to a {#func} defined later in the block.
+  #
   # @example Minimal ROM
   #   rom = RubyGBA.build("MYGAME", code: "BMGE", maker: "01") do
   #     entry { loop_forever }
@@ -19,8 +24,7 @@ module RubyGBA
   class Builder
     include Constants
 
-    # Friendly display mode presets.
-    # Maps readable names to the hardware register values.
+    # Friendly display mode presets — the names {#display} accepts.
     DISPLAY_MODES = {
       bitmap:       MODE_3 | BG2_ENABLE,       # 240x160, 15-bit direct color
       bitmap_indexed: MODE_4 | BG2_ENABLE,     # 240x160, 8-bit indexed, double buffered
@@ -33,24 +37,21 @@ module RubyGBA
     # nodes as terse Build.set(...) calls.
     Build = IR::Build
 
-    def initialize(rom)
-      @rom = rom
-      @variables = {}          # name → { address:, initial: }
+    def initialize
+      @variables = {}          # name → { address:, initial: } — introspection metadata
       @next_var_addr = IWRAM_START
-      @functions = {}          # name → entry offset (byte offset in ROM)
-      @dump_requests = []      # function names to disassemble after emit
-      @songs = {}              # name → Music::SongContext
+      @functions = {}          # name → deferred body block (evaluated at emit time)
+      @dump_requests = []      # function names to disassemble from the lowered ROM
+      @songs = {}              # name → Music::SongContext (for build-time validation)
+      @sound_enabled = false
       @debug_halted = false
 
-      # The IR tree the DSL is building, in parallel with the ARM bytes it still
-      # emits. While the migration is in progress the bytes stay authoritative and
-      # this tree is only inspected by tests; once every method builds IR, the
-      # backend lowers this tree and the byte emission goes away. New statements
-      # attach to the container on top of the stack (the program root, or an open
-      # control-flow block once those are migrated).
+      # The program the DSL builds: an IR tree of nodes that {RubyGBA.build}
+      # lowers to a ROM. Each statement attaches to the container on top of the
+      # stack — the program root, or an open control-flow block (a loop, an if, a
+      # func body) while its block runs.
       @program = Build.program
       @container_stack = [@program]
-      @suppress_record = false
     end
 
     # The IR tree built so far (the whole program). Lets tests assert the DSL
@@ -70,37 +71,11 @@ module RubyGBA
     def set(name, value)
       record(Build.set(name, value))
       ensure_var(name)
-      addr = @variables[name][:address]
-      emit_store_immediate(addr, value)
     end
 
     # Explicit variable declaration — same as `set` but reads better
     # when you want to declare variables at the top of a build block.
     alias var set
-
-    # Load a variable's value into a register.
-    # Uses r12 as the address register (scratch register in ARM calling convention).
-    #
-    # @param reg [Integer] destination register (0-11 recommended)
-    # @param name [Symbol] variable name
-    def load_var(reg, name)
-      ensure_var(name)
-      addr = @variables[name][:address]
-      @rom.emit(ASM.load_immediate(12, addr))
-      @rom.emit(ASM.ldr(reg, 12))
-    end
-
-    # Store a register's value into a variable.
-    # Uses r12 as the address register.
-    #
-    # @param name [Symbol] variable name
-    # @param reg [Integer] source register
-    def store_var(name, reg)
-      ensure_var(name)
-      addr = @variables[name][:address]
-      @rom.emit(ASM.load_immediate(12, addr))
-      @rom.emit(ASM.str(reg, 12))
-    end
 
     # Add to a variable: var += operand.
     # Operand can be an immediate (Integer) or another variable (Symbol).
@@ -110,23 +85,7 @@ module RubyGBA
     def add(name, operand)
       record(Build.add(name, operand))
       ensure_var(name)
-      load_var_into(10, name)
-
-      if operand.is_a?(Symbol)
-        ensure_var(operand)
-        load_var_into(11, operand)
-        @rom.emit(ASM.add_reg(10, 10, 11))
-      else
-        encoding = ASM.encode_rotated_immediate(operand)
-        if encoding
-          @rom.emit(ASM.add_imm(10, 10, operand))
-        else
-          @rom.emit(ASM.load_immediate(11, operand))
-          @rom.emit(ASM.add_reg(10, 10, 11))
-        end
-      end
-
-      store_var_from(10, name)
+      ensure_var(operand) if operand.is_a?(Symbol)
     end
     alias add_var add
 
@@ -138,23 +97,7 @@ module RubyGBA
     def sub(name, operand)
       record(Build.sub(name, operand))
       ensure_var(name)
-      load_var_into(10, name)
-
-      if operand.is_a?(Symbol)
-        ensure_var(operand)
-        load_var_into(11, operand)
-        @rom.emit(ASM.sub_reg(10, 10, 11))
-      else
-        encoding = ASM.encode_rotated_immediate(operand)
-        if encoding
-          @rom.emit(ASM.sub_imm(10, 10, operand))
-        else
-          @rom.emit(ASM.load_immediate(11, operand))
-          @rom.emit(ASM.sub_reg(10, 10, 11))
-        end
-      end
-
-      store_var_from(10, name)
+      ensure_var(operand) if operand.is_a?(Symbol)
     end
     alias sub_var sub
 
@@ -163,9 +106,6 @@ module RubyGBA
     def negate(name)
       record(Build.negate(name))
       ensure_var(name)
-      load_var_into(10, name)
-      @rom.emit(ASM.rsb_imm(10, 10, 0))
-      store_var_from(10, name)
     end
     alias flip negate
 
@@ -177,8 +117,6 @@ module RubyGBA
       record(Build.copy(dest, src))
       ensure_var(dest)
       ensure_var(src)
-      load_var_into(10, src)
-      store_var_from(10, dest)
     end
 
     # Absolute value: var = |var|
@@ -186,15 +124,6 @@ module RubyGBA
     def abs(name)
       record(Build.abs(name))
       ensure_var(name)
-      load_var_into(10, name)
-      @rom.emit(ASM.cmp_imm(10, 0))
-      # If >= 0 (not negative), skip the negate
-      branch_pos = @rom.code_offset
-      @rom.emit(ASM.branch_cond(:ge, 0))  # placeholder
-      @rom.emit(ASM.rsb_imm(10, 10, 0))
-      store_var_from(10, name)
-      after = @rom.code_offset
-      @rom.patch(branch_pos, ASM.branch_cond(:ge, (after - branch_pos) / 4))
     end
 
     # Make a variable negative: var = -|var|
@@ -202,15 +131,6 @@ module RubyGBA
     def negate_abs(name)
       record(Build.negate_abs(name))
       ensure_var(name)
-      load_var_into(10, name)
-      @rom.emit(ASM.cmp_imm(10, 0))
-      # If <= 0 (already negative or zero), skip the negate
-      branch_pos = @rom.code_offset
-      @rom.emit(ASM.branch_cond(:le, 0))  # placeholder
-      @rom.emit(ASM.rsb_imm(10, 10, 0))
-      store_var_from(10, name)
-      after = @rom.code_offset
-      @rom.patch(branch_pos, ASM.branch_cond(:le, (after - branch_pos) / 4))
     end
 
     # Clamp a variable to [min, max] range.
@@ -220,16 +140,7 @@ module RubyGBA
     # @param max_val [Integer] maximum value
     def clamp(name, min_val, max_val)
       record(Build.clamp(name, min_val, max_val))
-      # The IR clamp is one node; the legacy bytes still expand it into a pair of
-      # compares, so don't let those inner set/if calls record their own nodes.
-      without_recording do
-        if_lt name, min_val do
-          set name, min_val
-        end
-        if_gt name, max_val do
-          set name, max_val
-        end
-      end
+      ensure_var(name)
     end
 
     # Get the IWRAM address allocated for a variable.
@@ -247,8 +158,10 @@ module RubyGBA
       @variables.dup
     end
 
-    # Define the entry point code block (low-level).
-    # Instructions inside the block are emitted starting at offset 0x20.
+    # Define an entry point of raw ARM instructions — the escape hatch for
+    # patterns the DSL can't express. The block runs in an {EntryContext} that
+    # collects the emitted bytes into a raw IR node, which the backend appends to
+    # the code verbatim.
     def entry(&block)
       ctx = EntryContext.new
       ctx.instance_eval(&block)
@@ -266,19 +179,18 @@ module RubyGBA
     # @example Raw (full control)
     #   display MODE_3 | BG2_ENABLE | OBJ_ENABLE
     def display(mode)
-      record(Build.display(mode))
-      value = case mode
-              when Symbol
-                DISPLAY_MODES.fetch(mode) do
-                  raise ArgumentError, "unknown display mode: #{mode}. Known: #{DISPLAY_MODES.keys.join(', ')}"
-                end
-              when Integer
-                mode
-              else
-                raise ArgumentError, "expected Symbol or Integer, got #{mode.class}"
-              end
+      case mode
+      when Symbol
+        unless DISPLAY_MODES.key?(mode)
+          raise ArgumentError, "unknown display mode: #{mode}. Known: #{DISPLAY_MODES.keys.join(', ')}"
+        end
+      when Integer
+        # a raw REG_DISPCNT value — passed through untouched
+      else
+        raise ArgumentError, "expected Symbol or Integer, got #{mode.class}"
+      end
 
-      emit_write_reg16(REG_DISPCNT, value)
+      record(Build.display(mode))
     end
 
     # Draw a single pixel in bitmap mode (MODE_3).
@@ -288,11 +200,8 @@ module RubyGBA
     # @param y [Integer] vertical position (0-159)
     # @param c [Symbol, String, Integer] color (see {Color.resolve})
     def pixel(x, y, c)
-      record(Build.pixel(x, y, c))
       validate_coords!(x, y)
-      color_val = Color.resolve(c)
-      vram_offset = (y * SCREEN_WIDTH + x) * 2
-      emit_write_reg16(VRAM_START + vram_offset, color_val)
+      record(Build.pixel(x, y, c))
     end
 
     # Fill a rectangle in bitmap mode (MODE_3).
@@ -304,85 +213,45 @@ module RubyGBA
     # @param c [Symbol, String, Integer] fill color
     def fill_rect(x, y, w, h, c)
       record(Build.fill_rect(x, y, w, h, c))
-      color_val = Color.resolve(c)
-
-      # Load color into r0 once, then reuse for each pixel
-      @rom.emit(ASM.load_immediate(0, color_val))
-
-      h.times do |dy|
-        row_y = y + dy
-        next if row_y < 0 || row_y >= SCREEN_HEIGHT
-
-        w.times do |dx|
-          col_x = x + dx
-          next if col_x < 0 || col_x >= SCREEN_WIDTH
-
-          vram_addr = VRAM_START + (row_y * SCREEN_WIDTH + col_x) * 2
-          @rom.emit(ASM.load_immediate(1, vram_addr))
-          @rom.emit(ASM.store_halfword(0, 1))
-        end
-      end
     end
 
     # Stop execution (branch to self). Use after drawing static scenes.
     def halt
       record(Build.halt)
-      @rom.emit(ASM.loop_forever)
     end
 
-    # Debug breakpoint: emit a halt and stop processing all further DSL calls.
-    # Use this to bisect rendering issues — everything before debug_halt runs,
-    # everything after is ignored. Prints a warning so you remember to remove it.
+    # Debug breakpoint: stop building here, so everything after this call is
+    # ignored. Use it to bisect rendering issues — everything before debug_halt
+    # runs, everything after never makes it into the ROM. Prints a warning so you
+    # remember to remove it.
     #
     # @example Bisecting a black screen
     #   display :bitmap
     #   clear_screen :red      # does this show up?
     #   debug_halt              # ← ROM stops here
-    #   draw_text "HELLO"      # ← never emitted
-    #   game_loop { ... }      # ← never emitted
+    #   draw_text "HELLO"      # ← never recorded
+    #   game_loop { ... }      # ← never recorded
     def debug_halt
       warn "[ruby-gba] debug_halt — ROM truncated here. Remove debug_halt when done."
       record(Build.halt) # the lowered ROM stops (branches to self) at this point
-      @rom.emit(ASM.loop_forever)
       @debug_halted = true
       throw :debug_halt
     end
 
     # True if debug_halt was called (used by RubyGBA.build to skip finalization steps).
     def debug_halted?
-      @debug_halted || false
+      @debug_halted
     end
 
     # --- Game Loop ---
 
-    # Emit a VBlank wait (busy-poll REG_VCOUNT).
-    # Two-phase: wait for current VBlank to end, then wait for next VBlank to start.
-    # Uses r0 (address) and r1 (scanline value).
+    # Wait for the vertical blank — the safe moment to change what's on screen.
     def wait_vblank
       record(Build.wait_vblank)
-      # Load REG_VCOUNT address into r0
-      @rom.emit(ASM.load_immediate(0, REG_VCOUNT))
-
-      # Phase 1: Wait while scanline >= 160 (we might still be in last VBlank)
-      #   LDRH r1, [r0]          ← offset 0, target of the loop-back branch
-      #   CMP r1, #160           ← offset 1
-      #   BGE -2 (back to LDRH)  ← offset 2, word_offset -2 = 2 instructions back
-      @rom.emit(ASM.load_halfword(1, 0))
-      @rom.emit(ASM.cmp_imm(1, 160))
-      @rom.emit(ASM.branch_cond(:ge, -2))  # word_offset -2 = back to LDRH
-
-      # Phase 2: Wait while scanline < 160 (wait for VBlank to start)
-      #   LDRH r1, [r0]          ← offset 0
-      #   CMP r1, #160           ← offset 1
-      #   BLT -2 (back to LDRH)  ← offset 2
-      @rom.emit(ASM.load_halfword(1, 0))
-      @rom.emit(ASM.cmp_imm(1, 160))
-      @rom.emit(ASM.branch_cond(:lt, -2))  # word_offset -2 = back to LDRH
     end
 
-    # Wrap a block of code in an infinite loop.
-    # The block is evaluated once to emit its instructions, then a branch
-    # back to the start is appended.
+    # Wrap a block of code in an infinite loop. The block's statements become the
+    # loop body in the IR tree; the backend adds the jump back to the top.
     #
     # @example
     #   game_loop do
@@ -390,62 +259,29 @@ module RubyGBA
     #     # ... game logic ...
     #   end
     def game_loop(&block)
-      loop_start = @rom.code_offset
-
-      # Emit the block's instructions inside a loop node so nested statements
-      # attach to it in the IR tree.
       push_container(Build.loop_) do
         instance_eval(&block)
       end
-
-      # Branch back to loop start
-      # Distance in words: (loop_start - current_pc) / 4
-      # branch() takes word offset from current position
-      branch_target = @rom.code_offset  # where the branch instruction will be
-      word_offset = (loop_start - branch_target) / 4
-      @rom.emit(ASM.branch(word_offset))
     end
 
     # --- Subroutines ---
 
-    # Define a named subroutine. The block is stored and emitted after all
-    # other code (so func/call order doesn't matter in the DSL).
+    # Define a named subroutine. The block is stored and evaluated after the main
+    # block (so func/call order in the DSL doesn't matter).
     #
     # @param name [Symbol] function name
     def func(name, &block)
-      existing = @functions[name]
-      if existing&.fetch(:block)
-        raise ArgumentError, "function :#{name} already defined"
-      end
+      raise ArgumentError, "function :#{name} already defined" if @functions.key?(name)
 
-      if existing
-        # Forward reference from a prior call — fill in the block
-        existing[:block] = block
-      else
-        @functions[name] = { block: block, entry: nil, calls: [] }
-      end
+      @functions[name] = block
     end
 
-    # Call a named subroutine via BL (branch with link).
-    # If the function hasn't been emitted yet, records a placeholder to patch later.
+    # Call a named subroutine. The target is resolved by name when the tree is
+    # lowered, so it may be defined before or after this call.
     #
     # @param name [Symbol] function name
     def call(name)
       record(Build.call(name))
-      @functions[name] ||= { block: nil, entry: nil, calls: [] }
-
-      call_pos = @rom.code_offset
-      entry = @functions[name][:entry]
-
-      if entry
-        # Function already emitted — emit BL directly
-        word_offset = (entry - call_pos) / 4
-        @rom.emit(ASM.branch_link(word_offset))
-      else
-        # Function not yet emitted — placeholder BL, patch later
-        @functions[name][:calls] << call_pos
-        @rom.emit(ASM.nop)  # placeholder (will be patched)
-      end
     end
 
     # Request a disassembly dump of a function after the ROM is built.
@@ -464,45 +300,17 @@ module RubyGBA
       @dump_requests << name
     end
 
-    # Emit all pending function bodies and patch forward references.
-    # Called automatically by RubyGBA.build after the DSL block.
+    # Build the IR node for every deferred function body, then check that every
+    # call and case target names a function that exists. Called automatically by
+    # RubyGBA.build after the DSL block.
     def emit_pending_functions
-      @functions.each do |name, info|
-        next unless info[:block]  # skip if only called but never defined
-
-        # Record entry point
-        info[:entry] = @rom.code_offset
-
-        # Emit: PUSH {lr}
-        @rom.emit(ASM.push(14))
-
-        # Emit function body. The block is only evaluated here (funcs are deferred
-        # so call/func order in the DSL doesn't matter), so this is also where the
-        # func's IR node and its body get built.
+      @functions.each do |name, block|
         push_container(Build.func(name)) do
-          instance_eval(&info[:block])
-        end
-
-        # Emit: POP {pc} to return
-        @rom.emit(ASM.pop(15))
-
-        # Record end offset for dump_func
-        info[:end] = @rom.code_offset
-
-        # Patch all pending call sites
-        info[:calls].each do |call_pos|
-          word_offset = (info[:entry] - call_pos) / 4
-          @rom.patch(call_pos, ASM.branch_link(word_offset))
-        end
-        info[:calls].clear
-      end
-
-      # Check for any calls to undefined functions
-      @functions.each do |name, info|
-        unless info[:calls].empty?
-          raise ArgumentError, "function :#{name} called but never defined"
+          instance_eval(&block)
         end
       end
+
+      verify_targets_defined!
     end
 
     # --- State Machine / Scenes ---
@@ -517,7 +325,8 @@ module RubyGBA
 
     # Dispatch to a scene based on a variable's value.
     # Evaluates the block in a CaseContext to collect when_val clauses,
-    # then emits a chain of comparisons + calls.
+    # then records one case node dispatching on the variable — its targets are
+    # the scene subroutines (each scene is a func named _scene_<name>).
     #
     # @param var_name [Symbol] variable holding the state value
     #
@@ -531,146 +340,44 @@ module RubyGBA
       ctx.instance_eval(&block)
 
       ensure_var(var_name)
-
-      # In the IR this is one case node dispatching on the variable; the targets
-      # are the scene subroutines (each scene is a func named _scene_<name>).
       clauses = ctx.cases.map { |value, raw_name| [value, :"_scene_#{raw_name}"] }
       record(Build.case_(var_name, clauses))
-
-      # The bytes still expand into a reload-compare-call chain (reloading the
-      # variable before each compare because a called scene may clobber r10). Keep
-      # those inner call()s from recording their own nodes into the tree.
-      without_recording do
-        ctx.cases.each do |value, raw_name|
-          scene_name = :"_scene_#{raw_name}"
-
-          load_var_into(10, var_name)
-
-          encoding = ASM.encode_rotated_immediate(value)
-          if encoding
-            @rom.emit(ASM.cmp_imm(10, value))
-          else
-            @rom.emit(ASM.load_immediate(11, value))
-            @rom.emit(ASM.cmp_reg(10, 11))
-          end
-
-          # Skip the call if not equal
-          branch_pos = @rom.code_offset
-          @rom.emit(ASM.branch_cond(:ne, 0))  # placeholder
-
-          call(scene_name)
-
-          # Patch the skip branch
-          block_end = @rom.code_offset
-          skip_words = (block_end - branch_pos) / 4
-          @rom.patch(branch_pos, ASM.branch_cond(:ne, skip_words))
-        end
-      end
     end
 
     # --- Input ---
 
-    # Button name → KEY_* mask mapping for the DSL.
+    # Valid button names for {#if_held} / {#if_pressed}, mapped to the hardware
+    # key bit each names.
     BUTTON_MASKS = {
       a: KEY_A, b: KEY_B, select: KEY_SELECT, start: KEY_START,
       right: KEY_RIGHT, left: KEY_LEFT, up: KEY_UP, down: KEY_DOWN,
       r: KEY_R, l: KEY_L,
     }.freeze
 
-    # Execute block only while a button is held down.
-    # REG_KEYINPUT is active-low: bit=0 means pressed.
-    # Reads input, tests the button bit, skips the block if NOT pressed.
-    #
-    # Uses r8 (input value) and r9 (scratch). Preserves r0-r7 for game code.
+    # Run the block only while a button is held down.
     #
     # @param button [Symbol] :up, :down, :left, :right, :a, :b, :start, :select, :l, :r
     def if_held(button, &block)
-      mask = BUTTON_MASKS.fetch(button) { raise ArgumentError, "unknown button: #{button}" }
-
+      check_button!(button)
       push_container(Build.if_(Build.held(button))) do
-        # Read REG_KEYINPUT into r8
-        @rom.emit(ASM.load_immediate(9, REG_KEYINPUT))
-        @rom.emit(ASM.load_halfword(8, 9))
-
-        # Test the button bit: TST r8, #mask (AND but discard result, just set flags)
-        # Active-low: bit=0 means pressed. So if (input & mask) != 0, button is NOT pressed.
-        # We want to skip the block when NOT pressed, so: branch over block if (input & mask) != 0
-        # TST sets Z flag if result is 0 (meaning button IS pressed).
-        # BNE = branch if Z=0 = branch if NOT pressed = skip block.
-        @rom.emit(ASM.tst_imm(8, mask))
-
-        # Placeholder branch — we'll patch the offset after emitting the block
-        branch_pos = @rom.code_offset
-        @rom.emit(ASM.branch_cond(:ne, 0))  # placeholder
-
-        # Emit the block
         instance_eval(&block)
-
-        # Patch the branch to skip over the block
-        block_end = @rom.code_offset
-        skip_words = (block_end - branch_pos) / 4
-        @rom.patch(branch_pos, ASM.branch_cond(:ne, skip_words))
       end
     end
 
-    # Execute block when a button is first pressed (edge-detected).
-    # Compares current frame's input against previous frame's to detect new presses.
-    # Requires a game_loop context (uses :_prev_keys variable).
-    #
-    # Uses r8 (current input), r9 (scratch).
+    # Run the block when a button is first pressed (edge-detected): down this
+    # frame, up the previous one.
     #
     # @param button [Symbol] button name
     def if_pressed(button, &block)
-      mask = BUTTON_MASKS.fetch(button) { raise ArgumentError, "unknown button: #{button}" }
-
+      check_button!(button)
       push_container(Build.if_(Build.pressed(button))) do
-        # Ensure we have a variable to track previous frame's key state
-        ensure_var(:_prev_keys)
-
-        # Read current keys into r8 (active-low, so invert for "pressed = 1")
-        @rom.emit(ASM.load_immediate(9, REG_KEYINPUT))
-        @rom.emit(ASM.load_halfword(8, 9))
-        @rom.emit(ASM.mvn_reg(8, 8))           # r8 = ~input (now bit=1 means pressed)
-        # Mask to 10 button bits: 0x3FF can't be a rotated imm8, so shift away upper bits
-        @rom.emit(ASM.lsl_imm(8, 8, 22))       # shift left to clear upper 22 bits
-        @rom.emit(ASM.lsr_imm(8, 8, 22))       # shift right to restore, upper bits now 0
-
-        # Load previous keys into r9
-        load_var_into(9, :_prev_keys)
-
-        # New presses = current & ~previous (pressed now but not last frame)
-        @rom.emit(ASM.mvn_reg(11, 9))          # r11 = ~prev
-        @rom.emit(ASM.and_reg(11, 8, 11))      # r11 = current & ~prev = newly pressed
-
-        # Save current as previous for next frame
-        store_var_from(8, :_prev_keys)
-
-        # Test if our button is newly pressed
-        @rom.emit(ASM.tst_imm(11, mask))
-
-        # Skip block if not newly pressed (Z=1 means bit was 0)
-        branch_pos = @rom.code_offset
-        @rom.emit(ASM.branch_cond(:eq, 0))  # placeholder
-
         instance_eval(&block)
-
-        block_end = @rom.code_offset
-        skip_words = (block_end - branch_pos) / 4
-        @rom.patch(branch_pos, ASM.branch_cond(:eq, skip_words))
       end
     end
 
     # --- Conditionals ---
     # Compare a variable against an immediate or another variable.
     # The block runs only when the condition is true.
-    # Inverse condition is used to skip over the block.
-
-    # Maps DSL condition → inverse ARM condition (used to SKIP the block).
-    INVERSE_COND = {
-      eq: :ne, ne: :eq,
-      gt: :le, le: :gt,
-      ge: :lt, lt: :ge,
-    }.freeze
 
     # Maps DSL condition → the IR comparison operator, for building the `if`
     # node's condition (a binop over the variable and the operand).
@@ -693,47 +400,30 @@ module RubyGBA
 
     # --- DMA ---
 
-    # Clear the entire screen to a solid color using DMA3 fill.
+    # Clear the entire screen to a solid color.
     # Much faster than pixel-by-pixel: one DMA transfer fills all of VRAM.
     #
     # @param c [Symbol, String, Integer] fill color
     def clear_screen(c)
       record(Build.clear_screen(c))
-      color_val = Color.resolve(c)
-      # Pack two 16-bit pixels into one 32-bit word for DMA_32BIT transfer
-      word = (color_val << 16) | color_val
-      dma3_fill(VRAM_START, word, SCREEN_WIDTH * SCREEN_HEIGHT / 2)
     end
 
-    # Fill a rectangular region using DMA3 (one row at a time).
-    # Each row is a separate DMA transfer since VRAM rows aren't contiguous
-    # for arbitrary rectangles.
+    # Fill a rectangle at a fixed position and size.
     #
     # @param x [Integer] left edge
     # @param y [Integer] top edge
-    # @param w [Integer] width in pixels (must be even for 32-bit DMA)
+    # @param w [Integer] width in pixels (must be even for the fast fill)
     # @param h [Integer] height in pixels
     # @param c [Symbol, String, Integer] fill color
     def dma_fill_rect(x, y, w, h, c)
       record(Build.dma_fill_rect(x, y, w, h, c))
-      color_val = Color.resolve(c)
-      word = (color_val << 16) | color_val
-      transfers_per_row = w / 2  # 32-bit transfers (2 pixels each)
-
-      h.times do |dy|
-        row_addr = VRAM_START + ((y + dy) * SCREEN_WIDTH + x) * 2
-        dma3_fill(row_addr, word, transfers_per_row)
-      end
     end
 
     # --- Runtime Drawing ---
 
-    # Draw a filled rectangle at a position determined at runtime.
-    # Positions can be variables (Symbol) or constants (Integer).
-    # Uses DMA3 row-by-row. Width must be even (for 32-bit DMA).
-    #
-    # Emits a runtime loop: for each row, compute dest address, fire DMA.
-    # Uses r0-r7 as scratch.
+    # Draw a filled rectangle at a position determined at run time.
+    # Positions can be variables (Symbol) or constants (Integer); the size is a
+    # build-time constant and the width must be even (for the fast fill).
     #
     # @param x_pos [Symbol, Integer] x position (variable or constant)
     # @param y_pos [Symbol, Integer] y position (variable or constant)
@@ -742,94 +432,19 @@ module RubyGBA
     # @param c [Symbol, String, Integer] fill color
     def draw_rect_at(x_pos, y_pos, w, h, c)
       record(Build.draw_rect_at(x_pos, y_pos, w, h, c))
-      color_val = Color.resolve(c)
-      word = (color_val << 16) | color_val
-      transfers_per_row = w / 2
-
-      # Store fill word to scratch
-      ensure_var(:_dma_scratch)
-      scratch_addr = @variables[:_dma_scratch][:address]
-      @rom.emit(ASM.load_immediate(0, word))
-      @rom.emit(ASM.load_immediate(1, scratch_addr))
-      @rom.emit(ASM.str(0, 1))
-
-      # Load x into r2
-      if x_pos.is_a?(Symbol)
-        ensure_var(x_pos)
-        load_var_into(2, x_pos)
-      else
-        @rom.emit(ASM.load_immediate(2, x_pos))
-      end
-
-      # Load y into r3
-      if y_pos.is_a?(Symbol)
-        ensure_var(y_pos)
-        load_var_into(3, y_pos)
-      else
-        @rom.emit(ASM.load_immediate(3, y_pos))
-      end
-
-      # Emit h separate DMA transfers (one per row, unrolled)
-      # For each row dy=0..h-1:
-      #   dest = VRAM_START + ((y + dy) * 240 + x) * 2
-      #   = VRAM_START + (y*240 + dy*240 + x) * 2
-      h.times do |dy|
-        # Compute dest address:
-        # r4 = y + dy
-        if dy == 0
-          @rom.emit(ASM.mov_reg(4, 3))
-        else
-          @rom.emit(ASM.add_imm(4, 3, dy))
-        end
-
-        # r4 = r4 * 240 (multiply by SCREEN_WIDTH)
-        @rom.emit(ASM.load_immediate(5, SCREEN_WIDTH))
-        @rom.emit(ASM.mul(4, 5, 4))  # r4 = r5 * r4 = 240 * (y+dy)
-
-        # r4 = r4 + x
-        @rom.emit(ASM.add_reg(4, 4, 2))
-
-        # r4 = r4 * 2 (byte offset for 16-bit pixels)
-        @rom.emit(ASM.lsl_imm(4, 4, 1))
-
-        # r4 = r4 + VRAM_START
-        @rom.emit(ASM.load_immediate(5, VRAM_START))
-        @rom.emit(ASM.add_reg(4, 4, 5))
-
-        # DMA3SAD = scratch_addr
-        @rom.emit(ASM.load_immediate(0, scratch_addr))
-        @rom.emit(ASM.load_immediate(1, REG_DMA3SAD))
-        @rom.emit(ASM.str(0, 1))
-
-        # DMA3DAD = r4
-        @rom.emit(ASM.load_immediate(1, REG_DMA3DAD))
-        @rom.emit(ASM.str(4, 1))
-
-        # DMA3CNT = transfers | ENABLE | 32BIT | SRC_FIXED
-        dma_src_fixed = 0x01000000
-        dma_ctrl = transfers_per_row | DMA_ENABLE | DMA_32BIT | dma_src_fixed
-        @rom.emit(ASM.load_immediate(0, dma_ctrl))
-        @rom.emit(ASM.load_immediate(1, REG_DMA3CNT))
-        @rom.emit(ASM.str(0, 1))
-      end
+      ensure_var(x_pos) if x_pos.is_a?(Symbol)
+      ensure_var(y_pos) if y_pos.is_a?(Symbol)
     end
 
     # --- Sound ---
-
-    # Built-in sound presets for common game sounds — the shared table, so the
-    # DSL and the IR backends resolve a preset name to the same sound. The wave
-    # shape / fade / frequency encoding lives in Sound::Registers, shared the same
-    # way (so a beep sounds identical whether emitted here or lowered from the IR).
-    SOUND_PRESETS = Sound::PRESETS
 
     # Enable the GBA sound hardware. Call once at the top of your build block.
     # Without this, all beep calls are silent.
     def enable_sound
       raise ArgumentError, "enable_sound already called — only call it once" if @sound_enabled
-      @sound_enabled = true
 
+      @sound_enabled = true
       record(Build.enable_sound)
-      Sound::Registers.enable.each { |address, value| emit_write_reg16(address, value) }
     end
 
     # Define a named sound preset for use with beep.
@@ -845,8 +460,6 @@ module RubyGBA
     #   define_sound :wall_bounce, frequency: 440
     def define_sound(name, frequency:, duty: :half, decay: :fast, volume: 15)
       record(Build.define_sound(name, frequency: frequency, duty: duty, decay: decay, volume: volume))
-      @custom_sounds ||= {}
-      @custom_sounds[name] = { frequency: frequency, duty: duty, decay: decay, volume: volume }
     end
 
     # Trigger a beep on sound channel 2 (square wave, no sweep).
@@ -867,17 +480,12 @@ module RubyGBA
       raise ArgumentError, "call enable_sound before beep" unless @sound_enabled
 
       record(Build.beep(tone, duty: duty, decay: decay, volume: volume))
-      effect = Sound.resolve_effect(tone, duty: duty, decay: decay, volume: volume,
-                                          defined: @custom_sounds || {})
-      Sound::Registers.channel2(**effect).each do |address, value|
-        emit_write_reg16(address, value)
-      end
     end
 
     # --- Music ---
 
     # Define a named song using the note/rest DSL.
-    # Songs are collected at build time and emitted by play_song.
+    # Songs are collected at build time and played by play_song.
     #
     # @param name [Symbol] song name
     #
@@ -902,13 +510,9 @@ module RubyGBA
                               duty: ctx.duty, volume: ctx.volume))
     end
 
-    # Emit a looping music sequencer for a previously defined song.
-    # Uses channel 1 (square wave with sweep) so it doesn't conflict
-    # with channel 2 beep/SFX sounds.
-    #
-    # Emits unrolled frame comparisons: each note becomes an if_eq check
-    # on a frame counter variable, triggering channel 1 at the right time.
-    # The counter auto-wraps for looping.
+    # Advance a previously defined song by one frame. Call once per frame inside
+    # the game loop. Uses channel 1 (square wave with sweep) so it doesn't
+    # conflict with channel 2 beep/SFX sounds.
     #
     # @param name [Symbol] song name (defined with `song`)
     #
@@ -916,42 +520,17 @@ module RubyGBA
     #   play_song :gameplay
     def play_song(name)
       raise ArgumentError, "call enable_sound before play_song" unless @sound_enabled
-
-      ctx = @songs.fetch(name) do
+      unless @songs.key?(name)
         raise ArgumentError, "unknown song :#{name}. Define it with `song :#{name} do ... end`"
       end
 
-      # One play_song node in the IR; the bytes still unroll the whole sequencer
-      # (counter + per-frame note triggers), so keep those inner add/if/set calls
-      # from recording their own nodes.
       record(Build.play_song(name))
-      without_recording do
-        # Internal frame counter variable for this song
-        counter_var = :"_music_frame_#{name}"
-        ensure_var(counter_var)
-
-        # Increment frame counter each call
-        add counter_var, 1
-
-        # Emit note triggers: if counter == frame_offset, trigger channel 1
-        ctx.events.each do |frame_offset, freq_hz|
-          if_eq counter_var, frame_offset do
-            emit_ch1_note(freq_hz, ctx.duty, ctx.volume)
-          end
-        end
-
-        # Loop: if counter >= total_frames, reset to 0
-        if_ge counter_var, ctx.total_frames do
-          set counter_var, 0
-        end
-      end
     end
 
     # Silence the music channel (channel 1).
     # Call this when transitioning to a scene that shouldn't have music.
     def stop_music
       record(Build.stop_music)
-      Sound::Registers.stop_music.each { |address, value| emit_write_reg16(address, value) }
     end
 
     # --- Text ---
@@ -960,29 +539,12 @@ module RubyGBA
     # Each character is 6px wide (5px glyph + 1px gap), 7px tall.
     # All text is uppercased. Unsupported characters are skipped.
     #
-    # Since positions are known at build time, this unrolls to direct
-    # pixel writes — no runtime font lookup needed.
-    #
     # @param text [String] text to render
     # @param x [Integer] left edge
     # @param y [Integer] top edge
     # @param c [Symbol, String, Integer] text color
     def draw_text(text, x, y, c)
       record(Build.draw_text(text, x, y, c))
-      color_val = Color.resolve(c)
-
-      # Load color once into r0
-      @rom.emit(ASM.load_immediate(0, color_val))
-
-      Font.each_pixel(text) do |dx, dy|
-        px = x + dx
-        py = y + dy
-        next if px < 0 || px >= SCREEN_WIDTH || py < 0 || py >= SCREEN_HEIGHT
-
-        vram_addr = VRAM_START + (py * SCREEN_WIDTH + px) * 2
-        @rom.emit(ASM.load_immediate(1, vram_addr))
-        @rom.emit(ASM.store_halfword(0, 1))
-      end
     end
 
     # Draw a single-digit number (0-9) at (x, y).
@@ -1015,125 +577,27 @@ module RubyGBA
 
     private
 
-    # Emit ARM instructions to write a 16-bit value to an I/O or memory address.
-    # Uses r0 for value, r1 for address.
-    def emit_write_reg16(address, value)
-      @rom.emit(ASM.load_immediate(0, value))
-      @rom.emit(ASM.load_immediate(1, address))
-      @rom.emit(ASM.store_halfword(0, 1))
-    end
-
-    # Emit ARM instructions to write a 32-bit immediate to a memory address.
-    # Uses r0 for value, r1 for address.
-    def emit_store_immediate(address, value)
-      @rom.emit(ASM.load_immediate(0, value))
-      @rom.emit(ASM.load_immediate(1, address))
-      @rom.emit(ASM.str(0, 1))
-    end
-
-    # Emit a conditional block: compare var against operand, skip block if condition is false.
+    # Record an `if` node comparing a variable against an operand, and gather the
+    # block's statements into it.
+    #
     # @param cond [Symbol] condition (:eq, :ne, :gt, :lt, :ge, :le)
     # @param var_name [Symbol] variable to compare
     # @param operand [Integer, Symbol] immediate value or variable name to compare against
     def emit_conditional(cond, var_name, operand, &block)
-      inverse = INVERSE_COND.fetch(cond)
       condition = Build.binop(COND_TO_OP.fetch(cond), Build.var_ref(var_name), Build.wrap(operand))
+      ensure_var(var_name)
+      ensure_var(operand) if operand.is_a?(Symbol)
 
-      # Record an `if` node and gather the block's statements into it, while the
-      # bytes emit the usual compare-and-skip-over-the-block sequence.
       push_container(Build.if_(condition)) do
-        # Load variable into r10
-        ensure_var(var_name)
-        load_var_into(10, var_name)
-
-        # Compare: CMP r10, #imm or CMP r10, rm
-        if operand.is_a?(Symbol)
-          # Variable vs variable
-          ensure_var(operand)
-          load_var_into(11, operand)
-          @rom.emit(ASM.cmp_reg(10, 11))
-        else
-          # Variable vs immediate
-          encoding = ASM.encode_rotated_immediate(operand)
-          if encoding
-            @rom.emit(ASM.cmp_imm(10, operand))
-          else
-            # Large immediate: load into r11 and compare registers
-            @rom.emit(ASM.load_immediate(11, operand))
-            @rom.emit(ASM.cmp_reg(10, 11))
-          end
-        end
-
-        # Branch over block if condition is NOT met (inverse condition)
-        branch_pos = @rom.code_offset
-        @rom.emit(ASM.branch_cond(inverse, 0))  # placeholder
-
         instance_eval(&block)
-
-        # Patch branch to skip past the block
-        block_end = @rom.code_offset
-        skip_words = (block_end - branch_pos) / 4
-        @rom.patch(branch_pos, ASM.branch_cond(inverse, skip_words))
       end
     end
 
-    # Emit a DMA3 fill: writes a fixed 32-bit word to a destination address.
-    # Uses DMA_ENABLE | DMA_32BIT with source fixed (same word repeated).
-    # r0 = source word, r1 = address scratch, stored to a temp IWRAM location.
-    #
-    # @param dest [Integer] destination address (e.g. VRAM_START)
-    # @param word [Integer] 32-bit value to fill with
-    # @param count [Integer] number of 32-bit transfers
-    def dma3_fill(dest, word, count)
-      # Store the fill word to a known IWRAM scratch location (we use a dedicated var)
-      ensure_var(:_dma_scratch)
-      scratch_addr = @variables[:_dma_scratch][:address]
+    # Accept a known button name; raise a plain error for anything else.
+    def check_button!(button)
+      return if BUTTON_MASKS.key?(button)
 
-      # Write the fill word to scratch
-      @rom.emit(ASM.load_immediate(0, word))
-      @rom.emit(ASM.load_immediate(1, scratch_addr))
-      @rom.emit(ASM.str(0, 1))
-
-      # DMA3SAD = scratch address (source — fixed, same word repeated)
-      @rom.emit(ASM.load_immediate(0, scratch_addr))
-      @rom.emit(ASM.load_immediate(1, REG_DMA3SAD))
-      @rom.emit(ASM.str(0, 1))
-
-      # DMA3DAD = destination
-      @rom.emit(ASM.load_immediate(0, dest))
-      @rom.emit(ASM.load_immediate(1, REG_DMA3DAD))
-      @rom.emit(ASM.str(0, 1))
-
-      # DMA3CNT = count | DMA_ENABLE | DMA_32BIT | SRC_FIXED
-      # DMA3CNT is 32 bits: low 16 = word count, high 16 = control flags.
-      # Source addr control (CNT_H bits 7-8): 10 = fixed → (2 << 7) << 16 = 0x01000000
-      dma_src_fixed = 0x01000000
-      dma_ctrl = count | DMA_ENABLE | DMA_32BIT | dma_src_fixed
-      @rom.emit(ASM.load_immediate(0, dma_ctrl))
-      @rom.emit(ASM.load_immediate(1, REG_DMA3CNT))
-      @rom.emit(ASM.str(0, 1))
-    end
-
-    # Emit channel 1 note trigger (used by play_song).
-    # freq_hz=0 means rest (silence the channel).
-    def emit_ch1_note(freq_hz, duty, volume)
-      Sound::Registers.channel1_note(frequency: freq_hz, duty: duty, volume: volume).each do |address, value|
-        emit_write_reg16(address, value)
-      end
-    end
-
-    # Load a variable into a register (internal, uses r12 as address scratch).
-    def load_var_into(reg, name)
-      addr = var_address!(name)
-      @rom.emit(ASM.load_immediate(12, addr))
-      @rom.emit(ASM.ldr(reg, 12))
-    end
-
-    # Store a register into a variable (internal, uses r12 as address scratch).
-    def store_var_from(reg, name)
-      addr = var_address!(name)
-      @rom.emit(ASM.load_immediate(12, addr))
-      @rom.emit(ASM.str(reg, 12))
+      raise ArgumentError, "unknown button: #{button}"
     end
 
     # Look up a variable's IWRAM address, raising if not declared.
@@ -1143,7 +607,8 @@ module RubyGBA
       entry[:address]
     end
 
-    # Allocate a variable if it doesn't exist yet.
+    # Allocate a variable on first mention, tracking its name and address for
+    # introspection (var_address / variables).
     def ensure_var(name)
       return if @variables.key?(name)
 
@@ -1152,18 +617,17 @@ module RubyGBA
       @variables[name] = { address: addr, initial: 0 }
     end
 
-    # --- IR tree construction (built in parallel with the ARM bytes) ---
+    # --- IR tree construction ---
 
-    # Attach a freshly built IR node to the open container and return it. A no-op
-    # while recording is suppressed (see #without_recording).
+    # Attach a freshly built IR node to the open container and return it.
     def record(node)
-      @container_stack.last.add_child(node) unless @suppress_record
+      @container_stack.last.add_child(node)
       node
     end
 
     # Build a container node, attach it, and keep it open while the block runs so
     # nested statements land inside it — then close it. The block-taking control
-    # methods use this as they migrate.
+    # methods (loops, conditionals, func bodies) use this.
     def push_container(node)
       record(node)
       @container_stack.push(node)
@@ -1172,15 +636,23 @@ module RubyGBA
       @container_stack.pop
     end
 
-    # Run a block without recording IR — for a composite method (e.g. clamp) that
-    # records its own single node but still emits its expansion through other,
-    # recording DSL methods in bytes.
-    def without_recording
-      previous = @suppress_record
-      @suppress_record = true
-      yield
-    ensure
-      @suppress_record = previous
+    # Every call and case target must name a defined function. Check that here, so
+    # a missing target surfaces as a clear error at build time.
+    def verify_targets_defined!
+      @program.each do |node|
+        case node.kind
+        when :call
+          check_target_defined!(node[:target])
+        when :case
+          node[:clauses].each { |_value, target| check_target_defined!(target) }
+        end
+      end
+    end
+
+    def check_target_defined!(name)
+      return if @functions.key?(name)
+
+      raise ArgumentError, "function :#{name} called but never defined"
     end
 
     def validate_coords!(x, y)

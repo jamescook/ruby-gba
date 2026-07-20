@@ -28,7 +28,7 @@ module RubyGBA
   # +out+/+err+ are the streams dump_func writes its disassembly and warnings to;
   # they default to the process streams and can be pointed at a StringIO in tests.
   def self.build(title, code:, maker:, doctor: true, out: $stdout, err: $stderr, &block)
-    builder = Builder.new(ROM.new(title: title, code: code, maker: maker))
+    builder = Builder.new
     catch(:debug_halt) do
       builder.instance_eval(&block)
     end
