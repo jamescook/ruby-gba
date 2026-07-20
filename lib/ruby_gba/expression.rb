@@ -146,6 +146,10 @@ module RubyGBA
     # Run the block's statements only when the condition holds. Records an `if`
     # node carrying the block, the same shape the low-level if_* verbs build.
     def then(&block)
+      unless block
+        raise ArgumentError, "(cond).then needs a block: (x > 0).then { ... }"
+      end
+
       @builder.record_conditional(@node, &block)
     end
   end

@@ -121,6 +121,27 @@ class TestDSLExpression < Minitest::Test
     end
   end
 
+  def test_held_and_pressed_reject_a_block
+    # Forgetting .then and writing held(:up) { ... } drops the block silently
+    # (it attaches to `held`, not to an if). Catch it at the call site.
+    %i[held pressed].each do |verb|
+      err = assert_raises(ArgumentError) do
+        tree { send(verb, :up) { halt } }
+      end
+      assert_match(/\.then/, err.message, "#{verb} should point the dev at .then")
+    end
+  end
+
+  def test_then_requires_a_block
+    err = assert_raises(ArgumentError) do
+      tree do
+        x = var :x, 0
+        (x > 0).then
+      end
+    end
+    assert_match(/block/, err.message)
+  end
+
   def test_mutating_an_expression_is_a_friendly_error
     err = assert_raises(ArgumentError) do
       tree do
