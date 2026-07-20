@@ -182,6 +182,23 @@ class TestIRBackendGBA < Minitest::Test
     assert v.black?(2, 0), "holding must not count as repeated presses"
   end
 
+  def test_and_gates_a_draw_on_both_conditions
+    # x = 5 is in (1, 9): the AND holds and red draws. The second AND needs x > 9,
+    # which fails, so blue stays away — proving both sides are actually combined.
+    in_range = binop(:and, binop(:>, var_ref(:x), int(1)), binop(:<, var_ref(:x), int(9)))
+    too_high = binop(:and, binop(:>, var_ref(:x), int(1)), binop(:>, var_ref(:x), int(9)))
+
+    rom = lower(program(
+      display(:bitmap), clear_screen(:black), set(:x, 5),
+      if_(in_range, pixel(10, 10, :red)),
+      if_(too_high, pixel(20, 20, :blue)),
+      halt,
+    ))
+    v = assert_gemba_loads_rom(rom)
+    assert v.red?(10, 10), "5 is >1 and <9, so the AND holds"
+    assert v.black?(20, 20), "5 is not >9, so the AND fails"
+  end
+
   def test_if_else_draws_the_else_branch_when_false
     # x = 1, so (x > 5) is false: the else-branch runs and draws blue, not red.
     taken = if_(binop(:>, var_ref(:x), int(5)), pixel(10, 10, :red))
