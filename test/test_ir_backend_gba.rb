@@ -182,6 +182,17 @@ class TestIRBackendGBA < Minitest::Test
     assert v.black?(2, 0), "holding must not count as repeated presses"
   end
 
+  def test_if_else_draws_the_else_branch_when_false
+    # x = 1, so (x > 5) is false: the else-branch runs and draws blue, not red.
+    taken = if_(binop(:>, var_ref(:x), int(5)), pixel(10, 10, :red))
+    taken[:else] = else_(pixel(20, 20, :blue))
+
+    rom = lower(program(display(:bitmap), clear_screen(:black), set(:x, 1), taken, halt))
+    v = assert_gemba_loads_rom(rom)
+    assert v.blue?(20, 20), "false condition runs the else-branch"
+    assert v.black?(10, 10), "the then-branch must not run"
+  end
+
   # ---- abs / negate_abs (observed by driving a pixel coordinate) ----
 
   def test_abs_makes_a_negative_value_positive

@@ -53,9 +53,10 @@ module RubyGBA
 
         # control flow — these carry nested statements in #children
         # (a scene is just a named func, so it needs no kind of its own; `case`
-        # is multi-way dispatch that each backend expands to a chain of ifs)
+        # is multi-way dispatch that each backend expands to a chain of ifs). An
+        # `if`'s optional else-branch is an `else` node held in its :else attr.
         if: :control, loop: :control, func: :control, call: :control,
-        case: :control, wait_vblank: :control, halt: :control,
+        case: :control, else: :control, wait_vblank: :control, halt: :control,
 
         # a raw escape hatch: pre-assembled target bytes appended verbatim. The
         # one node that isn't portable — only a native backend can place it, and
@@ -116,6 +117,15 @@ module RubyGBA
       # Read an operand by name, e.g. node[:var].
       def [](key)
         @attrs[key]
+      end
+
+      # Set an operand after construction — used to attach a branch built later,
+      # e.g. an `if` node's :else once `.else { ... }` runs. If the value is a
+      # child Node, wire its parent back so the tree stays navigable.
+      def []=(key, value)
+        @attrs[key] = value
+        value.parent = self if value.is_a?(Node)
+        value
       end
 
       # Attach a nested statement, wiring its parent back-reference so the tree

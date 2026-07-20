@@ -154,7 +154,11 @@ module RubyGBA
           when :clamp
             @vars[node[:var]] = clamp_value(@vars[node[:var]], node[:min], node[:max])
           when :if
-            node.children.each { |child| exec(child) } unless eval_value(node[:cond]).zero?
+            if eval_value(node[:cond]).zero?
+              node[:else]&.children&.each { |child| exec(child) }
+            else
+              node.children.each { |child| exec(child) }
+            end
           when :loop
             loop { node.children.each { |child| exec(child) } }
           when :call
