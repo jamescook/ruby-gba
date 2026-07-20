@@ -3,10 +3,10 @@
 require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 
-# During the builder-to-IR migration the DSL builds an IR tree in parallel with
-# the ARM bytes it still emits. These tests assert the DSL constructs the RIGHT
-# tree — the migration's core correctness — without lowering anything to a ROM.
-# (The byte output is still exercised by the existing behavioral tests.)
+# The DSL builds an IR tree, which RubyGBA.build lowers to a ROM. These tests
+# assert the DSL constructs the RIGHT tree — without lowering anything — so a
+# mistake in how a DSL method shapes the tree is caught here directly. (The
+# lowered output is exercised by the behavioral backend tests.)
 class TestBuilderIR < Minitest::Test
   include RubyGBA::IR::Build # the expected-tree constructors
 
@@ -18,8 +18,7 @@ class TestBuilderIR < Minitest::Test
   # evaluated — and recorded — when emit_pending_functions runs, just like a real
   # build does.
   def tree(&block)
-    rom = RubyGBA::ROM.new(title: "TEST", code: "TEST", maker: "01")
-    builder = Builder.new(rom)
+    builder = Builder.new
     builder.instance_eval(&block)
     builder.emit_pending_functions
     builder.program
