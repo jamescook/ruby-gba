@@ -275,15 +275,29 @@ module RubyGBA
           store_var(ACC, node[:var])
         end
 
-        # if: run the body only when the condition evaluates non-zero. Evaluate the
-        # condition to 0/1, and if it's zero jump past the body to a skip label.
+        # if: run the then-body when the condition is non-zero. With no else, a
+        # false condition jumps past the body. With an else, a false condition
+        # jumps to the else-body, and the then-body jumps over it to the end.
         def emit_if(node)
           eval_value(node[:cond])
           emit(ASM.cmp_imm(ACC, 0))
-          skip = gensym
-          emit_branch(:bcond, skip, cond: :eq) # zero => condition false => skip
-          node.children.each { |stmt| emit_statement(stmt) }
-          place_label(skip)
+          else_node = node[:else]
+
+          if else_node
+            else_label = gensym
+            end_label = gensym
+            emit_branch(:bcond, else_label, cond: :eq) # false => run the else
+            node.children.each { |stmt| emit_statement(stmt) }
+            emit_branch(:b, end_label)                 # then done => skip the else
+            place_label(else_label)
+            else_node.children.each { |stmt| emit_statement(stmt) }
+            place_label(end_label)
+          else
+            skip = gensym
+            emit_branch(:bcond, skip, cond: :eq) # zero => condition false => skip
+            node.children.each { |stmt| emit_statement(stmt) }
+            place_label(skip)
+          end
         end
 
         # loop: an endless repeat of the body — a jump back to the top. A `halt`

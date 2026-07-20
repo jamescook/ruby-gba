@@ -142,6 +142,29 @@ class TestDSLExpression < Minitest::Test
     assert_match(/block/, err.message)
   end
 
+  # ---- .then { }.else { } ----
+
+  def test_then_else_builds_both_branches
+    got = tree do
+      x = var :x, 0
+      (x > 5).then { x.set 1 }.else { x.set 2 }
+    end
+
+    expected_if = if_(binop(:>, var_ref(:x), int(5)), set(:x, 1))
+    expected_if[:else] = else_(set(:x, 2))
+    assert_equal program(set(:x, 0), expected_if), got
+  end
+
+  def test_else_requires_a_block
+    err = assert_raises(ArgumentError) do
+      tree do
+        x = var :x, 0
+        (x > 5).then { x.set 1 }.else
+      end
+    end
+    assert_match(/block/, err.message)
+  end
+
   def test_mutating_an_expression_is_a_friendly_error
     err = assert_raises(ArgumentError) do
       tree do

@@ -422,11 +422,27 @@ module RubyGBA
 
     # The hook behind the expression DSL's `(cond).then { ... }`: record an `if`
     # node from an already-built condition node and gather the block's statements
-    # into it. A {Condition} calls this; user code writes `.then`, not this.
+    # into it, returning the node so an `.else` can attach to it. A {Condition}
+    # calls this; user code writes `.then`, not this.
     def record_conditional(cond_node, &block)
-      push_container(Build.if_(cond_node)) do
+      if_node = Build.if_(cond_node)
+      push_container(if_node) do
         instance_eval(&block)
       end
+      if_node
+    end
+
+    # The hook behind `.then { }.else { }`: gather the else block's statements
+    # into an `else` node and attach it to the if node the `.then` produced.
+    def record_else(if_node, &block)
+      else_node = Build.else_
+      @container_stack.push(else_node)
+      begin
+        instance_eval(&block)
+      ensure
+        @container_stack.pop
+      end
+      if_node[:else] = else_node
     end
 
     # --- DMA ---
@@ -677,9 +693,10 @@ module RubyGBA
     end
 
     # Every call and case target must name a defined function. Check that here, so
-    # a missing target surfaces as a clear error at build time.
+    # a missing target surfaces as a clear error at build time. Walking the whole
+    # tree (not just statement children) reaches targets nested in else-branches.
     def verify_targets_defined!
-      @program.each do |node|
+      @program.walk do |node|
         case node.kind
         when :call
           check_target_defined!(node[:target])

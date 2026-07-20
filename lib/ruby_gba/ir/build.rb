@@ -161,6 +161,12 @@ module RubyGBA
         Node.new(:if, children: body, cond: cond)
       end
 
+      # The else-branch of an `if`: its statements run when the condition is
+      # false. Held in the if node's :else attr, not built standalone.
+      def else_(*body)
+        Node.new(:else, children: body)
+      end
+
       def loop_(*body)
         Node.new(:loop, children: body)
       end

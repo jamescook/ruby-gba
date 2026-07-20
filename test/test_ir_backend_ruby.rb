@@ -86,6 +86,25 @@ class TestIRBackendRuby < Minitest::Test
     assert_equal 0, i[:miss]
   end
 
+  def test_if_else_runs_the_else_branch_when_false
+    # x = 1: the > 5 test is false, so only the else branch runs.
+    taken = if_(binop(:>, var_ref(:x), int(5)), set(:hi, 1))
+    taken[:else] = else_(set(:lo, 1))
+
+    i = run_ir(program(set(:x, 1), taken))
+    assert_equal 0, i[:hi], "the then-branch must not run when the condition is false"
+    assert_equal 1, i[:lo], "the else-branch runs when the condition is false"
+  end
+
+  def test_if_else_runs_the_then_branch_when_true
+    taken = if_(binop(:>, var_ref(:x), int(5)), set(:hi, 1))
+    taken[:else] = else_(set(:lo, 1))
+
+    i = run_ir(program(set(:x, 9), taken))
+    assert_equal 1, i[:hi]
+    assert_equal 0, i[:lo], "the else-branch must not run when the condition is true"
+  end
+
   def test_signed_comparison_flows_through_conditions
     # x = -1 (0xFFFF_FFFF). Signed, -1 < 1 is true — the opposite of comparing
     # the raw bits as unsigned.
