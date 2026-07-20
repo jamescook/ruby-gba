@@ -68,11 +68,11 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
 
   # --- RAM variables ---
   var :ball_x, 118
-  var :ball_y, 78
+  ball_y = var :ball_y, 78
   var :ball_dx, BALL_SPEED
   var :ball_dy, BALL_SPEED
   var :player_y, 68
-  var :cpu_y, 68
+  cpu_y = var :cpu_y, 68
   var :player_score, 0
   var :cpu_score, 0
   var :state, 0              # 0=title, 1=playing, 2=player_wins, 3=cpu_wins
@@ -99,18 +99,12 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
   end
 
   func :update_cpu do
-    # Simple AI: chase the ball with speed limit.
-    copy :_cpu_center, :cpu_y
-    add :_cpu_center, PADDLE_H / 2
-
-    if_gt :ball_y, :_cpu_center do
-      add :cpu_y, CPU_SPEED
-    end
-    if_lt :ball_y, :_cpu_center do
-      sub :cpu_y, CPU_SPEED
-    end
-
-    clamp :cpu_y, 0, SCREEN_H - PADDLE_H
+    # Simple AI: chase the ball, capped by CPU_SPEED. `center` is a plain Ruby
+    # local holding the expression cpu_y + half a paddle — no GBA temp variable.
+    center = cpu_y + PADDLE_H / 2
+    (ball_y > center).then { cpu_y.add CPU_SPEED }
+    (ball_y < center).then { cpu_y.sub CPU_SPEED }
+    cpu_y.clamp 0, SCREEN_H - PADDLE_H
   end
 
   func :update_ball do

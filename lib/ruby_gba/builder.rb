@@ -64,13 +64,16 @@ module RubyGBA
     # --- RAM Variables ---
 
     # Set a variable's value. If the variable hasn't been declared yet,
-    # it's automatically allocated in IWRAM.
+    # it's automatically allocated in IWRAM. Returns a {Value} handle for the
+    # variable, so it can be compared and mutated with the expression DSL.
     #
     # @param name [Symbol] variable name
     # @param value [Integer] value to store
+    # @return [Value] a handle to the variable
     def set(name, value)
       record(Build.set(name, value))
       ensure_var(name)
+      Value.new(self, Build.var_ref(name), name: name)
     end
 
     # Explicit variable declaration — same as `set` but reads better
@@ -395,6 +398,15 @@ module RubyGBA
       case cond
       when :ge then define_method(:if_gte) { |v, o, &b| emit_conditional(:ge, v, o, &b) }
       when :le then define_method(:if_lte) { |v, o, &b| emit_conditional(:le, v, o, &b) }
+      end
+    end
+
+    # The hook behind the expression DSL's `(cond).then { ... }`: record an `if`
+    # node from an already-built condition node and gather the block's statements
+    # into it. A {Condition} calls this; user code writes `.then`, not this.
+    def record_conditional(cond_node, &block)
+      push_container(Build.if_(cond_node)) do
+        instance_eval(&block)
       end
     end
 
