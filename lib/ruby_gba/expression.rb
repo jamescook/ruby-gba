@@ -139,9 +139,14 @@ module RubyGBA
   end
 
   # The result of comparing two Values: a yes/no test the program branches on.
-  # Branch by calling `.then` with the block to run when the test holds. Combine
-  # tests with & (both) and | (either) — Ruby's `&&`/`||` can't be overloaded, so
-  # the single-character forms are the ones that build a combined Condition.
+  # Branch with `.then` (and an optional `.else`). Combine tests with & (both)
+  # and | (either) — Ruby's `&&`/`||` can't be overloaded, so the single-character
+  # forms are the ones that build a combined Condition.
+  #
+  # Always branch with `.then`, never a native Ruby `if`. `if (x > 5)` looks
+  # right, but a Condition is *truthy* to Ruby, so its body would emit
+  # unconditionally at build time with the comparison silently ignored — no error,
+  # just a ROM that always runs the branch.
   class Condition
     Build = IR::Build
 
