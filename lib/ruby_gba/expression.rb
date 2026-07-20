@@ -44,6 +44,12 @@ module RubyGBA
       Value.new(@builder, Build.binop(:*, @node, node_of(other)))
     end
 
+    # Integer division, truncated toward zero (so -7 / 2 is -3). On the console
+    # this becomes a BIOS Div call — the CPU has no divide instruction.
+    def /(other)
+      Value.new(@builder, Build.binop(:/, @node, node_of(other)))
+    end
+
     # --- comparisons: build a Condition ---
 
     def >(other)

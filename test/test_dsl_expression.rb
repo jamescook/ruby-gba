@@ -139,6 +139,34 @@ class TestDSLExpression < Minitest::Test
     assert_equal Color.resolve(:white), pixel_at(i, 20, 40)
   end
 
+  def test_division_truncates_toward_zero
+    # 20 / 3 = 6 (truncated, not 6.66); the marker's x reveals the quotient.
+    i = interpret do
+      x = var :x, 20
+      q = var :q, 0
+      q.set(x / 3)
+      draw_rect_at :q, 10, 2, 2, :green
+    end
+    # The marker's left edge sits at x = q. green at 6 and blank at 5 pins q = 6
+    # (7/... i.e. an untruncated 6.66 rounded up to 7 would leave 6 blank).
+    assert_equal Color.resolve(:green), pixel_at(i, 6, 10)
+    assert_equal UNDRAWN, pixel_at(i, 5, 10)
+  end
+
+  def test_dividing_a_negative_truncates_toward_zero_not_down
+    # -7 / 2 = -3 on hardware (toward zero), not -4 (Ruby's floor). +30 keeps the
+    # marker on-screen: -3 + 30 = 27, whereas a floored -4 would land at 26.
+    i = interpret do
+      n = var :n, -7
+      q = var :q, 0
+      q.set(n / 2)
+      q.add 30
+      draw_rect_at :q, 20, 2, 2, :white
+    end
+    assert_equal Color.resolve(:white), pixel_at(i, 27, 20)
+    assert_equal UNDRAWN, pixel_at(i, 26, 20), "a floored -4 would land here"
+  end
+
   # ---- .then { } / .else { } ----
 
   def test_then_draws_when_true

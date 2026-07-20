@@ -182,6 +182,20 @@ class TestIRBackendGBA < Minitest::Test
     assert v.black?(2, 0), "holding must not count as repeated presses"
   end
 
+  def test_division_drives_a_computed_coordinate
+    # x / 3 = 6; plot at (6, 0). The ARM7TDMI can't divide, so this exercises the
+    # BIOS Div call in the lowering — and proves the emulator's BIOS runs it.
+    rom = lower(program(
+      display(:bitmap), clear_screen(:black),
+      set(:x, 20),
+      pixel(binop(:/, var_ref(:x), int(3)), 0, :red),
+      halt,
+    ))
+    v = assert_gemba_loads_rom(rom)
+    assert v.red?(6, 0)
+    assert v.black?(7, 0)
+  end
+
   def test_and_gates_a_draw_on_both_conditions
     # x = 5 is in (1, 9): the AND holds and red draws. The second AND needs x > 9,
     # which fails, so blue stays away — proving both sides are actually combined.

@@ -648,8 +648,23 @@ module RubyGBA
           # and/or gives the combined 0/1 the branch tests for.
           when :and then emit(ASM.and_reg(ACC, TMP, ACC))
           when :or then emit(ASM.orr_reg(ACC, TMP, ACC))
+          when :/ then emit_division
           else emit_comparison(op)
           end
+        end
+
+        # Divide through the BIOS Div routine — the ARM7TDMI has no divide
+        # instruction, so a division traps into the BIOS. It wants the numerator
+        # in r0 and the denominator in r1; after the binop setup r1 already holds
+        # lhs (numerator) and r0 holds rhs (denominator), so swap them (via r2)
+        # and trap. The quotient comes back in r0, our accumulator — right where
+        # an expression's result belongs. (r1 gets the remainder, r3 is clobbered;
+        # neither survives a statement here, so that's fine.)
+        def emit_division
+          emit(ASM.mov_reg(2, ACC))   # r2 = denominator (rhs)
+          emit(ASM.mov_reg(ACC, TMP)) # r0 = numerator (lhs)
+          emit(ASM.mov_reg(TMP, 2))   # r1 = denominator
+          emit(ASM.swi(0x06 << 16))   # BIOS Div: r0 = r0 / r1
         end
 
         # A comparison yields 1 or 0. Compare, default the result to 0, and set it

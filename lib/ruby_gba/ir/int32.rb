@@ -53,6 +53,18 @@ module RubyGBA
         wrap(-wrap(a))
       end
 
+      # Signed division truncated toward zero — matching the console's BIOS Div
+      # routine and C, NOT Ruby's `/`, which floors toward negative infinity. So
+      # -7 / 2 is -3 here, never -4. Dividing the magnitudes and reapplying the
+      # sign is what gives the truncating behavior.
+      def div(a, b)
+        a = wrap(a)
+        b = wrap(b)
+        quotient = a.abs / b.abs
+        quotient = -quotient if a.negative? != b.negative?
+        wrap(quotient)
+      end
+
       # Signed ordering: -1 / 0 / 1, comparing both operands as signed 32-bit
       # values — which is why 0xFFFF_FFFF (i.e. -1) is *less* than 1 here, not
       # greater as the raw bit pattern would suggest.
