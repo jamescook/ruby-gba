@@ -86,6 +86,41 @@ class TestDSLExpression < Minitest::Test
     assert_equal expected, got
   end
 
+  def test_unary_mutators_build_var_ops
+    got = tree do
+      d = var :d, -3
+      d.abs
+      d.negate_abs
+      d.flip
+    end
+
+    expected = program(
+      set(:d, -3), abs(:d), negate_abs(:d), negate(:d),
+    )
+    assert_equal expected, got
+  end
+
+  # ---- input reads: held / pressed are Conditions too ----
+
+  def test_held_and_pressed_build_input_conditions
+    got = tree do
+      held(:up).then { set :moved, 1 }
+      pressed(:start).then { set :started, 1 }
+    end
+
+    expected = program(
+      if_(held(:up), set(:moved, 1)),
+      if_(pressed(:start), set(:started, 1)),
+    )
+    assert_equal expected, got
+  end
+
+  def test_held_rejects_an_unknown_button
+    assert_raises(ArgumentError) do
+      tree { held(:turbo).then { halt } }
+    end
+  end
+
   def test_mutating_an_expression_is_a_friendly_error
     err = assert_raises(ArgumentError) do
       tree do

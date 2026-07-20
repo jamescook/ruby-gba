@@ -67,35 +67,36 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
   end
 
   # --- RAM variables ---
-  var :ball_x, 118
-  ball_y = var :ball_y, 78
-  var :ball_dx, BALL_SPEED
-  var :ball_dy, BALL_SPEED
-  var :player_y, 68
-  cpu_y = var :cpu_y, 68
-  var :player_score, 0
-  var :cpu_score, 0
-  var :state, 0              # 0=title, 1=playing, 2=player_wins, 3=cpu_wins
-  var :frame_count, 0
+  # Each `var` returns a handle we compare and mutate with the expression DSL.
+  ball_x       = var :ball_x, 118
+  ball_y       = var :ball_y, 78
+  ball_dx      = var :ball_dx, BALL_SPEED
+  ball_dy      = var :ball_dy, BALL_SPEED
+  player_y     = var :player_y, 68
+  cpu_y        = var :cpu_y, 68
+  player_score = var :player_score, 0
+  cpu_score    = var :cpu_score, 0
+  state        = var :state, 0    # 0=title, 1=playing, 2=player_wins, 3=cpu_wins
+  frame_count  = var :frame_count, 0
 
   # --- Subroutines ---
 
   func :reset_ball do
-    set :ball_x, 118
-    set :ball_y, 78
-    flip :ball_dx  # reverse horizontal direction
+    ball_x.set 118
+    ball_y.set 78
+    ball_dx.flip  # reverse horizontal direction
   end
 
   func :reset_game do
-    set :player_score, 0
-    set :cpu_score, 0
-    set :player_y, 68
-    set :cpu_y, 68
-    set :ball_dx, BALL_SPEED
-    set :ball_dy, BALL_SPEED
-    set :ball_x, 118
-    set :ball_y, 78
-    set :state, 1
+    player_score.set 0
+    cpu_score.set 0
+    player_y.set 68
+    cpu_y.set 68
+    ball_dx.set BALL_SPEED
+    ball_dy.set BALL_SPEED
+    ball_x.set 118
+    ball_y.set 78
+    state.set 1
   end
 
   func :update_cpu do
@@ -109,28 +110,27 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
 
   func :update_ball do
     # Move ball
-    add :ball_x, :ball_dx
-    add :ball_y, :ball_dy
+    ball_x.add ball_dx
+    ball_y.add ball_dy
 
     # Bounce off top wall
-    if_le :ball_y, 0 do
-      abs :ball_dy
+    (ball_y <= 0).then do
+      ball_dy.abs
       beep :wall_bounce
     end
 
     # Bounce off bottom wall
-    if_ge :ball_y, SCREEN_H - BALL_SIZE do
-      negate_abs :ball_dy
+    (ball_y >= SCREEN_H - BALL_SIZE).then do
+      ball_dy.negate_abs
       beep :wall_bounce
     end
 
-    # Player paddle collision (left side)
-    # Simple check: ball_x <= LEFT_X + PADDLE_W AND ball_x >= LEFT_X
-    #               AND ball_y + BALL_SIZE >= player_y AND ball_y <= player_y + PADDLE_H
+    # Player paddle collision (left side): the ball is inside the paddle's
+    # x-band. That's two comparisons AND-ed; until the DSL has `&`, it reads as
+    # one .then nested in another.
     if_le :ball_x, LEFT_X + PADDLE_W do
       if_ge :ball_x, LEFT_X do
-        # Simplified vertical overlap: just abs the dx (bounce right)
-        abs :ball_dx
+        ball_dx.abs # bounce right
         beep :paddle_hit
       end
     end
@@ -138,27 +138,23 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
     # CPU paddle collision (right side)
     if_ge :ball_x, RIGHT_X - BALL_SIZE do
       if_le :ball_x, RIGHT_X + PADDLE_W do
-        negate_abs :ball_dx
+        ball_dx.negate_abs
         beep :paddle_hit
       end
     end
 
     # Score: ball went off left edge
-    if_le :ball_x, 0 do
-      add :cpu_score, 1
-      if_ge :cpu_score, WIN_SCORE do
-        set :state, 3
-      end
+    (ball_x <= 0).then do
+      cpu_score.add 1
+      (cpu_score >= WIN_SCORE).then { state.set 3 }
       beep :point
       call :reset_ball
     end
 
     # Score: ball went off right edge
-    if_ge :ball_x, SCREEN_W do
-      add :player_score, 1
-      if_ge :player_score, WIN_SCORE do
-        set :state, 2
-      end
+    (ball_x >= SCREEN_W).then do
+      player_score.add 1
+      (player_score >= WIN_SCORE).then { state.set 2 }
       beep :point
       call :reset_ball
     end
@@ -178,30 +174,22 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
     draw_text "PONG", 104, 40, :white
     call :draw_field
 
-    add :frame_count, 1
-    if_lt :frame_count, 30 do
+    frame_count.add 1
+    (frame_count < 30).then do
       draw_text "PRESS START", 76, 100, :gray
     end
-    if_ge :frame_count, 60 do
-      set :frame_count, 0
-    end
+    (frame_count >= 60).then { frame_count.set 0 }
 
-    if_pressed :start do
-      call :reset_game
-    end
+    pressed(:start).then { call :reset_game }
   end
 
   scene :playing do
     clear_screen :black
 
     # Input
-    if_held :up do
-      sub :player_y, PADDLE_SPEED
-    end
-    if_held :down do
-      add :player_y, PADDLE_SPEED
-    end
-    clamp :player_y, 0, SCREEN_H - PADDLE_H
+    held(:up).then   { player_y.sub PADDLE_SPEED }
+    held(:down).then { player_y.add PADDLE_SPEED }
+    player_y.clamp 0, SCREEN_H - PADDLE_H
 
     # Update
     call :update_cpu
@@ -222,9 +210,7 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
     draw_text "YOU WIN!", 88, 60, :white
     draw_text "PRESS START", 76, 100, :gray
 
-    if_pressed :start do
-      set :state, 0
-    end
+    pressed(:start).then { state.set 0 }
   end
 
   scene :cpu_wins do
@@ -232,9 +218,7 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
     draw_text "GAME OVER", 84, 60, :white
     draw_text "PRESS START", 76, 100, :gray
 
-    if_pressed :start do
-      set :state, 0
-    end
+    pressed(:start).then { state.set 0 }
   end
 
   # --- Main loop ---

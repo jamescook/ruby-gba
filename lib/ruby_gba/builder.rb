@@ -378,6 +378,23 @@ module RubyGBA
       end
     end
 
+    # A {Condition} that holds while a button is down — branch on it with
+    # `held(:up).then { ... }`.
+    #
+    # @param button [Symbol] button name
+    def held(button)
+      check_button!(button)
+      Condition.new(self, Build.held(button))
+    end
+
+    # A {Condition} true on the frame a button is first pressed (edge-detected).
+    #
+    # @param button [Symbol] button name
+    def pressed(button)
+      check_button!(button)
+      Condition.new(self, Build.pressed(button))
+    end
+
     # --- Conditionals ---
     # Compare a variable against an immediate or another variable.
     # The block runs only when the condition is true.
