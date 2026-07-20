@@ -92,6 +92,21 @@ module RubyGBA
       mutate { @builder.clamp(@name, lo, hi) }
     end
 
+    # Replace the variable with its absolute value.
+    def abs
+      mutate { @builder.abs(@name) }
+    end
+
+    # Force the variable negative: it becomes -|value|.
+    def negate_abs
+      mutate { @builder.negate_abs(@name) }
+    end
+
+    # Flip the variable's sign.
+    def flip
+      mutate { @builder.flip(@name) }
+    end
+
     private
 
     def compare(op, other)
