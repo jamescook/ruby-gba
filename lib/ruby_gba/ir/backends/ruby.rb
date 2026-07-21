@@ -119,7 +119,7 @@ module RubyGBA
               @data[n[:name]] = n[:bytes]
             when :bitmap
               @data[n[:name]] = n[:pixels]
-              @bitmaps[n[:name]] = { width: n[:width], height: n[:height] }
+              @bitmaps[n[:name]] = { width: n[:width], height: n[:height], transparent: n[:transparent] }
             end
           end
         end
@@ -292,6 +292,7 @@ module RubyGBA
             raise ProgramError, "blit of undefined image #{node[:name].inspect}"
           end
           pixels = @data.fetch(node[:name])
+          transparent = bmp[:transparent]
           x = eval_value(node[:x])
           y = eval_value(node[:y])
 
@@ -299,6 +300,7 @@ module RubyGBA
             bmp[:width].times do |col|
               i = ((row * bmp[:width]) + col) * 2
               color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
+              next if transparent && color == transparent # skip: the background shows through
               @screen.set_pixel(x + col, y + row, color)
             end
           end

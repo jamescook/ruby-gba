@@ -199,6 +199,22 @@ class TestIRBackendGBA < Minitest::Test
     assert v.black?(12, 20) # just outside
   end
 
+  def test_blit_honors_transparency
+    # A 3-wide sprite: middle red, ends transparent, over a blue field. The blue
+    # must show through the transparent ends.
+    clear = 0x8000 # the transparent marker (bit 15, no real color uses it)
+    rom = lower(program(
+      display(:bitmap), clear_screen(:blue),
+      bitmap(:dot, width: 3, height: 1, pixels: [clear, 0x001F, clear].pack("v*"), transparent: clear),
+      blit(:dot, 10, 10),
+      halt,
+    ))
+    v = assert_gemba_loads_rom(rom)
+    assert v.blue?(10, 10), "transparent end -> background shows"
+    assert v.red?(11, 10),  "lit pixel drawn"
+    assert v.blue?(12, 10), "transparent end -> background shows"
+  end
+
   def test_blit_follows_a_variable_position
     rom = lower(program(
       display(:bitmap), clear_screen(:black),

@@ -51,6 +51,58 @@ class TestImage < Minitest::Test
     assert_match(/2/, err.message)   # and what was given
   end
 
+  # ---- ASCII-art authoring form ----
+
+  def test_ascii_form_infers_dimensions_and_maps_chars
+    prog = build do
+      image :bar, "." => :black, "#" => :red do
+        <<~ART
+          .#.
+          ###
+        ART
+      end
+    end
+    node = bitmap_of(prog, :bar)
+
+    assert_equal 3, node[:width]
+    assert_equal 2, node[:height]
+    black = Color.resolve(:black)
+    red = Color.resolve(:red)
+    assert_equal [black, red, black, red, red, red].pack("v*"), node[:pixels]
+    assert_nil node[:transparent], "no :transparent char means an opaque bitmap"
+  end
+
+  def test_ascii_form_marks_transparent_pixels
+    prog = build do
+      image :dot, "." => :transparent, "#" => :red do
+        <<~ART
+          .#.
+        ART
+      end
+    end
+    node = bitmap_of(prog, :dot)
+
+    refute_nil node[:transparent]
+    lo, mid, hi = node[:pixels].unpack("v3")
+    assert_equal node[:transparent], lo, "'.' is transparent, not a color"
+    assert_equal Color.resolve(:red), mid
+    assert_equal node[:transparent], hi
+  end
+
+  def test_ascii_form_rejects_ragged_rows
+    err = assert_raises(ArgumentError) do
+      build { image(:x, "#" => :red) { "##\n#\n" } }
+    end
+    assert_match(/ragged|same length/i, err.message)
+  end
+
+  def test_ascii_form_rejects_an_unmapped_char
+    err = assert_raises(ArgumentError) do
+      build { image(:x, "#" => :red) { "#?#\n" } }
+    end
+    assert_match(/\?/, err.message)
+  end
+
   # ---- image + blit, observed on the fake screen ----
 
   def screen_after(&block)
@@ -83,5 +135,22 @@ class TestImage < Minitest::Test
 
     assert_equal Color.resolve(:red), screen.pixel(100, 50)
     assert_equal 0, screen.pixel(99, 50)
+  end
+
+  def test_blit_lets_the_background_show_through_transparent_pixels
+    screen = screen_after do
+      display :bitmap
+      clear_screen :blue
+      image :dot, "." => :transparent, "#" => :red do
+        <<~ART
+          .#.
+        ART
+      end
+      blit :dot, 10, 10
+    end
+
+    assert_equal Color.resolve(:blue), screen.pixel(10, 10), "transparent -> background shows"
+    assert_equal Color.resolve(:red),  screen.pixel(11, 10), "the lit pixel is drawn"
+    assert_equal Color.resolve(:blue), screen.pixel(12, 10), "transparent -> background shows"
   end
 end

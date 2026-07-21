@@ -217,9 +217,12 @@ module RubyGBA
 
       # An embedded bitmap: +pixels+ is a binary String of width*height 15-bit
       # BGR555 colors (little-endian halfwords). Like +data+, but it carries the
-      # shape a draw op needs. A definition — a later blit references it by name.
-      def bitmap(name, width:, height:, pixels:)
-        Node.new(:bitmap, name: name, width: width, height: height, pixels: pixels)
+      # shape a draw op needs. +transparent+, when set, is the pixel value that
+      # means "don't draw" (so the background shows through); nil means opaque. A
+      # definition — a later blit references it by name.
+      def bitmap(name, width:, height:, pixels:, transparent: nil)
+        Node.new(:bitmap, name: name, width: width, height: height,
+                          pixels: pixels, transparent: transparent)
       end
 
       # Draw a defined bitmap with its top-left at (x, y). x/y may be constants or
