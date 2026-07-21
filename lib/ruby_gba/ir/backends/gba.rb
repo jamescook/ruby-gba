@@ -92,6 +92,7 @@ module RubyGBA
           @songs = {}            # name -> :song node (from song)
           @data_blobs = {}       # name -> bytes (embedded data, appended after code)
           @data_positions = {}   # name -> byte offset of its blob within @code
+          @bitmaps = {}          # name -> { width:, height: } (a blob that has a shape)
           @label_seq = 0
           @uses_pressed = false  # whether the program reads edge-detected input
         end
@@ -133,6 +134,9 @@ module RubyGBA
               @songs[node[:name]] = node
             when :data
               @data_blobs[node[:name]] = node[:bytes]
+            when :bitmap
+              @data_blobs[node[:name]] = node[:pixels]
+              @bitmaps[node[:name]] = { width: node[:width], height: node[:height] }
             end
           end
         end
@@ -247,7 +251,7 @@ module RubyGBA
           when :draw_rect_at then emit_draw_rect_at(node)
           when :draw_text then emit_draw_text(node)
           when :enable_sound then emit_enable_sound
-          when :define_sound, :song, :data then nil # definitions: collected, nothing to emit
+          when :define_sound, :song, :data, :bitmap then nil # definitions: collected, nothing to emit
           when :beep then emit_beep(node)
           when :play_song then emit_play_song(node)
           when :stop_music then emit_stop_music

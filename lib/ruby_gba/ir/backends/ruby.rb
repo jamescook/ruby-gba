@@ -52,6 +52,7 @@ module RubyGBA
           @defined_sounds = {}     # name -> musical params (from define_sound)
           @songs = {}              # name -> :song node (from song)
           @data = {}               # name -> bytes (embedded data blobs)
+          @bitmaps = {}            # name -> { width:, height: } (a blob that has a shape)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
         end
@@ -116,6 +117,9 @@ module RubyGBA
               @songs[n[:name]] = n
             when :data
               @data[n[:name]] = n[:bytes]
+            when :bitmap
+              @data[n[:name]] = n[:pixels]
+              @bitmaps[n[:name]] = { width: n[:width], height: n[:height] }
             end
           end
         end
@@ -200,7 +204,7 @@ module RubyGBA
             exec_draw_text(node)
           when :enable_sound
             @audio << [:enabled]
-          when :define_sound, :song, :data
+          when :define_sound, :song, :data, :bitmap
             # Definitions: gathered up front, so reaching one inline does nothing
             # (just like a func body).
             nil

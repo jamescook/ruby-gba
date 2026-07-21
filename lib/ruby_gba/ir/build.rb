@@ -215,6 +215,13 @@ module RubyGBA
         Node.new(:data_byte, name: name, index: index)
       end
 
+      # An embedded bitmap: +pixels+ is a binary String of width*height 15-bit
+      # BGR555 colors (little-endian halfwords). Like +data+, but it carries the
+      # shape a draw op needs. A definition — a later blit references it by name.
+      def bitmap(name, width:, height:, pixels:)
+        Node.new(:bitmap, name: name, width: width, height: height, pixels: pixels)
+      end
+
       # --- expression values (the AST an assignment or condition is built from) ---
 
       def int(number)
