@@ -71,7 +71,7 @@ module RubyGBA
     # @param value [Integer] value to store
     # @return [Value] a handle to the variable
     def set(name, value)
-      record(Build.set(name, value))
+      record(Build.set(name, Value.node_for(value)))
       ensure_var(name)
       Value.new(self, Build.var_ref(name), name: name)
     end
@@ -86,7 +86,7 @@ module RubyGBA
     # @param name [Symbol] variable name
     # @param operand [Integer, Symbol] value to add
     def add(name, operand)
-      record(Build.add(name, operand))
+      record(Build.add(name, Value.node_for(operand)))
       ensure_var(name)
       ensure_var(operand) if operand.is_a?(Symbol)
     end
@@ -98,7 +98,7 @@ module RubyGBA
     # @param name [Symbol] variable name
     # @param operand [Integer, Symbol] value to subtract
     def sub(name, operand)
-      record(Build.sub(name, operand))
+      record(Build.sub(name, Value.node_for(operand)))
       ensure_var(name)
       ensure_var(operand) if operand.is_a?(Symbol)
     end
@@ -470,7 +470,7 @@ module RubyGBA
     # @param h [Integer] height in pixels (build-time constant)
     # @param c [Symbol, String, Integer] fill color
     def draw_rect_at(x_pos, y_pos, w, h, c)
-      record(Build.draw_rect_at(x_pos, y_pos, w, h, c))
+      record(Build.draw_rect_at(Value.node_for(x_pos), Value.node_for(y_pos), w, h, c))
       ensure_var(x_pos) if x_pos.is_a?(Symbol)
       ensure_var(y_pos) if y_pos.is_a?(Symbol)
     end
@@ -660,7 +660,7 @@ module RubyGBA
     # @example
     #   blit :friend, :ball_x, :ball_y
     def blit(name, x, y)
-      record(Build.blit(name, x, y))
+      record(Build.blit(name, Value.node_for(x), Value.node_for(y)))
       ensure_var(x) if x.is_a?(Symbol)
       ensure_var(y) if y.is_a?(Symbol)
     end
@@ -691,7 +691,7 @@ module RubyGBA
     # @param var_name [Symbol] variable to compare
     # @param operand [Integer, Symbol] immediate value or variable name to compare against
     def emit_conditional(cond, var_name, operand, &block)
-      condition = Build.binop(COND_TO_OP.fetch(cond), Build.var_ref(var_name), Build.wrap(operand))
+      condition = Build.binop(COND_TO_OP.fetch(cond), Build.var_ref(var_name), Value.node_for(operand))
       ensure_var(var_name)
       ensure_var(operand) if operand.is_a?(Symbol)
 
