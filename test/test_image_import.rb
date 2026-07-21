@@ -27,14 +27,22 @@ class TestImageImport < Minitest::Test
   # The 2x2 fixture is red / green / blue / white, row-major (top-left first).
   TWO_BY_TWO = File.join(FIXTURES, "import_2x2.png")
   SOLID_RED  = File.join(FIXTURES, "import_solid_red_4x4.png")
+  # A 2x2 with an alpha channel: opaque red/green on top, transparent bottom row.
+  ALPHA_2X2  = File.join(FIXTURES, "import_alpha_2x2.png")
   EXPECTED   = [0x001F, 0x03E0, 0x7C00, 0x7FFF].freeze # red, green, blue, white
+  MARKER     = RubyGBA::Image::TRANSPARENT             # 0x8000, the see-through marker
 
-  # An adapter that returns canned RGB — lets the library be tested with no
+  # An adapter that returns canned pixels — lets the library be tested with no
   # ImageMagick at all. Its job is exactly the real adapter's: hand back
-  # width*height*3 raw bytes.
+  # width*height*(3 or 4) raw bytes.
   class FakeAdapter
-    def initialize(rgb) = @rgb = rgb
+    def initialize(rgb = nil, rgba: nil)
+      @rgb = rgb
+      @rgba = rgba
+    end
+
     def rgb_pixels(_path, width:, height:) = @rgb
+    def rgba_pixels(_path, width:, height:) = @rgba
   end
 
   # ---- the library, on a fake adapter (no external tool) --------------------
@@ -55,6 +63,37 @@ class TestImageImport < Minitest::Test
 
     assert_equal [Color.resolve(:red), Color.resolve(:green)], bmp.data
     assert(bmp.data.all?(Integer), "data is a flat list of color integers")
+  end
+
+  def test_opaque_load_carries_no_transparent_marker
+    bmp = Image.load("anything.png", width: 1, height: 1,
+                     adapter: FakeAdapter.new([1, 2, 3].pack("C*")))
+    assert_nil bmp.transparent, "a plain photo imports fully opaque"
+  end
+
+  def test_transparent_load_maps_low_alpha_to_the_marker
+    # Two opaque pixels (red, green) then two fully transparent ones. The
+    # see-through pixels become the marker; the opaque ones keep their color.
+    rgba = [255, 0, 0, 255,  0, 255, 0, 255,
+            0, 0, 0, 0,      9, 9, 9, 0].pack("C*")
+    bmp = Image.load("anything.png", width: 2, height: 2, transparent: true,
+                     adapter: FakeAdapter.new(rgba: rgba))
+
+    assert_equal [Color.resolve(:red), Color.resolve(:green), MARKER, MARKER], bmp.data
+    assert_equal MARKER, bmp.transparent
+  end
+
+  def test_alpha_threshold_decides_the_cutoff
+    # One pixel at alpha 100. Above a threshold of 50 it's kept; a threshold of
+    # 150 makes the same pixel see-through — the knob controls the edge.
+    rgba = [255, 0, 0, 100].pack("C*")
+    kept = Image.load("x.png", width: 1, height: 1, transparent: true,
+                      alpha_threshold: 50, adapter: FakeAdapter.new(rgba: rgba))
+    cut = Image.load("x.png", width: 1, height: 1, transparent: true,
+                     alpha_threshold: 150, adapter: FakeAdapter.new(rgba: rgba))
+
+    assert_equal [Color.resolve(:red)], kept.data
+    assert_equal [MARKER], cut.data
   end
 
   def test_load_rejects_the_wrong_amount_of_pixel_data
@@ -96,6 +135,15 @@ class TestImageImport < Minitest::Test
     assert_equal [Color.resolve(:red)] * 4, bmp.data
   end
 
+  def test_image_magick_reads_alpha_as_transparency
+    # The alpha fixture's transparent bottom row must come back as the marker,
+    # its opaque top row as color — the removed background survives the tool.
+    bmp = Image.load(ALPHA_2X2, width: 2, height: 2, transparent: true)
+
+    assert_equal [0x001F, 0x03E0, MARKER, MARKER], bmp.data
+    assert_equal MARKER, bmp.transparent
+  end
+
   # ---- the whole path: import -> embed -> blit ------------------------------
 
   def photo_program(x, y)
@@ -131,5 +179,45 @@ class TestImageImport < Minitest::Test
     assert v.green?(11, 20), "top-right green"
     assert v.blue?(10, 21),  "bottom-left blue"
     assert v.white?(11, 21), "bottom-right white"
+  end
+
+  # ---- the whole path for a CUTOUT: the background shows through -------------
+
+  # Import the alpha fixture as transparent over a solid blue field. The opaque
+  # top row draws; the transparent bottom row must let the blue show through —
+  # proving it's a see-through cutout, not a rectangle.
+  def cutout_program(x, y)
+    fixture = ALPHA_2X2
+    builder = RubyGBA::Builder.new
+    builder.instance_eval do
+      display :bitmap
+      clear_screen :blue
+      image :head, from: fixture, width: 2, height: 2, transparent: true
+      blit :head, x, y
+      halt
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_cutout_shows_background_through_transparent_pixels_on_the_interpreter
+    screen = Ruby.new.run(cutout_program(10, 20)).screen
+
+    assert_equal Color.resolve(:red),   screen.pixel(10, 20), "opaque top-left"
+    assert_equal Color.resolve(:green), screen.pixel(11, 20), "opaque top-right"
+    assert_equal Color.resolve(:blue),  screen.pixel(10, 21), "transparent -> field shows"
+    assert_equal Color.resolve(:blue),  screen.pixel(11, 21), "transparent -> field shows"
+  end
+
+  def test_cutout_shows_background_through_transparent_pixels_on_hardware
+    rom = RubyGBA::ROM.assemble(
+      RubyGBA::IR::Backends::GBA.new.lower(cutout_program(10, 20)),
+      title: "CUTOUT", code: "BCUT", maker: "01",
+    )
+    v = assert_gemba_loads_rom(rom)
+    assert v.red?(10, 20),   "opaque top-left"
+    assert v.green?(11, 20), "opaque top-right"
+    assert v.blue?(10, 21),  "transparent -> field shows"
+    assert v.blue?(11, 21),  "transparent -> field shows"
   end
 end
