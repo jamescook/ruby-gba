@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "stringio"
 require_relative "../lib/ruby_gba"
 
 # The first real guardrail: a program that draws but never turns the display on.
@@ -59,5 +60,20 @@ class TestIRGuardrailDisplayMode < Minitest::Test
   def test_clear_screen_counts_as_drawing
     report = Guardrails::Validator.new.run(program(clear_screen(:blue)), autofix: false)
     refute report.ok?
+  end
+
+  # This is a fatal footgun (a guaranteed black screen), so at build time it stops
+  # the build rather than shipping silently — with the explanation and suggested
+  # fix on the err stream. Nothing is auto-corrected.
+  def test_build_halts_on_a_draw_without_a_display_mode
+    err = StringIO.new
+    assert_raises(RubyGBA::ROMError) do
+      RubyGBA.build("BLACK", code: "BBLK", maker: "01", out: StringIO.new, err: err) do
+        clear_screen :blue
+        halt
+      end
+    end
+    assert_match(/display/i, err.string, "the explanation names the missing display mode")
+    assert_match(/black/i, err.string, "and what goes wrong")
   end
 end
