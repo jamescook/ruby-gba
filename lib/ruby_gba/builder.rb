@@ -631,6 +631,18 @@ module RubyGBA
       record(Build.bitmap(name, width: width, height: height, pixels: pixels))
     end
 
+    # Draw a bitmap (defined with `image`) at a position, which may be a variable
+    # (a moving object) or a constant. Keep it on-screen — off-screen parts aren't
+    # clipped at run time yet.
+    #
+    # @example
+    #   blit :friend, :ball_x, :ball_y
+    def blit(name, x, y)
+      record(Build.blit(name, x, y))
+      ensure_var(x) if x.is_a?(Symbol)
+      ensure_var(y) if y.is_a?(Symbol)
+    end
+
     # Pack 5-bit RGB channels (0-31 each) into a 15-bit GBA color.
     # Raises on out-of-range values to catch mistakes early.
     def rgb(r, g, b)

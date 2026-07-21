@@ -168,6 +168,8 @@ module RubyGBA
             end
           when :loop
             loop { node.children.each { |child| exec(child) } }
+          when :blit
+            exec_blit(node)
           when :call
             exec_call(node[:target])
           when :case
@@ -279,6 +281,26 @@ module RubyGBA
           value = @vars[node[:var]]
           node[:clauses].each do |clause_value, target|
             exec_call(target) if value == clause_value
+          end
+        end
+
+        # Copy a defined bitmap onto the fake screen at (x, y). Each pixel is a
+        # little-endian 15-bit halfword in the stored bytes; set_pixel clips any
+        # that fall off-screen, matching how the hardware framebuffer behaves.
+        def exec_blit(node)
+          bmp = @bitmaps.fetch(node[:name]) do
+            raise ProgramError, "blit of undefined image #{node[:name].inspect}"
+          end
+          pixels = @data.fetch(node[:name])
+          x = eval_value(node[:x])
+          y = eval_value(node[:y])
+
+          bmp[:height].times do |row|
+            bmp[:width].times do |col|
+              i = ((row * bmp[:width]) + col) * 2
+              color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
+              @screen.set_pixel(x + col, y + row, color)
+            end
           end
         end
 

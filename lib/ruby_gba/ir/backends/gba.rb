@@ -250,6 +250,7 @@ module RubyGBA
           when :dma_fill_rect then emit_dma_fill_rect(node)
           when :draw_rect_at then emit_draw_rect_at(node)
           when :draw_text then emit_draw_text(node)
+          when :blit then emit_blit(node)
           when :enable_sound then emit_enable_sound
           when :define_sound, :song, :data, :bitmap then nil # definitions: collected, nothing to emit
           when :beep then emit_beep(node)
@@ -515,6 +516,56 @@ module RubyGBA
             emit(ASM.load_immediate(TMP, REG_DMA3DAD))
             emit(ASM.str(4, TMP))            # destination is the computed address
             store_word_immediate(control, REG_DMA3CNT)
+          end
+        end
+
+        # Copy a defined bitmap to a runtime (x, y), one row per DMA transfer. The
+        # source is the bitmap's address in the cartridge (both source and
+        # destination increment, unlike a fill), so each row's pixels stream
+        # straight from ROM into VRAM. r2/r3 hold x/y and r6 the bitmap base across
+        # the loop; r4/r5 are the destination and source addresses. (No run-time
+        # clip yet — the caller keeps it on-screen, as pong does by clamping.)
+        def emit_blit(node)
+          name = node[:name]
+          bmp = @bitmaps.fetch(name) do
+            raise LoweringError, "blit of undefined image #{name.inspect}"
+          end
+          width = bmp[:width]
+          control = width | DMA_ENABLE # 16-bit, source and destination increment
+
+          x_reg = 2
+          y_reg = 3
+          base_reg = 6
+          eval_value(node[:x])
+          emit(ASM.mov_reg(x_reg, ACC))
+          eval_value(node[:y])
+          emit(ASM.mov_reg(y_reg, ACC))
+          emit_load_data_address(base_reg, name) # r6 = bitmap address in the cartridge
+
+          bmp[:height].times do |row|
+            # r4 = VRAM_START + ((y + row) * screen_width + x) * 2
+            row.zero? ? emit(ASM.mov_reg(4, y_reg)) : emit(ASM.add_imm(4, y_reg, row))
+            emit(ASM.load_immediate(5, SCREEN_WIDTH))
+            emit(ASM.mul(4, 5, 4))
+            emit(ASM.add_reg(4, 4, x_reg))
+            emit(ASM.lsl_imm(4, 4, 1))
+            emit(ASM.load_immediate(5, VRAM_START))
+            emit(ASM.add_reg(4, 4, 5))
+
+            # r5 = bitmap base + this row's byte offset into the pixels
+            row_offset = row * width * 2
+            if row.zero?
+              emit(ASM.mov_reg(5, base_reg))
+            else
+              emit(ASM.load_immediate(5, row_offset))
+              emit(ASM.add_reg(5, base_reg, 5))
+            end
+
+            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            emit(ASM.str(5, TMP))                       # source: this row in ROM
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(4, TMP))                       # destination: this row in VRAM
+            store_word_immediate(control, REG_DMA3CNT)  # kick off the row copy
           end
         end
 

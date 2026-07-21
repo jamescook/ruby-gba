@@ -50,4 +50,38 @@ class TestImage < Minitest::Test
     assert_match(/4/, err.message)   # names the expected count
     assert_match(/2/, err.message)   # and what was given
   end
+
+  # ---- image + blit, observed on the fake screen ----
+
+  def screen_after(&block)
+    prog = build(&block)
+    RubyGBA::IR::Backends::Ruby.new.run(prog).screen
+  end
+
+  def test_blit_draws_each_pixel_of_the_image_at_the_position
+    screen = screen_after do
+      display :bitmap
+      image :quad, width: 2, height: 2, data: [:red, :green, :blue, :white]
+      blit :quad, 10, 20
+    end
+
+    assert_equal Color.resolve(:red),   screen.pixel(10, 20)
+    assert_equal Color.resolve(:green), screen.pixel(11, 20)
+    assert_equal Color.resolve(:blue),  screen.pixel(10, 21)
+    assert_equal Color.resolve(:white), screen.pixel(11, 21)
+    assert_equal 0, screen.pixel(12, 20) # just outside the image
+  end
+
+  def test_blit_follows_a_variable_position
+    screen = screen_after do
+      display :bitmap
+      image :dot, width: 1, height: 1, data: [:red]
+      set :px, 100
+      set :py, 50
+      blit :dot, :px, :py
+    end
+
+    assert_equal Color.resolve(:red), screen.pixel(100, 50)
+    assert_equal 0, screen.pixel(99, 50)
+  end
 end
