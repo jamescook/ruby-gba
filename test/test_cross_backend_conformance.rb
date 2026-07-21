@@ -13,7 +13,7 @@ class TestCrossBackendConformance < Minitest::Test
   Node = RubyGBA::IR::Node
   Ruby = RubyGBA::IR::Backends::Ruby
   GBA = RubyGBA::IR::Backends::GBA
-  Doctor = RubyGBA::Doctor
+  ROMValidator = RubyGBA::ROMValidator
   ROM = RubyGBA::ROM
 
   # ---- the fixture actually covers everything (maintenance guard) ----
@@ -52,12 +52,12 @@ class TestCrossBackendConformance < Minitest::Test
 
   def test_gba_backend_lowers_the_whole_fixture_to_a_clean_rom
     # A feature the GBA backend can't lower raises LoweringError; a structurally
-    # bad ROM makes ROM.assemble (which runs the Doctor) raise ROMError. Neither
-    # may happen.
+    # bad ROM makes ROM.assemble (which validates the image) raise ROMError.
+    # Neither may happen.
     code = GBA.new.lower(ConformanceFixture.program)
     rom = ROM.assemble(code, title: "CONFORM", code: "BCNF", maker: "01")
 
-    assert Doctor.check(rom).ok?, "the lowered fixture must be a Doctor-clean ROM"
+    assert ROMValidator.check(rom).ok?, "the lowered fixture must be a valid ROM"
   end
 
   # ---- the one hardware-only exception, pinned explicitly ----

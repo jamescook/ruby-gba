@@ -5,9 +5,10 @@ require "stringio"
 require_relative "../lib/ruby_gba"
 
 # The termination guardrail: a program whose top-level flow just ends — no halt,
-# no forever-loop — runs off into garbage memory. This is the IR replacement for
-# Doctor's byte-scan "no halt found" check. Assert which programs warn and which
-# don't, by whether control can fall off the end.
+# no forever-loop — runs off into garbage memory. It catches this on the IR (where
+# it's exact) rather than by scanning finished machine code for a backward branch.
+# Assert which programs warn and which don't, by whether control can fall off the
+# end.
 class TestIRGuardrailTermination < Minitest::Test
   include RubyGBA::IR::Build
 

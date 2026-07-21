@@ -8,8 +8,8 @@ class TestTestPatterns < Minitest::Test
   def test_solid_fill_builds
     rom = RubyGBA::TestPatterns.solid_fill(:red)
     assert_kind_of RubyGBA::ROM, rom
-    result = RubyGBA::Doctor.check(rom)
-    assert result.ok?, "solid_fill ROM failed doctor: #{result.report}"
+    result = RubyGBA::ROMValidator.check(rom)
+    assert result.ok?, "solid_fill ROM failed validation: #{result.report}"
   end
 
   def test_solid_fill_default_color
@@ -20,22 +20,22 @@ class TestTestPatterns < Minitest::Test
   def test_color_bars_builds
     rom = RubyGBA::TestPatterns.color_bars
     assert_kind_of RubyGBA::ROM, rom
-    result = RubyGBA::Doctor.check(rom)
-    assert result.ok?, "color_bars ROM failed doctor: #{result.report}"
+    result = RubyGBA::ROMValidator.check(rom)
+    assert result.ok?, "color_bars ROM failed validation: #{result.report}"
   end
 
   def test_corners_builds
     rom = RubyGBA::TestPatterns.corners
     assert_kind_of RubyGBA::ROM, rom
-    result = RubyGBA::Doctor.check(rom)
-    assert result.ok?, "corners ROM failed doctor: #{result.report}"
+    result = RubyGBA::ROMValidator.check(rom)
+    assert result.ok?, "corners ROM failed validation: #{result.report}"
   end
 
   def test_crosshair_builds
     rom = RubyGBA::TestPatterns.crosshair
     assert_kind_of RubyGBA::ROM, rom
-    result = RubyGBA::Doctor.check(rom)
-    assert result.ok?, "crosshair ROM failed doctor: #{result.report}"
+    result = RubyGBA::ROMValidator.check(rom)
+    assert result.ok?, "crosshair ROM failed validation: #{result.report}"
   end
 end
 
