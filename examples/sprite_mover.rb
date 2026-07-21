@@ -12,6 +12,8 @@ SCREEN_H = 160
 SPEED    = 2
 SPRITE_W = 5
 SPRITE_H = 5
+HALF_W   = SPRITE_W / 2 # how far the heart may hang off a vertical edge
+HALF_H   = SPRITE_H / 2 # ... and off a horizontal edge
 
 rom = RubyGBA.build("SPRITEMV", code: "BSPM", maker: "01") do
   display :bitmap
@@ -41,9 +43,10 @@ rom = RubyGBA.build("SPRITEMV", code: "BSPM", maker: "01") do
     held(:up).then    { y.sub SPEED }
     held(:down).then  { y.add SPEED }
 
-    # blit has no run-time edge clipping yet, so keep the heart fully on-screen.
-    x.clamp 0, SCREEN_W - SPRITE_W
-    y.clamp 0, SCREEN_H - SPRITE_H
+    # blit clips at the screen edges, so let the heart slide half off any side or
+    # corner — just not so far it vanishes. It stays put until you steer back.
+    x.clamp(-HALF_W, SCREEN_W - SPRITE_W + HALF_W)
+    y.clamp(-HALF_H, SCREEN_H - SPRITE_H + HALF_H)
 
     blit :heart, :x, :y
   end
