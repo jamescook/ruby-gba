@@ -19,7 +19,8 @@ module RubyGBA
       class ValidationError < StandardError; end
 
       # One problem a guardrail found.
-      #   severity — :error (would break the ROM) or :warning (we auto-fixed it)
+      #   severity — :error (would break the ROM) or :warning (advisory — a
+      #              non-fatal footgun, or an error the pass auto-fixed for you)
       #   message  — plain language written for the person, not a log
       #   fix      — an optional Fix the pass may apply; nil if there's no safe one
       Finding = Data.define(:check, :severity, :message, :fix) do
@@ -93,6 +94,7 @@ module RubyGBA
 end
 
 require_relative "guardrails/display_mode_set"
+require_relative "guardrails/vblank_sync"
 
 module RubyGBA
   module IR
@@ -100,7 +102,7 @@ module RubyGBA
       # The checks that run by default, in order. A plain frozen list so the
       # registry is visible data, not hidden behind a method — instantiate a
       # Validator with your own list to run a different set.
-      BUILTIN_CHECKS = [Checks::DisplayModeSet.new].freeze
+      BUILTIN_CHECKS = [Checks::DisplayModeSet.new, Checks::VblankSync.new].freeze
     end
   end
 end
