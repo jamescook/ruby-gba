@@ -18,6 +18,7 @@ class TestScenes < Minitest::Test
 
   def test_scene_builds
     rom = build do
+      display :bitmap
       scene :title do
         clear_screen :black
       end
@@ -48,6 +49,7 @@ class TestScenes < Minitest::Test
 
   def test_case_var_builds
     rom = build do
+      display :bitmap
       scene :title do
         clear_screen :black
       end

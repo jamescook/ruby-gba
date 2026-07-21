@@ -36,14 +36,21 @@ module RubyGBA
     end
     builder.emit_pending_functions
 
-    # Run the guardrails over the finished IR and surface any advisory warnings
-    # (a game loop with no frame sync, say) on the err stream — plain-language
-    # nudges that don't stop the build. Skipped for a debug_halt build, whose
-    # tree is deliberately truncated. Errors and auto-fixes aren't enforced here
-    # yet; this is the soft, advisory pass.
+    # Run the guardrails over the finished IR and report every finding — its
+    # plain-language explanation and the suggested fix — on the err stream. A
+    # warning is advisory (a game loop with no frame sync, say): it's printed and
+    # the build goes on. A fatal problem (drawing with no display mode, which
+    # would leave the screen black) stops the build so the mistake can't ship
+    # silently. Nothing is auto-corrected — the fix is suggested, never applied
+    # (an opt-in `--auto-fix` is future work). Skipped for a debug_halt build,
+    # whose tree is deliberately truncated.
     unless builder.debug_halted?
       report = IR::Guardrails::Validator.new.run(builder.program, autofix: false)
-      report.warnings.each { |warning| err.puts(warning.message) }
+      report.findings.each { |finding| err.puts(finding.message) }
+      if report.errors.any?
+        raise ROMError,
+              "build stopped by #{report.errors.size} problem(s) — see the explanation(s) above"
+      end
     end
 
     # The DSL built an IR tree as the block ran. Turn it into a ROM in two steps,
