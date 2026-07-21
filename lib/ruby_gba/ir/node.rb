@@ -65,8 +65,9 @@ module RubyGBA
 
         # embedded asset data: a named, format-agnostic blob of bytes stored in
         # the ROM (a definition, like func/song — it emits nothing on its own).
-        # Consumers (a bitmap, a song) reference it by name.
-        data: :data,
+        # Consumers (a bitmap, a song) reference it by name. `bitmap` is a blob
+        # that also carries width/height, so a draw op knows its shape.
+        data: :data, bitmap: :data,
 
         # expression values — operands, live inside another node's #attrs
         int: :value, var_ref: :value, binop: :value, neg: :value,

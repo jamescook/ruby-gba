@@ -605,6 +605,32 @@ module RubyGBA
       draw_text(digit.to_s, x, y, c)
     end
 
+    # --- Images ---
+
+    # Define a bitmap from raw pixel data — the shape the image importer produces.
+    # +data+ is width*height colors (names, hex strings, or raw BGR555 integers),
+    # row-major. The pixels are packed to the GBA's 15-bit color and embedded in
+    # the ROM; a later `blit` draws it by name. Since it's Ruby, +data+ can be a
+    # literal, a generated array, or an importer call — anything that returns the
+    # pixels.
+    #
+    # @example
+    #   image :friend, width: 16, height: 16, data: import_png("friend.png")
+    def image(name, width:, height:, data:)
+      unless width.is_a?(Integer) && width.positive? && height.is_a?(Integer) && height.positive?
+        raise ArgumentError, "image :#{name} needs positive width and height (got #{width}x#{height})"
+      end
+
+      expected = width * height
+      unless data.length == expected
+        raise ArgumentError,
+              "image :#{name} is #{width}x#{height}, so it needs #{expected} pixels, but got #{data.length}"
+      end
+
+      pixels = data.map { |c| Color.resolve(c) }.pack("v*")
+      record(Build.bitmap(name, width: width, height: height, pixels: pixels))
+    end
+
     # Pack 5-bit RGB channels (0-31 each) into a 15-bit GBA color.
     # Raises on out-of-range values to catch mistakes early.
     def rgb(r, g, b)

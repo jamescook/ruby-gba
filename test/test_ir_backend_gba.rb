@@ -182,6 +182,13 @@ class TestIRBackendGBA < Minitest::Test
     assert v.black?(2, 0), "holding must not count as repeated presses"
   end
 
+  def test_bitmap_pixels_land_in_the_code
+    # A bitmap embeds its pixels in the data region, like a raw blob.
+    gba = GBA.new
+    gba.lower(program(bitmap(:friend, width: 2, height: 1, pixels: "\xDE\xAD\xBE\xEF".b), halt))
+    assert_includes gba.code, "\xDE\xAD\xBE\xEF".b
+  end
+
   def test_embedded_data_bytes_land_in_the_code
     # Deterministic: the blob's bytes are appended to the emitted code (the data
     # region), so they ship in the ROM.

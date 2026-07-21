@@ -118,6 +118,18 @@ class TestIRBackendRuby < Minitest::Test
     assert_equal 0x63, i[:z]
   end
 
+  def test_bitmap_pixels_are_embedded_and_readable
+    # A bitmap's pixels ride the same embedding path as a raw data blob, so they
+    # are readable by (name, index) — this is what blit will draw.
+    i = run_ir(program(
+      bitmap(:friend, width: 2, height: 1, pixels: "\x1F\x00\x00\x7C".b),
+      set(:lo, data_byte(:friend, 0)),
+      set(:hi, data_byte(:friend, 3)),
+    ))
+    assert_equal 0x1F, i[:lo]
+    assert_equal 0x7C, i[:hi]
+  end
+
   def test_division_truncates_toward_zero
     # Matches the console's BIOS Div (and C): quotient rounds toward zero, so a
     # negative result truncates up, never down like Ruby's floor division.
