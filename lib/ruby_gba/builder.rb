@@ -349,14 +349,6 @@ module RubyGBA
 
     # --- Input ---
 
-    # Valid button names for {#if_held} / {#if_pressed}, mapped to the hardware
-    # key bit each names.
-    BUTTON_MASKS = {
-      a: KEY_A, b: KEY_B, select: KEY_SELECT, start: KEY_START,
-      right: KEY_RIGHT, left: KEY_LEFT, up: KEY_UP, down: KEY_DOWN,
-      r: KEY_R, l: KEY_L,
-    }.freeze
-
     # Run the block only while a button is held down.
     #
     # @param button [Symbol] :up, :down, :left, :right, :a, :b, :start, :select, :l, :r
@@ -708,9 +700,10 @@ module RubyGBA
       end
     end
 
-    # Accept a known button name; raise a plain error for anything else.
+    # Accept a known button name (from the shared IR vocabulary); raise a plain
+    # error for anything else.
     def check_button!(button)
-      return if BUTTON_MASKS.key?(button)
+      return if IR::Buttons.known?(button)
 
       raise ArgumentError, "unknown button: #{button}"
     end
