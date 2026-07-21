@@ -13,7 +13,7 @@ class TestInspector < Minitest::Test
   end
 
   def minimal_rom
-    RubyGBA.build("TEST", code: "BTST", maker: "01", doctor: false) do
+    RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false) do
       halt
     end
   end
@@ -331,7 +331,7 @@ class TestInspector < Minitest::Test
   # ========================================================================
 
   def test_no_unknown_instructions_in_pong
-    rom = RubyGBA.build("PONG", code: "BPNG", maker: "01", doctor: false) do
+    rom = RubyGBA.build("PONG", code: "BPNG", maker: "01", validate: false) do
       display :bitmap
       set :state, 0
       scene :title do
@@ -379,7 +379,7 @@ class TestInspector < Minitest::Test
 
   def test_dump_func_prints_output
     out = StringIO.new
-    RubyGBA.build("TEST", code: "BTST", maker: "01", doctor: false, out: out) do
+    RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, out: out) do
       func :my_func do
         set :x, 42
       end
@@ -394,7 +394,7 @@ class TestInspector < Minitest::Test
 
   def test_dump_func_works_with_scene_name
     out = StringIO.new
-    RubyGBA.build("TEST", code: "BTST", maker: "01", doctor: false, out: out) do
+    RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, out: out) do
       scene :title do
         set :x, 1
       end
@@ -408,7 +408,7 @@ class TestInspector < Minitest::Test
 
   def test_dump_func_warns_on_unknown
     err = StringIO.new
-    RubyGBA.build("TEST", code: "BTST", maker: "01", doctor: false, err: err) do
+    RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, err: err) do
       dump_func :nonexistent
       halt
     end

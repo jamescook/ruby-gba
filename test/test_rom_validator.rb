@@ -24,7 +24,7 @@ class TestROMValidator < Minitest::Test
 
   def test_empty_code_region_is_a_warning_not_an_error
     rom = ROM.new(title: "EMPTY", code: "BEMP", maker: "01")
-    rom.finalize!(doctor: false)
+    rom.finalize!(validate: false)
     result = ROMValidator.check(rom)
 
     assert result.ok?, "no code is a warning, not an error"
@@ -79,7 +79,7 @@ class TestROMValidator < Minitest::Test
   def test_an_empty_title_is_a_warning
     rom = ROM.new(title: "", code: "BEMP", maker: "01")
     rom.emit(RubyGBA::ASM.loop_forever)
-    rom.finalize!(doctor: false)
+    rom.finalize!(validate: false)
     result = ROMValidator.check(rom)
 
     assert result.ok?, "an empty title is a warning, not an error"
@@ -113,12 +113,12 @@ class TestROMValidator < Minitest::Test
     rom.emit(RubyGBA::ASM.loop_forever)
     rom.buffer.setbyte(0xB2, 0x00)
 
-    err = assert_raises(RubyGBA::ROMError) { rom.finalize!(doctor: true) }
+    err = assert_raises(RubyGBA::ROMError) { rom.finalize!(validate: true) }
     assert_match(/0x96/, err.message)
   end
 
   def test_finalize_validation_can_be_disabled
-    rom = RubyGBA.build("SKIP", code: "BSKP", maker: "01", doctor: false) do
+    rom = RubyGBA.build("SKIP", code: "BSKP", maker: "01", validate: false) do
       entry { loop_forever }
     end
     assert_kind_of ROM, rom
@@ -128,7 +128,7 @@ class TestROMValidator < Minitest::Test
 
   def finalized_rom
     rom = ROM.new(title: "BAD", code: "BBAD", maker: "01")
-    rom.finalize!(doctor: false)
+    rom.finalize!(validate: false)
     rom
   end
 end

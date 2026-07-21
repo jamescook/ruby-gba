@@ -8,8 +8,8 @@ class TestGameLoop < Minitest::Test
   include RubyGBA::Constants
   include GembaSupport
 
-  def build(doctor: false, &block)
-    RubyGBA.build("LOOPTEST", code: "BLPT", maker: "01", doctor: doctor, &block)
+  def build(validate: false, &block)
+    RubyGBA.build("LOOPTEST", code: "BLPT", maker: "01", validate: validate, &block)
   end
 
   # Helper: extract all instructions from code region

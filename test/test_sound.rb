@@ -8,8 +8,8 @@ class TestSound < Minitest::Test
   include RubyGBA::Constants
   include GembaSupport
 
-  def build(doctor: false, &block)
-    RubyGBA.build("SNDTEST", code: "BSND", maker: "01", doctor: doctor, &block)
+  def build(validate: false, &block)
+    RubyGBA.build("SNDTEST", code: "BSND", maker: "01", validate: validate, &block)
   end
 
   # ========================================================================
@@ -221,7 +221,7 @@ class TestSound < Minitest::Test
   def test_beep_writes_correct_frequency_value
     # 440 Hz: freq_val = 2048 - 131072/440 = 2048 - 298 = 1750
     builder = nil
-    rom = RubyGBA.build("TEST", code: "BTST", maker: "01", doctor: false) do
+    rom = RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false) do
       builder = self
       enable_sound
       beep 440

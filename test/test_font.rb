@@ -97,8 +97,8 @@ class TestFont < Minitest::Test
   # draw_text in builder
   # ========================================================================
 
-  def build(doctor: false, &block)
-    RubyGBA.build("FONTEST", code: "BFNT", maker: "01", doctor: doctor, &block)
+  def build(validate: false, &block)
+    RubyGBA.build("FONTEST", code: "BFNT", maker: "01", validate: validate, &block)
   end
 
   def test_draw_text_builds
