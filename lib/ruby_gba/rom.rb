@@ -23,8 +23,9 @@ module RubyGBA
 
     # Package finished machine code into a cartridge: write the header, drop the
     # code in after it, and finalize (entry branch, checksum, power-of-two
-    # padding, and the Doctor validation). This is the counterpart to a backend's
-    # lowering — the backend produces the code, this lays out the ROM around it.
+    # padding, and the ROM-image validation). This is the counterpart to a
+    # backend's lowering — the backend produces the code, this lays out the ROM
+    # around it.
     def self.assemble(machine_code, title:, code:, maker:, doctor: true)
       rom = new(title: title, code: code, maker: maker)
       rom.emit(machine_code)

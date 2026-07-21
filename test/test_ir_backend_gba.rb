@@ -64,7 +64,7 @@ class TestIRBackendGBA < Minitest::Test
     assert_equal bytes, gba.code[0, bytes.bytesize]
   end
 
-  # ---- the ROM is well-formed (Doctor runs inside finalize!) ----
+  # ---- the ROM is well-formed (the ROM validator runs inside finalize!) ----
 
   def test_a_drawing_program_finalizes_into_a_valid_rom
     rom = lower(program(display(:bitmap), clear_screen(:blue), halt))

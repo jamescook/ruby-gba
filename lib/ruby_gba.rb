@@ -6,7 +6,6 @@ require_relative "ruby_gba/color"
 require_relative "ruby_gba/sound"
 require_relative "ruby_gba/asm"
 require_relative "ruby_gba/ir"
-require_relative "ruby_gba/doctor"
 require_relative "ruby_gba/rom_validator"
 require_relative "ruby_gba/rom"
 require_relative "ruby_gba/font"
@@ -26,7 +25,7 @@ module RubyGBA
   # @param title [String] Game title (up to 12 chars)
   # @param code [String] 4-char game code (e.g. "BTKE")
   # @param maker [String] 2-char maker code (e.g. "01")
-  # @param doctor [Boolean] run Doctor validation after build (default: true)
+  # @param doctor [Boolean] run the ROM-image validation after build (default: true)
   # @return [RubyGBA::ROM] finalized ROM ready to write
   # +out+/+err+ are the streams dump_func writes its disassembly and warnings to;
   # they default to the process streams and can be pointed at a StringIO in tests.

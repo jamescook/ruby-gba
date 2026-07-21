@@ -5,10 +5,9 @@ require "tempfile"
 require_relative "../lib/ruby_gba"
 
 # The ROM-image validator: the structural checks on the finished cartridge bytes
-# (header, logo, checksum, entry branch, size, code, title) that used to live in
-# Doctor. These only exist after lowering, so they run at finalization rather than
-# as IR guardrails. This is the parity coverage that lets Doctor's structural half
-# retire.
+# (header, logo, checksum, entry branch, size, code, title). These only exist
+# after lowering, so they run at finalization rather than as IR guardrails (which
+# reason about the program before any ROM exists).
 class TestROMValidator < Minitest::Test
   ROMValidator = RubyGBA::ROMValidator
   ROM = RubyGBA::ROM
