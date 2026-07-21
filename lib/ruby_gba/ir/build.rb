@@ -246,6 +246,13 @@ module RubyGBA
         Node.new(:binop, op: op, lhs: wrap(lhs), rhs: wrap(rhs))
       end
 
+      # Arithmetic negation of a value operand: -operand. This is the value-node
+      # form (it produces a new value inside an expression), as opposed to the
+      # `negate` statement, which flips a stored variable in place.
+      def neg(operand)
+        Node.new(:neg, operand: wrap(operand))
+      end
+
       # --- input reads (value operands, e.g. inside an `if_` condition) ---
 
       # 1 while +button+ is down, else 0.
