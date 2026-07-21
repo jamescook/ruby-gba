@@ -623,6 +623,12 @@ module RubyGBA
     #
     #   image :friend, from: "friend.png", width: 16, height: 16
     #
+    # Add transparent: true for a cut-out (an image with its background removed):
+    # the removed areas become see-through, so the game field shows through them
+    # instead of a rectangle.
+    #
+    #   image :friend, from: "cutout.png", width: 16, height: 16, transparent: true
+    #
     # ASCII-art form — hand-drawn, with a char=>color map and a block of art. The
     # dimensions come from the art's shape, and one char may map to :transparent
     # (those pixels aren't drawn, so the background shows through):
@@ -645,10 +651,13 @@ module RubyGBA
       if block
         define_ascii_image(name, opts, &block)
       elsif opts[:from]
-        bmp = Image.load(opts[:from], width: opts[:width], height: opts[:height])
-        define_pixel_image(name, width: bmp.width, height: bmp.height, data: bmp.data)
+        bmp = Image.load(opts[:from], width: opts[:width], height: opts[:height],
+                                      transparent: opts.fetch(:transparent, false))
+        define_pixel_image(name, width: bmp.width, height: bmp.height, data: bmp.data,
+                                 transparent: bmp.transparent)
       else
-        define_pixel_image(name, width: opts[:width], height: opts[:height], data: opts[:data])
+        define_pixel_image(name, width: opts[:width], height: opts[:height], data: opts[:data],
+                                 transparent: opts[:transparent])
       end
     end
 
@@ -707,7 +716,11 @@ module RubyGBA
     end
 
     # Array form of #image: validate the dimensions and pack the pixel colors.
-    def define_pixel_image(name, width:, height:, data:)
+    # +transparent+ (an internal marker color, e.g. from an imported cutout) is
+    # left untouched while every other pixel is resolved — otherwise resolving it
+    # would mask the marker away — and it's recorded on the bitmap so `blit`
+    # skips those pixels, letting the background show through.
+    def define_pixel_image(name, width:, height:, data:, transparent: nil)
       positive_dims!(name, width, height)
       expected = width * height
       unless data.length == expected
@@ -715,8 +728,8 @@ module RubyGBA
               "image :#{name} is #{width}x#{height}, so it needs #{expected} pixels, but got #{data.length}"
       end
 
-      pixels = data.map { |c| Color.resolve(c) }.pack("v*")
-      record(Build.bitmap(name, width: width, height: height, pixels: pixels))
+      pixels = data.map { |c| c == transparent ? transparent : Color.resolve(c) }.pack("v*")
+      record(Build.bitmap(name, width: width, height: height, pixels: pixels, transparent: transparent))
     end
 
     # ASCII-art form of #image: split the block's art into rows, infer the size
