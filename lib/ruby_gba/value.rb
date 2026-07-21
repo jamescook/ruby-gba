@@ -15,8 +15,25 @@ module RubyGBA
   # Each Value wraps an IR value node; comparisons and arithmetic just build
   # bigger nodes, so nothing is committed to the program until a Condition's
   # `.then` (or a mutator) runs.
+  #
+  # Deliberately no `<=>` / Comparable: those demand a build-time -1/0/1, but a
+  # Value's magnitude isn't known until the ROM runs — which is exactly why the
+  # comparison operators return a Condition (a runtime test), not a Ruby boolean.
+  # Comparable would also redefine < > == to derive from `<=>` and hand back
+  # plain booleans, reviving the `if (x > 5)` footgun that `.then` exists to stop.
   class Value
     Build = IR::Build
+
+    # The one coercion boundary. Turns any value operand into an IR value node, so
+    # nothing but a value node ever reaches the IR: a Value contributes its node,
+    # and everything else goes through Build.wrap (an Integer becomes a literal, a
+    # Symbol a variable reference, a value node passes through, and anything that
+    # can't be a value raises a plain-language error). Every collision point — the
+    # operators below and the builder's verbs — funnels through here, so a Value
+    # and its `:symbol` are interchangeable everywhere a value is expected.
+    def self.node_for(operand)
+      operand.is_a?(Value) ? operand.node : Build.wrap(operand)
+    end
 
     # @param builder [Builder] the build the mutators record into
     # @param node [IR::Node] the value node this handle stands for
@@ -131,10 +148,9 @@ module RubyGBA
       self
     end
 
-    # The IR node for an operand: another Value contributes its node; a bare
-    # Integer/Symbol is wrapped into a literal / variable reference.
+    # The IR node for an operand — the shared coercion (see Value.node_for).
     def node_of(other)
-      other.is_a?(Value) ? other.node : Build.wrap(other)
+      Value.node_for(other)
     end
   end
 end

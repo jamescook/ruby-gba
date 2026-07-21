@@ -268,15 +268,21 @@ module RubyGBA
         Node.new(:pressed, button: button)
       end
 
-      # Coerce a bare operand into a value node so every operand is uniform:
-      # an Integer becomes an +int+ literal, a Symbol becomes a +var_ref+, and a
-      # Node passes through untouched.
+      # Coerce a bare operand into a value node so every operand is uniform: an
+      # Integer becomes an +int+ literal, a Symbol becomes a +var_ref+, and a Node
+      # passes through untouched. Anything else can't be a value here, so say so
+      # plainly rather than letting a stray object slip into the tree and fail
+      # cryptically later. (The DSL handle, Value, is unwrapped one layer up — the
+      # IR core doesn't know about it — so it never reaches here.)
       def wrap(operand)
         case operand
         when Node then operand
         when Integer then int(operand)
         when Symbol then var_ref(operand)
-        else operand
+        else
+          raise ArgumentError,
+                "can't use #{operand.inspect} as a value — expected a number, a " \
+                "variable name (a Symbol), or a value expression"
         end
       end
     end
