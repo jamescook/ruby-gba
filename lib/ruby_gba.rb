@@ -25,11 +25,11 @@ module RubyGBA
   # @param title [String] Game title (up to 12 chars)
   # @param code [String] 4-char game code (e.g. "BTKE")
   # @param maker [String] 2-char maker code (e.g. "01")
-  # @param doctor [Boolean] run the ROM-image validation after build (default: true)
+  # @param validate [Boolean] run the ROM-image validation after build (default: true)
   # @return [RubyGBA::ROM] finalized ROM ready to write
   # +out+/+err+ are the streams dump_func writes its disassembly and warnings to;
   # they default to the process streams and can be pointed at a StringIO in tests.
-  def self.build(title, code:, maker:, doctor: true, out: $stdout, err: $stderr, &block)
+  def self.build(title, code:, maker:, validate: true, out: $stdout, err: $stderr, &block)
     builder = Builder.new
     catch(:debug_halt) do
       builder.instance_eval(&block)
@@ -59,7 +59,7 @@ module RubyGBA
     backend = IR::Backends::GBA.new
     machine_code = backend.lower(builder.program)
     rom = ROM.assemble(machine_code, title: title, code: code, maker: maker,
-                                     doctor: builder.debug_halted? ? false : doctor)
+                                     validate: builder.debug_halted? ? false : validate)
 
     unless builder.dump_requests.empty?
       FuncDumper.new(rom, backend.func_ranges, out: out, err: err).dump(builder.dump_requests)

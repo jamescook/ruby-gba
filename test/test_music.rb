@@ -9,8 +9,8 @@ class TestMusic < Minitest::Test
   include RubyGBA::Constants
   include GembaSupport
 
-  def build(doctor: false, &block)
-    RubyGBA.build("MUSTEST", code: "BMUS", maker: "01", doctor: doctor, &block)
+  def build(validate: false, &block)
+    RubyGBA.build("MUSTEST", code: "BMUS", maker: "01", validate: validate, &block)
   end
 
   # ========================================================================

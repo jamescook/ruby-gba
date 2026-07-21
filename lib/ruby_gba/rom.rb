@@ -26,10 +26,10 @@ module RubyGBA
     # padding, and the ROM-image validation). This is the counterpart to a
     # backend's lowering — the backend produces the code, this lays out the ROM
     # around it.
-    def self.assemble(machine_code, title:, code:, maker:, doctor: true)
+    def self.assemble(machine_code, title:, code:, maker:, validate: true)
       rom = new(title: title, code: code, maker: maker)
       rom.emit(machine_code)
-      rom.finalize!(doctor: doctor)
+      rom.finalize!(validate: validate)
       rom
     end
 
@@ -58,10 +58,10 @@ module RubyGBA
 
     # Finalize the ROM: write entry branch, header checksum, and validate.
     #
-    # @param doctor [Boolean] run the ROM-image validation (structural header /
+    # @param validate [Boolean] run the ROM-image validation (structural header /
     #   image checks) after finalizing (default: true). Raises ROMError on a
     #   structural problem. Pass false to skip.
-    def finalize!(doctor: true)
+    def finalize!(validate: true)
       # Entry point at 0x00: branch to ENTRY_OFFSET
       # Branch offset in words from PC+8: (target - 8) / 4 = (0x20 - 8) / 4 = 6
       entry_branch = [0xEA000000 | ((ENTRY_OFFSET / 4) - 2)].pack("V")
@@ -79,7 +79,7 @@ module RubyGBA
       # Validate the finished ROM image — catch structural problems now, not in
       # the emulator. (Semantic footguns are caught earlier, on the IR, by the
       # guardrails.)
-      if doctor
+      if validate
         result = ROMValidator.check(self)
         unless result.ok?
           raise ROMError, "ROM has errors:\n#{result.report}"

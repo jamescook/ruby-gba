@@ -13,7 +13,7 @@ class TestRomBuilder < Minitest::Test
     # so the lowered ROM stops there. The blue clear runs, the red one never does.
     rom = nil
     capture_io do # swallow the debug_halt reminder warning
-      rom = RubyGBA.build("DBGHLT", code: "BDBG", maker: "01", doctor: false) do
+      rom = RubyGBA.build("DBGHLT", code: "BDBG", maker: "01", validate: false) do
         display :bitmap
         clear_screen :blue
         debug_halt
@@ -145,7 +145,7 @@ class TestRomBuilder < Minitest::Test
   def test_finalize_pads_the_rom_up_to_a_power_of_two
     rom = RubyGBA::ROM.new(title: "PAD", code: "TEST", maker: "01")
     rom.emit("\xAB".b * 5000)
-    rom.finalize!(doctor: false)
+    rom.finalize!(validate: false)
     assert power_of_two?(rom.size), "ROM size #{rom.size} should be a power of two"
   end
 
@@ -153,7 +153,7 @@ class TestRomBuilder < Minitest::Test
     rom = RubyGBA::ROM.new(title: "PAD", code: "TEST", maker: "01")
     rom.emit("\xAB".b * 5000)
     before = rom.size
-    rom.finalize!(doctor: false)
+    rom.finalize!(validate: false)
     assert_operator rom.size, :>=, before
     assert_operator rom.size / 2, :<, before, "halving the size would no longer fit the code"
   end
@@ -163,7 +163,7 @@ class TestRomBuilder < Minitest::Test
     start = rom.code_offset
     payload = "\xAB\xCD".b * 100
     rom.emit(payload)
-    rom.finalize!(doctor: false)
+    rom.finalize!(validate: false)
 
     assert_equal payload, rom.buffer[start, payload.bytesize], "emitted code untouched by padding"
     tail = rom.buffer[(start + payload.bytesize)..]
