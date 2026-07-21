@@ -195,7 +195,10 @@ module RubyGBA
       end
 
       # A raw escape hatch: pre-assembled target bytes a native backend appends
-      # verbatim. Not portable — only for patterns the DSL can't express.
+      # verbatim. Not portable — the interpreter refuses it, so a program using it
+      # runs only on hardware. Reaching for this is a sign the IR has a gap: the
+      # aim is that a developer never needs it, so grow a real node the backends
+      # can lower and model rather than settling here.
       def raw(bytes)
         Node.new(:raw, bytes: bytes)
       end
