@@ -222,6 +222,13 @@ module RubyGBA
         Node.new(:bitmap, name: name, width: width, height: height, pixels: pixels)
       end
 
+      # Draw a defined bitmap with its top-left at (x, y). x/y may be constants or
+      # variables (a moving object). Keep it on-screen — off-screen parts aren't
+      # clipped at run time yet.
+      def blit(name, x, y)
+        Node.new(:blit, name: name, x: wrap(x), y: wrap(y))
+      end
+
       # --- expression values (the AST an assignment or condition is built from) ---
 
       def int(number)

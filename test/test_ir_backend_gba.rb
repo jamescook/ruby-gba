@@ -182,6 +182,36 @@ class TestIRBackendGBA < Minitest::Test
     assert v.black?(2, 0), "holding must not count as repeated presses"
   end
 
+  def test_blit_copies_a_bitmap_to_the_screen
+    # Per-row DMA copies the four pixels from ROM to VRAM at (10, 20). Raw BGR555:
+    # red 0x001F, green 0x03E0, blue 0x7C00, white 0x7FFF.
+    rom = lower(program(
+      display(:bitmap), clear_screen(:black),
+      bitmap(:quad, width: 2, height: 2, pixels: [0x001F, 0x03E0, 0x7C00, 0x7FFF].pack("v*")),
+      blit(:quad, 10, 20),
+      halt,
+    ))
+    v = assert_gemba_loads_rom(rom)
+    assert v.red?(10, 20)
+    assert v.green?(11, 20)
+    assert v.blue?(10, 21)
+    assert v.white?(11, 21)
+    assert v.black?(12, 20) # just outside
+  end
+
+  def test_blit_follows_a_variable_position
+    rom = lower(program(
+      display(:bitmap), clear_screen(:black),
+      bitmap(:dot, width: 1, height: 1, pixels: [0x001F].pack("v*")),
+      set(:px, 100), set(:py, 50),
+      blit(:dot, var_ref(:px), var_ref(:py)),
+      halt,
+    ))
+    v = assert_gemba_loads_rom(rom)
+    assert v.red?(100, 50)
+    assert v.black?(99, 50)
+  end
+
   def test_bitmap_pixels_land_in_the_code
     # A bitmap embeds its pixels in the data region, like a raw blob.
     gba = GBA.new
