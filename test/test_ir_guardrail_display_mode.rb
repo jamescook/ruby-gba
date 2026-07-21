@@ -48,7 +48,10 @@ class TestIRGuardrailDisplayMode < Minitest::Test
   end
 
   def test_a_program_that_never_draws_is_not_nagged
-    report = Guardrails::Validator.new.run(program(set(:x, 1), loop_(add(:x, 1))), autofix: false)
+    # Scoped to just this check: the bare loop would (rightly) trip the
+    # vblank-sync guardrail, which isn't what this test is about.
+    display_only = Guardrails::Validator.new(checks: [Guardrails::Checks::DisplayModeSet.new])
+    report = display_only.run(program(set(:x, 1), loop_(add(:x, 1))), autofix: false)
     assert report.ok?
     assert_empty report.findings
   end
