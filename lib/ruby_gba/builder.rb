@@ -616,7 +616,12 @@ module RubyGBA
     # Array form — raw pixel data, the shape the importer produces. +data+ is
     # width*height colors (names, hex strings, or raw BGR555 integers), row-major:
     #
-    #   image :friend, width: 16, height: 16, data: import_png("friend.png")
+    #   image :friend, width: 16, height: 16, data: bmp.data
+    #
+    # From-a-file form — hand it an image on your machine and a size, and it's
+    # imported (via RubyGBA::Image) and embedded in one step:
+    #
+    #   image :friend, from: "friend.png", width: 16, height: 16
     #
     # ASCII-art form — hand-drawn, with a char=>color map and a block of art. The
     # dimensions come from the art's shape, and one char may map to :transparent
@@ -633,11 +638,15 @@ module RubyGBA
     # Either way the pixels are packed to 15-bit color and embedded in the ROM; a
     # later `blit` draws it by name.
     # +opts+ is a single trailing hash — the char=>color map (ASCII form, with a
-    # block) or width:/height:/data: (array form). It's positional, not keywords,
-    # so the char map's string keys (like "#") pass through cleanly.
+    # block), width:/height:/data: (array form), or from:/width:/height: (file
+    # form). It's positional, not keywords, so the char map's string keys (like
+    # "#") pass through cleanly.
     def image(name, opts = {}, &block)
       if block
         define_ascii_image(name, opts, &block)
+      elsif opts[:from]
+        bmp = Image.load(opts[:from], width: opts[:width], height: opts[:height])
+        define_pixel_image(name, width: bmp.width, height: bmp.height, data: bmp.data)
       else
         define_pixel_image(name, width: opts[:width], height: opts[:height], data: opts[:data])
       end
