@@ -526,8 +526,9 @@ module RubyGBA
 
         # Draw a defined bitmap at a runtime (x, y). An opaque bitmap streams from
         # ROM by DMA; one with transparency is drawn pixel-by-pixel so its
-        # transparent pixels can be skipped. (No run-time clip either way — the
-        # caller keeps it on-screen, as pong does by clamping.)
+        # transparent pixels can be skipped. Either way the draw is clipped to the
+        # screen at run time — a bitmap pushed partway off an edge draws only its
+        # visible part, with nothing written past the framebuffer.
         def emit_blit(node)
           bmp = @bitmaps.fetch(node[:name]) do
             raise LoweringError, "blit of undefined image #{node[:name].inspect}"
@@ -537,15 +538,24 @@ module RubyGBA
 
         # Opaque bitmap: one 16-bit DMA per row, source in the cartridge (source
         # and destination both increment, unlike a fill), so each row's pixels
-        # stream straight from ROM into VRAM. r2/r3 hold x/y and r6 the bitmap base
-        # across the loop; r4/r5 are the destination and source addresses.
+        # stream straight from ROM into VRAM.
+        #
+        # Every row is clipped to the screen at run time, since x/y are runtime
+        # values (variables) — the clip math can't be done at build time. A row
+        # off the top or bottom is skipped whole; a row crossing a side edge has
+        # its transfer trimmed to the on-screen span: the DMA source skips the
+        # columns clipped off the left, the destination starts at the first
+        # on-screen column, and the count is just the visible width. Without this
+        # trim a row that ran past the screen's right edge would wrap onto the
+        # start of the next line.
+        #
+        # r6 holds the bitmap base and r7/r8 hold x/y across the whole blit; the
+        # rest (r2–r5, r9–r11) are per-row scratch.
         def emit_blit_opaque(node, bmp)
           width = bmp[:width]
-          control = width | DMA_ENABLE # 16-bit, source and destination increment
-
-          x_reg = 2
-          y_reg = 3
           base_reg = 6
+          x_reg = 7
+          y_reg = 8
           eval_value(node[:x])
           emit(ASM.mov_reg(x_reg, ACC))
           eval_value(node[:y])
@@ -553,37 +563,77 @@ module RubyGBA
           emit_load_data_address(base_reg, node[:name]) # r6 = bitmap address in the cartridge
 
           bmp[:height].times do |row|
-            # r4 = VRAM_START + ((y + row) * screen_width + x) * 2
-            row.zero? ? emit(ASM.mov_reg(4, y_reg)) : emit(ASM.add_imm(4, y_reg, row))
-            emit(ASM.load_immediate(5, SCREEN_WIDTH))
-            emit(ASM.mul(4, 5, 4))
-            emit(ASM.add_reg(4, 4, x_reg))
-            emit(ASM.lsl_imm(4, 4, 1))
-            emit(ASM.load_immediate(5, VRAM_START))
-            emit(ASM.add_reg(4, 4, 5))
+            skip = gensym
 
-            # r5 = bitmap base + this row's byte offset into the pixels
-            row_offset = row * width * 2
-            if row.zero?
-              emit(ASM.mov_reg(5, base_reg))
-            else
-              emit(ASM.load_immediate(5, row_offset))
-              emit(ASM.add_reg(5, base_reg, 5))
-            end
+            # screen_y = y + row; drop the whole row if it's above or below screen.
+            emit_add_const(9, y_reg, row, 2)          # r9 = screen_y
+            emit(ASM.cmp_imm(9, 0))
+            emit_branch(:bcond, skip, cond: :lt)
+            emit(ASM.cmp_imm(9, SCREEN_HEIGHT))
+            emit_branch(:bcond, skip, cond: :ge)
+
+            # visible_left = max(x, 0)  -> r10
+            emit(ASM.mov_reg(10, x_reg))
+            emit(ASM.cmp_imm(x_reg, 0))
+            keep_left = gensym
+            emit_branch(:bcond, keep_left, cond: :ge)
+            emit(ASM.load_immediate(10, 0))
+            place_label(keep_left)
+
+            # visible_right = min(x + width, SCREEN_WIDTH)  -> r11
+            emit_add_const(11, x_reg, width, 2)
+            emit(ASM.cmp_imm(11, SCREEN_WIDTH))
+            keep_right = gensym
+            emit_branch(:bcond, keep_right, cond: :le)
+            emit(ASM.load_immediate(11, SCREEN_WIDTH))
+            place_label(keep_right)
+
+            # visible_width = visible_right - visible_left  -> r4; if <= 0 the row
+            # is entirely off to one side, so skip it.
+            emit(ASM.sub_reg(4, 11, 10))
+            emit(ASM.cmp_imm(4, 0))
+            emit_branch(:bcond, skip, cond: :le)
+
+            # source = base + (row*width + left_skip) * 2  -> r5
+            emit(ASM.sub_reg(5, 10, x_reg))           # left_skip = visible_left - x
+            emit_add_const(5, 5, row * width, 2)      # + this row's start in the pixels
+            emit(ASM.lsl_imm(5, 5, 1))                # * 2 bytes/pixel
+            emit(ASM.add_reg(5, base_reg, 5))
+
+            # dest = VRAM + (screen_y*SCREEN_WIDTH + visible_left) * 2  -> r3
+            emit(ASM.load_immediate(2, SCREEN_WIDTH))
+            emit(ASM.mul(3, 9, 2))                    # r3 = screen_y * width
+            emit(ASM.add_reg(3, 3, 10))               # + visible_left
+            emit(ASM.lsl_imm(3, 3, 1))
+            emit(ASM.load_immediate(2, VRAM_START))
+            emit(ASM.add_reg(3, 3, 2))
+
+            # control = visible_width | DMA_ENABLE (16-bit, src+dest increment).
+            emit(ASM.orr_imm(4, 4, DMA_ENABLE))
 
             emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(ASM.str(5, TMP))                       # source: this row in ROM
+            emit(ASM.str(5, TMP))                     # source: visible span in ROM
             emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(ASM.str(4, TMP))                       # destination: this row in VRAM
-            store_word_immediate(control, REG_DMA3CNT)  # kick off the row copy
+            emit(ASM.str(3, TMP))                     # destination: visible span in VRAM
+            emit(ASM.load_immediate(TMP, REG_DMA3CNT))
+            emit(ASM.str(4, TMP))                     # kick off the row copy
+
+            place_label(skip)
           end
         end
 
         # Transparent bitmap: the art is known at build time, so unroll it. Emit a
         # store only for each NON-transparent pixel — with its color baked in, at
         # the run-time-computed destination — and simply skip transparent ones, so
-        # the background shows through. r2/r3 hold x/y; r4 is the destination and
-        # r5 a scratch.
+        # the background shows through.
+        #
+        # Each store is guarded by a run-time screen-bounds check (x/y are runtime
+        # values), so a lit pixel pushed off an edge is dropped rather than written
+        # off the framebuffer — the same per-pixel clipping the interpreter does.
+        # The row's off-top/off-bottom test is hoisted out of the pixel loop.
+        #
+        # r2/r3 hold x/y across the blit; r4/r6 are the per-row screen_y and row
+        # base; r7/r8 are per-pixel scratch.
         def emit_blit_transparent(node, bmp)
           width = bmp[:width]
           colors = bmp[:pixels].unpack("v*")
@@ -596,22 +646,52 @@ module RubyGBA
           emit(ASM.mov_reg(y_reg, ACC))
 
           bmp[:height].times do |row|
-            width.times do |col|
-              color = colors[(row * width) + col]
-              next if color == bmp[:transparent] # skip transparent pixels at build time
+            lit = width.times.reject { |col| colors[(row * width) + col] == bmp[:transparent] }
+            next if lit.empty? # a fully transparent row draws nothing
 
-              # r4 = VRAM_START + ((y + row) * screen_width + x + col) * 2
-              row.zero? ? emit(ASM.mov_reg(4, y_reg)) : emit(ASM.add_imm(4, y_reg, row))
-              emit(ASM.load_immediate(5, SCREEN_WIDTH))
-              emit(ASM.mul(4, 5, 4))
-              emit(ASM.add_reg(4, 4, x_reg))
-              emit(ASM.add_imm(4, 4, col)) unless col.zero?
-              emit(ASM.lsl_imm(4, 4, 1))
-              emit(ASM.load_immediate(5, VRAM_START))
-              emit(ASM.add_reg(4, 4, 5))
-              emit(ASM.load_immediate(5, color))
-              emit(ASM.store_halfword(5, 4))
+            skip_row = gensym
+            emit_add_const(4, y_reg, row, 5)          # r4 = screen_y
+            emit(ASM.cmp_imm(4, 0))
+            emit_branch(:bcond, skip_row, cond: :lt)
+            emit(ASM.cmp_imm(4, SCREEN_HEIGHT))
+            emit_branch(:bcond, skip_row, cond: :ge)
+            emit(ASM.load_immediate(5, SCREEN_WIDTH))
+            emit(ASM.mul(6, 4, 5))                    # r6 = screen_y * width (row base)
+
+            lit.each do |col|
+              color = colors[(row * width) + col]
+              skip_px = gensym
+
+              emit_add_const(7, x_reg, col, 8)        # r7 = screen_x
+              emit(ASM.cmp_imm(7, 0))
+              emit_branch(:bcond, skip_px, cond: :lt)
+              emit(ASM.cmp_imm(7, SCREEN_WIDTH))
+              emit_branch(:bcond, skip_px, cond: :ge)
+
+              emit(ASM.add_reg(7, 6, 7))              # r7 = row_base + screen_x
+              emit(ASM.lsl_imm(7, 7, 1))              # * 2 bytes/pixel
+              emit(ASM.load_immediate(8, VRAM_START))
+              emit(ASM.add_reg(7, 7, 8))              # VRAM address
+              emit(ASM.load_immediate(8, color))
+              emit(ASM.store_halfword(8, 7))
+
+              place_label(skip_px)
             end
+            place_label(skip_row)
+          end
+        end
+
+        # rd = rn + imm. A small immediate rides directly in the ADD; a larger one
+        # (a wide bitmap's row offset, say) is loaded into +scratch+ first, since
+        # ARM can only fold an 8-bit rotated immediate into the instruction.
+        def emit_add_const(rd, rn, imm, scratch)
+          if imm.zero?
+            emit(ASM.mov_reg(rd, rn)) unless rd == rn
+          elsif ASM.encode_rotated_immediate(imm)
+            emit(ASM.add_imm(rd, rn, imm))
+          else
+            emit(ASM.load_immediate(scratch, imm))
+            emit(ASM.add_reg(rd, rn, scratch))
           end
         end
 
