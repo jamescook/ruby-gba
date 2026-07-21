@@ -57,8 +57,9 @@ module RubyGBA
 
     # Finalize the ROM: write entry branch, header checksum, and validate.
     #
-    # @param doctor [Boolean] run Doctor validation (default: true).
-    #   Raises ROMError on structural problems. Pass false to skip.
+    # @param doctor [Boolean] run the ROM-image validation (structural header /
+    #   image checks) after finalizing (default: true). Raises ROMError on a
+    #   structural problem. Pass false to skip.
     def finalize!(doctor: true)
       # Entry point at 0x00: branch to ENTRY_OFFSET
       # Branch offset in words from PC+8: (target - 8) / 4 = (0x20 - 8) / 4 = 6
@@ -74,9 +75,11 @@ module RubyGBA
       # ROM conventional for flashcarts and real-cart mastering.
       pad_to_power_of_two
 
-      # Run the Doctor — catch problems now, not in the emulator
+      # Validate the finished ROM image — catch structural problems now, not in
+      # the emulator. (Semantic footguns are caught earlier, on the IR, by the
+      # guardrails.)
       if doctor
-        result = Doctor.check(self)
+        result = ROMValidator.check(self)
         unless result.ok?
           raise ROMError, "ROM has errors:\n#{result.report}"
         end
