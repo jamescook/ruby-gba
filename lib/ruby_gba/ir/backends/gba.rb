@@ -135,8 +135,13 @@ module RubyGBA
             when :data
               @data_blobs[node[:name]] = node[:bytes]
             when :bitmap
-              @data_blobs[node[:name]] = node[:pixels]
-              @bitmaps[node[:name]] = { width: node[:width], height: node[:height] }
+              @bitmaps[node[:name]] = { width: node[:width], height: node[:height],
+                                        transparent: node[:transparent], pixels: node[:pixels] }
+              # An opaque bitmap streams from ROM via DMA, so embed its pixels. A
+              # transparent one is drawn pixel-by-pixel with its colors baked into
+              # the code (letting transparent pixels be skipped), so it needs no
+              # ROM copy.
+              @data_blobs[node[:name]] = node[:pixels] unless node[:transparent]
             end
           end
         end
@@ -519,17 +524,22 @@ module RubyGBA
           end
         end
 
-        # Copy a defined bitmap to a runtime (x, y), one row per DMA transfer. The
-        # source is the bitmap's address in the cartridge (both source and
-        # destination increment, unlike a fill), so each row's pixels stream
-        # straight from ROM into VRAM. r2/r3 hold x/y and r6 the bitmap base across
-        # the loop; r4/r5 are the destination and source addresses. (No run-time
-        # clip yet — the caller keeps it on-screen, as pong does by clamping.)
+        # Draw a defined bitmap at a runtime (x, y). An opaque bitmap streams from
+        # ROM by DMA; one with transparency is drawn pixel-by-pixel so its
+        # transparent pixels can be skipped. (No run-time clip either way — the
+        # caller keeps it on-screen, as pong does by clamping.)
         def emit_blit(node)
-          name = node[:name]
-          bmp = @bitmaps.fetch(name) do
-            raise LoweringError, "blit of undefined image #{name.inspect}"
+          bmp = @bitmaps.fetch(node[:name]) do
+            raise LoweringError, "blit of undefined image #{node[:name].inspect}"
           end
+          bmp[:transparent] ? emit_blit_transparent(node, bmp) : emit_blit_opaque(node, bmp)
+        end
+
+        # Opaque bitmap: one 16-bit DMA per row, source in the cartridge (source
+        # and destination both increment, unlike a fill), so each row's pixels
+        # stream straight from ROM into VRAM. r2/r3 hold x/y and r6 the bitmap base
+        # across the loop; r4/r5 are the destination and source addresses.
+        def emit_blit_opaque(node, bmp)
           width = bmp[:width]
           control = width | DMA_ENABLE # 16-bit, source and destination increment
 
@@ -540,7 +550,7 @@ module RubyGBA
           emit(ASM.mov_reg(x_reg, ACC))
           eval_value(node[:y])
           emit(ASM.mov_reg(y_reg, ACC))
-          emit_load_data_address(base_reg, name) # r6 = bitmap address in the cartridge
+          emit_load_data_address(base_reg, node[:name]) # r6 = bitmap address in the cartridge
 
           bmp[:height].times do |row|
             # r4 = VRAM_START + ((y + row) * screen_width + x) * 2
@@ -566,6 +576,42 @@ module RubyGBA
             emit(ASM.load_immediate(TMP, REG_DMA3DAD))
             emit(ASM.str(4, TMP))                       # destination: this row in VRAM
             store_word_immediate(control, REG_DMA3CNT)  # kick off the row copy
+          end
+        end
+
+        # Transparent bitmap: the art is known at build time, so unroll it. Emit a
+        # store only for each NON-transparent pixel — with its color baked in, at
+        # the run-time-computed destination — and simply skip transparent ones, so
+        # the background shows through. r2/r3 hold x/y; r4 is the destination and
+        # r5 a scratch.
+        def emit_blit_transparent(node, bmp)
+          width = bmp[:width]
+          colors = bmp[:pixels].unpack("v*")
+
+          x_reg = 2
+          y_reg = 3
+          eval_value(node[:x])
+          emit(ASM.mov_reg(x_reg, ACC))
+          eval_value(node[:y])
+          emit(ASM.mov_reg(y_reg, ACC))
+
+          bmp[:height].times do |row|
+            width.times do |col|
+              color = colors[(row * width) + col]
+              next if color == bmp[:transparent] # skip transparent pixels at build time
+
+              # r4 = VRAM_START + ((y + row) * screen_width + x + col) * 2
+              row.zero? ? emit(ASM.mov_reg(4, y_reg)) : emit(ASM.add_imm(4, y_reg, row))
+              emit(ASM.load_immediate(5, SCREEN_WIDTH))
+              emit(ASM.mul(4, 5, 4))
+              emit(ASM.add_reg(4, 4, x_reg))
+              emit(ASM.add_imm(4, 4, col)) unless col.zero?
+              emit(ASM.lsl_imm(4, 4, 1))
+              emit(ASM.load_immediate(5, VRAM_START))
+              emit(ASM.add_reg(4, 4, 5))
+              emit(ASM.load_immediate(5, color))
+              emit(ASM.store_halfword(5, 4))
+            end
           end
         end
 

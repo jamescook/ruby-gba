@@ -607,28 +607,40 @@ module RubyGBA
 
     # --- Images ---
 
-    # Define a bitmap from raw pixel data — the shape the image importer produces.
-    # +data+ is width*height colors (names, hex strings, or raw BGR555 integers),
-    # row-major. The pixels are packed to the GBA's 15-bit color and embedded in
-    # the ROM; a later `blit` draws it by name. Since it's Ruby, +data+ can be a
-    # literal, a generated array, or an importer call — anything that returns the
-    # pixels.
+    # The unused 16th bit of a BGR555 color, set to mark a pixel transparent — a
+    # real color is 0x0000..0x7FFF, so this can never collide with one.
+    TRANSPARENT_PIXEL = 0x8000
+
+    # Define a bitmap, two ways.
     #
-    # @example
+    # Array form — raw pixel data, the shape the importer produces. +data+ is
+    # width*height colors (names, hex strings, or raw BGR555 integers), row-major:
+    #
     #   image :friend, width: 16, height: 16, data: import_png("friend.png")
-    def image(name, width:, height:, data:)
-      unless width.is_a?(Integer) && width.positive? && height.is_a?(Integer) && height.positive?
-        raise ArgumentError, "image :#{name} needs positive width and height (got #{width}x#{height})"
+    #
+    # ASCII-art form — hand-drawn, with a char=>color map and a block of art. The
+    # dimensions come from the art's shape, and one char may map to :transparent
+    # (those pixels aren't drawn, so the background shows through):
+    #
+    #   image :ship, "." => :transparent, "#" => :cyan, "*" => :red do
+    #     <<~ART
+    #       ..#..
+    #       .#*#.
+    #       #####
+    #     ART
+    #   end
+    #
+    # Either way the pixels are packed to 15-bit color and embedded in the ROM; a
+    # later `blit` draws it by name.
+    # +opts+ is a single trailing hash — the char=>color map (ASCII form, with a
+    # block) or width:/height:/data: (array form). It's positional, not keywords,
+    # so the char map's string keys (like "#") pass through cleanly.
+    def image(name, opts = {}, &block)
+      if block
+        define_ascii_image(name, opts, &block)
+      else
+        define_pixel_image(name, width: opts[:width], height: opts[:height], data: opts[:data])
       end
-
-      expected = width * height
-      unless data.length == expected
-        raise ArgumentError,
-              "image :#{name} is #{width}x#{height}, so it needs #{expected} pixels, but got #{data.length}"
-      end
-
-      pixels = data.map { |c| Color.resolve(c) }.pack("v*")
-      record(Build.bitmap(name, width: width, height: height, pixels: pixels))
     end
 
     # Draw a bitmap (defined with `image`) at a position, which may be a variable
@@ -683,6 +695,55 @@ module RubyGBA
       return if BUTTON_MASKS.key?(button)
 
       raise ArgumentError, "unknown button: #{button}"
+    end
+
+    # Array form of #image: validate the dimensions and pack the pixel colors.
+    def define_pixel_image(name, width:, height:, data:)
+      positive_dims!(name, width, height)
+      expected = width * height
+      unless data.length == expected
+        raise ArgumentError,
+              "image :#{name} is #{width}x#{height}, so it needs #{expected} pixels, but got #{data.length}"
+      end
+
+      pixels = data.map { |c| Color.resolve(c) }.pack("v*")
+      record(Build.bitmap(name, width: width, height: height, pixels: pixels))
+    end
+
+    # ASCII-art form of #image: split the block's art into rows, infer the size
+    # from its shape, map each char to a color (or transparency), and pack it.
+    def define_ascii_image(name, char_map)
+      rows = yield.to_s.each_line.map(&:chomp).reject(&:empty?)
+      raise ArgumentError, "image :#{name} has no art" if rows.empty?
+
+      widths = rows.map(&:length).uniq
+      unless widths.size == 1
+        raise ArgumentError,
+              "image :#{name} has ragged rows (#{widths.sort.join(', ')} wide) — every row must be the same length"
+      end
+
+      transparent = false
+      colors = rows.flat_map do |row|
+        row.each_char.map do |ch|
+          spec = char_map.fetch(ch) { raise ArgumentError, "image :#{name}: no color mapped for '#{ch}'" }
+          if spec == :transparent
+            transparent = true
+            TRANSPARENT_PIXEL
+          else
+            Color.resolve(spec)
+          end
+        end
+      end
+
+      record(Build.bitmap(name, width: widths.first, height: rows.size,
+                                pixels: colors.pack("v*"),
+                                transparent: transparent ? TRANSPARENT_PIXEL : nil))
+    end
+
+    def positive_dims!(name, width, height)
+      return if width.is_a?(Integer) && width.positive? && height.is_a?(Integer) && height.positive?
+
+      raise ArgumentError, "image :#{name} needs positive width and height (got #{width}x#{height})"
     end
 
     # held/pressed hand back a Condition and take no block. A block here means a
