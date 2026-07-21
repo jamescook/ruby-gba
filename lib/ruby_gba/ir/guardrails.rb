@@ -95,6 +95,7 @@ end
 
 require_relative "guardrails/display_mode_set"
 require_relative "guardrails/vblank_sync"
+require_relative "guardrails/termination"
 
 module RubyGBA
   module IR
@@ -102,7 +103,11 @@ module RubyGBA
       # The checks that run by default, in order. A plain frozen list so the
       # registry is visible data, not hidden behind a method — instantiate a
       # Validator with your own list to run a different set.
-      BUILTIN_CHECKS = [Checks::DisplayModeSet.new, Checks::VblankSync.new].freeze
+      BUILTIN_CHECKS = [
+        Checks::DisplayModeSet.new,
+        Checks::VblankSync.new,
+        Checks::Termination.new,
+      ].freeze
     end
   end
 end

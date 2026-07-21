@@ -13,8 +13,15 @@ class TestIRGuardrailDisplayMode < Minitest::Test
 
   Guardrails = RubyGBA::IR::Guardrails
 
+  # A validator running only the display-mode check, so these unit tests assert it
+  # in isolation. The tiny fixtures here (a lone pixel, no halt) would also trip
+  # the vblank and termination guardrails, which aren't what's under test.
+  def display_validator
+    Guardrails::Validator.new(checks: [Guardrails::Checks::DisplayModeSet.new])
+  end
+
   def test_drawing_without_a_display_mode_is_flagged
-    report = Guardrails::Validator.new.run(program(pixel(10, 20, :red)), autofix: false)
+    report = display_validator.run(program(pixel(10, 20, :red)), autofix: false)
     refute report.ok?
     assert_equal 1, report.errors.size
     message = report.errors.first.message
@@ -23,7 +30,7 @@ class TestIRGuardrailDisplayMode < Minitest::Test
   end
 
   def test_autofix_switches_the_screen_on_and_warns
-    report = Guardrails::Validator.new.run(program(pixel(10, 20, :red)))
+    report = display_validator.run(program(pixel(10, 20, :red)))
 
     assert report.ok?, "auto-fixing should leave no errors"
     assert_equal 1, report.warnings.size
@@ -36,29 +43,26 @@ class TestIRGuardrailDisplayMode < Minitest::Test
   end
 
   def test_the_fixed_program_is_clean_on_a_second_pass
-    fixed = Guardrails::Validator.new.run(program(pixel(10, 20, :red))).program
-    report = Guardrails::Validator.new.run(fixed)
+    fixed = display_validator.run(program(pixel(10, 20, :red))).program
+    report = display_validator.run(fixed)
     assert report.ok?
     assert_empty report.findings
   end
 
   def test_a_program_that_already_sets_a_mode_is_left_alone
-    report = Guardrails::Validator.new.run(program(display(:bitmap), clear_screen(:blue)))
+    report = display_validator.run(program(display(:bitmap), clear_screen(:blue)))
     assert report.ok?
     assert_empty report.findings
   end
 
   def test_a_program_that_never_draws_is_not_nagged
-    # Scoped to just this check: the bare loop would (rightly) trip the
-    # vblank-sync guardrail, which isn't what this test is about.
-    display_only = Guardrails::Validator.new(checks: [Guardrails::Checks::DisplayModeSet.new])
-    report = display_only.run(program(set(:x, 1), loop_(add(:x, 1))), autofix: false)
+    report = display_validator.run(program(set(:x, 1), loop_(add(:x, 1))), autofix: false)
     assert report.ok?
     assert_empty report.findings
   end
 
   def test_clear_screen_counts_as_drawing
-    report = Guardrails::Validator.new.run(program(clear_screen(:blue)), autofix: false)
+    report = display_validator.run(program(clear_screen(:blue)), autofix: false)
     refute report.ok?
   end
 
