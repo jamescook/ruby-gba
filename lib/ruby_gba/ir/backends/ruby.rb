@@ -27,11 +27,6 @@ module RubyGBA
       class Ruby
         class ProgramError < StandardError; end
 
-        # The buttons a program can read. Naming an unknown one is almost always
-        # a typo, and a typo'd button would silently read as "never held" — so we
-        # reject it with a friendly error instead of leaving a ghost bug.
-        BUTTONS = %i[a b select start right left up down r l].freeze
-
         # A generous default so an accidental infinite loop can't hang a test
         # forever. Pass a small max_steps to deliberately run N steps of an
         # otherwise-endless game loop and then inspect the state.
@@ -358,11 +353,14 @@ module RubyGBA
           Set.new(buttons)
         end
 
+        # Naming an unknown button is almost always a typo, and one that would
+        # silently read as "never held" — so reject it with a friendly error
+        # instead of leaving a ghost bug. The vocabulary is the shared IR contract.
         def check_button!(button)
-          return button if BUTTONS.include?(button)
+          return button if IR::Buttons.known?(button)
 
           raise ProgramError,
-                "unknown button #{button.inspect} — known buttons are #{BUTTONS.join(', ')}"
+                "unknown button #{button.inspect} — known buttons are #{IR::Buttons::NAMES.join(', ')}"
         end
 
         def resolve_color(color)

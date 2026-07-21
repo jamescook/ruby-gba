@@ -15,8 +15,9 @@ module RubyGBA
         # scribbling onto memory — the same edge-safety the DSL promises, so a
         # stray pixel at (999, 999) can never corrupt anything or crash a test.
         class Framebuffer
-          WIDTH = 240
-          HEIGHT = 160
+          # Sized from the shared display contract, not a fresh copy of 240x160.
+          WIDTH = Screen::WIDTH
+          HEIGHT = Screen::HEIGHT
 
           attr_reader :width, :height
 

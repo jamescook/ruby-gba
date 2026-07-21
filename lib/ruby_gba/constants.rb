@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "ir/screen"
+
 module RubyGBA
   # GBA hardware constants. Names follow the tonc/libgba conventions
   # so anyone familiar with GBA development recognizes them immediately.
@@ -271,8 +273,10 @@ module RubyGBA
     # Screen
     # ========================================================================
 
-    SCREEN_WIDTH  = 240
-    SCREEN_HEIGHT = 160
+    # The GBA screen size. The single source of truth is the IR display contract
+    # (IR::Screen); these names are the hardware-side alias for it.
+    SCREEN_WIDTH  = IR::Screen::WIDTH
+    SCREEN_HEIGHT = IR::Screen::HEIGHT
 
     # ========================================================================
     # ROM Header Offsets — used when building the .gba file

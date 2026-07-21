@@ -48,8 +48,9 @@ module RubyGBA
         # work. (This mirrors the DSL's names.)
         DISPLAY_MODES = { bitmap: MODE_3 | BG2_ENABLE }.freeze
 
-        # Button name → its bit in the key register. The key register is
-        # active-low: a 0 bit means the button is down.
+        # This backend's mapping of the shared button vocabulary (IR::Buttons) to
+        # hardware: each name → its bit in the key register. The key register is
+        # active-low, so a 0 bit means the button is down.
         BUTTON_BIT = {
           a: KEY_A, b: KEY_B, select: KEY_SELECT, start: KEY_START,
           right: KEY_RIGHT, left: KEY_LEFT, up: KEY_UP, down: KEY_DOWN,
