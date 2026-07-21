@@ -155,7 +155,7 @@ module RubyGBA
       var_address!(name)
     end
 
-    # All declared variables with their addresses and initial values.
+    # All declared variables with their IWRAM addresses.
     # @return [Hash{Symbol => Hash}]
     def variables
       @variables.dup
@@ -769,7 +769,7 @@ module RubyGBA
 
       addr = @next_var_addr
       @next_var_addr += 4
-      @variables[name] = { address: addr, initial: 0 }
+      @variables[name] = { address: addr }
     end
 
     # --- IR tree construction ---
