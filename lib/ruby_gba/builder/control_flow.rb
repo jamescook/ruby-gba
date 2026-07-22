@@ -76,7 +76,7 @@ module RubyGBA
         @repeat_seq += 1
         index = :"__repeat_#{@repeat_seq}"
         ensure_var(index)
-        ensure_var(count) if count.is_a?(Symbol)
+        ensure_var(count)
         i = Value.new(self, Build.var_ref(index), name: index)
         push_container(Build.repeat(Value.node_for(count), index)) do
           instance_exec(i, &block)
@@ -173,7 +173,7 @@ module RubyGBA
       def emit_conditional(cond, var_name, operand, &block)
         condition = Build.binop(COND_TO_OP.fetch(cond), Build.var_ref(var_name), Value.node_for(operand))
         ensure_var(var_name)
-        ensure_var(operand) if operand.is_a?(Symbol)
+        ensure_var(operand)
 
         push_container(Build.if_(condition)) do
           instance_eval(&block)

@@ -36,7 +36,7 @@ module RubyGBA
       def add(name, operand)
         record(Build.add(name, Value.node_for(operand)))
         ensure_var(name)
-        ensure_var(operand) if operand.is_a?(Symbol)
+        ensure_var(operand)
       end
       alias add_var add
 
@@ -48,7 +48,7 @@ module RubyGBA
       def sub(name, operand)
         record(Build.sub(name, Value.node_for(operand)))
         ensure_var(name)
-        ensure_var(operand) if operand.is_a?(Symbol)
+        ensure_var(operand)
       end
       alias sub_var sub
 

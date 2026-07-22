@@ -98,8 +98,8 @@ module RubyGBA
       # @param c [Symbol, String, Integer] fill color
       def draw_rect_at(x_pos, y_pos, w, h, c)
         record(Build.draw_rect_at(Value.node_for(x_pos), Value.node_for(y_pos), w, h, c))
-        ensure_var(x_pos) if x_pos.is_a?(Symbol)
-        ensure_var(y_pos) if y_pos.is_a?(Symbol)
+        ensure_var(x_pos)
+        ensure_var(y_pos)
       end
 
       private

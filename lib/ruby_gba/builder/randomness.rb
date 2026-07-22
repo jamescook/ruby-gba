@@ -56,7 +56,7 @@ module RubyGBA
       def seed(n)
         use_rng!
         record(Build.set(RNG_STATE, Value.node_for(n)))
-        ensure_var(n) if n.is_a?(Symbol)
+        ensure_var(n)
       end
 
       # Stir the stream by one step — the way to make a game unpredictable. The
