@@ -57,6 +57,7 @@ module RubyGBA
         # `if`'s optional else-branch is an `else` node held in its :else attr.
         if: :control, loop: :control, func: :control, call: :control,
         case: :control, else: :control, wait_vblank: :control, halt: :control,
+        repeat: :control,
 
         # a raw escape hatch: pre-assembled target bytes appended verbatim. The
         # one node that isn't portable — only a native backend can place it, and

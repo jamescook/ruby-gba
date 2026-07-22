@@ -45,6 +45,7 @@ module RubyGBA
       @songs = {}              # name → Music::SongContext (for build-time validation)
       @sound_enabled = false
       @debug_halted = false
+      @repeat_seq = 0          # counts repeat loops, to name each one's hidden index var
 
       # The program the DSL builds: an IR tree of nodes that {RubyGBA.build}
       # lowers to a ROM. Each statement attaches to the container on top of the
@@ -264,6 +265,31 @@ module RubyGBA
     def game_loop(&block)
       push_container(Build.loop_) do
         instance_eval(&block)
+      end
+    end
+
+    # Run a block a set number of times, counting at run time. The block is given
+    # a Value for the current index (0 up to count-1), so it can drive positions,
+    # array access, and the like:
+    #
+    #   repeat(8) { |i| dma_fill_rect 119, i * 20 + 2, 2, 12, :gray }
+    #
+    # This is the run-time counterpart to Ruby's `8.times { |i| ... }`. Reach for
+    # `times` when the count is known as you write the program (it's baked in);
+    # reach for `repeat` when the count is decided while the game runs (a Value,
+    # a variable — e.g. how many segments the snake has right now).
+    #
+    # @param count [Value, Integer, Symbol] how many times to run the block
+    def repeat(count, &block)
+      raise ArgumentError, "repeat needs a block: repeat(n) { |i| ... }" unless block
+
+      @repeat_seq += 1
+      index = :"__repeat_#{@repeat_seq}"
+      ensure_var(index)
+      ensure_var(count) if count.is_a?(Symbol)
+      i = Value.new(self, Build.var_ref(index), name: index)
+      push_container(Build.repeat(Value.node_for(count), index)) do
+        instance_exec(i, &block)
       end
     end
 

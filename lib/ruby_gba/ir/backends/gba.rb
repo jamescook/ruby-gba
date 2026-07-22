@@ -244,6 +244,7 @@ module RubyGBA
           when :clamp then emit_clamp(node)
           when :if then emit_if(node)
           when :loop then emit_loop(node)
+          when :repeat then emit_repeat(node)
           when :call then emit_branch(:bl, func_label(node[:target]))
           when :case then emit_case(node)
           when :raw then emit(node[:bytes]) # escape hatch: pre-assembled bytes, verbatim
@@ -359,6 +360,36 @@ module RubyGBA
           place_label(top)
           node.children.each { |stmt| emit_statement(stmt) }
           emit_branch(:b, top)
+        end
+
+        # repeat: a counted loop. The count is evaluated once into a hidden limit
+        # variable (matching the interpreter, which captures the bound up front),
+        # a hidden counter runs 0..count-1, and the body runs each pass. Counter
+        # and limit live in memory, so the body is free to clobber registers.
+        def emit_repeat(node)
+          index = node[:index]
+          limit = :"#{index}__limit"
+
+          eval_value(node[:count])        # r0 = count
+          store_var(ACC, limit)           # limit = count (once)
+          emit(ASM.load_immediate(ACC, 0))
+          store_var(ACC, index)           # counter = 0
+
+          top = gensym
+          done = gensym
+          place_label(top)
+          load_var(ACC, index)            # r0 = counter
+          load_var(TMP, limit)            # r1 = limit
+          emit(ASM.cmp_reg(ACC, TMP))     # counter - limit
+          emit_branch(:bcond, done, cond: :ge) # counter >= limit => finished
+
+          node.children.each { |stmt| emit_statement(stmt) }
+
+          load_var(ACC, index)
+          emit(ASM.add_imm(ACC, ACC, 1))  # counter += 1
+          store_var(ACC, index)
+          emit_branch(:b, top)
+          place_label(done)
         end
 
         # Func bodies live after the main code. A leading endless loop guards

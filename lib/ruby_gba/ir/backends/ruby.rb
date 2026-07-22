@@ -163,6 +163,18 @@ module RubyGBA
             end
           when :loop
             loop { node.children.each { |child| exec(child) } }
+          when :repeat
+            # A counted loop: the index counts 0..count-1. Evaluate count once,
+            # like a for-loop bound. tick! guards the step budget even when the
+            # body is empty.
+            count = eval_value(node[:count])
+            i = 0
+            while i < count
+              tick!
+              @vars[node[:index]] = i
+              node.children.each { |child| exec(child) }
+              i += 1
+            end
           when :blit
             exec_blit(node)
           when :call

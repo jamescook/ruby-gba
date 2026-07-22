@@ -171,6 +171,15 @@ module RubyGBA
         Node.new(:loop, children: body)
       end
 
+      # A counted loop: run +body+ +count+ times, with +index+ (a variable name)
+      # counting 0..count-1 at run time. The runtime counterpart to Ruby's
+      # build-time N.times — where N.times unrolls the loop and its counter is a
+      # plain Integer, this emits one loop whose count and counter live on the
+      # console. +count+ is a value operand.
+      def repeat(count, index, *body)
+        Node.new(:repeat, children: body, count: wrap(count), index: index)
+      end
+
       def func(name, *body)
         Node.new(:func, children: body, name: name)
       end
