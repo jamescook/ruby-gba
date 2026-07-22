@@ -9,6 +9,7 @@ require_relative "builder/music"
 require_relative "builder/text"
 require_relative "builder/images"
 require_relative "builder/input"
+require_relative "builder/drawing"
 
 module RubyGBA
   # DSL context for building a GBA ROM.
@@ -40,15 +41,7 @@ module RubyGBA
     include Text       # draw_text, draw_digit
     include Images     # image, blit, rgb, rgb8, color
     include Input      # if_held, if_pressed, held, pressed
-
-    # Friendly display mode presets — the names {#display} accepts.
-    DISPLAY_MODES = {
-      bitmap:       MODE_3 | BG2_ENABLE,       # 240x160, 15-bit direct color
-      bitmap_indexed: MODE_4 | BG2_ENABLE,     # 240x160, 8-bit indexed, double buffered
-      bitmap_small: MODE_5 | BG2_ENABLE,       # 160x128, 15-bit, double buffered
-      tiled:        MODE_0 | BG0_ENABLE,       # 4 regular BG layers (most games)
-      affine:       MODE_2 | BG2_ENABLE,       # 2 rotatable BG layers
-    }.freeze
+    include Drawing    # display, pixel, fill_rect, clear_screen, dma_fill_rect, draw_rect_at
 
     # Shorthand for the IR node constructors, so DSL methods can build tree
     # nodes as terse Build.set(...) calls.
@@ -214,53 +207,6 @@ module RubyGBA
       ctx = EntryContext.new
       ctx.instance_eval(&block)
       record(Build.raw(ctx.bytes))
-    end
-
-    # Set the display mode.
-    #
-    # @param mode [Symbol, Integer] a friendly name or raw REG_DISPCNT value
-    #
-    # @example Friendly
-    #   display :bitmap          # MODE_3 | BG2_ENABLE
-    #   display :tiled           # MODE_0 | BG0_ENABLE
-    #
-    # @example Raw (full control)
-    #   display MODE_3 | BG2_ENABLE | OBJ_ENABLE
-    def display(mode)
-      case mode
-      when Symbol
-        unless DISPLAY_MODES.key?(mode)
-          raise ArgumentError, "unknown display mode: #{mode}. Known: #{DISPLAY_MODES.keys.join(', ')}"
-        end
-      when Integer
-        # a raw REG_DISPCNT value — passed through untouched
-      else
-        raise ArgumentError, "expected Symbol or Integer, got #{mode.class}"
-      end
-
-      record(Build.display(mode))
-    end
-
-    # Draw a single pixel in bitmap mode (MODE_3).
-    # Writes a 15-bit color to VRAM at the (x, y) offset.
-    #
-    # @param x [Integer] horizontal position (0-239)
-    # @param y [Integer] vertical position (0-159)
-    # @param c [Symbol, String, Integer] color (see {Color.resolve})
-    def pixel(x, y, c)
-      validate_coords!(x, y)
-      record(Build.pixel(x, y, c))
-    end
-
-    # Fill a rectangle in bitmap mode (MODE_3).
-    #
-    # @param x [Integer] left edge (0-239)
-    # @param y [Integer] top edge (0-159)
-    # @param w [Integer] width in pixels
-    # @param h [Integer] height in pixels
-    # @param c [Symbol, String, Integer] fill color
-    def fill_rect(x, y, w, h, c)
-      record(Build.fill_rect(x, y, w, h, c))
     end
 
     # Stop execution (branch to self). Use after drawing static scenes.
@@ -550,44 +496,6 @@ module RubyGBA
       if_node[:else] = else_node
     end
 
-    # --- DMA ---
-
-    # Clear the entire screen to a solid color.
-    # Much faster than pixel-by-pixel: one DMA transfer fills all of VRAM.
-    #
-    # @param c [Symbol, String, Integer] fill color
-    def clear_screen(c)
-      record(Build.clear_screen(c))
-    end
-
-    # Fill a rectangle at a fixed position and size.
-    #
-    # @param x [Integer] left edge
-    # @param y [Integer] top edge
-    # @param w [Integer] width in pixels (must be even for the fast fill)
-    # @param h [Integer] height in pixels
-    # @param c [Symbol, String, Integer] fill color
-    def dma_fill_rect(x, y, w, h, c)
-      record(Build.dma_fill_rect(x, y, w, h, c))
-    end
-
-    # --- Runtime Drawing ---
-
-    # Draw a filled rectangle at a position determined at run time.
-    # Positions can be variables (Symbol) or constants (Integer); the size is a
-    # build-time constant and the width must be even (for the fast fill).
-    #
-    # @param x_pos [Symbol, Integer] x position (variable or constant)
-    # @param y_pos [Symbol, Integer] y position (variable or constant)
-    # @param w [Integer] width in pixels (must be even, build-time constant)
-    # @param h [Integer] height in pixels (build-time constant)
-    # @param c [Symbol, String, Integer] fill color
-    def draw_rect_at(x_pos, y_pos, w, h, c)
-      record(Build.draw_rect_at(Value.node_for(x_pos), Value.node_for(y_pos), w, h, c))
-      ensure_var(x_pos) if x_pos.is_a?(Symbol)
-      ensure_var(y_pos) if y_pos.is_a?(Symbol)
-    end
-
     private
 
     # Record an `if` node comparing a variable against an operand, and gather the
@@ -711,11 +619,6 @@ module RubyGBA
       return if @functions.key?(name)
 
       raise ArgumentError, "function :#{name} called but never defined"
-    end
-
-    def validate_coords!(x, y)
-      raise ArgumentError, "x=#{x} out of range (0-#{SCREEN_WIDTH - 1})" unless (0...SCREEN_WIDTH).cover?(x)
-      raise ArgumentError, "y=#{y} out of range (0-#{SCREEN_HEIGHT - 1})" unless (0...SCREEN_HEIGHT).cover?(y)
     end
 
     # Collector for case_var clauses.
