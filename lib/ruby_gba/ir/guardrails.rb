@@ -96,6 +96,7 @@ end
 require_relative "guardrails/display_mode_set"
 require_relative "guardrails/vblank_sync"
 require_relative "guardrails/termination"
+require_relative "guardrails/off_screen_draw"
 
 module RubyGBA
   module IR
@@ -107,6 +108,7 @@ module RubyGBA
         Checks::DisplayModeSet.new,
         Checks::VblankSync.new,
         Checks::Termination.new,
+        Checks::OffScreenDraw.new,
       ].freeze
     end
   end
