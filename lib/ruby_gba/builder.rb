@@ -6,6 +6,7 @@
 require_relative "builder/randomness"
 require_relative "builder/sound"
 require_relative "builder/music"
+require_relative "builder/text"
 
 module RubyGBA
   # DSL context for building a GBA ROM.
@@ -34,6 +35,7 @@ module RubyGBA
     include Randomness # seed, randomize, roll, rand, chance
     include Sound      # enable_sound, define_sound, beep
     include Music      # song, play_song, stop_music
+    include Text       # draw_text, draw_digit
 
     # Friendly display mode presets — the names {#display} accepts.
     DISPLAY_MODES = {
@@ -622,31 +624,6 @@ module RubyGBA
       record(Build.draw_rect_at(Value.node_for(x_pos), Value.node_for(y_pos), w, h, c))
       ensure_var(x_pos) if x_pos.is_a?(Symbol)
       ensure_var(y_pos) if y_pos.is_a?(Symbol)
-    end
-
-    # --- Text ---
-
-    # Draw a text string at (x, y) using the built-in 5x7 bitmap font.
-    # Each character is 6px wide (5px glyph + 1px gap), 7px tall.
-    # All text is uppercased. Unsupported characters are skipped.
-    #
-    # @param text [String] text to render
-    # @param x [Integer] left edge
-    # @param y [Integer] top edge
-    # @param c [Symbol, String, Integer] text color
-    def draw_text(text, x, y, c)
-      record(Build.draw_text(text, x, y, c))
-    end
-
-    # Draw a single-digit number (0-9) at (x, y).
-    # For multi-digit, call multiple times with offset.
-    #
-    # @param digit [Integer] 0-9
-    # @param x [Integer] left edge
-    # @param y [Integer] top edge
-    # @param c [Symbol, String, Integer] color
-    def draw_digit(digit, x, y, c)
-      draw_text(digit.to_s, x, y, c)
     end
 
     # --- Images ---
