@@ -39,6 +39,14 @@ module RubyGBA
     end
     builder.emit_pending_functions
 
+    # First prove the tree is well-formed — every value operand is a value node,
+    # nothing structural is out of place. This checks the *library's* own
+    # consistency, not the developer's game, so a failure is a ruby-gba bug and
+    # raises loudly rather than joining the friendly guardrail report below. It
+    # runs before the guardrails and the backend so a malformed tree can't reach
+    # them and fail cryptically two passes downstream.
+    IR::Verifier.verify!(builder.program)
+
     # Run the guardrails over the finished IR and report every finding — its
     # plain-language explanation and the suggested fix — on the err stream. A
     # warning is advisory (a game loop with no frame sync, say): it's printed and
