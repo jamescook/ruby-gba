@@ -46,6 +46,7 @@ module RubyGBA
       @sound_enabled = false
       @debug_halted = false
       @repeat_seq = 0          # counts repeat loops, to name each one's hidden index var
+      @pending_conditions = [] # Conditions built but not yet used; leftovers are orphans
 
       # The program the DSL builds: an IR tree of nodes that {RubyGBA.build}
       # lowers to a ROM. Each statement attaches to the container on top of the
@@ -477,6 +478,27 @@ module RubyGBA
     # counterpart to how a {Value}'s mutators record through the builder's verbs.
     def record_statement(node)
       record(node)
+    end
+
+    # A {Condition} enters this "pending" set when it's built (Condition#initialize)
+    # and leaves it when it's used (see #consume_condition). It's bookkeeping for
+    # one guardrail only, never part of the program.
+    def track_condition(condition)
+      @pending_conditions << condition
+    end
+
+    # A {Condition} was used — branched on with `.then`, or folded into another via
+    # `&` / `|` — so peel it back out of the pending set.
+    def consume_condition(condition)
+      @pending_conditions.delete(condition)
+    end
+
+    # The Conditions still pending at build's end: built but never used. Each did
+    # nothing, which almost always means it was handed to a native `if` (a Condition
+    # is truthy to Ruby, so the `if` body ran unconditionally and the comparison was
+    # silently ignored). The orphaned-Condition guardrail reports these.
+    def pending_conditions
+      @pending_conditions
     end
 
     # The hook behind `.then { }.else { }`: gather the else block's statements
