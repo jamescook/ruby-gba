@@ -126,22 +126,28 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
       beep :wall_bounce
     end
 
-    # Player paddle collision (left side): the ball is inside the paddle's
-    # x-band. That's two comparisons AND-ed; until the DSL has `&`, it reads as
-    # one .then nested in another.
-    if_le :ball_x, LEFT_X + PADDLE_W do
-      if_ge :ball_x, LEFT_X do
-        ball_dx.abs # bounce right
-        beep :paddle_hit
-      end
+    # Player paddle collision (left side). The ball bounces only when it truly
+    # overlaps the paddle — its x-band AND its vertical span. The vertical test is
+    # what makes the game winnable: without it the paddle acted like a full-height
+    # wall, so the ball could never slip past to score. A paddle occupies
+    # [player_y, player_y + PADDLE_H]; the ball (height BALL_SIZE) overlaps it when
+    # its top sits anywhere in that span, give or take the ball's own height. `&`
+    # ANDs the four comparisons — parenthesize each, since & binds tighter.
+    hits_player = (ball_x >= LEFT_X) & (ball_x <= LEFT_X + PADDLE_W) &
+                  (ball_y >= player_y - BALL_SIZE) & (ball_y <= player_y + PADDLE_H)
+    hits_player.then do
+      ball_dx.abs # bounce right
+      beep :paddle_hit
     end
 
-    # CPU paddle collision (right side)
-    if_ge :ball_x, RIGHT_X - BALL_SIZE do
-      if_le :ball_x, RIGHT_X + PADDLE_W do
-        ball_dx.negate_abs
-        beep :paddle_hit
-      end
+    # CPU paddle collision (right side) — the same overlap test against the CPU
+    # paddle. The CPU tops out at CPU_SPEED, slower than the ball, so a fast
+    # diagonal can leave it behind and let the player score.
+    hits_cpu = (ball_x >= RIGHT_X - BALL_SIZE) & (ball_x <= RIGHT_X + PADDLE_W) &
+               (ball_y >= cpu_y - BALL_SIZE) & (ball_y <= cpu_y + PADDLE_H)
+    hits_cpu.then do
+      ball_dx.negate_abs # bounce left
+      beep :paddle_hit
     end
 
     # Score: ball went off left edge
