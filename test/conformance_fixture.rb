@@ -79,11 +79,12 @@ module ConformanceFixture
       B.play_song(:tune),
       B.stop_music,
 
-      # --- control flow: if+else, call, case ---
+      # --- control flow: if+else, call, case, repeat ---
       if_else,
       B.call(:helper),
       B.set(:sel, 0),
       B.case_(:sel, { 0 => :scene_a, 1 => :scene_b }),
+      B.repeat(3, :ri, B.set(:acc, B.var_ref(:ri))), # counted loop, index 0..2
 
       # --- terminate: a loop that syncs once then halts (covers loop + halt) ---
       B.loop_(B.wait_vblank, B.halt),
