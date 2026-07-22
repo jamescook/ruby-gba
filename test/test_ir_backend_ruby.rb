@@ -188,10 +188,10 @@ class TestIRBackendRuby < Minitest::Test
   end
 
   def test_raw_bytes_cannot_run_in_the_interpreter
-    # raw target code is a GBA-only escape hatch; the headless interpreter has no
-    # way to execute machine bytes, so it refuses them with a clear error.
+    # raw is tagged hardware-only (IR::Portability); the headless interpreter is a
+    # portable-only backend, so it refuses to run it rather than model machine bytes.
     err = assert_raises(Ruby::ProgramError) { run_ir(program(raw("\x00\x00\x00\x00".b))) }
-    assert_match(/raw .*escape hatch|GBA-only/i, err.message)
+    assert_match(/hardware-only|can't run :raw/i, err.message)
   end
 
   def test_case_var_dispatches_to_the_matching_scene
