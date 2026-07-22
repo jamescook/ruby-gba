@@ -100,11 +100,12 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
   end
 
   func :update_cpu do
-    # Simple AI: chase the ball, capped by CPU_SPEED. `center` is a plain Ruby
-    # local holding the expression cpu_y + half a paddle — no GBA temp variable.
-    center = cpu_y + PADDLE_H / 2
-    (ball_y > center).then { cpu_y.add CPU_SPEED }
-    (ball_y < center).then { cpu_y.sub CPU_SPEED }
+    # Simple AI: slide the paddle's center toward the ball at up to CPU_SPEED per
+    # frame, then keep it on-screen. approach moves cpu_y toward the target
+    # without overshooting, so the paddle settles when it lines up instead of
+    # jittering. The target is the ball's y minus half a paddle, so the paddle's
+    # center — not its top — is what tracks the ball.
+    cpu_y.approach ball_y - PADDLE_H / 2, CPU_SPEED
     cpu_y.clamp 0, SCREEN_H - PADDLE_H
   end
 

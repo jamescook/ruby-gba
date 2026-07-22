@@ -3,9 +3,9 @@
 module RubyGBA
   class Builder
     # The variable verbs: declare and mutate the game's RAM variables — set/var,
-    # add, sub, negate/flip, copy, abs, negate_abs, clamp — plus introspection
-    # (var_address, variables). A concern of {Builder}, mixed in so these stay flat
-    # DSL verbs.
+    # add, sub, negate/flip, copy, abs, negate_abs, clamp, approach — plus
+    # introspection (var_address, variables). A concern of {Builder}, mixed in so
+    # these stay flat DSL verbs.
     #
     # The allocation itself (ensure_var / var_address! / the @variables table) is
     # builder core, shared by every concern, so it stays in Builder; these verbs
@@ -94,6 +94,36 @@ module RubyGBA
         ensure_var(name)
       end
 
+      # Move a variable toward +target+ by at most +step+ each call, never
+      # overshooting: once it's within +step+ of the target it lands exactly on it
+      # and stays there. This is the "chase, capped to a top speed" move — a homing
+      # enemy, a camera easing to the player, pong's paddle tracking the ball.
+      #
+      #   cpu_y.approach ball_y - PADDLE_H / 2, CPU_SPEED
+      #
+      # +target+ is where it's heading — a number, another variable, or an
+      # expression Value. +step+ is the most it may move per call, a positive whole
+      # number fixed as you write the program (like a top speed).
+      #
+      # @param name [Symbol] the variable to move
+      # @param target [Integer, Symbol, Value] where it's heading
+      # @param step [Integer] the most it may move per call (a positive constant)
+      def approach(name, target, step)
+        raise ArgumentError, "approach's step must be a whole number, got #{step.inspect}" unless step.is_a?(Integer)
+        raise ArgumentError, "approach's step must be positive, got #{step}" unless step.positive?
+
+        ensure_var(name)
+        ensure_var(target)
+        delta = next_approach_var
+        ensure_var(delta)
+        # How far there is to go, capped to a single step in either direction, then
+        # applied — a branchless move that can't overshoot: when the target is
+        # already within one step, the cap does nothing and it lands right on it.
+        record(Build.set(delta, Build.binop(:-, Value.node_for(target), Build.var_ref(name))))
+        record(Build.clamp(delta, -step, step))
+        record(Build.add(name, Build.var_ref(delta)))
+      end
+
       # Get the IWRAM address allocated for a variable.
       # Useful for debugging and testing.
       #
@@ -107,6 +137,16 @@ module RubyGBA
       # @return [Hash{Symbol => Hash}]
       def variables
         @variables.dup
+      end
+
+      private
+
+      # A fresh hidden variable to hold one approach call's capped delta. Named per
+      # call site at build time, so an approach inside a loop reuses the one
+      # variable every frame rather than allocating forever.
+      def next_approach_var
+        @approach_seq += 1
+        :"__approach_#{@approach_seq}"
       end
     end
   end

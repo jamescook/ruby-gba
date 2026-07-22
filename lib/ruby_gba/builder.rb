@@ -64,6 +64,7 @@ module RubyGBA
       @repeat_seq = 0          # counts repeat loops, to name each one's hidden index var
       @timer_seq = 0           # counts every/after timers, to name each one's hidden counter var
       @rng_seq = 0             # counts anonymous random draws, to name each one's hidden var
+      @approach_seq = 0        # counts approach calls, to name each one's hidden delta var
       @prng_used = false       # whether the program draws random numbers (seeds the stream once)
       @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
       @pending_conditions = [] # Conditions built but not yet used; leftovers are orphans

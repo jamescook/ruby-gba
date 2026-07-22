@@ -8,9 +8,10 @@ module RubyGBA
   #   center = cpu_y + PADDLE_H / 2   # a Value (an expression, no variable of its own)
   #   (ball_y > center).then { ... }  # a comparison makes a Condition
   #
-  # A Value that names a variable can be mutated — set / add / sub / clamp — which
-  # records the matching statement into the program. An expression Value has no
-  # variable behind it, so mutating one is a friendly error.
+  # A Value that names a variable can be mutated — set / add / sub / clamp /
+  # approach — which records the matching statement into the program. An
+  # expression Value has no variable behind it, so mutating one is a friendly
+  # error.
   #
   # Each Value wraps an IR value node; comparisons and arithmetic just build
   # bigger nodes, so nothing is committed to the program until a Condition's
@@ -113,6 +114,12 @@ module RubyGBA
     # Keep the variable within [lo, hi] (build-time constants).
     def clamp(lo, hi)
       mutate { @builder.clamp(@name, lo, hi) }
+    end
+
+    # Move the variable toward +target+ by at most +step+ each call, never
+    # overshooting — the chase-at-a-top-speed move (see Builder#approach).
+    def approach(target, step)
+      mutate { @builder.approach(@name, target, step) }
     end
 
     # Replace the variable with its absolute value.
