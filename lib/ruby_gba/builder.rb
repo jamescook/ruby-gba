@@ -41,7 +41,7 @@ module RubyGBA
     include Randomness # seed, randomize, roll, rand, chance
     include Sound      # enable_sound, define_sound, beep
     include Music      # song, play_song, stop_music
-    include Text       # draw_text, draw_digit
+    include Text       # draw_text, draw_number
     include Images     # image, blit, rgb, rgb8, color
     include Input      # if_held, if_pressed, held, pressed
     include Drawing    # display, pixel, fill_rect, clear_screen, dma_fill_rect, draw_rect_at
@@ -65,6 +65,7 @@ module RubyGBA
       @timer_seq = 0           # counts every/after timers, to name each one's hidden counter var
       @rng_seq = 0             # counts anonymous random draws, to name each one's hidden var
       @approach_seq = 0        # counts approach calls, to name each one's hidden delta var
+      @number_seq = 0          # counts draw_number calls, to name each one's hidden digit vars
       @prng_used = false       # whether the program draws random numbers (seeds the stream once)
       @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
       @pending_conditions = [] # Conditions built but not yet used; leftovers are orphans

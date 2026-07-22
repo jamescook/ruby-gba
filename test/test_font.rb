@@ -133,15 +133,6 @@ class TestFont < Minitest::Test
     assert_operator inst_count, :>, 10, "draw_text should emit pixel-writing instructions"
   end
 
-  def test_draw_digit_builds
-    rom = build do
-      display :bitmap
-      draw_digit 5, 100, 8, :white
-      halt
-    end
-    assert_operator rom.size, :>, 0
-  end
-
   def test_draw_text_clips_at_screen_edge
     # Text near right edge should not crash
     rom = build do
