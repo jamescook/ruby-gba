@@ -63,6 +63,51 @@ module RubyGBA
         end
       end
 
+      # The extension hook. BUILTIN_CHECKS are always on; these are the extra
+      # whole-program checks something adds at runtime — an effect pack's own
+      # guardrails, or a one-off a game registers. They're kept separate from the
+      # frozen builtins because they're only active while whoever added them is
+      # loaded: a pack's footgun checks travel with the pack and never fire for a
+      # verb you aren't using.
+      #
+      # A check is anything with #detect(program) -> [Finding] — the same contract
+      # the builtins honor, so a registered check may warn, error, or offer a Fix
+      # just like a builtin. This hook is for WHOLE-PROGRAM checks that can only be
+      # judged once the full IR exists (state left un-restored, a pool declared but
+      # never drawn, an asset referenced but never defined). Cheap argument checks
+      # (a rate of 0, an unknown color) belong inline in the verb as an immediate
+      # error, not here.
+      @registered_checks = []
+
+      class << self
+        # Register a whole-program check so it runs in every validation pass from
+        # now on. Idempotent for the same check instance. Returns the check.
+        def register(check)
+          @registered_checks << check unless @registered_checks.include?(check)
+          check
+        end
+
+        # The checks registered so far — a copy, so the registry stays visible data
+        # a caller can read without being able to mutate it by accident.
+        def registered_checks
+          @registered_checks.dup
+        end
+
+        # The full set a Validator runs by default: the always-on builtins plus
+        # everything registered. Read fresh each pass (not frozen at construction),
+        # so a check registered after a Validator was built still takes effect.
+        def default_checks
+          BUILTIN_CHECKS + @registered_checks
+        end
+
+        # Drop every registered check, back to builtins only. For tests, so one
+        # test's registration can't leak into the next, and for any caller that
+        # wants a clean slate.
+        def clear_registered!
+          @registered_checks = []
+        end
+      end
+
       # The validation pass. Runs each check over the tree in order. When autofix
       # is on and a check offers a safe fix, it applies the fix — threading the
       # corrected program into the checks that follow — and downgrades that
@@ -75,7 +120,7 @@ module RubyGBA
       # leftover Conditions, not the tree). Either way the pass treats them alike;
       # pass your own list via +checks:+ to run a different set.
       class Validator
-        def initialize(checks: BUILTIN_CHECKS)
+        def initialize(checks: Guardrails.default_checks)
           @checks = checks
         end
 
@@ -108,9 +153,10 @@ require_relative "guardrails/orphaned_condition"
 module RubyGBA
   module IR
     module Guardrails
-      # The checks that run by default, in order. A plain frozen list so the
-      # registry is visible data, not hidden behind a method — instantiate a
-      # Validator with your own list to run a different set.
+      # The always-on checks, in order — the base every validation pass runs. A
+      # plain frozen list so it's visible data, not hidden behind a method.
+      # Guardrails.default_checks appends whatever's been registered on top of
+      # these; instantiate a Validator with your own list to run a different set.
       BUILTIN_CHECKS = [
         Checks::DisplayModeSet.new,
         Checks::VblankSync.new,

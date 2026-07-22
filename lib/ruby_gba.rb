@@ -48,10 +48,12 @@ module RubyGBA
     # (an opt-in `--auto-fix` is future work). Skipped for a debug_halt build,
     # whose tree is deliberately truncated.
     unless builder.debug_halted?
-      # The built-in checks walk the IR; the orphaned-Condition check reports from
-      # the builder's leftover Conditions (a native-`if` slip leaves no trace in the
-      # tree). Both are just checks in the list, so the Validator treats them alike.
-      checks = IR::Guardrails::BUILTIN_CHECKS +
+      # The default checks — the always-on builtins plus anything registered (an
+      # effect pack's own guardrails) — walk the IR. The orphaned-Condition check
+      # is appended per build because it reports from the builder's leftover
+      # Conditions, not the tree (a native-`if` slip leaves no trace there). All
+      # are just checks in the list, so the Validator treats them alike.
+      checks = IR::Guardrails.default_checks +
                [IR::Guardrails::Checks::OrphanedCondition.new(builder.pending_conditions)]
       report = IR::Guardrails::Validator.new(checks: checks).run(builder.program, autofix: false)
       report.findings.each { |finding| err.puts(finding.message) }
