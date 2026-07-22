@@ -77,7 +77,7 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
   player_score = var :player_score, 0
   cpu_score    = var :cpu_score, 0
   state        = var :state, 0    # 0=title, 1=playing, 2=player_wins, 3=cpu_wins
-  frame_count  = var :frame_count, 0
+  blink        = var :blink, 1    # 1=show the title prompt this frame, 0=hide it (flashes)
 
   # --- Subroutines ---
 
@@ -174,11 +174,11 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
     draw_text "PONG", 104, 40, :white
     call :draw_field
 
-    frame_count.add 1
-    (frame_count < 30).then do
-      draw_text "PRESS START", 76, 100, :gray
+    # Flash the prompt: flip it on/off every half second.
+    every(0.5, :seconds) do
+      (blink == 1).then { blink.set 0 }.else { blink.set 1 }
     end
-    (frame_count >= 60).then { frame_count.set 0 }
+    (blink == 1).then { draw_text "PRESS START", 76, 100, :gray }
 
     pressed(:start).then { call :reset_game }
   end
