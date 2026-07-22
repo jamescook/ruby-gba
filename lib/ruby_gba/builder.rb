@@ -496,6 +496,23 @@ module RubyGBA
       ensure_var(n) if n.is_a?(Symbol)
     end
 
+    # Stir the stream by one step — the way to make a game unpredictable. The
+    # console has no true randomness, so the entropy has to come from the one thing
+    # nobody can predict: *when* the player acts. Call this every frame while you
+    # wait for them, and the stream keeps moving; whatever spot it lands on when
+    # they finally press the button is decided by their reaction time, so each
+    # playthrough differs. A game that never calls it stays perfectly reproducible.
+    #
+    #   scene :title do
+    #     draw_text "PRESS START", 76, 100, :gray
+    #     randomize                              # keep stirring while we wait
+    #     if_pressed(:start) { call :new_game }  # start from wherever it landed
+    #   end
+    def randomize
+      use_rng!
+      churn_rng
+    end
+
     # Draw a random whole number in +range+ into the variable +name+, churning the
     # stream. +range+ is an ordinary Ruby range:
     #

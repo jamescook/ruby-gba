@@ -170,6 +170,86 @@ class TestRandom < Minitest::Test
     assert_includes 30..70, i[:hits], "chance(50) fired #{i[:hits]}/100 times — not near half"
   end
 
+  # ---- randomize: entropy from the player's reaction time ----
+
+  # Stirring moves the stream, so a draw after N stirs differs from one after M.
+  def test_randomize_stirs_the_stream
+    after = lambda do |stirs|
+      i = interpret do
+        seed 100
+        stirs.times { randomize }
+        roll :r, 0..30_000
+      end
+      i[:r]
+    end
+    assert_equal after.call(3), after.call(3), "the same number of stirs is reproducible"
+    refute_equal after.call(3), after.call(8), "a different number of stirs should land elsewhere"
+  end
+
+  # The real usage: stir every frame on a title screen until the player presses
+  # START. Two players with different reaction times get different games; the same
+  # reaction time replays the same one.
+  def reaction_program
+    builder = Builder.new
+    builder.instance_eval do
+      display :bitmap
+      clear_screen :white
+      done = var :done, 0
+      var :rx, 0
+      game_loop do
+        wait_vblank
+        (done == 0).then do
+          randomize
+          pressed(:start).then do
+            roll :rx, 0..200
+            done.set 1
+          end
+        end
+        (done > 0).then do
+          draw_rect_at :rx, 80, 4, 4, :red
+          halt
+        end
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  # Press START on a given frame (held from then on, so its edge fires that frame).
+  def press_start_on(frame)
+    ->(f) { f >= frame ? [:start] : [] }
+  end
+
+  def result_when_start_pressed_on(frame)
+    Ruby.new.input_each_frame(&press_start_on(frame)).run(reaction_program)[:rx]
+  end
+
+  def test_reaction_time_decides_the_outcome
+    quick = result_when_start_pressed_on(2)
+    slow  = result_when_start_pressed_on(9)
+    assert_includes 0..200, quick
+    assert_includes 0..200, slow
+    refute_equal quick, slow, "a different reaction time should give a different draw"
+  end
+
+  def test_same_reaction_time_replays_the_same_outcome
+    assert_equal result_when_start_pressed_on(5), result_when_start_pressed_on(5)
+  end
+
+  def test_randomize_marker_lands_on_hardware
+    program = reaction_program
+    # Hold START from the first frame (a fixed timing), so the interpreter's draw
+    # position is defined — then confirm the console draws it in the same place.
+    i = Ruby.new.input_each_frame { [:start] }.run(program)
+    x = i[:rx]
+    assert_equal Color.resolve(:red), i.screen.pixel(x, 80), "interpreter drew the marker at x=#{x}"
+
+    rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
+                                title: "RANDOMIZE", code: "BRDZ", maker: "01")
+    v = assert_gemba_loads_rom(rom, frames: 5, keys: KEY_START)
+    assert v.red?(x, 80), "console drew the randomized marker at the same x=#{x}"
+  end
+
   # ---- the boot seed: planted once, at the very start ----
 
   def test_the_default_seed_is_planted_first_when_unseeded
