@@ -246,11 +246,13 @@ class TestIRNode < Minitest::Test
       display(:bitmap),                                          # draw
       enable_sound,                                             # sound
       data(:blob, "\x0a".b),                                     # data
+      list_new(:trail, 4),                                       # list
       set(:x, data_byte(:blob, 0)),                              # var + value
       loop_(                                                     # control
         wait_vblank,
         if_(binop(:>, var_ref(:x), int(200)), set(:x, 0)),      # value cond
         add(:x, 1),
+        list_push(:trail, :x),
         pixel(:x, 80, :red),
         beep(:high),
         call(:update),

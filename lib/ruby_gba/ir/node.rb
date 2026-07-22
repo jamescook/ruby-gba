@@ -70,16 +70,22 @@ module RubyGBA
         # that also carries width/height, so a draw op knows its shape.
         data: :data, bitmap: :data,
 
+        # list operations — a bounded, ordered collection whose size is decided at
+        # run time: create one (list_new), grow it (list_push), shrink it from
+        # either end (list_drop), or overwrite a slot (list_set). Reading it back —
+        # an element or its length — is a value (list_get/list_len, below).
+        list_new: :list, list_push: :list, list_drop: :list, list_set: :list,
+
         # expression values — operands, live inside another node's #attrs
         int: :value, var_ref: :value, binop: :value, neg: :value,
-        data_byte: :value,
+        data_byte: :value, list_get: :value, list_len: :value,
 
         # input reads — an operand whose value comes from the gamepad
         held: :value, pressed: :value,
       }.freeze
 
       # The distinct categories, in a stable order (useful for coverage checks).
-      CATEGORIES = %i[root var draw sound control data value].freeze
+      CATEGORIES = %i[root var draw sound control data list value].freeze
 
       attr_reader :kind, :attrs, :children
       attr_accessor :parent, :source
@@ -115,7 +121,7 @@ module RubyGBA
       # A statement is anything that belongs in the program tree (as opposed to
       # an operand value).
       def statement?
-        %i[root var draw sound control data].include?(category)
+        %i[root var draw sound control data list].include?(category)
       end
 
       def leaf?

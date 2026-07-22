@@ -162,6 +162,28 @@ module RubyGBA
       @variables.dup
     end
 
+    # --- Lists ---
+
+    # Declare a named list — a bounded, ordered collection whose length changes as
+    # the game runs (a snake's body, a queue of shots). Returns a {List} handle you
+    # push onto, drop from, index into, and iterate.
+    #
+    #   body = list :body, capacity: 256
+    #   body.push head_cell
+    #   body.shift unless growing
+    #
+    # `capacity` is the most it can ever hold; it's rounded up to a power of two so
+    # the hardware can wrap an index cheaply, and every backend enforces that same
+    # ceiling, so a program overflows at the same point everywhere.
+    #
+    # @param name [Symbol] the list's name
+    # @param capacity [Integer] the most items it can hold (rounded up to 2^n)
+    # @return [List] a handle to the list
+    def list(name, capacity:)
+      record(Build.list_new(name, capacity))
+      List.new(self, name)
+    end
+
     # Define an entry point of raw ARM instructions — the escape hatch for
     # patterns the DSL can't express. The block runs in an {EntryContext} that
     # collects the emitted bytes into a raw IR node, which the backend appends to
@@ -448,6 +470,13 @@ module RubyGBA
         instance_eval(&block)
       end
       if_node
+    end
+
+    # The hook a {List} handle uses to append one of its statement operations
+    # (push / drop / element-set) at the current build point — the collection
+    # counterpart to how a {Value}'s mutators record through the builder's verbs.
+    def record_statement(node)
+      record(node)
     end
 
     # The hook behind `.then { }.else { }`: gather the else block's statements

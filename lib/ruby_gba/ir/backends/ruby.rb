@@ -3,6 +3,7 @@
 require "set"
 
 require_relative "ruby/framebuffer"
+require_relative "ruby/list_value"
 
 module RubyGBA
   module IR
@@ -48,6 +49,7 @@ module RubyGBA
           @songs = {}              # name -> :song node (from song)
           @data = {}               # name -> bytes (embedded data blobs)
           @bitmaps = {}            # name -> { width:, height: } (a blob that has a shape)
+          @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
         end
@@ -175,6 +177,15 @@ module RubyGBA
               node.children.each { |child| exec(child) }
               i += 1
             end
+          when :list_new
+            # Create (or reset) the named list, empty, with its rounded capacity.
+            @lists[node[:name]] = ListValue.new(node[:capacity])
+          when :list_push
+            exec_list_push(node)
+          when :list_drop
+            exec_list_drop(node)
+          when :list_set
+            exec_list_set(node)
           when :blit
             exec_blit(node)
           when :call
@@ -313,6 +324,68 @@ module RubyGBA
           end
         end
 
+        # --- lists ---
+        #
+        # The bounds checks live here (not in ListValue) so a violation becomes one
+        # friendly, plain-language error naming the list — the same "tell them what
+        # happened and how to fix it" the DSL promises everywhere else.
+
+        # The list stored under a name, or a friendly error if the program never
+        # created it (a `list_get`/`push` before its `list :name, capacity: N`).
+        def list_for(name)
+          @lists[name] ||
+            raise(ProgramError,
+                  "list #{name.inspect} was used before it was created — " \
+                  "create it first with `list #{name.inspect}, capacity: N`")
+        end
+
+        def exec_list_push(node)
+          list = list_for(node[:name])
+          if list.full?
+            raise ProgramError,
+                  "list #{node[:name].inspect} is full (capacity #{list.capacity}) — " \
+                  "drop an item first (shift/pop) or create it with a larger capacity"
+          end
+          list.push(eval_value(node[:value]))
+        end
+
+        def exec_list_drop(node)
+          list = list_for(node[:name])
+          from = node[:from] # :front (a shift) or :back (a pop)
+          if list.empty?
+            raise ProgramError,
+                  "list #{node[:name].inspect} is empty — " \
+                  "there is nothing to #{from == :front ? 'shift' : 'pop'}"
+          end
+          from == :front ? list.shift : list.pop
+        end
+
+        def exec_list_set(node)
+          list = list_for(node[:name])
+          index = eval_value(node[:index])
+          check_list_index!(list, node[:name], index)
+          list.set(index, eval_value(node[:value]))
+        end
+
+        def eval_list_get(node)
+          list = list_for(node[:name])
+          index = eval_value(node[:index])
+          check_list_index!(list, node[:name], index)
+          list.get(index)
+        end
+
+        def check_list_index!(list, name, index)
+          return if list.index?(index)
+
+          if list.empty?
+            raise ProgramError,
+                  "index #{index} is out of range — list #{name.inspect} is empty"
+          end
+          raise ProgramError,
+                "index #{index} is out of range for list #{name.inspect} — " \
+                "valid indexes are 0..#{list.length - 1}"
+        end
+
         # Evaluate an operand to a signed 32-bit integer. Operands are normally
         # value nodes; a bare Integer or Symbol is accepted too for convenience.
         def eval_value(operand)
@@ -333,6 +406,8 @@ module RubyGBA
           when :held then bool(button_held?(node[:button]))
           when :pressed then bool(button_pressed?(node[:button]))
           when :data_byte then data_byte(node[:name], node[:index])
+          when :list_get then eval_list_get(node)
+          when :list_len then list_for(node[:name]).length
           else raise ProgramError, "not a value node: #{node.kind.inspect}"
           end
         end

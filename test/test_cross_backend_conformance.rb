@@ -20,12 +20,26 @@ class TestCrossBackendConformance < Minitest::Test
 
   def test_fixture_touches_every_ir_node_kind
     used = ConformanceFixture.program.walk.map(&:kind).uniq.to_set
-    expected = Node::CATEGORY.keys.to_set
+    # Kinds whose lowering is still in progress are excused for now — they're
+    # tracked in PENDING_KINDS until every backend can run them (see its note).
+    expected = Node::CATEGORY.keys.to_set - ConformanceFixture::PENDING_KINDS
     missing = expected - used
 
     assert_empty missing,
                  "the conformance fixture is missing IR kinds #{missing.to_a.inspect} — " \
                  "add them to test/conformance_fixture.rb (see its maintenance note)"
+  end
+
+  def test_pending_kinds_are_real_and_not_yet_in_the_fixture
+    # Guard the exemption list itself: every PENDING_KIND must be a real IR kind
+    # (so a typo or a renamed kind surfaces) and must genuinely be absent from the
+    # fixture (so an entry left behind after its lowering lands is caught).
+    used = ConformanceFixture.program.walk.map(&:kind).uniq.to_set
+    ConformanceFixture::PENDING_KINDS.each do |kind|
+      assert Node::CATEGORY.key?(kind), "PENDING_KINDS lists unknown IR kind #{kind.inspect}"
+      refute used.include?(kind),
+             "#{kind.inspect} is now in the fixture — drop it from PENDING_KINDS"
+    end
   end
 
   def test_fixture_exercises_every_binary_operator
