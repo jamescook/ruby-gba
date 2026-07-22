@@ -8,6 +8,7 @@ require_relative "builder/sound"
 require_relative "builder/music"
 require_relative "builder/text"
 require_relative "builder/images"
+require_relative "builder/input"
 
 module RubyGBA
   # DSL context for building a GBA ROM.
@@ -38,6 +39,7 @@ module RubyGBA
     include Music      # song, play_song, stop_music
     include Text       # draw_text, draw_digit
     include Images     # image, blit, rgb, rgb8, color
+    include Input      # if_held, if_pressed, held, pressed
 
     # Friendly display mode presets — the names {#display} accepts.
     DISPLAY_MODES = {
@@ -472,48 +474,6 @@ module RubyGBA
       record(Build.case_(var_name, clauses))
     end
 
-    # --- Input ---
-
-    # Run the block only while a button is held down.
-    #
-    # @param button [Symbol] :up, :down, :left, :right, :a, :b, :start, :select, :l, :r
-    def if_held(button, &block)
-      check_button!(button)
-      push_container(Build.if_(Build.held(button))) do
-        instance_eval(&block)
-      end
-    end
-
-    # Run the block when a button is first pressed (edge-detected): down this
-    # frame, up the previous one.
-    #
-    # @param button [Symbol] button name
-    def if_pressed(button, &block)
-      check_button!(button)
-      push_container(Build.if_(Build.pressed(button))) do
-        instance_eval(&block)
-      end
-    end
-
-    # A {Condition} that holds while a button is down — branch on it with
-    # `held(:up).then { ... }`.
-    #
-    # @param button [Symbol] button name
-    def held(button)
-      reject_block!(:held, button) if block_given?
-      check_button!(button)
-      Condition.new(self, Build.held(button))
-    end
-
-    # A {Condition} true on the frame a button is first pressed (edge-detected).
-    #
-    # @param button [Symbol] button name
-    def pressed(button)
-      reject_block!(:pressed, button) if block_given?
-      check_button!(button)
-      Condition.new(self, Build.pressed(button))
-    end
-
     # --- Conditionals ---
     # Compare a variable against an immediate or another variable.
     # The block runs only when the condition is true.
@@ -695,23 +655,6 @@ module RubyGBA
         @program.children.unshift(node)
         node.parent = @program
       end
-    end
-
-    # Accept a known button name (from the shared IR vocabulary); raise a plain
-    # error for anything else.
-    def check_button!(button)
-      return if IR::Buttons.known?(button)
-
-      raise ArgumentError, "unknown button: #{button}"
-    end
-
-    # held/pressed hand back a Condition and take no block. A block here means a
-    # dropped `.then` — the block would attach to held/pressed and be silently
-    # ignored — so name the fix instead of losing the code.
-    def reject_block!(verb, button)
-      raise ArgumentError,
-            "#{verb}(:#{button}) has no block form — write #{verb}(:#{button}).then { ... } " \
-            "(or the block-taking if_#{verb} :#{button} do ... end)"
     end
 
     # Look up a variable's IWRAM address, raising if not declared.
