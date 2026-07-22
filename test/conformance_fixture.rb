@@ -15,9 +15,9 @@ require_relative "../lib/ruby_gba"
 # The lone exception is `raw` — pre-assembled native bytes, which the portable
 # interpreter legitimately can't run (there's no ARM CPU behind it). It lives in
 # an UNCALLED func here: present in the tree (so the GBA backend lowers it and
-# coverage sees it), but never reached during interpretation. Formal
-# portable-vs-hardware-only tagging is gba-4l2; until then HARDWARE_ONLY_KINDS
-# encodes the one exemption.
+# coverage sees it), but never reached during interpretation. Which kinds are
+# exempt comes straight from the portability tags (Portability::TIER), the single
+# source of truth — not a list hardcoded here.
 module ConformanceFixture
   B = RubyGBA::IR::Build
 
@@ -26,9 +26,9 @@ module ConformanceFixture
   # each backend's binop dispatch by the coverage test.
   OPERATORS = %i[+ - * / == != < > <= >= and or].freeze
 
-  # Node kinds a portable backend may legitimately not implement (see the module
-  # note). Everything else must run on every backend.
-  HARDWARE_ONLY_KINDS = %i[raw].freeze
+  # Node kinds a portable backend may legitimately not implement — the kinds tagged
+  # hardware-only, read from the portability classification rather than restated.
+  HARDWARE_ONLY_KINDS = RubyGBA::IR::Portability.hardware_only_kinds.freeze
 
   # Build the fixture fresh each call (nodes carry parent links, so callers get
   # their own tree). Structured so the interpreter, running top to bottom, reaches

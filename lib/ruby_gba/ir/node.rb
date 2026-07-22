@@ -61,7 +61,7 @@ module RubyGBA
 
         # a raw escape hatch: pre-assembled target bytes appended verbatim. The
         # one node that isn't portable — only a native backend can place it, and
-        # the interpreter refuses it. (Proper portability tagging is its own work.)
+        # the interpreter refuses it (tagged hardware-only in IR::Portability).
         raw: :control,
 
         # embedded asset data: a named, format-agnostic blob of bytes stored in
