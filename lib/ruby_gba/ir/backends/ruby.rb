@@ -131,6 +131,18 @@ module RubyGBA
 
         def exec(node)
           tick!
+          # The interpreter is a portable-only backend: it faithfully models every
+          # target-neutral op but refuses a hardware-only one (opaque native bytes it
+          # can't run) rather than skipping it — a silent skip would make the oracle's
+          # screen diverge from the console's. Which kinds are hardware-only comes from
+          # IR::Portability, so a kind newly tagged there is refused here automatically,
+          # with no new branch to add.
+          if Portability.hardware_only?(node.kind)
+            raise ProgramError,
+                  "the Ruby backend can't run #{node.kind.inspect} — it's a hardware-only op the " \
+                  "interpreter can't model; keep it out of code you run headlessly"
+          end
+
           case node.kind
           when :program
             node.children.each { |child| exec(child) }
@@ -234,10 +246,6 @@ module RubyGBA
             exec_play_song(node[:name])
           when :stop_music
             @audio << [:stop_music]
-          when :raw
-            raise ProgramError,
-                  "raw is a GBA-only escape hatch — the interpreter can't run " \
-                  "machine bytes, so avoid `entry` in code you want to run headlessly"
           else
             raise ProgramError,
                   "the Ruby backend cannot execute #{node.kind.inspect} " \
