@@ -30,15 +30,6 @@ module ConformanceFixture
   # note). Everything else must run on every backend.
   HARDWARE_ONLY_KINDS = %i[raw].freeze
 
-  # Kinds that exist in the IR and run on the interpreter, but whose GBA lowering
-  # is still in progress. They're kept OUT of the executed fixture below — the GBA
-  # backend would hit its "cannot lower ... yet" branch and fail the lowering
-  # guard — and the coverage guard excuses them meanwhile. This is temporary
-  # scaffolding: as each kind's lowering lands, move it into the fixture and drop
-  # it from here, so the cross-backend gap can't be forgotten. (Contrast
-  # HARDWARE_ONLY_KINDS, which is a *permanent* portability exemption.)
-  PENDING_KINDS = %i[list_new list_push list_drop list_set list_get list_len].freeze
-
   # Build the fixture fresh each call (nodes carry parent links, so callers get
   # their own tree). Structured so the interpreter, running top to bottom, reaches
   # every portable feature before halting.
@@ -87,6 +78,16 @@ module ConformanceFixture
       B.beep(:blip),
       B.play_song(:tune),
       B.stop_music,
+
+      # --- a list: create, push (constant and computed), overwrite, read, drop ---
+      B.list_new(:trail, 4),
+      B.list_push(:trail, 7),
+      B.list_push(:trail, B.var_ref(:x)), # push a computed value
+      B.list_set(:trail, 0, 9),           # overwrite slot 0
+      B.set(:acc, B.list_get(:trail, 0)), # read it back (9)
+      B.set(:acc, B.list_len(:trail)),    # length (2)
+      B.list_drop(:trail, from: :back),   # pop -> length 1
+      B.list_drop(:trail, from: :front),  # shift -> length 0
 
       # --- control flow: if+else, call, case, repeat ---
       if_else,
