@@ -4,6 +4,7 @@
 # the flat DSL surface (every verb a top-level method) while letting each area live
 # in its own file. New concerns get required here and included in the class body.
 require_relative "builder/randomness"
+require_relative "builder/sound"
 
 module RubyGBA
   # DSL context for building a GBA ROM.
@@ -29,8 +30,8 @@ module RubyGBA
   class Builder
     include Constants
 
-    # DSL verb groups, each in lib/ruby_gba/builder/. seed/roll/rand/chance.
-    include Randomness
+    include Randomness # seed, randomize, roll, rand, chance
+    include Sound      # enable_sound, define_sound, beep
 
     # Friendly display mode presets — the names {#display} accepts.
     DISPLAY_MODES = {
@@ -619,52 +620,6 @@ module RubyGBA
       record(Build.draw_rect_at(Value.node_for(x_pos), Value.node_for(y_pos), w, h, c))
       ensure_var(x_pos) if x_pos.is_a?(Symbol)
       ensure_var(y_pos) if y_pos.is_a?(Symbol)
-    end
-
-    # --- Sound ---
-
-    # Enable the GBA sound hardware. Call once at the top of your build block.
-    # Without this, all beep calls are silent.
-    def enable_sound
-      raise ArgumentError, "enable_sound already called — only call it once" if @sound_enabled
-
-      @sound_enabled = true
-      record(Build.enable_sound)
-    end
-
-    # Define a named sound preset for use with beep.
-    #
-    # @param name [Symbol] preset name
-    # @param frequency [Integer] tone frequency in Hz (64-2048 useful range)
-    # @param duty [Symbol] wave shape (:eighth, :quarter, :half, :three_quarter)
-    # @param decay [Symbol] fade speed (:fast, :medium, :slow, :none)
-    # @param volume [Integer] initial volume (0-15)
-    #
-    # @example
-    #   define_sound :paddle_hit, frequency: 880, duty: :quarter, decay: :fast
-    #   define_sound :wall_bounce, frequency: 440
-    def define_sound(name, frequency:, duty: :half, decay: :fast, volume: 15)
-      record(Build.define_sound(name, frequency: frequency, duty: duty, decay: decay, volume: volume))
-    end
-
-    # Trigger a beep on sound channel 2 (square wave, no sweep).
-    #
-    # @param tone [Symbol, Integer] a preset name or frequency in Hz
-    # @param duty [Symbol] wave shape (default: :half)
-    # @param decay [Symbol] fade speed (default: :fast)
-    # @param volume [Integer] initial volume 0-15 (default: 15)
-    #
-    # @example Preset
-    #   beep :high
-    #   beep :paddle_hit     # custom preset from define_sound
-    #
-    # @example Frequency
-    #   beep 880
-    #   beep 440, duty: :quarter, decay: :slow
-    def beep(tone, duty: nil, decay: nil, volume: nil)
-      raise ArgumentError, "call enable_sound before beep" unless @sound_enabled
-
-      record(Build.beep(tone, duty: duty, decay: decay, volume: volume))
     end
 
     # --- Music ---
