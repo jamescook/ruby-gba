@@ -68,6 +68,12 @@ module RubyGBA
       # corrected program into the checks that follow — and downgrades that
       # finding from an error to a warning. With autofix off, problems are left
       # as errors and the tree is returned untouched.
+      #
+      # A check is just something with #detect(program) -> findings. Most inspect
+      # the tree; a stateful one may ignore it and report from data it was built
+      # with (the orphaned-Condition check does this — its data is the builder's
+      # leftover Conditions, not the tree). Either way the pass treats them alike;
+      # pass your own list via +checks:+ to run a different set.
       class Validator
         def initialize(checks: BUILTIN_CHECKS)
           @checks = checks
@@ -97,6 +103,7 @@ require_relative "guardrails/display_mode_set"
 require_relative "guardrails/vblank_sync"
 require_relative "guardrails/termination"
 require_relative "guardrails/off_screen_draw"
+require_relative "guardrails/orphaned_condition"
 
 module RubyGBA
   module IR
