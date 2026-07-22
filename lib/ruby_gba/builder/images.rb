@@ -68,8 +68,8 @@ module RubyGBA
       #   blit :friend, :ball_x, :ball_y
       def blit(name, x, y)
         record(Build.blit(name, Value.node_for(x), Value.node_for(y)))
-        ensure_var(x) if x.is_a?(Symbol)
-        ensure_var(y) if y.is_a?(Symbol)
+        ensure_var(x)
+        ensure_var(y)
       end
 
       # Pack 5-bit RGB channels (0-31 each) into a 15-bit GBA color.

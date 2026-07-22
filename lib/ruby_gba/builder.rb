@@ -220,8 +220,13 @@ module RubyGBA
     end
 
     # Allocate a variable on first mention, tracking its name and address for
-    # introspection (var_address / variables).
+    # introspection (var_address / variables). Only a Symbol names a variable, so
+    # any other operand — a literal, an expression — is ignored: callers can pass a
+    # value operand straight through without guarding, and a non-name never
+    # allocates a phantom entry. (Operand types are already validated upstream at
+    # the Value.node_for coercion boundary, so ensure_var needn't gate them.)
     def ensure_var(name)
+      return unless name.is_a?(Symbol)
       return if @variables.key?(name)
 
       addr = @next_var_addr
