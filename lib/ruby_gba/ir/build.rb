@@ -244,6 +244,56 @@ module RubyGBA
         Node.new(:blit, name: name, x: wrap(x), y: wrap(y))
       end
 
+      # --- lists (a bounded, ordered collection) ---
+      #
+      # A named collection whose length changes as the program runs — a snake's
+      # body, a queue of shots. Push onto it, drop from either end, index into it,
+      # ask its length. `capacity` is the most it can ever hold; it's rounded up to
+      # a power of two (see #round_up_capacity) so a backend can wrap an index with
+      # a cheap mask, and every backend enforces that same rounded ceiling so they
+      # agree on when it overflows.
+
+      # Create a named list that can hold up to `capacity` items. The stored
+      # capacity is the rounded value.
+      def list_new(name, capacity)
+        unless capacity.is_a?(Integer) && capacity.positive?
+          raise ArgumentError,
+                "a list's capacity must be a positive whole number, got #{capacity.inspect}"
+        end
+        Node.new(:list_new, name: name, capacity: round_up_capacity(capacity))
+      end
+
+      # Append a value at the end of the list (grows its length by one).
+      def list_push(name, value)
+        Node.new(:list_push, name: name, value: wrap(value))
+      end
+
+      # Remove one item from an end of the list: `from: :front` (a shift, dropping
+      # the oldest) or `from: :back` (a pop, dropping the newest).
+      def list_drop(name, from:)
+        unless %i[front back].include?(from)
+          raise ArgumentError, "a list drop is from: :front or :back, got #{from.inspect}"
+        end
+        Node.new(:list_drop, name: name, from: from)
+      end
+
+      # Overwrite the item at `index` with a new value (the slot must already hold
+      # one). `index` is a value operand.
+      def list_set(name, index, value)
+        Node.new(:list_set, name: name, index: wrap(index), value: wrap(value))
+      end
+
+      # Read the item at `index` — a value, so it can drive an operand or a
+      # coordinate. `index` is itself a value operand.
+      def list_get(name, index)
+        Node.new(:list_get, name: name, index: wrap(index))
+      end
+
+      # How many items the list holds right now — a value.
+      def list_len(name)
+        Node.new(:list_len, name: name)
+      end
+
       # --- expression values (the AST an assignment or condition is built from) ---
 
       def int(number)
@@ -293,6 +343,17 @@ module RubyGBA
                 "can't use #{operand.inspect} as a value — expected a number, a " \
                 "variable name (a Symbol), or a value expression"
         end
+      end
+
+      # Round a list's capacity up to the next power of two (4 stays 4, 5 becomes
+      # 8, 100 becomes 128). A power-of-two size lets a backend wrap an index with
+      # a single bitwise mask instead of a division, and fixing the rule here — not
+      # in any one backend — is what keeps every backend enforcing the *same*
+      # ceiling, so they agree on exactly when a list is full.
+      def round_up_capacity(requested)
+        return 1 if requested <= 1
+
+        1 << (requested - 1).bit_length
       end
     end
   end

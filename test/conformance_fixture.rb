@@ -30,6 +30,15 @@ module ConformanceFixture
   # note). Everything else must run on every backend.
   HARDWARE_ONLY_KINDS = %i[raw].freeze
 
+  # Kinds that exist in the IR and run on the interpreter, but whose GBA lowering
+  # is still in progress. They're kept OUT of the executed fixture below — the GBA
+  # backend would hit its "cannot lower ... yet" branch and fail the lowering
+  # guard — and the coverage guard excuses them meanwhile. This is temporary
+  # scaffolding: as each kind's lowering lands, move it into the fixture and drop
+  # it from here, so the cross-backend gap can't be forgotten. (Contrast
+  # HARDWARE_ONLY_KINDS, which is a *permanent* portability exemption.)
+  PENDING_KINDS = %i[list_new list_push list_drop list_set list_get list_len].freeze
+
   # Build the fixture fresh each call (nodes carry parent links, so callers get
   # their own tree). Structured so the interpreter, running top to bottom, reaches
   # every portable feature before halting.
