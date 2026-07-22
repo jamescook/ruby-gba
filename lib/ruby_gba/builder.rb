@@ -46,8 +46,10 @@ module RubyGBA
       @sound_enabled = false
       @debug_halted = false
       @repeat_seq = 0          # counts repeat loops, to name each one's hidden index var
+      @timer_seq = 0           # counts every/after timers, to name each one's hidden counter var
       @rng_seq = 0             # counts anonymous random draws, to name each one's hidden var
       @prng_used = false       # whether the program draws random numbers (seeds the stream once)
+      @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
       @pending_conditions = [] # Conditions built but not yet used; leftovers are orphans
 
       # The program the DSL builds: an IR tree of nodes that {RubyGBA.build}
@@ -318,6 +320,61 @@ module RubyGBA
       end
     end
 
+    # The console refreshes the screen ~59.73 times a second; like every game, we
+    # count that as a round 60 frames per second. It's what lets a timer be given
+    # in seconds — the unit a person actually thinks in — and turned into frames.
+    FRAMES_PER_SECOND = 60
+
+    # Run the block on a repeating beat — a blinking prompt, a spawn wave, a
+    # repeating sound. Like {#repeat}, the counter behind it is hidden and managed
+    # for you, so there's nothing to declare or reset. Call it once inside your game
+    # loop, where each pass through the loop is one frame.
+    #
+    # The interval is +n+ frames, or +n+ seconds when you'd rather think in time —
+    # the framework converts seconds to frames for you:
+    #
+    #   every(30) { blink.set 1 }              # every 30 frames
+    #   every(0.5, :seconds) { blink.set 1 }   # the same, said in seconds
+    #
+    # @param n [Integer, Numeric] the interval (frames must be whole; seconds may be fractional)
+    # @param unit [Symbol] :frames (default) or :seconds
+    def every(n, unit = :frames, &block)
+      counter = timer_counter!(:every, n, unit, block)
+      frames = to_frames(n, unit)
+      record(Build.add(counter, 1))
+      reached = Build.binop(:>=, Build.var_ref(counter), Build.int(frames))
+      push_container(Build.if_(reached)) do
+        record(Build.set(counter, Build.int(0))) # start the next interval over
+        instance_eval(&block)
+      end
+    end
+
+    # Run the block once, +n+ frames (or seconds) from now, then never again — a
+    # one-shot delay: an attract-mode timeout, a "GO!" that clears itself, a
+    # scripted beat. The hidden counter stops once it reaches the target, so the
+    # block fires exactly once. Call it inside your game loop, where each pass is
+    # one frame.
+    #
+    #   after(600) { state.set 1 }             # 600 frames in
+    #   after(10, :seconds) { state.set 1 }    # the same, said in seconds
+    #
+    # @param n [Integer, Numeric] the delay (frames must be whole; seconds may be fractional)
+    # @param unit [Symbol] :frames (default) or :seconds
+    def after(n, unit = :frames, &block)
+      counter = timer_counter!(:after, n, unit, block)
+      frames = to_frames(n, unit)
+      # Count up only until the counter reaches the target — so it never overflows
+      # or fires twice — and run the block on the one frame it lands exactly on it.
+      not_yet = Build.binop(:<, Build.var_ref(counter), Build.int(frames))
+      push_container(Build.if_(not_yet)) do
+        record(Build.add(counter, 1))
+        reached = Build.binop(:==, Build.var_ref(counter), Build.int(frames))
+        push_container(Build.if_(reached)) do
+          instance_eval(&block)
+        end
+      end
+    end
+
     # --- Subroutines ---
 
     # Define a named subroutine. The block is stored and evaluated after the main
@@ -366,6 +423,7 @@ module RubyGBA
 
       verify_targets_defined!
       initialize_rng_stream
+      emit_boot_inits
     end
 
     # --- State Machine / Scenes ---
@@ -977,16 +1035,63 @@ module RubyGBA
       number.between?(IR::Int32::MIN, IR::Int32::MAX)
     end
 
-    # If the program draws random numbers, plant a fixed seed as the very first
-    # thing it does, so an unseeded game is reproducible and every backend (and the
-    # real console, whose RAM isn't zero at boot) starts the stream from the same
-    # place. An explicit `seed` later just overwrites it.
+    # If the program draws random numbers, plant a fixed seed at boot, so an
+    # unseeded game is reproducible and every backend (and the real console, whose
+    # RAM isn't zero at boot) starts the stream from the same place. An explicit
+    # `seed` later just overwrites it.
     def initialize_rng_stream
-      return unless @prng_used
+      at_boot(Build.set(RNG_STATE, Build.int(DEFAULT_SEED))) if @prng_used
+    end
 
-      boot_seed = Build.set(RNG_STATE, Build.int(DEFAULT_SEED))
-      @program.children.unshift(boot_seed)
-      boot_seed.parent = @program
+    # --- Timers (every / after) ---
+
+    # Validate a timer's interval, unit, and block, then allocate the hidden frame
+    # counter it counts on. The counter is cleared at boot (console RAM isn't
+    # reliably zero at power-on) so the first interval measures from frame zero.
+    def timer_counter!(verb, n, unit, block)
+      raise ArgumentError, "#{verb} needs a block: #{verb}(n) { ... }" unless block
+      unless %i[frames seconds].include?(unit)
+        raise ArgumentError, "#{verb}'s unit is :frames or :seconds, got #{unit.inspect}"
+      end
+      # Frames are whole; seconds may be fractional (half a second is fine), but
+      # either way the interval must come out to at least one frame.
+      valid = unit == :frames ? n.is_a?(Integer) : n.is_a?(Numeric)
+      unless valid && n.positive? && to_frames(n, unit).positive?
+        raise ArgumentError, "#{verb} needs a positive number of #{unit}, got #{n.inspect}"
+      end
+
+      @timer_seq += 1
+      counter = :"__timer_#{@timer_seq}"
+      ensure_var(counter)
+      at_boot(Build.set(counter, Build.int(0)))
+      counter
+    end
+
+    # A timer interval in whole frames. Frames pass through; seconds convert at the
+    # console's frame rate and round to the nearest whole frame.
+    def to_frames(n, unit)
+      unit == :seconds ? (n * FRAMES_PER_SECOND).round : n
+    end
+
+    # --- Boot-time initialization ---
+
+    # Register a statement to run once at program start, before anything else. It's
+    # for hidden state that must begin from a known value because console RAM isn't
+    # zero at power-on — the random seed, a timer's frame counter. #emit_boot_inits
+    # hoists these to the very front at finalize, so they can be recorded from deep
+    # inside a loop or scene yet still run once, up front.
+    def at_boot(node)
+      @boot_inits << node
+    end
+
+    # Hoist every registered boot statement to the front of the program, keeping
+    # the order they were registered in, so all hidden state is set before the
+    # game starts.
+    def emit_boot_inits
+      @boot_inits.reverse_each do |node|
+        @program.children.unshift(node)
+        node.parent = @program
+      end
     end
 
     # Accept a known button name (from the shared IR vocabulary); raise a plain
