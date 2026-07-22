@@ -1,0 +1,113 @@
+# frozen_string_literal: true
+
+module RubyGBA
+  class Builder
+    # The bitmap drawing verbs: pick a display mode, then put color on the screen —
+    # single pixels, filled rectangles (fixed or run-time positioned), a whole-screen
+    # clear. A concern of {Builder}, mixed in so these stay flat DSL verbs.
+    #
+    # It includes Constants for the hardware register values behind the friendly
+    # names — the MODE_*/BG*_ENABLE bits in DISPLAY_MODES and the SCREEN_* bounds in
+    # validate_coords! (a concern doesn't inherit Builder's own Constants include).
+    module Drawing
+      include Constants
+
+      # Friendly display mode presets — the names {#display} accepts.
+      DISPLAY_MODES = {
+        bitmap:       MODE_3 | BG2_ENABLE,       # 240x160, 15-bit direct color
+        bitmap_indexed: MODE_4 | BG2_ENABLE,     # 240x160, 8-bit indexed, double buffered
+        bitmap_small: MODE_5 | BG2_ENABLE,       # 160x128, 15-bit, double buffered
+        tiled:        MODE_0 | BG0_ENABLE,       # 4 regular BG layers (most games)
+        affine:       MODE_2 | BG2_ENABLE,       # 2 rotatable BG layers
+      }.freeze
+
+      # Set the display mode.
+      #
+      # @param mode [Symbol, Integer] a friendly name or raw REG_DISPCNT value
+      #
+      # @example Friendly
+      #   display :bitmap          # MODE_3 | BG2_ENABLE
+      #   display :tiled           # MODE_0 | BG0_ENABLE
+      #
+      # @example Raw (full control)
+      #   display MODE_3 | BG2_ENABLE | OBJ_ENABLE
+      def display(mode)
+        case mode
+        when Symbol
+          unless DISPLAY_MODES.key?(mode)
+            raise ArgumentError, "unknown display mode: #{mode}. Known: #{DISPLAY_MODES.keys.join(', ')}"
+          end
+        when Integer
+          # a raw REG_DISPCNT value — passed through untouched
+        else
+          raise ArgumentError, "expected Symbol or Integer, got #{mode.class}"
+        end
+
+        record(Build.display(mode))
+      end
+
+      # Draw a single pixel in bitmap mode (MODE_3).
+      # Writes a 15-bit color to VRAM at the (x, y) offset.
+      #
+      # @param x [Integer] horizontal position (0-239)
+      # @param y [Integer] vertical position (0-159)
+      # @param c [Symbol, String, Integer] color (see {Color.resolve})
+      def pixel(x, y, c)
+        validate_coords!(x, y)
+        record(Build.pixel(x, y, c))
+      end
+
+      # Fill a rectangle in bitmap mode (MODE_3).
+      #
+      # @param x [Integer] left edge (0-239)
+      # @param y [Integer] top edge (0-159)
+      # @param w [Integer] width in pixels
+      # @param h [Integer] height in pixels
+      # @param c [Symbol, String, Integer] fill color
+      def fill_rect(x, y, w, h, c)
+        record(Build.fill_rect(x, y, w, h, c))
+      end
+
+      # Clear the entire screen to a solid color.
+      # Much faster than pixel-by-pixel: one DMA transfer fills all of VRAM.
+      #
+      # @param c [Symbol, String, Integer] fill color
+      def clear_screen(c)
+        record(Build.clear_screen(c))
+      end
+
+      # Fill a rectangle at a fixed position and size.
+      #
+      # @param x [Integer] left edge
+      # @param y [Integer] top edge
+      # @param w [Integer] width in pixels (must be even for the fast fill)
+      # @param h [Integer] height in pixels
+      # @param c [Symbol, String, Integer] fill color
+      def dma_fill_rect(x, y, w, h, c)
+        record(Build.dma_fill_rect(x, y, w, h, c))
+      end
+
+      # Draw a filled rectangle at a position determined at run time.
+      # Positions can be variables (Symbol) or constants (Integer); the size is a
+      # build-time constant and the width must be even (for the fast fill).
+      #
+      # @param x_pos [Symbol, Integer] x position (variable or constant)
+      # @param y_pos [Symbol, Integer] y position (variable or constant)
+      # @param w [Integer] width in pixels (must be even, build-time constant)
+      # @param h [Integer] height in pixels (build-time constant)
+      # @param c [Symbol, String, Integer] fill color
+      def draw_rect_at(x_pos, y_pos, w, h, c)
+        record(Build.draw_rect_at(Value.node_for(x_pos), Value.node_for(y_pos), w, h, c))
+        ensure_var(x_pos) if x_pos.is_a?(Symbol)
+        ensure_var(y_pos) if y_pos.is_a?(Symbol)
+      end
+
+      private
+
+      def validate_coords!(x, y)
+        raise ArgumentError, "x=#{x} out of range (0-#{SCREEN_WIDTH - 1})" unless (0...SCREEN_WIDTH).cover?(x)
+        raise ArgumentError, "y=#{y} out of range (0-#{SCREEN_HEIGHT - 1})" unless (0...SCREEN_HEIGHT).cover?(y)
+      end
+    end
+  end
+end
