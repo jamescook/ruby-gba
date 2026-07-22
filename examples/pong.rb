@@ -208,6 +208,10 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
     draw_rect_at RIGHT_X, :cpu_y, PADDLE_W, PADDLE_H, :white
     draw_rect_at :ball_x, :ball_y, BALL_SIZE, BALL_SIZE, :white
 
+    # Live score, one digit each side of the center line (first to WIN_SCORE).
+    draw_number player_score, 100, 8, :white, digits: 1
+    draw_number cpu_score, 134, 8, :white, digits: 1
+
     # Background music
     play_song :gameplay
   end
