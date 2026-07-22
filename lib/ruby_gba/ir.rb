@@ -6,6 +6,7 @@ require_relative "ir/screen"
 require_relative "ir/node"
 require_relative "ir/build"
 require_relative "ir/verifier"
+require_relative "ir/portability"
 require_relative "ir/backends"
 require_relative "ir/guardrails"
 
