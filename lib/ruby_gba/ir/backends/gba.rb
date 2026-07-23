@@ -66,6 +66,15 @@ module RubyGBA
         DISPCNT_STATE = :__dispcnt
         BACKBUF = :__backbuf
 
+        # When scenes use different display modes, the framework switches the
+        # hardware as each scene takes over. A hidden variable holds which mode is
+        # live, so a scene only touches the display registers when the mode actually
+        # changes (a transition), not every frame. Direct = single-buffered Mode 3,
+        # Buffered = double-buffered Mode 4.
+        MODE_STATE = :__mode
+        MODE_DIRECT = 0
+        MODE_BUFFERED = 1
+
         # This backend's mapping of the shared button vocabulary (IR::Buttons) to
         # hardware: each name → its bit in the key register. The key register is
         # active-low, so a 0 bit means the button is down.
@@ -115,8 +124,12 @@ module RubyGBA
           @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)
           @label_seq = 0
           @uses_pressed = false  # whether the program reads edge-detected input
-          @buffered = false      # whether the display is double-buffered (Mode 4)
-          @palette = nil         # the color table, built once when buffered
+          @palette = nil         # the color table, built once when any scene is buffered
+          @any_buffered = false  # does any scene use double buffering?
+          @default_mode = :direct # the boot display mode (from the top-level `display`)
+          @func_mode = {}        # func name -> :direct | :buffered (resolved from the call graph)
+          @scene_funcs = []      # funcs entered per frame, which switch the mode on entry
+          @lower_mode = :direct  # the mode draws currently lower in (set per func)
         end
 
         # Lower a program to finished GBA machine code: run the emit pass and
@@ -126,15 +139,81 @@ module RubyGBA
         # out.
         def lower(program)
           collect_definitions(program)
-          @buffered = program.walk.any? { |node| node.kind == :display && node[:buffered] }
-          prepare_palette(program) if @buffered
+          resolve_modes(program)
+          prepare_palette(program) if @any_buffered
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
           emit_input_init if @uses_pressed
+          emit_boot_display if @any_buffered # set the boot mode + upload the palette once
+          @lower_mode = @default_mode
           program.children.each { |stmt| emit_statement(stmt) }
           emit_functions
           emit_data_region
           resolve_fixups
           @code
+        end
+
+        # Work out which display mode each scene draws in. A program that never uses
+        # double buffering is left entirely alone (the direct-color path below is
+        # unchanged). When some scene IS buffered, each func's mode is resolved by
+        # following the call graph from the game's entry points: a scene runs in the
+        # mode it declares (a `display` at its top) or, with none, the mode it was
+        # reached in; and the funcs it calls inherit that mode. A drawing helper
+        # reached in two different modes can't be lowered both ways, so that's a
+        # friendly error rather than a silently-wrong screen.
+        def resolve_modes(program)
+          @default_mode = declared_mode(main_body(program)) || :direct
+          entry_targets(program).each { |target| resolve_func_mode(target, @default_mode, scene: true) }
+          @any_buffered = @default_mode == :buffered || @func_mode.value?(:buffered)
+        end
+
+        def resolve_func_mode(name, inherited, scene:)
+          func = @funcs[name] or return
+          mode = declared_mode(func.children) || inherited
+          @scene_funcs << name if scene && !@scene_funcs.include?(name)
+
+          if @func_mode.key?(name)
+            return if @func_mode[name] == mode
+
+            raise LoweringError,
+                  "the drawing routine :#{name.to_s.sub(/\A_scene_/, '')} is used from both a " \
+                  "direct-color scene and a double-buffered one — a drawing routine can't be shared " \
+                  "across display modes. Give each mode its own routine, or move the shared drawing inline."
+          end
+
+          @func_mode[name] = mode
+          call_targets(func).each { |target| resolve_func_mode(target, mode, scene: false) }
+        end
+
+        # The display mode a run of statements declares, via a `display` node among
+        # them (nil if none): buffered when the display opted into double buffering.
+        def declared_mode(statements)
+          statements.each do |node|
+            return node[:buffered] ? :buffered : :direct if node.kind == :display
+          end
+          nil
+        end
+
+        # The program's main body — everything except the func definitions appended
+        # to the tree (those are emitted separately).
+        def main_body(program)
+          program.children.reject { |node| node.kind == :func }
+        end
+
+        # The funcs the main body dispatches to each frame — case_var scenes and
+        # calls in the loop. These are the mode-switch entry points.
+        def entry_targets(program)
+          main_body(program).flat_map { |node| call_targets(node) }
+        end
+
+        # Every func a node (and its whole subtree, including else-branches) calls or
+        # dispatches to.
+        def call_targets(node)
+          targets = []
+          node.walk do |n|
+            targets << n[:target] if n.kind == :call
+            n[:clauses].each { |_value, target| targets << target } if n.kind == :case
+          end
+          targets
         end
 
         private
@@ -597,6 +676,10 @@ module RubyGBA
             start = pos
             place_label(func_label(name))
             emit(ASM.push(14))                          # push {lr}
+            # Draws in this func lower in its resolved mode; a scene (a per-frame
+            # entry point) also switches the hardware to that mode as it takes over.
+            @lower_mode = @func_mode.fetch(name, @default_mode)
+            emit_scene_preamble(name) if @any_buffered && @scene_funcs.include?(name)
             fnode.children.each { |stmt| emit_statement(stmt) }
             emit(ASM.pop(15))                           # pop {pc}  (return)
             @func_ranges[name] = (start...pos)          # byte span, for dump_func
@@ -622,8 +705,13 @@ module RubyGBA
 
         # Turn the screen on by writing the chosen mode to the display-control
         # register. Until this runs the screen stays black.
+        #
+        # In a program that uses double buffering, the display mode is managed for
+        # the whole program by the boot setup and each scene's mode-switch preamble,
+        # so a `display` node is only a build-time declaration of a scene's mode and
+        # emits nothing here. Otherwise it's the plain one-time register write.
         def emit_display(node)
-          return emit_display_buffered if node[:buffered]
+          return if @any_buffered
 
           mode = node[:mode]
           value = mode.is_a?(Integer) ? mode : DISPLAY_MODES.fetch(mode) do
@@ -632,16 +720,48 @@ module RubyGBA
           write_reg16(REG_DISPCNT, value)
         end
 
-        # Turn on the double-buffered (Mode 4) screen and upload the color table.
-        # Start by showing page 0 and drawing into page 1; a later flip swaps them.
-        # The live DISPCNT value and the draw-into page are kept in hidden variables
-        # so a flip is a cheap toggle-and-swap.
-        def emit_display_buffered
-          base = MODE_4 | BG2_ENABLE
-          store_word_immediate(base, var_addr(DISPCNT_STATE)) # remember the live DISPCNT
-          store_word_immediate(PAGE1, var_addr(BACKBUF))      # draw into page 1 first
-          write_reg16(REG_DISPCNT, base)                      # show page 0
+        # One-time boot for a program that uses double buffering: upload the color
+        # table (palette memory keeps it across mode switches) and put the hardware
+        # in the default scene's mode. Buffered starts by showing page 0 and drawing
+        # into page 1; direct is the plain Mode 3 write.
+        def emit_boot_display
           upload_palette
+          if @default_mode == :buffered
+            enter_buffered_mode
+          else
+            enter_direct_mode
+          end
+        end
+
+        # Switch the hardware into double-buffered (Mode 4): remember the live DISPCNT
+        # so a flip is a cheap bit-toggle, draw into page 1 first, show page 0, and
+        # record that buffered is now the live mode.
+        def enter_buffered_mode
+          base = MODE_4 | BG2_ENABLE
+          store_word_immediate(base, var_addr(DISPCNT_STATE))
+          store_word_immediate(PAGE1, var_addr(BACKBUF))
+          write_reg16(REG_DISPCNT, base)
+          store_word_immediate(MODE_BUFFERED, var_addr(MODE_STATE))
+        end
+
+        # Switch the hardware into direct-color (Mode 3) and record it as live.
+        def enter_direct_mode
+          write_reg16(REG_DISPCNT, MODE_3 | BG2_ENABLE)
+          store_word_immediate(MODE_DIRECT, var_addr(MODE_STATE))
+        end
+
+        # Emitted at the top of each scene when a program mixes modes: switch the
+        # hardware into this scene's mode, but only if it isn't already there (a
+        # transition). Steady frames — the same scene running again — cost just the
+        # compare, and a buffered scene's DISPCNT is left to the page flip.
+        def emit_scene_preamble(name)
+          want = @func_mode[name] == :buffered ? MODE_BUFFERED : MODE_DIRECT
+          load_var(ACC, MODE_STATE)
+          emit(ASM.cmp_imm(ACC, want))
+          skip = gensym
+          emit_branch(:bcond, skip, cond: :eq) # already in this mode? nothing to do
+          @func_mode[name] == :buffered ? enter_buffered_mode : enter_direct_mode
+          place_label(skip)
         end
 
         # Copy the color table from the cartridge into background palette memory —
@@ -652,6 +772,18 @@ module RubyGBA
           emit(ASM.str(ACC, TMP))                       # DMA source = the table
           store_word_immediate(BG_PALETTE, REG_DMA3DAD) # DMA destination = palette memory
           store_word_immediate(@palette.size | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
+        end
+
+        # At the vblank boundary, flip the pages — but only while a buffered scene is
+        # live (a direct scene draws straight to the screen and has nothing to flip).
+        # The runtime check costs a compare; the mode rarely changes.
+        def emit_flip_if_buffered
+          load_var(ACC, MODE_STATE)
+          emit(ASM.cmp_imm(ACC, MODE_BUFFERED))
+          skip = gensym
+          emit_branch(:bcond, skip, cond: :ne)
+          emit_flip
+          place_label(skip)
         end
 
         # Present the page just drawn and start drawing the other one — the page
@@ -677,7 +809,7 @@ module RubyGBA
         # so it's a single store. With a computed coordinate (e.g. a variable) the
         # address is built at run time from the evaluated x/y.
         def emit_pixel(node)
-          return emit_pixel_buffered(node) if @buffered
+          return emit_pixel_buffered(node) if @lower_mode == :buffered
 
           color = Color.resolve(node[:color])
           xi = const_int(node[:x])
@@ -706,7 +838,7 @@ module RubyGBA
         # Fill a rectangle of constant size. Load the color once, then write each
         # on-screen pixel (off-screen pixels are clipped).
         def emit_fill_rect(node)
-          return emit_fill_rect_buffered(node) if @buffered
+          return emit_fill_rect_buffered(node) if @lower_mode == :buffered
 
           x, y, w, h = constant_ints!(node, :x, :y, :w, :h)
           color = Color.resolve(node[:color])
@@ -728,7 +860,7 @@ module RubyGBA
         # Clear the whole screen with one DMA transfer: repeat a packed two-pixel
         # word across VRAM. The DMA engine copies far faster than a pixel loop.
         def emit_clear_screen(node)
-          return emit_clear_screen_buffered(node) if @buffered
+          return emit_clear_screen_buffered(node) if @lower_mode == :buffered
 
           color = Color.resolve(node[:color])
           word = (color << 16) | color
@@ -745,7 +877,7 @@ module RubyGBA
         # each row is one block transfer of a repeated two-pixel word. Rows off the
         # top/bottom of the screen are skipped.
         def emit_dma_fill_rect(node)
-          return emit_fill_rect_buffered(node) if @buffered
+          return emit_fill_rect_buffered(node) if @lower_mode == :buffered
 
           x, y, w, h = constant_ints!(node, :x, :y, :w, :h)
           even_width!(w, :dma_fill_rect)
@@ -768,7 +900,7 @@ module RubyGBA
         # r4/r5 are address scratch. (No run-time bounds clip yet — the caller is
         # expected to keep it on-screen, as pong does by clamping.)
         def emit_draw_rect_at(node)
-          return emit_draw_rect_at_buffered(node) if @buffered
+          return emit_draw_rect_at_buffered(node) if @lower_mode == :buffered
 
           w, h = constant_ints!(node, :w, :h)
           even_width!(w, :draw_rect_at)
@@ -809,7 +941,7 @@ module RubyGBA
         # screen at run time — a bitmap pushed partway off an edge draws only its
         # visible part, with nothing written past the framebuffer.
         def emit_blit(node)
-          blit_unsupported_in_buffered! if @buffered
+          blit_unsupported_in_buffered! if @lower_mode == :buffered
           bmp = @bitmaps.fetch(node[:name]) do
             raise LoweringError, "blit of undefined image #{node[:name].inspect}"
           end
@@ -991,7 +1123,7 @@ module RubyGBA
         # then every set pixel of every glyph is a single halfword store at its
         # fixed VRAM address; off-screen pixels are dropped. Positions are constant.
         def emit_draw_text(node)
-          return emit_draw_text_buffered(node) if @buffered
+          return emit_draw_text_buffered(node) if @lower_mode == :buffered
 
           x, y = constant_ints!(node, :x, :y)
           emit(ASM.load_immediate(ACC, Color.resolve(node[:color])))
@@ -1352,9 +1484,10 @@ module RubyGBA
           # keys become "previous", and we latch this frame's keys as "current".
           snapshot_keys if @uses_pressed
 
-          # Double-buffered: this is the safe moment to swap pages, showing the frame
-          # just drawn and handing the program the other page to draw the next one.
-          emit_flip if @buffered
+          # This is the safe moment to swap pages when a buffered scene is live:
+          # show the frame just drawn and hand the program the other page. Which mode
+          # is live can change frame to frame, so the flip is decided at run time.
+          emit_flip_if_buffered if @any_buffered
         end
 
         # --- value expressions --------------------------------------------------
