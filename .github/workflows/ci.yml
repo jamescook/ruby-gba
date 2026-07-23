@@ -1,0 +1,69 @@
+name: CI
+
+# Manual only for now — deliberately NO auto-build on push or PR.
+# Run it from the Actions tab ("Run workflow") or: gh workflow run ci.yml
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (ruby ${{ matrix.ruby }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # gemspec allows >= 3.2; the lockfile is bundler 4.0.10 (Ruby 4.0-era),
+        # and gemba's own CI targets 4.0. Add more versions here for a matrix.
+        ruby: ['4.0']
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # gemba (~> 0.2) is a dev dependency that compiles native extensions:
+      #   gemba -> teek (Tcl/Tk bindings) + teek-sdl2 (SDL2) + an embedded mGBA core.
+      # `bundle install` (run by setup-ruby below) builds these, so their system
+      # libraries have to be present FIRST.
+      #
+      # NOTE: best-effort package list. The authoritative set lives in gemba's
+      # Dockerfile.ci-test — reconcile against it and trim/extend as the build
+      # tells you (a missing lib shows up as an extconf/mkmf failure here).
+      - name: Install gemba build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config cmake \
+            tcl-dev tk-dev \
+            libsdl2-dev \
+            libpng-dev zlib1g-dev libzip-dev \
+            xvfb
+
+      - name: Set up Ruby (+ bundle install, which compiles gemba)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true   # runs bundle install; caches gems keyed on Gemfile.lock
+
+      # gemba brings in Tcl/Tk (teek) and SDL2, which expect a display. CI is
+      # headless, so run under a virtual framebuffer and point SDL at its dummy
+      # drivers. Integration tests still skip gracefully if gemba can't load
+      # (see GembaSupport#skip_unless_gemba), so unit tests pass either way.
+      - name: Run tests
+        run: |
+          set -o pipefail
+          xvfb-run -a bundle exec rake test 2>&1 | tee test-output.log
+        env:
+          CI: '1'
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log-ruby${{ matrix.ruby }}
+          path: test-output.log
+          retention-days: 7
