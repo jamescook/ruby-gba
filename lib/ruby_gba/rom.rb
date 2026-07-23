@@ -97,18 +97,20 @@ module RubyGBA
     # window the console has to change the screen without tearing. Weights are
     # rough placeholders for now (see {IR::CostModel}).
     #
-    # +format+ is :human (the at-a-glance summary) or :json (the structured cost
-    # tree, for tools and tests to consume without parsing text).
-    def explain(format: :human, out: $stdout)
+    # +format+ selects the view: :human is the drill-down tree (accepts max_depth:,
+    # focus:, top: to scope it), :summary is the one-line verdict, and :json is the
+    # structured cost tree for tools and tests to consume without parsing text.
+    def explain(format: :human, out: $stdout, **opts)
       unless source_program
         raise ROMError, "this ROM has no source program to explain (assemble via RubyGBA.build)"
       end
 
       model = IR::CostModel.new
       case format
-      when :human then model.report(source_program, out: out)
-      when :json  then out.puts(JSON.generate(model.as_json(source_program)))
-      else raise ArgumentError, "unknown explain format #{format.inspect} (use :human or :json)"
+      when :human   then model.render(source_program, out: out, **opts)
+      when :summary then model.report(source_program, out: out)
+      when :json    then out.puts(JSON.generate(model.as_json(source_program)))
+      else raise ArgumentError, "unknown explain format #{format.inspect} (use :human, :summary, or :json)"
       end
     end
 
