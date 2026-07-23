@@ -608,9 +608,9 @@ module RubyGBA
         end
 
         # Multi-way dispatch lowers to one "if the variable equals this value, call
-        # that scene" per clause — reusing the ordinary if/compare/call path, so
-        # each comparison reloads the variable itself and no register survives a
-        # scene call (the old case_var r10-reload workaround isn't needed).
+        # that scene" per clause — reusing the ordinary if/compare/call path. Each
+        # comparison reloads the variable from memory itself, so a scene call is free
+        # to clobber every register without disturbing the dispatch.
         def emit_case(node)
           node[:clauses].each do |value, target|
             test = Build.binop(:==, Build.var_ref(node[:var]), Build.int(value))
@@ -1094,6 +1094,13 @@ module RubyGBA
           y_reg = 3
           eval_value(node[:x])
           emit(ASM.mov_reg(x_reg, ACC))
+          # The indexed screen is written two pixels at a time, so a fill must start
+          # on an even column. x is decided at run time, so we can't check it while
+          # building — instead snap it down to the nearest even column (clear its low
+          # bit). A stray odd x nudges the rectangle one pixel rather than writing a
+          # misaligned block that would corrupt the screen.
+          emit(ASM.lsr_imm(x_reg, x_reg, 1))
+          emit(ASM.lsl_imm(x_reg, x_reg, 1))
           eval_value(node[:y])
           emit(ASM.mov_reg(y_reg, ACC))
 
@@ -1151,15 +1158,15 @@ module RubyGBA
                 "is written two pixels at a time, so a fill must start on an even column."
         end
 
-        # The pixel-at-a-time verbs can't run on the indexed screen yet: a single
-        # index is one byte, and video memory rejects lone byte writes, so these need
-        # a read-modify-write path that isn't built. Say so plainly, with the way out.
+        # The pixel-at-a-time verbs can't run on the indexed screen: a single index
+        # is one byte, and video memory rejects lone byte writes. Say so plainly,
+        # and point at the fills that do work in buffered mode.
         def buffered_unsupported!(kind)
           raise LoweringError,
-                "#{kind} isn't available yet with double buffering (buffered: true). The buffered screen " \
-                "is written two pixels at a time, so drawing single pixels (#{kind}) needs extra work that " \
-                "isn't done yet. For now, use clear_screen and the rectangle fills (fill_rect, " \
-                "dma_fill_rect, draw_rect_at) in buffered mode, or drop `buffered:` for direct-color mode."
+                "#{kind} can't draw on the double-buffered screen (buffered: true). That screen is written " \
+                "two pixels at a time, so single-pixel drawing like #{kind} doesn't work on it. Use " \
+                "clear_screen and the rectangle fills (fill_rect, dma_fill_rect, draw_rect_at) in buffered " \
+                "mode, or drop `buffered:` to use the direct-color screen, where #{kind} works."
         end
 
         # --- audio ---------------------------------------------------------------
