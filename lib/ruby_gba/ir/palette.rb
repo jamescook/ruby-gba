@@ -72,31 +72,25 @@ module RubyGBA
       private
 
       def initialize(program)
-        # value(15-bit) => slot. Insertion order is slot order, and black goes in
-        # first so it lands at 0.
+        distinct = collect(program).uniq # first-seen order, deduped by resolved value
+        needed = (distinct + [BLACK]).uniq.size # one slot per color, plus reserved black
+        raise Overflow, overflow_message(distinct.size) if needed > CAPACITY
+
+        # value(15-bit) => slot. Black goes in first so it lands at 0; the rest take
+        # slots in first-seen order.
         @slots = { BLACK => 0 }
-        collect(program).each { |value| assign(value) }
+        distinct.each { |value| @slots[value] ||= @slots.size }
         @entries = @slots.keys # keys are inserted in slot order, so this is the table
-      end
-
-      # Give a color the next free slot, unless it already has one. Overflows past
-      # the table's capacity as a friendly build error.
-      def assign(value)
-        return if @slots.key?(value)
-
-        if @slots.size >= CAPACITY
-          raise Overflow, overflow_message(@slots.size + 1)
-        end
-
-        @slots[value] = @slots.size
       end
 
       # Every distinct color the program draws, in first-seen order. Two sources:
       # the draw verbs (which carry an unresolved color spec) and bitmap definitions
-      # (whose pixels are already packed 15-bit values).
+      # (whose pixels are already packed 15-bit values). Walks the WHOLE tree, not
+      # just statement children, so a color used only in an else-branch (held in an
+      # attr, not a child) still gets a slot.
       def collect(program)
         values = []
-        program.each do |node|
+        program.walk do |node|
           if node.kind == :bitmap
             collect_bitmap(node, values)
           elsif (spec = node[:color])
@@ -119,8 +113,8 @@ module RubyGBA
         end
       end
 
-      def overflow_message(needed)
-        "This program uses #{needed - 1} distinct colors, but the double-buffered display " \
+      def overflow_message(count)
+        "This program uses #{count} distinct colors, but the double-buffered display " \
           "shows at most #{CAPACITY} at once (one slot is reserved for a black background, " \
           "leaving #{CAPACITY - 1} for your colors). Reuse colors where you can, or switch to " \
           "the single-buffered display with `display :bitmap` (which allows thousands of colors)."

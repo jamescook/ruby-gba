@@ -31,7 +31,16 @@ module RubyGBA
       #
       # @example Raw (full control)
       #   display MODE_3 | BG2_ENABLE | OBJ_ENABLE
-      def display(mode)
+      #
+      # Pass +buffered: true+ to make `display :bitmap` tear-proof: the framework
+      # draws to a hidden screen and shows it all at once, so the picture can never
+      # tear no matter how much you draw. It costs some color range (a 256-color
+      # palette built automatically from the colors you use), so it's opt-in;
+      # plain `display :bitmap` stays direct-color.
+      #
+      # @example Tear-proof
+      #   display :bitmap, buffered: true
+      def display(mode, buffered: false)
         case mode
         when Symbol
           unless DISPLAY_MODES.key?(mode)
@@ -43,7 +52,13 @@ module RubyGBA
           raise ArgumentError, "expected Symbol or Integer, got #{mode.class}"
         end
 
-        record(Build.display(mode))
+        if buffered && mode != :bitmap
+          raise ArgumentError,
+                "buffered: true is only for `display :bitmap` — it turns on the tear-proof " \
+                "double-buffered screen; #{mode.inspect} doesn't support it"
+        end
+
+        record(Build.display(mode, buffered: buffered))
       end
 
       # Draw a single pixel in bitmap mode (MODE_3).
