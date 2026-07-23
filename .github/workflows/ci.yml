@@ -16,36 +16,40 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # gemspec allows >= 3.2; the lockfile is bundler 4.0.10 (Ruby 4.0-era),
-        # and gemba's own CI targets 4.0. Add more versions here for a matrix.
+        # gemspec allows >= 3.2; gemba's own CI targets 4.0. Add versions for a matrix.
         ruby: ['4.0']
 
     steps:
       - uses: actions/checkout@v6
 
-      # gemba (~> 0.2) is a dev dependency that compiles native extensions:
-      #   gemba -> teek (Tcl/Tk bindings) + teek-sdl2 (SDL2) + an embedded mGBA core.
-      # `bundle install` (run by setup-ruby below) builds these, so their system
-      # libraries have to be present FIRST.
+      # System libraries gemba's native builds need: teek (Tcl/Tk), teek-sdl2
+      # (SDL2), and an embedded mGBA core.
       #
-      # NOTE: best-effort package list. The authoritative set lives in gemba's
-      # Dockerfile.ci-test — reconcile against it and trim/extend as the build
-      # tells you (a missing lib shows up as an extconf/mkmf failure here).
-      - name: Install gemba build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config cmake \
-            tcl-dev tk-dev \
-            libsdl2-dev \
-            libpng-dev zlib1g-dev libzip-dev \
+      # gemba's own CI caches apt via Docker/buildkit cache mounts — that only
+      # works because it builds inside Docker. This job runs on the runner
+      # directly, so we cache the packages with cache-apt-pkgs-action instead:
+      # ~2 min cold, a few seconds on a cache hit. Bump `version:` to force a
+      # refresh; tweak the list against gemba's Dockerfile.ci-test if a build fails.
+      - name: Install gemba build dependencies (cached)
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: >-
+            build-essential pkg-config cmake
+            tcl-dev tk-dev
+            libsdl2-dev
+            libpng-dev zlib1g-dev libzip-dev
             xvfb
+          version: 1
 
+      # Gemfile.lock is intentionally NOT committed, so Bundler resolves fresh
+      # each run against the gemspec ranges (no frozen mode, no lockfile checksum
+      # issues). bundler-cache still caches the installed gems — including gemba's
+      # compiled native extensions — so the expensive C build isn't repeated on a hit.
       - name: Set up Ruby (+ bundle install, which compiles gemba)
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
-          bundler-cache: true   # runs bundle install; caches gems keyed on Gemfile.lock
+          bundler-cache: true
 
       # gemba brings in Tcl/Tk (teek) and SDL2, which expect a display. CI is
       # headless, so run under a virtual framebuffer and point SDL at its dummy
