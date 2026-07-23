@@ -318,6 +318,21 @@ class TestCostModel < Minitest::Test
     assert_equal 64, Cost.new.steady_cost(prog)
   end
 
+  # draw_number emits ten guarded glyph draws per digit column but draws exactly
+  # one, so steady counts a column as ~one glyph (1/10 each), not ten.
+  def test_draw_number_column_counts_as_about_one_glyph
+    prog = program do
+      display :bitmap
+      var :score, 0
+      game_loop do
+        wait_vblank
+        draw_number :score, 8, 8, :white, digits: 1 # one column
+      end
+    end
+    assert_equal 35, Cost.new.steady_cost(prog) # one glyph = 1 char * 35
+    assert_equal 350, Cost.new.frame_cost(prog) # all ten guarded draws: 10 * 35
+  end
+
   # chance(p) holds p% of the time, so a gated body counts at p%.
   def test_chance_body_counts_at_its_probability
     prog = program do

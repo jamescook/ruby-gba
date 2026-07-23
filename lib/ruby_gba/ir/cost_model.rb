@@ -131,7 +131,7 @@ module RubyGBA
       # full drill-down tree comes later; this is the at-a-glance summary.)
       def report(program, out: $stdout)
         out.puts "draw-cost estimate (rough, illustrative weights):"
-        out.puts "  " + verdict_line(program, frame_cost(program))
+        verdict_lines(program, out)
       end
 
       # The drill-down: the verdict, then the (aggregated, depth-limited) cost tree,
@@ -140,7 +140,11 @@ module RubyGBA
       def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5)
         tree = aggregate(analyze(program, focus: focus))
         out.puts "draw-cost estimate (rough, illustrative weights):"
-        out.puts "  " + verdict_line(program, tree.sum { |node| node[:cost] }, focus: focus)
+        if focus
+          out.puts "  func :#{focus} ~ #{tree.sum { |node| node[:cost] }} write-units"
+        else
+          verdict_lines(program, out)
+        end
         render_tree(prune(tree, max_depth), 1, out)
         hot = hot_ops(tree, top)
         out.puts "  hottest: " + hot.map { |h| "#{h[:op]}×#{h[:count]} ~#{h[:cost]}" }.join("  ") unless hot.empty?
@@ -149,7 +153,8 @@ module RubyGBA
       # The analysis as a plain Hash, ready to serialize (rom.explain format: :json).
       def as_json(program)
         {
-          frame_cost: frame_cost(program),
+          frame_cost: frame_cost(program),   # full cost of everything on a frame
+          steady_cost: steady_cost(program), # what recurs every frame (the tear risk)
           budget: VBLANK_BUDGET,
           looping: looping?(program),
           tree: analyze(program),
@@ -202,17 +207,22 @@ module RubyGBA
         end
       end
 
-      # The one-line verdict: per-frame cost vs the budget for a game loop, the
-      # one-time boot cost for a static program, or a plain total when focused.
-      def verdict_line(program, total, focus: nil)
-        return "func :#{focus} ~ #{total} write-units" if focus
-
+      # The verdict, printed to +out+: for a game loop, the STEADY per-frame cost
+      # against the budget (the tear risk), plus the heaviest single frame as a
+      # one-off spike when it's larger; for a static program, the one-time boot cost.
+      def verdict_lines(program, out)
         if looping?(program)
-          over = total > VBLANK_BUDGET
-          "per frame ~ #{total} write-units   (budget ~ #{VBLANK_BUDGET})   " \
-            "#{over ? '! over budget — the screen may tear as things grow' : 'ok — fits the frame'}"
+          steady = steady_cost(program)
+          full = frame_cost(program)
+          over = steady > VBLANK_BUDGET
+          out.puts "  steady per frame ~ #{steady} write-units   (budget ~ #{VBLANK_BUDGET})   " \
+                   "#{over ? '! over budget — the screen tears' : 'ok — fits the frame'}"
+          if full > steady
+            out.puts "  heaviest frame   ~ #{full} write-units   " \
+                     "(a one-off spike — a transition frame or an every() tick, not the steady load)"
+          end
         else
-          "boot draw ~ #{total} write-units   (no game loop — drawn once, then halts)   ok"
+          out.puts "  boot draw ~ #{frame_cost(program)} write-units   (no game loop — drawn once, then halts)   ok"
         end
       end
 

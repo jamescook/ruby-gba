@@ -112,9 +112,16 @@ module RubyGBA
       end
 
       # Draw the single digit held in +digit_var+ (0..9) at (x, y): exactly one of
-      # the ten comparisons matches and draws its glyph.
+      # the ten comparisons matches and draws its glyph. The ten guards are mutually
+      # exclusive, so each carries a cost hint (1-of-10) letting the estimator count
+      # a column as ~one glyph drawn, not ten.
       def draw_glyph(digit_var, x, y, color)
-        10.times { |k| if_eq(digit_var, k) { record(Build.draw_text(k.to_s, x, y, color)) } }
+        ensure_var(digit_var) # same as the if_eq this replaces — keep boot-init identical
+        10.times do |k|
+          gate = Build.if_(Build.binop(:==, Build.var_ref(digit_var), Build.int(k)))
+          gate[:cost_tag] = { kind: :glyph_of, n: 10 }
+          push_container(gate) { record(Build.draw_text(k.to_s, x, y, color)) }
+        end
       end
 
       # The value node for one digit column of the number in +source+:
