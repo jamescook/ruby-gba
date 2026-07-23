@@ -11,12 +11,22 @@ require_relative "test_helper"
 class TestDrawBudgetGuardrail < Minitest::Test
   Builder = RubyGBA::Builder
   Check = RubyGBA::IR::Guardrails::Checks::DrawBudget
+  Build = RubyGBA::IR::Build
 
   def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.emit_pending_functions
     b.program
+  end
+
+  # A loop that clears the whole screen +n+ times a frame, single- or double-
+  # buffered — built straight from the IR to set the buffered flag.
+  def loop_of_clears(n, buffered:)
+    Build.program(
+      Build.display(:bitmap, buffered: buffered),
+      Build.loop_(Build.wait_vblank, *Array.new(n) { Build.clear_screen(:black) }),
+    )
   end
 
   def test_warns_when_steady_frame_work_exceeds_the_budget
@@ -51,6 +61,24 @@ class TestDrawBudgetGuardrail < Minitest::Test
       halt
     end
     assert_empty Check.new.detect(prog), "a one-shot draw has no per-frame tear risk"
+  end
+
+  # 3 clears/frame (115,200) overruns the brief single-buffer window (tears) but
+  # fits a whole frame, so double-buffered it's quiet — the mode changes the budget.
+  def test_buffered_is_judged_against_the_whole_frame_budget
+    refute_empty Check.new.detect(loop_of_clears(3, buffered: false)), "single-buffer: tears"
+    assert_empty Check.new.detect(loop_of_clears(3, buffered: true)), "buffered: fits a whole frame"
+  end
+
+  # Double buffering still has a ceiling: over a whole frame it warns, but about a
+  # dropped frame rate, not tearing (buffering makes tearing impossible).
+  def test_buffered_over_a_whole_frame_warns_about_frame_rate_not_tearing
+    findings = Check.new.detect(loop_of_clears(7, buffered: true)) # 268,800 > 240,000
+    assert_equal 1, findings.length
+    assert_match(/frame rate|60 frames|choppy/, findings.first.message)
+    # It reassures ("won't tear"), it does NOT raise the alarm the single-buffer
+    # message does about the picture tearing.
+    refute_match(/may tear or flicker/, findings.first.message)
   end
 
   # It fires during a real build — printed to err — without stopping the ROM.

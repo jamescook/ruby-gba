@@ -53,6 +53,7 @@ module RubyGBA
         list:    ->(v) { v.is_a?(Array) },                     # a resolved score / a case dispatch table
         branch:  ->(v) { v.is_a?(Node) && v.kind == :else },   # an if's else-branch node
         meta:    ->(v) { v.is_a?(Hash) && v[:kind].is_a?(Symbol) }, # a cost hint (inert to backends)
+        flag:    ->(v) { v == true || v == false },            # an on/off switch (e.g. double buffering)
       }.freeze
 
       # Every kind's fields, each tagged with what it must hold — the single source
@@ -78,7 +79,7 @@ module RubyGBA
         clamp:      { var: :name, min: :int, max: :int }, # bounds are author-time constants
 
         # drawing / display
-        display:       { mode: :mode },
+        display:       { mode: :mode, buffered: :flag }, # buffered: opt into double buffering
         pixel:         { x: :value, y: :value, color: :color },
         fill_rect:     { x: :int, y: :int, w: :int, h: :int, color: :color }, # fixed position
         clear_screen:  { color: :color },

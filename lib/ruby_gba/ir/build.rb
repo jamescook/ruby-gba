@@ -71,8 +71,16 @@ module RubyGBA
 
       # --- drawing / display operations ---
 
-      def display(mode)
-        Node.new(:display, mode: mode)
+      # Select the display mode. +buffered+ opts a bitmap mode into double
+      # buffering — drawing goes to a hidden page and is shown all at once, so the
+      # picture can never tear no matter how much is drawn. It's off by default and
+      # only meaningful for a bitmap mode; the flag rides on the node so a backend
+      # (and the cost estimator) can tell the two apart. Absent when off, so an
+      # ordinary display node is unchanged.
+      def display(mode, buffered: false)
+        attrs = { mode: mode }
+        attrs[:buffered] = true if buffered
+        Node.new(:display, **attrs)
       end
 
       def pixel(x, y, color)

@@ -12,6 +12,7 @@ require_relative "test_helper"
 class TestRedrawEverythingGuardrail < Minitest::Test
   Builder = RubyGBA::Builder
   Check = RubyGBA::IR::Guardrails::Checks::RedrawEverything
+  Build = RubyGBA::IR::Build
 
   def program(&block)
     b = Builder.new
@@ -43,6 +44,38 @@ class TestRedrawEverythingGuardrail < Minitest::Test
     require_relative "../examples/snake"
     assert_empty Check.new.detect(Snake.program),
                  "the incremental Snake draws per-cell in the steady loop; only its menus clear"
+  end
+
+  # The clear+growing-redraw pattern is exactly what double buffering is FOR: it
+  # can't tear when buffered, so this tear-specific warning stays quiet. (If the
+  # redraw is genuinely too heavy, the draw-budget check catches the frame-rate
+  # drop — that's a different concern.)
+  def test_quiet_when_buffered
+    prog = Build.program(
+      Build.display(:bitmap, buffered: true),
+      Build.list_new(:body, 64),
+      Build.loop_(
+        Build.wait_vblank,
+        Build.clear_screen(:black),
+        Build.repeat(Build.list_len(:body), :i, Build.draw_rect_at(0, 0, 8, 8, :green)),
+      ),
+    )
+    assert_empty Check.new.detect(prog), "double buffering makes this pattern tear-proof"
+  end
+
+  # The same shape single-buffered still trips it — proving the quiet above is the
+  # buffered flag's doing, not the IR-built shape slipping past the detector.
+  def test_the_same_shape_single_buffered_still_trips_it
+    prog = Build.program(
+      Build.display(:bitmap, buffered: false),
+      Build.list_new(:body, 64),
+      Build.loop_(
+        Build.wait_vblank,
+        Build.clear_screen(:black),
+        Build.repeat(Build.list_len(:body), :i, Build.draw_rect_at(0, 0, 8, 8, :green)),
+      ),
+    )
+    assert_equal 1, Check.new.detect(prog).length
   end
 
   # No clear -> not this footgun (a different concern — leftover trails).

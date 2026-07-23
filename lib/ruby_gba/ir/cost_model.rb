@@ -33,6 +33,14 @@ module RubyGBA
       # A rough placeholder until calibrated on hardware.
       VBLANK_BUDGET = 80_000
 
+      # The budget when the program double-buffers (draws to a hidden page shown
+      # all at once). Then drawing isn't confined to the brief safe window — it can
+      # use the whole frame — so the budget is much larger (the safe window is only
+      # about a third of a frame). And going over means something different: the
+      # frame rate drops below 60fps, the picture never tears. A rough placeholder,
+      # like VBLANK_BUDGET.
+      FRAME_BUDGET = 3 * VBLANK_BUDGET
+
       # Illustrative defaults (write-units). Override per-call: CostModel.new(pixel: 2).
       DEFAULT_WEIGHTS = {
         pixel: 1,   # one filled/plotted pixel
@@ -126,6 +134,19 @@ module RubyGBA
         program.children.any? { |node| node.kind == :loop }
       end
 
+      # Whether the program opted into double buffering (a `buffered:` display).
+      # This decides which budget applies and how going over it reads: a torn
+      # picture (single-buffer) versus a dropped frame (double-buffer).
+      def buffered?(program)
+        program.walk.any? { |node| node.kind == :display && node[:buffered] }
+      end
+
+      # The per-frame draw budget that applies to this program: the whole frame
+      # when it double-buffers, otherwise just the brief safe window.
+      def budget_for(program)
+        buffered?(program) ? FRAME_BUDGET : VBLANK_BUDGET
+      end
+
       # Print a short, human draw-cost estimate to +out+: the per-frame cost against
       # the frame budget for a game loop, or the one-time boot cost otherwise. (The
       # full drill-down tree comes later; this is the at-a-glance summary.)
@@ -155,7 +176,8 @@ module RubyGBA
         {
           frame_cost: frame_cost(program),   # full cost of everything on a frame
           steady_cost: steady_cost(program), # what recurs every frame (the tear risk)
-          budget: VBLANK_BUDGET,
+          budget: budget_for(program),       # the applicable budget (wider when buffered)
+          buffered: buffered?(program),      # double-buffered? (over budget = a dropped frame, not a tear)
           looping: looping?(program),
           tree: analyze(program),
         }
@@ -214,9 +236,13 @@ module RubyGBA
         if looping?(program)
           steady = steady_cost(program)
           full = frame_cost(program)
-          over = steady > VBLANK_BUDGET
-          out.puts "  steady per frame ~ #{steady} write-units   (budget ~ #{VBLANK_BUDGET})   " \
-                   "#{over ? '! over budget — the screen tears' : 'ok — fits the frame'}"
+          budget = budget_for(program)
+          over = steady > budget
+          # Over budget reads differently depending on the mode: a single-buffered
+          # frame tears, a double-buffered one just drops below 60fps.
+          over_note = buffered?(program) ? "! over budget — the frame rate drops" : "! over budget — the screen tears"
+          out.puts "  steady per frame ~ #{steady} write-units   (budget ~ #{budget})   " \
+                   "#{over ? over_note : 'ok — fits the frame'}"
           if full > steady
             out.puts "  heaviest frame   ~ #{full} write-units   " \
                      "(a one-off spike — a transition frame or an every() tick, not the steady load)"

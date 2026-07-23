@@ -26,20 +26,35 @@ module RubyGBA
             return [] unless model.looping?(program)
 
             steady = model.steady_cost(program)
-            return [] if steady <= CostModel::VBLANK_BUDGET
+            budget = model.budget_for(program)
+            return [] if steady <= budget
 
-            [Finding.new(check: NAME, severity: :warning, message: message(steady), fix: nil)]
+            message = model.buffered?(program) ? buffered_message(steady, budget) : message(steady, budget)
+            [Finding.new(check: NAME, severity: :warning, message: message, fix: nil)]
           end
 
           private
 
-          def message(steady)
+          # Single-buffered: over budget means the drawing spills past the safe
+          # window and the picture tears.
+          def message(steady, budget)
             "This game looks like it draws a lot every frame (roughly #{steady} vs a budget of about " \
-              "#{CostModel::VBLANK_BUDGET}) — more than the console can finish in the brief moment it has to " \
+              "#{budget}) — more than the console can finish in the brief moment it has to " \
               "change the screen, so the picture may tear or flicker, and worse as things grow. The usual " \
               "cause is clearing and repainting the whole screen each frame: instead, draw the parts that " \
-              "don't change once, and each frame repaint only what actually moved. Call `rom.explain` on the " \
-              "built ROM to see where the per-frame drawing goes."
+              "don't change once, and each frame repaint only what actually moved. Or switch on double " \
+              "buffering, which can't tear. Call `rom.explain` on the built ROM to see where the per-frame " \
+              "drawing goes."
+          end
+
+          # Double-buffered: it can't tear, but drawing this much every frame is
+          # more than fits in a frame, so the frame rate drops below 60fps.
+          def buffered_message(steady, budget)
+            "This game draws a lot every frame (roughly #{steady} vs a whole-frame budget of about " \
+              "#{budget}). It won't tear — double buffering prevents that — but it's more than fits in one " \
+              "frame, so the game will run slower than 60 frames a second and feel choppy. Draw less each " \
+              "frame: repaint only what actually moved rather than redrawing the whole screen. Call " \
+              "`rom.explain` on the built ROM to see where the per-frame drawing goes."
           end
         end
       end

@@ -25,6 +25,15 @@ class TestIRBackendRubyHardware < Minitest::Test
     assert_equal Color.resolve(:blue), i.screen.pixel(239, 159)
   end
 
+  # Double buffering changes only WHEN a frame becomes visible on hardware, never
+  # which pixels land — and this oracle reads the settled end-of-frame image, so a
+  # buffered program draws exactly the same screen. The flag is recorded, though.
+  def test_double_buffering_records_the_flag_but_draws_the_same_pixels
+    i = run_ir(program(display(:bitmap, buffered: true), clear_screen(:blue)))
+    assert i.buffered
+    assert_equal Color.resolve(:blue), i.screen.pixel(120, 80)
+  end
+
   def test_pixel_writes_a_resolved_color_at_coordinates
     i = run_ir(program(pixel(10, 20, :red)))
     assert_equal Color.resolve(:red), i.screen.pixel(10, 20)
