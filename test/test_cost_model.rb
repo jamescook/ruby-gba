@@ -22,6 +22,7 @@ require_relative "test_helper"
 class TestCostModel < Minitest::Test
   Builder = RubyGBA::Builder
   Cost = RubyGBA::IR::CostModel
+  Build = RubyGBA::IR::Build
 
   # Build a program through the DSL (same route as the other DSL tests).
   def program(&block)
@@ -29,6 +30,16 @@ class TestCostModel < Minitest::Test
     b.instance_eval(&block)
     b.emit_pending_functions
     b.program
+  end
+
+  # A game loop that clears the whole screen +n+ times a frame (n * 38,400 =
+  # n*38,400 write-units), single- or double-buffered. Built straight from the IR
+  # so it can flip the buffered flag the DSL doesn't expose yet.
+  def loop_of_clears(n, buffered:)
+    Build.program(
+      Build.display(:bitmap, buffered: buffered),
+      Build.loop_(Build.wait_vblank, *Array.new(n) { Build.clear_screen(:black) }),
+    )
   end
 
   # A static program's frame cost is just the sum of its draws' pixel areas.
@@ -343,6 +354,54 @@ class TestCostModel < Minitest::Test
       end
     end
     assert_equal 16, Cost.new.steady_cost(prog)
+  end
+
+  # --- mode-aware budget: double buffering draws to a hidden page, so it gets the
+  # whole frame to draw (not just the brief safe window) and can't tear ---
+
+  # The SAME drawing is judged against a different budget by mode: the brief
+  # vblank window single-buffered, the whole frame (much larger) double-buffered.
+  def test_buffered_display_is_judged_against_the_whole_frame_budget
+    single = loop_of_clears(3, buffered: false) # 3 * 38,400 = 115,200 write-units
+    double = loop_of_clears(3, buffered: true)
+
+    # identical drawing work either way...
+    assert_equal 115_200, Cost.new.steady_cost(single)
+    assert_equal 115_200, Cost.new.steady_cost(double)
+
+    # ...but a different budget applies, and only one calls it buffered.
+    assert_equal Cost::VBLANK_BUDGET, Cost.new.budget_for(single) # 80,000
+    assert_equal Cost::FRAME_BUDGET, Cost.new.budget_for(double)  # 240,000
+    refute Cost.new.buffered?(single)
+    assert Cost.new.buffered?(double)
+  end
+
+  # 115,200/frame is over the single-buffer window (so it tears) but under a whole
+  # frame (so buffered it's fine) — the verdict wording says which.
+  def test_verdict_wording_reflects_the_mode
+    io = StringIO.new
+    Cost.new.report(loop_of_clears(3, buffered: false), out: io)
+    assert_match(/over budget — the screen tears/, io.string)
+
+    io = StringIO.new
+    Cost.new.report(loop_of_clears(3, buffered: true), out: io)
+    assert_match(/ok — fits the frame/, io.string)
+  end
+
+  # Even double buffering has a ceiling: draw more than fits in a whole frame and
+  # the frame rate drops (it still never tears).
+  def test_buffered_over_a_whole_frame_reads_as_a_dropped_frame_not_tearing
+    io = StringIO.new
+    Cost.new.report(loop_of_clears(7, buffered: true), out: io) # 268,800 > 240,000
+    assert_match(/over budget — the frame rate drops/, io.string)
+    refute_match(/tears/, io.string)
+  end
+
+  # The JSON carries the applicable budget and the buffered flag, for tests/tools.
+  def test_json_reports_the_mode_and_its_budget
+    assert_equal Cost::FRAME_BUDGET, Cost.new.as_json(loop_of_clears(2, buffered: true))[:budget]
+    assert_equal true, Cost.new.as_json(loop_of_clears(2, buffered: true))[:buffered]
+    assert_equal false, Cost.new.as_json(loop_of_clears(2, buffered: false))[:buffered]
   end
 end
 

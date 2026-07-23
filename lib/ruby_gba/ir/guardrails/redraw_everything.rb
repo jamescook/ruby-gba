@@ -35,6 +35,13 @@ module RubyGBA
             "frame repaint only the cells that actually change (draw the new one, erase the one that left)."
 
           def detect(program)
+            # Double buffering is the cure for exactly this footgun: drawing goes to
+            # a hidden page shown all at once, so clearing and repainting the whole
+            # screen every frame can't tear (its worst case is a frame-rate drop,
+            # which the draw-budget check catches on its own). So this warning —
+            # which is specifically about *tearing* — has nothing to say here.
+            return [] if buffered?(program)
+
             funcs = index_funcs(program)
             loops(program).filter_map do |loop_node|
               steady = steady_statements(loop_node, funcs)
@@ -47,6 +54,10 @@ module RubyGBA
           end
 
           private
+
+          def buffered?(program)
+            program.walk.any? { |node| node.kind == :display && node[:buffered] }
+          end
 
           def loops(program)
             program.each.select { |node| node.kind == :loop }
