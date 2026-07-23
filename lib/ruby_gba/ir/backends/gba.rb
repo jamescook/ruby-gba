@@ -677,7 +677,8 @@ module RubyGBA
         # so it's a single store. With a computed coordinate (e.g. a variable) the
         # address is built at run time from the evaluated x/y.
         def emit_pixel(node)
-          buffered_unsupported!(:pixel) if @buffered
+          return emit_pixel_buffered(node) if @buffered
+
           color = Color.resolve(node[:color])
           xi = const_int(node[:x])
           yi = const_int(node[:y])
@@ -808,7 +809,7 @@ module RubyGBA
         # screen at run time — a bitmap pushed partway off an edge draws only its
         # visible part, with nothing written past the framebuffer.
         def emit_blit(node)
-          buffered_unsupported!(:blit) if @buffered
+          blit_unsupported_in_buffered! if @buffered
           bmp = @bitmaps.fetch(node[:name]) do
             raise LoweringError, "blit of undefined image #{node[:name].inspect}"
           end
@@ -990,7 +991,8 @@ module RubyGBA
         # then every set pixel of every glyph is a single halfword store at its
         # fixed VRAM address; off-screen pixels are dropped. Positions are constant.
         def emit_draw_text(node)
-          buffered_unsupported!(:draw_text) if @buffered
+          return emit_draw_text_buffered(node) if @buffered
+
           x, y = constant_ints!(node, :x, :y)
           emit(ASM.load_immediate(ACC, Color.resolve(node[:color])))
 
@@ -1158,15 +1160,108 @@ module RubyGBA
                 "is written two pixels at a time, so a fill must start on an even column."
         end
 
-        # The pixel-at-a-time verbs can't run on the indexed screen: a single index
-        # is one byte, and video memory rejects lone byte writes. Say so plainly,
-        # and point at the fills that do work in buffered mode.
-        def buffered_unsupported!(kind)
+        # Draw a line of text on the hidden page. Each lit font pixel is a single
+        # color index (one byte), but the indexed screen can't take a lone byte
+        # write, so each pixel is a read-modify-write: read the 16-bit unit that
+        # contains it, splice the index into the correct half, write it back. The
+        # glyph positions are known while building, so which half each pixel lands in
+        # is settled here, not at run time. Off-screen pixels are dropped.
+        def emit_draw_text_buffered(node)
+          x, y = constant_ints!(node, :x, :y)
+          index = @palette.index_of(node[:color])
+          base = 6
+          load_var(base, BACKBUF) # the hidden page base, held for the whole line
+
+          Font.each_pixel(node[:text]) do |dx, dy|
+            px = x + dx
+            py = y + dy
+            next unless in_bounds?(px, py)
+
+            emit_write_index_pixel_const(base, px, py, index)
+          end
+        end
+
+        # Plot one pixel on the hidden page. With constant coordinates the target
+        # half is known while building; with a computed coordinate it's found from
+        # the live x at run time.
+        def emit_pixel_buffered(node)
+          index = @palette.index_of(node[:color])
+          xi = const_int(node[:x])
+          yi = const_int(node[:y])
+
+          if xi && yi
+            return unless in_bounds?(xi, yi)
+
+            base = 6
+            load_var(base, BACKBUF)
+            emit_write_index_pixel_const(base, xi, yi, index)
+          else
+            emit_pixel_buffered_runtime(node, index)
+          end
+        end
+
+        # Read-modify-write one pixel at a build-time-constant position: overwrite
+        # its byte inside the 16-bit unit, leaving the paired pixel untouched.
+        # +base_reg+ holds the hidden page base. Uses r0/r1 as scratch.
+        def emit_write_index_pixel_const(base_reg, px, py, index)
+          halfword_offset = ((py * SCREEN_WIDTH) + px) & ~1 # start of the pixel's 16-bit unit
+          emit_add_const(1, base_reg, halfword_offset, ACC) # r1 = &unit (scratch r0)
+          emit(ASM.load_halfword(ACC, 1))                   # r0 = the current pixel pair
+          splice_index_byte(ACC, index, px.odd?)
+          emit(ASM.store_halfword(ACC, 1))
+        end
+
+        # Read-modify-write one pixel whose coordinates are computed at run time: the
+        # address and which half to touch both come from the live x/y. r2/r3 hold
+        # x/y; r1 the unit address; r0 the value being spliced; r4/r5 scratch.
+        def emit_pixel_buffered_runtime(node, index)
+          eval_value(node[:x])
+          emit(ASM.mov_reg(2, ACC))
+          eval_value(node[:y])
+          emit(ASM.mov_reg(3, ACC))
+
+          emit(ASM.load_immediate(4, SCREEN_WIDTH))
+          emit(ASM.mul(4, 3, 4))          # r4 = y * width
+          emit(ASM.add_reg(4, 4, 2))      # r4 = y*width + x (byte offset)
+          load_var(5, BACKBUF)            # r5 = hidden page base
+          emit(ASM.add_reg(1, 5, 4))      # r1 = base + byte offset (maybe odd)
+          emit(ASM.lsr_imm(1, 1, 1))      # clear the low bit ->
+          emit(ASM.lsl_imm(1, 1, 1))      # r1 = the containing 16-bit unit's address
+          emit(ASM.load_halfword(ACC, 1)) # r0 = the current pixel pair
+
+          emit(ASM.and_imm(4, 2, 1))      # r4 = x & 1 (0 = left/low byte, 1 = right/high)
+          emit(ASM.cmp_imm(4, 0))
+          high = gensym
+          done = gensym
+          emit_branch(:bcond, high, cond: :ne)
+          splice_index_byte(ACC, index, false) # even x: low byte
+          emit_branch(:b, done)
+          place_label(high)
+          splice_index_byte(ACC, index, true)  # odd x: high byte
+          place_label(done)
+          emit(ASM.store_halfword(ACC, 1))
+        end
+
+        # Replace one byte of the 16-bit pixel pair in +reg+ with +index+, keeping
+        # the other pixel: the high byte when +high+ (an odd column), else the low.
+        def splice_index_byte(reg, index, high)
+          if high
+            emit(ASM.and_imm(reg, reg, 0x00FF))     # keep the left (low) pixel
+            emit(ASM.orr_imm(reg, reg, index << 8)) # set the right (high) pixel
+          else
+            emit(ASM.and_imm(reg, reg, 0xFF00))     # keep the right (high) pixel
+            emit(ASM.orr_imm(reg, reg, index))      # set the left (low) pixel
+          end
+        end
+
+        # blit doesn't work on the indexed screen: its images are stored as direct
+        # colors, which need converting to palette indices first. Point at what does.
+        def blit_unsupported_in_buffered!
           raise LoweringError,
-                "#{kind} can't draw on the double-buffered screen (buffered: true). That screen is written " \
-                "two pixels at a time, so single-pixel drawing like #{kind} doesn't work on it. Use " \
-                "clear_screen and the rectangle fills (fill_rect, dma_fill_rect, draw_rect_at) in buffered " \
-                "mode, or drop `buffered:` to use the direct-color screen, where #{kind} works."
+                "blit can't draw on the double-buffered screen (buffered: true). Its images are stored as " \
+                "direct colors, which the indexed screen can't show without converting them to palette " \
+                "indices first. Draw with the rectangle fills, draw_text, or pixel in buffered mode, or drop " \
+                "`buffered:` to use the direct-color screen, where blit works."
         end
 
         # --- audio ---------------------------------------------------------------

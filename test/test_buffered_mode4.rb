@@ -104,18 +104,80 @@ class TestBufferedMode4 < Minitest::Test
     assert_match(/display :bitmap/, err.message) # points at the direct-color escape hatch
   end
 
-  # --- the pixel-granular verbs aren't lowered in Mode 4 yet: a clear error ---
+  # --- pixel + draw_text on the indexed screen (read-modify-write) ---
 
-  def test_pixel_in_buffered_mode_is_a_friendly_not_yet_error
-    prog = program(display(:bitmap, buffered: true), pixel(10, 10, :red), halt)
-    err = assert_raises(GBA::LoweringError) { GBA.new.lower(prog) }
-    assert_match(/pixel/, err.message)
-    assert_match(/dma_fill_rect|rectangle fills/, err.message) # names the supported path
+  # Single pixels and text render in buffered mode, and — the crux of the
+  # read-modify-write — writing one pixel must NOT disturb the pixel it shares a
+  # 16-bit unit with. An even column writes the low byte, an odd column the high
+  # byte; each leaves its neighbor's background intact.
+  def test_pixel_and_text_render_and_preserve_the_paired_pixel
+    prog = program(
+      display(:bitmap, buffered: true),
+      clear_screen(:blue),
+      pixel(10, 10, :red),    # even column -> low byte of its 16-bit unit
+      pixel(11, 20, :green),  # odd column  -> high byte
+      set(:px, 100), set(:py, 100),
+      pixel(:px, :py, :yellow), # run-time coordinates
+      draw_text("A", 40, 40, :white),
+      wait_vblank,
+      halt,
+    )
+
+    # Interpreter oracle: the colors land where expected.
+    i = Ruby.new.run(prog)
+    assert_equal Color.resolve(:red), i.screen.pixel(10, 10)
+    assert_equal Color.resolve(:green), i.screen.pixel(11, 20)
+    assert_equal Color.resolve(:yellow), i.screen.pixel(100, 100)
+
+    # Hardware: the RMW writes the right byte and preserves its pair.
+    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "DTX", code: "BDTX", maker: "01")
+    v = assert_gemba_loads_rom(rom, frames: 4)
+    assert v.pixel_is?(10, 10, :red),    "even-column pixel, got 0x#{format('%04X', v.pixel_gba(10, 10))}"
+    assert v.pixel_is?(11, 20, :green),  "odd-column pixel, got 0x#{format('%04X', v.pixel_gba(11, 20))}"
+    assert v.pixel_is?(100, 100, :yellow), "runtime-coordinate pixel, got 0x#{format('%04X', v.pixel_gba(100, 100))}"
+    # The paired pixel in each 16-bit unit must stay the blue background.
+    assert v.pixel_is?(11, 10, :blue), "the red pixel's neighbor must stay blue (RMW preserved it)"
+    assert v.pixel_is?(10, 20, :blue), "the green pixel's neighbor must stay blue"
+    assert v.pixel_is?(101, 100, :blue), "the yellow pixel's neighbor must stay blue"
+    # And the glyph drew white somewhere in its 5x7 band.
+    drew_glyph = (40..44).any? { |x| (40..46).any? { |y| v.pixel_is?(x, y, :white) } }
+    assert drew_glyph, "draw_text should render white glyph pixels in buffered mode"
   end
 
-  def test_draw_text_in_buffered_mode_is_a_friendly_not_yet_error
-    prog = program(display(:bitmap, buffered: true), draw_text("HI", 10, 10, :white), halt)
-    assert_raises(GBA::LoweringError) { GBA.new.lower(prog) }
+  # The motivating case: a live numeric score renders in buffered mode (draw_number
+  # lowers to per-digit draw_text, so this exercises the same RMW path through the
+  # DSL). Built through the Builder because draw_number is a DSL verb.
+  def test_draw_number_renders_a_score_in_buffered_mode
+    b = RubyGBA::Builder.new
+    b.instance_eval do
+      display :bitmap, buffered: true
+      var :score, 42
+      clear_screen :blue
+      draw_number :score, 40, 40, :white, digits: 2
+      wait_vblank
+      halt
+    end
+    b.emit_pending_functions
+    prog = b.program
+
+    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "SCORE", code: "BSCR", maker: "01")
+    v = assert_gemba_loads_rom(rom, frames: 4)
+    drew_digits = (40..60).any? { |x| (40..46).any? { |y| v.pixel_is?(x, y, :white) } }
+    assert drew_digits, "a numeric score should render in white in buffered mode"
+  end
+
+  # blit still can't draw on the indexed screen (its images are direct-color): a
+  # friendly error that names the verbs that do work.
+  def test_blit_is_unsupported_in_buffered_mode
+    prog = program(
+      display(:bitmap, buffered: true),
+      bitmap(:s, width: 2, height: 1, pixels: [Color.resolve(:red), Color.resolve(:blue)].pack("v*")),
+      blit(:s, 0, 0),
+      halt,
+    )
+    err = assert_raises(GBA::LoweringError) { GBA.new.lower(prog) }
+    assert_match(/blit/, err.message)
+    assert_match(/draw_text|pixel|rectangle fills/, err.message) # names what does work
   end
 
   # --- Mode 4 fills move two pixels at a time: an odd start column is caught ---
