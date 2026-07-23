@@ -290,4 +290,61 @@ class TestCostModel < Minitest::Test
     end
     assert_equal Cost.new.frame_cost(prog), Cost.new.steady_cost(prog)
   end
+
+  # A pressed edge is rare, so a body it gates is a transition spike, not steady
+  # per-frame work — it drops out of steady_cost.
+  def test_pressed_guarded_body_drops_out_of_steady_cost
+    prog = program do
+      display :bitmap
+      game_loop do
+        wait_vblank
+        pressed(:start).then { draw_rect_at 0, 0, 8, 8, :green } # 64 on a press frame only
+      end
+    end
+    assert_equal 64, Cost.new.frame_cost(prog)  # full cost on the press frame
+    assert_equal 0, Cost.new.steady_cost(prog)  # not part of the every-frame load
+  end
+
+  # held is level, not an edge — it can run every frame it's down, so it counts
+  # fully toward steady.
+  def test_held_guarded_body_counts_fully_toward_steady
+    prog = program do
+      display :bitmap
+      game_loop do
+        wait_vblank
+        held(:right).then { draw_rect_at 0, 0, 8, 8, :green }
+      end
+    end
+    assert_equal 64, Cost.new.steady_cost(prog)
+  end
+
+  # chance(p) holds p% of the time, so a gated body counts at p%.
+  def test_chance_body_counts_at_its_probability
+    prog = program do
+      display :bitmap
+      game_loop do
+        wait_vblank
+        chance(25).then { draw_rect_at 0, 0, 8, 8, :green } # 64 * 25% = 16
+      end
+    end
+    assert_equal 16, Cost.new.steady_cost(prog)
+  end
+end
+
+# The headline outcome for the game developer: with selectivity, the estimator
+# tells the truth about the SHIPPED (incremental) Snake — its steady per-frame work
+# fits the budget, even though the full cost of a menu/transition frame (which
+# repaints the whole board once) does not. Without selectivity the estimate would
+# cry wolf on a game that plays tear-free.
+class TestSnakeSteadyCost < Minitest::Test
+  Cost = RubyGBA::IR::CostModel
+
+  def test_incremental_snake_steady_fits_though_a_transition_frame_does_not
+    require_relative "../examples/snake"
+    model = Cost.new
+    assert_operator model.steady_cost(Snake.program), :<=, Cost::VBLANK_BUDGET,
+                    "steady per-frame work should fit — the game plays tear-free"
+    assert_operator model.frame_cost(Snake.program), :>, Cost::VBLANK_BUDGET,
+                    "a transition frame (whole-board repaint) is heavy — that's the spike selectivity discounts"
+  end
 end

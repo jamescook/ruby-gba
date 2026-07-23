@@ -167,7 +167,9 @@ class TestBuilderIR < Minitest::Test
 
   def test_if_pressed_builds_a_pressed_condition
     got = tree { if_pressed(:start) { set :go, 1 } }
-    assert_equal program(if_(pressed(:start), set(:go, 1))), got
+    gate = if_(pressed(:start), set(:go, 1))
+    gate[:cost_tag] = { kind: :transition } # cost hint: a press edge is a rare transition
+    assert_equal program(gate), got
   end
 
   def test_the_built_control_flow_tree_runs_in_the_interpreter

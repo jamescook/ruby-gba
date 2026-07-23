@@ -125,7 +125,9 @@ module RubyGBA
 
         draw = next_rng_var
         roll(draw, 0...100) # 0..99
-        Condition.new(self, Build.binop(:<, Build.var_ref(draw), Build.int(percent)))
+        # Holds percent% of the time — the cost estimator weighs a gated body by that.
+        Condition.new(self, Build.binop(:<, Build.var_ref(draw), Build.int(percent)),
+                      cost_tag: { kind: :chance, percent: percent })
       end
 
       private
