@@ -106,7 +106,12 @@ module RubyGBA
         frames = to_frames(n, unit)
         record(Build.add(counter, 1))
         reached = Build.binop(:>=, Build.var_ref(counter), Build.int(frames))
-        push_container(Build.if_(reached)) do
+        gate = Build.if_(reached)
+        # A cost hint for the estimator: this body only runs one frame in `frames`,
+        # so it contributes 1/frames to the steady per-frame cost. Inert everywhere
+        # else — the backends read the `if`, not this tag.
+        gate[:cost_tag] = { kind: :every, period: frames }
+        push_container(gate) do
           record(Build.set(counter, Build.int(0))) # start the next interval over
           instance_eval(&block)
         end

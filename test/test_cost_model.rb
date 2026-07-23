@@ -261,4 +261,33 @@ class TestCostModel < Minitest::Test
     assert_equal 128, hot[1][:cost] # the two draw_rect_ats, summed
     assert_equal 2, hot[1][:count]
   end
+
+  # --- selectivity: cost hints scale work by how often it actually runs ---
+
+  # every(k) runs one frame in k, so its body contributes 1/k to the STEADY
+  # per-frame cost — the tear risk — while frame_cost still reports the full cost
+  # on the frame it fires.
+  def test_every_body_contributes_a_kth_to_the_steady_cost
+    prog = program do
+      display :bitmap
+      game_loop do
+        wait_vblank
+        every(4) { draw_rect_at 0, 0, 8, 8, :green } # 64 when it fires
+      end
+    end
+    assert_equal 64, Cost.new.frame_cost(prog)  # full cost on the frame it fires
+    assert_equal 16, Cost.new.steady_cost(prog) # 64 / 4, spread across frames
+  end
+
+  # With no cost hints, the steady figure equals the full frame cost.
+  def test_steady_equals_full_when_nothing_is_gated
+    prog = program do
+      display :bitmap
+      game_loop do
+        wait_vblank
+        draw_rect_at 0, 0, 8, 8, :green # runs every frame
+      end
+    end
+    assert_equal Cost.new.frame_cost(prog), Cost.new.steady_cost(prog)
+  end
 end

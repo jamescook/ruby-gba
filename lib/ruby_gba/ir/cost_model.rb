@@ -102,9 +102,22 @@ module RubyGBA
                          .sort_by { |h| -h[:cost] }.first(top)
       end
 
-      # The total draw cost of one frame — the roll-up of #analyze.
+      # The total draw cost of one frame — the roll-up of #analyze. This is the
+      # *full* cost of everything on the frame, ignoring how often it runs.
       def frame_cost(program)
         analyze(program).sum { |node| node[:cost] }
+      end
+
+      # The cost that actually recurs *every* frame — the tear risk. Cost hints on
+      # the IR scale work down: an every(k) body counts 1/k, a transition-guarded
+      # body counts 0, and so on (see #tag_multiplier). Untagged work weighs 1, so
+      # a program with no hints has steady_cost == frame_cost.
+      def steady_cost(program)
+        index(program)
+        @stack = []
+        loop_node = program.children.find { |node| node.kind == :loop }
+        statements = loop_node ? loop_node.children : program.children.reject { |node| node.kind == :func }
+        statements.sum { |node| steady(node) }.round
       end
 
       # Whether a program has a game loop (its cost recurs every frame) or is a
@@ -144,6 +157,50 @@ module RubyGBA
       end
 
       private
+
+      # The selectivity-weighted cost of a subtree: a cost hint scales it (an
+      # every(k) body by 1/k, a transition-guarded body to nothing), so what's left
+      # is the work that runs every frame. Untagged nodes weigh 1.
+      def steady(node)
+        tag_multiplier(node) * raw_steady(node)
+      end
+
+      def raw_steady(node)
+        case node.kind
+        when :program, :loop, :else then node.children.sum { |child| steady(child) }
+        when :if then node.children.sum { |child| steady(child) } + (node[:else] ? steady(node[:else]) : 0)
+        when :repeat then repeat_factor(node).first * node.children.sum { |child| steady(child) }
+        when :case then node[:clauses].map { |_value, target| steady_func(target) }.max || 0
+        when :call then steady_func(node[:target])
+        when :func then 0
+        else op_cost(node)
+        end
+      end
+
+      def steady_func(name)
+        return 0 if @stack.include?(name)
+        func = @funcs[name] or return 0
+        @stack.push(name)
+        total = func.children.sum { |child| steady(child) }
+        @stack.pop
+        total
+      end
+
+      # How much a cost-hinted node contributes to the steady per-frame figure: an
+      # every(k) body one frame in k, a transition-guarded body never, a chance(p)
+      # body p% of the time. No hint means it always runs (weight 1).
+      def tag_multiplier(node)
+        tag = node[:cost_tag]
+        return 1 unless tag
+
+        case tag[:kind]
+        when :every then Rational(1, tag[:period])
+        when :glyph_of then Rational(1, tag[:n])
+        when :transition then 0
+        when :chance then Rational(tag[:percent], 100)
+        else 1
+        end
+      end
 
       # The one-line verdict: per-frame cost vs the budget for a game loop, the
       # one-time boot cost for a static program, or a plain total when focused.
