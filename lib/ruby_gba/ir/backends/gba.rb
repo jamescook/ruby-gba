@@ -48,6 +48,24 @@ module RubyGBA
         # work. (This mirrors the DSL's names.)
         DISPLAY_MODES = { bitmap: MODE_3 | BG2_ENABLE }.freeze
 
+        # Double-buffered (Mode 4) hardware layout. Mode 4 gives the program TWO
+        # full screens — "pages" — in video memory, 0xA000 bytes apart. One is shown
+        # on the TV while the program draws into the other, then a flip swaps them at
+        # a frame boundary; because the TV never reads a half-drawn page, the picture
+        # can't tear. DISPCNT bit 4 selects which page is shown.
+        PAGE0 = VRAM_START            # the first framebuffer page (0x06000000)
+        PAGE1 = VRAM_START + 0xA000   # the second (0x0600A000)
+        PAGE_PAIR_SUM = PAGE0 + PAGE1 # flip trick: the other page is (this sum − current)
+        DISPCNT_FRAME_SELECT = 0x0010 # the DISPCNT bit that chooses which page shows
+
+        # A reserved data-blob name for the color table Mode 4 uploads, and the two
+        # hidden variables that track the double-buffer state at run time: the live
+        # DISPCNT value (so a flip toggles a single bit) and the address of the page
+        # currently being drawn into.
+        PALETTE_BLOB = :__palette
+        DISPCNT_STATE = :__dispcnt
+        BACKBUF = :__backbuf
+
         # This backend's mapping of the shared button vocabulary (IR::Buttons) to
         # hardware: each name → its bit in the key register. The key register is
         # active-low, so a 0 bit means the button is down.
@@ -97,6 +115,8 @@ module RubyGBA
           @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)
           @label_seq = 0
           @uses_pressed = false  # whether the program reads edge-detected input
+          @buffered = false      # whether the display is double-buffered (Mode 4)
+          @palette = nil         # the color table, built once when buffered
         end
 
         # Lower a program to finished GBA machine code: run the emit pass and
@@ -106,6 +126,8 @@ module RubyGBA
         # out.
         def lower(program)
           collect_definitions(program)
+          @buffered = program.walk.any? { |node| node.kind == :display && node[:buffered] }
+          prepare_palette(program) if @buffered
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
           emit_input_init if @uses_pressed
           program.children.each { |stmt| emit_statement(stmt) }
@@ -152,6 +174,16 @@ module RubyGBA
               register_list(node[:name], node[:capacity])
             end
           end
+        end
+
+        # Build the double-buffer color table and stash it as a ROM blob to be
+        # uploaded at startup. Mode 4's screen stores a small index per pixel that
+        # picks a color out of this table, so the table has to exist before anything
+        # is drawn. IR::Palette collects the program's colors and raises a friendly
+        # error if there are more than 256 (see IR::Palette::Overflow).
+        def prepare_palette(program)
+          @palette = IR::Palette.build(program)
+          @data_blobs[PALETTE_BLOB] = @palette.entries.pack("v*") # 15-bit entries, little-endian
         end
 
         # --- emit helpers -------------------------------------------------------
@@ -591,6 +623,8 @@ module RubyGBA
         # Turn the screen on by writing the chosen mode to the display-control
         # register. Until this runs the screen stays black.
         def emit_display(node)
+          return emit_display_buffered if node[:buffered]
+
           mode = node[:mode]
           value = mode.is_a?(Integer) ? mode : DISPLAY_MODES.fetch(mode) do
             raise LoweringError, "the GBA backend cannot lower display mode #{mode.inspect} yet"
@@ -598,10 +632,52 @@ module RubyGBA
           write_reg16(REG_DISPCNT, value)
         end
 
+        # Turn on the double-buffered (Mode 4) screen and upload the color table.
+        # Start by showing page 0 and drawing into page 1; a later flip swaps them.
+        # The live DISPCNT value and the draw-into page are kept in hidden variables
+        # so a flip is a cheap toggle-and-swap.
+        def emit_display_buffered
+          base = MODE_4 | BG2_ENABLE
+          store_word_immediate(base, var_addr(DISPCNT_STATE)) # remember the live DISPCNT
+          store_word_immediate(PAGE1, var_addr(BACKBUF))      # draw into page 1 first
+          write_reg16(REG_DISPCNT, base)                      # show page 0
+          upload_palette
+        end
+
+        # Copy the color table from the cartridge into background palette memory —
+        # one DMA of `size` 16-bit entries, source and destination both advancing.
+        def upload_palette
+          emit_load_data_address(ACC, PALETTE_BLOB)     # r0 = table address in the cartridge
+          emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+          emit(ASM.str(ACC, TMP))                       # DMA source = the table
+          store_word_immediate(BG_PALETTE, REG_DMA3DAD) # DMA destination = palette memory
+          store_word_immediate(@palette.size | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
+        end
+
+        # Present the page just drawn and start drawing the other one — the page
+        # flip, run once per frame at the vblank boundary. Toggle the DISPCNT bit
+        # that selects the shown page (so the finished page becomes visible), then
+        # point the back buffer at the other page (its address is the pair's sum
+        # minus the current one).
+        def emit_flip
+          load_var(ACC, DISPCNT_STATE)
+          emit(ASM.load_immediate(TMP, DISPCNT_FRAME_SELECT))
+          emit(ASM.eor_reg(ACC, ACC, TMP))            # flip the page-select bit
+          store_var(ACC, DISPCNT_STATE)
+          emit(ASM.load_immediate(TMP, REG_DISPCNT))
+          emit(ASM.store_halfword(ACC, TMP))          # the finished page is now shown
+
+          load_var(ACC, BACKBUF)
+          emit(ASM.load_immediate(TMP, PAGE_PAIR_SUM))
+          emit(ASM.sub_reg(ACC, TMP, ACC))            # the other page
+          store_var(ACC, BACKBUF)
+        end
+
         # Plot one pixel. With constant coordinates the VRAM address is known now,
         # so it's a single store. With a computed coordinate (e.g. a variable) the
         # address is built at run time from the evaluated x/y.
         def emit_pixel(node)
+          buffered_unsupported!(:pixel) if @buffered
           color = Color.resolve(node[:color])
           xi = const_int(node[:x])
           yi = const_int(node[:y])
@@ -629,6 +705,8 @@ module RubyGBA
         # Fill a rectangle of constant size. Load the color once, then write each
         # on-screen pixel (off-screen pixels are clipped).
         def emit_fill_rect(node)
+          return emit_fill_rect_buffered(node) if @buffered
+
           x, y, w, h = constant_ints!(node, :x, :y, :w, :h)
           color = Color.resolve(node[:color])
           emit(ASM.load_immediate(ACC, color))
@@ -649,6 +727,8 @@ module RubyGBA
         # Clear the whole screen with one DMA transfer: repeat a packed two-pixel
         # word across VRAM. The DMA engine copies far faster than a pixel loop.
         def emit_clear_screen(node)
+          return emit_clear_screen_buffered(node) if @buffered
+
           color = Color.resolve(node[:color])
           word = (color << 16) | color
           count = SCREEN_WIDTH * SCREEN_HEIGHT / 2
@@ -664,6 +744,8 @@ module RubyGBA
         # each row is one block transfer of a repeated two-pixel word. Rows off the
         # top/bottom of the screen are skipped.
         def emit_dma_fill_rect(node)
+          return emit_fill_rect_buffered(node) if @buffered
+
           x, y, w, h = constant_ints!(node, :x, :y, :w, :h)
           even_width!(w, :dma_fill_rect)
           scratch = hold_fill_word(node[:color])
@@ -685,6 +767,8 @@ module RubyGBA
         # r4/r5 are address scratch. (No run-time bounds clip yet — the caller is
         # expected to keep it on-screen, as pong does by clamping.)
         def emit_draw_rect_at(node)
+          return emit_draw_rect_at_buffered(node) if @buffered
+
           w, h = constant_ints!(node, :w, :h)
           even_width!(w, :draw_rect_at)
           scratch = hold_fill_word(node[:color])
@@ -724,6 +808,7 @@ module RubyGBA
         # screen at run time — a bitmap pushed partway off an edge draws only its
         # visible part, with nothing written past the framebuffer.
         def emit_blit(node)
+          buffered_unsupported!(:blit) if @buffered
           bmp = @bitmaps.fetch(node[:name]) do
             raise LoweringError, "blit of undefined image #{node[:name].inspect}"
           end
@@ -905,6 +990,7 @@ module RubyGBA
         # then every set pixel of every glyph is a single halfword store at its
         # fixed VRAM address; off-screen pixels are dropped. Positions are constant.
         def emit_draw_text(node)
+          buffered_unsupported!(:draw_text) if @buffered
           x, y = constant_ints!(node, :x, :y)
           emit(ASM.load_immediate(ACC, Color.resolve(node[:color])))
 
@@ -949,6 +1035,131 @@ module RubyGBA
           raise LoweringError,
                 "#{kind} needs an even, positive width (got #{w}) — the fast " \
                 "block fill moves two pixels per step"
+        end
+
+        # --- Mode 4 (double-buffered) drawing -----------------------------------
+        #
+        # These mirror the direct-color fills above, with two differences forced by
+        # the indexed screen: a pixel is one byte (an index into the color table),
+        # not two, so addresses and counts are in bytes; and video memory can't be
+        # written a single byte at a time (a lone byte write hits both halves of its
+        # 16-bit slot), so fills move whole 16-bit units — two pixels — at once, and
+        # a fill must start on an even column. The destination is the hidden page,
+        # whose address lives in a run-time variable (BACKBUF) and swaps every flip.
+
+        # Clear the hidden page to a solid color: one DMA that repeats the packed
+        # index word across the whole page.
+        def emit_clear_screen_buffered(node)
+          scratch = hold_index_word(node[:color])
+          store_word_immediate(scratch, REG_DMA3SAD)
+          point_dma_dest_at_backbuf
+          count = SCREEN_WIDTH * SCREEN_HEIGHT / 4 # 32-bit words, 4 indices each
+          store_word_immediate(dma_fill_control(count), REG_DMA3CNT)
+        end
+
+        # A rectangle at a constant position/size, filled per row into the hidden
+        # page. fill_rect and dma_fill_rect share this — in Mode 4 both are the same
+        # packed block fill.
+        def emit_fill_rect_buffered(node)
+          x, y, w, h = constant_ints!(node, :x, :y, :w, :h)
+          even_width!(w, node.kind)
+          even_start!(x, node.kind)
+          scratch = hold_index_word(node[:color])
+          control = dma_fill_control_16(w / 2)
+
+          h.times do |dy|
+            row = y + dy
+            next unless (0...SCREEN_HEIGHT).cover?(row)
+
+            store_word_immediate(scratch, REG_DMA3SAD)
+            load_var(ACC, BACKBUF)                             # r0 = hidden page base
+            emit(ASM.load_immediate(TMP, (row * SCREEN_WIDTH) + x)) # + byte offset (1 byte/pixel)
+            emit(ASM.add_reg(ACC, ACC, TMP))
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(ACC, TMP))                            # destination = that row
+            store_word_immediate(control, REG_DMA3CNT)
+          end
+        end
+
+        # A rectangle whose position is computed at run time, filled per row into the
+        # hidden page. Its size is constant; its x should be even (the caller keeps
+        # it so — grid games move on an even step). r2/r3 hold x/y across the loop.
+        def emit_draw_rect_at_buffered(node)
+          w, h = constant_ints!(node, :w, :h)
+          even_width!(w, :draw_rect_at)
+          scratch = hold_index_word(node[:color])
+          control = dma_fill_control_16(w / 2)
+
+          x_reg = 2
+          y_reg = 3
+          eval_value(node[:x])
+          emit(ASM.mov_reg(x_reg, ACC))
+          eval_value(node[:y])
+          emit(ASM.mov_reg(y_reg, ACC))
+
+          h.times do |dy|
+            # r4 = (y + dy) * SCREEN_WIDTH + x  — the byte offset into the page
+            if dy.zero?
+              emit(ASM.mov_reg(4, y_reg))
+            else
+              emit(ASM.add_imm(4, y_reg, dy))
+            end
+            emit(ASM.load_immediate(5, SCREEN_WIDTH))
+            emit(ASM.mul(4, 5, 4))            # r4 = SCREEN_WIDTH * (y + dy)
+            emit(ASM.add_reg(4, 4, x_reg))    # + x
+            load_var(5, BACKBUF)              # r5 = hidden page base
+            emit(ASM.add_reg(4, 4, 5))        # r4 = destination
+
+            store_word_immediate(scratch, REG_DMA3SAD)
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(4, TMP))
+            store_word_immediate(control, REG_DMA3CNT)
+          end
+        end
+
+        # Stash a solid fill color as a word of four packed indices in IWRAM and
+        # return its address — the fixed source a Mode 4 DMA fill re-reads. A 16-bit
+        # fill reads its low half (two indices); a 32-bit fill reads all four.
+        def hold_index_word(color)
+          index = @palette.index_of(color)
+          word = index * 0x01010101 # the same index in all four bytes
+          scratch = var_addr(:_dma_scratch)
+          store_word_immediate(word, scratch)
+          scratch
+        end
+
+        # Point DMA3's destination at the hidden page's base (a run-time value).
+        def point_dma_dest_at_backbuf
+          load_var(ACC, BACKBUF)
+          emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+          emit(ASM.str(ACC, TMP))
+        end
+
+        # The DMA3 control word for a source-fixed 16-bit fill of +count+ halfwords —
+        # the Mode 4 fill unit (two packed indices per halfword).
+        def dma_fill_control_16(count)
+          count | DMA_ENABLE | DMA_SRC_FIXED # 16-bit is the default (DMA_16BIT == 0)
+        end
+
+        # Mode 4 writes two pixels at a time, so a fill has to start on an even
+        # column — an odd start would land between the paired pixels.
+        def even_start!(x, kind)
+          return if x.even?
+
+          raise LoweringError,
+                "#{kind} in double-buffered mode needs an even x (got #{x}) — the indexed screen " \
+                "is written two pixels at a time, so a fill must start on an even column."
+        end
+
+        # The pixel-at-a-time verbs can't run on the indexed screen yet: a single
+        # index is one byte, and video memory rejects lone byte writes, so these need
+        # a read-modify-write path that isn't built. Say so plainly, with the way out.
+        def buffered_unsupported!(kind)
+          raise LoweringError,
+                "#{kind} isn't available yet with double buffering (buffered: true). The buffered screen " \
+                "is written two pixels at a time, so drawing single pixels (#{kind}) needs extra work that " \
+                "isn't done yet. For now, use clear_screen and the rectangle fills (fill_rect, " \
+                "dma_fill_rect, draw_rect_at) in buffered mode, or drop `buffered:` for direct-color mode."
         end
 
         # --- audio ---------------------------------------------------------------
@@ -1038,6 +1249,10 @@ module RubyGBA
           # A new frame begins now, so refresh the input snapshot: last frame's
           # keys become "previous", and we latch this frame's keys as "current".
           snapshot_keys if @uses_pressed
+
+          # Double-buffered: this is the safe moment to swap pages, showing the frame
+          # just drawn and handing the program the other page to draw the next one.
+          emit_flip if @buffered
         end
 
         # --- value expressions --------------------------------------------------
