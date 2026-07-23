@@ -78,6 +78,7 @@ module RubyGBA
     machine_code = backend.lower(builder.program)
     rom = ROM.assemble(machine_code, title: title, code: code, maker: maker,
                                      validate: builder.debug_halted? ? false : validate)
+    rom.source_program = builder.program # so the ROM can report on itself (rom.explain)
 
     unless builder.dump_requests.empty?
       FuncDumper.new(rom, backend.func_ranges, out: out, err: err).dump(builder.dump_requests)

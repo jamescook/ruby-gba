@@ -21,6 +21,11 @@ module RubyGBA
 
     attr_reader :buffer, :code_offset
 
+    # The IR program this ROM was built from, when known. RubyGBA.build attaches it
+    # so the ROM can report on itself (see #explain); a ROM assembled straight from
+    # machine code has none.
+    attr_accessor :source_program
+
     # Package finished machine code into a cartridge: write the header, drop the
     # code in after it, and finalize (entry branch, checksum, power-of-two
     # padding, and the ROM-image validation). This is the counterpart to a
@@ -85,6 +90,18 @@ module RubyGBA
           raise ROMError, "ROM has errors:\n#{result.report}"
         end
       end
+    end
+
+    # Print a draw-cost estimate for this ROM to +out+: how much drawing it does
+    # each frame (or once, if it never loops), and whether that fits the brief
+    # window the console has to change the screen without tearing. Weights are
+    # rough placeholders for now (see {IR::CostModel}).
+    def explain(out: $stdout)
+      unless source_program
+        raise ROMError, "this ROM has no source program to explain (assemble via RubyGBA.build)"
+      end
+
+      IR::CostModel.new.report(source_program, out: out)
     end
 
     # Write the ROM to a file.
