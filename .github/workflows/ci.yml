@@ -1,7 +1,7 @@
 name: CI
 
-# Manual only for now — deliberately NO auto-build on push or PR.
-# Run it from the Actions tab ("Run workflow") or: gh workflow run ci.yml
+# Manual only for now — no auto-build on push or PR.
+# Run from the Actions tab ("Run workflow") or: gh workflow run ci.yml
 on:
   workflow_dispatch:
 
@@ -12,57 +12,49 @@ concurrency:
 jobs:
   test:
     name: test (ruby ${{ matrix.ruby }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04        # stable + pre-cached Ruby; ships Tcl/Tk 8.6 natively
     strategy:
       fail-fast: false
       matrix:
-        # gemspec allows >= 3.2; gemba's own CI targets 4.0. Add versions for a matrix.
         ruby: ['4.0']
 
     steps:
       - uses: actions/checkout@v6
 
-      # System libraries gemba's native builds need: teek (Tcl/Tk), teek-sdl2
-      # (SDL2), and an embedded mGBA core.
-      #
-      # gemba's own CI caches apt via Docker/buildkit cache mounts — that only
-      # works because it builds inside Docker. This job runs on the runner
-      # directly, so we cache the packages with cache-apt-pkgs-action instead:
-      # ~2 min cold, a few seconds on a cache hit. Bump `version:` to force a
-      # refresh; tweak the list against gemba's Dockerfile.ci-test if a build fails.
-      - name: Install gemba build dependencies (cached)
-        uses: awalsh128/cache-apt-pkgs-action@v1
-        with:
-          packages: >-
-            build-essential pkg-config cmake
-            tcl-dev tk-dev
-            libsdl2-dev
-            libpng-dev zlib1g-dev libzip-dev
-            xvfb
-          version: 1
+      # gemba's build deps, Tcl-8.6 path from its Dockerfile.ci-test: teek (Tcl/Tk),
+      # teek-sdl2 (SDL2 family), gemba (links system libmgba). No pkg-config symlink
+      # needed on 8.6, and libtk-img is a normal package here (the Debian fetch was
+      # tcl9-only). imagemagick is also used by ruby-gba's PNG import.
+      - name: Install gemba dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential make pkg-config \
+            libyaml-dev libffi-dev libreadline-dev zlib1g-dev libssl-dev \
+            libx11-dev libxcursor-dev \
+            libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-gfx-dev \
+            libmgba-dev \
+            tcl-dev tk-dev libtk-img \
+            bwidget xvfb pulseaudio imagemagick ffmpeg
 
-      # Gemfile.lock is intentionally NOT committed, so Bundler resolves fresh
-      # each run against the gemspec ranges (no frozen mode, no lockfile checksum
-      # issues). bundler-cache still caches the installed gems — including gemba's
-      # compiled native extensions — so the expensive C build isn't repeated on a hit.
-      - name: Set up Ruby (+ bundle install, which compiles gemba)
+      # No committed Gemfile.lock → fresh resolve (no frozen/checksum issues).
+      # bundler-cache caches the compiled teek/gemba extensions across runs.
+      - name: Set up Ruby (+ bundle install, which compiles gemba/teek)
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
 
-      # gemba brings in Tcl/Tk (teek) and SDL2, which expect a display. CI is
-      # headless, so run under a virtual framebuffer and point SDL at its dummy
-      # drivers. Integration tests still skip gracefully if gemba can't load
-      # (see GembaSupport#skip_unless_gemba), so unit tests pass either way.
+      # Headless: PulseAudio null sink for SDL audio, then run under Xvfb (teek
+      # wants a display). gemba-backed tests skip gracefully if it can't load.
       - name: Run tests
         run: |
           set -o pipefail
+          pulseaudio --start --daemonize --exit-idle-time=-1 2>/dev/null || true
+          pactl load-module module-null-sink sink_name=dummy >/dev/null 2>&1 || true
           xvfb-run -a bundle exec rake test 2>&1 | tee test-output.log
         env:
           CI: '1'
-          SDL_VIDEODRIVER: dummy
-          SDL_AUDIODRIVER: dummy
 
       - name: Upload test log
         if: always()
