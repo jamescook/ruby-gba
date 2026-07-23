@@ -96,12 +96,20 @@ module RubyGBA
     # each frame (or once, if it never loops), and whether that fits the brief
     # window the console has to change the screen without tearing. Weights are
     # rough placeholders for now (see {IR::CostModel}).
-    def explain(out: $stdout)
+    #
+    # +format+ is :human (the at-a-glance summary) or :json (the structured cost
+    # tree, for tools and tests to consume without parsing text).
+    def explain(format: :human, out: $stdout)
       unless source_program
         raise ROMError, "this ROM has no source program to explain (assemble via RubyGBA.build)"
       end
 
-      IR::CostModel.new.report(source_program, out: out)
+      model = IR::CostModel.new
+      case format
+      when :human then model.report(source_program, out: out)
+      when :json  then out.puts(JSON.generate(model.as_json(source_program)))
+      else raise ArgumentError, "unknown explain format #{format.inspect} (use :human or :json)"
+      end
     end
 
     # Write the ROM to a file.

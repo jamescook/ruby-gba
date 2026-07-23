@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module RubyGBA
   module IR
     # Estimates how much *drawing* a program does — per frame for a game loop, or
@@ -15,6 +17,9 @@ module RubyGBA
     # a loop's body counts once per iteration, a list-driven loop counts up to the
     # list's capacity (the worst it can reach), and a scene dispatch (case_var)
     # costs its heaviest branch, since only one branch runs per frame.
+    #
+    # #analyze returns the work as a structured tree (op, label, cost, children) —
+    # the shape rom.explain renders for humans and dumps as JSON for tests.
     #
     # Selectivity — that `every(6)` only draws one frame in six, that a
     # `draw_number` column draws one of ten glyphs — is a later layer that reads
@@ -38,15 +43,37 @@ module RubyGBA
         @weights = DEFAULT_WEIGHTS.merge(weights)
       end
 
-      # Print a short, human draw-cost estimate for +program+ to +out+: the
-      # per-frame cost against the frame budget for a game loop, or the one-time
-      # boot cost for a static program. (The full drill-down tree and JSON come
-      # later; this is the at-a-glance summary.)
+      # The draw work of one frame as a structured cost tree: an array of nodes
+      # { op:, label:, cost:, children: }. It's the game loop's body if there is
+      # one, otherwise the one-time boot draws of a static program. Costs roll up:
+      # a container's cost is the sum of its children (a repeat multiplies, a
+      # case_var takes its worst branch).
+      def analyze(program)
+        index(program)
+        @stack = []
+        loop_node = program.children.find { |node| node.kind == :loop }
+        statements = loop_node ? loop_node.children : program.children.reject { |node| node.kind == :func }
+        statements.flat_map { |node| build(node) }
+      end
+
+      # The total draw cost of one frame — the roll-up of #analyze.
+      def frame_cost(program)
+        analyze(program).sum { |node| node[:cost] }
+      end
+
+      # Whether a program has a game loop (its cost recurs every frame) or is a
+      # one-shot static draw.
+      def looping?(program)
+        program.children.any? { |node| node.kind == :loop }
+      end
+
+      # Print a short, human draw-cost estimate to +out+: the per-frame cost against
+      # the frame budget for a game loop, or the one-time boot cost otherwise. (The
+      # full drill-down tree comes later; this is the at-a-glance summary.)
       def report(program, out: $stdout)
         total = frame_cost(program)
-        looping = program.children.any? { |node| node.kind == :loop }
         out.puts "draw-cost estimate (rough, illustrative weights):"
-        if looping
+        if looping?(program)
           over = total > VBLANK_BUDGET
           out.puts "  per frame ~ #{total} write-units   (budget ~ #{VBLANK_BUDGET})   " \
                    "#{over ? '! over budget — the screen may tear as things grow' : 'ok — fits the frame'}"
@@ -55,14 +82,14 @@ module RubyGBA
         end
       end
 
-      # The draw cost of one frame: the game loop's body if there is one, otherwise
-      # the one-time boot draws of a static program.
-      def frame_cost(program)
-        index(program)
-        @stack = []
-        loop_node = program.children.find { |n| n.kind == :loop }
-        statements = loop_node ? loop_node.children : program.children.reject { |n| n.kind == :func }
-        statements.sum { |node| cost(node) }
+      # The analysis as a plain Hash, ready to serialize (rom.explain format: :json).
+      def as_json(program)
+        {
+          frame_cost: frame_cost(program),
+          budget: VBLANK_BUDGET,
+          looping: looping?(program),
+          tree: analyze(program),
+        }
       end
 
       private
@@ -78,37 +105,67 @@ module RubyGBA
         end
       end
 
-      def cost(node)
+      # Build the cost tree for a node — an array (if/else/program are transparent
+      # and splice their children; a non-draw leaf contributes nothing).
+      def build(node)
         case node.kind
-        when :program, :loop, :else then node.children.sum { |child| cost(child) }
-        when :if   then node.children.sum { |child| cost(child) } + (node[:else] ? cost(node[:else]) : 0)
-        when :repeat then repeat_factor(node) * node.children.sum { |child| cost(child) }
-        when :case then node[:clauses].map { |_value, target| body_cost(target) }.max || 0
-        when :call then body_cost(node[:target])
-        when :func then 0 # a definition: it costs only where it's called
-        else op_cost(node)
+        when :program, :loop then node.children.flat_map { |child| build(child) }
+        when :if then (node.children + [node[:else]].compact).flat_map { |child| build(child) }
+        when :else then node.children.flat_map { |child| build(child) }
+        when :case then [build_case(node)]
+        when :call then [build_call(node)]
+        when :repeat then [build_repeat(node)]
+        when :func then [] # a definition: it costs only where it's called
+        else
+          c = op_cost(node)
+          c.positive? ? [{ op: node.kind, label: label_of(node), cost: c, children: [] }] : []
         end
       end
 
-      # The cost of a named func's body, guarding against a call cycle.
-      def body_cost(name)
-        return 0 if @stack.include?(name)
-        func = @funcs[name] or return 0
-        @stack.push(name)
-        total = func.children.sum { |child| cost(child) }
-        @stack.pop
-        total
+      # case_var runs one scene per frame, so its cost is the heaviest branch.
+      def build_case(node)
+        branches = node[:clauses].map do |value, target|
+          kids = func_children(target)
+          { op: :branch, label: "#{value} -> :#{target}", cost: sum(kids), children: kids }
+        end
+        { op: :case, label: "case_var :#{node[:var]}", cost: (branches.map { |b| b[:cost] }.max || 0), children: branches }
       end
 
-      # How many times a repeat runs its body: a literal count exactly; a list's
-      # length up to the list's capacity (the most it can hold). An unknown count
+      # A call is its target func's body, inlined (guarding against a call cycle).
+      def build_call(node)
+        kids = func_children(node[:target])
+        { op: :call, label: "call :#{node[:target]}", cost: sum(kids), children: kids }
+      end
+
+      # A repeat runs its body count times, so its cost multiplies.
+      def build_repeat(node)
+        factor, note = repeat_factor(node)
+        kids = node.children.flat_map { |child| build(child) }
+        { op: :repeat, label: "repeat #{note}", cost: factor * sum(kids), children: kids }
+      end
+
+      def func_children(name)
+        return [] if @stack.include?(name)
+        func = @funcs[name] or return []
+        @stack.push(name)
+        kids = func.children.flat_map { |child| build(child) }
+        @stack.pop
+        kids
+      end
+
+      def sum(nodes) = nodes.sum { |node| node[:cost] }
+
+      # How many times a repeat runs, and a human note: a literal count exactly; a
+      # list's length up to its capacity (the most it can hold). An unknown count
       # (a plain variable) counts as zero for now — a later pass flags it unbounded.
       def repeat_factor(node)
         count = node[:count]
-        return count[:value] if count.is_a?(Node) && count.kind == :int
-        return @capacities.fetch(count[:name], 0) if count.is_a?(Node) && count.kind == :list_len
-
-        0
+        return [count[:value], "x#{count[:value]}"] if count.is_a?(Node) && count.kind == :int
+        if count.is_a?(Node) && count.kind == :list_len && @capacities[count[:name]]
+          cap = @capacities[count[:name]]
+          return [cap, "x<=#{cap} (#{count[:name]} capacity)"]
+        end
+        [0, "x? (unbounded)"]
       end
 
       def op_cost(node)
@@ -119,6 +176,14 @@ module RubyGBA
         when :clear_screen then SCREEN_W * SCREEN_H * px
         when :draw_text then node[:text].to_s.length * @weights[:glyph] * px
         else 0 # non-draw ops: no draw cost
+        end
+      end
+
+      def label_of(node)
+        case node.kind
+        when :fill_rect, :dma_fill_rect, :draw_rect_at then "#{node.kind} #{node[:w]}x#{node[:h]}"
+        when :draw_text then "draw_text #{node[:text].inspect}"
+        else node.kind.to_s
         end
       end
     end
