@@ -1,5 +1,6 @@
 .claude
 *.gba
+.DS_Store
 
 # Not committed — this is used as an app but the lock stays out of git (fresh resolve in CI)
 Gemfile.lock
