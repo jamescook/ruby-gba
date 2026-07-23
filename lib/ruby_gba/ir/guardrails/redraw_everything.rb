@@ -12,7 +12,8 @@ module RubyGBA
         # entire frame from scratch, including something unbounded. That's fine while
         # the collection is short, but the redraw gets heavier until it no longer
         # fits in the brief window the console has to change the screen, and the
-        # picture tears. It's the exact pattern the incremental Snake had to shed.
+        # picture tears. The fix is incremental drawing: paint the fixed parts once,
+        # then each frame touch only the cells that actually change.
         #
         # This is the cheap structural companion to the cost estimator: no weights,
         # just the pattern, so it's near-zero false positives. It only looks at the
