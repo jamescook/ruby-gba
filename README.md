@@ -6,62 +6,77 @@ You write plain Ruby. `ruby-gba` turns it into an ARM7 cartridge that boots on a
 
 It is also an experiment in **AI-native tooling**: every line here was written by an AI agent, and the whole toolchain is shaped around giving an agent (and a human) fast, mechanical, readable feedback while building a game.
 
+![Snake, built entirely with the ruby-gba DSL, running in an emulator](assets/snake.gif)
+
+> The game above is a complete Snake — growing body, random food, scoring, game-over — written in the DSL. Full source: [`examples/snake.rb`](examples/snake.rb).
+
 ```ruby
 require_relative "lib/ruby_gba"
 
-# A trimmed slice — see examples/pong.rb for the full, heavily-commented game.
-# (Constants like BALL_SPEED and vars like player_y/cpu_score are defined there.)
-rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
+# A trimmed slice of examples/snake.rb — see that file for the full, commented game.
+# (Grid constants like CELL, MIN_COL, BODY_CAP and the STEP beat are defined there.)
+rom = RubyGBA.build("SNAKE", code: "BSNK", maker: "01") do
   display :bitmap
   enable_sound
+  define_sound :eat, frequency: 880, duty: :quarter, decay: :fast
 
-  # `var` returns a handle you compare and mutate with the expression DSL.
-  ball_x  = var :ball_x, 118
-  ball_y  = var :ball_y, 78
-  ball_dx = var :ball_dx, BALL_SPEED
-  ball_dy = var :ball_dy, BALL_SPEED
-  cpu_y   = var :cpu_y, 68
-  state   = var :state, 0                # 0 = title, 1 = playing, ...
+  # The snake's body is two parallel lists (xs[i], ys[i]), one entry per cell.
+  # `list` is a bounded, runtime-sized collection — a ring buffer in IWRAM.
+  xs = list :xs, capacity: BODY_CAP
+  ys = list :ys, capacity: BODY_CAP
 
-  func :update_ball do
-    ball_x.add ball_dx
-    ball_y.add ball_dy
+  var :state, 0
+  dx = var :dx, 1
+  dy = var :dy, 0
+  food_x = var :food_x, 0
+  food_y = var :food_y, 0
+  score  = var :score, 0
 
-    # A comparison IS a Condition; `.then` runs the block only when it holds.
-    (ball_y <= 0).then { ball_dy.abs; beep :wall_bounce }
+  func :spawn_food do
+    roll :food_x, MIN_COL..MAX_COL      # a deterministic PRNG stream (seed / roll / rand)
+    roll :food_y, MIN_ROW..MAX_ROW
+  end
 
-    # `&` composes comparisons into one overlap test (parenthesize each).
-    hit = (ball_x >= LEFT_X) & (ball_x <= LEFT_X + PADDLE_W) &
-          (ball_y >= player_y - BALL_SIZE) & (ball_y <= player_y + PADDLE_H)
-    hit.then { ball_dx.abs; beep :paddle_hit }
+  func :step_snake do
+    hx = xs.last + dx                   # arithmetic on list cells + handles
+    hy = ys.last + dy
+    # Hit a wall -> game over; else grow a new head and either eat or slide forward.
+    ((hx < MIN_COL) | (hx > MAX_COL) | (hy < MIN_ROW) | (hy > MAX_ROW)).then do
+      state.set 2
+      beep :die
+    end.else do
+      xs.push hx; ys.push hy
+      draw_rect_at hx * CELL, hy * CELL, CELL, CELL, :white
+      ((hx == food_x) & (hy == food_y)).then do    # ate the food: grow + score
+        score.add 1; beep :eat; call :spawn_food
+      end.else do
+        xs.shift; ys.shift                          # slid forward: drop the tail
+      end
+    end
   end
 
   scene :playing do
-    clear_screen :black
-    held(:up).then   { player_y.sub PADDLE_SPEED }     # hold a direction to move
-    held(:down).then { player_y.add PADDLE_SPEED }
-    cpu_y.approach ball_y - PADDLE_H / 2, CPU_SPEED     # AI slides toward the ball
-    call :update_ball
-    draw_rect_at :ball_x, :ball_y, BALL_SIZE, BALL_SIZE, :white
-    draw_number cpu_score, 134, 8, :white, digits: 1    # live HUD score
+    # Steer if the turn is perpendicular (the full file buffers it so you can't reverse).
+    held(:up).then    { (dy == 0).then { dx.set 0; dy.set(-1) } }
+    held(:right).then { (dx == 0).then { dx.set 1; dy.set 0 } }
+    every(STEP) { call :step_snake }    # move on a beat, not every frame
   end
 
   game_loop do
     wait_vblank
-    case_var :state do                   # dispatch on a state variable
-      when_val 0, :title
-      when_val 1, :playing
+    case_var :state do
+      when_val 1, :playing              # title (0) + game_over (2) omitted — see full file
     end
   end
 end
 
-rom.write("pong.gba")   # guardrails run during build; rom.explain shows the cost tree
+rom.write("snake.gba")   # guardrails run during build; rom.explain shows the cost tree
 ```
 
 Build it and run it in any GBA emulator:
 
 ```bash
-ruby examples/pong.rb      # => writes pong.gba
+ruby examples/snake.rb     # => writes snake.gba
 rake test                  # unit + (optional) emulator integration tests
 ```
 
@@ -71,7 +86,7 @@ rake test                  # unit + (optional) emulator integration tests
 
 ### Teaching tool first — hide the hardware
 
-Every user-facing verb speaks intent and color *names*, never registers or jargon. `display :bitmap`, `draw_rect_at`, `beep :paddle_hit`, `clear_screen :black`. The framework owns the palette, VRAM layout, VBlank timing, and DMA. Sensible, safe defaults (edge-clipping, safe writes) mean nothing corrupts memory or silently fails — and a **raw escape hatch** stays available for anyone who *wants* to drop down to the metal.
+Every user-facing verb speaks intent and color *names*, never registers or jargon. `display :bitmap`, `draw_rect_at`, `beep :eat`, `clear_screen :black`. The framework owns the palette, VRAM layout, VBlank timing, and DMA. Sensible, safe defaults (edge-clipping, safe writes) mean nothing corrupts memory or silently fails — and a **raw escape hatch** stays available for anyone who *wants* to drop down to the metal.
 
 ### Guardrails — footguns become teaching errors
 
@@ -79,15 +94,15 @@ The worst part of learning the GBA is that mistakes rarely tell you *what* went 
 
 ### The value-centric DSL — why it matters
 
-`var :ball_x, 118` returns a **handle**, and comparisons build a small expression tree rather than executing immediately:
+`var :dx, 1` returns a **handle**, and comparisons build a small expression tree rather than executing immediately:
 
 ```ruby
-(ball_y <= 0).then { ... }                 # a Condition, not a Ruby `if`
-hit = (ball_x >= LEFT_X) & (ball_y <= player_y + PADDLE_H)   # composed with &
-cpu_y.approach ball_y - PADDLE_H / 2, CPU_SPEED              # arithmetic on handles
+(hy > MAX_ROW).then { state.set 2 }          # a Condition, not a Ruby `if`
+ate = (hx == food_x) & (hy == food_y)        # comparisons composed with &
+xs.push xs.last + dx                         # arithmetic on handles and list cells
 ```
 
-This matters because those handles and comparisons are **data the compiler can see**. `ball_y - PADDLE_H / 2` isn't run — it's recorded, so it can be validated, cost-estimated, optimized, and lowered to whatever the target needs. It also lets guardrails catch the `if`-instead-of-`.then` slip (a comparison used as a native Ruby `if` silently does nothing on hardware) and gives every operand one consistent, checkable shape.
+This matters because those handles and comparisons are **data the compiler can see**. `xs.last + dx` isn't run — it's recorded, so it can be validated, cost-estimated, optimized, and lowered to whatever the target needs. It also lets guardrails catch the `if`-instead-of-`.then` slip (a comparison used as a native Ruby `if` silently does nothing on hardware) and gives every operand one consistent, checkable shape.
 
 ### The IR — one description, many targets
 
@@ -103,7 +118,7 @@ Because the program is inspectable, `ruby-gba` estimates how much *drawing* each
 rom.explain   # drill-down cost tree: which scene / func / loop draws the most per frame
 ```
 
-This is both a **teaching aid** (understand why a frame is heavy) and a **debugging tool** (a guardrail can warn when a loop redraws the whole screen every frame). Cost profiles will eventually be parameterized per backend (GBA vs GBC).
+This is both a **teaching aid** (understand why a frame is heavy) and a **debugging tool** (a guardrail can warn when a loop redraws the whole screen every frame — the exact reason Snake draws incrementally). Cost profiles will eventually be parameterized per backend (GBA vs GBC).
 
 ### Future targets
 
@@ -121,13 +136,13 @@ This entire tool is AI-written, and the workflow is designed so an agent can ite
 
 - **Tight, mechanical feedback loops.** The Ruby interpreter renders the IR headlessly (no emulator needed), a pixel Verifier reads back actual frames, guardrails give plain-language pass/fail at build time, and `rom.explain` emits a machine-readable cost tree an agent can reason over. An agent can build → validate → run → diff → explain without leaving Ruby.
 - **Mechanical safety rails.** An IR verifier enforces the value model on every build (a malformed tree is a *library* bug, raised loudly); the conformance fixture diffs backends so a change can't silently break one target.
-- **Persistent, cross-session memory.** Work is tracked in [**beads**](https://github.com/gastownhall/beads) (`bd`) — a dependency-aware issue graph living in the repo — so an agent can recover context, see what's ready, and pick up mid-stream across sessions. Agent guidance lives in `CLAUDE.md` / `AGENTS.md` (not currently committed to git)
+- **Persistent, cross-session memory.** Work is tracked in [**beads**](https://github.com/gastownhall/beads) (`bd`) — a dependency-aware issue graph living in the repo — so an agent can recover context, see what's ready, and pick up mid-stream across sessions. Agent guidance lives in `CLAUDE.md` / `AGENTS.md`.
 
 ---
 
 ## Feature progress
 
-A rough map of the GBA surface. Checked = working today; unchecked = planned.
+A rough map of the GBA surface. Checked = working today; unchecked = planned (tracked in `bd`).
 
 **Working**
 
@@ -180,7 +195,8 @@ lib/ruby_gba/
     backends/ruby/           # interpret IR -> framebuffer (headless reference)
   asm.rb, rom.rb             # ARM encoding + cartridge assembly
   verifier.rb                # read back real pixels from mGBA (optional, via gemba)
-examples/                    # pong.rb, snake.rb, pixels.rb, sprite_mover.rb
+examples/                    # snake.rb, pong.rb, pixels.rb, sprite_mover.rb
+assets/                      # captured GIFs / screenshots
 ```
 
 ## Status
