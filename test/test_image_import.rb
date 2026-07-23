@@ -150,7 +150,7 @@ class TestImageImport < Minitest::Test
     fixture = TWO_BY_TWO
     builder = RubyGBA::Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       image :photo, from: fixture, width: 2, height: 2 # imported and embedded
       blit :photo, x, y
@@ -190,7 +190,7 @@ class TestImageImport < Minitest::Test
     fixture = ALPHA_2X2
     builder = RubyGBA::Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       clear_screen :blue
       image :head, from: fixture, width: 2, height: 2, transparent: true
       blit :head, x, y

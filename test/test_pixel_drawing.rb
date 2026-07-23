@@ -7,7 +7,7 @@ require_relative "../lib/ruby_gba"
 class TestPixelDrawing < Minitest::Test
   def test_display_bitmap_sets_mode3
     rom = RubyGBA.build("DISPTEST", code: "BDSP", maker: "01") do
-      display :bitmap
+      screen :bitmap
       halt
     end
 
@@ -22,7 +22,7 @@ class TestPixelDrawing < Minitest::Test
   def test_display_raw_integer
     # Should accept raw register values without raising
     rom = RubyGBA.build("RAWDISP", code: "BRAW", maker: "01") do
-      display 0x0403  # MODE_3 | BG2_ENABLE manually
+      screen 0x0403  # MODE_3 | BG2_ENABLE manually
       halt
     end
     assert_operator rom.size, :>=, 512
@@ -31,14 +31,14 @@ class TestPixelDrawing < Minitest::Test
   def test_display_unknown_mode_raises
     assert_raises(ArgumentError) do
       RubyGBA.build("BAD", code: "BBAD", maker: "01") do
-        display :holographic
+        screen :holographic
       end
     end
   end
 
   def test_pixel_draws_to_vram
     rom = RubyGBA.build("PIXTEST", code: "BPIX", maker: "01") do
-      display :bitmap
+      screen :bitmap
       pixel 0, 0, :red
       halt
     end
@@ -52,14 +52,14 @@ class TestPixelDrawing < Minitest::Test
   def test_pixel_out_of_bounds_raises
     assert_raises(ArgumentError) do
       RubyGBA.build("OOB", code: "BOOB", maker: "01") do
-        display :bitmap
+        screen :bitmap
         pixel 240, 0, :red  # x too large
       end
     end
 
     assert_raises(ArgumentError) do
       RubyGBA.build("OOB", code: "BOOB", maker: "01") do
-        display :bitmap
+        screen :bitmap
         pixel 0, 160, :red  # y too large
       end
     end
@@ -68,7 +68,7 @@ class TestPixelDrawing < Minitest::Test
   def test_pixel_accepts_color_formats
     # All these should work without raising
     rom = RubyGBA.build("COLORS", code: "BCOL", maker: "01") do
-      display :bitmap
+      screen :bitmap
       pixel 10, 10, :red               # symbol preset
       pixel 11, 10, rgb(31, 0, 0)      # rgb helper
       pixel 12, 10, color("#FF0000")   # hex string via helper
@@ -80,13 +80,13 @@ class TestPixelDrawing < Minitest::Test
 
   def test_fill_rect_produces_larger_rom
     rom_small = RubyGBA.build("SMALL", code: "BSML", maker: "01") do
-      display :bitmap
+      screen :bitmap
       pixel 0, 0, :red
       halt
     end
 
     rom_big = RubyGBA.build("BIG", code: "BBIG", maker: "01") do
-      display :bitmap
+      screen :bitmap
       fill_rect 10, 10, 5, 5, :blue
       halt
     end
@@ -102,7 +102,7 @@ class TestPixelDrawing < Minitest::Test
   def test_fill_rect_clips_to_screen
     # Should not raise even if rect extends past screen edge
     rom = RubyGBA.build("CLIP", code: "BCLP", maker: "01") do
-      display :bitmap
+      screen :bitmap
       fill_rect 235, 155, 10, 10, :green  # extends past right/bottom edge
       halt
     end
@@ -111,7 +111,7 @@ class TestPixelDrawing < Minitest::Test
 
   def test_halt_produces_loop
     rom = RubyGBA.build("HALT", code: "BHLT", maker: "01") do
-      display :bitmap
+      screen :bitmap
       halt
     end
 
@@ -131,7 +131,7 @@ class TestPixelDrawing < Minitest::Test
 
   def test_write_and_load
     rom = RubyGBA.build("PIXELS", code: "BPXL", maker: "01") do
-      display :bitmap
+      screen :bitmap
       pixel 120, 80, :red
       pixel 121, 80, :green
       pixel 122, 80, :blue

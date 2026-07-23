@@ -30,7 +30,7 @@ end
 # ============================================================
 puts "=== Test A: Display mode only ==="
 rom = RubyGBA.build("DISPONLY", code: "BTST", maker: "01") do
-  display :bitmap
+  screen :bitmap
   halt
 end
 
@@ -41,7 +41,7 @@ puts RubyGBA::Inspector.from_rom(rom).code_report(max_instructions: 10)
 puts
 
 # Verify manually:
-# display :bitmap → value = MODE_3 | BG2_ENABLE = 0x0003 | 0x0400 = 0x0403
+# screen :bitmap → value = MODE_3 | BG2_ENABLE = 0x0003 | 0x0400 = 0x0403
 # emit_write_reg16(0x04000000, 0x0403)
 #   load_immediate(0, 0x0403) →
 #     i=0: byte=0x03, rot=0 → MOV r0, #3         = 0xE3A00003
@@ -69,7 +69,7 @@ puts
 # ============================================================
 puts "=== Test B: Red pixel at (120, 80) ==="
 rom = RubyGBA.build("REDPIX", code: "BTST", maker: "01") do
-  display :bitmap
+  screen :bitmap
   pixel 120, 80, :red
   halt
 end
@@ -90,7 +90,7 @@ puts
 # ============================================================
 puts "=== Test C: Large blue rectangle (80x60 centered) ==="
 rom = RubyGBA.build("BIGRECT", code: "BTST", maker: "01") do
-  display :bitmap
+  screen :bitmap
   fill_rect 80, 50, 80, 60, :blue
   halt
 end
@@ -108,7 +108,7 @@ puts
 # ============================================================
 puts "=== Test D: Three large color blocks ==="
 rom = RubyGBA.build("BLOCKS", code: "BTST", maker: "01") do
-  display :bitmap
+  screen :bitmap
   fill_rect 10, 10, 60, 60, :red
   fill_rect 90, 10, 60, 60, :green
   fill_rect 170, 10, 60, 60, :blue

@@ -241,7 +241,7 @@ class TestConditionals < Minitest::Test
 
   def test_conditionals_run_in_mgba
     rom = build do
-      display :bitmap
+      screen :bitmap
       set :state, 0
       set :ball_x, 120
       set :ball_y, 80

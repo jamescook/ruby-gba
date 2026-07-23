@@ -17,14 +17,14 @@ module RubyGBA
           NAME = :display_mode_set
 
           PROBLEM =
-            "This program draws to the screen but never picks a display mode. On the " \
+            "This program draws to the screen but never picks a screen mode. On the " \
             "Game Boy Advance nothing appears until a mode is chosen, so the screen would " \
             "stay black — and with no crash or error to point you at it. Choose a mode " \
-            "with `display :bitmap` before your first draw to switch the screen on."
+            "with `screen :bitmap` before your first draw to switch the screen on."
 
           FIXED =
-            "You drew without picking a display mode, which would have left the screen " \
-            "black. I switched the screen on in bitmap mode (`display :bitmap`) for you — " \
+            "You drew without picking a screen mode, which would have left the screen " \
+            "black. I switched the screen on in bitmap mode (`screen :bitmap`) for you — " \
             "add that line yourself before your first draw to silence this warning."
 
           # Fires only when the program actually draws yet no `display` op sets a

@@ -31,7 +31,7 @@ class TestDMA < Minitest::Test
 
   def test_clear_screen_builds
     rom = build do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       halt
     end
@@ -41,7 +41,7 @@ class TestDMA < Minitest::Test
 
   def test_clear_screen_emits_dma_registers
     rom = build do
-      display :bitmap
+      screen :bitmap
       clear_screen :red
       halt
     end
@@ -58,13 +58,13 @@ class TestDMA < Minitest::Test
 
   def test_clear_screen_much_smaller_than_fill_rect
     rom_dma = build do
-      display :bitmap
+      screen :bitmap
       clear_screen :red
       halt
     end
 
     rom_pixel = build do
-      display :bitmap
+      screen :bitmap
       fill_rect 0, 0, 240, 160, :red
       halt
     end
@@ -80,7 +80,7 @@ class TestDMA < Minitest::Test
 
   def test_dma_fill_rect_builds
     rom = build do
-      display :bitmap
+      screen :bitmap
       dma_fill_rect 10, 10, 40, 30, :blue
       halt
     end
@@ -90,7 +90,7 @@ class TestDMA < Minitest::Test
 
   def test_dma_fill_rect_emits_multiple_transfers
     rom = build do
-      display :bitmap
+      screen :bitmap
       dma_fill_rect 10, 10, 40, 3, :green
       halt
     end
@@ -107,7 +107,7 @@ class TestDMA < Minitest::Test
 
   def test_clear_screen_renders_in_mgba
     rom = build do
-      display :bitmap
+      screen :bitmap
       clear_screen :red
       halt
     end
@@ -122,7 +122,7 @@ class TestDMA < Minitest::Test
 
   def test_dma_fill_rect_renders_in_mgba
     rom = build do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       dma_fill_rect 100, 60, 40, 40, :green
       halt
@@ -137,7 +137,7 @@ class TestDMA < Minitest::Test
 
   def test_game_loop_with_clear_screen_runs
     rom = build do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         clear_screen :black

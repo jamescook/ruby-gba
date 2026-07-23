@@ -58,65 +58,65 @@ class TestDrawNumber < Minitest::Test
   def test_a_live_number_renders_its_digits
     # score 42 in a 4-wide field is right-aligned, so it starts one column in
     # (thousands blank), i.e. at x + 2*W. draw_text "42" placed there is the oracle.
-    screen = interpret_screen do
-      display :bitmap
+    fb = interpret_screen do
+      screen :bitmap
       clear_screen :black
       var :score, 42
       draw_number :score, 40, 20, :white, digits: 4
       draw_text "42", 40 + 2 * W, 40, :white
     end
-    assert_bands_match(screen, x: 40 + 2 * W, w: 2 * W, y1: 20, y2: 40)
+    assert_bands_match(fb, x: 40 + 2 * W, w: 2 * W, y1: 20, y2: 40)
   end
 
   def test_a_middle_zero_is_kept
     # 102 must show its middle zero (only *leading* zeros are dropped).
-    screen = interpret_screen do
-      display :bitmap
+    fb = interpret_screen do
+      screen :bitmap
       clear_screen :black
       var :score, 102
       draw_number :score, 40, 20, :white, digits: 4
       draw_text "102", 40 + 1 * W, 40, :white
     end
-    assert_bands_match(screen, x: 40 + 1 * W, w: 3 * W, y1: 20, y2: 40)
+    assert_bands_match(fb, x: 40 + 1 * W, w: 3 * W, y1: 20, y2: 40)
   end
 
   def test_an_expression_is_evaluated
-    screen = interpret_screen do
-      display :bitmap
+    fb = interpret_screen do
+      screen :bitmap
       clear_screen :black
       score = var :score, 41
       draw_number score + 1, 40, 20, :white, digits: 4
       draw_text "42", 40 + 2 * W, 40, :white
     end
-    assert_bands_match(screen, x: 40 + 2 * W, w: 2 * W, y1: 20, y2: 40)
+    assert_bands_match(fb, x: 40 + 2 * W, w: 2 * W, y1: 20, y2: 40)
   end
 
   # ---- natural, not zero-padded ----
 
   def test_leading_columns_are_blank_not_zero
-    screen = interpret_screen do
-      display :bitmap
+    fb = interpret_screen do
+      screen :bitmap
       clear_screen :black
       var :score, 5
       draw_number :score, 40, 20, :white, digits: 4
       draw_text "5", 40 + 3 * W, 40, :white # the ones column
     end
     # the three leading columns show background, not "000"
-    assert_region_is(screen, 40, 20, 3 * W, 7, :black)
+    assert_region_is(fb, 40, 20, 3 * W, 7, :black)
     # and the ones column is a real "5"
-    assert_bands_match(screen, x: 40 + 3 * W, w: W, y1: 20, y2: 40)
+    assert_bands_match(fb, x: 40 + 3 * W, w: W, y1: 20, y2: 40)
   end
 
   def test_zero_shows_a_zero
-    screen = interpret_screen do
-      display :bitmap
+    fb = interpret_screen do
+      screen :bitmap
       clear_screen :black
       var :score, 0
       draw_number :score, 40, 20, :white, digits: 4
       draw_text "0", 40 + 3 * W, 40, :white
     end
-    assert_region_is(screen, 40, 20, 3 * W, 7, :black) # no leading zeros
-    assert_bands_match(screen, x: 40 + 3 * W, w: W, y1: 20, y2: 40)
+    assert_region_is(fb, 40, 20, 3 * W, 7, :black) # no leading zeros
+    assert_bands_match(fb, x: 40 + 3 * W, w: W, y1: 20, y2: 40)
   end
 
   # ---- guardrails ----
@@ -140,7 +140,7 @@ class TestDrawNumber < Minitest::Test
 
   def hw_program
     tree do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       var :score, 42
       draw_number :score, 40, 20, :white, digits: 4 # live path

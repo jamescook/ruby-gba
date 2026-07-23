@@ -35,7 +35,7 @@ class TestPongScoring < Minitest::Test
   def run_rally(ball_x:, ball_dx:, ball_row:, player_paddle_y:, cpu_paddle_y:, frames:)
     builder = Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       bx     = var :ball_x, ball_x
       by     = var :ball_y, ball_row
       bdx    = var :ball_dx, ball_dx

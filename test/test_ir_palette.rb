@@ -29,7 +29,7 @@ class TestIRPalette < Minitest::Test
   # black" the direct-color mode gives you.
   def test_slot_zero_is_always_black
     pal = Palette.build(program do
-      display :bitmap
+      screen :bitmap
       clear_screen :white
     end)
 
@@ -41,7 +41,7 @@ class TestIRPalette < Minitest::Test
   # them (black already holds 0). The values are the plain BGR555 presets.
   def test_named_colors_get_stable_first_seen_slots
     pal = Palette.build(program do
-      display :bitmap
+      screen :bitmap
       clear_screen :red      # first color seen -> slot 1
       fill_rect 0, 0, 8, 8, :green   # -> slot 2
       pixel 10, 10, :blue    # -> slot 3
@@ -60,7 +60,7 @@ class TestIRPalette < Minitest::Test
   # string that downsamples to it) is one color, so it gets one slot.
   def test_colors_are_deduped_by_resolved_value
     pal = Palette.build(program do
-      display :bitmap
+      screen :bitmap
       clear_screen :green      # 0x03E0
       fill_rect 0, 0, 8, 8, 0x03E0     # same value, raw
       pixel 5, 5, "#00F800"    # 248>>3 = 31 green -> 0x03E0 too
@@ -73,7 +73,7 @@ class TestIRPalette < Minitest::Test
   # Using black explicitly doesn't create a second black slot.
   def test_explicit_black_reuses_slot_zero
     pal = Palette.build(program do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       pixel 0, 0, :white
     end)
@@ -88,7 +88,7 @@ class TestIRPalette < Minitest::Test
   # they're left out.
   def test_bitmap_pixel_colors_are_collected
     pal = Palette.build(program do
-      display :bitmap
+      screen :bitmap
       # "." is transparent, so only red and blue need slots.
       image :ship, "." => :transparent, "#" => :red, "*" => :blue do
         <<~ART
@@ -107,7 +107,7 @@ class TestIRPalette < Minitest::Test
   # color_at round-trips: the value at a color's slot is exactly that color.
   def test_index_and_color_round_trip
     pal = Palette.build(program do
-      display :bitmap
+      screen :bitmap
       clear_screen :yellow
     end)
 
@@ -127,7 +127,7 @@ class TestIRPalette < Minitest::Test
     err = assert_raises(Palette::Overflow) { Palette.build(prog) }
     assert_match(/256/, err.message)
     # Points the author at the direct-color escape hatch, in plain language.
-    assert_match(/display :bitmap/, err.message)
+    assert_match(/screen :bitmap/, err.message)
     refute_match(/DISPCNT|VRAM|palette RAM/, err.message, "no hardware jargon in the message")
   end
 
@@ -146,7 +146,7 @@ class TestIRPalette < Minitest::Test
   # silently-wrong index. (Black is the one always-present exception.)
   def test_index_of_unknown_color_raises
     pal = Palette.build(program do
-      display :bitmap
+      screen :bitmap
       clear_screen :red
     end)
 

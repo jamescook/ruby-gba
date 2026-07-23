@@ -90,7 +90,7 @@ class TestIRGuardrailTermination < Minitest::Test
   def test_build_warns_when_a_program_forgets_to_halt
     err = StringIO.new
     RubyGBA.build("TERM", code: "BTRM", maker: "01", out: StringIO.new, err: err) do
-      display :bitmap
+      screen :bitmap
       clear_screen :black # draws, then just ends
     end
 
@@ -100,7 +100,7 @@ class TestIRGuardrailTermination < Minitest::Test
   def test_build_is_quiet_for_a_program_that_halts
     err = StringIO.new
     RubyGBA.build("TERM", code: "BTRM", maker: "01", out: StringIO.new, err: err) do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       halt
     end

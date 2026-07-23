@@ -12,39 +12,40 @@ module RubyGBA
     module Drawing
       include Constants
 
-      # Friendly display mode presets — the names {#display} accepts.
+      # Friendly screen mode presets — the names {#screen} accepts. The tear-proof
+      # double-buffered screen isn't a separate name here: it's `screen :bitmap,
+      # tear_free: true` (which selects Mode 4 with an auto-built palette).
       DISPLAY_MODES = {
-        bitmap:       MODE_3 | BG2_ENABLE,       # 240x160, 15-bit direct color
-        bitmap_indexed: MODE_4 | BG2_ENABLE,     # 240x160, 8-bit indexed, double buffered
-        bitmap_small: MODE_5 | BG2_ENABLE,       # 160x128, 15-bit, double buffered
-        tiled:        MODE_0 | BG0_ENABLE,       # 4 regular BG layers (most games)
-        affine:       MODE_2 | BG2_ENABLE,       # 2 rotatable BG layers
+        bitmap: MODE_3 | BG2_ENABLE, # 240x160 pixel canvas, 15-bit direct color
+        tiled:  MODE_0 | BG0_ENABLE, # 4 regular tile/sprite background layers (most games)
+        affine: MODE_2 | BG2_ENABLE, # 2 rotatable/scalable background layers
       }.freeze
 
-      # Set the display mode.
+      # Choose what kind of screen you're drawing on.
       #
       # @param mode [Symbol, Integer] a friendly name or raw REG_DISPCNT value
       #
       # @example Friendly
-      #   display :bitmap          # MODE_3 | BG2_ENABLE
-      #   display :tiled           # MODE_0 | BG0_ENABLE
+      #   screen :bitmap          # a pixel canvas (MODE_3 | BG2_ENABLE)
+      #   screen :tiled           # tile/sprite layers (MODE_0 | BG0_ENABLE)
       #
       # @example Raw (full control)
-      #   display MODE_3 | BG2_ENABLE | OBJ_ENABLE
+      #   screen MODE_3 | BG2_ENABLE | OBJ_ENABLE
       #
-      # Pass +buffered: true+ to make `display :bitmap` tear-proof: the framework
-      # draws to a hidden screen and shows it all at once, so the picture can never
-      # tear no matter how much you draw. It costs some color range (a 256-color
-      # palette built automatically from the colors you use), so it's opt-in;
-      # plain `display :bitmap` stays direct-color.
+      # Pass +tear_free: true+ to make `screen :bitmap` tear-proof: the framework
+      # draws each frame to a hidden screen and shows it all at once, so the picture
+      # can never tear no matter how much you draw. It costs some color range (a
+      # 256-color palette built automatically from the colors you use), so it's
+      # opt-in; plain `screen :bitmap` stays direct-color. (Under the hood this is
+      # double buffering, which the IR and backend call "buffered".)
       #
       # @example Tear-proof
-      #   display :bitmap, buffered: true
-      def display(mode, buffered: false)
+      #   screen :bitmap, tear_free: true
+      def screen(mode, tear_free: false)
         case mode
         when Symbol
           unless DISPLAY_MODES.key?(mode)
-            raise ArgumentError, "unknown display mode: #{mode}. Known: #{DISPLAY_MODES.keys.join(', ')}"
+            raise ArgumentError, "unknown screen mode: #{mode}. Known: #{DISPLAY_MODES.keys.join(', ')}"
           end
         when Integer
           # a raw REG_DISPCNT value — passed through untouched
@@ -52,13 +53,13 @@ module RubyGBA
           raise ArgumentError, "expected Symbol or Integer, got #{mode.class}"
         end
 
-        if buffered && mode != :bitmap
+        if tear_free && mode != :bitmap
           raise ArgumentError,
-                "buffered: true is only for `display :bitmap` — it turns on the tear-proof " \
+                "tear_free: true is only for `screen :bitmap` — it turns on the tear-proof " \
                 "double-buffered screen; #{mode.inspect} doesn't support it"
         end
 
-        record(Build.display(mode, buffered: buffered))
+        record(Build.display(mode, buffered: tear_free))
       end
 
       # Draw a single pixel in bitmap mode (MODE_3).

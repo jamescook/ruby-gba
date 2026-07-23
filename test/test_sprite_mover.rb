@@ -21,7 +21,7 @@ class TestSpriteMover < Minitest::Test
   def sprite_program(frames:)
     builder = Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       image :heart, "." => :transparent, "#" => :red do
         <<~ART
           .#.#.
@@ -81,7 +81,7 @@ class TestSpriteMover < Minitest::Test
   def heart_at_left_edge(frames:)
     builder = Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       image :heart, "." => :transparent, "#" => :red do
         <<~ART
           .#.#.

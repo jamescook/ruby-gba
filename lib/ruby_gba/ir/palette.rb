@@ -117,7 +117,7 @@ module RubyGBA
         "This program uses #{count} distinct colors, but the double-buffered display " \
           "shows at most #{CAPACITY} at once (one slot is reserved for a black background, " \
           "leaving #{CAPACITY - 1} for your colors). Reuse colors where you can, or switch to " \
-          "the single-buffered display with `display :bitmap` (which allows thousands of colors)."
+          "the single-buffered screen with `screen :bitmap` (which allows thousands of colors)."
       end
     end
   end

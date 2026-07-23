@@ -13,7 +13,7 @@ class TestVerifier < Minitest::Test
 
   def test_red_pixel_readback
     rom = RubyGBA.build("REDPIX", code: "BRDP", maker: "01") do
-      display :bitmap
+      screen :bitmap
       pixel 120, 80, :red
       halt
     end
@@ -23,7 +23,7 @@ class TestVerifier < Minitest::Test
 
   def test_black_background
     rom = RubyGBA.build("REDPIX", code: "BRDP", maker: "01") do
-      display :bitmap
+      screen :bitmap
       pixel 120, 80, :red
       halt
     end
@@ -33,7 +33,7 @@ class TestVerifier < Minitest::Test
 
   def test_green_pixel_readback
     rom = RubyGBA.build("GRNPIX", code: "BGRP", maker: "01") do
-      display :bitmap
+      screen :bitmap
       pixel 50, 50, :green
       halt
     end
@@ -43,7 +43,7 @@ class TestVerifier < Minitest::Test
 
   def test_blue_pixel_readback
     rom = RubyGBA.build("BLUPIX", code: "BBLP", maker: "01") do
-      display :bitmap
+      screen :bitmap
       pixel 200, 100, :blue
       halt
     end
@@ -53,7 +53,7 @@ class TestVerifier < Minitest::Test
 
   def test_fill_rect_region
     rom = RubyGBA.build("FILL", code: "BFIL", maker: "01") do
-      display :bitmap
+      screen :bitmap
       fill_rect 10, 10, 20, 20, :red
       halt
     end
@@ -64,7 +64,7 @@ class TestVerifier < Minitest::Test
 
   def test_fill_rect_outside_is_black
     rom = RubyGBA.build("FILL", code: "BFIL", maker: "01") do
-      display :bitmap
+      screen :bitmap
       fill_rect 100, 70, 40, 20, :blue
       halt
     end
@@ -76,7 +76,7 @@ class TestVerifier < Minitest::Test
 
   def test_pixel_gba_returns_15bit
     rom = RubyGBA.build("WHITE", code: "BWHT", maker: "01") do
-      display :bitmap
+      screen :bitmap
       pixel 0, 0, :white
       halt
     end
@@ -86,7 +86,7 @@ class TestVerifier < Minitest::Test
 
   def test_all_black_empty_screen
     rom = RubyGBA.build("EMPTY", code: "BEMP", maker: "01") do
-      display :bitmap
+      screen :bitmap
       halt
     end
     v = RubyGBA::Verifier.new(rom)
@@ -95,7 +95,7 @@ class TestVerifier < Minitest::Test
 
   def test_all_black_false_when_pixel_drawn
     rom = RubyGBA.build("DOT", code: "BDOT", maker: "01") do
-      display :bitmap
+      screen :bitmap
       pixel 0, 0, :white
       halt
     end
@@ -105,7 +105,7 @@ class TestVerifier < Minitest::Test
 
   def test_screen_map
     rom = RubyGBA.build("RECT", code: "BRCT", maker: "01") do
-      display :bitmap
+      screen :bitmap
       fill_rect 0, 0, 16, 16, :red
       halt
     end
@@ -120,7 +120,7 @@ class TestVerifier < Minitest::Test
 
   def test_report
     rom = RubyGBA.build("REPORT", code: "BRPT", maker: "01") do
-      display :bitmap
+      screen :bitmap
       fill_rect 10, 10, 20, 20, :green
       halt
     end
@@ -134,7 +134,7 @@ class TestVerifier < Minitest::Test
 
   def test_region_mismatch_returns_nil_on_match
     rom = RubyGBA.build("MATCH", code: "BMCH", maker: "01") do
-      display :bitmap
+      screen :bitmap
       fill_rect 0, 0, 10, 10, :red
       halt
     end
@@ -144,7 +144,7 @@ class TestVerifier < Minitest::Test
 
   def test_region_mismatch_returns_details
     rom = RubyGBA.build("MISMATCH", code: "BMIS", maker: "01") do
-      display :bitmap
+      screen :bitmap
       pixel 5, 5, :red
       halt
     end
@@ -157,7 +157,7 @@ class TestVerifier < Minitest::Test
 
   def test_coords_validation
     rom = RubyGBA.build("BOUNDS", code: "BBND", maker: "01") do
-      display :bitmap
+      screen :bitmap
       halt
     end
     v = RubyGBA::Verifier.new(rom)

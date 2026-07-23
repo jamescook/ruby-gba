@@ -31,7 +31,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
 
   def test_warns_when_steady_frame_work_exceeds_the_budget
     prog = program do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         repeat(100) { |_i| clear_screen :black } # ~3.8M write-units, far over budget
@@ -45,7 +45,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
 
   def test_quiet_when_a_frame_fits
     prog = program do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         draw_rect_at 0, 0, 8, 8, :green
@@ -56,7 +56,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
 
   def test_quiet_for_a_static_program
     prog = program do
-      display :bitmap
+      screen :bitmap
       fill_rect 0, 0, 100, 100, :red # heavy, but drawn once
       halt
     end
@@ -85,7 +85,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
   def test_build_prints_the_warning_but_still_produces_a_rom
     err = StringIO.new
     rom = RubyGBA.build("HEAVY", code: "BHVY", maker: "01", err: err) do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         repeat(100) { |_i| clear_screen :black }

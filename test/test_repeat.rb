@@ -21,7 +21,7 @@ class TestRepeat < Minitest::Test
   def marching_program(count)
     builder = Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       c = var :c, count
       repeat(:c) { |i| draw_rect_at i * 4, 40, 2, 2, :green }
@@ -49,7 +49,7 @@ class TestRepeat < Minitest::Test
     # column = i * 8, so marks land at x = 0, 8, 16 — i composes like any Value.
     builder = Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       repeat(3) { |i| draw_rect_at i * 8, 40, 2, 2, :green }
       halt

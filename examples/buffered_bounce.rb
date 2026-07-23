@@ -1,16 +1,15 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# A double-buffered demo. Three balls bounce around, and the WHOLE screen is
-# cleared and repainted every single frame — the "redraw everything" pattern that
-# tears a direct-color game once it draws enough. Here it's flawless, because
-# `buffered: true` draws to a hidden screen and shows it all at once, so a
-# half-drawn frame is never visible.
+# A tear-free demo. Three balls bounce around, and the WHOLE screen is cleared and
+# repainted every single frame — the "redraw everything" pattern that tears a
+# direct-color game once it draws enough. Here it's flawless, because
+# `tear_free: true` draws each frame to a hidden screen and shows it all at once,
+# so a half-drawn frame is never visible.
 #
-# Want to see the difference? Change `buffered: true` to `buffered: false` and
-# rebuild: the identical code goes back to direct-color Mode 3 and can tear on real
-# hardware. That's the whole point — the drawing code doesn't change, only the one
-# flag does.
+# Want to see the difference? Remove `tear_free: true` and rebuild: the identical
+# code goes back to the direct-color screen and can tear on real hardware. That's
+# the whole point — the drawing code doesn't change, only the one flag does.
 #
 # Everything here is plain rectangles and named colors: no palette, no pages, no
 # hardware to think about. The framework manages the two hidden screens and builds
@@ -29,7 +28,7 @@ module BufferedBounce
             # two pixels at a time; see the note in the backend's draw_rect_at)
 
   GAME = proc do
-    display :bitmap, buffered: true # the tear-proof screen — try flipping this to false
+    screen :bitmap, tear_free: true # the tear-proof screen — try flipping this to false
 
     # Each ball is a position (x, y) and a velocity (dx, dy). Even starts and even
     # speeds keep the motion exact.

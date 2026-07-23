@@ -13,7 +13,7 @@
 require_relative "../lib/ruby_gba"
 
 rom = RubyGBA.build("RUBYGBA", code: "BRBY", maker: "01") do
-  display :bitmap
+  screen :bitmap
 
   # Draw an Italian flag in the center of the screen
   flag_x = 70

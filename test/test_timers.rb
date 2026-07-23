@@ -194,7 +194,7 @@ class TestTimers < Minitest::Test
   def blink_program(frames:)
     builder = Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       shown = var :shown, 0
       f = var :f, 0
       game_loop do

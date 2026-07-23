@@ -332,7 +332,7 @@ class TestInspector < Minitest::Test
 
   def test_no_unknown_instructions_in_pong
     rom = RubyGBA.build("PONG", code: "BPNG", maker: "01", validate: false) do
-      display :bitmap
+      screen :bitmap
       set :state, 0
       scene :title do
         clear_screen :black

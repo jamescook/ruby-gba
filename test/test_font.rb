@@ -103,7 +103,7 @@ class TestFont < Minitest::Test
 
   def test_draw_text_builds
     rom = build do
-      display :bitmap
+      screen :bitmap
       draw_text "PONG", 96, 40, :white
       halt
     end
@@ -113,7 +113,7 @@ class TestFont < Minitest::Test
   def test_draw_text_emits_pixels
     # "I" has pixels — the ROM should have more code than just display+halt
     rom = build do
-      display :bitmap
+      screen :bitmap
       draw_text "I", 0, 0, :white
       halt
     end
@@ -136,7 +136,7 @@ class TestFont < Minitest::Test
   def test_draw_text_clips_at_screen_edge
     # Text near right edge should not crash
     rom = build do
-      display :bitmap
+      screen :bitmap
       draw_text "HELLO", 230, 0, :white
       halt
     end
@@ -145,7 +145,7 @@ class TestFont < Minitest::Test
 
   def test_draw_text_runs_in_mgba
     rom = build do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       draw_text "PONG", 96, 40, :white
       draw_text "PRESS START", 64, 100, :gray

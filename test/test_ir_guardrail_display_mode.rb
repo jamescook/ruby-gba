@@ -26,7 +26,7 @@ class TestIRGuardrailDisplayMode < Minitest::Test
     assert_equal 1, report.errors.size
     message = report.errors.first.message
     assert_match(/black/i, message)
-    assert_match(/display/i, message)
+    assert_match(/screen/i, message)
   end
 
   def test_autofix_switches_the_screen_on_and_warns
@@ -77,7 +77,7 @@ class TestIRGuardrailDisplayMode < Minitest::Test
         halt
       end
     end
-    assert_match(/display/i, err.string, "the explanation names the missing display mode")
+    assert_match(/screen/i, err.string, "the explanation names the missing screen mode")
     assert_match(/black/i, err.string, "and what goes wrong")
   end
 end

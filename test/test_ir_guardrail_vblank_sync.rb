@@ -103,7 +103,7 @@ class TestIRGuardrailVblankSync < Minitest::Test
 
   def test_build_nudges_a_loop_that_never_syncs
     err = build_err do
-      display :bitmap
+      screen :bitmap
       game_loop { clear_screen :black }
     end
 
@@ -112,7 +112,7 @@ class TestIRGuardrailVblankSync < Minitest::Test
 
   def test_build_is_quiet_for_a_well_formed_loop
     err = build_err do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         clear_screen :black

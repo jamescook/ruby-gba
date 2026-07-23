@@ -117,7 +117,7 @@ class TestIRGuardrailOffScreenDraw < Minitest::Test
   def test_build_surfaces_the_off_screen_warning
     err = StringIO.new
     RubyGBA.build("GUARD", code: "BGRD", maker: "01", out: StringIO.new, err: err) do
-      display :bitmap
+      screen :bitmap
       fill_rect 250, 40, 10, 10, :red # off the right edge — nothing will show
       halt
     end

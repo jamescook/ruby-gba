@@ -61,8 +61,7 @@ class TestBufferedMode4 < Minitest::Test
   # pixel's index looked up in the palette we uploaded, the drawn page presented
   # by the flip. The colors must come out as named.
   def test_gemba_renders_the_buffered_frame_through_the_palette
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(diagnostic_program),
-                                title: "BUF4", code: "BBF4", maker: "01")
+    rom = assemble_rom(diagnostic_program, name: "BUF4")
     v = assert_gemba_loads_rom(rom, frames: 6)
     CHECKS.each do |x, y, color|
       assert v.pixel_is?(x, y, color),
@@ -85,7 +84,7 @@ class TestBufferedMode4 < Minitest::Test
       loop_(branch, wait_vblank),
     )
 
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "FLIP", code: "BFLP", maker: "01")
+    rom = assemble_rom(prog, name: "FLIP")
     v = assert_gemba_loads_rom(rom, frames: 8)
     # Whatever's shown, it's ONE solid color across the screen — no torn/mixed page.
     corner = v.pixel_gba(4, 4)
@@ -101,7 +100,7 @@ class TestBufferedMode4 < Minitest::Test
     prog = program(display(:bitmap, buffered: true), *many, halt)
     err = assert_raises(RubyGBA::IR::Palette::Overflow) { GBA.new.lower(prog) }
     assert_match(/300/, err.message)
-    assert_match(/display :bitmap/, err.message) # points at the direct-color escape hatch
+    assert_match(/screen :bitmap/, err.message) # points at the direct-color escape hatch
   end
 
   # --- pixel + draw_text on the indexed screen (read-modify-write) ---
@@ -130,7 +129,7 @@ class TestBufferedMode4 < Minitest::Test
     assert_equal Color.resolve(:yellow), i.screen.pixel(100, 100)
 
     # Hardware: the RMW writes the right byte and preserves its pair.
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "DTX", code: "BDTX", maker: "01")
+    rom = assemble_rom(prog, name: "DTX")
     v = assert_gemba_loads_rom(rom, frames: 4)
     assert v.pixel_is?(10, 10, :red),    "even-column pixel, got 0x#{format('%04X', v.pixel_gba(10, 10))}"
     assert v.pixel_is?(11, 20, :green),  "odd-column pixel, got 0x#{format('%04X', v.pixel_gba(11, 20))}"
@@ -150,7 +149,7 @@ class TestBufferedMode4 < Minitest::Test
   def test_draw_number_renders_a_score_in_buffered_mode
     b = RubyGBA::Builder.new
     b.instance_eval do
-      display :bitmap, buffered: true
+      screen :bitmap, tear_free: true
       var :score, 42
       clear_screen :blue
       draw_number :score, 40, 40, :white, digits: 2
@@ -160,7 +159,7 @@ class TestBufferedMode4 < Minitest::Test
     b.emit_pending_functions
     prog = b.program
 
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "SCORE", code: "BSCR", maker: "01")
+    rom = assemble_rom(prog, name: "SCORE")
     v = assert_gemba_loads_rom(rom, frames: 4)
     drew_digits = (40..60).any? { |x| (40..46).any? { |y| v.pixel_is?(x, y, :white) } }
     assert drew_digits, "a numeric score should render in white in buffered mode"
@@ -180,19 +179,30 @@ class TestBufferedMode4 < Minitest::Test
     assert_match(/draw_text|pixel|rectangle fills/, err.message) # names what does work
   end
 
-  # --- Mode 4 fills move two pixels at a time: an odd start column is caught ---
+  # --- tear-free fills move two pixels at a time: an odd start column snaps ---
 
-  def test_an_odd_start_column_is_a_friendly_error
-    prog = program(display(:bitmap, buffered: true), dma_fill_rect(3, 0, 8, 8, :red), halt)
-    err = assert_raises(GBA::LoweringError) { GBA.new.lower(prog) }
-    assert_match(/even/, err.message)
+  # A fill at an odd x is snapped down to the nearest even column (not an error),
+  # matching draw_rect_at. dma_fill_rect(3, ...) lands at x=2, spanning 2..9.
+  def test_an_odd_start_column_snaps_to_even
+    prog = program(
+      display(:bitmap, buffered: true),
+      clear_screen(:blue),
+      dma_fill_rect(3, 0, 8, 8, :red), # x=3 snaps to 2
+      wait_vblank,                     # present the drawn page
+      halt,
+    )
+    rom = assemble_rom(prog, name: "SNAP")
+    v = assert_gemba_loads_rom(rom, frames: 4)
+    assert v.pixel_is?(2, 0, :red), "x=3 snaps down to the even column 2"
+    assert v.pixel_is?(9, 0, :red), "the 8px fill spans 2..9 from the snapped start"
+    assert v.pixel_is?(10, 0, :blue), "and stops there — column 10 is untouched background"
   end
 
-  # --- the DSL surface: buffered: is only for :bitmap ---
+  # --- the DSL surface: tear_free: is only for :bitmap ---
 
-  def test_buffered_is_rejected_for_non_bitmap_modes
+  def test_tear_free_is_rejected_for_non_bitmap_modes
     b = RubyGBA::Builder.new
-    err = assert_raises(ArgumentError) { b.display(:tiled, buffered: true) }
-    assert_match(/buffered/, err.message)
+    err = assert_raises(ArgumentError) { b.screen(:tiled, tear_free: true) }
+    assert_match(/tear_free/, err.message)
   end
 end

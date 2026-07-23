@@ -192,7 +192,7 @@ class TestRandom < Minitest::Test
   def reaction_program
     builder = Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       clear_screen :white
       done = var :done, 0
       var :rx, 0
@@ -315,7 +315,7 @@ class TestRandom < Minitest::Test
   def marker_program
     builder = Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       clear_screen :white
       roll :x, 0..200
       roll :y, 0..140
