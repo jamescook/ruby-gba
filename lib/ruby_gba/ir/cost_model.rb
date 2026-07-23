@@ -48,12 +48,58 @@ module RubyGBA
       # one, otherwise the one-time boot draws of a static program. Costs roll up:
       # a container's cost is the sum of its children (a repeat multiplies, a
       # case_var takes its worst branch).
-      def analyze(program)
+      def analyze(program, focus: nil)
         index(program)
         @stack = []
+        if focus
+          func = @funcs.fetch(focus)
+          @stack.push(focus)
+          return func.children.flat_map { |node| build(node) }
+        end
         loop_node = program.children.find { |node| node.kind == :loop }
         statements = loop_node ? loop_node.children : program.children.reject { |node| node.kind == :func }
         statements.flat_map { |node| build(node) }
+      end
+
+      # --- tree transforms (data in, data out; asserted directly, not via text) ---
+
+      # Fold runs of identical sibling leaves (same op + size) into one "op ×N" node,
+      # recursing into children. Tames verbose fan-outs (draw_number's 10 glyphs, a
+      # row of identical cells) without losing the rolled-up cost.
+      def aggregate(nodes)
+        nodes.each_with_object([]) do |raw, out|
+          node = raw[:children].to_a.empty? ? raw.dup : raw.merge(children: aggregate(raw[:children]))
+          prev = out.last
+          if node[:children].to_a.empty? && prev && prev[:children].to_a.empty? &&
+             prev[:op] == node[:op] && prev[:w] == node[:w] && prev[:h] == node[:h]
+            out[-1] = prev.merge(count: (prev[:count] || 1) + 1, cost: prev[:cost] + node[:cost],
+                                 label: "#{node[:op]} ×#{(prev[:count] || 1) + 1}")
+          else
+            out << node
+          end
+        end
+      end
+
+      # Collapse subtrees deeper than +max_depth+ into a leaf that remembers how many
+      # ops it hid — the depth limit that keeps a big program's tree readable.
+      def prune(nodes, max_depth, depth = 0)
+        nodes.map do |node|
+          kids = node[:children].to_a
+          if kids.any? && depth >= max_depth
+            node.merge(children: [], collapsed: leaf_count(node))
+          elsif kids.any?
+            node.merge(children: prune(kids, max_depth, depth + 1))
+          else
+            node
+          end
+        end
+      end
+
+      # The +top+ hottest op kinds across the whole tree — the flat "profiler" view.
+      def hot_ops(nodes, top = 5)
+        all_leaves(nodes).group_by { |n| n[:op] }
+                         .map { |op, ns| { op: op, cost: ns.sum { |n| n[:cost] }, count: ns.sum { |n| n[:count] || 1 } } }
+                         .sort_by { |h| -h[:cost] }.first(top)
       end
 
       # The total draw cost of one frame — the roll-up of #analyze.
@@ -71,15 +117,20 @@ module RubyGBA
       # the frame budget for a game loop, or the one-time boot cost otherwise. (The
       # full drill-down tree comes later; this is the at-a-glance summary.)
       def report(program, out: $stdout)
-        total = frame_cost(program)
         out.puts "draw-cost estimate (rough, illustrative weights):"
-        if looping?(program)
-          over = total > VBLANK_BUDGET
-          out.puts "  per frame ~ #{total} write-units   (budget ~ #{VBLANK_BUDGET})   " \
-                   "#{over ? '! over budget — the screen may tear as things grow' : 'ok — fits the frame'}"
-        else
-          out.puts "  boot draw ~ #{total} write-units   (no game loop — drawn once, then halts)   ok"
-        end
+        out.puts "  " + verdict_line(program, frame_cost(program))
+      end
+
+      # The drill-down: the verdict, then the (aggregated, depth-limited) cost tree,
+      # then the hottest ops. +focus+ roots the tree at a named func; +max_depth+
+      # bounds how deep it prints (deeper subtrees collapse to a rollup line).
+      def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5)
+        tree = aggregate(analyze(program, focus: focus))
+        out.puts "draw-cost estimate (rough, illustrative weights):"
+        out.puts "  " + verdict_line(program, tree.sum { |node| node[:cost] }, focus: focus)
+        render_tree(prune(tree, max_depth), 1, out)
+        hot = hot_ops(tree, top)
+        out.puts "  hottest: " + hot.map { |h| "#{h[:op]}×#{h[:count]} ~#{h[:cost]}" }.join("  ") unless hot.empty?
       end
 
       # The analysis as a plain Hash, ready to serialize (rom.explain format: :json).
@@ -93,6 +144,36 @@ module RubyGBA
       end
 
       private
+
+      # The one-line verdict: per-frame cost vs the budget for a game loop, the
+      # one-time boot cost for a static program, or a plain total when focused.
+      def verdict_line(program, total, focus: nil)
+        return "func :#{focus} ~ #{total} write-units" if focus
+
+        if looping?(program)
+          over = total > VBLANK_BUDGET
+          "per frame ~ #{total} write-units   (budget ~ #{VBLANK_BUDGET})   " \
+            "#{over ? '! over budget — the screen may tear as things grow' : 'ok — fits the frame'}"
+        else
+          "boot draw ~ #{total} write-units   (no game loop — drawn once, then halts)   ok"
+        end
+      end
+
+      def render_tree(nodes, depth, out)
+        nodes.each do |node|
+          tag = node[:collapsed] ? "  (+#{node[:collapsed]} ops collapsed)" : ""
+          out.puts format("  %-52s ~%d", ("  " * depth) + node[:label] + tag, node[:cost])
+          render_tree(node[:children], depth + 1, out) unless node[:children].to_a.empty?
+        end
+      end
+
+      def leaf_count(node)
+        node[:children].to_a.empty? ? 1 : node[:children].sum { |child| leaf_count(child) }
+      end
+
+      def all_leaves(nodes)
+        nodes.flat_map { |node| node[:children].to_a.empty? ? [node] : all_leaves(node[:children]) }
+      end
 
       # Catalogue the funcs (so a `call`/`case` can be costed) and the list
       # capacities (so a repeat over a list can be bounded).
@@ -116,10 +197,18 @@ module RubyGBA
         when :call then [build_call(node)]
         when :repeat then [build_repeat(node)]
         when :func then [] # a definition: it costs only where it's called
-        else
-          c = op_cost(node)
-          c.positive? ? [{ op: node.kind, label: label_of(node), cost: c, children: [] }] : []
+        else build_leaf(node)
         end
+      end
+
+      # A drawing op becomes a leaf; anything else costs nothing and is dropped.
+      # w/h ride along so aggregation can tell a 33x60 stripe from a 4x4 corner
+      # (they're nil for pixel/clear/text, which then all fold together).
+      def build_leaf(node)
+        c = op_cost(node)
+        return [] unless c.positive?
+
+        [{ op: node.kind, label: label_of(node), cost: c, w: node[:w], h: node[:h], children: [] }]
       end
 
       # case_var runs one scene per frame, so its cost is the heaviest branch.

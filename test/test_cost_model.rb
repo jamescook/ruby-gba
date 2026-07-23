@@ -210,4 +210,55 @@ class TestCostModel < Minitest::Test
     assert_equal false, data["looping"]
     assert_equal "fill_rect", data["tree"].first["op"]
   end
+
+  # --- scoping transforms (data in, data out — the guts of the drill-down view) ---
+
+  # Runs of identical sibling leaves fold into one "op ×N" node, cost summed.
+  def test_aggregate_folds_identical_sibling_leaves
+    tree = [
+      { op: :fill_rect, label: "fill_rect 4x4", cost: 16, w: 4, h: 4, children: [] },
+      { op: :fill_rect, label: "fill_rect 4x4", cost: 16, w: 4, h: 4, children: [] },
+      { op: :pixel, label: "pixel", cost: 1, w: nil, h: nil, children: [] },
+    ]
+    agg = Cost.new.aggregate(tree)
+    assert_equal 2, agg.length
+    assert_equal 32, agg[0][:cost]
+    assert_equal 2, agg[0][:count]
+    assert_equal "fill_rect ×2", agg[0][:label]
+  end
+
+  # Different sizes stay distinct — a stripe isn't folded into a corner square.
+  def test_aggregate_keeps_different_sizes_distinct
+    tree = [
+      { op: :fill_rect, label: "big", cost: 100, w: 10, h: 10, children: [] },
+      { op: :fill_rect, label: "small", cost: 16, w: 4, h: 4, children: [] },
+    ]
+    assert_equal 2, Cost.new.aggregate(tree).length
+  end
+
+  # A subtree deeper than max_depth collapses to a leaf that remembers what it hid,
+  # with its rolled-up cost intact.
+  def test_prune_collapses_subtrees_below_max_depth
+    tree = [{ op: :call, label: "call :x", cost: 200, children: [
+      { op: :draw_rect_at, label: "d", cost: 100, children: [] },
+      { op: :draw_rect_at, label: "d", cost: 100, children: [] },
+    ] }]
+    pruned = Cost.new.prune(tree, 0)
+    assert_empty pruned[0][:children]
+    assert_equal 2, pruned[0][:collapsed]
+    assert_equal 200, pruned[0][:cost]
+  end
+
+  # The flat "profiler" view ranks op kinds by total cost.
+  def test_hot_ops_ranks_op_kinds_by_total_cost
+    tree = [
+      { op: :clear_screen, label: "c", cost: 38_400, children: [] },
+      { op: :draw_rect_at, label: "d", cost: 64, children: [] },
+      { op: :draw_rect_at, label: "d", cost: 64, children: [] },
+    ]
+    hot = Cost.new.hot_ops(tree, 5)
+    assert_equal :clear_screen, hot[0][:op]
+    assert_equal 128, hot[1][:cost] # the two draw_rect_ats, summed
+    assert_equal 2, hot[1][:count]
+  end
 end
