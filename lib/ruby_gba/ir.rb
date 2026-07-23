@@ -10,6 +10,7 @@ require_relative "ir/portability"
 require_relative "ir/backends"
 require_relative "ir/guardrails"
 require_relative "ir/cost_model"
+require_relative "ir/palette"
 
 module RubyGBA
   # The intermediate representation (IR): the plain-Ruby op-tree the DSL builds
