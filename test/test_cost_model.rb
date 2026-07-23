@@ -148,4 +148,66 @@ class TestCostModel < Minitest::Test
     rom.explain(out: io)
     assert_match(/boot draw ~ 100 /, io.string)
   end
+
+  # --- the structured cost tree (what rom.explain renders / dumps as JSON) ---
+
+  # analyze returns draw leaves with their costs, top to bottom.
+  def test_analyze_returns_draw_leaves_with_costs
+    prog = program do
+      display :bitmap
+      fill_rect 0, 0, 10, 10, :red    # 100
+      draw_rect_at 0, 0, 8, 8, :green # 64
+      halt
+    end
+    tree = Cost.new.analyze(prog)
+    assert_equal %i[fill_rect draw_rect_at], tree.map { |n| n[:op] }
+    assert_equal [100, 64], tree.map { |n| n[:cost] }
+  end
+
+  # A repeat node carries its multiplied cost and keeps its per-iteration body.
+  def test_analyze_repeat_node_multiplies_and_keeps_its_body
+    prog = program do
+      display :bitmap
+      repeat(3) { |_i| draw_rect_at 0, 0, 8, 8, :green } # 3 * 64
+      halt
+    end
+    rep = Cost.new.analyze(prog).find { |n| n[:op] == :repeat }
+    assert_equal 192, rep[:cost]
+    assert_equal 64, rep[:children].first[:cost] # per-iteration
+  end
+
+  # A case node's cost is its worst branch, but it keeps every branch's cost.
+  def test_analyze_case_node_cost_is_the_worst_branch
+    prog = program do
+      display :bitmap
+      var :state, 0
+      scene(:light) { draw_rect_at 0, 0, 2, 2, :red }   # 4
+      scene(:heavy) { draw_rect_at 0, 0, 10, 10, :red } # 100
+      game_loop do
+        wait_vblank
+        case_var(:state) do
+          when_val 0, :light
+          when_val 1, :heavy
+        end
+      end
+    end
+    cnode = Cost.new.analyze(prog).find { |n| n[:op] == :case }
+    assert_equal 100, cnode[:cost]
+    assert_equal [4, 100], cnode[:children].map { |b| b[:cost] }
+  end
+
+  # rom.explain(format: :json) emits structured data tests can parse directly.
+  def test_json_explain_is_parseable_structured_data
+    rom = RubyGBA.build("JSON", code: "BJSN", maker: "01") do
+      display :bitmap
+      fill_rect 0, 0, 10, 10, :red # 100
+      halt
+    end
+    io = StringIO.new
+    rom.explain(format: :json, out: io)
+    data = JSON.parse(io.string)
+    assert_equal 100, data["frame_cost"]
+    assert_equal false, data["looping"]
+    assert_equal "fill_rect", data["tree"].first["op"]
+  end
 end
