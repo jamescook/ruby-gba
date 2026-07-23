@@ -23,7 +23,9 @@ module RubyGBA
       # @param button [Symbol] button name
       def if_pressed(button, &block)
         check_button!(button)
-        push_container(Build.if_(Build.pressed(button))) do
+        gate = Build.if_(Build.pressed(button))
+        gate[:cost_tag] = { kind: :transition } # a press edge is rare; not steady per-frame work
+        push_container(gate) do
           instance_eval(&block)
         end
       end
@@ -44,7 +46,9 @@ module RubyGBA
       def pressed(button)
         reject_block!(:pressed, button) if block_given?
         check_button!(button)
-        Condition.new(self, Build.pressed(button))
+        # A press edge holds for a single frame and only now and then, so a body it
+        # gates isn't part of the steady per-frame load (it's a transition spike).
+        Condition.new(self, Build.pressed(button), cost_tag: { kind: :transition })
       end
 
       private
