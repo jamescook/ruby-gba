@@ -18,7 +18,7 @@ class TestScenes < Minitest::Test
 
   def test_scene_builds
     rom = build do
-      display :bitmap
+      screen :bitmap
       scene :title do
         clear_screen :black
       end
@@ -49,7 +49,7 @@ class TestScenes < Minitest::Test
 
   def test_case_var_builds
     rom = build do
-      display :bitmap
+      screen :bitmap
       scene :title do
         clear_screen :black
       end
@@ -69,7 +69,7 @@ class TestScenes < Minitest::Test
 
   def test_case_var_with_game_loop
     rom = build do
-      display :bitmap
+      screen :bitmap
 
       scene :title do
         clear_screen :black
@@ -94,7 +94,7 @@ class TestScenes < Minitest::Test
 
   def test_case_var_with_input_transition
     rom = build do
-      display :bitmap
+      screen :bitmap
 
       scene :title do
         clear_screen :black
@@ -127,7 +127,7 @@ class TestScenes < Minitest::Test
   # that ran a second scene would leave the wrong color on screen.
   def test_case_var_dispatches_to_only_the_matching_scene
     rom = build do
-      display :bitmap
+      screen :bitmap
 
       scene :red_scene   do clear_screen :red end
       scene :blue_scene  do clear_screen :blue end
@@ -153,7 +153,7 @@ class TestScenes < Minitest::Test
 
   def test_scenes_run_in_mgba
     rom = build do
-      display :bitmap
+      screen :bitmap
 
       scene :title do
         clear_screen :black

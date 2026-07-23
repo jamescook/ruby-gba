@@ -29,7 +29,7 @@ module RubyGBA
   #
   # @example Draw pixels
   #   rom = RubyGBA.build("PIXELS", code: "BPXL", maker: "01") do
-  #     display :bitmap
+  #     screen :bitmap
   #     pixel 120, 80, :red
   #     pixel 121, 80, color("#00FF00")
   #     fill_rect 50, 50, 30, 20, rgb(31, 31, 0)

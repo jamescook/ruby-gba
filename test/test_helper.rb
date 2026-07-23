@@ -27,6 +27,15 @@ module GembaSupport
     skip "gemba not available (gem install gemba)" unless GembaSupport.gem_available?
   end
 
+  # Lower an IR program to a finished ROM, the way the gemba tests need it — a
+  # convenience over repeating ROM.assemble(GBA.new.lower(prog), title:, code:,
+  # maker:) in every test. The header fields don't affect rendering, so they
+  # default; pass +name+ just to label the ROM.
+  def assemble_rom(program, name: "TEST")
+    RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
+                          title: name, code: "TEST", maker: "01")
+  end
+
   # Load +rom+ into gemba and run it headless for +frames+ frames, asserting it
   # loads and runs without raising. Skips when gemba isn't installed. Returns a
   # RubyGBA::Verifier so callers can make pixel assertions on the rendered frame:

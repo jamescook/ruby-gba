@@ -43,20 +43,20 @@ if __FILE__ == $PROGRAM_NAME
 
   puts "=== Test 2: Display mode only ==="
   build_and_run("MODEONLY") do
-    display :bitmap
+    screen :bitmap
     halt
   end
 
   puts "=== Test 3: Single red pixel ==="
   build_and_run("REDPIXEL") do
-    display :bitmap
+    screen :bitmap
     pixel 120, 80, :red
     halt
   end
 
   puts "=== Test 4: Three pixels ==="
   build_and_run("THREEPIX") do
-    display :bitmap
+    screen :bitmap
     pixel 0, 0, :red
     pixel 120, 80, :green
     pixel 239, 159, :blue
@@ -65,7 +65,7 @@ if __FILE__ == $PROGRAM_NAME
 
   puts "=== Test 5: Small fill_rect ==="
   build_and_run("FILLRECT") do
-    display :bitmap
+    screen :bitmap
     fill_rect 100, 60, 40, 40, :red
     halt
   end

@@ -23,7 +23,7 @@ class TestRedrawEverythingGuardrail < Minitest::Test
 
   def test_flags_clear_plus_growing_list_redraw_every_frame
     prog = program do
-      display :bitmap
+      screen :bitmap
       body = list :body, capacity: 64
       game_loop do
         wait_vblank
@@ -81,7 +81,7 @@ class TestRedrawEverythingGuardrail < Minitest::Test
   # No clear -> not this footgun (a different concern — leftover trails).
   def test_quiet_without_a_full_clear
     prog = program do
-      display :bitmap
+      screen :bitmap
       body = list :body, capacity: 64
       game_loop do
         wait_vblank
@@ -94,7 +94,7 @@ class TestRedrawEverythingGuardrail < Minitest::Test
   # A fixed-count redraw is bounded — it doesn't grow, so it's fine.
   def test_quiet_when_the_redraw_count_is_fixed
     prog = program do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         clear_screen :black
@@ -107,7 +107,7 @@ class TestRedrawEverythingGuardrail < Minitest::Test
   # A clear + growing-list redraw behind a press is a transition, not steady work.
   def test_quiet_when_the_redraw_is_behind_a_press_transition
     prog = program do
-      display :bitmap
+      screen :bitmap
       body = list :body, capacity: 64
       func :repaint do
         clear_screen :black

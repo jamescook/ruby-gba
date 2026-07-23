@@ -8,7 +8,7 @@ require_relative "test_helper"
 # modes, switching the hardware as each scene takes over. The common shape is a
 # colorful direct-color title (Mode 3, no tear risk because it's static) and a
 # heavy-redraw gameplay scene in tear-proof double buffering (Mode 4). A scene
-# declares its mode with a `display` at its top; the framework handles the switch.
+# declares its mode with a `screen` at its top; the framework handles the switch.
 #
 # Both scenes must render correctly on the console, which means the mode transition
 # (Mode 3 -> Mode 4) has to actually happen: the palette is uploaded, the pages are
@@ -20,7 +20,6 @@ class TestPerSceneMode < Minitest::Test
   Builder = RubyGBA::Builder
   Ruby = RubyGBA::IR::Backends::Ruby
   GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   Color = RubyGBA::Color
 
   # A direct-color (Mode 3) title in red; START switches to a double-buffered
@@ -28,14 +27,14 @@ class TestPerSceneMode < Minitest::Test
   def mixed_program
     b = Builder.new
     b.instance_eval do
-      display :bitmap # default: direct-color Mode 3
+      screen :bitmap # default: direct-color Mode 3
       var :state, 0
       scene :title do
         clear_screen :red
         pressed(:start).then { set :state, 1 }
       end
       scene :play do
-        display :bitmap, buffered: true # this scene is double-buffered
+        screen :bitmap, tear_free: true # this scene is double-buffered
         clear_screen :blue
         dma_fill_rect 100, 76, 8, 8, :green
       end
@@ -64,7 +63,7 @@ class TestPerSceneMode < Minitest::Test
 
   # The direct-color title renders on the console (Mode 3, 15-bit color).
   def test_the_direct_color_title_renders_on_the_console
-    rom = ROM.assemble(GBA.new.lower(mixed_program), title: "MIX", code: "BMIX", maker: "01")
+    rom = assemble_rom(mixed_program, name: "MIX")
     v = assert_gemba_loads_rom(rom, frames: 4) # no input: the Mode 3 title
     assert v.red?(0, 0), "the direct-color title should be red, got 0x#{format('%04X', v.pixel_gba(0, 0))}"
   end
@@ -72,7 +71,7 @@ class TestPerSceneMode < Minitest::Test
   # After START, the game switches into the buffered scene, which must render
   # through the auto palette — proof the Mode 3 -> Mode 4 transition works.
   def test_the_buffered_scene_renders_after_the_switch
-    rom = ROM.assemble(GBA.new.lower(mixed_program), title: "MIX", code: "BMIX", maker: "01")
+    rom = assemble_rom(mixed_program, name: "MIX")
     v = assert_gemba_loads_rom(rom, frames: 8, keys: KEY_START)
     assert v.blue?(0, 0), "the buffered play field should be blue, got 0x#{format('%04X', v.pixel_gba(0, 0))}"
     assert v.green?(103, 79), "the buffered green cell should render, got 0x#{format('%04X', v.pixel_gba(103, 79))}"
@@ -83,7 +82,7 @@ class TestPerSceneMode < Minitest::Test
   def test_a_draw_helper_shared_across_modes_is_a_friendly_error
     b = Builder.new
     b.instance_eval do
-      display :bitmap
+      screen :bitmap
       var :state, 0
       func :paint do
         clear_screen :white
@@ -92,7 +91,7 @@ class TestPerSceneMode < Minitest::Test
         call :paint # direct
       end
       scene :b do
-        display :bitmap, buffered: true
+        screen :bitmap, tear_free: true
         call :paint # buffered — the same routine, now a different mode
       end
       game_loop do

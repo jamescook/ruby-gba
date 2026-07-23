@@ -71,7 +71,7 @@ class TestBuilderIR < Minitest::Test
 
   def test_draw_ops_build_a_matching_ir_tree
     got = tree do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       pixel 10, 20, :red
       fill_rect 5, 5, 4, 3, :green
@@ -93,7 +93,7 @@ class TestBuilderIR < Minitest::Test
 
   def test_the_built_draw_tree_renders_in_the_interpreter
     got = tree do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       pixel 10, 20, :red
       fill_rect 5, 5, 4, 3, :green
@@ -232,7 +232,7 @@ class TestBuilderIR < Minitest::Test
 
   def test_a_full_mini_program_builds_and_runs
     got = tree do
-      display :bitmap
+      screen :bitmap
       enable_sound
       var :score, 0
       func :award do

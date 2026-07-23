@@ -10,7 +10,7 @@ module RubyGBA
   #
   # @example Verify a pixel
   #   rom = RubyGBA.build("TEST", code: "BTST", maker: "01") do
-  #     display :bitmap
+  #     screen :bitmap
   #     pixel 120, 80, :red
   #     halt
   #   end

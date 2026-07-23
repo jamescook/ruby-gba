@@ -298,7 +298,7 @@ class TestDSLExpression < Minitest::Test
 
   def test_then_gates_a_draw_on_hardware
     rom = build do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       x = var :x, 5
       (x > 3).then { pixel 10, 10, :red }
@@ -312,7 +312,7 @@ class TestDSLExpression < Minitest::Test
 
   def test_and_else_on_hardware
     rom = build do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       x = var :x, 5
       ((x > 1) & (x < 9)).then { pixel 10, 10, :red }.else { pixel 20, 20, :blue }

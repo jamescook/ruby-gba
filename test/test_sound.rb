@@ -252,7 +252,7 @@ class TestSound < Minitest::Test
 
   def test_sound_runs_in_mgba
     rom = build do
-      display :bitmap
+      screen :bitmap
       enable_sound
 
       define_sound :chirp, frequency: 880, duty: :quarter, decay: :fast

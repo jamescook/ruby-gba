@@ -156,7 +156,7 @@ class TestApproach < Minitest::Test
   def marker_program(frames:)
     builder = Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       x = var :x, 0
       f = var :f, 0
       game_loop do

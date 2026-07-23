@@ -82,7 +82,7 @@ module Snake
   # test drives the exact program that ships: the headless interpreter runs THIS to
   # check the game plays without crashing, and the console runs the ROM built from it.
   GAME = proc do
-    display :bitmap
+    screen :bitmap
     enable_sound
 
     # Short blips: a bright one for eating, a low one for dying.

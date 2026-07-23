@@ -14,7 +14,7 @@ class TestROMValidator < Minitest::Test
 
   def test_a_valid_rom_passes
     rom = RubyGBA.build("GOOD", code: "BGOD", maker: "01") do
-      display :bitmap
+      screen :bitmap
       pixel 120, 80, :red
       halt
     end
@@ -93,7 +93,7 @@ class TestROMValidator < Minitest::Test
 
   def test_check_file_validates_a_gba_on_disk
     rom = RubyGBA.build("FILE", code: "BFIL", maker: "01") do
-      display :bitmap
+      screen :bitmap
       halt
     end
     Tempfile.create(["rom_image", ".gba"]) do |f|

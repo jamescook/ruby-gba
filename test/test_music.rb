@@ -298,7 +298,7 @@ class TestMusic < Minitest::Test
 
   def test_music_runs_in_mgba
     rom = build do
-      display :bitmap
+      screen :bitmap
       enable_sound
 
       song :test_melody do

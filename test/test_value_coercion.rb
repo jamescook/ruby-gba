@@ -57,7 +57,7 @@ class TestValueCoercion < Minitest::Test
 
   def test_symbol_and_value_forms_build_the_same_ir
     with_symbols = build_with do
-      display :bitmap
+      screen :bitmap
       var :x, 10
       var :y, 20
       var :d, 2
@@ -73,7 +73,7 @@ class TestValueCoercion < Minitest::Test
     end
 
     with_values = build_with do
-      display :bitmap
+      screen :bitmap
       x = var :x, 10
       y = var :y, 20
       d = var :d, 2

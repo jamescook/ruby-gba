@@ -14,7 +14,7 @@ class TestRomBuilder < Minitest::Test
     rom = nil
     capture_io do # swallow the debug_halt reminder warning
       rom = RubyGBA.build("DBGHLT", code: "BDBG", maker: "01", validate: false) do
-        display :bitmap
+        screen :bitmap
         clear_screen :blue
         debug_halt
         clear_screen :red # never reached

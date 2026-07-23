@@ -106,7 +106,7 @@ class TestGuardrailRegistry < Minitest::Test
 
     ex = assert_raises(RubyGBA::ROMError) do
       RubyGBA.build("BOOM", code: "BBOM", maker: "01", err: err) do
-        display :bitmap
+        screen :bitmap
         set :boom, 1
         halt
       end
@@ -121,7 +121,7 @@ class TestGuardrailRegistry < Minitest::Test
     # positive, and the build succeeds.
     Guardrails.register(BoomCheck.new)
     rom = RubyGBA.build("CLEAN", code: "BCLN", maker: "01", err: StringIO.new) do
-      display :bitmap
+      screen :bitmap
       clear_screen :blue
       halt
     end
@@ -132,7 +132,7 @@ class TestGuardrailRegistry < Minitest::Test
     # No register call here: a program that would trip BoomCheck builds fine,
     # proving a check is active only while it's loaded.
     rom = RubyGBA.build("NOREG", code: "BNRG", maker: "01", err: StringIO.new) do
-      display :bitmap
+      screen :bitmap
       set :boom, 1
       clear_screen :blue
       halt

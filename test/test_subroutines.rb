@@ -134,7 +134,7 @@ class TestSubroutines < Minitest::Test
 
   def test_func_called_from_game_loop
     rom = build do
-      display :bitmap
+      screen :bitmap
 
       func :update_ball do
         add_var :ball_x, 2
@@ -177,7 +177,7 @@ class TestSubroutines < Minitest::Test
 
   def test_subroutines_run_in_mgba
     rom = build do
-      display :bitmap
+      screen :bitmap
 
       func :clear do
         clear_screen :black

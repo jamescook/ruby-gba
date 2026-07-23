@@ -111,35 +111,35 @@ class TestImage < Minitest::Test
   end
 
   def test_blit_draws_each_pixel_of_the_image_at_the_position
-    screen = screen_after do
-      display :bitmap
+    fb = screen_after do
+      screen :bitmap
       image :quad, width: 2, height: 2, data: [:red, :green, :blue, :white]
       blit :quad, 10, 20
     end
 
-    assert_equal Color.resolve(:red),   screen.pixel(10, 20)
-    assert_equal Color.resolve(:green), screen.pixel(11, 20)
-    assert_equal Color.resolve(:blue),  screen.pixel(10, 21)
-    assert_equal Color.resolve(:white), screen.pixel(11, 21)
-    assert_equal 0, screen.pixel(12, 20) # just outside the image
+    assert_equal Color.resolve(:red),   fb.pixel(10, 20)
+    assert_equal Color.resolve(:green), fb.pixel(11, 20)
+    assert_equal Color.resolve(:blue),  fb.pixel(10, 21)
+    assert_equal Color.resolve(:white), fb.pixel(11, 21)
+    assert_equal 0, fb.pixel(12, 20) # just outside the image
   end
 
   def test_blit_follows_a_variable_position
-    screen = screen_after do
-      display :bitmap
+    fb = screen_after do
+      screen :bitmap
       image :dot, width: 1, height: 1, data: [:red]
       set :px, 100
       set :py, 50
       blit :dot, :px, :py
     end
 
-    assert_equal Color.resolve(:red), screen.pixel(100, 50)
-    assert_equal 0, screen.pixel(99, 50)
+    assert_equal Color.resolve(:red), fb.pixel(100, 50)
+    assert_equal 0, fb.pixel(99, 50)
   end
 
   def test_blit_lets_the_background_show_through_transparent_pixels
-    screen = screen_after do
-      display :bitmap
+    fb = screen_after do
+      screen :bitmap
       clear_screen :blue
       image :dot, "." => :transparent, "#" => :red do
         <<~ART
@@ -149,8 +149,8 @@ class TestImage < Minitest::Test
       blit :dot, 10, 10
     end
 
-    assert_equal Color.resolve(:blue), screen.pixel(10, 10), "transparent -> background shows"
-    assert_equal Color.resolve(:red),  screen.pixel(11, 10), "the lit pixel is drawn"
-    assert_equal Color.resolve(:blue), screen.pixel(12, 10), "transparent -> background shows"
+    assert_equal Color.resolve(:blue), fb.pixel(10, 10), "transparent -> background shows"
+    assert_equal Color.resolve(:red),  fb.pixel(11, 10), "the lit pixel is drawn"
+    assert_equal Color.resolve(:blue), fb.pixel(12, 10), "transparent -> background shows"
   end
 end

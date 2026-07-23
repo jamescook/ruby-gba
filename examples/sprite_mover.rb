@@ -16,7 +16,7 @@ HALF_W   = SPRITE_W / 2 # how far the heart may hang off a vertical edge
 HALF_H   = SPRITE_H / 2 # ... and off a horizontal edge
 
 rom = RubyGBA.build("SPRITEMV", code: "BSPM", maker: "01") do
-  display :bitmap
+  screen :bitmap
 
   # A little red heart. "." is transparent, so the background shows through its
   # corners — you're steering a heart, not a rectangle.

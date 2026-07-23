@@ -45,7 +45,7 @@ class TestCostModel < Minitest::Test
   # A static program's frame cost is just the sum of its draws' pixel areas.
   def test_static_draws_sum_their_pixel_area
     prog = program do
-      display :bitmap
+      screen :bitmap
       fill_rect 0, 0, 10, 10, :red   # 10*10 = 100
       fill_rect 0, 0, 4, 4, :blue    #  4*4  =  16
       halt
@@ -56,7 +56,7 @@ class TestCostModel < Minitest::Test
   # A repeat runs its body a fixed number of times, so its cost multiplies.
   def test_repeat_multiplies_its_body
     prog = program do
-      display :bitmap
+      screen :bitmap
       repeat(3) { |_i| draw_rect_at 0, 0, 8, 8, :green } # 3 * (8*8) = 192
       halt
     end
@@ -67,7 +67,7 @@ class TestCostModel < Minitest::Test
   # prove at build time — not by how many items happen to be in it right now.
   def test_repeat_over_a_list_uses_its_capacity
     prog = program do
-      display :bitmap
+      screen :bitmap
       body = list :body, capacity: 8
       body.push 1                                          # only 1 item now...
       repeat(body.length) { |i| draw_rect_at 0, 0, 8, 8, :green }
@@ -81,7 +81,7 @@ class TestCostModel < Minitest::Test
   # cost is the worst branch, not the sum of all branches.
   def test_case_var_costs_the_worst_branch_not_the_sum
     prog = program do
-      display :bitmap
+      screen :bitmap
       var :state, 0
       scene(:light) { draw_rect_at 0, 0, 2, 2, :red }    #  2*2  =   4
       scene(:heavy) { draw_rect_at 0, 0, 10, 10, :red }  # 10*10 = 100
@@ -100,7 +100,7 @@ class TestCostModel < Minitest::Test
   # loop doesn't count against the frame budget.
   def test_only_the_loop_body_counts_toward_the_frame
     prog = program do
-      display :bitmap
+      screen :bitmap
       fill_rect 0, 0, 20, 20, :white  # boot draw (400) — NOT per frame
       game_loop do
         wait_vblank
@@ -114,7 +114,7 @@ class TestCostModel < Minitest::Test
   # op up to discourage it. Doubling the pixel weight doubles a pixel-area cost.
   def test_weights_are_configurable
     prog = program do
-      display :bitmap
+      screen :bitmap
       fill_rect 0, 0, 10, 10, :red # 100 pixels
       halt
     end
@@ -124,7 +124,7 @@ class TestCostModel < Minitest::Test
   # A static program reports its one-time boot draw.
   def test_report_states_the_boot_cost_of_a_static_program
     prog = program do
-      display :bitmap
+      screen :bitmap
       fill_rect 0, 0, 10, 10, :red # 100
       halt
     end
@@ -137,7 +137,7 @@ class TestCostModel < Minitest::Test
   # A game loop that draws far more than a frame's budget is flagged.
   def test_report_flags_a_loop_that_overruns_the_budget
     prog = program do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         repeat(100) { |_i| clear_screen :black } # 100 * 38,400 ≫ budget
@@ -151,7 +151,7 @@ class TestCostModel < Minitest::Test
   # A ROM built through RubyGBA.build can report on itself.
   def test_a_built_rom_explains_itself
     rom = RubyGBA.build("EXPLAIN", code: "BXPL", maker: "01") do
-      display :bitmap
+      screen :bitmap
       fill_rect 0, 0, 10, 10, :red # 100
       halt
     end
@@ -165,7 +165,7 @@ class TestCostModel < Minitest::Test
   # analyze returns draw leaves with their costs, top to bottom.
   def test_analyze_returns_draw_leaves_with_costs
     prog = program do
-      display :bitmap
+      screen :bitmap
       fill_rect 0, 0, 10, 10, :red    # 100
       draw_rect_at 0, 0, 8, 8, :green # 64
       halt
@@ -178,7 +178,7 @@ class TestCostModel < Minitest::Test
   # A repeat node carries its multiplied cost and keeps its per-iteration body.
   def test_analyze_repeat_node_multiplies_and_keeps_its_body
     prog = program do
-      display :bitmap
+      screen :bitmap
       repeat(3) { |_i| draw_rect_at 0, 0, 8, 8, :green } # 3 * 64
       halt
     end
@@ -190,7 +190,7 @@ class TestCostModel < Minitest::Test
   # A case node's cost is its worst branch, but it keeps every branch's cost.
   def test_analyze_case_node_cost_is_the_worst_branch
     prog = program do
-      display :bitmap
+      screen :bitmap
       var :state, 0
       scene(:light) { draw_rect_at 0, 0, 2, 2, :red }   # 4
       scene(:heavy) { draw_rect_at 0, 0, 10, 10, :red } # 100
@@ -210,7 +210,7 @@ class TestCostModel < Minitest::Test
   # rom.explain(format: :json) emits structured data tests can parse directly.
   def test_json_explain_is_parseable_structured_data
     rom = RubyGBA.build("JSON", code: "BJSN", maker: "01") do
-      display :bitmap
+      screen :bitmap
       fill_rect 0, 0, 10, 10, :red # 100
       halt
     end
@@ -280,7 +280,7 @@ class TestCostModel < Minitest::Test
   # on the frame it fires.
   def test_every_body_contributes_a_kth_to_the_steady_cost
     prog = program do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         every(4) { draw_rect_at 0, 0, 8, 8, :green } # 64 when it fires
@@ -293,7 +293,7 @@ class TestCostModel < Minitest::Test
   # With no cost hints, the steady figure equals the full frame cost.
   def test_steady_equals_full_when_nothing_is_gated
     prog = program do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         draw_rect_at 0, 0, 8, 8, :green # runs every frame
@@ -306,7 +306,7 @@ class TestCostModel < Minitest::Test
   # per-frame work — it drops out of steady_cost.
   def test_pressed_guarded_body_drops_out_of_steady_cost
     prog = program do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         pressed(:start).then { draw_rect_at 0, 0, 8, 8, :green } # 64 on a press frame only
@@ -320,7 +320,7 @@ class TestCostModel < Minitest::Test
   # fully toward steady.
   def test_held_guarded_body_counts_fully_toward_steady
     prog = program do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         held(:right).then { draw_rect_at 0, 0, 8, 8, :green }
@@ -333,7 +333,7 @@ class TestCostModel < Minitest::Test
   # one, so steady counts a column as ~one glyph (1/10 each), not ten.
   def test_draw_number_column_counts_as_about_one_glyph
     prog = program do
-      display :bitmap
+      screen :bitmap
       var :score, 0
       game_loop do
         wait_vblank
@@ -347,7 +347,7 @@ class TestCostModel < Minitest::Test
   # chance(p) holds p% of the time, so a gated body counts at p%.
   def test_chance_body_counts_at_its_probability
     prog = program do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         chance(25).then { draw_rect_at 0, 0, 8, 8, :green } # 64 * 25% = 16

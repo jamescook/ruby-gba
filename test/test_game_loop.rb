@@ -137,7 +137,7 @@ class TestGameLoop < Minitest::Test
 
   def test_game_loop_with_code_before
     rom = build do
-      display :bitmap
+      screen :bitmap
       set :counter, 0
       game_loop do
         wait_vblank
@@ -157,7 +157,7 @@ class TestGameLoop < Minitest::Test
 
   def test_game_loop_runs_in_mgba
     rom = build do
-      display :bitmap
+      screen :bitmap
       set :counter, 0
       game_loop do
         wait_vblank

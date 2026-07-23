@@ -34,7 +34,7 @@ class TestSnakeCore < Minitest::Test
   def run_snake(start_cells:, moves:, grow:)
     builder = Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       xs = list :xs, capacity: 64
       ys = list :ys, capacity: 64
       var :hit, 0
@@ -101,7 +101,7 @@ class TestSnakeCore < Minitest::Test
     # push+shift moved the whole body, not just an end.
     builder = Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       xs = list :xs, capacity: 64
       ys = list :ys, capacity: 64
       [[2, 5], [3, 5], [4, 5]].each { |cx, cy| xs.push cx; ys.push cy }
@@ -133,7 +133,7 @@ class TestSnakeCore < Minitest::Test
     grid = 4
     builder = Builder.new
     builder.instance_eval do
-      display :bitmap
+      screen :bitmap
       clear_screen :black
       xs = list :xs, capacity: 64
       ys = list :ys, capacity: 64

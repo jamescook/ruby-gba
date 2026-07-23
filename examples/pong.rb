@@ -27,7 +27,7 @@ LEFT_X       = 8        # player paddle x
 RIGHT_X      = 228      # cpu paddle x
 
 rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
-  display :bitmap
+  screen :bitmap
   enable_sound
 
   # --- Sound presets ---

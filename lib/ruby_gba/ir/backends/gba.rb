@@ -1197,7 +1197,8 @@ module RubyGBA
         def emit_fill_rect_buffered(node)
           x, y, w, h = constant_ints!(node, :x, :y, :w, :h)
           even_width!(w, node.kind)
-          even_start!(x, node.kind)
+          x &= ~1 # the tear-free screen fills two pixels at a time, so start on an even
+                  # column — snap x down to keep it aligned, matching draw_rect_at
           scratch = hold_index_word(node[:color])
           control = dma_fill_control_16(w / 2)
 
@@ -1228,11 +1229,10 @@ module RubyGBA
           y_reg = 3
           eval_value(node[:x])
           emit(ASM.mov_reg(x_reg, ACC))
-          # The indexed screen is written two pixels at a time, so a fill must start
-          # on an even column. x is decided at run time, so we can't check it while
-          # building — instead snap it down to the nearest even column (clear its low
-          # bit). A stray odd x nudges the rectangle one pixel rather than writing a
-          # misaligned block that would corrupt the screen.
+          # The tear-free screen is written two pixels at a time, so a fill must start
+          # on an even column. x is decided at run time, so we snap it down to the
+          # nearest even column (clear its low bit) — a stray odd x just nudges the
+          # rectangle one pixel left rather than landing misaligned.
           emit(ASM.lsr_imm(x_reg, x_reg, 1))
           emit(ASM.lsl_imm(x_reg, x_reg, 1))
           eval_value(node[:y])
@@ -1280,16 +1280,6 @@ module RubyGBA
         # the Mode 4 fill unit (two packed indices per halfword).
         def dma_fill_control_16(count)
           count | DMA_ENABLE | DMA_SRC_FIXED # 16-bit is the default (DMA_16BIT == 0)
-        end
-
-        # Mode 4 writes two pixels at a time, so a fill has to start on an even
-        # column — an odd start would land between the paired pixels.
-        def even_start!(x, kind)
-          return if x.even?
-
-          raise LoweringError,
-                "#{kind} in double-buffered mode needs an even x (got #{x}) — the indexed screen " \
-                "is written two pixels at a time, so a fill must start on an even column."
         end
 
         # Draw a line of text on the hidden page. Each lit font pixel is a single
@@ -1390,10 +1380,10 @@ module RubyGBA
         # colors, which need converting to palette indices first. Point at what does.
         def blit_unsupported_in_buffered!
           raise LoweringError,
-                "blit can't draw on the double-buffered screen (buffered: true). Its images are stored as " \
-                "direct colors, which the indexed screen can't show without converting them to palette " \
-                "indices first. Draw with the rectangle fills, draw_text, or pixel in buffered mode, or drop " \
-                "`buffered:` to use the direct-color screen, where blit works."
+                "blit can't draw on the tear-free screen (tear_free: true). Its images are stored as " \
+                "direct colors, which the tear-free screen can't show without converting them to a color " \
+                "table first. Draw with the rectangle fills, draw_text, or pixel there, or drop " \
+                "`tear_free:` to use the direct-color screen, where blit works."
         end
 
         # --- audio ---------------------------------------------------------------

@@ -31,7 +31,7 @@ class TestInput < Minitest::Test
 
   def test_if_held_builds_without_error
     rom = build do
-      display :bitmap
+      screen :bitmap
       set :player_y, 80
       game_loop do
         wait_vblank
@@ -110,7 +110,7 @@ class TestInput < Minitest::Test
 
   def test_if_pressed_builds_without_error
     rom = build do
-      display :bitmap
+      screen :bitmap
       game_loop do
         wait_vblank
         if_pressed :start do
@@ -142,7 +142,7 @@ class TestInput < Minitest::Test
 
   def test_input_rom_runs_in_mgba
     rom = build do
-      display :bitmap
+      screen :bitmap
       set :player_y, 80
       game_loop do
         wait_vblank

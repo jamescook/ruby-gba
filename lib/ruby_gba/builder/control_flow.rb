@@ -22,7 +22,7 @@ module RubyGBA
       # remember to remove it.
       #
       # @example Bisecting a black screen
-      #   display :bitmap
+      #   screen :bitmap
       #   clear_screen :red      # does this show up?
       #   debug_halt              # ← ROM stops here
       #   draw_text "HELLO"      # ← never recorded

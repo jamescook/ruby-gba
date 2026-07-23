@@ -13,13 +13,13 @@
 # Here we don't bother. Every frame just clears the screen and repaints everything —
 # walls, food, the entire snake body, the score — the obvious way you'd want to
 # write it. It stays perfectly clean no matter how long the snake grows, because
-# `display :bitmap, buffered: true` draws to a hidden screen and shows it all at
+# `screen :bitmap, tear_free: true` draws to a hidden screen and shows it all at
 # once, so a half-finished frame is never visible. The only cost of doing more work
 # is a lower frame rate, never a torn image.
 #
-# That's the whole point: change that one flag to `false` and this identical code
-# goes back to tearing in direct-color Mode 3. Buffering is what lets you write the
-# naive version.
+# That's the whole point: remove that one flag and this identical code goes back to
+# tearing in direct-color Mode 3. Double buffering is what lets you write the naive
+# version.
 #
 # The rules are unchanged: d-pad steers, eat the red food to grow and score, hit a
 # wall or yourself and it's game over, START to play.
@@ -62,7 +62,7 @@ module BufferedSnake
   FOOD_TRIES = 8
 
   GAME = proc do
-    display :bitmap, buffered: true # <-- the whole difference. Flip to false and it tears.
+    screen :bitmap, tear_free: true # <-- the whole difference. Remove it and it tears.
     enable_sound
 
     define_sound :eat, frequency: 880, duty: :quarter, decay: :fast
