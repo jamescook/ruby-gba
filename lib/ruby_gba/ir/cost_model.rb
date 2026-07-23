@@ -11,9 +11,8 @@ module RubyGBA
     # spot that before it ever runs on hardware.
     #
     # Costs are in "write-units" — roughly one write to the screen. The weights are
-    # rough, tunable placeholders for now (real values come from measuring on the
-    # console); a game dev can override any of them, e.g. to weight an op up to
-    # discourage it. What the model gets exactly right is the *shape* of the work:
+    # rough, tunable placeholders (real values come from measuring on the console);
+    # a game dev can override any of them, e.g. to weight an op up to discourage it. What the model gets exactly right is the *shape* of the work:
     # a loop's body counts once per iteration, a list-driven loop counts up to the
     # list's capacity (the worst it can reach), and a scene dispatch (case_var)
     # costs its heaviest branch, since only one branch runs per frame.
@@ -339,7 +338,8 @@ module RubyGBA
 
       # How many times a repeat runs, and a human note: a literal count exactly; a
       # list's length up to its capacity (the most it can hold). An unknown count
-      # (a plain variable) counts as zero for now — a later pass flags it unbounded.
+      # (a plain variable) has no provable bound, so it contributes zero to the
+      # estimate and is noted as unbounded rather than guessed.
       def repeat_factor(node)
         count = node[:count]
         return [count[:value], "x#{count[:value]}"] if count.is_a?(Node) && count.kind == :int
