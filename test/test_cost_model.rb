@@ -290,6 +290,36 @@ class TestCostModel < Minitest::Test
     assert_equal 16, Cost.new.steady_cost(prog) # 64 / 4, spread across frames
   end
 
+  # after(n) fires exactly once, ever, so it contributes nothing to the steady
+  # per-frame figure, though its full cost still shows on the frame it fires. The
+  # cost model reads this straight from the `after` node kind.
+  def test_after_body_is_a_one_shot_and_drops_out_of_steady_cost
+    prog = program do
+      screen :bitmap
+      game_loop do
+        wait_vblank
+        after(30) { draw_rect_at 0, 0, 8, 8, :green } # 64 on the one frame it fires
+      end
+    end
+    assert_equal 64, Cost.new.frame_cost(prog)
+    assert_equal 0, Cost.new.steady_cost(prog)
+  end
+
+  # rom.explain names the intent: a timed trigger reads as "every 30" in the cost
+  # tree, because the interval survives on the IR node for the report to read.
+  def test_rom_explain_names_a_timed_trigger
+    prog = program do
+      screen :bitmap
+      game_loop do
+        wait_vblank
+        every(30) { draw_rect_at 0, 0, 8, 8, :green }
+      end
+    end
+    io = StringIO.new
+    Cost.new.render(prog, out: io)
+    assert_match(/every 30/, io.string)
+  end
+
   # With no cost hints, the steady figure equals the full frame cost.
   def test_steady_equals_full_when_nothing_is_gated
     prog = program do

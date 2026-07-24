@@ -59,6 +59,12 @@ module RubyGBA
         case: :control, else: :control, wait_vblank: :control, halt: :control,
         repeat: :control,
 
+        # timed triggers — a body that runs on a schedule (every N frames) or once
+        # after a delay (after N frames). Each carries a hidden frame counter a
+        # backend ticks; kept as their own kinds so the tree preserves the intent
+        # (rather than baking in the counter+compare they lower to).
+        every: :control, after: :control,
+
         # a raw escape hatch: pre-assembled target bytes appended verbatim. The
         # one node that isn't portable — only a native backend can place it, and
         # the interpreter refuses it (tagged hardware-only in IR::Portability).

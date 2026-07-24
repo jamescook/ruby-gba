@@ -103,16 +103,11 @@ module RubyGBA
       # @param unit [Symbol] :frames (default) or :seconds
       def every(n, unit = :frames, &block)
         counter = timer_counter!(:every, n, unit, block)
-        frames = to_frames(n, unit)
-        record(Build.add(counter, 1))
-        reached = Build.binop(:>=, Build.var_ref(counter), Build.int(frames))
-        gate = Build.if_(reached)
-        # A cost hint for the estimator: this body only runs one frame in `frames`,
-        # so it contributes 1/frames to the steady per-frame cost. Inert everywhere
-        # else — the backends read the `if`, not this tag.
-        gate[:cost_tag] = { kind: :every, period: frames }
-        push_container(gate) do
-          record(Build.set(counter, Build.int(0))) # start the next interval over
+        # Build a first-class `every` node: the tree keeps saying "every N frames"
+        # (which the cost model and rom.explain read directly), and each backend
+        # turns it into the frame counter + compare. The counter itself is still
+        # allocated and cleared at boot by timer_counter! above.
+        push_container(Build.every(counter, to_frames(n, unit))) do
           instance_eval(&block)
         end
       end
@@ -130,16 +125,11 @@ module RubyGBA
       # @param unit [Symbol] :frames (default) or :seconds
       def after(n, unit = :frames, &block)
         counter = timer_counter!(:after, n, unit, block)
-        frames = to_frames(n, unit)
-        # Count up only until the counter reaches the target — so it never overflows
-        # or fires twice — and run the block on the one frame it lands exactly on it.
-        not_yet = Build.binop(:<, Build.var_ref(counter), Build.int(frames))
-        push_container(Build.if_(not_yet)) do
-          record(Build.add(counter, 1))
-          reached = Build.binop(:==, Build.var_ref(counter), Build.int(frames))
-          push_container(Build.if_(reached)) do
-            instance_eval(&block)
-          end
+        # A first-class `after` node — the tree keeps saying "after N frames", and
+        # each backend counts up only until the target so the body fires exactly
+        # once. The counter is allocated and cleared at boot by timer_counter!.
+        push_container(Build.after(counter, to_frames(n, unit))) do
+          instance_eval(&block)
         end
       end
 

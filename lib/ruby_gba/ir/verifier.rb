@@ -103,6 +103,10 @@ module RubyGBA
         else:       {},
         loop:       {},
         repeat:     { count: :value, index: :name },
+        # timed triggers: the body nests as #children; the counter is a hidden var
+        # name, the period/delay an author-time whole number of frames.
+        every:      { counter: :name, period: :int },
+        after:      { counter: :name, frames: :int },
         func:       { name: :name },
         call:       { target: :name },
         case:       { var: :name, clauses: :list },
