@@ -52,7 +52,6 @@ module RubyGBA
         tone:    ->(v) { v.is_a?(Symbol) || v.is_a?(Integer) }, # a defined-sound name or raw frequency
         list:    ->(v) { v.is_a?(Array) },                     # a resolved score / a case dispatch table
         branch:  ->(v) { v.is_a?(Node) && v.kind == :else },   # an if's else-branch node
-        meta:    ->(v) { v.is_a?(Hash) && v[:kind].is_a?(Symbol) }, # a cost hint (inert to backends)
         flag:    ->(v) { v == true || v == false },            # an on/off switch (e.g. double buffering)
       }.freeze
 
@@ -98,9 +97,7 @@ module RubyGBA
         stop_music:   {},
 
         # control flow (bodies nest as #children; an if's else is a :branch attr).
-        # cost_tag is an optional hint for the cost estimator (e.g. an every's
-        # period) — inert everywhere else; the backends read the cond and children.
-        if:         { cond: :value, else: :branch, cost_tag: :meta },
+        if:         { cond: :value, else: :branch },
         else:       {},
         loop:       {},
         repeat:     { count: :value, index: :name },

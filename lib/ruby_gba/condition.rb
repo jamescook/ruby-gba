@@ -18,14 +18,9 @@ module RubyGBA
     # *author* wrote, we skip frames under here and take the first one outside it.
     LIB_DIR = __dir__
 
-    # +cost_tag+ is an optional hint for the cost estimator, describing how often
-    # this condition holds (e.g. a `pressed` edge is a rare transition, `chance(p)`
-    # holds p% of the time). #then stamps it onto the `if` it records; it's inert to
-    # every backend.
-    def initialize(builder, node, cost_tag: nil)
+    def initialize(builder, node)
       @builder = builder
       @node = node
-      @cost_tag = cost_tag
       @source = self.class.author_source
       # Enter the builder's "pending" set on birth; #then / & / | take us back out
       # once we're used. Whatever never leaves was built and never branched on —
@@ -61,7 +56,6 @@ module RubyGBA
 
       @builder.consume_condition(self)
       if_node = @builder.record_conditional(@node, &block)
-      if_node[:cost_tag] = @cost_tag if @cost_tag
       Branch.new(@builder, if_node)
     end
 
