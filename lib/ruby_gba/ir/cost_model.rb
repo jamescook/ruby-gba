@@ -4,13 +4,18 @@ require "json"
 
 module RubyGBA
   module IR
-    # Estimates how much *drawing* a program does — per frame for a game loop, or
-    # once at boot for a static program. It's the engine behind the render-budget
-    # guardrail and `rom.explain`: a program that draws more each frame than the
-    # console can finish before the screen refreshes will tear, and this is how we
-    # spot that before it ever runs on hardware.
+    # Estimates how much per-frame work a program does — mostly drawing, plus the
+    # sound work that shares the same frame — per frame for a game loop, or once at
+    # boot for a static program. It's the engine behind the render-budget guardrail
+    # and `rom.explain`: a program that does more each frame than the console can
+    # finish before the screen refreshes will tear, and this is how we spot that
+    # before it ever runs on hardware.
     #
-    # Costs are in "write-units" — roughly one write to the screen. The weights are
+    # Costs are in "write-units" — roughly one write to the screen. Sound is priced
+    # in the same unit so it weighs against the same budget: a sound-register write
+    # (a beep, powering the hardware on) counts like a screen write, and playing a
+    # song costs one frame-counter check per note *every* frame, because the score
+    # is unrolled into a comparison per note (see #song_cost). The weights are
     # rough, tunable placeholders (real values come from measuring on the console);
     # a game dev can override any of them, e.g. to weight an op up to discourage it. What the model gets exactly right is the *shape* of the work:
     # a loop's body counts once per iteration, a list-driven loop counts up to the
@@ -40,10 +45,27 @@ module RubyGBA
       # like VBLANK_BUDGET.
       FRAME_BUDGET = 3 * VBLANK_BUDGET
 
+      # A rough ceiling on how much per-frame work a *single song* should cost on
+      # its own. Playing a song re-checks every note against a frame counter on
+      # every frame, so a long enough tune becomes real recurring work that has
+      # nothing to do with drawing; past this, the music guardrail flags it. A
+      # placeholder like the draw budgets, pending hardware calibration.
+      MUSIC_STEADY_BUDGET = 800
+
+      # A sound op is a short burst of writes to the sound registers; these are the
+      # write counts, so the model can price them in the same write-units as
+      # drawing. (Playing a song is priced separately — see #song_cost.)
+      ENABLE_WRITES = 3 # power the sound hardware on
+      BEEP_WRITES   = 2 # one channel-2 sound effect
+      STOP_WRITES   = 2 # silence the music channel
+      SONG_TICK     = 6 # per frame: advance the song's frame counter and wrap it at the end
+
       # Illustrative defaults (write-units). Override per-call: CostModel.new(pixel: 2).
       DEFAULT_WEIGHTS = {
-        pixel: 1,   # one filled/plotted pixel
-        glyph: 35,  # one 5x7 font glyph (~35 lit pixels)
+        pixel: 1,       # one filled/plotted pixel
+        glyph: 35,      # one 5x7 font glyph (~35 lit pixels)
+        sound_write: 1, # one write to a sound register (a beep, powering sound on)
+        note_check: 3,  # per song note, the frame-counter check that runs every frame
       }.freeze
 
       def initialize(**weights)
@@ -181,6 +203,25 @@ module RubyGBA
         end
       end
 
+      # Per-song playback verdicts, for a program that plays music. Playing a song
+      # re-checks every note against a frame counter on every frame — the score is
+      # unrolled into one comparison per note — so a long tune is real recurring
+      # per-frame work on its own, independent of any drawing. Each song the
+      # program actually plays gets its per-frame music cost judged against the
+      # music budget, so the guardrail can flag a tune long enough to matter. Each
+      # entry: { name:, notes:, steady_cost:, budget:, over: }
+      def song_verdicts(program)
+        index(program)
+        names = program.walk.select { |node| node.kind == :play_song }.map { |node| node[:name] }.uniq
+        names.filter_map do |name|
+          next unless @songs[name]
+
+          cost = song_cost(name)
+          { name: name, notes: song_notes(name), steady_cost: cost,
+            budget: MUSIC_STEADY_BUDGET, over: cost > MUSIC_STEADY_BUDGET }
+        end
+      end
+
       # Print a short, human draw-cost estimate to +out+: the per-frame cost against
       # the frame budget for a game loop, or the one-time boot cost otherwise. (The
       # full drill-down tree comes later; this is the at-a-glance summary.)
@@ -214,6 +255,7 @@ module RubyGBA
           buffered: buffered?(program),      # double-buffered? (over budget = a dropped frame, not a tear)
           looping: looping?(program),
           scenes: scene_verdicts(program),   # per-scene cost vs each scene's own budget
+          songs: song_verdicts(program),     # per-song music cost vs the music budget
           tree: analyze(program),
         }
       end
@@ -323,14 +365,17 @@ module RubyGBA
         nodes.flat_map { |node| node[:children].to_a.empty? ? [node] : all_leaves(node[:children]) }
       end
 
-      # Catalogue the funcs (so a `call`/`case` can be costed) and the list
-      # capacities (so a repeat over a list can be bounded).
+      # Catalogue the funcs (so a `call`/`case` can be costed), the list capacities
+      # (so a repeat over a list can be bounded), and the songs (so a `play_song`
+      # can be costed by its note count).
       def index(program)
         @funcs = {}
         @capacities = {}
+        @songs = {}
         program.walk do |node|
           @funcs[node[:name]] = node if node.kind == :func
           @capacities[node[:name]] = node[:capacity] if node.kind == :list_new
+          @songs[node[:name]] = node if node.kind == :song
         end
       end
 
@@ -413,14 +458,37 @@ module RubyGBA
         when :fill_rect, :dma_fill_rect, :draw_rect_at then node[:w] * node[:h] * px
         when :clear_screen then SCREEN_W * SCREEN_H * px
         when :draw_text then node[:text].to_s.length * @weights[:glyph] * px
-        else 0 # non-draw ops: no draw cost
+        when :play_song then song_cost(node[:name])
+        when :beep then BEEP_WRITES * @weights[:sound_write]
+        when :enable_sound then ENABLE_WRITES * @weights[:sound_write]
+        when :stop_music then STOP_WRITES * @weights[:sound_write]
+        else 0 # non-draw, non-sound ops: no per-frame cost
         end
+      end
+
+      # The per-frame cost of playing +name+: its score is unrolled into one
+      # frame-counter check per note, all re-run every frame, plus a small fixed
+      # cost to advance and wrap the counter — so the recurring work grows with the
+      # note count. An unknown name costs nothing (the backend reports it).
+      def song_cost(name)
+        return 0 unless @songs && @songs[name]
+
+        SONG_TICK * @weights[:sound_write] + song_notes(name) * @weights[:note_check]
+      end
+
+      # How many notes a song holds (its score is a list of [frame, frequency]
+      # events). 0 for an unknown name.
+      def song_notes(name)
+        song = @songs && @songs[name]
+        song ? song[:events].to_a.length : 0
       end
 
       def label_of(node)
         case node.kind
         when :fill_rect, :dma_fill_rect, :draw_rect_at then "#{node.kind} #{node[:w]}x#{node[:h]}"
         when :draw_text then "draw_text #{node[:text].inspect}"
+        when :play_song then "play_song :#{node[:name]} (#{song_notes(node[:name])} notes)"
+        when :beep then "beep #{node[:tone].inspect}"
         else node.kind.to_s
         end
       end

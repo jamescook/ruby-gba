@@ -494,3 +494,76 @@ class TestSnakeSteadyCost < Minitest::Test
                     "a transition frame (whole-board repaint) is heavy — that's the spike selectivity discounts"
   end
 end
+
+# Sound is per-frame work too: playing a song re-checks every note against a frame
+# counter on *every* frame (the score is unrolled into one comparison per note), so
+# a long tune is real recurring work, and a beep is a small burst of sound-register
+# writes. The model prices both in the same write-units as drawing, so they weigh
+# against the same budget. Built straight from the IR so the score is explicit.
+class TestSoundCost < Minitest::Test
+  include RubyGBA::IR::Build
+
+  Cost = RubyGBA::IR::CostModel
+
+  # An +n+-note song: n [frame, frequency] events, looping at frame n.
+  def song_of(n)
+    song(:theme, events: Array.new(n) { |i| [i, 440] }, total_frames: n)
+  end
+
+  # A game that plays an +n+-note song every frame, optionally drawing +draw+ too.
+  def music_game(n, draw: nil)
+    program(
+      display(:bitmap),
+      song_of(n),
+      loop_(wait_vblank, play_song(:theme), *[draw].compact),
+    )
+  end
+
+  # Playing a song costs one frame-counter check per note every frame, plus the
+  # fixed cost of advancing and wrapping the counter.
+  def test_playing_a_song_costs_a_check_per_note_every_frame
+    # 10 notes: SONG_TICK(6) + 10 * note_check(3) = 36
+    assert_equal 36, Cost.new.steady_cost(music_game(10))
+    # twice the notes, ~twice the per-note work (the fixed tick is unchanged)
+    assert_equal 66, Cost.new.steady_cost(music_game(20)) # 6 + 20*3
+  end
+
+  # A beep is a small fixed burst of writes to the sound registers.
+  def test_a_beep_costs_its_sound_register_writes
+    prog = program(display(:bitmap), enable_sound, loop_(wait_vblank, beep(440)))
+    assert_equal 2, Cost.new.steady_cost(prog) # BEEP_WRITES(2) * sound_write(1)
+  end
+
+  # Sound counts alongside drawing on the same frame, against the same budget.
+  def test_music_counts_alongside_drawing
+    prog = music_game(10, draw: clear_screen(:black)) # 38,400 + 36
+    assert_equal 38_436, Cost.new.steady_cost(prog)
+  end
+
+  # The song shows up in the drill-down tree with its cost and note count.
+  def test_the_song_appears_in_the_cost_tree
+    play = Cost.new.analyze(music_game(10)).find { |node| node[:op] == :play_song }
+    refute_nil play, "play_song should appear as a costed leaf"
+    assert_equal 36, play[:cost]
+    assert_match(/10 notes/, play[:label])
+  end
+
+  # rom.explain's JSON carries a per-song breakdown, judged against the music budget.
+  def test_json_carries_the_song_breakdown
+    song = Cost.new.as_json(music_game(10))[:songs].first
+    assert_equal :theme, song[:name]
+    assert_equal 10, song[:notes]
+    assert_equal Cost::MUSIC_STEADY_BUDGET, song[:budget]
+    refute song[:over], "a 10-note song is well under the music budget"
+  end
+
+  # A tune long enough that its per-frame note-check chain is heavy on its own is
+  # flagged over the music budget; an ordinary short one is not.
+  def test_a_long_song_is_over_the_music_budget
+    long = Cost.new.song_verdicts(music_game(300)).first # 6 + 300*3 = 906 > 800
+    assert long[:over]
+
+    short = Cost.new.song_verdicts(music_game(50)).first # 6 + 50*3 = 156
+    refute short[:over]
+  end
+end
