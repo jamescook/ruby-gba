@@ -42,6 +42,18 @@ class TestCostModel < Minitest::Test
     )
   end
 
+  # A blit costs its image's footprint (width x height), looked up from the bitmap
+  # definition — so a game's sprites weigh in the estimate, not silently as zero.
+  def test_blit_costs_its_image_footprint
+    prog = Build.program(
+      Build.display(:bitmap),
+      Build.bitmap(:ship, width: 8, height: 4, pixels: Array.new(32, 0).pack("v*"), transparent: nil),
+      Build.loop_(Build.wait_vblank, Build.blit(:ship, Build.int(0), Build.int(0))),
+    )
+    assert_equal 32, Cost.new.steady_cost(prog) # 8 * 4 pixels
+    assert_equal 32, Cost.new.frame_cost(prog)
+  end
+
   # A static program's frame cost is just the sum of its draws' pixel areas.
   def test_static_draws_sum_their_pixel_area
     prog = program do

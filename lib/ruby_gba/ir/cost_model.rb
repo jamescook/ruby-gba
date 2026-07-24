@@ -369,16 +369,19 @@ module RubyGBA
       end
 
       # Catalogue the funcs (so a `call`/`case` can be costed), the list capacities
-      # (so a repeat over a list can be bounded), and the songs (so a `play_song`
-      # can be costed by its note count).
+      # (so a repeat over a list can be bounded), the songs (so a `play_song` can be
+      # costed by its note count), and the bitmaps (so a `blit` can be costed by its
+      # image's size, which lives on the definition, not the blit op).
       def index(program)
         @funcs = {}
         @capacities = {}
         @songs = {}
+        @bitmaps = {}
         program.walk do |node|
           @funcs[node[:name]] = node if node.kind == :func
           @capacities[node[:name]] = node[:capacity] if node.kind == :list_new
           @songs[node[:name]] = node if node.kind == :song
+          @bitmaps[node[:name]] = [node[:width], node[:height]] if node.kind == :bitmap
         end
       end
 
@@ -473,6 +476,7 @@ module RubyGBA
         when :clear_screen then SCREEN_W * SCREEN_H * px
         when :draw_text then node[:text].to_s.length * @weights[:glyph] * px
         when :draw_digit then @weights[:glyph] * px # one glyph, whichever digit it is
+        when :blit then blit_cost(node[:name])
         when :play_song then song_cost(node[:name])
         when :beep then BEEP_WRITES * @weights[:sound_write]
         when :enable_sound then ENABLE_WRITES * @weights[:sound_write]
@@ -498,11 +502,20 @@ module RubyGBA
         song ? song[:events].to_a.length : 0
       end
 
+      # A blit paints its image's footprint — width x height pixels (the rough
+      # worst case; transparency draws fewer). The size lives on the bitmap
+      # definition, catalogued in #index. An unknown image costs nothing.
+      def blit_cost(name)
+        w, h = @bitmaps && @bitmaps[name]
+        w ? w * h * @weights[:pixel] : 0
+      end
+
       def label_of(node)
         case node.kind
         when :fill_rect, :dma_fill_rect, :draw_rect_at then "#{node.kind} #{node[:w]}x#{node[:h]}"
         when :draw_text then "draw_text #{node[:text].inspect}"
         when :draw_digit then "draw_digit"
+        when :blit then "blit :#{node[:name]}"
         when :play_song then "play_song :#{node[:name]} (#{song_notes(node[:name])} notes)"
         when :beep then "beep #{node[:tone].inspect}"
         else node.kind.to_s
