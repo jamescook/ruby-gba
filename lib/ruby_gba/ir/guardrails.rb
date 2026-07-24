@@ -150,6 +150,7 @@ require_relative "guardrails/termination"
 require_relative "guardrails/off_screen_draw"
 require_relative "guardrails/orphaned_condition"
 require_relative "guardrails/draw_budget"
+require_relative "guardrails/music_budget"
 require_relative "guardrails/redraw_everything"
 
 module RubyGBA
@@ -165,6 +166,7 @@ module RubyGBA
         Checks::Termination.new,
         Checks::OffScreenDraw.new,
         Checks::DrawBudget.new,
+        Checks::MusicBudget.new,
         Checks::RedrawEverything.new,
       ].freeze
     end
