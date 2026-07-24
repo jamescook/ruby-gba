@@ -436,6 +436,8 @@ module RubyGBA
           when :binop then eval_binop(node[:op], eval_value(node[:lhs]), eval_value(node[:rhs]))
           when :held then bool(button_held?(node[:button]))
           when :pressed then bool(button_pressed?(node[:button]))
+          # A chance holds when the random draw lands below the threshold.
+          when :chance then bool(eval_value(node[:draw]) < node[:percent])
           when :data_byte then data_byte(node[:name], node[:index])
           when :list_get then eval_list_get(node)
           when :list_len then list_for(node[:name]).length

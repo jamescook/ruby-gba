@@ -64,6 +64,7 @@ module ConformanceFixture
       B.set(:acc, B.data_byte(:blob, 0)),     # data_byte reads embedded data
       B.set(:acc, B.held(:a)),                # held (button read)
       B.set(:acc, B.pressed(:b)),             # pressed (edge read)
+      B.set(:acc, B.chance(B.var_ref(:x), 50)), # chance (draw-below-threshold read)
 
       # --- every drawing op ---
       B.clear_screen(:black),

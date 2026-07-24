@@ -134,6 +134,7 @@ module RubyGBA
         neg:     { operand: :value },
         held:    { button: :option },
         pressed: { button: :option },
+        chance:  { draw: :value, percent: :int }, # draw is the 0..99 value; percent an author-time bound
       }.freeze
 
       # Verify a whole program tree. Returns the node on success; raises

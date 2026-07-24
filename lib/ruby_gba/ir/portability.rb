@@ -76,6 +76,7 @@ module RubyGBA
         int: :portable, var_ref: :portable, binop: :portable, neg: :portable,
         data_byte: :portable, list_get: :portable, list_len: :portable,
         held: :portable, pressed: :portable,
+        chance: :portable, # a random draw compared to a threshold — plain arithmetic
       }.freeze
 
       # The tier of a kind (a Symbol) or a Node. Raises on an unclassified kind —
