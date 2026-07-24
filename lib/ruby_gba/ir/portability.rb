@@ -61,6 +61,7 @@ module RubyGBA
         # control flow
         if: :portable, else: :portable, loop: :portable, repeat: :portable,
         func: :portable, call: :portable, case: :portable, wait_vblank: :portable, halt: :portable,
+        every: :portable, after: :portable, # timed triggers: plain counter logic any backend can run
 
         # the opaque escape hatch — pre-assembled native bytes no backend can model
         raw: :hardware_only,

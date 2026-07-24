@@ -274,6 +274,11 @@ module RubyGBA
         when :program, :loop, :else then node.children.sum { |child| steady(child) }
         when :if then node.children.sum { |child| steady(child) } + (node[:else] ? steady(node[:else]) : 0)
         when :repeat then repeat_factor(node).first * node.children.sum { |child| steady(child) }
+        # A timed trigger's steady per-frame cost follows from its kind: every(k)
+        # runs one frame in k, so its body counts 1/k; after(n) fires once ever, so
+        # it adds nothing to the every-frame load.
+        when :every then Rational(1, node[:period]) * node.children.sum { |child| steady(child) }
+        when :after then 0
         when :case then node[:clauses].map { |_value, target| steady_func(target) }.max || 0
         when :call then steady_func(node[:target])
         when :func then 0
@@ -298,7 +303,6 @@ module RubyGBA
         return 1 unless tag
 
         case tag[:kind]
-        when :every then Rational(1, tag[:period])
         when :glyph_of then Rational(1, tag[:n])
         when :transition then 0
         when :chance then Rational(tag[:percent], 100)
@@ -389,6 +393,8 @@ module RubyGBA
         when :case then [build_case(node)]
         when :call then [build_call(node)]
         when :repeat then [build_repeat(node)]
+        when :every then [build_timer(node, "every #{node[:period]}")]
+        when :after then [build_timer(node, "after #{node[:frames]}")]
         when :func then [] # a definition: it costs only where it's called
         else build_leaf(node)
         end
@@ -424,6 +430,15 @@ module RubyGBA
         factor, note = repeat_factor(node)
         kids = node.children.flat_map { |child| build(child) }
         { op: :repeat, label: "repeat #{note}", cost: factor * sum(kids), children: kids }
+      end
+
+      # A timed trigger (every/after) as a labeled container: it carries its body's
+      # full cost — the cost of the frame it does fire — so the tree and the
+      # heaviest-frame figure read true; the steady discount is applied separately
+      # (see #raw_steady). The label names the intent, e.g. "every 30".
+      def build_timer(node, label)
+        kids = node.children.flat_map { |child| build(child) }
+        { op: node.kind, label: label, cost: sum(kids), children: kids }
       end
 
       def func_children(name)

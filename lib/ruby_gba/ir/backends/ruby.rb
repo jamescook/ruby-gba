@@ -190,6 +190,22 @@ module RubyGBA
               node.children.each { |child| exec(child) }
               i += 1
             end
+          when :every
+            # A repeating timer: tick the hidden frame counter, and each time it
+            # reaches the period, reset it and run the body — so the body fires once
+            # per interval.
+            @vars[node[:counter]] = Int32.add(@vars[node[:counter]], 1)
+            if @vars[node[:counter]] >= node[:period]
+              @vars[node[:counter]] = 0
+              node.children.each { |child| exec(child) }
+            end
+          when :after
+            # A one-shot timer: count up only until the target frame, running the
+            # body on the single frame the counter lands exactly on it.
+            if @vars[node[:counter]] < node[:frames]
+              @vars[node[:counter]] = Int32.add(@vars[node[:counter]], 1)
+              node.children.each { |child| exec(child) } if @vars[node[:counter]] == node[:frames]
+            end
           when :list_new
             # Create (or reset) the named list, empty, with its rounded capacity.
             @lists[node[:name]] = ListValue.new(node[:capacity])

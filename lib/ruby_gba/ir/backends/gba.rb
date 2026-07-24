@@ -318,6 +318,8 @@ module RubyGBA
           when :if then emit_if(node)
           when :loop then emit_loop(node)
           when :repeat then emit_repeat(node)
+          when :every then emit_every(node)
+          when :after then emit_after(node)
           when :list_new then emit_list_new(node)
           when :list_push then emit_list_push(node)
           when :list_drop then emit_list_drop(node)
@@ -467,6 +469,32 @@ module RubyGBA
           store_var(ACC, index)
           emit_branch(:b, top)
           place_label(done)
+        end
+
+        # every: run the body once every `period` frames. Tick the hidden frame
+        # counter, and when it reaches the period, reset it and run the body. Built
+        # as a small sub-tree and emitted through the shared statement emitters
+        # (rather than hand-written instructions), so it reuses the tested add/if
+        # lowering.
+        def emit_every(node)
+          counter = node[:counter]
+          reached = Build.binop(:>=, Build.var_ref(counter), Build.int(node[:period]))
+          gate = Build.if_(reached, Build.set(counter, Build.int(0)), *node.children)
+          emit_statement(Build.add(counter, 1))
+          emit_statement(gate)
+        end
+
+        # after: run the body exactly once, `frames` frames in. Count up only until
+        # the target — so the counter never overflows or fires twice — and run the
+        # body on the one frame it lands on. Built as a sub-tree emitted through the
+        # shared statement emitters, reusing the tested add/if lowering.
+        def emit_after(node)
+          counter = node[:counter]
+          frames = node[:frames]
+          lands = Build.if_(Build.binop(:==, Build.var_ref(counter), Build.int(frames)), *node.children)
+          not_yet = Build.if_(Build.binop(:<, Build.var_ref(counter), Build.int(frames)),
+                              Build.add(counter, 1), lands)
+          emit_statement(not_yet)
         end
 
         # --- lists ---------------------------------------------------------------

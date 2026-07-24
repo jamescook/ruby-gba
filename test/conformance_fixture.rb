@@ -96,6 +96,13 @@ module ConformanceFixture
       B.case_(:sel, { 0 => :scene_a, 1 => :scene_b }),
       B.repeat(3, :ri, B.set(:acc, B.var_ref(:ri))), # counted loop, index 0..2
 
+      # --- timed triggers: a repeating and a one-shot timer (counters cleared
+      # up front so the interpreter's schedule is deterministic) ---
+      B.set(:every_ctr, 0),
+      B.set(:after_ctr, 0),
+      B.every(:every_ctr, 2, B.set(:acc, 1)), # fires one frame in two
+      B.after(:after_ctr, 3, B.set(:acc, 2)), # fires once, three frames in
+
       # --- terminate: a loop that syncs once then halts (covers loop + halt) ---
       B.loop_(B.wait_vblank, B.halt),
     )

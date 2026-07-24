@@ -188,6 +188,23 @@ module RubyGBA
         Node.new(:repeat, children: body, count: wrap(count), index: index)
       end
 
+      # A repeating timer: run +body+ once every +period+ frames. +counter+ names
+      # the hidden frame counter (cleared once at boot) that a backend ticks each
+      # frame and resets when it reaches the period. The whole point of it being a
+      # node — not the counter+compare it lowers to — is that the tree still says
+      # "every N frames", so the cost model and rom.explain read the intent.
+      def every(counter, period, *body)
+        Node.new(:every, children: body, counter: counter, period: period)
+      end
+
+      # A one-shot timer: run +body+ exactly once, +frames+ frames in, then never
+      # again. +counter+ names the hidden frame counter (cleared at boot) that
+      # counts up only until it lands on the target. Like +every+, kept as a node so
+      # the tree still says "after N frames".
+      def after(counter, frames, *body)
+        Node.new(:after, children: body, counter: counter, frames: frames)
+      end
+
       def func(name, *body)
         Node.new(:func, children: body, name: name)
       end

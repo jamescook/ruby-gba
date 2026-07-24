@@ -19,6 +19,8 @@ class TestTimers < Minitest::Test
 
   Builder = RubyGBA::Builder
   Ruby = RubyGBA::IR::Backends::Ruby
+  GBA = RubyGBA::IR::Backends::GBA
+  Build = RubyGBA::IR::Build
   Color = RubyGBA::Color
 
   def interpret(**opts, &block)
@@ -162,6 +164,45 @@ class TestTimers < Minitest::Test
     before_loop = program.children[0...loop_index]
     assert before_loop.any? { |n| n.kind == :set && n[:value].kind == :int && n[:value][:value].zero? },
            "a timer's counter should be zero-initialized before the game loop"
+  end
+
+  # ---- lowering: a timer node is a plain frame counter + compare ----
+  #
+  # The GBA backend lowers every/after to a hidden frame counter and a compare.
+  # Pin that lowering by building the node form and the equivalent explicit
+  # counter+compare form and asserting identical generated code (two fresh backends
+  # label gensyms the same way, so equal bytes means an equal instruction stream).
+  def test_every_lowers_identically_to_an_explicit_counter_compare
+    node_form = Build.program(
+      Build.display(:bitmap), Build.set(:c, 0),
+      Build.loop_(Build.wait_vblank, Build.every(:c, 3, Build.set(:hit, 1)), Build.halt),
+    )
+    explicit_form = Build.program(
+      Build.display(:bitmap), Build.set(:c, 0),
+      Build.loop_(Build.wait_vblank,
+                  Build.add(:c, 1), # counter += 1
+                  Build.if_(Build.binop(:>=, Build.var_ref(:c), Build.int(3)),
+                            Build.set(:c, 0), Build.set(:hit, 1)), # on reach: reset, then body
+                  Build.halt),
+    )
+    assert_equal GBA.new.lower(explicit_form), GBA.new.lower(node_form)
+  end
+
+  def test_after_lowers_identically_to_an_explicit_counter_compare
+    node_form = Build.program(
+      Build.display(:bitmap), Build.set(:c, 0),
+      Build.loop_(Build.wait_vblank, Build.after(:c, 5, Build.set(:hit, 1)), Build.halt),
+    )
+    explicit_form = Build.program(
+      Build.display(:bitmap), Build.set(:c, 0),
+      Build.loop_(Build.wait_vblank,
+                  Build.if_(Build.binop(:<, Build.var_ref(:c), Build.int(5)),
+                            Build.add(:c, 1), # count up only until the target...
+                            Build.if_(Build.binop(:==, Build.var_ref(:c), Build.int(5)),
+                                      Build.set(:hit, 1))), # ...and fire on the frame it lands on
+                  Build.halt),
+    )
+    assert_equal GBA.new.lower(explicit_form), GBA.new.lower(node_form)
   end
 
   # ---- guardrails ----
