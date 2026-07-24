@@ -932,33 +932,54 @@ module RubyGBA
           bmp[:transparent] ? emit_blit_transparent(node, bmp) : emit_blit_opaque(node, bmp)
         end
 
-        # Opaque bitmap: one 16-bit DMA per row, source in the cartridge (source
-        # and destination both increment, unlike a fill), so each row's pixels
-        # stream straight from ROM into VRAM.
-        #
-        # Every row is clipped to the screen at run time, since x/y are runtime
-        # values (variables) — the clip math can't be done at build time. A row
-        # off the top or bottom is skipped whole; a row crossing a side edge has
-        # its transfer trimmed to the on-screen span: the DMA source skips the
-        # columns clipped off the left, the destination starts at the first
-        # on-screen column, and the count is just the visible width. Without this
-        # trim a row that ran past the screen's right edge would wrap onto the
-        # start of the next line.
-        #
-        # r6 holds the bitmap base and r7/r8 hold x/y across the whole blit; the
-        # rest (r2–r5, r9–r11) are per-row scratch.
+        # Opaque bitmap: stream each row straight from the cartridge into VRAM by
+        # DMA — a run-time-positioned rectangle copy from a ROM buffer onto the
+        # screen. The shared row engine below does the clipping.
         def emit_blit_opaque(node, bmp)
-          width = bmp[:width]
-          base_reg = 6
+          emit_rect_row_dma(node[:x], node[:y], bmp[:width], bmp[:height], node[:name], vram: :dest)
+        end
+
+        # Copy the rows of a run-time-positioned width×height rectangle between the
+        # screen (VRAM) and a row-major linear buffer, one 16-bit DMA per row,
+        # clipping each row to the screen. This is the shared engine under blitting
+        # an image and under a sprite's save/restore of what it covers.
+        #
+        # +vram:+ picks the direction. `:dest` streams the buffer ONTO the screen —
+        # a blit, or a sprite putting back the pixels it had covered. `:src` reads
+        # the screen INTO the buffer — a sprite capturing what it is about to cover.
+        # Everything else about a row is identical either way, which is the whole
+        # reason this is one method.
+        #
+        # +base+ says where the linear buffer lives: a Symbol names a ROM blob (its
+        # address is patched in once the data region is placed); an Integer is a
+        # fixed address in RAM (a sprite's reserved backing store). The buffer is
+        # addressed row-major (row*width + column), so a clipped row drops the same
+        # columns on both ends — which is exactly what lets a capture and a later
+        # restore at the same spot round-trip a sprite hanging off an edge.
+        #
+        # Clipping is at run time because x/y are runtime values. A row off the top
+        # or bottom is skipped whole; a row crossing a side edge is trimmed to its
+        # on-screen span (the buffer end skips the clipped columns, the screen end
+        # starts at the first visible column, the count is just the visible width) —
+        # without the trim a row past the right edge would wrap onto the next line.
+        #
+        # r6 holds the buffer base and r7/r8 hold x/y across the whole copy; the
+        # rest (r2–r5, r9–r11) are per-row scratch.
+        def emit_rect_row_dma(x_node, y_node, width, height, base, vram:)
+          buf_reg = 6
           x_reg = 7
           y_reg = 8
-          eval_value(node[:x])
+          eval_value(x_node)
           emit(ASM.mov_reg(x_reg, ACC))
-          eval_value(node[:y])
+          eval_value(y_node)
           emit(ASM.mov_reg(y_reg, ACC))
-          emit_load_data_address(base_reg, node[:name]) # r6 = bitmap address in the cartridge
+          case base
+          when Symbol  then emit_load_data_address(buf_reg, base)    # r6 = ROM blob address
+          when Integer then emit(ASM.load_immediate(buf_reg, base))  # r6 = RAM buffer address
+          else raise LoweringError, "rect DMA base must be a blob name or a RAM address, got #{base.inspect}"
+          end
 
-          bmp[:height].times do |row|
+          height.times do |row|
             skip = gensym
 
             # screen_y = y + row; drop the whole row if it's above or below screen.
@@ -990,13 +1011,13 @@ module RubyGBA
             emit(ASM.cmp_imm(4, 0))
             emit_branch(:bcond, skip, cond: :le)
 
-            # source = base + (row*width + left_skip) * 2  -> r5
+            # buffer span address = base + (row*width + left_skip) * 2  -> r5
             emit(ASM.sub_reg(5, 10, x_reg))           # left_skip = visible_left - x
-            emit_add_const(5, 5, row * width, 2)      # + this row's start in the pixels
+            emit_add_const(5, 5, row * width, 2)      # + this row's start in the buffer
             emit(ASM.lsl_imm(5, 5, 1))                # * 2 bytes/pixel
-            emit(ASM.add_reg(5, base_reg, 5))
+            emit(ASM.add_reg(5, buf_reg, 5))
 
-            # dest = VRAM + (screen_y*SCREEN_WIDTH + visible_left) * 2  -> r3
+            # screen span address = VRAM + (screen_y*SCREEN_WIDTH + visible_left) * 2 -> r3
             emit(ASM.load_immediate(2, SCREEN_WIDTH))
             emit(ASM.mul(3, 9, 2))                    # r3 = screen_y * width
             emit(ASM.add_reg(3, 3, 10))               # + visible_left
@@ -1004,13 +1025,16 @@ module RubyGBA
             emit(ASM.load_immediate(2, VRAM_START))
             emit(ASM.add_reg(3, 3, 2))
 
-            # control = visible_width | DMA_ENABLE (16-bit, src+dest increment).
+            # control = visible_width | DMA_ENABLE (16-bit, source+dest increment).
             emit(ASM.orr_imm(4, 4, DMA_ENABLE))
 
+            # Direction decides which span is the source: :dest sends the buffer
+            # (r5) to the screen (r3); :src reads the screen (r3) into the buffer (r5).
+            sad, dad = vram == :dest ? [5, 3] : [3, 5]
             emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(ASM.str(5, TMP))                     # source: visible span in ROM
+            emit(ASM.str(sad, TMP))                   # source span
             emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(ASM.str(3, TMP))                     # destination: visible span in VRAM
+            emit(ASM.str(dad, TMP))                   # destination span
             emit(ASM.load_immediate(TMP, REG_DMA3CNT))
             emit(ASM.str(4, TMP))                     # kick off the row copy
 
