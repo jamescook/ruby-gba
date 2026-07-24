@@ -44,6 +44,7 @@ module RubyGBA
         # drawing / display operations
         display: :draw, pixel: :draw, fill_rect: :draw, clear_screen: :draw,
         draw_rect_at: :draw, draw_text: :draw, dma_fill_rect: :draw, blit: :draw,
+        draw_digit: :draw, # one run-time decimal digit, chosen and drawn at run time
 
         # audio operations. define_sound and song are definitions (like func):
         # named registries the audio triggers refer to. beep is a one-off effect,

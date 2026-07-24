@@ -257,6 +257,8 @@ module RubyGBA
                               node[:w], node[:h], resolve_color(node[:color]))
           when :draw_text
             exec_draw_text(node)
+          when :draw_digit
+            exec_draw_digit(node)
           when :enable_sound
             @audio << [:enabled]
           when :define_sound, :song, :data, :bitmap
@@ -300,6 +302,19 @@ module RubyGBA
           color = resolve_color(node[:color])
           Font.each_pixel(node[:text]) do |dx, dy|
             @screen.set_pixel(x + dx, y + dy, color)
+          end
+        end
+
+        # Draw the run-time digit: work out which of 0..9 the value is and render
+        # that one glyph. A value outside 0..9 draws nothing (a digit column always
+        # holds a single digit, so this only guards against misuse).
+        def exec_draw_digit(node)
+          digit = eval_value(node[:value])
+          return unless (0..9).cover?(digit)
+
+          color = resolve_color(node[:color])
+          Font.each_pixel(digit.to_s) do |dx, dy|
+            @screen.set_pixel(node[:x] + dx, node[:y] + dy, color)
           end
         end
 

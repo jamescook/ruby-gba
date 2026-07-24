@@ -73,6 +73,7 @@ module ConformanceFixture
       B.dma_fill_rect(8, 8, 4, 4, :blue),
       B.draw_rect_at(:x, :y, 4, 4, :white),
       B.draw_text("HI", 10, 10, :white),
+      B.draw_digit(B.var_ref(:x), 20, 10, :white), # one run-time digit glyph
       B.blit(:sprite, :x, :y),
 
       # --- every sound trigger ---

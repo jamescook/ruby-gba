@@ -336,6 +336,7 @@ module RubyGBA
           when :dma_fill_rect then emit_dma_fill_rect(node)
           when :draw_rect_at then emit_draw_rect_at(node)
           when :draw_text then emit_draw_text(node)
+          when :draw_digit then emit_draw_digit(node)
           when :blit then emit_blit(node)
           when :enable_sound then emit_enable_sound
           when :define_sound, :song, :data, :bitmap then nil # definitions: collected, nothing to emit
@@ -1118,6 +1119,18 @@ module RubyGBA
 
             emit(ASM.load_immediate(TMP, VRAM_START + ((py * SCREEN_WIDTH) + px) * 2))
             emit(ASM.store_halfword(ACC, TMP))
+          end
+        end
+
+        # Draw the run-time digit: render whichever of 0..9 the value works out to.
+        # The bitmap font can't be indexed by a run-time value, so this expands to
+        # ten mutually exclusive guards, one per digit, exactly one of which draws.
+        # Built as a sub-tree and emitted through the shared statement paths, so it
+        # honors the current display mode (direct or buffered) via draw_text.
+        def emit_draw_digit(node)
+          10.times do |k|
+            emit_statement(Build.if_(Build.binop(:==, node[:value], Build.int(k)),
+                                     Build.draw_text(k.to_s, node[:x], node[:y], node[:color])))
           end
         end
 

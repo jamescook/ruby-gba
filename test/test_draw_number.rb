@@ -15,6 +15,7 @@ class TestDrawNumber < Minitest::Test
   Builder = RubyGBA::Builder
   Ruby = RubyGBA::IR::Backends::Ruby
   GBA = RubyGBA::IR::Backends::GBA
+  Build = RubyGBA::IR::Build
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
 
@@ -159,5 +160,26 @@ class TestDrawNumber < Minitest::Test
                      "hardware: live vs literal differ at column offset #{dx}, row #{dy}"
       end
     end
+  end
+
+  # draw_digit is one node, but because the bitmap font can't be indexed by a
+  # run-time value, the GBA backend renders it as a ten-way per-digit fan-out (one
+  # guarded glyph draw per digit, exactly one of which runs). Pin that lowering:
+  # the node must produce the same code as the fan-out written out by hand.
+  def test_draw_digit_lowers_to_the_ten_way_glyph_fan_out
+    node_form = Build.program(
+      Build.display(:bitmap), Build.set(:d, 0),
+      Build.loop_(Build.wait_vblank, Build.draw_digit(Build.var_ref(:d), 8, 8, :white), Build.halt),
+    )
+    fan_out = Build.program(
+      Build.display(:bitmap), Build.set(:d, 0),
+      Build.loop_(Build.wait_vblank,
+                  *(0..9).map do |k|
+                    Build.if_(Build.binop(:==, Build.var_ref(:d), Build.int(k)),
+                              Build.draw_text(k.to_s, 8, 8, :white))
+                  end,
+                  Build.halt),
+    )
+    assert_equal GBA.new.lower(fan_out), GBA.new.lower(node_form)
   end
 end

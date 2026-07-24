@@ -53,6 +53,7 @@ module RubyGBA
         # exists to care — a per-kind tag can't express them).
         display: :portable, pixel: :portable, fill_rect: :portable, clear_screen: :portable,
         draw_rect_at: :portable, draw_text: :portable, dma_fill_rect: :portable, blit: :portable,
+        draw_digit: :portable, # index a font by a run-time digit — any backend can
 
         # audio — square-wave PSG a web-audio backend can synthesize
         enable_sound: :portable, define_sound: :portable, beep: :portable,
