@@ -55,6 +55,8 @@ module RubyGBA
               rect_bounds(node)
             when :draw_text
               at(node) { |x, y| [x, y, Font.text_width(node[:text]), Font::GLYPH_H] }
+            when :draw_digit
+              at(node) { |x, y| [x, y, Font::GLYPH_W, Font::GLYPH_H] } # one glyph
             when :blit
               blit_bounds(node, bitmaps)
             end
@@ -112,6 +114,7 @@ module RubyGBA
             when :fill_rect, :dma_fill_rect then "a filled rectangle"
             when :draw_rect_at then "a rectangle"
             when :draw_text then "the text #{node[:text].inspect}"
+            when :draw_digit then "a digit"
             when :blit then "the image #{node[:name].inspect}"
             end
           end

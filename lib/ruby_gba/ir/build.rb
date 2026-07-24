@@ -101,6 +101,14 @@ module RubyGBA
         Node.new(:draw_text, text: text, x: x, y: y, color: color)
       end
 
+      # Draw the single decimal digit of +value+ (a run-time 0..9) at the fixed
+      # origin +x+/+y+ in +color+ — one glyph chosen at run time. It exists as its
+      # own node so drawing a live digit stays one intent in the tree (a backend
+      # may render it however it likes — a lookup and one blit, or a fan-out).
+      def draw_digit(value, x, y, color)
+        Node.new(:draw_digit, value: value, x: x, y: y, color: color)
+      end
+
       # Fill a rectangle whose *position* is decided at run time: +x+/+y+ may be
       # variables (or constants), while the size +w+/+h+ is a compile-time
       # constant. This is the moving-object draw — paddles, a ball — as opposed to

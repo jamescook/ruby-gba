@@ -297,24 +297,16 @@ module RubyGBA
 
       # How often an `if`'s body runs, read from its condition: a body behind a
       # `pressed` edge is a rare transition (never counts toward the steady load); a
-      # `chance(p)` body holds p% of the time; a draw_number glyph gate draws one of
-      # its ten digits. A `held` or a plain comparison runs every frame it's true,
-      # so it weighs 1 — as does any non-`if` node.
+      # `chance(p)` body holds p% of the time. A `held` or a plain comparison runs
+      # every frame it's true, so it weighs 1 — as does any non-`if` node.
       def selectivity(node)
         return 1 unless node.kind == :if
 
         case node[:cond]&.kind
         when :pressed then 0
         when :chance then Rational(node[:cond][:percent], 100)
-        else glyph_selectivity(node)
+        else 1
         end
-      end
-
-      # A draw_number column draws exactly one of ten digit glyphs, so each of its
-      # ten mutually-exclusive gates counts as a tenth.
-      def glyph_selectivity(if_node)
-        tag = if_node[:cost_tag]
-        tag && tag[:kind] == :glyph_of ? Rational(1, tag[:n]) : 1
       end
 
       # The verdict, printed to +out+: for a game loop, the STEADY per-frame cost
@@ -480,6 +472,7 @@ module RubyGBA
         when :fill_rect, :dma_fill_rect, :draw_rect_at then node[:w] * node[:h] * px
         when :clear_screen then SCREEN_W * SCREEN_H * px
         when :draw_text then node[:text].to_s.length * @weights[:glyph] * px
+        when :draw_digit then @weights[:glyph] * px # one glyph, whichever digit it is
         when :play_song then song_cost(node[:name])
         when :beep then BEEP_WRITES * @weights[:sound_write]
         when :enable_sound then ENABLE_WRITES * @weights[:sound_write]
@@ -509,6 +502,7 @@ module RubyGBA
         case node.kind
         when :fill_rect, :dma_fill_rect, :draw_rect_at then "#{node.kind} #{node[:w]}x#{node[:h]}"
         when :draw_text then "draw_text #{node[:text].inspect}"
+        when :draw_digit then "draw_digit"
         when :play_song then "play_song :#{node[:name]} (#{song_notes(node[:name])} notes)"
         when :beep then "beep #{node[:tone].inspect}"
         else node.kind.to_s
