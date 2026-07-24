@@ -146,6 +146,41 @@ module RubyGBA
         buffered?(program) ? FRAME_BUDGET : VBLANK_BUDGET
       end
 
+      # The budget a single display mode gets: the whole frame when buffered (it
+      # draws to a hidden page shown all at once, so it can't tear), otherwise just
+      # the brief safe window before the visible frame starts.
+      def mode_budget(mode)
+        mode == Modes::BUFFERED ? FRAME_BUDGET : VBLANK_BUDGET
+      end
+
+      # Whether the program mixes display modes across its scenes (some direct,
+      # some tear-free). When it does, one whole-program budget is meaningless —
+      # each scene has to be judged against its own mode's budget (#scene_verdicts).
+      def mixed?(program)
+        Modes.resolve(program).mixed?
+      end
+
+      # Per-scene render verdicts, for a game that switches modes between scenes.
+      # Each scene the loop dispatches to gets its own steady per-frame cost judged
+      # against its own mode's budget — so a heavy direct-color scene is caught even
+      # when another scene is buffered (which would otherwise widen the budget for
+      # the whole program and hide it). Each entry:
+      #   { name:, mode:, steady_cost:, budget:, over: }
+      def scene_verdicts(program)
+        return [] unless looping?(program)
+
+        modes = Modes.resolve(program)
+        index(program)
+        @stack = []
+        modes.scene_funcs.map do |name|
+          mode = modes.mode_of(name)
+          cost = steady_func(name)
+          budget = mode_budget(mode)
+          { name: Modes.friendly_name(name), mode: mode, steady_cost: cost,
+            budget: budget, over: cost > budget }
+        end
+      end
+
       # Print a short, human draw-cost estimate to +out+: the per-frame cost against
       # the frame budget for a game loop, or the one-time boot cost otherwise. (The
       # full drill-down tree comes later; this is the at-a-glance summary.)
@@ -178,6 +213,7 @@ module RubyGBA
           budget: budget_for(program),       # the applicable budget (wider when buffered)
           buffered: buffered?(program),      # double-buffered? (over budget = a dropped frame, not a tear)
           looping: looping?(program),
+          scenes: scene_verdicts(program),   # per-scene cost vs each scene's own budget
           tree: analyze(program),
         }
       end
@@ -231,23 +267,43 @@ module RubyGBA
       # The verdict, printed to +out+: for a game loop, the STEADY per-frame cost
       # against the budget (the tear risk), plus the heaviest single frame as a
       # one-off spike when it's larger; for a static program, the one-time boot cost.
+      # A game that switches modes between scenes is reported scene by scene, since
+      # each mode has its own budget.
       def verdict_lines(program, out)
-        if looping?(program)
-          steady = steady_cost(program)
-          full = frame_cost(program)
-          budget = budget_for(program)
-          over = steady > budget
-          # Over budget reads differently depending on the mode: a single-buffered
-          # frame tears, a double-buffered one just drops below 60fps.
-          over_note = buffered?(program) ? "! over budget — the frame rate drops" : "! over budget — the screen tears"
-          out.puts "  steady per frame ~ #{steady} write-units   (budget ~ #{budget})   " \
-                   "#{over ? over_note : 'ok — fits the frame'}"
-          if full > steady
-            out.puts "  heaviest frame   ~ #{full} write-units   " \
-                     "(a one-off spike — a transition frame or an every() tick, not the steady load)"
-          end
-        else
+        unless looping?(program)
           out.puts "  boot draw ~ #{frame_cost(program)} write-units   (no game loop — drawn once, then halts)   ok"
+          return
+        end
+        return scene_verdict_lines(program, out) if mixed?(program)
+
+        steady = steady_cost(program)
+        full = frame_cost(program)
+        budget = budget_for(program)
+        over = steady > budget
+        # Over budget reads differently depending on the mode: a single-buffered
+        # frame tears, a double-buffered one just drops below 60fps.
+        over_note = buffered?(program) ? "! over budget — the frame rate drops" : "! over budget — the screen tears"
+        out.puts "  steady per frame ~ #{steady} write-units   (budget ~ #{budget})   " \
+                 "#{over ? over_note : 'ok — fits the frame'}"
+        if full > steady
+          out.puts "  heaviest frame   ~ #{full} write-units   " \
+                   "(a one-off spike — a transition frame or an every() tick, not the steady load)"
+        end
+      end
+
+      # One verdict line per scene, each against its own mode's budget — the report
+      # for a game that runs some scenes direct-color and others tear-free.
+      def scene_verdict_lines(program, out)
+        scene_verdicts(program).each do |s|
+          mode_label = s[:mode] == Modes::BUFFERED ? "tear-free" : "direct"
+          note =
+            if s[:over]
+              s[:mode] == Modes::BUFFERED ? "! over budget — the frame rate drops" : "! over budget — the screen tears"
+            else
+              s[:mode] == Modes::BUFFERED ? "ok — fits the frame" : "ok — fits the safe window"
+            end
+          out.puts "  scene :#{s[:name]} (#{mode_label}) ~ #{s[:steady_cost]} write-units   " \
+                   "(budget ~ #{s[:budget]})   #{note}"
         end
       end
 

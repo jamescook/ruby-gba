@@ -125,6 +125,7 @@ module RubyGBA
           @label_seq = 0
           @uses_pressed = false  # whether the program reads edge-detected input
           @palette = nil         # the color table, built once when any scene is buffered
+          @modes = nil           # IR::Modes: which display mode each scene resolves to
           @any_buffered = false  # does any scene use double buffering?
           @default_mode = :direct # the boot display mode (from the top-level `display`)
           @func_mode = {}        # func name -> :direct | :buffered (resolved from the call graph)
@@ -154,66 +155,19 @@ module RubyGBA
 
         # Work out which display mode each scene draws in. A program that never uses
         # double buffering is left entirely alone (the direct-color path below is
-        # unchanged). When some scene IS buffered, each func's mode is resolved by
-        # following the call graph from the game's entry points: a scene runs in the
-        # mode it declares (a `display` at its top) or, with none, the mode it was
-        # reached in; and the funcs it calls inherit that mode. A drawing helper
-        # reached in two different modes can't be lowered both ways, so that's a
-        # friendly error rather than a silently-wrong screen.
+        # unchanged). When some scene IS buffered, each func's mode comes from
+        # IR::Modes — the shared, target-agnostic resolution that follows the call
+        # graph from the game's entry points. A drawing helper reached in two
+        # different modes can't be lowered both ways; Modes flags that, and we
+        # surface it as a lowering error.
         def resolve_modes(program)
-          @default_mode = declared_mode(main_body(program)) || :direct
-          entry_targets(program).each { |target| resolve_func_mode(target, @default_mode, scene: true) }
-          @any_buffered = @default_mode == :buffered || @func_mode.value?(:buffered)
-        end
-
-        def resolve_func_mode(name, inherited, scene:)
-          func = @funcs[name] or return
-          mode = declared_mode(func.children) || inherited
-          @scene_funcs << name if scene && !@scene_funcs.include?(name)
-
-          if @func_mode.key?(name)
-            return if @func_mode[name] == mode
-
-            raise LoweringError,
-                  "the drawing routine :#{name.to_s.sub(/\A_scene_/, '')} is used from both a " \
-                  "direct-color scene and a double-buffered one — a drawing routine can't be shared " \
-                  "across display modes. Give each mode its own routine, or move the shared drawing inline."
-          end
-
-          @func_mode[name] = mode
-          call_targets(func).each { |target| resolve_func_mode(target, mode, scene: false) }
-        end
-
-        # The display mode a run of statements declares, via a `display` node among
-        # them (nil if none): buffered when the display opted into double buffering.
-        def declared_mode(statements)
-          statements.each do |node|
-            return node[:buffered] ? :buffered : :direct if node.kind == :display
-          end
-          nil
-        end
-
-        # The program's main body — everything except the func definitions appended
-        # to the tree (those are emitted separately).
-        def main_body(program)
-          program.children.reject { |node| node.kind == :func }
-        end
-
-        # The funcs the main body dispatches to each frame — case_var scenes and
-        # calls in the loop. These are the mode-switch entry points.
-        def entry_targets(program)
-          main_body(program).flat_map { |node| call_targets(node) }
-        end
-
-        # Every func a node (and its whole subtree, including else-branches) calls or
-        # dispatches to.
-        def call_targets(node)
-          targets = []
-          node.walk do |n|
-            targets << n[:target] if n.kind == :call
-            n[:clauses].each { |_value, target| targets << target } if n.kind == :case
-          end
-          targets
+          @modes = IR::Modes.resolve(program)
+          @default_mode = @modes.default_mode
+          @func_mode = @modes.func_mode
+          @scene_funcs = @modes.scene_funcs
+          @any_buffered = @modes.any_buffered?
+        rescue IR::Modes::Conflict => e
+          raise LoweringError, e.message
         end
 
         private
@@ -258,10 +212,11 @@ module RubyGBA
         # Build the double-buffer color table and stash it as a ROM blob to be
         # uploaded at startup. Mode 4's screen stores a small index per pixel that
         # picks a color out of this table, so the table has to exist before anything
-        # is drawn. IR::Palette collects the program's colors and raises a friendly
-        # error if there are more than 256 (see IR::Palette::Overflow).
+        # is drawn. Only the buffered scenes feed it — a direct-color scene stores
+        # full colors per pixel and needs no slot — so its colors can't crowd the
+        # 256-entry table (see IR::Palette::Overflow for the friendly limit error).
         def prepare_palette(program)
-          @palette = IR::Palette.build(program)
+          @palette = IR::Palette.build(program, scopes: @modes.buffered_scopes)
           @data_blobs[PALETTE_BLOB] = @palette.entries.pack("v*") # 15-bit entries, little-endian
         end
 

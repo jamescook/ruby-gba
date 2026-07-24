@@ -35,8 +35,14 @@ module RubyGBA
 
       # Build the palette for a program, or raise Palette::Overflow if it names more
       # distinct colors than fit.
-      def self.build(program)
-        new(program)
+      #
+      # +scopes+ narrows what's collected to a given set of statement subtrees —
+      # the backend passes the buffered scenes only, since the palette exists for
+      # the indexed double-buffered screen and a direct-color scene needs no slots.
+      # Omitted, it collects the whole program (handy for inspecting a program's
+      # colors in isolation).
+      def self.build(program, scopes: nil)
+        new(program, scopes)
       end
 
       # Slot for a color the program uses. +spec+ is anything the author could have
@@ -71,8 +77,9 @@ module RubyGBA
 
       private
 
-      def initialize(program)
-        distinct = collect(program).uniq # first-seen order, deduped by resolved value
+      def initialize(program, scopes)
+        roots = scopes || [program] # the subtrees to gather colors from
+        distinct = collect(roots).uniq # first-seen order, deduped by resolved value
         needed = (distinct + [BLACK]).uniq.size # one slot per color, plus reserved black
         raise Overflow, overflow_message(distinct.size) if needed > CAPACITY
 
@@ -83,18 +90,20 @@ module RubyGBA
         @entries = @slots.keys # keys are inserted in slot order, so this is the table
       end
 
-      # Every distinct color the program draws, in first-seen order. Two sources:
-      # the draw verbs (which carry an unresolved color spec) and bitmap definitions
-      # (whose pixels are already packed 15-bit values). Walks the WHOLE tree, not
-      # just statement children, so a color used only in an else-branch (held in an
-      # attr, not a child) still gets a slot.
-      def collect(program)
+      # Every distinct color the given subtrees draw, in first-seen order. Two
+      # sources: the draw verbs (which carry an unresolved color spec) and bitmap
+      # definitions (whose pixels are already packed 15-bit values). Walks each
+      # subtree WHOLE, not just its statement children, so a color used only in an
+      # else-branch (held in an attr, not a child) still gets a slot.
+      def collect(roots)
         values = []
-        program.walk do |node|
-          if node.kind == :bitmap
-            collect_bitmap(node, values)
-          elsif (spec = node[:color])
-            values << Color.resolve(spec)
+        roots.each do |root|
+          root.walk do |node|
+            if node.kind == :bitmap
+              collect_bitmap(node, values)
+            elsif (spec = node[:color])
+              values << Color.resolve(spec)
+            end
           end
         end
         values
