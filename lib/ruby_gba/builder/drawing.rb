@@ -118,6 +118,25 @@ module RubyGBA
         ensure_var(y_pos)
       end
 
+      # Lay out a board of equal cells and get a handle for painting them one at a
+      # time. The game then works in cell coordinates (0, 1, 2 …) — set_cell and
+      # clear_cell handle the pixel arithmetic — so a tile game reads as a tile game
+      # and each step touches only the cells that changed. See {Grid}.
+      #
+      #   board = grid :board, cols: 30, rows: 20, cell: 8, over: :black
+      #   board.set_cell   x, y, :white   # paint one cell
+      #   board.clear_cell x, y            # return it to the background (:black)
+      #
+      # @param name [Symbol] the board's name
+      # @param cols [Integer] columns across
+      # @param rows [Integer] rows down
+      # @param cell [Integer] a cell's size in pixels (even)
+      # @param over [Symbol, String, Integer] the background color a cleared cell shows
+      # @return [Grid] a handle with set_cell / clear_cell
+      def grid(name, cols:, rows:, cell:, over:)
+        Grid.new(self, name: name, cols: cols, rows: rows, cell: cell, over: over)
+      end
+
       private
 
       def validate_coords!(x, y)
