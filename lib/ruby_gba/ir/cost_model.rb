@@ -262,11 +262,11 @@ module RubyGBA
 
       private
 
-      # The selectivity-weighted cost of a subtree: a cost hint scales it (an
-      # every(k) body by 1/k, a transition-guarded body to nothing), so what's left
-      # is the work that runs every frame. Untagged nodes weigh 1.
+      # The selectivity-weighted cost of a subtree: how often the node's body
+      # actually runs scales its cost, so what's left is the work that runs every
+      # frame. A node that always runs weighs 1 (see #selectivity).
       def steady(node)
-        tag_multiplier(node) * raw_steady(node)
+        selectivity(node) * raw_steady(node)
       end
 
       def raw_steady(node)
@@ -295,19 +295,26 @@ module RubyGBA
         total
       end
 
-      # How much a cost-hinted node contributes to the steady per-frame figure: an
-      # every(k) body one frame in k, a transition-guarded body never, a chance(p)
-      # body p% of the time. No hint means it always runs (weight 1).
-      def tag_multiplier(node)
-        tag = node[:cost_tag]
-        return 1 unless tag
+      # How often an `if`'s body runs, read from its condition: a body behind a
+      # `pressed` edge is a rare transition (never counts toward the steady load); a
+      # `chance(p)` body holds p% of the time; a draw_number glyph gate draws one of
+      # its ten digits. A `held` or a plain comparison runs every frame it's true,
+      # so it weighs 1 — as does any non-`if` node.
+      def selectivity(node)
+        return 1 unless node.kind == :if
 
-        case tag[:kind]
-        when :glyph_of then Rational(1, tag[:n])
-        when :transition then 0
-        when :chance then Rational(tag[:percent], 100)
-        else 1
+        case node[:cond]&.kind
+        when :pressed then 0
+        when :chance then Rational(node[:cond][:percent], 100)
+        else glyph_selectivity(node)
         end
+      end
+
+      # A draw_number column draws exactly one of ten digit glyphs, so each of its
+      # ten mutually-exclusive gates counts as a tenth.
+      def glyph_selectivity(if_node)
+        tag = if_node[:cost_tag]
+        tag && tag[:kind] == :glyph_of ? Rational(1, tag[:n]) : 1
       end
 
       # The verdict, printed to +out+: for a game loop, the STEADY per-frame cost

@@ -352,6 +352,14 @@ module RubyGBA
         Node.new(:pressed, button: button)
       end
 
+      # 1 +percent+% of the time, else 0 — a probability test as a value operand,
+      # true when the random draw in +draw+ (a 0..99 value) lands below +percent+.
+      # A value node in its own right (like +held+/+pressed+) so a reader — the cost
+      # model, a diagnostic — can see it's a chance, not a bare comparison.
+      def chance(draw, percent)
+        Node.new(:chance, draw: draw, percent: percent)
+      end
+
       # Coerce a bare operand into a value node so every operand is uniform: an
       # Integer becomes an +int+ literal, a Symbol becomes a +var_ref+, and a Node
       # passes through untouched. Anything else can't be a value here, so say so

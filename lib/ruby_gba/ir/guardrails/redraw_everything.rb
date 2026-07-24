@@ -79,8 +79,8 @@ module RubyGBA
           end
 
           # Every statement reachable each frame from +node+, following call/case
-          # dispatch into funcs — but NOT descending into a `pressed`-guarded body
-          # (tagged a transition), which runs once in a while, not every frame.
+          # dispatch into funcs — but NOT descending into a `pressed`-guarded body,
+          # which runs once in a while (on a press edge), not every frame.
           def steady_statements(node, funcs, seen = Set.new, acc = [])
             return acc if transition?(node)
 
@@ -101,8 +101,10 @@ module RubyGBA
             acc
           end
 
+          # A body gated on a `pressed` edge is a once-in-a-while transition (a new
+          # round starting, a menu choice), not steady per-frame work.
           def transition?(node)
-            node.kind == :if && (tag = node[:cost_tag]) && tag[:kind] == :transition
+            node.kind == :if && node[:cond]&.kind == :pressed
           end
         end
       end

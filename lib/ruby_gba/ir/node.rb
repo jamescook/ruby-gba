@@ -88,6 +88,9 @@ module RubyGBA
 
         # input reads — an operand whose value comes from the gamepad
         held: :value, pressed: :value,
+
+        # a probability test as an operand — true a given percent of the time
+        chance: :value,
       }.freeze
 
       # The distinct categories, in a stable order (useful for coverage checks).

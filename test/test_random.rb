@@ -19,6 +19,8 @@ class TestRandom < Minitest::Test
 
   Builder = RubyGBA::Builder
   Ruby = RubyGBA::IR::Backends::Ruby
+  GBA = RubyGBA::IR::Backends::GBA
+  Build = RubyGBA::IR::Build
   Color = RubyGBA::Color
 
   # Build through the DSL and run it on the reference backend, returning the
@@ -168,6 +170,26 @@ class TestRandom < Minitest::Test
     # Deterministic given the seed, but assert a band so the test states the intent
     # (roughly half) rather than pinning an incidental exact count.
     assert_includes 30..70, i[:hits], "chance(50) fired #{i[:hits]}/100 times — not near half"
+  end
+
+  # A `chance` node means "the random draw is below the threshold". Wrapping the
+  # test as a node (so the cost model can see it's a probability) must change no
+  # code: it lowers to exactly the same GBA output as that plain comparison. Build
+  # both forms and assert identical bytes.
+  def test_chance_lowers_identically_to_the_underlying_comparison
+    node_form = Build.program(
+      Build.display(:bitmap), Build.set(:d, 0),
+      Build.loop_(Build.wait_vblank,
+                  Build.if_(Build.chance(Build.var_ref(:d), 30), Build.set(:hit, 1)),
+                  Build.halt),
+    )
+    compare_form = Build.program(
+      Build.display(:bitmap), Build.set(:d, 0),
+      Build.loop_(Build.wait_vblank,
+                  Build.if_(Build.binop(:<, Build.var_ref(:d), Build.int(30)), Build.set(:hit, 1)),
+                  Build.halt),
+    )
+    assert_equal GBA.new.lower(compare_form), GBA.new.lower(node_form)
   end
 
   # ---- randomize: entropy from the player's reaction time ----
