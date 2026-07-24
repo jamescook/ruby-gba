@@ -248,3 +248,8 @@ end
 output = File.join(__dir__, "pong.gba")
 rom.write(output)
 puts "Built pong.gba (#{rom.size} bytes)"
+
+# Set EXPLAIN=1 to print the per-frame draw/sound-cost breakdown for the ROM —
+# where the frame's work goes, and whether it fits the budget the console has to
+# change the screen without tearing.
+rom.explain if ENV["EXPLAIN"]
