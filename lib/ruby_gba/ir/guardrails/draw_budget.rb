@@ -25,6 +25,12 @@ module RubyGBA
             model = CostModel.new
             return [] unless model.looping?(program)
 
+            # A game that switches modes between scenes has no single budget: judge
+            # each scene against its own mode's budget, so a heavy direct-color
+            # scene is caught even when a buffered scene would otherwise widen the
+            # whole-program budget and hide it.
+            return per_scene(model, program) if model.mixed?(program)
+
             steady = model.steady_cost(program)
             budget = model.budget_for(program)
             return [] if steady <= budget
@@ -34,6 +40,18 @@ module RubyGBA
           end
 
           private
+
+          # One warning per over-budget scene, phrased for that scene's mode.
+          def per_scene(model, program)
+            model.scene_verdicts(program).select { |scene| scene[:over] }.map do |scene|
+              body = if scene[:mode] == IR::Modes::BUFFERED
+                       buffered_message(scene[:steady_cost], scene[:budget])
+                     else
+                       message(scene[:steady_cost], scene[:budget])
+                     end
+              Finding.new(check: NAME, severity: :warning, message: "Scene :#{scene[:name]} — #{body}", fix: nil)
+            end
+          end
 
           # Single-buffered: over budget means the drawing spills past the safe
           # window and the picture tears.

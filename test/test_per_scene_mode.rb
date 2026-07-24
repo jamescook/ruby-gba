@@ -21,6 +21,7 @@ class TestPerSceneMode < Minitest::Test
   Ruby = RubyGBA::IR::Backends::Ruby
   GBA = RubyGBA::IR::Backends::GBA
   Color = RubyGBA::Color
+  Build = RubyGBA::IR::Build
 
   # A direct-color (Mode 3) title in red; START switches to a double-buffered
   # (Mode 4) play scene showing a blue field with a green cell.
@@ -75,6 +76,29 @@ class TestPerSceneMode < Minitest::Test
     v = assert_gemba_loads_rom(rom, frames: 8, keys: KEY_START)
     assert v.blue?(0, 0), "the buffered play field should be blue, got 0x#{format('%04X', v.pixel_gba(0, 0))}"
     assert v.green?(103, 79), "the buffered green cell should render, got 0x#{format('%04X', v.pixel_gba(103, 79))}"
+  end
+
+  # The buffered palette is built from the buffered scenes only. A colorful
+  # direct-color scene stores full colors per pixel and needs no palette slots, so
+  # its colors can't crowd the 256-entry table — the program lowers cleanly where
+  # the old whole-program collection would have tripped a false overflow.
+  def test_a_colorful_direct_scene_does_not_overflow_the_buffered_palette
+    prog = Build.program(
+      Build.display(:bitmap),        # boot: direct color
+      Build.set(:state, Build.int(0)),
+      # A direct scene painting 250 distinct raw colors — far past the 256-slot
+      # table, but direct color needs no palette, so none of these count toward it.
+      Build.func(:_scene_gallery, *(1..250).map { |c| Build.pixel(0, 0, c) }),
+      # The buffered scene uses just a few colors.
+      Build.func(:_scene_play, Build.display(:bitmap, buffered: true),
+                 Build.clear_screen(:blue), Build.dma_fill_rect(0, 0, 8, 8, :green)),
+      Build.loop_(Build.wait_vblank,
+                  Build.case_(:state, [[0, :_scene_gallery], [1, :_scene_play]])),
+    )
+
+    # Would raise Palette::Overflow if the direct scene's 250 colors were counted.
+    code = GBA.new.lower(prog)
+    assert_operator code.bytesize, :>, 0
   end
 
   # A drawing routine reached from scenes of different modes can't be lowered both

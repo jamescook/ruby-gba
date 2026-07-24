@@ -81,6 +81,43 @@ class TestDrawBudgetGuardrail < Minitest::Test
     refute_match(/may tear or flicker/, findings.first.message)
   end
 
+  # A game that runs some scenes direct-color and others tear-free, dispatched by
+  # :state — each scene clearing the whole screen a given number of times a frame.
+  def mixed(direct_clears:, buffered_clears:)
+    Build.program(
+      Build.display(:bitmap), # boot: direct
+      Build.set(:state, Build.int(0)),
+      Build.func(:_scene_still, *Array.new(direct_clears) { Build.clear_screen(:black) }),
+      Build.func(:_scene_action, Build.display(:bitmap, buffered: true),
+                 *Array.new(buffered_clears) { Build.clear_screen(:black) }),
+      Build.loop_(Build.wait_vblank, Build.case_(:state, [[0, :_scene_still], [1, :_scene_action]])),
+    )
+  end
+
+  # A heavy direct-color scene tears even when a buffered scene shares the game.
+  # Per-scene budgets catch it and name it; the buffered scene, on its own wider
+  # budget, stays quiet. (The old whole-program budget hid the direct scene.)
+  def test_a_heavy_direct_scene_warns_even_beside_a_buffered_one
+    findings = Check.new.detect(mixed(direct_clears: 3, buffered_clears: 1)) # direct 115,200 > 80,000
+    assert_equal 1, findings.length
+    assert_match(/still/, findings.first.message) # names the offending scene
+    assert_match(/tear/, findings.first.message)
+  end
+
+  # When the heavy scene is the buffered one (over a whole frame), the warning is
+  # about frame rate, not tearing; the light direct scene stays quiet.
+  def test_a_heavy_buffered_scene_warns_about_frame_rate_not_tearing
+    findings = Check.new.detect(mixed(direct_clears: 1, buffered_clears: 7)) # buffered 268,800 > 240,000
+    assert_equal 1, findings.length
+    assert_match(/action/, findings.first.message)
+    assert_match(/frame rate|60 frames|choppy/, findings.first.message)
+  end
+
+  # Both scenes comfortably within their own budgets: quiet.
+  def test_quiet_when_each_scene_fits_its_own_mode
+    assert_empty Check.new.detect(mixed(direct_clears: 1, buffered_clears: 3))
+  end
+
   # It fires during a real build — printed to err — without stopping the ROM.
   def test_build_prints_the_warning_but_still_produces_a_rom
     err = StringIO.new
