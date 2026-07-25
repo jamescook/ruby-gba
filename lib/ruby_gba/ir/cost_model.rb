@@ -243,6 +243,7 @@ module RubyGBA
       def report(program, out: $stdout)
         out.puts "draw-cost estimate (scanlines of the ~68-line vblank window, measured on hardware):"
         verdict_lines(program, out)
+        glyph_footprint_lines(program, out)
       end
 
       # The drill-down: the verdict, then the (aggregated, depth-limited) cost tree,
@@ -259,6 +260,16 @@ module RubyGBA
         render_tree(prune(tree, max_depth), 1, out)
         hot = hot_ops(tree, top)
         out.puts "  hottest: " + hot.map { |h| "#{h[:op]}×#{h[:count]} ~#{fmt(h[:cost])}" }.join("  ") unless hot.empty?
+        glyph_footprint_lines(program, out)
+      end
+
+      # One line per font whose text this program draws: how many of its glyphs are
+      # actually reachable — the footprint a data-driven font would embed. Silent
+      # when the program draws no text.
+      def glyph_footprint_lines(program, out)
+        IR::GlyphUsage.footprint(program).each do |f|
+          out.puts "  text: font :#{f[:font]} draws #{f[:drawn]} of its #{f[:total]} glyphs"
+        end
       end
 
       # The analysis as a plain Hash, ready to serialize (rom.explain format: :json).
@@ -271,6 +282,7 @@ module RubyGBA
           looping: looping?(program),
           scenes: scene_verdicts(program),   # per-scene cost vs each scene's own budget
           songs: song_verdicts(program),     # per-song music cost vs the music budget
+          glyphs: IR::GlyphUsage.footprint(program), # per-font reachable-glyph footprint
           tree: analyze(program),
         }
       end
