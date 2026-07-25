@@ -72,6 +72,77 @@ module RubyGBA
         ensure_var(y)
       end
 
+      # Make a sprite: a named image that moves around the screen leaving no trail.
+      # It remembers the pixels underneath itself and paints them back when it moves,
+      # and the framework redraws it for you each frame — so you never call a draw
+      # verb or clear the screen. Returns a {Sprite} whose `x`/`y` you steer with the
+      # ordinary expression DSL.
+      #
+      #   image :heart, "." => :transparent, "#" => :red do ... end
+      #   clear_screen :blue           # paint the field ONCE, before the loop
+      #   hero = sprite :heart, at: [100, 60]
+      #   game_loop do
+      #     wait_vblank
+      #     held(:right).then { hero.x.add 2 }
+      #   end
+      #
+      # Pass +shown: false+ for a sprite that starts hidden and appears later — a
+      # boss, a power-up, a second player who joins mid-game. Its RAM is reserved up
+      # front (there's no allocating memory mid-game on the console — you budget it
+      # when the ROM is built), but nothing is drawn until you `show` it, and while
+      # hidden the per-frame repaint skips it for almost nothing. So a late arrival
+      # costs a little reserved memory, not a busy sprite:
+      #
+      #   boss = sprite :boss, at: [200, 40], shown: false
+      #   game_loop do
+      #     wait_vblank
+      #     after(90, :seconds) { boss.show } # the boss turns up a minute and a half in
+      #   end
+      #
+      # @param name [Symbol] a defined image (its size becomes the sprite's size)
+      # @param at [Array(Integer, Integer)] the sprite's starting [x, y]
+      # @param shown [Boolean] draw it now (true, default), or start hidden until `show`
+      # @return [Sprite] a handle: x / y / move / move_to / hide / show
+      def sprite(name, at:, shown: true)
+        width, height = @images[name] || raise(ArgumentError,
+              "sprite :#{name} needs an image named :#{name} — define it first with `image :#{name}, ...`")
+        start_x, start_y = at
+
+        id = (@sprite_seq += 1)
+        pos_x = :"__spr#{id}_x"
+        pos_y = :"__spr#{id}_y"
+        old_x = :"__spr#{id}_ox"
+        old_y = :"__spr#{id}_oy"
+        active = :"__spr#{id}_on"
+        buffer = :"__spr#{id}_under"
+
+        # Hidden state, set at boot (console RAM isn't zero at power-on): the current
+        # and last-drawn positions both start at `at`, and the on/off flag records
+        # whether the sprite starts visible.
+        { pos_x => start_x, pos_y => start_y, old_x => start_x, old_y => start_y, active => (shown ? 1 : 0) }
+          .each do |var_name, value|
+            at_boot(Build.set(var_name, Value.node_for(value)))
+            ensure_var(var_name)
+          end
+
+        # Reserve the backing store (always — its RAM is fixed at build time). A
+        # sprite that starts shown is also drawn once here at its start: capture
+        # what's under it and blit it, so it's on screen before the loop and the
+        # buffer is primed for the first erase. One that starts hidden draws nothing
+        # until `show` does that same capture-and-blit. (Declare a sprite AFTER you've
+        # drawn its background, so what it captures is the real scenery.)
+        record(Build.backing_buffer(buffer, width: width, height: height))
+        if shown
+          record(Build.save_region(buffer, Build.var_ref(pos_x), Build.var_ref(pos_y)))
+          record(Build.blit(name, Build.var_ref(pos_x), Build.var_ref(pos_y)))
+        end
+
+        handle = Sprite.new(self, image: name, x: pos_x, y: pos_y,
+                                  old_x: old_x, old_y: old_y, active: active, buffer: buffer)
+        @sprites << handle
+        handle
+      end
+
       # Pack 5-bit RGB channels (0-31 each) into a 15-bit GBA color.
       # Raises on out-of-range values to catch mistakes early.
       def rgb(r, g, b)
@@ -106,6 +177,7 @@ module RubyGBA
 
         pixels = data.map { |c| c == transparent ? transparent : Color.resolve(c) }.pack("v*")
         record(Build.bitmap(name, width: width, height: height, pixels: pixels, transparent: transparent))
+        @images[name] = [width, height] # remember the shape, so a sprite can size itself from it
       end
 
       # ASCII-art form of #image: split the block's art into rows, infer the size
@@ -136,6 +208,7 @@ module RubyGBA
         record(Build.bitmap(name, width: widths.first, height: rows.size,
                                   pixels: colors.pack("v*"),
                                   transparent: transparent ? TRANSPARENT_PIXEL : nil))
+        @images[name] = [widths.first, rows.size] # remember the shape, so a sprite can size itself from it
       end
 
       def positive_dims!(name, width, height)
