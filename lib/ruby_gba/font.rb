@@ -34,6 +34,11 @@ module RubyGBA
       @width + @spacing
     end
 
+    # How many glyphs this font defines (its full size — for the tree-shaking report).
+    def glyph_count
+      @glyphs.size
+    end
+
     # The row-bytes for a character, or nil if this font has no such glyph.
     def glyph(char)
       @glyphs[@fold == :upper ? char.upcase : char]
@@ -75,6 +80,17 @@ module RubyGBA
     # run-time-chosen character (a digit field draws one of 0..9).
     def max_glyph_pixels(chars)
       chars.map { |c| glyph_pixels(c) }.max || 0
+    end
+
+    # The distinct glyph-table entries the characters of +text+ actually look up in
+    # this font — folded (so an uppercase-only font maps "abc" to A, B, C) and
+    # filtered to glyphs the font has. This is exactly the set a data-driven font
+    # would need to embed for that text; anything else in a big font can be dropped.
+    def keys_used(text)
+      text.each_char.filter_map do |ch|
+        key = @fold == :upper ? ch.upcase : ch
+        key if @glyphs.key?(key)
+      end.uniq
     end
 
     # Collects glyphs drawn as ASCII art and builds a {Font} — the machine behind the
