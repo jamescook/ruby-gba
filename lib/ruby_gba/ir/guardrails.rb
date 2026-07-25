@@ -144,6 +144,7 @@ module RubyGBA
   end
 end
 
+require_relative "guardrails/frame_reach"
 require_relative "guardrails/display_mode_set"
 require_relative "guardrails/vblank_sync"
 require_relative "guardrails/termination"
@@ -152,6 +153,8 @@ require_relative "guardrails/orphaned_condition"
 require_relative "guardrails/draw_budget"
 require_relative "guardrails/music_budget"
 require_relative "guardrails/redraw_everything"
+require_relative "guardrails/sprite_cleared_each_frame"
+require_relative "guardrails/manual_sprite_blit"
 
 module RubyGBA
   module IR
@@ -168,6 +171,8 @@ module RubyGBA
         Checks::DrawBudget.new,
         Checks::MusicBudget.new,
         Checks::RedrawEverything.new,
+        Checks::SpriteClearedEachFrame.new,
+        Checks::ManualSpriteBlit.new,
       ].freeze
     end
   end

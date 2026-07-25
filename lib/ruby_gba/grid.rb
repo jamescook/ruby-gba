@@ -37,6 +37,7 @@ module RubyGBA
       @rows = whole_positive!(rows, :rows)
       @cell = even_cell!(cell)
       @over = over
+      fits_on_screen!
     end
 
     attr_reader :name, :cols, :rows, :cell
@@ -88,6 +89,21 @@ module RubyGBA
       return value if value.is_a?(Integer) && value.positive?
 
       raise ArgumentError, "grid :#{@name} needs a positive #{field}, got #{value.inspect}"
+    end
+
+    # The board has to fit on the screen — a board wider or taller than the display
+    # would put its far cells off the edge, where they'd silently never show (the
+    # black-screen footgun). Catch it here, in plain terms, as the board is built.
+    def fits_on_screen!
+      overrun!("wide", @cols, @cell, @cols * @cell, IR::Screen::WIDTH) if @cols * @cell > IR::Screen::WIDTH
+      overrun!("tall", @rows, @cell, @rows * @cell, IR::Screen::HEIGHT) if @rows * @cell > IR::Screen::HEIGHT
+    end
+
+    def overrun!(axis, count, cell, extent, screen)
+      raise ArgumentError,
+            "grid :#{@name} is #{count} cells x #{cell}px = #{extent}px #{axis}, but the screen is only " \
+            "#{screen}px #{axis} — the far cells fall off the edge and never show. Use fewer cells or a " \
+            "smaller cell size so the board fits."
     end
 
     # A cell must be an even number of pixels: the fast rectangle fill writes two

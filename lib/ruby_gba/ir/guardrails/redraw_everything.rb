@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "set"
+require_relative "frame_reach"
 
 module RubyGBA
   module IR
@@ -43,9 +43,9 @@ module RubyGBA
             # which is specifically about *tearing* — has nothing to say here.
             return [] if buffered?(program)
 
-            funcs = index_funcs(program)
-            loops(program).filter_map do |loop_node|
-              steady = steady_statements(loop_node, funcs)
+            funcs = FrameReach.index_funcs(program)
+            FrameReach.loops(program).filter_map do |loop_node|
+              steady = FrameReach.steady_statements(loop_node, funcs)
               clears = steady.any? { |node| node.kind == :clear_screen }
               grows  = steady.any? { |node| growing_list_redraw?(node) }
               next unless clears && grows
@@ -60,14 +60,6 @@ module RubyGBA
             program.walk.any? { |node| node.kind == :display && node[:buffered] }
           end
 
-          def loops(program)
-            program.each.select { |node| node.kind == :loop }
-          end
-
-          def index_funcs(program)
-            program.each.select { |node| node.kind == :func }.to_h { |func| [func[:name], func] }
-          end
-
           # A repeat over a list's length whose body paints — the unbounded redraw.
           def growing_list_redraw?(node)
             return false unless node.kind == :repeat
@@ -76,35 +68,6 @@ module RubyGBA
             return false unless count.is_a?(Node) && count.kind == :list_len
 
             node.each.any? { |n| PAINTS.include?(n.kind) }
-          end
-
-          # Every statement reachable each frame from +node+, following call/case
-          # dispatch into funcs — but NOT descending into a `pressed`-guarded body,
-          # which runs once in a while (on a press edge), not every frame.
-          def steady_statements(node, funcs, seen = Set.new, acc = [])
-            return acc if transition?(node)
-
-            acc << node
-            case node.kind
-            when :call then follow(node[:target], funcs, seen, acc)
-            when :case then node[:clauses].each { |(_value, target)| follow(target, funcs, seen, acc) }
-            end
-            node.children.each { |child| steady_statements(child, funcs, seen, acc) }
-            acc
-          end
-
-          def follow(target, funcs, seen, acc)
-            return acc if seen.include?(target)
-
-            func = funcs[target] or return acc
-            func.children.each { |child| steady_statements(child, funcs, seen | Set[target], acc) }
-            acc
-          end
-
-          # A body gated on a `pressed` edge is a once-in-a-while transition (a new
-          # round starting, a menu choice), not steady per-frame work.
-          def transition?(node)
-            node.kind == :if && node[:cond]&.kind == :pressed
           end
         end
       end
