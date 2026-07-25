@@ -171,6 +171,14 @@ module RubyGBA
           @code
         end
 
+        # Each variable's allocated IWRAM address (name => address), known once the
+        # program has been lowered. This backend — not the builder — decides where a
+        # variable lives, so this is the authoritative map a hardware test uses to
+        # read a variable's value back from memory (see RubyGBA::Verifier#var).
+        def var_addresses
+          @vars.dup
+        end
+
         # Work out which display mode each scene draws in. A program that never uses
         # double buffering is left entirely alone (the direct-color path below is
         # unchanged). When some scene IS buffered, each func's mode comes from
