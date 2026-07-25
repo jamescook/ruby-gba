@@ -50,6 +50,7 @@ module RubyGBA
           @songs = {}              # name -> :song node (from song)
           @data = {}               # name -> bytes (embedded data blobs)
           @bitmaps = {}            # name -> { width:, height: } (a blob that has a shape)
+          @backing = {}            # name -> { width:, height:, pixels: } (saved patch under a moving object)
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
@@ -118,6 +119,10 @@ module RubyGBA
             when :bitmap
               @data[n[:name]] = n[:pixels]
               @bitmaps[n[:name]] = { width: n[:width], height: n[:height], transparent: n[:transparent] }
+            when :backing_buffer
+              # Reserve the patch. `pixels` stays nil until the first save_region
+              # fills it — a restore before any save has nothing to put back.
+              @backing[n[:name]] = { width: n[:width], height: n[:height], pixels: nil }
             end
           end
         end
@@ -217,6 +222,10 @@ module RubyGBA
             exec_list_set(node)
           when :blit
             exec_blit(node)
+          when :save_region
+            exec_save_region(node)
+          when :restore_region
+            exec_restore_region(node)
           when :call
             exec_call(node[:target])
           when :case
@@ -261,7 +270,7 @@ module RubyGBA
             exec_draw_digit(node)
           when :enable_sound
             @audio << [:enabled]
-          when :define_sound, :song, :data, :bitmap
+          when :define_sound, :song, :data, :bitmap, :backing_buffer
             # Definitions: gathered up front, so reaching one inline does nothing
             # (just like a func body).
             nil
@@ -368,6 +377,53 @@ module RubyGBA
               @screen.set_pixel(x + col, y + row, color)
             end
           end
+        end
+
+        # --- backing store (save the pixels under a moving object, then put them back) ---
+
+        # Copy the buffer-sized screen patch at (x, y) into the named backing buffer.
+        # An off-screen cell reads as nil (there's nothing out there to remember);
+        # restore skips those, so a patch hanging off an edge round-trips cleanly.
+        def exec_save_region(node)
+          buf = backing_for(node[:buffer])
+          x = eval_value(node[:x])
+          y = eval_value(node[:y])
+          w = buf[:width]
+          h = buf[:height]
+          cells = Array.new(w * h)
+          h.times do |row|
+            w.times { |col| cells[(row * w) + col] = @screen.pixel(x + col, y + row) }
+          end
+          buf[:pixels] = cells
+        end
+
+        # Paint a saved patch back onto the screen at (x, y). A restore before any
+        # save has nothing to put back (pixels still nil). Cells that were off-screen
+        # when saved (nil) are skipped rather than painted with a guessed color.
+        def exec_restore_region(node)
+          buf = backing_for(node[:buffer])
+          cells = buf[:pixels]
+          return if cells.nil?
+
+          x = eval_value(node[:x])
+          y = eval_value(node[:y])
+          w = buf[:width]
+          h = buf[:height]
+          h.times do |row|
+            w.times do |col|
+              color = cells[(row * w) + col]
+              @screen.set_pixel(x + col, y + row, color) unless color.nil?
+            end
+          end
+        end
+
+        # The backing buffer stored under a name, or a friendly error if the program
+        # never declared it.
+        def backing_for(name)
+          @backing[name] ||
+            raise(ProgramError,
+                  "backing buffer #{name.inspect} was used before it was created — " \
+                  "declare it first (a sprite does this for you)")
         end
 
         # --- lists ---

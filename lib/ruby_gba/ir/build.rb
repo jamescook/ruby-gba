@@ -271,10 +271,35 @@ module RubyGBA
       end
 
       # Draw a defined bitmap with its top-left at (x, y). x/y may be constants or
-      # variables (a moving object). Keep it on-screen — off-screen parts aren't
-      # clipped at run time yet.
+      # variables (a moving object). A part pushed off a screen edge is clipped, not
+      # wrapped.
       def blit(name, x, y)
         Node.new(:blit, name: name, x: wrap(x), y: wrap(y))
+      end
+
+      # --- backing store (remembering the pixels under a moving object) ---
+      #
+      # A named off-screen buffer big enough to hold a width×height patch of the
+      # screen. It's how a moving object leaves no trail: before it's drawn, save
+      # the pixels it's about to cover; when it moves away, paint them back. A
+      # definition — it reserves the buffer but draws nothing on its own.
+      def backing_buffer(name, width:, height:)
+        Node.new(:backing_buffer, name: name, width: width, height: height)
+      end
+
+      # Copy the buffer-sized patch of the screen at (x, y) INTO the named backing
+      # buffer — remember what's there before something is drawn over it. x/y may be
+      # constants or variables; a part off a screen edge is skipped (nothing to
+      # remember out there).
+      def save_region(buffer, x, y)
+        Node.new(:save_region, buffer: buffer, x: wrap(x), y: wrap(y))
+      end
+
+      # Paint a saved patch back onto the screen at (x, y) — restore what a moving
+      # object had covered, so it leaves no trace. Pairs with {save_region}; restore
+      # at the same spot it was saved. A part off a screen edge is clipped.
+      def restore_region(buffer, x, y)
+        Node.new(:restore_region, buffer: buffer, x: wrap(x), y: wrap(y))
       end
 
       # --- lists (a bounded, ordered collection) ---
