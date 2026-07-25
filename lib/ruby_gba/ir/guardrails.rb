@@ -61,6 +61,17 @@ module RubyGBA
 
           raise ValidationError, errors.map(&:message).join("\n\n")
         end
+
+        # Write every finding's plain-language message to +to+, in order — the one
+        # place guardrail findings become human-visible text. A caller (a build, a
+        # CLI, a test) hands its output here instead of formatting and printing
+        # findings by hand, so the wording and destination live in one spot and the
+        # stream is injectable: $stderr for a real build, a StringIO to capture it in
+        # a test, or a null sink to silence it. Returns self so it chains.
+        def emit(to: $stderr)
+          findings.each { |finding| to.puts(finding.message) }
+          self
+        end
       end
 
       # The extension hook. BUILTIN_CHECKS are always on; these are the extra

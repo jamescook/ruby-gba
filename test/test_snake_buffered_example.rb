@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "stringio"
 require_relative "../lib/ruby_gba"
 require_relative "test_helper"
 require_relative "../examples/snake_buffered"
@@ -17,19 +18,22 @@ class TestSnakeBufferedExample < Minitest::Test
   include RubyGBA::Constants
   include GembaSupport
 
-  # RubyGBA.build runs the guardrails and validation, so a clean build IS the
-  # check. Notably the redraw-everything guardrail stays quiet here (buffering
-  # makes the whole-board repaint tear-safe), so this heavy-redraw game builds
-  # without a warning.
-  def test_the_example_builds_clean
-    rom = BufferedSnake.build_rom
+  # RubyGBA.build runs the guardrails and validation, so a clean build IS the check.
+  # The redraw-everything guardrail stays quiet here (buffering makes the whole-board
+  # repaint tear-safe), but the draw-budget guardrail correctly speaks up: repainting
+  # the whole board every frame is over the whole-frame budget, so it would run below
+  # 60fps. That warning is the teaching point — buffering stops tearing, not slowness.
+  def test_the_example_builds_and_warns_it_is_too_heavy_for_60fps
+    err = StringIO.new
+    rom = BufferedSnake.build_rom(err: err)
     assert_operator rom.size, :>, 0, "the built ROM should be non-empty"
+    assert_match(/slower than 60 frames/, err.string, "the over-frame-budget warning should fire")
   end
 
   # The title screen shows "SNAKE" in green — the simplest proof it isn't a black
   # screen, and that draw_text renders through the buffered (indexed) screen.
   def test_the_title_renders_on_the_console
-    v = assert_gemba_loads_rom(BufferedSnake.build_rom, frames: 4)
+    v = assert_gemba_loads_rom(BufferedSnake.build_rom(err: StringIO.new), frames: 4)
     title_green = (56..62).any? { |y| (105..134).any? { |x| v.green?(x, y) } }
     assert title_green, "the SNAKE title should render green in buffered mode"
   end
@@ -38,7 +42,7 @@ class TestSnakeBufferedExample < Minitest::Test
   # gray wall frame and the green snake body must render. A few frames in, the snake
   # is still near its start cells (row 10, moving right), so those are on screen.
   def test_the_playing_board_renders_on_the_console
-    v = assert_gemba_loads_rom(BufferedSnake.build_rom, frames: 8, keys: KEY_START)
+    v = assert_gemba_loads_rom(BufferedSnake.build_rom(err: StringIO.new), frames: 8, keys: KEY_START)
 
     assert v.pixel_is?(120, 18, :gray),
            "the top wall should render gray, got 0x#{format('%04X', v.pixel_gba(120, 18))}"

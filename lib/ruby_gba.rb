@@ -69,7 +69,7 @@ module RubyGBA
       checks = IR::Guardrails.default_checks +
                [IR::Guardrails::Checks::OrphanedCondition.new(builder.pending_conditions)]
       report = IR::Guardrails::Validator.new(checks: checks).run(builder.program, autofix: false)
-      report.findings.each { |finding| err.puts(finding.message) }
+      report.emit(to: err)
       if report.errors.any?
         raise ROMError,
               "build stopped by #{report.errors.size} problem(s) — see the explanation(s) above"

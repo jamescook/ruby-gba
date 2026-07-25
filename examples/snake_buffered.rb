@@ -210,8 +210,8 @@ module BufferedSnake
     end
   end
 
-  def self.build_rom
-    RubyGBA.build("SNAKEBUF", code: "BSNB", maker: "01", &GAME)
+  def self.build_rom(out: $stdout, err: $stderr)
+    RubyGBA.build("SNAKEBUF", code: "BSNB", maker: "01", out: out, err: err, &GAME)
   end
 
   def self.program
