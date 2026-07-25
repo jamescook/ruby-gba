@@ -32,7 +32,8 @@ module RubyGBA
       # Define a font from little glyph bitmaps, the way {#image} defines a bitmap
       # from ASCII art — then `draw_text` can pick it. Inside the block, `glyph`
       # gives a character its art; a lit pixel is the +on+ character (default "#"),
-      # anything else is blank. Every glyph must be the same size.
+      # anything else is blank. Glyphs share one height but may differ in width — a
+      # narrow "I" beside a wide "M" renders proportionally, not on a fixed grid.
       #
       #   font :heavy do
       #     glyph "A", <<~ART

@@ -514,8 +514,9 @@ module RubyGBA
             font = Fonts.get(node[:font])
             x = const_int(node[:x])
             y = const_int(node[:y])
-            if @lower_mode == :direct && x && y && font.width <= 8 && digit_cell_on_screen?(x, y, font)
-              emit_draw_digit_data(node, font, x, y)
+            digit_w = uniform_digit_width(font)
+            if @lower_mode == :direct && x && y && digit_w && digit_cell_on_screen?(x, y, digit_w, font.height)
+              emit_draw_digit_data(node, font, digit_w, x, y)
             else
               emit_draw_digit_unrolled(node)
             end
@@ -534,7 +535,8 @@ module RubyGBA
           # Render one run-time digit from an embedded glyph table (direct color, the
           # column already known to be on-screen). The ten glyphs live in ROM as row
           # bytes — glyph d starts at d*height, one byte per row, the low +width+ bits
-          # of each byte being that row (leftmost pixel = the top bit). Walk the chosen
+          # of each byte being that row (leftmost pixel = the top bit). +width+ is the
+          # digits' shared width (the caller has checked all ten match). Walk the chosen
           # glyph's rows and columns, writing the color wherever a bit is set.
           #
           # Only the digit is a run-time value; x, y and the color are constants and the
@@ -542,10 +544,10 @@ module RubyGBA
           # set pixel's screen address. Registers held across the loop: r4 column, r5
           # row, r6 the glyph's row pointer, r7 the current row byte, r8 the color.
           # r0–r3 are per-pixel scratch.
-          def emit_draw_digit_data(node, font, x, y)
+          def emit_draw_digit_data(node, font, width, x, y)
             table = ensure_digit_table(node[:font], font)
             color = Color.resolve(node[:color])
-            top_bit = 1 << (font.width - 1)
+            top_bit = 1 << (width - 1)
 
             eval_value(node[:value])              # r0 = the digit (0..9)
             emit_load_data_address(1, table)      # r1 = the glyph table's ROM address
@@ -569,7 +571,7 @@ module RubyGBA
             place_label(next_col)
             emit(ASM.lsl_imm(7, 7, 1))            # shift the next column into the top bit
             emit(ASM.add_imm(4, 4, 1))
-            emit(ASM.cmp_imm(4, font.width))
+            emit(ASM.cmp_imm(4, width))
             emit_branch(:bcond, col_loop, cond: :lt)
 
             emit(ASM.add_imm(6, 6, 1))            # advance to the next row's byte
@@ -593,10 +595,22 @@ module RubyGBA
             emit(ASM.store_halfword(8, 2))        # write the color
           end
 
+          # The width the ten digit glyphs share, if the data-driven loop can render
+          # them: they must all exist, agree on a width, and be no wider than a byte
+          # (so a row is one ldrb). Otherwise nil — a font with missing, ragged, or
+          # oversized digits falls back to the per-digit fan-out, which reads each
+          # glyph's own width. Fixed-width fonts always qualify; a proportional font
+          # does when its figures are tabular.
+          def uniform_digit_width(font)
+            widths = (0..9).map { |d| font.glyph_width(d.to_s) }
+            width = widths.first
+            width if width && width <= 8 && widths.all?(width)
+          end
+
           # True when the whole width×height digit cell at (x, y) fits on-screen, so the
           # data-driven loop can skip per-pixel clipping.
-          def digit_cell_on_screen?(x, y, font)
-            x >= 0 && y >= 0 && (x + font.width) <= SCREEN_WIDTH && (y + font.height) <= SCREEN_HEIGHT
+          def digit_cell_on_screen?(x, y, width, height)
+            x >= 0 && y >= 0 && (x + width) <= SCREEN_WIDTH && (y + height) <= SCREEN_HEIGHT
           end
 
           # Embed a font's ten digit glyphs as a ROM blob once, returning its blob name.
