@@ -60,8 +60,8 @@ module BufferedBounce
 
   # Build and return the finished ROM. RubyGBA.build runs the guardrails and the
   # ROM-image checks, so calling it is itself the "builds clean" test.
-  def self.build_rom
-    RubyGBA.build("BOUNCE", code: "BBNC", maker: "01", &GAME)
+  def self.build_rom(out: $stdout, err: $stderr)
+    RubyGBA.build("BOUNCE", code: "BBNC", maker: "01", out: out, err: err, &GAME)
   end
 
   # The IR program, for running headless on the reference interpreter in tests.
