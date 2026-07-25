@@ -45,6 +45,9 @@ module RubyGBA
         display: :draw, pixel: :draw, fill_rect: :draw, clear_screen: :draw,
         draw_rect_at: :draw, draw_text: :draw, dma_fill_rect: :draw, blit: :draw,
         draw_digit: :draw, # one run-time decimal digit, chosen and drawn at run time
+        # save the pixels under a moving object, then paint them back — so it leaves
+        # no trail. They copy a screen patch to/from a backing_buffer (below).
+        save_region: :draw, restore_region: :draw,
 
         # audio operations. define_sound and song are definitions (like func):
         # named registries the audio triggers refer to. beep is a one-off effect,
@@ -71,11 +74,12 @@ module RubyGBA
         # the interpreter refuses it (tagged hardware-only in IR::Portability).
         raw: :control,
 
-        # embedded asset data: a named, format-agnostic blob of bytes stored in
-        # the ROM (a definition, like func/song — it emits nothing on its own).
-        # Consumers (a bitmap, a song) reference it by name. `bitmap` is a blob
-        # that also carries width/height, so a draw op knows its shape.
-        data: :data, bitmap: :data,
+        # named storage: a definition that reserves space and emits nothing on its
+        # own; a consumer refers to it by name. `data` is a format-agnostic blob of
+        # bytes in the ROM; `bitmap` is such a blob that also carries width/height,
+        # so a draw op knows its shape; `backing_buffer` is a width×height patch of
+        # writable RAM a moving object saves the pixels under itself into.
+        data: :data, bitmap: :data, backing_buffer: :data,
 
         # list operations — a bounded, ordered collection whose size is decided at
         # run time: create one (list_new), grow it (list_push), shrink it from

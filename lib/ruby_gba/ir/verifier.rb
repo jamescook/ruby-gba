@@ -87,6 +87,10 @@ module RubyGBA
         draw_rect_at:  { x: :value, y: :value, w: :int, h: :int, color: :color }, # runtime position
         dma_fill_rect: { x: :int, y: :int, w: :int, h: :int, color: :color },
         blit:          { name: :name, x: :value, y: :value },
+        # save/restore the pixels under a moving object; the patch size comes from
+        # the named backing buffer, so these carry only where (x/y, run-time).
+        save_region:    { buffer: :name, x: :value, y: :value },
+        restore_region: { buffer: :name, x: :value, y: :value },
 
         # audio
         enable_sound: {},
@@ -116,6 +120,7 @@ module RubyGBA
         data:      { name: :name, bytes: :text },
         data_byte: { name: :name, index: :int }, # a fixed index into the blob
         bitmap:    { name: :name, width: :int, height: :int, pixels: :text, transparent: :int },
+        backing_buffer: { name: :name, width: :int, height: :int }, # a RAM patch a sprite saves under itself
 
         # lists
         list_new:  { name: :name, capacity: :int },

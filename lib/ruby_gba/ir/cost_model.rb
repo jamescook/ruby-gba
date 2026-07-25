@@ -377,11 +377,13 @@ module RubyGBA
         @capacities = {}
         @songs = {}
         @bitmaps = {}
+        @backing = {}
         program.walk do |node|
           @funcs[node[:name]] = node if node.kind == :func
           @capacities[node[:name]] = node[:capacity] if node.kind == :list_new
           @songs[node[:name]] = node if node.kind == :song
           @bitmaps[node[:name]] = [node[:width], node[:height]] if node.kind == :bitmap
+          @backing[node[:name]] = [node[:width], node[:height]] if node.kind == :backing_buffer
         end
       end
 
@@ -477,6 +479,7 @@ module RubyGBA
         when :draw_text then node[:text].to_s.length * @weights[:glyph] * px
         when :draw_digit then @weights[:glyph] * px # one glyph, whichever digit it is
         when :blit then blit_cost(node[:name])
+        when :save_region, :restore_region then region_cost(node[:buffer])
         when :play_song then song_cost(node[:name])
         when :beep then BEEP_WRITES * @weights[:sound_write]
         when :enable_sound then ENABLE_WRITES * @weights[:sound_write]
@@ -510,12 +513,22 @@ module RubyGBA
         w ? w * h * @weights[:pixel] : 0
       end
 
+      # Saving or restoring a patch copies its whole footprint — width x height
+      # pixels. The size lives on the backing_buffer declaration, catalogued in
+      # #index. An unknown buffer costs nothing (the backend reports it).
+      def region_cost(name)
+        w, h = @backing && @backing[name]
+        w ? w * h * @weights[:pixel] : 0
+      end
+
       def label_of(node)
         case node.kind
         when :fill_rect, :dma_fill_rect, :draw_rect_at then "#{node.kind} #{node[:w]}x#{node[:h]}"
         when :draw_text then "draw_text #{node[:text].inspect}"
         when :draw_digit then "draw_digit"
         when :blit then "blit :#{node[:name]}"
+        when :save_region then "save_region :#{node[:buffer]}"
+        when :restore_region then "restore_region :#{node[:buffer]}"
         when :play_song then "play_song :#{node[:name]} (#{song_notes(node[:name])} notes)"
         when :beep then "beep #{node[:tone].inspect}"
         else node.kind.to_s

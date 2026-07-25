@@ -121,6 +121,7 @@ module RubyGBA
           @data_blobs = {}       # name -> bytes (embedded data, appended after code)
           @data_positions = {}   # name -> byte offset of its blob within @code
           @bitmaps = {}          # name -> { width:, height: } (a blob that has a shape)
+          @backing = {}          # name -> { width:, height:, base: } (a sprite's save-under RAM)
           @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)
           @label_seq = 0
           @uses_pressed = false  # whether the program reads edge-detected input
@@ -205,6 +206,11 @@ module RubyGBA
               # already knows its base address and capacity. list_new *executing*
               # only resets it to empty; the storage itself is allocated here.
               register_list(node[:name], node[:capacity])
+            when :backing_buffer
+              # Reserve the save-under patch's RAM once, up front, so a save/restore
+              # anywhere in the tree already knows its address. Nothing is emitted
+              # when the declaration is reached inline — it's pure reservation.
+              register_backing(node[:name], node[:width], node[:height])
             end
           end
         end
@@ -338,8 +344,10 @@ module RubyGBA
           when :draw_text then emit_draw_text(node)
           when :draw_digit then emit_draw_digit(node)
           when :blit then emit_blit(node)
+          when :save_region then emit_save_region(node)
+          when :restore_region then emit_restore_region(node)
           when :enable_sound then emit_enable_sound
-          when :define_sound, :song, :data, :bitmap then nil # definitions: collected, nothing to emit
+          when :define_sound, :song, :data, :bitmap, :backing_buffer then nil # definitions: collected, nothing to emit
           when :beep then emit_beep(node)
           when :play_song then emit_play_song(node)
           when :stop_music then emit_stop_music
@@ -537,6 +545,40 @@ module RubyGBA
             raise(LoweringError,
                   "list #{name.inspect} was used before it was created — " \
                   "a `list #{name.inspect}, capacity: N` must run first")
+        end
+
+        # Reserve a backing buffer's RAM: a width×height block of 16-bit pixels in
+        # the same IWRAM the variables live in. Allocated once per name during the
+        # definitions pass; the block is padded to a whole word so the next
+        # allocation stays word-aligned. A name declared twice with a different size
+        # is a contradiction.
+        def register_backing(name, width, height)
+          if (existing = @backing[name])
+            return if existing[:width] == width && existing[:height] == height
+
+            raise LoweringError,
+                  "backing buffer #{name.inspect} is declared with two different sizes " \
+                  "(#{existing[:width]}x#{existing[:height]} and #{width}x#{height})"
+          end
+
+          base = @next_var
+          @next_var += ((width * height * 2) + 3) & ~3 # bytes, rounded up to a word
+          @backing[name] = { width: width, height: height, base: base }
+        end
+
+        # A backing buffer's layout, or a friendly error if it was never declared.
+        def backing_info(name)
+          @backing[name] ||
+            raise(LoweringError,
+                  "backing buffer #{name.inspect} was used before it was created — " \
+                  "declare it first (a sprite does this for you)")
+        end
+
+        def backing_region_unsupported_in_buffered!
+          raise LoweringError,
+                "a sprite's save/restore can't run on the tear-free screen (tear_free: true) yet — its " \
+                "backing store holds direct colors, which that screen stores as color-table indices. Use " \
+                "the direct-color screen (drop `tear_free:`) for sprites."
         end
 
         def head_var(name)
@@ -937,6 +979,23 @@ module RubyGBA
         # screen. The shared row engine below does the clipping.
         def emit_blit_opaque(node, bmp)
           emit_rect_row_dma(node[:x], node[:y], bmp[:width], bmp[:height], node[:name], vram: :dest)
+        end
+
+        # Save the screen patch under a moving object into its RAM backing store:
+        # read the screen (VRAM) INTO the buffer. Same row engine as a blit, run in
+        # the other direction.
+        def emit_save_region(node)
+          backing_region_unsupported_in_buffered! if @lower_mode == :buffered
+          info = backing_info(node[:buffer])
+          emit_rect_row_dma(node[:x], node[:y], info[:width], info[:height], info[:base], vram: :src)
+        end
+
+        # Put a saved patch back on the screen: stream the RAM buffer INTO VRAM, just
+        # like a blit but sourced from the backing store instead of a ROM image.
+        def emit_restore_region(node)
+          backing_region_unsupported_in_buffered! if @lower_mode == :buffered
+          info = backing_info(node[:buffer])
+          emit_rect_row_dma(node[:x], node[:y], info[:width], info[:height], info[:base], vram: :dest)
         end
 
         # Copy the rows of a run-time-positioned width×height rectangle between the

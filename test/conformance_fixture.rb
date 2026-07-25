@@ -46,6 +46,7 @@ module ConformanceFixture
       B.bitmap(:sprite, width: 2, height: 2,
                         pixels: [0x001F, 0x03E0, 0x7C00, 0x8000].pack("v*"),
                         transparent: 0x8000),
+      B.backing_buffer(:under, width: 4, height: 4), # a save-under patch for a moving object
       B.func(:helper, B.set(:h, 1), B.add(:h, 2), B.wait_vblank),
       B.func(:scene_a, B.set(:picked, 10)),
       B.func(:scene_b, B.set(:picked, 20)),
@@ -75,6 +76,8 @@ module ConformanceFixture
       B.draw_text("HI", 10, 10, :white),
       B.draw_digit(B.var_ref(:x), 20, 10, :white), # one run-time digit glyph
       B.blit(:sprite, :x, :y),
+      B.save_region(:under, :x, :y),    # remember the pixels under a moving object
+      B.restore_region(:under, :x, :y), # then paint them back
 
       # --- every sound trigger ---
       B.beep(:blip),
