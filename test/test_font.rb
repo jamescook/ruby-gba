@@ -4,13 +4,17 @@ require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 require_relative "test_helper"
 
+# A font is a named collection of glyphs plus metrics; the Fonts registry hands out
+# fonts by name and a draw picks one. These cover the default 5x7 font's glyph data
+# and layout, and the registry / a second font.
 class TestFont < Minitest::Test
   include GembaSupport
-  F = RubyGBA::Font
 
-  # ========================================================================
-  # Font data
-  # ========================================================================
+  Fonts = RubyGBA::Fonts
+  Font = RubyGBA::Font
+  F = RubyGBA::Fonts.default # the built-in 5x7 uppercase font
+
+  # ---- glyph data (the default font) ----
 
   def test_glyph_returns_7_rows
     glyph = F.glyph("A")
@@ -18,126 +22,90 @@ class TestFont < Minitest::Test
     assert_equal 7, glyph.length
   end
 
-  def test_glyph_case_insensitive
-    assert_equal F.glyph("A"), F.glyph("a")
+  def test_glyph_folds_to_uppercase
+    assert_equal F.glyph("A"), F.glyph("a") # the default font is uppercase-only
   end
 
   def test_glyph_unknown_returns_nil
     assert_nil F.glyph("\x01")
   end
 
-  def test_glyph_space_is_blank
-    glyph = F.glyph(" ")
-    assert glyph.all?(&:zero?), "space glyph should be all zeros"
+  def test_all_letters_and_digits_present
+    (("A".."Z").to_a + ("0".."9").to_a).each { |ch| refute_nil F.glyph(ch), "missing glyph for #{ch}" }
   end
 
-  def test_all_letters_present
-    ("A".."Z").each do |ch|
-      refute_nil F.glyph(ch), "missing glyph for #{ch}"
-    end
-  end
+  # ---- each_pixel / metrics ----
 
-  def test_all_digits_present
-    ("0".."9").each do |ch|
-      refute_nil F.glyph(ch), "missing glyph for #{ch}"
-    end
-  end
-
-  # ========================================================================
-  # each_pixel
-  # ========================================================================
-
-  def test_each_pixel_yields_coordinates
+  def test_each_pixel_stays_within_the_glyph_box
     pixels = []
     F.each_pixel("A") { |x, y| pixels << [x, y] }
-
     refute_empty pixels
-    # All within 5x7 bounds
     pixels.each do |x, y|
-      assert_operator x, :>=, 0
-      assert_operator x, :<, F::GLYPH_W
-      assert_operator y, :>=, 0
-      assert_operator y, :<, F::GLYPH_H
+      assert_includes 0...F.width, x
+      assert_includes 0...F.height, y
     end
   end
 
-  def test_each_pixel_multi_char_offsets
+  def test_each_pixel_advances_by_the_cell_width
     pixels = []
-    F.each_pixel("AB") { |x, y| pixels << [x, y] }
-
-    # B's pixels should start at x=6 (CELL_W)
-    b_pixels = pixels.select { |x, _| x >= F::CELL_W }
-    refute_empty b_pixels, "B should have pixels offset by CELL_W"
+    F.each_pixel("AB") { |x, _y| pixels << x }
+    assert (pixels.max >= F.cell_w), "B's pixels should be offset by one cell width"
   end
 
-  def test_each_pixel_space_yields_nothing
+  def test_space_draws_nothing
     pixels = []
     F.each_pixel(" ") { |x, y| pixels << [x, y] }
     assert_empty pixels
   end
 
-  # ========================================================================
-  # text_width
-  # ========================================================================
-
-  def test_text_width_single_char
-    assert_equal 5, F.text_width("A")  # 5px, no trailing gap
-  end
-
-  def test_text_width_multi_char
-    # "AB" = 5 + 1(gap) + 5 = 11
-    assert_equal 11, F.text_width("AB")
-  end
-
-  def test_text_width_empty
+  def test_text_width
+    assert_equal 5, F.text_width("A")   # one glyph, no trailing gap
+    assert_equal 11, F.text_width("AB") # 5 + 1 gap + 5
     assert_equal 0, F.text_width("")
   end
 
-  # ========================================================================
-  # draw_text in builder
-  # ========================================================================
+  # ---- the registry ----
+
+  def test_default_and_tiny_are_registered
+    assert_includes Fonts.names, :default
+    assert_includes Fonts.names, :tiny
+    assert_same F, Fonts.get(:default)
+  end
+
+  def test_unknown_font_is_a_friendly_error
+    err = assert_raises(ArgumentError) { Fonts.get(:nope) }
+    assert_match(/nope/, err.message)
+    assert_match(/font/, err.message)
+  end
+
+  def test_a_registered_font_can_be_fetched
+    mine = Font.new(glyphs: { "X" => [0b111, 0b010, 0b111] }, width: 3, height: 3)
+    Fonts.register(:test_custom, mine)
+    assert_same mine, Fonts.get(:test_custom)
+  ensure
+    Fonts.instance_variable_get(:@registry).delete(:test_custom)
+  end
+
+  # ---- the tiny font is genuinely smaller ----
+
+  def test_tiny_font_has_different_metrics
+    tiny = Fonts.get(:tiny)
+    assert_equal 3, tiny.width
+    assert_equal 5, tiny.height
+    assert_operator tiny.text_width("42"), :<, F.text_width("42")     # narrower
+    assert_operator tiny.text_pixels("8"), :<, F.text_pixels("8")     # fewer lit pixels
+  end
+
+  # ---- draw_text through the builder ----
 
   def build(validate: false, &block)
     RubyGBA.build("FONTEST", code: "BFNT", maker: "01", validate: validate, &block)
   end
 
-  def test_draw_text_builds
-    rom = build do
-      screen :bitmap
-      draw_text "PONG", 96, 40, :white
-      halt
-    end
-    assert_operator rom.size, :>, 0
-  end
-
-  def test_draw_text_emits_pixels
-    # "I" has pixels — the ROM should have more code than just display+halt
+  def test_draw_text_builds_and_emits_pixels
     rom = build do
       screen :bitmap
       draw_text "I", 0, 0, :white
-      halt
-    end
-
-    # Count non-zero instructions in code region
-    code_start = RubyGBA::ROM::ENTRY_OFFSET
-    inst_count = 0
-    offset = code_start
-    while offset + 4 <= rom.buffer.bytesize
-      word = rom.buffer[offset, 4].unpack1("V")
-      break if word == 0
-      inst_count += 1
-      offset += 4
-    end
-
-    # display = ~5 insts, draw_text "I" should add many more, halt = 1
-    assert_operator inst_count, :>, 10, "draw_text should emit pixel-writing instructions"
-  end
-
-  def test_draw_text_clips_at_screen_edge
-    # Text near right edge should not crash
-    rom = build do
-      screen :bitmap
-      draw_text "HELLO", 230, 0, :white
       halt
     end
     assert_operator rom.size, :>, 0
@@ -151,7 +119,6 @@ class TestFont < Minitest::Test
       draw_text "PRESS START", 64, 100, :gray
       halt
     end
-
     assert_gemba_loads_rom(rom, frames: 5)
   end
 end

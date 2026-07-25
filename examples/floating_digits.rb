@@ -22,8 +22,8 @@ require_relative "../lib/ruby_gba"
 module FloatingDigits
   SCREEN_W = 240
   SCREEN_H = 160
-  W = RubyGBA::Font::GLYPH_W # 5px wide glyph
-  H = RubyGBA::Font::GLYPH_H # 7px tall glyph
+  W = RubyGBA::Fonts.default.width  # 5px wide glyph
+  H = RubyGBA::Fonts.default.height # 7px tall glyph
 
   # One solid color per digit (5-bit R,G,B channels, 0..31), all clearly distinct.
   COLORS = [
@@ -35,7 +35,7 @@ module FloatingDigits
   # read straight from the built-in bitmap font — so we don't hand-draw ten digits.
   def self.glyph_art(d)
     lit = {}
-    RubyGBA::Font.each_pixel(d.to_s) { |x, y| lit[[x, y]] = true }
+    RubyGBA::Fonts.default.each_pixel(d.to_s) { |x, y| lit[[x, y]] = true }
     (0...H).map { |y| (0...W).map { |x| lit[[x, y]] ? "#" : "." }.join }.join("\n")
   end
 

@@ -14,10 +14,12 @@ require_relative "test_helper"
 # when the calibration is re-measured.
 module CostArith
   WEIGHTS = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
-  GLYPH = WEIGHTS[:glyph]
 
   def dma_rows(w, h) = (h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:dma_pixel])
   def dma_blob(pixels) = WEIGHTS[:dma_setup] + (pixels * WEIGHTS[:dma_pixel])
+  # A glyph/text costs the pixels it plots, in the given font.
+  def text_cost(text, font = :default) = RubyGBA::Fonts.get(font).text_pixels(text) * WEIGHTS[:plot_pixel]
+  def digit_cost(font = :default) = RubyGBA::Fonts.get(font).max_glyph_pixels(("0".."9").to_a) * WEIGHTS[:plot_pixel]
   def near(expected, actual, msg = nil) = assert_in_delta(expected, actual, 1e-6, msg)
 end
 
@@ -413,6 +415,16 @@ class TestCostModel < Minitest::Test
     near dma_rows(8, 8), Cost.new.steady_cost(prog)
   end
 
+  # The cost model reads the node's font, so a denser/bigger font costs more: the
+  # same digits drawn in the compact :tiny font plot fewer pixels than in :default.
+  def test_the_cost_of_text_follows_the_node_font
+    default = program { screen(:bitmap); draw_text("42", 0, 0, :white); halt }
+    tiny    = program { screen(:bitmap); draw_text("42", 0, 0, :white, font: :tiny); halt }
+    near text_cost("42", :default), Cost.new.frame_cost(default)
+    near text_cost("42", :tiny), Cost.new.frame_cost(tiny)
+    assert_operator Cost.new.frame_cost(tiny), :<, Cost.new.frame_cost(default), "tiny should cost less"
+  end
+
   # A draw_number column is a single draw_digit node worth one glyph — there's no
   # ten-way fan-out in the tree to discount, so a column's full and steady costs are
   # both just one glyph (a 3-digit score is ~3 glyphs, not 30).
@@ -425,8 +437,8 @@ class TestCostModel < Minitest::Test
         draw_number :score, 8, 8, :white, digits: 1 # one column -> one draw_digit
       end
     end
-    near GLYPH, Cost.new.steady_cost(prog) # one glyph
-    near GLYPH, Cost.new.frame_cost(prog)  # one glyph too (no phantom fan-out)
+    near digit_cost, Cost.new.steady_cost(prog) # one glyph
+    near digit_cost, Cost.new.frame_cost(prog)  # one glyph too (no phantom fan-out)
   end
 
   # chance(p) holds p% of the time, so a gated body counts at p%.

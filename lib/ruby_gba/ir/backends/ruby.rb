@@ -311,7 +311,7 @@ module RubyGBA
           x = eval_value(node[:x])
           y = eval_value(node[:y])
           color = resolve_color(node[:color])
-          Font.each_pixel(node[:text]) do |dx, dy|
+          Fonts.get(node[:font]).each_pixel(node[:text]) do |dx, dy|
             @screen.set_pixel(x + dx, y + dy, color)
           end
         end
@@ -324,7 +324,7 @@ module RubyGBA
           return unless (0..9).cover?(digit)
 
           color = resolve_color(node[:color])
-          Font.each_pixel(digit.to_s) do |dx, dy|
+          Fonts.get(node[:font]).each_pixel(digit.to_s) do |dx, dy|
             @screen.set_pixel(node[:x] + dx, node[:y] + dy, color)
           end
         end

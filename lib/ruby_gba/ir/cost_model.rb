@@ -42,6 +42,9 @@ module RubyGBA
       SCREEN_W = 240
       SCREEN_H = 160
 
+      # The characters a run-time digit field can show — one of these draws.
+      DIGITS = ("0".."9").to_a.freeze
+
       # The per-frame drawing budget, in scanlines: the vertical blank — the safe
       # window to change the screen before the visible frame starts — is about 68 of
       # the console's 228 scanlines. Draw more than this in a single-buffered frame
@@ -76,7 +79,6 @@ module RubyGBA
         dma_setup:   0.102,   # the fixed per-row setup of a DMA transfer (a fill/blit/save row)
         dma_pixel:   0.00124, # one pixel filled or copied by DMA (the transfer, on top of setup)
         plot_pixel:  0.0267,  # one pixel written by hand — a lone pixel, a transparent blit, a font pixel
-        glyph:       0.40,    # one 5x7 font glyph (draw_text/draw_digit — plotted pixel by pixel)
         sound_write: 0.0286,  # one write to a sound register (a beep, powering sound on)
         note_check:  0.003,   # per song note, the frame-counter check that runs every frame (estimated)
       }.freeze
@@ -505,8 +507,8 @@ module RubyGBA
         when :pixel then @weights[:plot_pixel]                     # one hand-plotted pixel
         when :fill_rect, :dma_fill_rect, :draw_rect_at then dma_rows_cost(node[:w], node[:h])
         when :clear_screen then dma_blob_cost(SCREEN_W * SCREEN_H) # the whole screen in one DMA
-        when :draw_text then node[:text].to_s.length * @weights[:glyph]
-        when :draw_digit then @weights[:glyph]                     # one glyph, whichever digit it is
+        when :draw_text then Fonts.get(node[:font]).text_pixels(node[:text]) * @weights[:plot_pixel]
+        when :draw_digit then Fonts.get(node[:font]).max_glyph_pixels(DIGITS) * @weights[:plot_pixel]
         when :blit then blit_cost(node[:name])
         when :blit_pose then blit_cost(node[:poses].first)         # one pose draws; all are the same size
         when :save_region, :restore_region then region_cost(node[:buffer])

@@ -30,14 +30,16 @@ module RubyGBA
       # @param x [Integer] left edge
       # @param y [Integer] top edge
       # @param color [Symbol, String, Integer] text color
-      def draw_text(text, x, y, color)
+      # @param font [Symbol] a font registered in {Fonts} (defaults to :default)
+      def draw_text(text, x, y, color, font: :default)
         unless text.is_a?(String)
           raise ArgumentError,
                 "draw_text draws words (a String); for a number like a score or a counter use " \
                 "draw_number — got #{text.inspect}"
         end
+        Fonts.get(font) # fail early with a friendly error on an unknown font name
 
-        record(Build.draw_text(text, x, y, color))
+        record(Build.draw_text(text, x, y, color, font: font))
       end
 
       # Draw a whole number at (x, y): a score, a damage counter, a timer. The value
@@ -57,14 +59,14 @@ module RubyGBA
       # @param y [Integer] top edge
       # @param color [Symbol, String, Integer] digit color
       # @param digits [Integer] how many digit columns to reserve
-      def draw_number(value, x, y, color, digits: DEFAULT_DIGITS)
+      def draw_number(value, x, y, color, digits: DEFAULT_DIGITS, font: :default)
         unless digits.is_a?(Integer) && digits.positive?
           raise ArgumentError, "draw_number needs a positive number of digits, got #{digits.inspect}"
         end
 
         case value
-        when Integer        then draw_fixed_number(value, x, y, color, digits)
-        when Symbol, Value  then draw_live_number(value, x, y, color, digits)
+        when Integer        then draw_fixed_number(value, x, y, color, digits, font)
+        when Symbol, Value  then draw_live_number(value, x, y, color, digits, font)
         else
           raise ArgumentError,
                 "draw_number draws a number — a value, a variable, or an expression — got #{value.inspect}"
@@ -73,11 +75,12 @@ module RubyGBA
 
       private
 
-      # A number known at build time: right-align its glyphs in the field now.
-      def draw_fixed_number(number, x, y, color, digits)
+      # A number known at build time: right-align its glyphs in the field now. The
+      # column step is the chosen font's cell width, so a narrower font packs tighter.
+      def draw_fixed_number(number, x, y, color, digits, font)
         text = number.to_s
-        col = [digits - text.length, 0].max * GLYPH_WIDTH
-        record(Build.draw_text(text, x + col, y, color))
+        col = [digits - text.length, 0].max * Fonts.get(font).cell_w
+        record(Build.draw_text(text, x + col, y, color, font: font))
       end
 
       # A number only known at run time. Work it out once into a hidden var, then
@@ -90,33 +93,35 @@ module RubyGBA
       # Every column therefore carries all ten digit glyphs (one is drawn), so a
       # column costs about ten glyph blits of ROM — fine for a HUD; a run-time
       # glyph-by-index draw op would collapse each column to a single blit.
-      def draw_live_number(value, x, y, color, digits)
+      def draw_live_number(value, x, y, color, digits, font)
         source = next_number_var
         set(source, value)
         digit = next_number_var
         started = next_number_var
         set(started, 0)
 
+        cell = Fonts.get(font).cell_w
         digits.times do |i|
           place = 10**(digits - 1 - i)
           set(digit, digit_at(source, place))
-          col_x = x + i * GLYPH_WIDTH
+          col_x = x + i * cell
           if i == digits - 1
-            draw_glyph(digit, col_x, y, color) # the ones column always shows
+            draw_glyph(digit, col_x, y, color, font) # the ones column always shows
           else
             if_ne(digit, 0) { set(started, 1) }
-            if_eq(started, 1) { draw_glyph(digit, col_x, y, color) }
+            if_eq(started, 1) { draw_glyph(digit, col_x, y, color, font) }
           end
         end
         nil
       end
 
       # Draw the single digit held in +digit_var+ (0..9) at (x, y) as one
-      # draw_digit node — the tree keeps "draw one digit here" as a single intent,
-      # and the backend decides how to render it (a font lookup, or a fan-out).
-      def draw_glyph(digit_var, x, y, color)
+      # draw_digit node in the named font — the tree keeps "draw one digit here" as a
+      # single intent, and the backend decides how to render it (a font lookup, or a
+      # fan-out).
+      def draw_glyph(digit_var, x, y, color, font)
         ensure_var(digit_var)
-        record(Build.draw_digit(Build.var_ref(digit_var), x, y, color))
+        record(Build.draw_digit(Build.var_ref(digit_var), x, y, color, font: font))
       end
 
       # The value node for one digit column of the number in +source+:

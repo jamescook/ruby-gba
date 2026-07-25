@@ -24,6 +24,15 @@ class TestIRGuardrailOffScreenDraw < Minitest::Test
                          .select { |f| f.check == :off_screen_draw }
   end
 
+  # The box is sized from the NODE's font, not one hardwired font: a 5-tall tiny-font
+  # glyph 6px above the top edge is entirely off-screen, but the 7-tall default glyph
+  # at the same spot still reaches y=0, so it isn't. (With the old global font this
+  # computed the wrong box for any non-default font.)
+  def test_the_box_is_sized_from_the_nodes_font
+    assert_equal 1, off_screen_warnings(program(draw_text("1", 10, -6, :white, font: :tiny))).size
+    assert_empty off_screen_warnings(program(draw_text("1", 10, -6, :white, font: :default)))
+  end
+
   # ---- rectangles: each edge, and the on-screen / partial cases -------------
 
   def test_a_rectangle_off_the_right_edge_warns
