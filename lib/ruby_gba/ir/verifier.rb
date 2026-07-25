@@ -87,6 +87,7 @@ module RubyGBA
         draw_rect_at:  { x: :value, y: :value, w: :int, h: :int, color: :color }, # runtime position
         dma_fill_rect: { x: :int, y: :int, w: :int, h: :int, color: :color },
         blit:          { name: :name, x: :value, y: :value },
+        blit_pose:     { poses: :list, index: :value, x: :value, y: :value }, # one image of a same-size set
         # save/restore the pixels under a moving object; the patch size comes from
         # the named backing buffer, so these carry only where (x/y, run-time).
         save_region:    { buffer: :name, x: :value, y: :value },

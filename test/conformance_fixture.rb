@@ -46,6 +46,8 @@ module ConformanceFixture
       B.bitmap(:sprite, width: 2, height: 2,
                         pixels: [0x001F, 0x03E0, 0x7C00, 0x8000].pack("v*"),
                         transparent: 0x8000),
+      B.bitmap(:pose_b, width: 2, height: 2, # a second same-size pose, for blit_pose
+                        pixels: [0x7C00, 0x03E0, 0x001F, 0x7FFF].pack("v*"), transparent: nil),
       B.backing_buffer(:under, width: 4, height: 4), # a save-under patch for a moving object
       B.func(:helper, B.set(:h, 1), B.add(:h, 2), B.wait_vblank),
       B.func(:scene_a, B.set(:picked, 10)),
@@ -76,6 +78,7 @@ module ConformanceFixture
       B.draw_text("HI", 10, 10, :white),
       B.draw_digit(B.var_ref(:x), 20, 10, :white), # one run-time digit glyph
       B.blit(:sprite, :x, :y),
+      B.blit_pose([:sprite, :pose_b], B.var_ref(:x), :x, :y), # one pose of a same-size set, by index
       B.save_region(:under, :x, :y),    # remember the pixels under a moving object
       B.restore_region(:under, :x, :y), # then paint them back
 

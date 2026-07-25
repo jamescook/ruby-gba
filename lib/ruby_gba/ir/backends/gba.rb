@@ -344,6 +344,7 @@ module RubyGBA
           when :draw_text then emit_draw_text(node)
           when :draw_digit then emit_draw_digit(node)
           when :blit then emit_blit(node)
+          when :blit_pose then emit_blit_pose(node)
           when :save_region then emit_save_region(node)
           when :restore_region then emit_restore_region(node)
           when :enable_sound then emit_enable_sound
@@ -979,6 +980,17 @@ module RubyGBA
         # screen. The shared row engine below does the clipping.
         def emit_blit_opaque(node, bmp)
           emit_rect_row_dma(node[:x], node[:y], bmp[:width], bmp[:height], node[:name], vram: :dest)
+        end
+
+        # Draw whichever pose a run-time index selects. The image can't be chosen at
+        # build time, so this expands to one guarded blit per pose — exactly one of
+        # which draws — the same shape as a run-time digit. Each guard reuses the
+        # shared blit path, so a pose honors clipping and transparency like any image.
+        def emit_blit_pose(node)
+          node[:poses].each_with_index do |name, k|
+            emit_statement(Build.if_(Build.binop(:==, node[:index], Build.int(k)),
+                                     Build.blit(name, node[:x], node[:y])))
+          end
         end
 
         # Save the screen patch under a moving object into its RAM backing store:

@@ -277,6 +277,14 @@ module RubyGBA
         Node.new(:blit, name: name, x: wrap(x), y: wrap(y))
       end
 
+      # Draw one of a set of same-size images, chosen by a run-time index — a sprite
+      # showing the pose that matches which way it faces, or a frame of an animation.
+      # +poses+ is a list of defined image names; +index+ selects one (0-based) at
+      # run time. Like a run-time-selected blit: costs one draw, not the whole set.
+      def blit_pose(poses, index, x, y)
+        Node.new(:blit_pose, poses: poses, index: wrap(index), x: wrap(x), y: wrap(y))
+      end
+
       # --- backing store (remembering the pixels under a moving object) ---
       #
       # A named off-screen buffer big enough to hold a width×height patch of the

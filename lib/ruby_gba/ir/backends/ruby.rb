@@ -222,6 +222,8 @@ module RubyGBA
             exec_list_set(node)
           when :blit
             exec_blit(node)
+          when :blit_pose
+            exec_blit_pose(node)
           when :save_region
             exec_save_region(node)
           when :restore_region
@@ -357,23 +359,36 @@ module RubyGBA
           end
         end
 
-        # Copy a defined bitmap onto the fake screen at (x, y). Each pixel is a
-        # little-endian 15-bit halfword in the stored bytes; set_pixel clips any
-        # that fall off-screen, matching how the hardware framebuffer behaves.
+        # Copy a defined bitmap onto the fake screen at (x, y).
         def exec_blit(node)
-          bmp = @bitmaps.fetch(node[:name]) do
-            raise ProgramError, "blit of undefined image #{node[:name].inspect}"
-          end
-          pixels = @data.fetch(node[:name])
+          blit_image(node[:name], eval_value(node[:x]), eval_value(node[:y]))
+        end
+
+        # Draw whichever pose the run-time index selects — the sprite facing the way
+        # it moves, or a frame of an animation. An index outside the set draws
+        # nothing (the selector is always within range in practice).
+        def exec_blit_pose(node)
+          index = eval_value(node[:index])
+          poses = node[:poses]
+          return unless index >= 0 && index < poses.length
+
+          blit_image(poses[index], eval_value(node[:x]), eval_value(node[:y]))
+        end
+
+        # Copy a defined bitmap onto the fake screen with its top-left at (x, y). Each
+        # pixel is a little-endian 15-bit halfword in the stored bytes; set_pixel
+        # clips any that fall off-screen, matching how the hardware framebuffer
+        # behaves, and a transparent pixel is skipped so the background shows through.
+        def blit_image(name, x, y)
+          bmp = @bitmaps.fetch(name) { raise ProgramError, "blit of undefined image #{name.inspect}" }
+          pixels = @data.fetch(name)
           transparent = bmp[:transparent]
-          x = eval_value(node[:x])
-          y = eval_value(node[:y])
 
           bmp[:height].times do |row|
             bmp[:width].times do |col|
               i = ((row * bmp[:width]) + col) * 2
               color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
-              next if transparent && color == transparent # skip: the background shows through
+              next if transparent && color == transparent
               @screen.set_pixel(x + col, y + row, color)
             end
           end
