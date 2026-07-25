@@ -3,35 +3,47 @@
 module RubyGBA
   # A bitmap font: a named collection of glyphs plus the metrics to lay them out.
   # Each glyph is a small monochrome bitmap stored as +height+ row-bytes, the low
-  # +width+ bits of each byte being one row (MSB = leftmost pixel). Text draws by
-  # stamping each character's set pixels; `draw_text`/`draw_number` pick which font
-  # renders, via the {Fonts} registry.
+  # bits of each byte being one row (MSB = leftmost pixel). Text draws by stamping
+  # each character's set pixels; `draw_text`/`draw_number` pick which font renders,
+  # via the {Fonts} registry.
   #
   # A font knows how to walk the set pixels of a string (`each_pixel`), how wide a
   # string is (`text_width`), and how many pixels a glyph lights (`glyph_pixels`,
-  # used by the draw-cost model). Metrics are fixed per font here — every glyph is
-  # +width+×+height+ with a +spacing+ gap; proportional (per-glyph width) fonts are
-  # a later refinement.
+  # used by the draw-cost model). Height is fixed for the whole font, but each glyph
+  # carries its OWN width — a proportional font packs an +i+ tighter than an +m+ —
+  # so layout advances by the glyph in front of it, not a fixed grid. A fixed-width
+  # font is just the special case where every glyph is the same width.
   class Font
-    attr_reader :width, :height, :spacing
+    attr_reader :height, :spacing
 
     # @param glyphs [Hash{String=>Array<Integer>}] char → +height+ row-bytes
-    # @param width [Integer] glyph width in pixels
-    # @param height [Integer] glyph height in pixels
+    # @param height [Integer] glyph height in pixels (fixed for the font)
+    # @param width [Integer, nil] one width for every glyph (a fixed-width font)
+    # @param widths [Hash{String=>Integer}, nil] per-glyph width (a proportional
+    #   font); give exactly one of +width+ or +widths+
     # @param spacing [Integer] blank pixels between characters
     # @param fold [Symbol, nil] :upper to look glyphs up upcased (an uppercase-only
     #   font renders "abc" as "ABC"); nil to look them up exactly
-    def initialize(glyphs:, width:, height:, spacing: 1, fold: nil)
+    def initialize(glyphs:, height:, width: nil, widths: nil, spacing: 1, fold: nil)
       @glyphs = glyphs
-      @width = width
       @height = height
       @spacing = spacing
       @fold = fold
+      @widths = resolve_widths(glyphs, width, widths)
+      @max_width = @widths.values.max || 0
     end
 
-    # Pixels advanced per character: the glyph plus the gap after it.
+    # The widest glyph in the font. For a fixed-width font this is the one width
+    # every glyph shares; it's the natural worst-case box for a run-time glyph.
+    def width
+      @max_width
+    end
+
+    # The widest a single character can advance: the widest glyph plus its gap. Used
+    # where columns must line up regardless of which character lands in them (a
+    # right-aligned number reserves this per digit).
     def cell_w
-      @width + @spacing
+      @max_width + @spacing
     end
 
     # How many glyphs this font defines (its full size — for the tree-shaking report).
@@ -41,34 +53,47 @@ module RubyGBA
 
     # The row-bytes for a character, or nil if this font has no such glyph.
     def glyph(char)
-      @glyphs[@fold == :upper ? char.upcase : char]
+      @glyphs[fold(char)]
+    end
+
+    # This character's own pixel width, or nil if the font lacks it.
+    def glyph_width(char)
+      @widths[fold(char)]
     end
 
     # Yield (dx, dy) for every set pixel of +text+, relative to its top-left origin.
-    # Characters the font lacks are skipped, and clip in the caller's set_pixel — the
-    # same edge-safety as any draw.
+    # The pen advances by each glyph's own width, so a narrow character leaves the
+    # next one closer than a wide one would (proportional spacing). Characters the
+    # font lacks are skipped — reserving a max-width cell so a missing glyph leaves a
+    # gap rather than colliding — and pixels clip in the caller's set_pixel.
     def each_pixel(text)
-      text.each_char.with_index do |ch, ci|
-        rows = glyph(ch) or next
-        base_x = ci * cell_w
-        rows.each_with_index do |row, y|
-          @width.times { |x| yield base_x + x, y if (row >> (@width - 1 - x)) & 1 == 1 }
+      base_x = 0
+      text.each_char do |ch|
+        rows = glyph(ch)
+        w = glyph_width(ch)
+        if rows
+          rows.each_with_index do |row, y|
+            w.times { |x| yield base_x + x, y if (row >> (w - 1 - x)) & 1 == 1 }
+          end
         end
+        base_x += (w || @max_width) + @spacing
       end
     end
 
-    # Rendered width of +text+ in pixels (no trailing gap).
+    # Rendered width of +text+ in pixels (each glyph's own width, one gap between
+    # them, no trailing gap).
     def text_width(text)
       return 0 if text.empty?
 
-      (text.length * cell_w) - @spacing
+      text.each_char.sum { |ch| (glyph_width(ch) || @max_width) + @spacing } - @spacing
     end
 
     # How many pixels a single character lights — what the cost model charges for
     # plotting it. 0 for a character the font lacks (nothing is drawn).
     def glyph_pixels(char)
       rows = glyph(char) or return 0
-      rows.sum { |row| (0...@width).count { |x| (row >> (@width - 1 - x)) & 1 == 1 } }
+      w = glyph_width(char)
+      rows.sum { |row| (0...w).count { |x| (row >> (w - 1 - x)) & 1 == 1 } }
     end
 
     # Total lit pixels a string draws.
@@ -87,24 +112,38 @@ module RubyGBA
     # filtered to glyphs the font has. This is exactly the set a data-driven font
     # would need to embed for that text; anything else in a big font can be dropped.
     def keys_used(text)
-      text.each_char.filter_map do |ch|
-        key = @fold == :upper ? ch.upcase : ch
-        key if @glyphs.key?(key)
-      end.uniq
+      text.each_char.filter_map { |ch| fold(ch) if @glyphs.key?(fold(ch)) }.uniq
+    end
+
+    private
+
+    # The lookup key for a character: upcased when the font is uppercase-only, else
+    # the character itself.
+    def fold(char)
+      @fold == :upper ? char.upcase : char
+    end
+
+    # Settle each glyph's width: +widths+ (a char→width map) for a proportional font,
+    # or +width+ applied to every glyph for a fixed-width one. Exactly one is given.
+    def resolve_widths(glyphs, width, widths)
+      return widths if widths
+      raise ArgumentError, "a font needs a width or per-glyph widths" unless width
+
+      glyphs.keys.to_h { |ch| [ch, width] }
     end
 
     # Collects glyphs drawn as ASCII art and builds a {Font} — the machine behind the
     # `font :name do … end` verb, the sibling of how `image` takes ASCII art. Inside
     # the block, `glyph "A", art` maps a character to a small bitmap; a lit pixel is
-    # the +on+ character (default "#"), anything else is blank. Every glyph must be
-    # the same size (fixed metrics), so a ragged or odd-sized glyph is a friendly
-    # error as the font is built.
+    # the +on+ character (default "#"), anything else is blank. Glyphs may differ in
+    # width (a proportional font) but must share one height; a ragged glyph (rows of
+    # unequal length) or an odd-height one is a friendly error as the font is built.
     class Definition
       def initialize(name, on: "#")
         @name = name
         @on = on
         @glyphs = {}
-        @width = nil
+        @widths = {}
         @height = nil
       end
 
@@ -119,36 +158,37 @@ module RubyGBA
                 "font :#{@name} glyph #{char.inspect} has ragged rows (#{widths.sort.join(', ')} wide) — " \
                 "every row of a glyph must be the same length"
         end
-        fix_size!(char, widths.first, rows.size)
-        @glyphs[char] = rows.map { |row| row_byte(row) }
+        width = widths.first
+        fix_height!(char, rows.size)
+        @widths[char] = width
+        @glyphs[char] = rows.map { |row| row_byte(row, width) }
       end
 
       # Build the finished, registerable font.
       def to_font(spacing:, fold:)
         raise ArgumentError, "font :#{@name} defines no glyphs" if @glyphs.empty?
 
-        Font.new(glyphs: @glyphs, width: @width, height: @height, spacing: spacing, fold: fold)
+        Font.new(glyphs: @glyphs, widths: @widths, height: @height, spacing: spacing, fold: fold)
       end
 
       private
 
-      # Pin the font's size to the first glyph; every later glyph must match, since a
-      # fixed-metrics font lays every character out on the same grid.
-      def fix_size!(char, width, height)
-        @width ||= width
+      # Pin the font's height to the first glyph; every later glyph must match, since
+      # a font lays every character out on one baseline. Width is free to vary.
+      def fix_height!(char, height)
         @height ||= height
-        return if width == @width && height == @height
+        return if height == @height
 
         raise ArgumentError,
-              "font :#{@name} glyph #{char.inspect} is #{width}x#{height}, but the font is " \
-              "#{@width}x#{@height} — every glyph must be the same size"
+              "font :#{@name} glyph #{char.inspect} is #{height} tall, but the font is " \
+              "#{@height} tall — every glyph must be the same height"
       end
 
       # One art row → its row-byte: bit (width-1-x) set where column x holds the
       # +on+ character, matching how {Font#each_pixel} reads a row back.
-      def row_byte(row)
+      def row_byte(row, width)
         byte = 0
-        @width.times { |x| byte |= 1 << (@width - 1 - x) if row[x] == @on }
+        width.times { |x| byte |= 1 << (width - 1 - x) if row[x] == @on }
         byte
       end
     end

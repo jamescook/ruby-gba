@@ -61,16 +61,30 @@ class TestFontAuthoring < Minitest::Test
     assert_equal 3, Fonts.get(:mine).height
   end
 
-  def test_glyphs_of_different_sizes_are_a_friendly_error
+  # Glyphs may differ in width (that's a proportional font) but must share one
+  # height, since every character sits on the same baseline.
+  def test_glyphs_of_different_widths_are_allowed
+    Builder.new.instance_eval do
+      font :prop do
+        glyph "I", "#\n#\n#"       # 1 wide
+        glyph "M", "###\n###\n###" # 3 wide
+      end
+    end
+    assert_equal 1, Fonts.get(:prop).glyph_width("I")
+    assert_equal 3, Fonts.get(:prop).glyph_width("M")
+    assert_equal 3, Fonts.get(:prop).width # the widest glyph
+  end
+
+  def test_glyphs_of_different_heights_are_a_friendly_error
     err = assert_raises(ArgumentError) do
       Builder.new.instance_eval do
         font :bad do
-          glyph "A", "##\n##"    # 2x2
-          glyph "B", "###\n###\n###" # 3x3
+          glyph "A", "##\n##"     # 2 tall
+          glyph "B", "##\n##\n##" # 3 tall
         end
       end
     end
-    assert_match(/same size/, err.message)
+    assert_match(/same height/, err.message)
   end
 
   def test_ragged_rows_are_a_friendly_error
