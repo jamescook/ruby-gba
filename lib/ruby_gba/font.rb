@@ -1,52 +1,86 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  # Minimal 5x7 bitmap font for MODE_3 text rendering.
-  # Each glyph is 5 pixels wide, 7 pixels tall, stored as 7 bytes
-  # (each byte's low 5 bits = one row, MSB on left).
+  # A bitmap font: a named collection of glyphs plus the metrics to lay them out.
+  # Each glyph is a small monochrome bitmap stored as +height+ row-bytes, the low
+  # +width+ bits of each byte being one row (MSB = leftmost pixel). Text draws by
+  # stamping each character's set pixels; `draw_text`/`draw_number` pick which font
+  # renders, via the {Fonts} registry.
   #
-  # Only uppercase ASCII + digits + basic punctuation.
-  # 1 pixel gap between characters, so effective width is 6px per char.
-  module Font
-    GLYPH_W = 5
-    GLYPH_H = 7
-    CHAR_SPACING = 1   # pixels between characters
-    CELL_W = GLYPH_W + CHAR_SPACING  # 6px per character cell
+  # A font knows how to walk the set pixels of a string (`each_pixel`), how wide a
+  # string is (`text_width`), and how many pixels a glyph lights (`glyph_pixels`,
+  # used by the draw-cost model). Metrics are fixed per font here — every glyph is
+  # +width+×+height+ with a +spacing+ gap; proportional (per-glyph width) fonts are
+  # a later refinement.
+  class Font
+    attr_reader :width, :height, :spacing
 
-    # @return [Array<Integer>, nil] 7 bytes of row data, or nil if unsupported
-    def self.glyph(char)
-      GLYPHS[char.upcase]
+    # @param glyphs [Hash{String=>Array<Integer>}] char → +height+ row-bytes
+    # @param width [Integer] glyph width in pixels
+    # @param height [Integer] glyph height in pixels
+    # @param spacing [Integer] blank pixels between characters
+    # @param fold [Symbol, nil] :upper to look glyphs up upcased (an uppercase-only
+    #   font renders "abc" as "ABC"); nil to look them up exactly
+    def initialize(glyphs:, width:, height:, spacing: 1, fold: nil)
+      @glyphs = glyphs
+      @width = width
+      @height = height
+      @spacing = spacing
+      @fold = fold
     end
 
-    # Iterate over set pixels in a string.
-    # Yields (dx, dy) relative to the string's top-left origin.
-    def self.each_pixel(text)
-      text.each_char.with_index do |ch, ci|
-        rows = glyph(ch)
-        next unless rows  # skip unsupported chars
+    # Pixels advanced per character: the glyph plus the gap after it.
+    def cell_w
+      @width + @spacing
+    end
 
-        base_x = ci * CELL_W
+    # The row-bytes for a character, or nil if this font has no such glyph.
+    def glyph(char)
+      @glyphs[@fold == :upper ? char.upcase : char]
+    end
+
+    # Yield (dx, dy) for every set pixel of +text+, relative to its top-left origin.
+    # Characters the font lacks are skipped, and clip in the caller's set_pixel — the
+    # same edge-safety as any draw.
+    def each_pixel(text)
+      text.each_char.with_index do |ch, ci|
+        rows = glyph(ch) or next
+        base_x = ci * cell_w
         rows.each_with_index do |row, y|
-          GLYPH_W.times do |x|
-            # Bit 4 = leftmost pixel, bit 0 = rightmost
-            if (row >> (GLYPH_W - 1 - x)) & 1 == 1
-              yield base_x + x, y
-            end
-          end
+          @width.times { |x| yield base_x + x, y if (row >> (@width - 1 - x)) & 1 == 1 }
         end
       end
     end
 
-    # Width of rendered text in pixels.
-    def self.text_width(text)
+    # Rendered width of +text+ in pixels (no trailing gap).
+    def text_width(text)
       return 0 if text.empty?
-      text.length * CELL_W - CHAR_SPACING
+
+      (text.length * cell_w) - @spacing
+    end
+
+    # How many pixels a single character lights — what the cost model charges for
+    # plotting it. 0 for a character the font lacks (nothing is drawn).
+    def glyph_pixels(char)
+      rows = glyph(char) or return 0
+      rows.sum { |row| (0...@width).count { |x| (row >> (@width - 1 - x)) & 1 == 1 } }
+    end
+
+    # Total lit pixels a string draws.
+    def text_pixels(text)
+      text.each_char.sum { |ch| glyph_pixels(ch) }
+    end
+
+    # The most any one of +chars+ lights — the worst-case cost of drawing a single
+    # run-time-chosen character (a digit field draws one of 0..9).
+    def max_glyph_pixels(chars)
+      chars.map { |c| glyph_pixels(c) }.max || 0
     end
 
     # rubocop:disable Layout/ExtraSpacing
-    # Each row is 5 bits: 0b10101 means pixels at columns 0, 2, 4.
-    # Bit 4 (0x10) = leftmost column, bit 0 (0x01) = rightmost.
-    GLYPHS = {
+    # The built-in 5x7 uppercase glyphs. Each row is 5 bits: bit 4 (0x10) = leftmost
+    # column, bit 0 = rightmost, so 0b10101 lights columns 0, 2, 4.
+    DEFAULT_GLYPHS = {
       "A" => [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
       "B" => [0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E],
       "C" => [0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E],
@@ -88,6 +122,23 @@ module RubyGBA
       "." => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04],
       ":" => [0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00],
       "-" => [0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00],
+    }.freeze
+
+    # A compact 3x5 numeric font — half the footprint, for a tight HUD. Each row is
+    # 3 bits (bit 2 = leftmost). Digits only; a different SIZE than the default, so
+    # picking it visibly changes a number's box (and its draw cost).
+    TINY_GLYPHS = {
+      "0" => [0b111, 0b101, 0b101, 0b101, 0b111],
+      "1" => [0b010, 0b110, 0b010, 0b010, 0b111],
+      "2" => [0b111, 0b001, 0b111, 0b100, 0b111],
+      "3" => [0b111, 0b001, 0b111, 0b001, 0b111],
+      "4" => [0b101, 0b101, 0b111, 0b001, 0b001],
+      "5" => [0b111, 0b100, 0b111, 0b001, 0b111],
+      "6" => [0b111, 0b100, 0b111, 0b101, 0b111],
+      "7" => [0b111, 0b001, 0b010, 0b010, 0b010],
+      "8" => [0b111, 0b101, 0b111, 0b101, 0b111],
+      "9" => [0b111, 0b101, 0b111, 0b001, 0b111],
+      " " => [0b000, 0b000, 0b000, 0b000, 0b000],
     }.freeze
     # rubocop:enable Layout/ExtraSpacing
   end

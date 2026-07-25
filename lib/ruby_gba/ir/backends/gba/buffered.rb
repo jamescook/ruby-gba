@@ -130,7 +130,7 @@ module RubyGBA
             base = 6
             load_var(base, BACKBUF) # the hidden page base, held for the whole line
 
-            Font.each_pixel(node[:text]) do |dx, dy|
+            Fonts.get(node[:font]).each_pixel(node[:text]) do |dx, dy|
               px = x + dx
               py = y + dy
               next unless in_bounds?(px, py)

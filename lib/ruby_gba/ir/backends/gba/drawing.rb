@@ -485,7 +485,7 @@ module RubyGBA
             x, y = constant_ints!(node, :x, :y)
             emit(ASM.load_immediate(ACC, Color.resolve(node[:color])))
 
-            Font.each_pixel(node[:text]) do |dx, dy|
+            Fonts.get(node[:font]).each_pixel(node[:text]) do |dx, dy|
               px = x + dx
               py = y + dy
               next unless in_bounds?(px, py)
@@ -503,7 +503,7 @@ module RubyGBA
           def emit_draw_digit(node)
             10.times do |k|
               emit_statement(Build.if_(Build.binop(:==, node[:value], Build.int(k)),
-                                       Build.draw_text(k.to_s, node[:x], node[:y], node[:color])))
+                                       Build.draw_text(k.to_s, node[:x], node[:y], node[:color], font: node[:font])))
             end
           end
 

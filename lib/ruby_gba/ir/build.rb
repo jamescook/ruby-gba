@@ -95,18 +95,19 @@ module RubyGBA
         Node.new(:clear_screen, color: color)
       end
 
-      # Write a line of text at a fixed top-left origin, drawn with the built-in
-      # bitmap font. +x+/+y+ are compile-time constants.
-      def draw_text(text, x, y, color)
-        Node.new(:draw_text, text: text, x: x, y: y, color: color)
+      # Write a line of text at a fixed top-left origin, drawn with a named font
+      # (+font+, a key in the Fonts registry). +x+/+y+ are compile-time constants.
+      def draw_text(text, x, y, color, font: :default)
+        Node.new(:draw_text, text: text, x: x, y: y, color: color, font: font)
       end
 
       # Draw the single decimal digit of +value+ (a run-time 0..9) at the fixed
-      # origin +x+/+y+ in +color+ — one glyph chosen at run time. It exists as its
-      # own node so drawing a live digit stays one intent in the tree (a backend
-      # may render it however it likes — a lookup and one blit, or a fan-out).
-      def draw_digit(value, x, y, color)
-        Node.new(:draw_digit, value: value, x: x, y: y, color: color)
+      # origin +x+/+y+ in +color+, in the named +font+ — one glyph chosen at run
+      # time. It exists as its own node so drawing a live digit stays one intent in
+      # the tree (a backend may render it however it likes — a lookup and one blit,
+      # or a fan-out).
+      def draw_digit(value, x, y, color, font: :default)
+        Node.new(:draw_digit, value: value, x: x, y: y, color: color, font: font)
       end
 
       # Fill a rectangle whose *position* is decided at run time: +x+/+y+ may be
