@@ -495,16 +495,121 @@ module RubyGBA
             end
           end
 
-          # Draw the run-time digit: render whichever of 0..9 the value works out to.
-          # The bitmap font can't be indexed by a run-time value, so this expands to
-          # ten mutually exclusive guards, one per digit, exactly one of which draws.
-          # Built as a sub-tree and emitted through the shared statement paths, so it
-          # honors the current display mode (direct or buffered) via draw_text.
+          # Draw the run-time digit held in +value+ (0..9). A font can't be indexed by a
+          # run-time value the way an array is, so there are two ways to render it, and
+          # the cheaper one is picked here.
+          #
+          # Data-driven (used for a direct-color column that sits fully on-screen with a
+          # font no wider than a byte): the ten digit glyphs are embedded once as ROM
+          # data, and at run time a small loop looks up the chosen glyph and stamps its
+          # set pixels — the same idea as blitting an image. It costs one shared loop
+          # plus a few dozen bytes of glyph data, instead of baking every pixel of all
+          # ten digits into the code.
+          #
+          # Fan-out (the fallback — a column crossing a screen edge, the tear-free
+          # indexed screen, or a wide font): expand to ten mutually exclusive guards,
+          # one per digit, exactly one of which draws. Each is a draw_text that clips
+          # per pixel and honors the display mode.
           def emit_draw_digit(node)
+            font = Fonts.get(node[:font])
+            x = const_int(node[:x])
+            y = const_int(node[:y])
+            if @lower_mode == :direct && x && y && font.width <= 8 && digit_cell_on_screen?(x, y, font)
+              emit_draw_digit_data(node, font, x, y)
+            else
+              emit_draw_digit_unrolled(node)
+            end
+          end
+
+          # The fan-out fallback: ten guarded draw_texts, exactly one of which matches
+          # the value and draws. Built as a sub-tree and emitted through the shared
+          # statement paths, so it honors the current display mode via draw_text.
+          def emit_draw_digit_unrolled(node)
             10.times do |k|
               emit_statement(Build.if_(Build.binop(:==, node[:value], Build.int(k)),
                                        Build.draw_text(k.to_s, node[:x], node[:y], node[:color], font: node[:font])))
             end
+          end
+
+          # Render one run-time digit from an embedded glyph table (direct color, the
+          # column already known to be on-screen). The ten glyphs live in ROM as row
+          # bytes — glyph d starts at d*height, one byte per row, the low +width+ bits
+          # of each byte being that row (leftmost pixel = the top bit). Walk the chosen
+          # glyph's rows and columns, writing the color wherever a bit is set.
+          #
+          # Only the digit is a run-time value; x, y and the color are constants and the
+          # cell is on-screen, so the loop needs no clipping — it just recomputes each
+          # set pixel's screen address. Registers held across the loop: r4 column, r5
+          # row, r6 the glyph's row pointer, r7 the current row byte, r8 the color.
+          # r0–r3 are per-pixel scratch.
+          def emit_draw_digit_data(node, font, x, y)
+            table = ensure_digit_table(node[:font], font)
+            color = Color.resolve(node[:color])
+            top_bit = 1 << (font.width - 1)
+
+            eval_value(node[:value])              # r0 = the digit (0..9)
+            emit_load_data_address(1, table)      # r1 = the glyph table's ROM address
+            emit(ASM.load_immediate(2, font.height))
+            emit(ASM.mul(3, 0, 2))                # r3 = digit * height (its row offset)
+            emit(ASM.add_reg(6, 1, 3))            # r6 = &glyph[digit], row 0
+            emit(ASM.load_immediate(8, color))    # r8 = the fill color, held for the glyph
+            emit(ASM.load_immediate(5, 0))        # r5 = row = 0
+
+            row_loop = gensym
+            place_label(row_loop)
+            emit(ASM.ldrb_offset(7, 6, 0))        # r7 = this row's byte
+            emit(ASM.load_immediate(4, 0))        # r4 = col = 0
+
+            col_loop = gensym
+            place_label(col_loop)
+            next_col = gensym
+            emit(ASM.tst_imm(7, top_bit))         # is the leftmost remaining column lit?
+            emit_branch(:bcond, next_col, cond: :eq)
+            emit_plot_digit_pixel(x, y)           # yes: stamp it
+            place_label(next_col)
+            emit(ASM.lsl_imm(7, 7, 1))            # shift the next column into the top bit
+            emit(ASM.add_imm(4, 4, 1))
+            emit(ASM.cmp_imm(4, font.width))
+            emit_branch(:bcond, col_loop, cond: :lt)
+
+            emit(ASM.add_imm(6, 6, 1))            # advance to the next row's byte
+            emit(ASM.add_imm(5, 5, 1))
+            emit(ASM.cmp_imm(5, font.height))
+            emit_branch(:bcond, row_loop, cond: :lt)
+          end
+
+          # Stamp the current glyph pixel: screen = VRAM + ((y+row)*W + (x+col))*2, in
+          # the held color. x/y are the constant cell origin; r5/r4 are the live
+          # row/col. Uses r0–r3 as scratch and leaves the loop registers alone.
+          def emit_plot_digit_pixel(x, y)
+            emit_add_const(0, 5, y, 1)            # r0 = screen_y = y + row
+            emit(ASM.load_immediate(1, SCREEN_WIDTH))
+            emit(ASM.mul(2, 0, 1))                # r2 = screen_y * width
+            emit_add_const(0, 4, x, 1)            # r0 = screen_x = x + col
+            emit(ASM.add_reg(2, 2, 0))            # r2 = screen_y*width + screen_x
+            emit(ASM.lsl_imm(2, 2, 1))            # * 2 bytes per pixel
+            emit(ASM.load_immediate(1, VRAM_START))
+            emit(ASM.add_reg(2, 2, 1))            # r2 = the pixel's VRAM address
+            emit(ASM.store_halfword(8, 2))        # write the color
+          end
+
+          # True when the whole width×height digit cell at (x, y) fits on-screen, so the
+          # data-driven loop can skip per-pixel clipping.
+          def digit_cell_on_screen?(x, y, font)
+            x >= 0 && y >= 0 && (x + font.width) <= SCREEN_WIDTH && (y + font.height) <= SCREEN_HEIGHT
+          end
+
+          # Embed a font's ten digit glyphs as a ROM blob once, returning its blob name.
+          # Laid out as glyph 0's +height+ row bytes, then glyph 1's, and so on, so digit
+          # d begins at d*height. A digit the font happens to lack contributes blank rows
+          # (it simply draws nothing), matching the fan-out's skip.
+          def ensure_digit_table(name, font)
+            blob = :"__digits_#{name}"
+            unless @data_blobs.key?(blob)
+              bytes = (0..9).flat_map { |d| font.glyph(d.to_s) || Array.new(font.height, 0) }
+              @data_blobs[blob] = bytes.pack("C*")
+            end
+            blob
           end
 
           # Stash a solid fill color as a packed two-pixel word in IWRAM and return
