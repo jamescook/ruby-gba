@@ -39,7 +39,8 @@ module Snake
   SCREEN_H = 160
 
   # The play area is a grid of square cells. The snake and the food snap to it, so
-  # positions are counted in cells (0, 1, 2 …) and multiplied by CELL to get pixels.
+  # positions are counted in cells (0, 1, 2 …); a `grid` (built below) turns those
+  # cell coordinates into pixels, so nothing here multiplies by CELL by hand.
   CELL = 8                     # an 8x8 cell (draw widths must be even, and 8 is)
   COLS = SCREEN_W / CELL       # 30 cells across
   ROWS = SCREEN_H / CELL       # 20 cells down
@@ -110,6 +111,11 @@ module Snake
     self_hit = var :self_hit, 0 # set when the new head lands on the body
     placed   = var :placed, 0   # set once food has found an empty cell
 
+    # The board, in cell coordinates. set_cell / clear_cell take cell numbers and do
+    # the pixel arithmetic (and the erase-to-background), so the snake code below
+    # never writes `* CELL`. A cleared cell returns to :black, the board's backdrop.
+    board = grid :board, cols: COLS, rows: ROWS, cell: CELL, over: :black
+
     # --- Subroutines ---
 
     # Pick a random empty cell for the food (it doesn't paint — the caller decides
@@ -133,7 +139,7 @@ module Snake
     end
 
     func :draw_food do
-      draw_rect_at food_x * CELL, food_y * CELL, CELL, CELL, :red
+      board.set_cell food_x, food_y, :red
     end
 
     # Repaint the score field: erase the old digits, then draw the new number. Only
@@ -156,9 +162,9 @@ module Snake
       call :draw_score
       call :draw_food
       repeat(xs.length) do |i|
-        draw_rect_at xs[i] * CELL, ys[i] * CELL, CELL, CELL, :green
+        board.set_cell xs[i], ys[i], :green
       end
-      draw_rect_at xs.last * CELL, ys.last * CELL, CELL, CELL, :white
+      board.set_cell xs.last, ys.last, :white
     end
 
     # Start a fresh game: reset the body to the opening snake, face right, zero the
@@ -205,14 +211,14 @@ module Snake
         beep :die
       end.else do
         # The current head is about to become a body segment — repaint it green.
-        draw_rect_at xs.last * CELL, ys.last * CELL, CELL, CELL, :green
+        board.set_cell xs.last, ys.last, :green
         # Remember the tail cell before we might drop it, so we can erase it.
         set :tail_x, xs.first
         set :tail_y, ys.first
         # Grow a new head at the front of the body, and paint it white.
         xs.push :hx
         ys.push :hy
-        draw_rect_at hx * CELL, hy * CELL, CELL, CELL, :white
+        board.set_cell hx, hy, :white
         # Eat (keep the tail, so we're one longer) or slide (drop and erase it).
         ((hx == food_x) & (hy == food_y)).then do
           score.add 1
@@ -223,7 +229,7 @@ module Snake
         end.else do
           xs.shift
           ys.shift
-          draw_rect_at tail_x * CELL, tail_y * CELL, CELL, CELL, :black
+          board.clear_cell tail_x, tail_y
         end
       end
     end
