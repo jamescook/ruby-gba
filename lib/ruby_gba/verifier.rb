@@ -32,10 +32,14 @@ module RubyGBA
     # @param keys [Integer, #call, nil] held-button input for each frame — an
     #   active-high bitmask (bit per button, matching KEY_*), or a callable given
     #   the frame number returning one. nil means no buttons held.
-    def initialize(rom, frames: 2, keys: nil)
+    # @param vars [Hash{Symbol=>Integer}, nil] variable name → IWRAM address, from the
+    #   backend that lowered the ROM (backend.var_addresses) — lets {#var} read a
+    #   variable's value back from memory after the run.
+    def initialize(rom, frames: 2, keys: nil, vars: nil)
       @rom = rom
       @frames = frames
       @keys = keys
+      @var_addresses = vars
       @pixels = nil
       @audio = nil
       @width = SCREEN_WIDTH
@@ -119,6 +123,47 @@ module RubyGBA
         end
       end
       nil
+    end
+
+    # --- memory ---
+    #
+    # Read values back out of the running console, not just the screen. gemba reads
+    # the GBA bus directly, so a hardware test can assert run-time STATE — a variable
+    # a program computed, or a hardware register like VCOUNT — the same way it asserts
+    # pixels. Reads happen at the final frame boundary (after the frames have run).
+
+    # Read a 32-bit word off the GBA bus at +address+ — an IWRAM variable, or a
+    # memory-mapped register. (VCOUNT, the current scanline, is a 16-bit register at
+    # 0x04000006; use {#mem16} for it.)
+    def mem32(address)
+      ensure_rendered!
+      @core.bus_read32(address)
+    end
+
+    # Read a 16-bit halfword off the GBA bus at +address+.
+    def mem16(address)
+      ensure_rendered!
+      @core.bus_read16(address)
+    end
+
+    # Read a single byte off the GBA bus at +address+.
+    def mem8(address)
+      ensure_rendered!
+      @core.bus_read8(address)
+    end
+
+    # Read a program variable's value from IWRAM, by name. Needs the variable-address
+    # map from the backend that lowered the ROM — construct the Verifier with
+    # `vars: backend.var_addresses`. This is how a test asserts what a program
+    # actually computed on real hardware.
+    def var(name)
+      unless @var_addresses
+        raise ArgumentError,
+              "no variable map given — build the Verifier with `vars: backend.var_addresses` to read a variable"
+      end
+      address = @var_addresses[name] ||
+                raise(ArgumentError, "unknown variable #{name.inspect} — known: #{@var_addresses.keys.join(', ')}")
+      mem32(address)
     end
 
     # --- audio ---
@@ -213,18 +258,22 @@ module RubyGBA
       # frame's pixels and the whole run's audio. Audio drains per frame, so we
       # concatenate each frame's chunk to hear the entire run, not just the last.
       require "tempfile"
-      Tempfile.create(["verify", ".gba"]) do |f|
-        @rom.write(f.path)
-        core = Gemba::Core.new(f.path)
-        @audio = +"".b
-        @frames.times do |frame|
-          core.set_keys(keys_for(frame)) if @keys
-          core.run_frame
-          @audio << core.audio_buffer
-        end
-        @pixels = core.video_buffer
-        core.destroy
+      # Keep the core (and its ROM file) alive on the instance rather than tearing
+      # them down here: memory reads (#mem32 / #var) run against the same core after
+      # the frames, at the final frame boundary. Both are released when this Verifier
+      # is garbage-collected.
+      @tempfile = Tempfile.new(["verify", ".gba"])
+      @tempfile.binmode
+      @rom.write(@tempfile.path)
+      @tempfile.flush
+      @core = Gemba::Core.new(@tempfile.path)
+      @audio = +"".b
+      @frames.times do |frame|
+        @core.set_keys(keys_for(frame)) if @keys
+        @core.run_frame
+        @audio << @core.audio_buffer
       end
+      @pixels = @core.video_buffer
     end
 
     # The held-button bitmask for a given frame (0 if none configured).
