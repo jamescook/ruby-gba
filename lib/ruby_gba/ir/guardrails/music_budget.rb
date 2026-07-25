@@ -34,10 +34,11 @@ module RubyGBA
           def message(song)
             "The song :#{song[:name]} has #{song[:notes]} notes. Music plays by checking every note " \
               "against a frame counter, and it re-checks all #{song[:notes]} of them on every single frame " \
-              "(roughly #{song[:steady_cost]} units of work a frame, against about #{song[:budget]} for " \
-              "music) — real recurring work even when nothing on screen is moving, and it makes the ROM " \
-              "bigger too. Keep tunes to a shorter loop, or break a long piece into a few shorter songs you " \
-              "swap between. Call `rom.explain` on the built ROM to see the per-song breakdown."
+              "(roughly #{format('%.1f', song[:steady_cost])} scanlines of work a frame, against about " \
+              "#{format('%.1f', song[:budget])} for music) — real recurring work even when nothing on screen " \
+              "is moving, and it makes the ROM bigger too. Keep tunes to a shorter loop, or break a long piece " \
+              "into a few shorter songs you swap between. Call `rom.explain` on the built ROM to see the " \
+              "per-song breakdown."
           end
         end
       end

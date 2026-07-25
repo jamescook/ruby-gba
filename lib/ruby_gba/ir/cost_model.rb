@@ -11,16 +11,26 @@ module RubyGBA
     # finish before the screen refreshes will tear, and this is how we spot that
     # before it ever runs on hardware.
     #
-    # Costs are in "write-units" — roughly one write to the screen. Sound is priced
-    # in the same unit so it weighs against the same budget: a sound-register write
-    # (a beep, powering the hardware on) counts like a screen write, and playing a
-    # song costs one frame-counter check per note *every* frame, because the score
-    # is unrolled into a comparison per note (see #song_cost). The weights are
-    # rough, tunable placeholders (real values come from measuring on the console);
-    # a game dev can override any of them, e.g. to weight an op up to discourage it. What the model gets exactly right is the *shape* of the work:
-    # a loop's body counts once per iteration, a list-driven loop counts up to the
-    # list's capacity (the worst it can reach), and a scene dispatch (case_var)
-    # costs its heaviest branch, since only one branch runs per frame.
+    # Costs are in *scanlines* — the console draws the screen one scanline at a time,
+    # so a scanline of drawing time is the natural unit, and the vertical blank (the
+    # safe window to draw before the picture tears) is about 68 scanlines. So "this
+    # frame costs 45 scanlines" means "it eats 45 of your ~68 safe scanlines." The
+    # weights are measured on hardware (see the timing probe): reading VCOUNT right
+    # after a known workload, so a glyph really is measured against a DMA fill. A game
+    # dev can override any of them.
+    #
+    # Two things drive the cost. Drawing is dominated by DMA *operations*: a fill, a
+    # blit, a save/restore is one DMA per row, and the per-row setup dwarfs the
+    # per-pixel transfer — so a wide row and a narrow one cost about the same, and
+    # cost scales with a rectangle's height (rows), not its area. And a pixel plotted
+    # one at a time (a lone pixel, every font pixel) is far dearer than one moved by
+    # DMA — so an opaque image streams cheaply while a transparent one, plotted pixel
+    # by pixel, does not. Sound is priced in the same scanline unit.
+    #
+    # What the model gets exactly right is the *shape* of the work: a loop's body
+    # counts once per iteration, a list-driven loop counts up to the list's capacity
+    # (the worst it can reach), and a scene dispatch (case_var) costs its heaviest
+    # branch, since only one branch runs per frame.
     #
     # #analyze returns the work as a structured tree (op, label, cost, children) —
     # the shape rom.explain renders for humans and dumps as JSON for tests.
@@ -32,40 +42,43 @@ module RubyGBA
       SCREEN_W = 240
       SCREEN_H = 160
 
-      # Illustrative per-frame drawing budget (write-units): roughly what the
-      # console can draw in the safe window each frame before the picture tears.
-      # A rough placeholder until calibrated on hardware.
-      VBLANK_BUDGET = 80_000
+      # The per-frame drawing budget, in scanlines: the vertical blank — the safe
+      # window to change the screen before the visible frame starts — is about 68 of
+      # the console's 228 scanlines. Draw more than this in a single-buffered frame
+      # and it tears.
+      VBLANK_BUDGET = 68
 
-      # The budget when the program double-buffers (draws to a hidden page shown
-      # all at once). Then drawing isn't confined to the brief safe window — it can
-      # use the whole frame — so the budget is much larger (the safe window is only
-      # about a third of a frame). And going over means something different: the
-      # frame rate drops below 60fps, the picture never tears. A rough placeholder,
-      # like VBLANK_BUDGET.
-      FRAME_BUDGET = 3 * VBLANK_BUDGET
+      # The budget when the program double-buffers (draws to a hidden page shown all
+      # at once): drawing isn't confined to the safe window, it can use the whole
+      # frame (all 228 scanlines), and going over means a dropped frame (below
+      # 60fps), never a tear.
+      FRAME_BUDGET = 228
 
-      # A rough ceiling on how much per-frame work a *single song* should cost on
-      # its own. Playing a song re-checks every note against a frame counter on
+      # A ceiling on how much per-frame work a *single song* should cost on its own,
+      # in scanlines. Playing a song re-checks every note against a frame counter on
       # every frame, so a long enough tune becomes real recurring work that has
-      # nothing to do with drawing; past this, the music guardrail flags it. A
-      # placeholder like the draw budgets, pending hardware calibration.
-      MUSIC_STEADY_BUDGET = 800
+      # nothing to do with drawing; past this the music guardrail flags it. (The
+      # note-check cost itself is estimated, not measured — music timing is a
+      # separate concern from the drawing the probe calibrated.)
+      MUSIC_STEADY_BUDGET = 1.0
 
       # A sound op is a short burst of writes to the sound registers; these are the
-      # write counts, so the model can price them in the same write-units as
-      # drawing. (Playing a song is priced separately — see #song_cost.)
+      # write counts, priced in scanlines via the measured sound_write weight.
+      # (Playing a song is priced separately — see #song_cost.)
       ENABLE_WRITES = 3 # power the sound hardware on
       BEEP_WRITES   = 2 # one channel-2 sound effect
       STOP_WRITES   = 2 # silence the music channel
       SONG_TICK     = 6 # per frame: advance the song's frame counter and wrap it at the end
 
-      # Illustrative defaults (write-units). Override per-call: CostModel.new(pixel: 2).
+      # Per-op costs in scanlines, measured on hardware by the timing probe (see the
+      # class note). Override per-call: CostModel.new(glyph: 0.5).
       DEFAULT_WEIGHTS = {
-        pixel: 1,       # one filled/plotted pixel
-        glyph: 35,      # one 5x7 font glyph (~35 lit pixels)
-        sound_write: 1, # one write to a sound register (a beep, powering sound on)
-        note_check: 3,  # per song note, the frame-counter check that runs every frame
+        dma_setup:   0.102,   # the fixed per-row setup of a DMA transfer (a fill/blit/save row)
+        dma_pixel:   0.00124, # one pixel filled or copied by DMA (the transfer, on top of setup)
+        plot_pixel:  0.0267,  # one pixel written by hand — a lone pixel, a transparent blit, a font pixel
+        glyph:       0.40,    # one 5x7 font glyph (draw_text/draw_digit — plotted pixel by pixel)
+        sound_write: 0.0286,  # one write to a sound register (a beep, powering sound on)
+        note_check:  0.003,   # per song note, the frame-counter check that runs every frame (estimated)
       }.freeze
 
       def initialize(**weights)
@@ -146,7 +159,7 @@ module RubyGBA
         @stack = []
         loop_node = program.children.find { |node| node.kind == :loop }
         statements = loop_node ? loop_node.children : program.children.reject { |node| node.kind == :func }
-        statements.sum { |node| steady(node) }.round
+        statements.sum { |node| steady(node) }
       end
 
       # Whether a program has a game loop (its cost recurs every frame) or is a
@@ -226,7 +239,7 @@ module RubyGBA
       # the frame budget for a game loop, or the one-time boot cost otherwise. (The
       # full drill-down tree comes later; this is the at-a-glance summary.)
       def report(program, out: $stdout)
-        out.puts "draw-cost estimate (rough, illustrative weights):"
+        out.puts "draw-cost estimate (scanlines of the ~68-line vblank window, measured on hardware):"
         verdict_lines(program, out)
       end
 
@@ -235,15 +248,15 @@ module RubyGBA
       # bounds how deep it prints (deeper subtrees collapse to a rollup line).
       def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5)
         tree = aggregate(analyze(program, focus: focus))
-        out.puts "draw-cost estimate (rough, illustrative weights):"
+        out.puts "draw-cost estimate (scanlines of the ~68-line vblank window, measured on hardware):"
         if focus
-          out.puts "  func :#{focus} ~ #{tree.sum { |node| node[:cost] }} write-units"
+          out.puts "  func :#{focus} ~ #{fmt(tree.sum { |node| node[:cost] })} scanlines"
         else
           verdict_lines(program, out)
         end
         render_tree(prune(tree, max_depth), 1, out)
         hot = hot_ops(tree, top)
-        out.puts "  hottest: " + hot.map { |h| "#{h[:op]}×#{h[:count]} ~#{h[:cost]}" }.join("  ") unless hot.empty?
+        out.puts "  hottest: " + hot.map { |h| "#{h[:op]}×#{h[:count]} ~#{fmt(h[:cost])}" }.join("  ") unless hot.empty?
       end
 
       # The analysis as a plain Hash, ready to serialize (rom.explain format: :json).
@@ -316,7 +329,8 @@ module RubyGBA
       # each mode has its own budget.
       def verdict_lines(program, out)
         unless looping?(program)
-          out.puts "  boot draw ~ #{frame_cost(program)} write-units   (no game loop — drawn once, then halts)   ok"
+          out.puts "  boot draw ~ #{fmt(frame_cost(program))} scanlines   " \
+                   "(no game loop — drawn once, then halts)   ok"
           return
         end
         return scene_verdict_lines(program, out) if mixed?(program)
@@ -328,10 +342,10 @@ module RubyGBA
         # Over budget reads differently depending on the mode: a single-buffered
         # frame tears, a double-buffered one just drops below 60fps.
         over_note = buffered?(program) ? "! over budget — the frame rate drops" : "! over budget — the screen tears"
-        out.puts "  steady per frame ~ #{steady} write-units   (budget ~ #{budget})   " \
+        out.puts "  steady per frame ~ #{fmt(steady)} of ~#{budget} scanlines (#{pct(steady, budget)})   " \
                  "#{over ? over_note : 'ok — fits the frame'}"
         if full > steady
-          out.puts "  heaviest frame   ~ #{full} write-units   " \
+          out.puts "  heaviest frame   ~ #{fmt(full)} scanlines   " \
                    "(a one-off spike — a transition frame or an every() tick, not the steady load)"
         end
       end
@@ -347,17 +361,31 @@ module RubyGBA
             else
               s[:mode] == Modes::BUFFERED ? "ok — fits the frame" : "ok — fits the safe window"
             end
-          out.puts "  scene :#{s[:name]} (#{mode_label}) ~ #{s[:steady_cost]} write-units   " \
-                   "(budget ~ #{s[:budget]})   #{note}"
+          out.puts "  scene :#{s[:name]} (#{mode_label}) ~ #{fmt(s[:steady_cost])} of ~#{s[:budget]} scanlines " \
+                   "(#{pct(s[:steady_cost], s[:budget])})   #{note}"
         end
       end
 
       def render_tree(nodes, depth, out)
         nodes.each do |node|
           tag = node[:collapsed] ? "  (+#{node[:collapsed]} ops collapsed)" : ""
-          out.puts format("  %-52s ~%d", ("  " * depth) + node[:label] + tag, node[:cost])
+          out.puts format("  %-52s ~%s", ("  " * depth) + node[:label] + tag, fmt(node[:cost]))
           render_tree(node[:children], depth + 1, out) unless node[:children].to_a.empty?
         end
+      end
+
+      # Format a scanline cost for a human: one decimal, "<0.1" for a tiny nonzero,
+      # "0" for nothing. Keeps the drill-down readable when ops cost fractions.
+      def fmt(cost)
+        return "0" if cost.zero?
+        return "<0.1" if cost.abs < 0.1
+
+        format("%.1f", cost)
+      end
+
+      # A cost as a whole-percent share of a budget, e.g. "66%".
+      def pct(cost, budget)
+        "#{((cost.to_f / budget) * 100).round}%"
       end
 
       def leaf_count(node)
@@ -382,7 +410,9 @@ module RubyGBA
           @funcs[node[:name]] = node if node.kind == :func
           @capacities[node[:name]] = node[:capacity] if node.kind == :list_new
           @songs[node[:name]] = node if node.kind == :song
-          @bitmaps[node[:name]] = [node[:width], node[:height]] if node.kind == :bitmap
+          # transparency ride-along: an opaque bitmap streams by DMA, a transparent
+          # one is plotted pixel by pixel, and those cost very differently.
+          @bitmaps[node[:name]] = [node[:width], node[:height], !node[:transparent].nil?] if node.kind == :bitmap
           @backing[node[:name]] = [node[:width], node[:height]] if node.kind == :backing_buffer
         end
       end
@@ -471,15 +501,14 @@ module RubyGBA
       end
 
       def op_cost(node)
-        px = @weights[:pixel]
         case node.kind
-        when :pixel then px
-        when :fill_rect, :dma_fill_rect, :draw_rect_at then node[:w] * node[:h] * px
-        when :clear_screen then SCREEN_W * SCREEN_H * px
-        when :draw_text then node[:text].to_s.length * @weights[:glyph] * px
-        when :draw_digit then @weights[:glyph] * px # one glyph, whichever digit it is
+        when :pixel then @weights[:plot_pixel]                     # one hand-plotted pixel
+        when :fill_rect, :dma_fill_rect, :draw_rect_at then dma_rows_cost(node[:w], node[:h])
+        when :clear_screen then dma_blob_cost(SCREEN_W * SCREEN_H) # the whole screen in one DMA
+        when :draw_text then node[:text].to_s.length * @weights[:glyph]
+        when :draw_digit then @weights[:glyph]                     # one glyph, whichever digit it is
         when :blit then blit_cost(node[:name])
-        when :blit_pose then blit_cost(node[:poses].first) # one pose draws; all are the same size
+        when :blit_pose then blit_cost(node[:poses].first)         # one pose draws; all are the same size
         when :save_region, :restore_region then region_cost(node[:buffer])
         when :play_song then song_cost(node[:name])
         when :beep then BEEP_WRITES * @weights[:sound_write]
@@ -487,6 +516,20 @@ module RubyGBA
         when :stop_music then STOP_WRITES * @weights[:sound_write]
         else 0 # non-draw, non-sound ops: no per-frame cost
         end
+      end
+
+      # A rectangle filled/copied by DMA one row at a time (a fill, an opaque blit, a
+      # save/restore): each row is a DMA, so the fixed per-row setup is paid h times,
+      # and the pixels are transferred on top. This is why a tall rectangle costs more
+      # than a wide one of the same area.
+      def dma_rows_cost(w, h)
+        h * @weights[:dma_setup] + w * h * @weights[:dma_pixel]
+      end
+
+      # A single DMA transfer of +pixels+ pixels in one shot (a whole-screen clear):
+      # one setup, then the transfer. For a big blob the transfer dominates.
+      def dma_blob_cost(pixels)
+        @weights[:dma_setup] + pixels * @weights[:dma_pixel]
       end
 
       # The per-frame cost of playing +name+: its score is unrolled into one
@@ -506,20 +549,23 @@ module RubyGBA
         song ? song[:events].to_a.length : 0
       end
 
-      # A blit paints its image's footprint — width x height pixels (the rough
-      # worst case; transparency draws fewer). The size lives on the bitmap
+      # A blit costs by how it's drawn: an opaque image streams by per-row DMA, but a
+      # transparent one is plotted pixel by pixel (so its see-through pixels can be
+      # skipped), which is far dearer. The size and transparency live on the bitmap
       # definition, catalogued in #index. An unknown image costs nothing.
       def blit_cost(name)
-        w, h = @bitmaps && @bitmaps[name]
-        w ? w * h * @weights[:pixel] : 0
+        w, h, transparent = @bitmaps && @bitmaps[name]
+        return 0 unless w
+
+        transparent ? w * h * @weights[:plot_pixel] : dma_rows_cost(w, h)
       end
 
-      # Saving or restoring a patch copies its whole footprint — width x height
-      # pixels. The size lives on the backing_buffer declaration, catalogued in
-      # #index. An unknown buffer costs nothing (the backend reports it).
+      # Saving or restoring a patch copies its footprint by per-row DMA — the same
+      # cost as an opaque blit of that size. The size lives on the backing_buffer
+      # declaration, catalogued in #index. An unknown buffer costs nothing.
       def region_cost(name)
         w, h = @backing && @backing[name]
-        w ? w * h * @weights[:pixel] : 0
+        w ? dma_rows_cost(w, h) : 0
       end
 
       def label_of(node)

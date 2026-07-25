@@ -5,21 +5,36 @@ require "stringio"
 require_relative "../lib/ruby_gba"
 require_relative "test_helper"
 
+# Costs are in scanlines (measured on hardware — see the timing probe), so the
+# expected values are derived from the model's own weights rather than hard-coded:
+# a rectangle filled/copied by DMA costs per row (setup + pixels), a whole-screen
+# clear is one DMA, a glyph is a fixed plot cost. Tests assert with a small delta
+# (floats) or, better, assert the SHAPE (a tall rect costs more than a wide one of
+# equal area; an opaque blit is cheaper than a transparent one) which doesn't move
+# when the calibration is re-measured.
+module CostArith
+  WEIGHTS = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
+  GLYPH = WEIGHTS[:glyph]
+
+  def dma_rows(w, h) = (h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:dma_pixel])
+  def dma_blob(pixels) = WEIGHTS[:dma_setup] + (pixels * WEIGHTS[:dma_pixel])
+  def near(expected, actual, msg = nil) = assert_in_delta(expected, actual, 1e-6, msg)
+end
+
 # The draw-cost model: how much drawing a program does in one frame, so a game can
 # be told when it draws more than the console can finish before the screen tears.
 #
-# These tests build tiny programs through the DSL and assert the exact estimate, so
-# the arithmetic is checkable by eye. Costs are in "write-units" — roughly one
-# framebuffer write — under simple, deliberately round default weights:
-#
-#   * a filled/plotted pixel        → 1 write        (fill_rect / draw_rect_at / pixel)
-#   * a clear of the whole screen   → 240*160 = 38,400
-#   * a text glyph (5x7 font)       → 35 writes
-#
-# The weights are rough placeholders (real ones come from measuring on hardware);
-# what's under test here is the model's *logic* — summing, loop multiplication,
-# worst-branch dispatch — not the exact calibration.
+# These tests build tiny programs through the DSL and check the estimate. Costs are
+# in scanlines (measured on hardware — see the timing probe), and a scanline of
+# drawing is priced by how it's drawn: a fill/blit/save is one DMA per row (setup
+# plus a little per pixel), a whole-screen clear is one big DMA, a font glyph and a
+# lone pixel are plotted (dearer). Rather than restate those measured numbers, the
+# tests derive expectations from the model's own weights (via CostArith) or assert
+# the SHAPE — that a repeat multiplies, a case takes its worst branch, a tall rect
+# beats a wide one of equal area — which survives a re-calibration.
 class TestCostModel < Minitest::Test
+  include CostArith
+
   Builder = RubyGBA::Builder
   Cost = RubyGBA::IR::CostModel
   Build = RubyGBA::IR::Build
@@ -32,9 +47,9 @@ class TestCostModel < Minitest::Test
     b.program
   end
 
-  # A game loop that clears the whole screen +n+ times a frame (n * 38,400 =
-  # n*38,400 write-units), single- or double-buffered. Built straight from the IR
-  # so it can flip the buffered flag the DSL doesn't expose yet.
+  # A game loop that clears the whole screen +n+ times a frame, single- or
+  # double-buffered. Built straight from the IR so it can flip the buffered flag the
+  # DSL doesn't expose yet.
   def loop_of_clears(n, buffered:)
     Build.program(
       Build.display(:bitmap, buffered: buffered),
@@ -50,11 +65,34 @@ class TestCostModel < Minitest::Test
       Build.bitmap(:ship, width: 8, height: 4, pixels: Array.new(32, 0).pack("v*"), transparent: nil),
       Build.loop_(Build.wait_vblank, Build.blit(:ship, Build.int(0), Build.int(0))),
     )
-    assert_equal 32, Cost.new.steady_cost(prog) # 8 * 4 pixels
-    assert_equal 32, Cost.new.frame_cost(prog)
+    near dma_rows(8, 4), Cost.new.steady_cost(prog) # opaque: one DMA per row
+    near dma_rows(8, 4), Cost.new.frame_cost(prog)
   end
 
-  # A static program's frame cost is just the sum of its draws' pixel areas.
+  # A DMA fill costs per ROW (each row is a DMA), so a tall-thin rectangle costs more
+  # than a wide-flat one of the SAME pixel area.
+  def test_a_tall_rect_costs_more_than_a_wide_one_of_equal_area
+    tall = program { screen(:bitmap); fill_rect(0, 0, 4, 40, :red); halt }   # 40 rows
+    wide = program { screen(:bitmap); fill_rect(0, 0, 40, 4, :red); halt }   # 4 rows, same 160px
+    assert_operator Cost.new.frame_cost(tall), :>, Cost.new.frame_cost(wide),
+                    "more rows = more DMA setups = more cost, even at equal area"
+  end
+
+  # An opaque image streams by DMA; a transparent one is plotted pixel by pixel, so
+  # it costs far more for the same size.
+  def test_a_transparent_blit_costs_more_than_an_opaque_one
+    def blit_of(transparent)
+      Build.program(
+        Build.display(:bitmap),
+        Build.bitmap(:s, width: 8, height: 8, pixels: Array.new(64, 0).pack("v*"),
+                         transparent: transparent),
+        Build.loop_(Build.wait_vblank, Build.blit(:s, Build.int(0), Build.int(0))),
+      )
+    end
+    assert_operator Cost.new.steady_cost(blit_of(0x8000)), :>, Cost.new.steady_cost(blit_of(nil))
+  end
+
+  # A static program's frame cost is just the sum of its draws.
   def test_static_draws_sum_their_pixel_area
     prog = program do
       screen :bitmap
@@ -62,17 +100,17 @@ class TestCostModel < Minitest::Test
       fill_rect 0, 0, 4, 4, :blue    #  4*4  =  16
       halt
     end
-    assert_equal 116, Cost.new.frame_cost(prog)
+    near dma_rows(10, 10) + dma_rows(4, 4), Cost.new.frame_cost(prog)
   end
 
   # A repeat runs its body a fixed number of times, so its cost multiplies.
   def test_repeat_multiplies_its_body
     prog = program do
       screen :bitmap
-      repeat(3) { |_i| draw_rect_at 0, 0, 8, 8, :green } # 3 * (8*8) = 192
+      repeat(3) { |_i| draw_rect_at 0, 0, 8, 8, :green } # 3 * one 8x8 rect
       halt
     end
-    assert_equal 192, Cost.new.frame_cost(prog)
+    near 3 * dma_rows(8, 8), Cost.new.frame_cost(prog)
   end
 
   # A repeat over a list is bounded by the list's CAPACITY — the worst case we can
@@ -85,8 +123,8 @@ class TestCostModel < Minitest::Test
       repeat(body.length) { |i| draw_rect_at 0, 0, 8, 8, :green }
       halt
     end
-    # ...but the estimate assumes the worst: 8 (capacity) * 64 = 512.
-    assert_equal 512, Cost.new.frame_cost(prog)
+    # ...but the estimate assumes the worst: 8 (capacity) * one 8x8 rect.
+    near 8 * dma_rows(8, 8), Cost.new.frame_cost(prog)
   end
 
   # Inside a game loop, case_var runs exactly ONE scene per frame, so the per-frame
@@ -105,7 +143,7 @@ class TestCostModel < Minitest::Test
         end
       end
     end
-    assert_equal 100, Cost.new.frame_cost(prog) # max(4, 100), not 104
+    near dma_rows(10, 10), Cost.new.frame_cost(prog) # the heavy branch, not the sum of both
   end
 
   # The frame cost is the game LOOP's per-frame work — boot-time setup outside the
@@ -116,21 +154,23 @@ class TestCostModel < Minitest::Test
       fill_rect 0, 0, 20, 20, :white  # boot draw (400) — NOT per frame
       game_loop do
         wait_vblank
-        draw_rect_at 0, 0, 8, 8, :green # per-frame: 64
+        draw_rect_at 0, 0, 8, 8, :green # per-frame
       end
     end
-    assert_equal 64, Cost.new.frame_cost(prog)
+    near dma_rows(8, 8), Cost.new.frame_cost(prog) # the boot fill (20x20) is excluded
   end
 
   # Weights are configurable (Postgres-GUC style): a dev can tune them or weight an
-  # op up to discourage it. Doubling the pixel weight doubles a pixel-area cost.
+  # op up to discourage it. Doubling the DMA weights doubles a DMA-fill's cost.
   def test_weights_are_configurable
     prog = program do
       screen :bitmap
-      fill_rect 0, 0, 10, 10, :red # 100 pixels
+      fill_rect 0, 0, 10, 10, :red
       halt
     end
-    assert_equal 200, Cost.new(pixel: 2).frame_cost(prog)
+    base = Cost.new.frame_cost(prog)
+    doubled = Cost.new(dma_setup: WEIGHTS[:dma_setup] * 2, dma_pixel: WEIGHTS[:dma_pixel] * 2).frame_cost(prog)
+    near 2 * base, doubled
   end
 
   # A static program reports its one-time boot draw.
@@ -142,7 +182,7 @@ class TestCostModel < Minitest::Test
     end
     io = StringIO.new
     Cost.new.report(prog, out: io)
-    assert_match(/boot draw ~ 100 /, io.string)
+    assert_match(/boot draw ~ .* scanlines/, io.string)
     assert_match(/drawn once/, io.string)
   end
 
@@ -169,7 +209,7 @@ class TestCostModel < Minitest::Test
     end
     io = StringIO.new
     rom.explain(out: io)
-    assert_match(/boot draw ~ 100 /, io.string)
+    assert_match(/boot draw ~ .* scanlines/, io.string)
   end
 
   # --- the structured cost tree (what rom.explain renders / dumps as JSON) ---
@@ -184,7 +224,8 @@ class TestCostModel < Minitest::Test
     end
     tree = Cost.new.analyze(prog)
     assert_equal %i[fill_rect draw_rect_at], tree.map { |n| n[:op] }
-    assert_equal [100, 64], tree.map { |n| n[:cost] }
+    near dma_rows(10, 10), tree[0][:cost]
+    near dma_rows(8, 8), tree[1][:cost]
   end
 
   # A repeat node carries its multiplied cost and keeps its per-iteration body.
@@ -195,8 +236,8 @@ class TestCostModel < Minitest::Test
       halt
     end
     rep = Cost.new.analyze(prog).find { |n| n[:op] == :repeat }
-    assert_equal 192, rep[:cost]
-    assert_equal 64, rep[:children].first[:cost] # per-iteration
+    near 3 * dma_rows(8, 8), rep[:cost]
+    near dma_rows(8, 8), rep[:children].first[:cost] # per-iteration
   end
 
   # A case node's cost is its worst branch, but it keeps every branch's cost.
@@ -215,8 +256,9 @@ class TestCostModel < Minitest::Test
       end
     end
     cnode = Cost.new.analyze(prog).find { |n| n[:op] == :case }
-    assert_equal 100, cnode[:cost]
-    assert_equal [4, 100], cnode[:children].map { |b| b[:cost] }
+    near dma_rows(10, 10), cnode[:cost]
+    near dma_rows(2, 2), cnode[:children][0][:cost]
+    near dma_rows(10, 10), cnode[:children][1][:cost]
   end
 
   # rom.explain(format: :json) emits structured data tests can parse directly.
@@ -229,7 +271,7 @@ class TestCostModel < Minitest::Test
     io = StringIO.new
     rom.explain(format: :json, out: io)
     data = JSON.parse(io.string)
-    assert_equal 100, data["frame_cost"]
+    near dma_rows(10, 10), data["frame_cost"]
     assert_equal false, data["looping"]
     assert_equal "fill_rect", data["tree"].first["op"]
   end
@@ -298,8 +340,8 @@ class TestCostModel < Minitest::Test
         every(4) { draw_rect_at 0, 0, 8, 8, :green } # 64 when it fires
       end
     end
-    assert_equal 64, Cost.new.frame_cost(prog)  # full cost on the frame it fires
-    assert_equal 16, Cost.new.steady_cost(prog) # 64 / 4, spread across frames
+    near dma_rows(8, 8), Cost.new.frame_cost(prog)      # full cost on the frame it fires
+    near dma_rows(8, 8) / 4.0, Cost.new.steady_cost(prog) # spread across 4 frames
   end
 
   # after(n) fires exactly once, ever, so it contributes nothing to the steady
@@ -310,10 +352,10 @@ class TestCostModel < Minitest::Test
       screen :bitmap
       game_loop do
         wait_vblank
-        after(30) { draw_rect_at 0, 0, 8, 8, :green } # 64 on the one frame it fires
+        after(30) { draw_rect_at 0, 0, 8, 8, :green } # once, on the frame it fires
       end
     end
-    assert_equal 64, Cost.new.frame_cost(prog)
+    near dma_rows(8, 8), Cost.new.frame_cost(prog)
     assert_equal 0, Cost.new.steady_cost(prog)
   end
 
@@ -354,8 +396,8 @@ class TestCostModel < Minitest::Test
         pressed(:start).then { draw_rect_at 0, 0, 8, 8, :green } # 64 on a press frame only
       end
     end
-    assert_equal 64, Cost.new.frame_cost(prog)  # full cost on the press frame
-    assert_equal 0, Cost.new.steady_cost(prog)  # not part of the every-frame load
+    near dma_rows(8, 8), Cost.new.frame_cost(prog) # full cost on the press frame
+    assert_equal 0, Cost.new.steady_cost(prog)     # not part of the every-frame load
   end
 
   # held is level, not an edge — it can run every frame it's down, so it counts
@@ -368,7 +410,7 @@ class TestCostModel < Minitest::Test
         held(:right).then { draw_rect_at 0, 0, 8, 8, :green }
       end
     end
-    assert_equal 64, Cost.new.steady_cost(prog)
+    near dma_rows(8, 8), Cost.new.steady_cost(prog)
   end
 
   # A draw_number column is a single draw_digit node worth one glyph — there's no
@@ -383,8 +425,8 @@ class TestCostModel < Minitest::Test
         draw_number :score, 8, 8, :white, digits: 1 # one column -> one draw_digit
       end
     end
-    assert_equal 35, Cost.new.steady_cost(prog) # one glyph = 35
-    assert_equal 35, Cost.new.frame_cost(prog)  # one glyph too (no phantom fan-out)
+    near GLYPH, Cost.new.steady_cost(prog) # one glyph
+    near GLYPH, Cost.new.frame_cost(prog)  # one glyph too (no phantom fan-out)
   end
 
   # chance(p) holds p% of the time, so a gated body counts at p%.
@@ -393,10 +435,10 @@ class TestCostModel < Minitest::Test
       screen :bitmap
       game_loop do
         wait_vblank
-        chance(25).then { draw_rect_at 0, 0, 8, 8, :green } # 64 * 25% = 16
+        chance(25).then { draw_rect_at 0, 0, 8, 8, :green } # one 8x8 rect, 25% of frames
       end
     end
-    assert_equal 16, Cost.new.steady_cost(prog)
+    near dma_rows(8, 8) * 0.25, Cost.new.steady_cost(prog)
   end
 
   # --- mode-aware budget: double buffering draws to a hidden page, so it gets the
@@ -405,16 +447,16 @@ class TestCostModel < Minitest::Test
   # The SAME drawing is judged against a different budget by mode: the brief
   # vblank window single-buffered, the whole frame (much larger) double-buffered.
   def test_buffered_display_is_judged_against_the_whole_frame_budget
-    single = loop_of_clears(3, buffered: false) # 3 * 38,400 = 115,200 write-units
+    single = loop_of_clears(3, buffered: false) # 3 whole-screen clears a frame
     double = loop_of_clears(3, buffered: true)
 
     # identical drawing work either way...
-    assert_equal 115_200, Cost.new.steady_cost(single)
-    assert_equal 115_200, Cost.new.steady_cost(double)
+    near 3 * dma_blob(240 * 160), Cost.new.steady_cost(single)
+    near 3 * dma_blob(240 * 160), Cost.new.steady_cost(double)
 
     # ...but a different budget applies, and only one calls it buffered.
-    assert_equal Cost::VBLANK_BUDGET, Cost.new.budget_for(single) # 80,000
-    assert_equal Cost::FRAME_BUDGET, Cost.new.budget_for(double)  # 240,000
+    assert_equal Cost::VBLANK_BUDGET, Cost.new.budget_for(single) # the vblank window (68 scanlines)
+    assert_equal Cost::FRAME_BUDGET, Cost.new.budget_for(double)  # the whole frame (228 scanlines)
     refute Cost.new.buffered?(single)
     assert Cost.new.buffered?(double)
   end
@@ -455,12 +497,13 @@ end
 # present (which, judged whole-program, would widen the budget and hide it).
 class TestPerSceneCost < Minitest::Test
   include RubyGBA::IR::Build
+  include CostArith
 
   Cost = RubyGBA::IR::CostModel
 
   # A two-scene game dispatched by :state: a direct-color scene and a tear-free
   # (buffered) one, each clearing the whole screen a given number of times a frame
-  # (one clear = 240*160 = 38,400 write-units). Built from the IR so each scene's
+  # (one clear = 240*160 pixels, one DMA). Built from the IR so each scene's
   # mode is explicit.
   def mixed(direct_clears:, buffered_clears:)
     program(
@@ -482,26 +525,26 @@ class TestPerSceneCost < Minitest::Test
     action = verdicts.find { |s| s[:name] == "action" }
 
     assert_equal :direct, still[:mode]
-    assert_equal 115_200, still[:steady_cost]
+    near 3 * dma_blob(240 * 160), still[:steady_cost]
     assert_equal Cost::VBLANK_BUDGET, still[:budget]
     assert still[:over], "a direct scene clearing 3x a frame overruns the safe window"
 
     assert_equal :buffered, action[:mode]
-    assert_equal 115_200, action[:steady_cost]
+    near 3 * dma_blob(240 * 160), action[:steady_cost]
     assert_equal Cost::FRAME_BUDGET, action[:budget]
     refute action[:over], "the same work, buffered, fits a whole frame"
   end
 
-  # The false-negative the whole-program approximation had: a buffered scene
-  # widened the budget for EVERYTHING, hiding a heavy direct scene. Judged per
-  # scene, the direct scene is caught — even though 115,200 fits the frame budget
-  # the old approximation would have applied to it.
+  # Judging each scene against its OWN mode's budget is what catches a heavy direct
+  # scene sitting beside a buffered one: the direct scene overruns the vblank window
+  # (so it tears) even though its cost fits the wider whole-frame budget a buffered
+  # scene gets — so a single program-wide budget would miss it.
   def test_a_heavy_direct_scene_is_caught_even_beside_a_buffered_one
     still = Cost.new.scene_verdicts(mixed(direct_clears: 3, buffered_clears: 1))
                     .find { |s| s[:name] == "still" }
     assert still[:over], "the direct scene tears on its own budget"
     assert_operator still[:steady_cost], :<, Cost::FRAME_BUDGET,
-                    "yet it fits the frame budget the whole-program approximation would have used"
+                    "yet it fits the wider whole-frame budget a buffered scene would get"
   end
 
   # The report prints a line per scene, each naming its mode and verdict.
@@ -541,12 +584,15 @@ end
 # Sound is per-frame work too: playing a song re-checks every note against a frame
 # counter on *every* frame (the score is unrolled into one comparison per note), so
 # a long tune is real recurring work, and a beep is a small burst of sound-register
-# writes. The model prices both in the same write-units as drawing, so they weigh
+# writes. The model prices both in the same scanline unit as drawing, so they weigh
 # against the same budget. Built straight from the IR so the score is explicit.
 class TestSoundCost < Minitest::Test
   include RubyGBA::IR::Build
+  include CostArith
 
   Cost = RubyGBA::IR::CostModel
+
+  def song_frame_cost(notes) = (Cost::SONG_TICK * WEIGHTS[:sound_write]) + (notes * WEIGHTS[:note_check])
 
   # An +n+-note song: n [frame, frequency] events, looping at frame n.
   def song_of(n)
@@ -565,29 +611,29 @@ class TestSoundCost < Minitest::Test
   # Playing a song costs one frame-counter check per note every frame, plus the
   # fixed cost of advancing and wrapping the counter.
   def test_playing_a_song_costs_a_check_per_note_every_frame
-    # 10 notes: SONG_TICK(6) + 10 * note_check(3) = 36
-    assert_equal 36, Cost.new.steady_cost(music_game(10))
+    # 10 notes: the fixed per-frame tick plus a check per note.
+    near song_frame_cost(10), Cost.new.steady_cost(music_game(10))
     # twice the notes, ~twice the per-note work (the fixed tick is unchanged)
-    assert_equal 66, Cost.new.steady_cost(music_game(20)) # 6 + 20*3
+    near song_frame_cost(20), Cost.new.steady_cost(music_game(20))
   end
 
   # A beep is a small fixed burst of writes to the sound registers.
   def test_a_beep_costs_its_sound_register_writes
     prog = program(display(:bitmap), enable_sound, loop_(wait_vblank, beep(440)))
-    assert_equal 2, Cost.new.steady_cost(prog) # BEEP_WRITES(2) * sound_write(1)
+    near Cost::BEEP_WRITES * WEIGHTS[:sound_write], Cost.new.steady_cost(prog)
   end
 
   # Sound counts alongside drawing on the same frame, against the same budget.
   def test_music_counts_alongside_drawing
-    prog = music_game(10, draw: clear_screen(:black)) # 38,400 + 36
-    assert_equal 38_436, Cost.new.steady_cost(prog)
+    prog = music_game(10, draw: clear_screen(:black)) # a whole-screen clear + the song
+    near dma_blob(240 * 160) + song_frame_cost(10), Cost.new.steady_cost(prog)
   end
 
   # The song shows up in the drill-down tree with its cost and note count.
   def test_the_song_appears_in_the_cost_tree
     play = Cost.new.analyze(music_game(10)).find { |node| node[:op] == :play_song }
     refute_nil play, "play_song should appear as a costed leaf"
-    assert_equal 36, play[:cost]
+    near song_frame_cost(10), play[:cost]
     assert_match(/10 notes/, play[:label])
   end
 
