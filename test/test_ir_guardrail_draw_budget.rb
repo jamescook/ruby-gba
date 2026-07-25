@@ -34,7 +34,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
       screen :bitmap
       game_loop do
         wait_vblank
-        repeat(100) { |_i| clear_screen :black } # ~3.8M write-units, far over budget
+        repeat(100) { |_i| clear_screen :black } # 100 whole-screen clears a frame, far over the ~68-scanline budget
       end
     end
     findings = Check.new.detect(prog)
