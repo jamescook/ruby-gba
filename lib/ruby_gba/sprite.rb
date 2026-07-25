@@ -72,10 +72,25 @@ module RubyGBA
       Value.new(@builder, Build.var_ref(@y_var), name: @y_var)
     end
 
-    # Nudge the sprite by (dx, dy) this frame — sugar for x.add / y.add.
-    def move(dx, dy)
-      x.add(dx)
-      y.add(dy)
+    # Move the sprite. Two ways, whichever reads better where you are:
+    #
+    #   hero.move :left            # a step left (from the player's point of view)
+    #   hero.move :left, by: 2     # ... two pixels at a time
+    #   hero.move :up_right, by: 3 # diagonals too
+    #   hero.move 2, -1            # or a raw (dx, dy) nudge, for velocity/physics
+    #
+    # The named form turns a direction into the x/y arithmetic for you, so pressing
+    # left just says "move left" — see {Direction}. `by:` is the speed (1 by
+    # default). The raw form takes a dx and dy directly.
+    def move(direction_or_dx, dy = nil, by: 1)
+      if direction_or_dx.is_a?(Symbol)
+        step_x, step_y = Direction.unit(direction_or_dx)
+        x.add(step_x * by) unless step_x.zero?
+        y.add(step_y * by) unless step_y.zero?
+      else
+        x.add(direction_or_dx)
+        y.add(dy) if dy && dy != 0
+      end
       self
     end
 

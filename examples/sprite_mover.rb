@@ -52,11 +52,12 @@ module SpriteMover
     game_loop do
       wait_vblank # the framework repaints the heart right here, in the safe window
 
-      # Hold a direction to move — just nudge the sprite's position.
-      held(:left).then  { hero.x.sub SPEED }
-      held(:right).then { hero.x.add SPEED }
-      held(:up).then    { hero.y.sub SPEED }
-      held(:down).then  { hero.y.add SPEED }
+      # Hold a direction to move — say it the way you'd think it: press left, move
+      # left. `by:` is the speed; no x/y arithmetic in sight.
+      held(:left).then  { hero.move :left,  by: SPEED }
+      held(:right).then { hero.move :right, by: SPEED }
+      held(:up).then    { hero.move :up,    by: SPEED }
+      held(:down).then  { hero.move :down,  by: SPEED }
 
       # A sprite clips at the screen edges, so let the heart slide half off any side
       # or corner — just not so far it vanishes. It stays put until you steer back.
