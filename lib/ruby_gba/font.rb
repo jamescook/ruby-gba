@@ -77,6 +77,66 @@ module RubyGBA
       chars.map { |c| glyph_pixels(c) }.max || 0
     end
 
+    # Collects glyphs drawn as ASCII art and builds a {Font} — the machine behind the
+    # `font :name do … end` verb, the sibling of how `image` takes ASCII art. Inside
+    # the block, `glyph "A", art` maps a character to a small bitmap; a lit pixel is
+    # the +on+ character (default "#"), anything else is blank. Every glyph must be
+    # the same size (fixed metrics), so a ragged or odd-sized glyph is a friendly
+    # error as the font is built.
+    class Definition
+      def initialize(name, on: "#")
+        @name = name
+        @on = on
+        @glyphs = {}
+        @width = nil
+        @height = nil
+      end
+
+      # Add a glyph for +char+ from a block of art (rows of +on+/other characters).
+      def glyph(char, art)
+        rows = art.to_s.each_line.map(&:chomp).reject(&:empty?)
+        raise ArgumentError, "font :#{@name} glyph #{char.inspect} has no art" if rows.empty?
+
+        widths = rows.map(&:length).uniq
+        unless widths.size == 1
+          raise ArgumentError,
+                "font :#{@name} glyph #{char.inspect} has ragged rows (#{widths.sort.join(', ')} wide) — " \
+                "every row of a glyph must be the same length"
+        end
+        fix_size!(char, widths.first, rows.size)
+        @glyphs[char] = rows.map { |row| row_byte(row) }
+      end
+
+      # Build the finished, registerable font.
+      def to_font(spacing:, fold:)
+        raise ArgumentError, "font :#{@name} defines no glyphs" if @glyphs.empty?
+
+        Font.new(glyphs: @glyphs, width: @width, height: @height, spacing: spacing, fold: fold)
+      end
+
+      private
+
+      # Pin the font's size to the first glyph; every later glyph must match, since a
+      # fixed-metrics font lays every character out on the same grid.
+      def fix_size!(char, width, height)
+        @width ||= width
+        @height ||= height
+        return if width == @width && height == @height
+
+        raise ArgumentError,
+              "font :#{@name} glyph #{char.inspect} is #{width}x#{height}, but the font is " \
+              "#{@width}x#{@height} — every glyph must be the same size"
+      end
+
+      # One art row → its row-byte: bit (width-1-x) set where column x holds the
+      # +on+ character, matching how {Font#each_pixel} reads a row back.
+      def row_byte(row)
+        byte = 0
+        @width.times { |x| byte |= 1 << (@width - 1 - x) if row[x] == @on }
+        byte
+      end
+    end
+
     # rubocop:disable Layout/ExtraSpacing
     # The built-in 5x7 uppercase glyphs. Each row is 5 bits: bit 4 (0x10) = leftmost
     # column, bit 0 = rightmost, so 0b10101 lights columns 0, 2, 4.
