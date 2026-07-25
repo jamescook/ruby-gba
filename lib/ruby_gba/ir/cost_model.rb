@@ -479,6 +479,7 @@ module RubyGBA
         when :draw_text then node[:text].to_s.length * @weights[:glyph] * px
         when :draw_digit then @weights[:glyph] * px # one glyph, whichever digit it is
         when :blit then blit_cost(node[:name])
+        when :blit_pose then blit_cost(node[:poses].first) # one pose draws; all are the same size
         when :save_region, :restore_region then region_cost(node[:buffer])
         when :play_song then song_cost(node[:name])
         when :beep then BEEP_WRITES * @weights[:sound_write]
@@ -527,6 +528,7 @@ module RubyGBA
         when :draw_text then "draw_text #{node[:text].inspect}"
         when :draw_digit then "draw_digit"
         when :blit then "blit :#{node[:name]}"
+        when :blit_pose then "blit_pose (#{node[:poses].length} poses)"
         when :save_region then "save_region :#{node[:buffer]}"
         when :restore_region then "restore_region :#{node[:buffer]}"
         when :play_song then "play_song :#{node[:name]} (#{song_notes(node[:name])} notes)"

@@ -99,13 +99,26 @@ module RubyGBA
       #     after(90, :seconds) { boss.show } # the boss turns up a minute and a half in
       #   end
       #
-      # @param name [Symbol] a defined image (its size becomes the sprite's size)
+      # Give a sprite POSES so it can face the way it moves: pass +facing:+ a map of
+      # direction to image (all the same size). The sprite then draws whichever pose
+      # it's facing, and `move(:left)` (or `face(:left)`) turns it — the frame-swap
+      # way 2D games face a character, done in bitmap mode:
+      #
+      #   pac = sprite :pac, at: [100, 60],
+      #                facing: { right: :pac_right, left: :pac_left, up: :pac_up, down: :pac_down }
+      #   held(:left).then { pac.move :left, by: 2 } # moves AND faces left
+      #
+      # The first entry is the pose it starts in. (This is pose-swapping, not pixel
+      # rotation — turning to an arbitrary angle is the affine/hardware-sprite track.)
+      #
+      # @param name [Symbol] a defined image (its size becomes the sprite's size), or
+      #   just the sprite's identity when +facing:+ supplies the images
       # @param at [Array(Integer, Integer)] the sprite's starting [x, y]
+      # @param facing [Hash{Symbol=>Symbol}, nil] direction => image, for a sprite that turns
       # @param shown [Boolean] draw it now (true, default), or start hidden until `show`
-      # @return [Sprite] a handle: x / y / move / move_to / hide / show
-      def sprite(name, at:, shown: true)
-        width, height = @images[name] || raise(ArgumentError,
-              "sprite :#{name} needs an image named :#{name} — define it first with `image :#{name}, ...`")
+      # @return [Sprite] a handle: x / y / move / move_to / face / hide / show
+      def sprite(name, at:, facing: nil, shown: true)
+        poses, facing_dirs, width, height = resolve_sprite_art(name, facing)
         start_x, start_y = at
 
         id = (@sprite_seq += 1)
@@ -115,31 +128,31 @@ module RubyGBA
         old_y = :"__spr#{id}_oy"
         active = :"__spr#{id}_on"
         buffer = :"__spr#{id}_under"
+        facing_var = (:"__spr#{id}_face" if facing)
 
         # Hidden state, set at boot (console RAM isn't zero at power-on): the current
-        # and last-drawn positions both start at `at`, and the on/off flag records
-        # whether the sprite starts visible.
-        { pos_x => start_x, pos_y => start_y, old_x => start_x, old_y => start_y, active => (shown ? 1 : 0) }
-          .each do |var_name, value|
-            at_boot(Build.set(var_name, Value.node_for(value)))
-            ensure_var(var_name)
-          end
-
-        # Reserve the backing store (always — its RAM is fixed at build time). A
-        # sprite that starts shown is also drawn once here at its start: capture
-        # what's under it and blit it, so it's on screen before the loop and the
-        # buffer is primed for the first erase. One that starts hidden draws nothing
-        # until `show` does that same capture-and-blit. (Declare a sprite AFTER you've
-        # drawn its background, so what it captures is the real scenery.)
-        record(Build.backing_buffer(buffer, width: width, height: height))
-        if shown
-          record(Build.save_region(buffer, Build.var_ref(pos_x), Build.var_ref(pos_y)))
-          record(Build.blit(name, Build.var_ref(pos_x), Build.var_ref(pos_y)))
+        # and last-drawn positions both start at `at`, the on/off flag records
+        # whether the sprite starts visible, and a faceted sprite starts on pose 0.
+        boot = { pos_x => start_x, pos_y => start_y, old_x => start_x, old_y => start_y, active => (shown ? 1 : 0) }
+        boot[facing_var] = 0 if facing
+        boot.each do |var_name, value|
+          at_boot(Build.set(var_name, Value.node_for(value)))
+          ensure_var(var_name)
         end
 
-        handle = Sprite.new(self, image: name, x: pos_x, y: pos_y,
-                                  old_x: old_x, old_y: old_y, active: active, buffer: buffer)
+        # Reserve the backing store (always — its RAM is fixed at build time). A
+        # sprite that starts shown is drawn once at its start (capture what's under it
+        # and blit it) so it's on screen before the loop and the buffer is primed for
+        # the first erase; one that starts hidden draws nothing until `show`. (Declare
+        # a sprite AFTER you've drawn its background, so it captures the real scenery.)
+        record(Build.backing_buffer(buffer, width: width, height: height))
+
+        handle = Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
+                                  active: active, buffer: buffer,
+                                  image: (facing ? nil : name), poses: poses,
+                                  facing_var: facing_var, facing_dirs: facing_dirs)
         @sprites << handle
+        handle.draw_initial if shown
         handle
       end
 
@@ -161,6 +174,30 @@ module RubyGBA
       end
 
       private
+
+      # Work out a sprite's poses and size. With +facing+, the poses are its images
+      # (which must all be the same size, since they share one save-under buffer) and
+      # facing_dirs maps each direction to a pose index. Without it, the sprite is a
+      # single named image. Returns [poses, facing_dirs, width, height].
+      def resolve_sprite_art(name, facing)
+        unless facing
+          width, height = @images[name] || raise(ArgumentError,
+                "sprite :#{name} needs an image named :#{name} — define it first with `image :#{name}, ...`")
+          return [nil, nil, width, height]
+        end
+
+        sizes = facing.values.map do |img|
+          @images[img] || raise(ArgumentError,
+                "sprite :#{name} facing image :#{img} is not defined — define it first with `image :#{img}, ...`")
+        end
+        unless sizes.uniq.size == 1
+          raise ArgumentError,
+                "sprite :#{name} facing images must all be the same size (its poses share one save-under " \
+                "buffer), got #{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}"
+        end
+        width, height = sizes.first
+        [facing.values, facing.keys.each_with_index.to_h, width, height]
+      end
 
       # Array form of #image: validate the dimensions and pack the pixel colors.
       # +transparent+ (an internal marker color, e.g. from an imported cutout) is

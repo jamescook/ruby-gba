@@ -50,9 +50,13 @@ module RubyGBA
     # @param old_y [Symbol] the y half of the last-drawn position
     # @param active [Symbol] 1 while shown, 0 while hidden (guards the repaint)
     # @param buffer [Symbol] the backing store holding the pixels under the sprite
-    def initialize(builder, image:, x:, y:, old_x:, old_y:, active:, buffer:)
+    def initialize(builder, x:, y:, old_x:, old_y:, active:, buffer:,
+                   image: nil, poses: nil, facing_var: nil, facing_dirs: nil)
       @builder = builder
-      @image = image
+      @image = image             # a plain sprite draws this one image
+      @poses = poses             # a faceted sprite draws poses[facing_var] instead
+      @facing_var = facing_var   # the variable holding which pose is showing
+      @facing_dirs = facing_dirs # direction -> pose index, for face / auto-facing move
       @x_var = x
       @y_var = y
       @old_x = old_x
@@ -87,6 +91,9 @@ module RubyGBA
         step_x, step_y = Direction.unit(direction_or_dx)
         x.add(step_x * by) unless step_x.zero?
         y.add(step_y * by) unless step_y.zero?
+        # A sprite with poses turns to face the way it moves — press left, move AND
+        # face left in one call. (Only for a direction it actually has a pose for.)
+        face(direction_or_dx) if faceted? && @facing_dirs.key?(direction_or_dx)
       else
         x.add(direction_or_dx)
         y.add(dy) if dy && dy != 0
@@ -98,6 +105,22 @@ module RubyGBA
     def move_to(px, py)
       x.set(px)
       y.set(py)
+      self
+    end
+
+    # Turn the sprite to face a direction, swapping to that pose in place (no move).
+    # Only for a sprite given `facing:` poses, and only a direction it has a pose
+    # for — anything else is a friendly error. The pose shows on the next frame,
+    # like any other change.
+    def face(direction)
+      unless faceted?
+        raise ArgumentError,
+              "this sprite has no poses to face with — give it `facing: { left: :img_l, right: :img_r, ... }`"
+      end
+      index = @facing_dirs[direction] or
+        raise ArgumentError, "this sprite cannot face #{direction.inspect} — it faces #{@facing_dirs.keys.join(', ')}"
+
+      record(Build.set(@facing_var, Build.int(index)))
       self
     end
 
@@ -130,15 +153,36 @@ module RubyGBA
                 *draw_at_current)
     end
 
+    # Draw the sprite for the first time at its start (used by the sprite verb when
+    # the sprite begins shown): capture what's under it and draw it there.
+    def draw_initial
+      draw_at_current.each { |node| record(node) }
+      self
+    end
+
     private
+
+    def faceted?
+      !@poses.nil?
+    end
 
     # Capture what's under the current spot, draw the sprite there, and record that
     # spot as where it was last drawn (so the next erase targets it).
     def draw_at_current
       [Build.save_region(@buffer, ref(@x_var), ref(@y_var)),
-       Build.blit(@image, ref(@x_var), ref(@y_var)),
+       blit_op(ref(@x_var), ref(@y_var)),
        Build.copy(@old_x, @x_var),
        Build.copy(@old_y, @y_var)]
+    end
+
+    # The draw op for the sprite's image: a plain blit, or — if it has poses — a
+    # blit of whichever pose it's currently facing.
+    def blit_op(x_node, y_node)
+      if faceted?
+        Build.blit_pose(@poses, ref(@facing_var), x_node, y_node)
+      else
+        Build.blit(@image, x_node, y_node)
+      end
     end
 
     def record(node)

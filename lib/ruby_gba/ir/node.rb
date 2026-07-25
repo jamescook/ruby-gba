@@ -45,6 +45,7 @@ module RubyGBA
         display: :draw, pixel: :draw, fill_rect: :draw, clear_screen: :draw,
         draw_rect_at: :draw, draw_text: :draw, dma_fill_rect: :draw, blit: :draw,
         draw_digit: :draw, # one run-time decimal digit, chosen and drawn at run time
+        blit_pose: :draw,  # one of a set of same-size images, chosen at run time (a facing/frame)
         # save the pixels under a moving object, then paint them back — so it leaves
         # no trail. They copy a screen patch to/from a backing_buffer (below).
         save_region: :draw, restore_region: :draw,
