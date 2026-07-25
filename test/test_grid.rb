@@ -101,6 +101,17 @@ class TestGrid < Minitest::Test
     assert_match(/even/, err.message)
   end
 
+  def test_a_board_bigger_than_the_screen_is_a_friendly_error
+    err = assert_raises(ArgumentError) do
+      interpret_screen do
+        screen :bitmap
+        grid :board, cols: 40, rows: 20, cell: 8, over: :black # 40*8 = 320px > 240
+      end
+    end
+    assert_match(/320px wide/, err.message)
+    assert_match(/240px/, err.message)
+  end
+
   # ---- cross-backend: the same board renders on the console ----
 
   def grid_rom
