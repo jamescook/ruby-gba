@@ -66,6 +66,47 @@ class TestSprite < Minitest::Test
     assert_equal BLOCK * BLOCK, count_color(screen, :red), "more than one block of red at rest — a trail?"
   end
 
+  # ---- it restores patterned scenery pixel-for-pixel as it passes ----
+
+  # A red band with a distinct blue detail set into it, in the sprite's path. After
+  # the sprite has driven across the detail, every pixel it passed over must be
+  # exactly as it was — the blue detail intact, the red band unbroken around it.
+  def scenery_program(frames:)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      image(:block, "#" => :white) { "####\n####\n####\n####" }
+      fill_rect 0, 40, 240, 16, :red    # a red band
+      fill_rect 30, 44, 4, 4, :blue     # a blue detail inside it, in the path
+      hero = sprite :block, at: [8, 44]
+      game_loop do
+        wait_vblank
+        after(frames) { halt }
+        hero.x.add 2                     # drive right, across the blue detail
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_sprite_restores_patterned_scenery_it_passes_over
+    screen = Ruby.new.run(scenery_program(frames: 25)).screen # ends near x=58, past the detail
+    # the blue detail the sprite drove across is intact
+    (30...34).each do |x|
+      (44...48).each { |y| assert_equal Color.resolve(:blue), screen.pixel(x, y), "blue detail torn at (#{x},#{y})" }
+    end
+    # the red band around it is unbroken where the sprite passed
+    (10...28).each { |x| assert_equal Color.resolve(:red), screen.pixel(x, 46), "red band torn at x=#{x}" }
+    assert_equal BLOCK * BLOCK, count_color(screen, :white), "the sprite left a trail across the scenery"
+  end
+
+  def test_it_restores_patterned_scenery_on_gemba
+    rom = ROM.assemble(GBA.new.lower(scenery_program(frames: 25)), title: "SPRSCEN", code: "BSPS", maker: "01")
+    v = assert_gemba_loads_rom(rom, frames: 26)
+    assert v.pixel_is?(31, 45, :blue), "blue detail not restored on hardware — got #{v.pixel_gba(31, 45).to_s(16)}"
+    assert v.red?(15, 46), "red band not restored on hardware"
+  end
+
   # ---- it moves, and leaves no trail ----
 
   def test_moving_the_sprite_leaves_no_trail
@@ -86,6 +127,32 @@ class TestSprite < Minitest::Test
     i = Ruby.new.input_each_frame { |_f| [:right] }.run(prog)
     assert_operator i[:__spr1_x], :>, START[0], "holding right didn't move the sprite"
     assert_equal BLOCK * BLOCK, count_color(i.screen, :red), "held-move left a trail"
+  end
+
+  # ---- directional move: say it the way the player thinks it ----
+
+  def test_move_by_direction_steps_the_right_way
+    # Press left then up-right; the sprite should end up moved accordingly, in pixels.
+    prog = sprite_program(frames: 4) do |hero|
+      after(1) { hero.move :left, by: 3 }      # x: 100 -> 97
+      after(2) { hero.move :up_right, by: 2 }  # x: 97 -> 99, y: 60 -> 58
+    end
+    i = Ruby.new.run(prog)
+    assert_equal 99, i[:__spr1_x], "left then up_right didn't land x where expected"
+    assert_equal 58, i[:__spr1_y], "up_right didn't move y up"
+    assert_equal BLOCK * BLOCK, count_color(i.screen, :red), "a directional move left a trail"
+  end
+
+  def test_an_unknown_direction_is_a_friendly_error
+    err = assert_raises(ArgumentError) do
+      Builder.new.instance_eval do
+        screen :bitmap
+        image(:b, "#" => :red) { "##\n##" }
+        sprite(:b, at: [0, 0]).move(:sideways)
+      end
+    end
+    assert_match(/sideways/, err.message)
+    assert_match(/direction/, err.message)
   end
 
   # ---- hide restores the background; show brings it back ----
