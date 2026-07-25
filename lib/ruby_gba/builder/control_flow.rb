@@ -40,8 +40,15 @@ module RubyGBA
       end
 
       # Wait for the vertical blank — the safe moment to change what's on screen.
+      #
+      # This is also where the framework repaints your sprites. The vertical blank is
+      # the one window each frame where changing the screen is safe, so right after
+      # it we inject each visible sprite's repaint (erase it from where it was, draw
+      # it where it is now). That's why a sprite needs no draw call and why moving one
+      # is just changing its position — see {Sprite} and Builder#sprite.
       def wait_vblank
         record(Build.wait_vblank)
+        @sprites.each { |sprite| record(sprite.repaint_node) }
       end
 
       # Wrap a block of code in an infinite loop. The block's statements become the

@@ -66,6 +66,9 @@ module RubyGBA
       @rng_seq = 0             # counts anonymous random draws, to name each one's hidden var
       @approach_seq = 0        # counts approach calls, to name each one's hidden delta var
       @number_seq = 0          # counts draw_number calls, to name each one's hidden digit vars
+      @sprite_seq = 0          # counts sprites, to name each one's hidden position/backing vars
+      @images = {}             # image name → [width, height], so a sprite can size itself from its art
+      @sprites = []            # live sprites, repainted after every wait_vblank
       @prng_used = false       # whether the program draws random numbers (seeds the stream once)
       @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
       @pending_conditions = [] # Conditions built but not yet used; leftovers are orphans
