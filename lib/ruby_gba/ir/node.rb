@@ -95,6 +95,11 @@ module RubyGBA
         # input reads — an operand whose value comes from the gamepad
         held: :value, pressed: :value,
 
+        # a hardware-only value read: the scanline being drawn now (VCOUNT). Only a
+        # real console has it, so the interpreter refuses it (tagged hardware-only in
+        # IR::Portability); it's how a debug probe measures a frame's drawing time.
+        read_scanline: :value,
+
         # a probability test as an operand — true a given percent of the time
         chance: :value,
       }.freeze

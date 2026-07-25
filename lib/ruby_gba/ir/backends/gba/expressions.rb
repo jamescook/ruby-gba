@@ -25,9 +25,17 @@ module RubyGBA
             when :data_byte then eval_data_byte(node)
             when :list_get then eval_list_get(node)
             when :list_len then eval_list_len(node)
+            when :read_scanline then eval_read_scanline
             else
               raise LoweringError, "the GBA backend cannot evaluate #{node.kind.inspect}"
             end
+          end
+
+          # Read VCOUNT — the scanline being drawn right now (0..227) — into the
+          # accumulator. A halfword load straight from the display's scanline register.
+          def eval_read_scanline
+            emit(ASM.load_immediate(TMP, REG_VCOUNT))
+            emit(ASM.load_halfword(ACC, TMP))
           end
 
           # Read one byte of a named blob: point the address register at the blob,

@@ -83,9 +83,10 @@ class TestCrossBackendConformance < Minitest::Test
   end
 
   def test_hardware_only_kinds_are_the_only_ones_the_interpreter_skips
-    # Guard the exemption itself: raw is the sole hardware-only kind today. This now
-    # flows from the portability tags (via ConformanceFixture::HARDWARE_ONLY_KINDS),
-    # so a newly tagged hardware-only kind trips this and the fixture's reasoning.
-    assert_equal %i[raw].to_set, ConformanceFixture::HARDWARE_ONLY_KINDS.to_set
+    # Guard the exemption itself: the hardware-only kinds today are raw and
+    # read_scanline. This flows from the portability tags (via
+    # ConformanceFixture::HARDWARE_ONLY_KINDS), so a newly tagged hardware-only kind
+    # trips this and the fixture's reasoning.
+    assert_equal %i[raw read_scanline].to_set, ConformanceFixture::HARDWARE_ONLY_KINDS.to_set
   end
 end

@@ -515,6 +515,16 @@ module RubyGBA
         end
 
         def eval_node(node)
+          # A hardware-only value (reading the live scanline) has no meaning off the
+          # console — the interpreter has no real timing to report. Refuse it plainly
+          # rather than invent a number, the same stance exec takes for hardware-only
+          # statements. Which value kinds are hardware-only comes from IR::Portability.
+          if Portability.hardware_only?(node.kind)
+            raise ProgramError,
+                  "the Ruby backend can't evaluate #{node.kind.inspect} — it's a hardware-only value the " \
+                  "interpreter can't model; it only means something on real hardware"
+          end
+
           case node.kind
           when :int then Int32.wrap(node[:value])
           when :var_ref then @vars[node[:name]]
