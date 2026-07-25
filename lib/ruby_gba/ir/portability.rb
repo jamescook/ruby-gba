@@ -70,6 +70,10 @@ module RubyGBA
         # the opaque escape hatch — pre-assembled native bytes no backend can model
         raw: :hardware_only,
 
+        # reading the live scanline (VCOUNT): only a real console is drawing one, so
+        # the headless interpreter (which has no real timing) can't model it
+        read_scanline: :hardware_only,
+
         # embedded data
         data: :portable, bitmap: :portable, backing_buffer: :portable,
 

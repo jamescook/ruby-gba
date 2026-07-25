@@ -52,10 +52,12 @@ module ConformanceFixture
       B.func(:helper, B.set(:h, 1), B.add(:h, 2), B.wait_vblank),
       B.func(:scene_a, B.set(:picked, 10)),
       B.func(:scene_b, B.set(:picked, 20)),
-      # Uncalled: the GBA backend still lowers its `raw`, but the interpreter never
-      # reaches it (raw is hardware-only). This is what keeps `raw` in coverage
-      # without breaking the portable run.
-      B.func(:hardware_only, B.raw([0xE1A00000].pack("V"))), # a single ARM NOP
+      # Uncalled: the GBA backend still lowers these, but the interpreter never
+      # reaches them (both are hardware-only). This is what keeps the hardware-only
+      # kinds in coverage without breaking the portable run.
+      B.func(:hardware_only,
+             B.raw([0xE1A00000].pack("V")),   # a single ARM NOP
+             B.set(:hw_scanline, B.read_scanline)), # a hardware-only value read (VCOUNT)
 
       # --- variable ops ---
       B.set(:x, 5), B.add(:x, 3), B.sub(:x, 1), B.copy(:y, :x),

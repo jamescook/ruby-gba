@@ -393,6 +393,14 @@ module RubyGBA
         Node.new(:pressed, button: button)
       end
 
+      # The scanline the display is drawing right now (0..227) — a hardware-only
+      # value used to measure how far into a frame the drawing has got. There is no
+      # such thing off-console (the headless interpreter has no real timing and
+      # refuses it), so this only appears in debug/probe programs run on hardware.
+      def read_scanline
+        Node.new(:read_scanline)
+      end
+
       # 1 +percent+% of the time, else 0 — a probability test as a value operand,
       # true when the random draw in +draw+ (a 0..99 value) lands below +percent+.
       # A value node in its own right (like +held+/+pressed+) so a reader — the cost

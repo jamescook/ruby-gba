@@ -33,8 +33,10 @@ class TestIRPortability < Minitest::Test
 
   # ---- the classification today ----
 
-  def test_raw_is_the_sole_hardware_only_kind
-    assert_equal %i[raw], Portability.hardware_only_kinds
+  def test_the_hardware_only_kinds
+    # Two things only a real console can do: append opaque native bytes (raw), and
+    # read the live scanline (read_scanline). Everything else is portable.
+    assert_equal %i[raw read_scanline].sort, Portability.hardware_only_kinds.sort
   end
 
   def test_ordinary_ops_are_portable
