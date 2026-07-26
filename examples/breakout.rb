@@ -25,6 +25,17 @@
 # examples/snake.rb, which instead redraws only the few cells that changed each
 # step so it can stay single-buffered.)
 #
+# One consequence worth calling out: the paddle and ball are plain variables drawn
+# with draw_rect_at, NOT sprites — even though a sprite is the usual way to move a
+# thing around (and what gives you `hero.move :left`). A sprite earns its keep by
+# saving and restoring the background underneath so it leaves no trail; here we
+# clear and repaint the whole screen every frame, so there's no background to
+# preserve — and worse, a sprite repaints itself just before the scene runs, so our
+# clear_screen would wipe it. Reach for a sprite when you DON'T clear each frame
+# (see examples/pacman.rb); when you do, steer the variable directly, as below with
+# held(:left).then { paddle_x.sub PADDLE_SPEED }. (README → "Choosing how to draw a
+# moving thing" lays out the whole choice.)
+#
 # Run it to build examples/breakout.gba:
 #   ruby examples/breakout.rb
 
