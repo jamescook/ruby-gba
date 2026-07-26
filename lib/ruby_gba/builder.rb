@@ -14,6 +14,7 @@ require_relative "builder/variables"
 require_relative "builder/control_flow"
 require_relative "builder/scenes"
 require_relative "builder/collision"
+require_relative "builder/tiled"
 
 module RubyGBA
   # DSL context for building a GBA ROM.
@@ -50,6 +51,7 @@ module RubyGBA
     include ControlFlow # game_loop, wait_vblank, repeat, every, after, halt, debug_halt, if_eq..if_le
     include Scenes     # func, call, scene, case_var, dump_func
     include Collision  # box (overlaps? lives on the shape — Box/Sprite via Bounds)
+    include Tiled      # tiles, background (tiled-graphics surface; hardware lowering to follow)
 
     # Shorthand for the IR node constructors, so DSL methods can build tree
     # nodes as terse Build.set(...) calls.
@@ -70,6 +72,7 @@ module RubyGBA
       @number_seq = 0          # counts draw_number calls, to name each one's hidden digit vars
       @sprite_seq = 0          # counts sprites, to name each one's hidden position/backing vars
       @images = {}             # image name → [width, height], so a sprite can size itself from its art
+      @tilesets = {}           # tileset name → { chars:, tile_w:, tile_h: } (a character→tile-image map)
       @sprites = []            # live sprites, repainted after every wait_vblank
       @prng_used = false       # whether the program draws random numbers (seeds the stream once)
       @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
