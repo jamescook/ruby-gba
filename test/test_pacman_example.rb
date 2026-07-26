@@ -43,6 +43,13 @@ class TestPacmanExample < Minitest::Test
     assert_equal FACE[:up], up[:__spr1_face], "moving up should turn him to face up"
   end
 
+  def test_running_into_the_pellet_eats_it
+    # The pellet starts just to Pac-Man's right, so holding right walks him into it;
+    # overlaps? fires and the eaten count climbs. Both are sprites — no boxes.
+    r = Ruby.new.input_each_frame { |_f| [:right] }.run(Pacman.program, max_steps: 3000)
+    assert_operator r[:eaten], :>=, 1, "running into the pellet should eat it"
+  end
+
   def test_it_builds_a_rom
     assert Pacman.build_rom.size.positive?
   end

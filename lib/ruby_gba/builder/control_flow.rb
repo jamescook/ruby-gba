@@ -43,12 +43,19 @@ module RubyGBA
       #
       # This is also where the framework repaints your sprites. The vertical blank is
       # the one window each frame where changing the screen is safe, so right after
-      # it we inject each visible sprite's repaint (erase it from where it was, draw
-      # it where it is now). That's why a sprite needs no draw call and why moving one
-      # is just changing its position — see {Sprite} and Builder#sprite.
+      # it we repaint. That's why a sprite needs no draw call and why moving one is
+      # just changing its position — see {Sprite} and Builder#sprite.
+      #
+      # The repaint is two passes over ALL sprites: erase every one from where it was,
+      # THEN draw every one where it is now. If instead each sprite erased-and-drew
+      # before the next, a sprite drawn first would capture the one behind it that
+      # hadn't been erased yet — and smear a copy of it across the screen when it
+      # later moved. Erasing everyone first means each captures clean background, so
+      # sprites can overlap (a hero touching a coin) without leaving trails.
       def wait_vblank
         record(Build.wait_vblank)
-        @sprites.each { |sprite| record(sprite.repaint_node) }
+        @sprites.each { |sprite| record(sprite.erase_node) }
+        @sprites.each { |sprite| record(sprite.draw_node) }
       end
 
       # Wrap a block of code in an infinite loop. The block's statements become the

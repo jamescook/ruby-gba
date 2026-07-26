@@ -126,26 +126,24 @@ rom = RubyGBA.build("PONG", code: "BPNG", maker: "01") do
       beep :wall_bounce
     end
 
-    # Player paddle collision (left side). The ball bounces only when it truly
-    # overlaps the paddle — its x-band AND its vertical span. The vertical test is
-    # what makes the game winnable: without it the paddle acted like a full-height
-    # wall, so the ball could never slip past to score. A paddle occupies
-    # [player_y, player_y + PADDLE_H]; the ball (height BALL_SIZE) overlaps it when
-    # its top sits anywhere in that span, give or take the ball's own height. `&`
-    # ANDs the four comparisons — parenthesize each, since & binds tighter.
-    hits_player = (ball_x >= LEFT_X) & (ball_x <= LEFT_X + PADDLE_W) &
-                  (ball_y >= player_y - BALL_SIZE) & (ball_y <= player_y + PADDLE_H)
-    hits_player.then do
+    # Paddle collisions. The ball bounces only when its rectangle truly overlaps a
+    # paddle's — the horizontal band AND the vertical span. The vertical test is
+    # what makes the game winnable: without it a paddle behaves like a full-height
+    # wall, so the ball could never slip past it to score. The ball and paddles are
+    # plain rectangles here (not sprites), so describe each as a `box` — a corner and
+    # a size — and ask whether they touch with `overlaps?`.
+    ball       = box(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
+    player_pad = box(LEFT_X, player_y, PADDLE_W, PADDLE_H)
+    cpu_pad    = box(RIGHT_X, cpu_y, PADDLE_W, PADDLE_H)
+
+    ball.overlaps?(player_pad).then do
       ball_dx.abs # bounce right
       beep :paddle_hit
     end
 
-    # CPU paddle collision (right side) — the same overlap test against the CPU
-    # paddle. The CPU tops out at CPU_SPEED, slower than the ball, so a fast
-    # diagonal can leave it behind and let the player score.
-    hits_cpu = (ball_x >= RIGHT_X - BALL_SIZE) & (ball_x <= RIGHT_X + PADDLE_W) &
-               (ball_y >= cpu_y - BALL_SIZE) & (ball_y <= cpu_y + PADDLE_H)
-    hits_cpu.then do
+    # The CPU tops out at CPU_SPEED, slower than the ball, so a fast diagonal can
+    # leave it behind and let the player score.
+    ball.overlaps?(cpu_pad).then do
       ball_dx.negate_abs # bounce left
       beep :paddle_hit
     end

@@ -148,7 +148,7 @@ module RubyGBA
         record(Build.backing_buffer(buffer, width: width, height: height))
 
         handle = Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
-                                  active: active, buffer: buffer,
+                                  active: active, buffer: buffer, width: width, height: height,
                                   image: (facing ? nil : name), poses: poses,
                                   facing_var: facing_var, facing_dirs: facing_dirs)
         @sprites << handle

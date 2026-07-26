@@ -48,15 +48,13 @@ class TestPongScoring < Minitest::Test
       game_loop do
         bx.add bdx
 
-        # The fix, verbatim from the example: bounce only when the ball overlaps
-        # the paddle's x-band AND its vertical span.
-        hits_player = (bx >= LEFT_X) & (bx <= LEFT_X + PADDLE_W) &
-                      (by >= ppad - BALL_SIZE) & (by <= ppad + PADDLE_H)
-        hits_player.then { bdx.abs }
-
-        hits_cpu = (bx >= RIGHT_X - BALL_SIZE) & (bx <= RIGHT_X + PADDLE_W) &
-                   (by >= cpad - BALL_SIZE) & (by <= cpad + PADDLE_H)
-        hits_cpu.then { bdx.negate_abs }
+        # Verbatim from the example: bounce only when the ball's rectangle overlaps
+        # a paddle's — the x-band AND the vertical span — via the overlaps? verb.
+        ball       = box(bx, by, BALL_SIZE, BALL_SIZE)
+        player_pad = box(LEFT_X, ppad, PADDLE_W, PADDLE_H)
+        cpu_pad    = box(RIGHT_X, cpad, PADDLE_W, PADDLE_H)
+        ball.overlaps?(player_pad).then { bdx.abs }
+        ball.overlaps?(cpu_pad).then { bdx.negate_abs }
 
         # Off an edge: score and stop, so the count is exactly what happened.
         (bx <= 0).then { cscore.add 1; halt }

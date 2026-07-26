@@ -13,6 +13,7 @@ require_relative "builder/drawing"
 require_relative "builder/variables"
 require_relative "builder/control_flow"
 require_relative "builder/scenes"
+require_relative "builder/collision"
 
 module RubyGBA
   # DSL context for building a GBA ROM.
@@ -48,6 +49,7 @@ module RubyGBA
     include Variables  # set/var, add, sub, negate/flip, copy, abs, negate_abs, clamp, var_address, variables
     include ControlFlow # game_loop, wait_vblank, repeat, every, after, halt, debug_halt, if_eq..if_le
     include Scenes     # func, call, scene, case_var, dump_func
+    include Collision  # box (overlaps? lives on the shape — Box/Sprite via Bounds)
 
     # Shorthand for the IR node constructors, so DSL methods can build tree
     # nodes as terse Build.set(...) calls.
