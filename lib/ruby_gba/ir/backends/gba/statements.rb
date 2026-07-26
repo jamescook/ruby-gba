@@ -33,7 +33,7 @@ module RubyGBA
             when :raw then emit(node[:bytes]) # escape hatch: pre-assembled bytes, verbatim
             when :halt then emit(ASM.loop_forever)
             when :wait_vblank then emit_wait_vblank
-            when :display then emit_display(node)
+            when :screen then emit_screen(node)
             when :pixel then emit_pixel(node)
             when :fill_rect then emit_fill_rect(node)
             when :clear_screen then emit_clear_screen(node)

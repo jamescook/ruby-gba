@@ -24,7 +24,7 @@ module RubyGBA
         class RedrawEverything
           NAME = :redraw_everything
 
-          # The pixel-drawing ops (draw is a category, but it also covers `display`,
+          # The pixel-drawing ops (draw is a category, but it also covers `screen`,
           # a mode-set, which isn't painting).
           PAINTS = %i[pixel fill_rect clear_screen draw_rect_at draw_text dma_fill_rect blit].freeze
 
@@ -57,7 +57,7 @@ module RubyGBA
           private
 
           def buffered?(program)
-            program.walk.any? { |node| node.kind == :display && node[:buffered] }
+            program.walk.any? { |node| node.kind == :screen && node[:buffered] }
           end
 
           # A repeat over a list's length whose body paints — the unbounded redraw.

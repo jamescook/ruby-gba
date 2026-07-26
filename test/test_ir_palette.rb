@@ -120,7 +120,7 @@ class TestIRPalette < Minitest::Test
     # 256 distinct non-black colors (raw values 1..256) plus the reserved black
     # needs 257 slots — one past the limit.
     prog = Build.program(
-      Build.display(:bitmap),
+      Build.screen(:bitmap),
       *(1..256).map { |c| Build.pixel(0, 0, c) },
     )
 
@@ -134,7 +134,7 @@ class TestIRPalette < Minitest::Test
   # Exactly 256 colors including the reserved black is fine (255 named + black).
   def test_exactly_256_entries_is_allowed
     prog = Build.program(
-      Build.display(:bitmap),
+      Build.screen(:bitmap),
       *(1..255).map { |c| Build.pixel(0, 0, c) },
     )
 

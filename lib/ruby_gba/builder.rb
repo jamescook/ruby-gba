@@ -45,7 +45,7 @@ module RubyGBA
     include Text       # draw_text, draw_number
     include Images     # image, blit, rgb, rgb8, color
     include Input      # if_held, if_pressed, held, pressed
-    include Drawing    # display, pixel, fill_rect, clear_screen, dma_fill_rect, draw_rect_at
+    include Drawing    # screen, pixel, fill_rect, clear_screen, dma_fill_rect, draw_rect_at
     include Variables  # set/var, add, sub, negate/flip, copy, abs, negate_abs, clamp, var_address, variables
     include ControlFlow # game_loop, wait_vblank, repeat, every, after, halt, debug_halt, if_eq..if_le
     include Scenes     # func, call, scene, case_var, dump_func

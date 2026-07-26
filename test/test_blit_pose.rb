@@ -21,7 +21,7 @@ class TestBlitPose < Minitest::Test
   # Two 2x2 poses: one solid red, one solid green. Index picks which one draws.
   def pose_program(index)
     program(
-      display(:bitmap),
+      screen(:bitmap),
       clear_screen(:black),
       bitmap(:red2, width: 2, height: 2, pixels: ([Color.resolve(:red)] * 4).pack("v*"), transparent: nil),
       bitmap(:grn2, width: 2, height: 2, pixels: ([Color.resolve(:green)] * 4).pack("v*"), transparent: nil),

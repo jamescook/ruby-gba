@@ -178,13 +178,13 @@ class TestRandom < Minitest::Test
   # both forms and assert identical bytes.
   def test_chance_lowers_identically_to_the_underlying_comparison
     node_form = Build.program(
-      Build.display(:bitmap), Build.set(:d, 0),
+      Build.screen(:bitmap), Build.set(:d, 0),
       Build.loop_(Build.wait_vblank,
                   Build.if_(Build.chance(Build.var_ref(:d), 30), Build.set(:hit, 1)),
                   Build.halt),
     )
     compare_form = Build.program(
-      Build.display(:bitmap), Build.set(:d, 0),
+      Build.screen(:bitmap), Build.set(:d, 0),
       Build.loop_(Build.wait_vblank,
                   Build.if_(Build.binop(:<, Build.var_ref(:d), Build.int(30)), Build.set(:hit, 1)),
                   Build.halt),

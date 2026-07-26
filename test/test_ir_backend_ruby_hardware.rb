@@ -20,7 +20,7 @@ class TestIRBackendRubyHardware < Minitest::Test
   # ---- drawing into the framebuffer ----
 
   def test_clear_screen_paints_the_whole_screen
-    i = run_ir(program(display(:bitmap), clear_screen(:blue)))
+    i = run_ir(program(screen(:bitmap), clear_screen(:blue)))
     assert_equal Color.resolve(:blue), i.screen.pixel(0, 0)
     assert_equal Color.resolve(:blue), i.screen.pixel(239, 159)
   end
@@ -29,7 +29,7 @@ class TestIRBackendRubyHardware < Minitest::Test
   # which pixels land — and this oracle reads the settled end-of-frame image, so a
   # buffered program draws exactly the same screen. The flag is recorded, though.
   def test_double_buffering_records_the_flag_but_draws_the_same_pixels
-    i = run_ir(program(display(:bitmap, buffered: true), clear_screen(:blue)))
+    i = run_ir(program(screen(:bitmap, buffered: true), clear_screen(:blue)))
     assert i.buffered
     assert_equal Color.resolve(:blue), i.screen.pixel(120, 80)
   end
@@ -96,9 +96,9 @@ class TestIRBackendRubyHardware < Minitest::Test
     assert_equal 0, i.screen.pixel(0, 0)
   end
 
-  def test_display_mode_is_recorded
-    i = run_ir(program(display(:bitmap)))
-    assert_equal :bitmap, i.display_mode
+  def test_screen_mode_is_recorded
+    i = run_ir(program(screen(:bitmap)))
+    assert_equal :bitmap, i.screen_mode
   end
 
   # ---- reading input ----

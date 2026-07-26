@@ -24,7 +24,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
   # buffered — built straight from the IR to set the buffered flag.
   def loop_of_clears(n, buffered:)
     Build.program(
-      Build.display(:bitmap, buffered: buffered),
+      Build.screen(:bitmap, buffered: buffered),
       Build.loop_(Build.wait_vblank, *Array.new(n) { Build.clear_screen(:black) }),
     )
   end
@@ -85,10 +85,10 @@ class TestDrawBudgetGuardrail < Minitest::Test
   # :state — each scene clearing the whole screen a given number of times a frame.
   def mixed(direct_clears:, buffered_clears:)
     Build.program(
-      Build.display(:bitmap), # boot: direct
+      Build.screen(:bitmap), # boot: direct
       Build.set(:state, Build.int(0)),
       Build.func(:_scene_still, *Array.new(direct_clears) { Build.clear_screen(:black) }),
-      Build.func(:_scene_action, Build.display(:bitmap, buffered: true),
+      Build.func(:_scene_action, Build.screen(:bitmap, buffered: true),
                  *Array.new(buffered_clears) { Build.clear_screen(:black) }),
       Build.loop_(Build.wait_vblank, Build.case_(:state, [[0, :_scene_still], [1, :_scene_action]])),
     )

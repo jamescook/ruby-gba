@@ -44,11 +44,11 @@ class TestBlitClipping < Minitest::Test
     bitmap(name, width: 4, height: 4, pixels: rows.pack("v*"))
   end
 
-  # Run +stmts+ (a blit sandwiched between display/clear/halt) on both backends
+  # Run +stmts+ (a blit sandwiched between screen/clear/halt) on both backends
   # and assert each [x, y, colour] expectation holds on each. A nil colour means
   # "background here" — i.e. clipped, nothing drawn.
   def assert_same_pixels(defn, blit_stmt, expectations)
-    prog = program(display(:bitmap), clear_screen(BG), defn, blit_stmt, halt)
+    prog = program(screen(:bitmap), clear_screen(BG), defn, blit_stmt, halt)
 
     screen = Ruby.new.run(prog).screen
     expectations.each do |x, y, color|

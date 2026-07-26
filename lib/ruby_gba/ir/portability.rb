@@ -47,11 +47,11 @@ module RubyGBA
         set: :portable, add: :portable, sub: :portable, copy: :portable,
         negate: :portable, abs: :portable, negate_abs: :portable, clamp: :portable,
 
-        # drawing / display — framebuffer draws and text are portable; `display`
+        # drawing / screen — framebuffer draws and text are portable; `screen`
         # selects a rendering model a backend can honor (the raw-register form and
         # GBA-only modes like affine are a per-argument nuance for when a web backend
         # exists to care — a per-kind tag can't express them).
-        display: :portable, pixel: :portable, fill_rect: :portable, clear_screen: :portable,
+        screen: :portable, pixel: :portable, fill_rect: :portable, clear_screen: :portable,
         draw_rect_at: :portable, draw_text: :portable, dma_fill_rect: :portable, blit: :portable,
         draw_digit: :portable, # index a font by a run-time digit — any backend can
         blit_pose: :portable,  # pick one of a set of images by a run-time index — any backend can

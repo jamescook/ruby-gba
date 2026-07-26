@@ -174,11 +174,11 @@ class TestTimers < Minitest::Test
   # label gensyms the same way, so equal bytes means an equal instruction stream).
   def test_every_lowers_identically_to_an_explicit_counter_compare
     node_form = Build.program(
-      Build.display(:bitmap), Build.set(:c, 0),
+      Build.screen(:bitmap), Build.set(:c, 0),
       Build.loop_(Build.wait_vblank, Build.every(:c, 3, Build.set(:hit, 1)), Build.halt),
     )
     explicit_form = Build.program(
-      Build.display(:bitmap), Build.set(:c, 0),
+      Build.screen(:bitmap), Build.set(:c, 0),
       Build.loop_(Build.wait_vblank,
                   Build.add(:c, 1), # counter += 1
                   Build.if_(Build.binop(:>=, Build.var_ref(:c), Build.int(3)),
@@ -190,11 +190,11 @@ class TestTimers < Minitest::Test
 
   def test_after_lowers_identically_to_an_explicit_counter_compare
     node_form = Build.program(
-      Build.display(:bitmap), Build.set(:c, 0),
+      Build.screen(:bitmap), Build.set(:c, 0),
       Build.loop_(Build.wait_vblank, Build.after(:c, 5, Build.set(:hit, 1)), Build.halt),
     )
     explicit_form = Build.program(
-      Build.display(:bitmap), Build.set(:c, 0),
+      Build.screen(:bitmap), Build.set(:c, 0),
       Build.loop_(Build.wait_vblank,
                   Build.if_(Build.binop(:<, Build.var_ref(:c), Build.int(5)),
                             Build.add(:c, 1), # count up only until the target...

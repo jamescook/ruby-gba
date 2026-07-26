@@ -146,7 +146,7 @@ class TestGameLoop < Minitest::Test
     end
 
     insts = instructions(rom)
-    # Should have display setup + var init + loop body + backward branch
+    # Should have screen setup + var init + loop body + backward branch
     assert_operator insts.size, :>, 10
 
     # Last instruction is backward branch

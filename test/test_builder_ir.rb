@@ -81,7 +81,7 @@ class TestBuilderIR < Minitest::Test
     end
 
     assert_equal program(
-      display(:bitmap),
+      screen(:bitmap),
       clear_screen(:black),
       pixel(10, 20, :red),
       fill_rect(5, 5, 4, 3, :green),

@@ -60,10 +60,10 @@ module RubyGBA
 
         class LoweringError < StandardError; end
 
-        # Friendly display-mode names → the display-control register value. Only
+        # Friendly screen-mode names → the display-control register value. Only
         # the direct-color bitmap mode is lowered here; other modes are their own
         # work. (This mirrors the DSL's names.)
-        DISPLAY_MODES = { bitmap: MODE_3 | BG2_ENABLE }.freeze
+        SCREEN_MODES = { bitmap: MODE_3 | BG2_ENABLE }.freeze
 
         # Double-buffered (Mode 4) hardware layout. Mode 4 gives the program TWO
         # full screens — "pages" — in video memory, 0xA000 bytes apart. One is shown
@@ -83,7 +83,7 @@ module RubyGBA
         DISPCNT_STATE = :__dispcnt
         BACKBUF = :__backbuf
 
-        # When scenes use different display modes, the framework switches the
+        # When scenes use different screen modes, the framework switches the
         # hardware as each scene takes over. A hidden variable holds which mode is
         # live, so a scene only touches the display registers when the mode actually
         # changes (a transition), not every frame. Direct = single-buffered Mode 3,
@@ -143,9 +143,9 @@ module RubyGBA
           @label_seq = 0
           @uses_pressed = false  # whether the program reads edge-detected input
           @palette = nil         # the color table, built once when any scene is buffered
-          @modes = nil           # IR::Modes: which display mode each scene resolves to
+          @modes = nil           # IR::Modes: which screen mode each scene resolves to
           @any_buffered = false  # does any scene use double buffering?
-          @default_mode = :direct # the boot display mode (from the top-level `display`)
+          @default_mode = :direct # the boot screen mode (from the top-level `screen`)
           @func_mode = {}        # func name -> :direct | :buffered (resolved from the call graph)
           @scene_funcs = []      # funcs entered per frame, which switch the mode on entry
           @lower_mode = :direct  # the mode draws currently lower in (set per func)
@@ -162,7 +162,7 @@ module RubyGBA
           prepare_palette(program) if @any_buffered
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
           emit_input_init if @uses_pressed
-          emit_boot_display if @any_buffered # set the boot mode + upload the palette once
+          emit_boot_screen if @any_buffered # set the boot mode + upload the palette once
           @lower_mode = @default_mode
           program.children.each { |stmt| emit_statement(stmt) }
           emit_functions
@@ -179,7 +179,7 @@ module RubyGBA
           @vars.dup
         end
 
-        # Work out which display mode each scene draws in. A program that never uses
+        # Work out which screen mode each scene draws in. A program that never uses
         # double buffering is left entirely alone (the direct-color path below is
         # unchanged). When some scene IS buffered, each func's mode comes from
         # IR::Modes — the shared, target-agnostic resolution that follows the call

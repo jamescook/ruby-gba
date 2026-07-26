@@ -36,7 +36,7 @@ module ConformanceFixture
   def self.program
     B.program(
       # --- executed setup: turn the screen and sound on ---
-      B.display(:bitmap),
+      B.screen(:bitmap),
       B.enable_sound,
 
       # --- definitions: registered up front, referenced by name below ---

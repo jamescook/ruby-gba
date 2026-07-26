@@ -2,9 +2,9 @@
 
 module RubyGBA
   module IR
-    # Works out which display mode each scene of a program runs in.
+    # Works out which screen mode each scene of a program runs in.
     #
-    # A game can put different scenes on screen in different display modes — a
+    # A game can put different scenes on screen in different screen modes — a
     # colorful direct-color title, then a tear-free double-buffered play field —
     # and the framework switches the hardware as each scene takes over. Deciding
     # *which* scene draws in *which* mode is pure structural analysis of the
@@ -12,7 +12,7 @@ module RubyGBA
     # cost/palette analyses can all read one answer from here instead of each
     # working it out (and risking a subtle disagreement).
     #
-    # A scene declares its mode with a `display` at its top; with none, it runs in
+    # A scene declares its mode with a `screen` at its top; with none, it runs in
     # the mode it was reached in. The mode is resolved by following the call graph
     # from the program's per-frame entry points (the scenes a game loop dispatches
     # to), so a helper a scene calls inherits the scene's mode. A drawing routine
@@ -36,7 +36,7 @@ module RubyGBA
         name.to_s.sub(/\A_scene_/, "")
       end
 
-      # The boot display mode: the mode declared at the top level, or :direct.
+      # The boot screen mode: the mode declared at the top level, or :direct.
       attr_reader :default_mode
 
       # func name -> :direct | :buffered, for every func reachable from an entry
@@ -104,18 +104,18 @@ module RubyGBA
           raise Conflict,
                 "the drawing routine :#{self.class.friendly_name(name)} is used from both a " \
                 "direct-color scene and a double-buffered one — a drawing routine can't be shared " \
-                "across display modes. Give each mode its own routine, or move the shared drawing inline."
+                "across screen modes. Give each mode its own routine, or move the shared drawing inline."
         end
 
         @func_mode[name] = mode
         call_targets(func).each { |target| resolve_func(target, mode, scene: false) }
       end
 
-      # The display mode a run of statements declares, via a `display` node among
-      # them (nil if none): buffered when the display opted into double buffering.
+      # The screen mode a run of statements declares, via a `screen` node among
+      # them (nil if none): buffered when the screen opted into double buffering.
       def declared_mode(statements)
         statements.each do |node|
-          return node[:buffered] ? BUFFERED : DIRECT if node.kind == :display
+          return node[:buffered] ? BUFFERED : DIRECT if node.kind == :screen
         end
         nil
       end

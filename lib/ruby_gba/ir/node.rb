@@ -41,8 +41,8 @@ module RubyGBA
         set: :var, add: :var, sub: :var, copy: :var, negate: :var,
         abs: :var, negate_abs: :var, clamp: :var,
 
-        # drawing / display operations
-        display: :draw, pixel: :draw, fill_rect: :draw, clear_screen: :draw,
+        # drawing / screen operations
+        screen: :draw, pixel: :draw, fill_rect: :draw, clear_screen: :draw,
         draw_rect_at: :draw, draw_text: :draw, dma_fill_rect: :draw, blit: :draw,
         draw_digit: :draw, # one run-time decimal digit, chosen and drawn at run time
         blit_pose: :draw,  # one of a set of same-size images, chosen at run time (a facing/frame)

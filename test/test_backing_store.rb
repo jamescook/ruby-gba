@@ -23,7 +23,7 @@ class TestBackingStore < Minitest::Test
   # with green, then restore. The scene should look untouched afterwards.
   def cover_and_restore(save_xy, restore_xy)
     program(
-      display(:bitmap),
+      screen(:bitmap),
       clear_screen(:blue),
       fill_rect(save_xy[0] + 2, save_xy[1] + 2, 4, 4, :red), # a red patch inside the area
       backing_buffer(:under, width: 8, height: 8),
@@ -52,7 +52,7 @@ class TestBackingStore < Minitest::Test
   def test_a_restore_before_any_save_does_nothing
     # No save_region ran, so there's nothing to put back — the green stays.
     s = Ruby.new.run(program(
-      display(:bitmap),
+      screen(:bitmap),
       clear_screen(:blue),
       backing_buffer(:under, width: 8, height: 8),
       fill_rect(10, 10, 8, 8, :green),
@@ -66,7 +66,7 @@ class TestBackingStore < Minitest::Test
   # remember, and the on-screen part still round-trips without wrapping.
   def test_a_patch_off_the_edge_round_trips_the_visible_part
     s = Ruby.new.run(program(
-      display(:bitmap),
+      screen(:bitmap),
       clear_screen(:blue),
       fill_rect(0, 20, 4, 4, :red),      # visible detail near the left edge
       backing_buffer(:edge, width: 8, height: 8),
@@ -87,7 +87,7 @@ class TestBackingStore < Minitest::Test
     # Save under (10,10); cover it; then "move" one step right: restore the old
     # spot, save under the new spot, cover the new spot. The old spot must be clean.
     s = Ruby.new.run(program(
-      display(:bitmap),
+      screen(:bitmap),
       clear_screen(:blue),
       backing_buffer(:m, width: 8, height: 8),
       save_region(:m, int(10), int(10)),
@@ -119,7 +119,7 @@ class TestBackingStore < Minitest::Test
 
   def test_two_sizes_for_one_buffer_is_a_lowering_error
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       backing_buffer(:b, width: 8, height: 8),
       backing_buffer(:b, width: 4, height: 4),
       halt

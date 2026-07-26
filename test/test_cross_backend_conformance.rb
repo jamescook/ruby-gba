@@ -75,7 +75,7 @@ class TestCrossBackendConformance < Minitest::Test
   def test_raw_lowers_on_the_gba_backend
     nop = [0xE1A00000].pack("V")
     code = GBA.new.lower(RubyGBA::IR::Build.program(
-      RubyGBA::IR::Build.display(:bitmap),
+      RubyGBA::IR::Build.screen(:bitmap),
       RubyGBA::IR::Build.raw(nop),
       RubyGBA::IR::Build.halt,
     ))

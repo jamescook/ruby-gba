@@ -20,18 +20,18 @@ class TestIRGuardrailTermination < Minitest::Test
   end
 
   def test_a_program_that_falls_off_the_end_warns
-    warnings = termination_warnings(program(display(:bitmap), clear_screen(:black)))
+    warnings = termination_warnings(program(screen(:bitmap), clear_screen(:black)))
 
     assert_equal 1, warnings.size
     assert_match(/halt|game_loop/, warnings.first.message, "the message names the fix")
   end
 
   def test_ending_in_halt_is_fine
-    assert_empty termination_warnings(program(display(:bitmap), clear_screen(:black), halt))
+    assert_empty termination_warnings(program(screen(:bitmap), clear_screen(:black), halt))
   end
 
   def test_ending_in_a_forever_loop_is_fine
-    prog = program(display(:bitmap), loop_(wait_vblank, clear_screen(:black)))
+    prog = program(screen(:bitmap), loop_(wait_vblank, clear_screen(:black)))
     assert_empty termination_warnings(prog), "a game_loop never falls through"
   end
 
@@ -39,7 +39,7 @@ class TestIRGuardrailTermination < Minitest::Test
     # `call :game` where :game loops forever never returns, so the program stops
     # there — no false "runs off the end" warning.
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       func(:game, loop_(wait_vblank)),
       call(:game),
     )
@@ -49,7 +49,7 @@ class TestIRGuardrailTermination < Minitest::Test
   def test_a_call_into_a_returning_func_still_falls_off_the_end
     # :setup returns, so after the call control falls off the end.
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       func(:setup, set(:x, 1)),
       call(:setup),
     )
@@ -60,7 +60,7 @@ class TestIRGuardrailTermination < Minitest::Test
     # Funcs are appended after the main flow but don't execute in line; the loop
     # is still what stops the program (mirrors how pong is built).
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       loop_(wait_vblank),
       func(:helper, set(:x, 1)), # a trailing definition, not a fall-through
     )
@@ -69,7 +69,7 @@ class TestIRGuardrailTermination < Minitest::Test
 
   def test_a_trailing_raw_block_is_treated_as_opaque
     # raw might hand-roll its own halt/loop; don't warn on what we can't inspect.
-    prog = program(display(:bitmap), clear_screen(:black), raw("\x00\x00\x00\x00".b))
+    prog = program(screen(:bitmap), clear_screen(:black), raw("\x00\x00\x00\x00".b))
     assert_empty termination_warnings(prog)
   end
 
@@ -77,7 +77,7 @@ class TestIRGuardrailTermination < Minitest::Test
     # Mutual recursion that never halts/loops: the cycle guard must stop the walk,
     # and since neither func actually stops, the program still falls off the end.
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       func(:a, call(:b)),
       func(:b, call(:a)),
       call(:a),

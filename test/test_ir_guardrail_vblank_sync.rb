@@ -22,20 +22,20 @@ class TestIRGuardrailVblankSync < Minitest::Test
   # ---- reachability: which loops warn -------------------------------------
 
   def test_a_loop_with_no_frame_sync_warns
-    warnings = vblank_warnings(program(display(:bitmap), loop_(clear_screen(:black))))
+    warnings = vblank_warnings(program(screen(:bitmap), loop_(clear_screen(:black))))
 
     assert_equal 1, warnings.size
     assert_match(/wait_vblank/, warnings.first.message, "the warning names the fix")
   end
 
   def test_a_loop_that_waits_directly_is_fine
-    prog = program(display(:bitmap), loop_(wait_vblank, clear_screen(:black)))
+    prog = program(screen(:bitmap), loop_(wait_vblank, clear_screen(:black)))
     assert_empty vblank_warnings(prog)
   end
 
   def test_sync_reachable_through_a_called_func_is_fine
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       func(:sync, wait_vblank),
       loop_(call(:sync), clear_screen(:black)),
     )
@@ -44,7 +44,7 @@ class TestIRGuardrailVblankSync < Minitest::Test
 
   def test_sync_reachable_through_a_case_dispatched_scene_is_fine
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       func(:_scene_play, wait_vblank, clear_screen(:black)),
       set(:state, 0),
       loop_(case_(:state, { 0 => :_scene_play })),
@@ -54,7 +54,7 @@ class TestIRGuardrailVblankSync < Minitest::Test
 
   def test_sync_inside_a_nested_if_counts
     prog = program(
-      display(:bitmap), set(:x, 1),
+      screen(:bitmap), set(:x, 1),
       loop_(if_(binop(:>, var_ref(:x), int(0)), wait_vblank)),
     )
     assert_empty vblank_warnings(prog)
@@ -65,7 +65,7 @@ class TestIRGuardrailVblankSync < Minitest::Test
     # #children).
     branch = if_(binop(:>, var_ref(:x), int(0)), clear_screen(:black))
     branch[:else] = else_(wait_vblank)
-    prog = program(display(:bitmap), set(:x, 1), loop_(branch))
+    prog = program(screen(:bitmap), set(:x, 1), loop_(branch))
 
     assert_empty vblank_warnings(prog)
   end
@@ -73,19 +73,19 @@ class TestIRGuardrailVblankSync < Minitest::Test
   def test_a_reachable_raw_block_suppresses_the_warning
     # raw is opaque — it may hand-roll its own sync — so we stay quiet rather than
     # cry wolf.
-    prog = program(display(:bitmap), loop_(raw("\x00\x00\x00\x00".b), clear_screen(:black)))
+    prog = program(screen(:bitmap), loop_(raw("\x00\x00\x00\x00".b), clear_screen(:black)))
     assert_empty vblank_warnings(prog)
   end
 
   def test_a_program_with_no_loop_is_not_nagged
-    assert_empty vblank_warnings(program(display(:bitmap), clear_screen(:black), halt))
+    assert_empty vblank_warnings(program(screen(:bitmap), clear_screen(:black), halt))
   end
 
   def test_a_call_cycle_without_sync_still_warns_and_terminates
     # Mutual recursion with no sync anywhere: the cycle guard must stop the walk
     # (not loop forever) and the loop must still warn.
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       func(:a, call(:b)),
       func(:b, call(:a)),
       loop_(call(:a)),

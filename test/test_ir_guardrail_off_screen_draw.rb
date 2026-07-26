@@ -110,14 +110,14 @@ class TestIRGuardrailOffScreenDraw < Minitest::Test
   # ---- it's advisory, and it finds draws nested in the program --------------
 
   def test_the_warning_is_advisory_not_an_error
-    report = Guardrails::Validator.new.run(program(display(:bitmap), fill_rect(W, 40, 8, 8, :red), halt),
+    report = Guardrails::Validator.new.run(program(screen(:bitmap), fill_rect(W, 40, 8, 8, :red), halt),
                                            autofix: false)
     assert report.ok?, "an off-screen draw doesn't break the build — it's a warning"
     assert(report.warnings.any? { |w| w.check == :off_screen_draw })
   end
 
   def test_a_draw_nested_in_a_loop_is_still_checked
-    prog = program(display(:bitmap), loop_(wait_vblank, fill_rect(W, 40, 8, 8, :red)))
+    prog = program(screen(:bitmap), loop_(wait_vblank, fill_rect(W, 40, 8, 8, :red)))
     assert_equal 1, off_screen_warnings(prog).size, "the walk reaches draws inside control flow"
   end
 

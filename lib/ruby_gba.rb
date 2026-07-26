@@ -57,7 +57,7 @@ module RubyGBA
     # Run the guardrails over the finished IR and report every finding — its
     # plain-language explanation and the suggested fix — on the err stream. A
     # warning is advisory (a game loop with no frame sync, say): it's printed and
-    # the build goes on. A fatal problem (drawing with no display mode, which
+    # the build goes on. A fatal problem (drawing with no screen mode, which
     # would leave the screen black) stops the build so the mistake can't ship
     # silently. Nothing is auto-corrected — the fix is suggested, never applied
     # (an opt-in `--auto-fix` is future work). Skipped for a debug_halt build,

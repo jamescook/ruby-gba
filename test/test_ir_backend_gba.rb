@@ -67,7 +67,7 @@ class TestIRBackendGBA < Minitest::Test
   # ---- the ROM is well-formed (the ROM validator runs inside finalize!) ----
 
   def test_a_drawing_program_finalizes_into_a_valid_rom
-    rom = lower(program(display(:bitmap), clear_screen(:blue), halt))
+    rom = lower(program(screen(:bitmap), clear_screen(:blue), halt))
     assert_instance_of RubyGBA::ROM, rom
     assert_operator rom.size, :>, 0xC0
   end
@@ -75,21 +75,21 @@ class TestIRBackendGBA < Minitest::Test
   # ---- it actually runs and draws (gemba; skips when absent) ----
 
   def test_clear_screen_fills_the_whole_screen
-    rom = lower(program(display(:bitmap), clear_screen(:blue), halt))
+    rom = lower(program(screen(:bitmap), clear_screen(:blue), halt))
     v = assert_gemba_loads_rom(rom, frames: 5)
     assert v.blue?(0, 0)
     assert v.blue?(239, 159)
   end
 
   def test_a_constant_pixel_lands_at_its_coordinates
-    rom = lower(program(display(:bitmap), clear_screen(:black), pixel(10, 20, :red), halt))
+    rom = lower(program(screen(:bitmap), clear_screen(:black), pixel(10, 20, :red), halt))
     v = assert_gemba_loads_rom(rom)
     assert v.red?(10, 20)
     assert v.black?(11, 20)
   end
 
   def test_fill_rect_paints_its_block
-    rom = lower(program(display(:bitmap), clear_screen(:black), fill_rect(5, 5, 4, 3, :green), halt))
+    rom = lower(program(screen(:bitmap), clear_screen(:black), fill_rect(5, 5, 4, 3, :green), halt))
     v = assert_gemba_loads_rom(rom)
     assert v.green?(5, 5)
     assert v.green?(8, 7)  # bottom-right corner (5+4-1, 5+3-1)
@@ -100,7 +100,7 @@ class TestIRBackendGBA < Minitest::Test
     # x = 5 + 5 = 10, then plot at (x, 0): proves variables + arithmetic + a
     # runtime-computed VRAM address all lower correctly.
     rom = lower(program(
-      display(:bitmap),
+      screen(:bitmap),
       clear_screen(:black),
       set(:x, 5),
       add(:x, 5),
@@ -115,7 +115,7 @@ class TestIRBackendGBA < Minitest::Test
   def test_loop_and_conditional_draw_a_row_then_halt
     # Draw red pixels at x = 1..5 then stop; (6,0) must stay black.
     rom = lower(program(
-      display(:bitmap),
+      screen(:bitmap),
       clear_screen(:black),
       set(:x, 0),
       loop_(
@@ -133,7 +133,7 @@ class TestIRBackendGBA < Minitest::Test
   def test_held_input_gates_a_draw
     # With no button pressed, held(:a) is false, so the pixel must not appear.
     rom = lower(program(
-      display(:bitmap),
+      screen(:bitmap),
       clear_screen(:black),
       if_(held(:a), pixel(10, 10, :red)),
       halt,
@@ -146,7 +146,7 @@ class TestIRBackendGBA < Minitest::Test
 
   def test_pressed_program_lowers_to_a_valid_rom
     rom = lower(program(
-      display(:bitmap),
+      screen(:bitmap),
       loop_(wait_vblank, if_(pressed(:start), pixel(10, 10, :red))),
     ))
     assert_instance_of RubyGBA::ROM, rom
@@ -154,7 +154,7 @@ class TestIRBackendGBA < Minitest::Test
 
   def test_pressed_does_not_fire_without_input
     rom = lower(program(
-      display(:bitmap),
+      screen(:bitmap),
       clear_screen(:black),
       loop_(wait_vblank, if_(pressed(:start), pixel(10, 10, :red))),
     ))
@@ -167,7 +167,7 @@ class TestIRBackendGBA < Minitest::Test
     # start across many frames must advance count by exactly one — pressed is the
     # edge, not the level — so the pixel lands at (1, 0), never (2, 0).
     rom = lower(program(
-      display(:bitmap),
+      screen(:bitmap),
       set(:count, 0),
       loop_(
         wait_vblank,
@@ -186,7 +186,7 @@ class TestIRBackendGBA < Minitest::Test
     # Per-row DMA copies the four pixels from ROM to VRAM at (10, 20). Raw BGR555:
     # red 0x001F, green 0x03E0, blue 0x7C00, white 0x7FFF.
     rom = lower(program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       bitmap(:quad, width: 2, height: 2, pixels: [0x001F, 0x03E0, 0x7C00, 0x7FFF].pack("v*")),
       blit(:quad, 10, 20),
       halt,
@@ -204,7 +204,7 @@ class TestIRBackendGBA < Minitest::Test
     # must show through the transparent ends.
     clear = 0x8000 # the transparent marker (bit 15, no real color uses it)
     rom = lower(program(
-      display(:bitmap), clear_screen(:blue),
+      screen(:bitmap), clear_screen(:blue),
       bitmap(:dot, width: 3, height: 1, pixels: [clear, 0x001F, clear].pack("v*"), transparent: clear),
       blit(:dot, 10, 10),
       halt,
@@ -217,7 +217,7 @@ class TestIRBackendGBA < Minitest::Test
 
   def test_blit_follows_a_variable_position
     rom = lower(program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       bitmap(:dot, width: 1, height: 1, pixels: [0x001F].pack("v*")),
       set(:px, 100), set(:py, 50),
       blit(:dot, var_ref(:px), var_ref(:py)),
@@ -247,7 +247,7 @@ class TestIRBackendGBA < Minitest::Test
     # The whole chain on hardware: blob in ROM -> address fixup resolved -> byte
     # read at run time -> used as a pixel's x. The byte is 10, so red lands at x=10.
     rom = lower(program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       data(:coords, "\x0a".b),
       pixel(data_byte(:coords, 0), 0, :red),
       halt,
@@ -261,7 +261,7 @@ class TestIRBackendGBA < Minitest::Test
     # x / 3 = 6; plot at (6, 0). The ARM7TDMI can't divide, so this exercises the
     # BIOS Div call in the lowering — and proves the emulator's BIOS runs it.
     rom = lower(program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       set(:x, 20),
       pixel(binop(:/, var_ref(:x), int(3)), 0, :red),
       halt,
@@ -278,7 +278,7 @@ class TestIRBackendGBA < Minitest::Test
     too_high = binop(:and, binop(:>, var_ref(:x), int(1)), binop(:>, var_ref(:x), int(9)))
 
     rom = lower(program(
-      display(:bitmap), clear_screen(:black), set(:x, 5),
+      screen(:bitmap), clear_screen(:black), set(:x, 5),
       if_(in_range, pixel(10, 10, :red)),
       if_(too_high, pixel(20, 20, :blue)),
       halt,
@@ -293,7 +293,7 @@ class TestIRBackendGBA < Minitest::Test
     taken = if_(binop(:>, var_ref(:x), int(5)), pixel(10, 10, :red))
     taken[:else] = else_(pixel(20, 20, :blue))
 
-    rom = lower(program(display(:bitmap), clear_screen(:black), set(:x, 1), taken, halt))
+    rom = lower(program(screen(:bitmap), clear_screen(:black), set(:x, 1), taken, halt))
     v = assert_gemba_loads_rom(rom)
     assert v.blue?(20, 20), "false condition runs the else-branch"
     assert v.black?(10, 10), "the then-branch must not run"
@@ -305,7 +305,7 @@ class TestIRBackendGBA < Minitest::Test
     # v = -5, abs -> 5; plotting at (v, 0) lands at x=5. If abs left it negative
     # the coordinate would clip off-screen and nothing would appear at (5, 0).
     rom = lower(program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       set(:v, 5), negate(:v), abs(:v),
       pixel(:v, 0, :red), halt,
     ))
@@ -318,7 +318,7 @@ class TestIRBackendGBA < Minitest::Test
     # v = -6, negate_abs -> still -6 (not +6); +20 brings it on-screen at 14.
     # A wrong flip to +6 would put the pixel at 26 instead.
     rom = lower(program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       set(:v, 6), negate(:v), negate_abs(:v), add(:v, 20),
       pixel(:v, 0, :red), halt,
     ))
@@ -330,7 +330,7 @@ class TestIRBackendGBA < Minitest::Test
   # ---- extended draws: dma_fill_rect / draw_rect_at / draw_text ----
 
   def test_dma_fill_rect_paints_its_block
-    rom = lower(program(display(:bitmap), clear_screen(:black),
+    rom = lower(program(screen(:bitmap), clear_screen(:black),
                         dma_fill_rect(4, 6, 4, 2, :red), halt))
     v = assert_gemba_loads_rom(rom)
     assert v.red?(4, 6)
@@ -341,7 +341,7 @@ class TestIRBackendGBA < Minitest::Test
   def test_draw_rect_at_paints_at_a_runtime_position
     # The rectangle's position comes from variables computed at run time.
     rom = lower(program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       set(:x, 30), set(:y, 40),
       draw_rect_at(:x, :y, 4, 4, :green),
       halt,
@@ -356,7 +356,7 @@ class TestIRBackendGBA < Minitest::Test
     # x = 10 + 10 = 20: proves the destination address is built from the live
     # value, not baked in at build time.
     rom = lower(program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       set(:x, 10), add(:x, 10),
       draw_rect_at(:x, 50, 4, 4, :white),
       halt,
@@ -367,7 +367,7 @@ class TestIRBackendGBA < Minitest::Test
   end
 
   def test_draw_text_renders_glyphs
-    rom = lower(program(display(:bitmap), clear_screen(:black),
+    rom = lower(program(screen(:bitmap), clear_screen(:black),
                         draw_text("HI", 40, 30, :white), halt))
     v = assert_gemba_loads_rom(rom)
     # 'H' row 0 = 0x11: leftmost and rightmost columns lit, middle not.
@@ -378,7 +378,7 @@ class TestIRBackendGBA < Minitest::Test
 
   def test_odd_width_dma_fill_is_a_friendly_error
     err = assert_raises(GBA::LoweringError) do
-      lower(program(display(:bitmap), dma_fill_rect(0, 0, 3, 2, :red), halt))
+      lower(program(screen(:bitmap), dma_fill_rect(0, 0, 3, 2, :red), halt))
     end
     assert_match(/even/, err.message)
   end
@@ -402,7 +402,7 @@ class TestIRBackendGBA < Minitest::Test
 
   def test_play_song_drives_the_music_channel
     rom = lower(program(
-      display(:bitmap),
+      screen(:bitmap),
       enable_sound,
       song(:tune, events: [[1, 262], [2, 330], [3, 392]], total_frames: 8),
       loop_(wait_vblank, play_song(:tune)),
@@ -420,7 +420,7 @@ class TestIRBackendGBA < Minitest::Test
   def test_case_var_dispatches_to_the_active_scene
     # state == 1 -> the :playing scene draws blue; :title (state 0) draws red.
     rom = lower(program(
-      display(:bitmap),
+      screen(:bitmap),
       clear_screen(:black),
       set(:state, 1),
       case_(:state, 0 => :title, 1 => :playing),

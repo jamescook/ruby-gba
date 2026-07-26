@@ -243,7 +243,7 @@ class TestIRNode < Minitest::Test
 
   def test_a_full_program_covers_all_categories_headlessly
     prog = program(
-      display(:bitmap),                                          # draw
+      screen(:bitmap),                                          # draw
       enable_sound,                                             # sound
       data(:blob, "\x0a".b),                                     # data
       list_new(:trail, 4),                                       # list
