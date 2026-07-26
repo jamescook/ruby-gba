@@ -180,6 +180,50 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 
 ---
 
+## Examples
+
+Every example under [`examples/`](examples/) is a complete, runnable game or demo
+that teaches **one pattern** — the code *is* the documentation. Each file's header
+comment explains the hardware it touches and, where there's a choice, *why it took
+its approach over the alternatives*. Build any of them with `ruby examples/<name>.rb`.
+
+| Example | Teaches | How it draws |
+|---|---|---|
+| [`pong.rb`](examples/pong.rb) | Paddle/ball bounce, AABB `overlaps?` collision, scoring, music + SFX | Direct Mode 3, whole frame redrawn |
+| [`breakout.rb`](examples/breakout.rb) | A whole grid of `overlaps?` bricks, lives, angle-on-paddle-hit | Tear-free (double-buffered), whole frame redrawn |
+| [`snake.rb`](examples/snake.rb) | A growing `list` body, an `every` movement beat, live score | Direct Mode 3, **only the changed cells** redrawn |
+| [`snake_buffered.rb`](examples/snake_buffered.rb) | The *same* game written the naïve way and still tear-free | Double-buffered, whole board redrawn each frame |
+| [`pacman.rb`](examples/pacman.rb) | `sprite` poses/facing + sprite-to-sprite `overlaps?` (no boxes) | Sprites — self-repainting, no screen clear |
+| [`sprite_mover.rb`](examples/sprite_mover.rb) | Steering a single sprite over a kept background | A sprite over a preserved background |
+
+Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static
+drawing), [`grid_cursor.rb`](examples/grid_cursor.rb) (a `grid` with a moving
+cursor), [`buffered_bounce.rb`](examples/buffered_bounce.rb), and the font demos
+[`fonts.rb`](examples/fonts.rb) / [`font_styles.rb`](examples/font_styles.rb) /
+[`floating_digits.rb`](examples/floating_digits.rb).
+
+### Choosing how to draw a moving thing
+
+The examples above deliberately solve the same kind of problem more than one way.
+Which to reach for:
+
+- **A sprite** (`sprite :hero, at: [x, y]`) — when a thing moves over a background
+  you want to keep. It saves and restores the pixels underneath, so it leaves no
+  trail and you never clear the screen; two sprites also collide for free
+  (`hero.overlaps?(coin)`), since each knows its own size. *Don't* use one in a game
+  that clears and repaints the whole screen every frame — the sprite repaints itself
+  before your scene draws, so the clear would wipe it. (see `pacman.rb`, `sprite_mover.rb`)
+- **A plain `box` + `draw_rect_at`** — when you already redraw the frame, or the
+  thing isn't sprite-shaped. Collision is the same `overlaps?`. (see `pong.rb`, `breakout.rb`)
+- **Redraw only what changed** — in direct Mode 3, repaint just the few cells that
+  moved instead of the whole screen. The most work per frame, but it stays at 60fps
+  and never tears. (see `snake.rb`)
+- **Tear-free double-buffering** (`screen :bitmap, tear_free: true`) — when you'd
+  rather just clear and repaint *everything* and not think about tearing, at the cost
+  of frame rate if you draw a lot. (see `snake_buffered.rb`, `breakout.rb`)
+
+---
+
 ## Project layout
 
 ```
@@ -195,7 +239,7 @@ lib/ruby_gba/
     backends/ruby/           # interpret IR -> framebuffer (headless reference)
   asm.rb, rom.rb             # ARM encoding + cartridge assembly
   verifier.rb                # read back real pixels from mGBA (optional, via gemba)
-examples/                    # snake.rb, pong.rb, pixels.rb, sprite_mover.rb
+examples/                    # runnable games + demos (see the Examples section above)
 assets/                      # captured GIFs / screenshots
 ```
 
