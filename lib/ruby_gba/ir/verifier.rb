@@ -48,7 +48,7 @@ module RubyGBA
         int:     ->(v) { v.is_a?(Integer) },                   # a size, count, fixed coord, literal
         text:    ->(v) { v.is_a?(String) },                    # a string / packed bytes
         color:   ->(v) { v.is_a?(Symbol) || v.is_a?(String) || v.is_a?(Integer) },
-        mode:    ->(v) { v.is_a?(Symbol) || v.is_a?(Integer) }, # a display-mode name or raw register value
+        mode:    ->(v) { v.is_a?(Symbol) || v.is_a?(Integer) }, # a screen-mode name or raw register value
         tone:    ->(v) { v.is_a?(Symbol) || v.is_a?(Integer) }, # a defined-sound name or raw frequency
         list:    ->(v) { v.is_a?(Array) },                     # a resolved score / a case dispatch table
         branch:  ->(v) { v.is_a?(Node) && v.kind == :else },   # an if's else-branch node
@@ -77,8 +77,8 @@ module RubyGBA
         negate_abs: { var: :name },
         clamp:      { var: :name, min: :int, max: :int }, # bounds are author-time constants
 
-        # drawing / display
-        display:       { mode: :mode, buffered: :flag }, # buffered: opt into double buffering
+        # drawing / screen
+        screen:        { mode: :mode, buffered: :flag }, # buffered: opt into double buffering
         pixel:         { x: :value, y: :value, color: :color },
         fill_rect:     { x: :int, y: :int, w: :int, h: :int, color: :color }, # fixed position
         clear_screen:  { color: :color },

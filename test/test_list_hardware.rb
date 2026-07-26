@@ -53,7 +53,7 @@ class TestListHardware < Minitest::Test
     # Push three x positions and draw a marker at each. Both backends must place
     # markers at exactly 20/60/100 and leave the gaps between them background.
     prog = program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       list_new(:xs, 8),
       list_push(:xs, 20),
       list_push(:xs, 60),
@@ -72,7 +72,7 @@ class TestListHardware < Minitest::Test
     # index 0 must now land on 60 — this is the ring wrap in action, and both
     # backends must agree the 20 marker is gone.
     prog = program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       list_new(:xs, 8),
       list_push(:xs, 20),
       list_push(:xs, 60),
@@ -89,7 +89,7 @@ class TestListHardware < Minitest::Test
   def test_pop_drops_the_newest
     # Pop removes the last pushed (100); 20/60 remain.
     prog = program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       list_new(:xs, 8),
       list_push(:xs, 20),
       list_push(:xs, 60),
@@ -107,7 +107,7 @@ class TestListHardware < Minitest::Test
     # Shift/push repeatedly so head wraps past the end of the ring (capacity 4),
     # then overwrite index 0. Exercises (head + i) & mask for a non-zero head.
     prog = program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       list_new(:xs, 4),
       list_push(:xs, 10), list_push(:xs, 10), list_push(:xs, 10),
       list_drop(:xs, from: :front), # head -> 1
@@ -133,7 +133,7 @@ class TestListHardware < Minitest::Test
     skip_unless_gemba
 
     prog = program(
-      display(:bitmap), clear_screen(:black),
+      screen(:bitmap), clear_screen(:black),
       list_new(:xs, 2),
       list_push(:xs, 30),
       list_push(:xs, 90),

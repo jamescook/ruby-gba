@@ -29,7 +29,7 @@ class TestBufferedMode4 < Minitest::Test
   # columns (Mode 4 fills two pixels at a time). One wait_vblank presents the page.
   def diagnostic_program
     program(
-      display(:bitmap, buffered: true),
+      screen(:bitmap, buffered: true),
       clear_screen(:blue),
       dma_fill_rect(0, 0, 8, 8, :red),      # top-left
       dma_fill_rect(232, 8, 8, 8, :green),  # top-right area
@@ -79,7 +79,7 @@ class TestBufferedMode4 < Minitest::Test
     branch = if_(binop(:==, var_ref(:tick), int(0)), clear_screen(:red), set(:tick, 1))
     branch[:else] = else_(clear_screen(:green), set(:tick, 0))
     prog = program(
-      display(:bitmap, buffered: true),
+      screen(:bitmap, buffered: true),
       set(:tick, 0),
       loop_(branch, wait_vblank),
     )
@@ -97,7 +97,7 @@ class TestBufferedMode4 < Minitest::Test
 
   def test_too_many_colors_in_a_buffered_program_is_a_friendly_build_error
     many = (1..300).map { |c| dma_fill_rect(0, 0, 2, 2, c) } # 300 distinct raw colors
-    prog = program(display(:bitmap, buffered: true), *many, halt)
+    prog = program(screen(:bitmap, buffered: true), *many, halt)
     err = assert_raises(RubyGBA::IR::Palette::Overflow) { GBA.new.lower(prog) }
     assert_match(/300/, err.message)
     assert_match(/screen :bitmap/, err.message) # points at the direct-color escape hatch
@@ -111,7 +111,7 @@ class TestBufferedMode4 < Minitest::Test
   # byte; each leaves its neighbor's background intact.
   def test_pixel_and_text_render_and_preserve_the_paired_pixel
     prog = program(
-      display(:bitmap, buffered: true),
+      screen(:bitmap, buffered: true),
       clear_screen(:blue),
       pixel(10, 10, :red),    # even column -> low byte of its 16-bit unit
       pixel(11, 20, :green),  # odd column  -> high byte
@@ -169,7 +169,7 @@ class TestBufferedMode4 < Minitest::Test
   # friendly error that names the verbs that do work.
   def test_blit_is_unsupported_in_buffered_mode
     prog = program(
-      display(:bitmap, buffered: true),
+      screen(:bitmap, buffered: true),
       bitmap(:s, width: 2, height: 1, pixels: [Color.resolve(:red), Color.resolve(:blue)].pack("v*")),
       blit(:s, 0, 0),
       halt,
@@ -185,7 +185,7 @@ class TestBufferedMode4 < Minitest::Test
   # matching draw_rect_at. dma_fill_rect(3, ...) lands at x=2, spanning 2..9.
   def test_an_odd_start_column_snaps_to_even
     prog = program(
-      display(:bitmap, buffered: true),
+      screen(:bitmap, buffered: true),
       clear_screen(:blue),
       dma_fill_rect(3, 0, 8, 8, :red), # x=3 snaps to 2
       wait_vblank,                     # present the drawn page

@@ -41,7 +41,7 @@ class TestIRVerifier < Minitest::Test
     # A little program through the readable constructors — value slots hold value
     # nodes, structural slots hold literals.
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       set(:x, 5),
       loop_(
         wait_vblank,
@@ -53,13 +53,13 @@ class TestIRVerifier < Minitest::Test
     assert_same prog, Verifier.verify!(prog)
   end
 
-  # A buffered display carries a boolean flag — a structural :flag slot the
-  # verifier accepts (and it stays absent, not false, on an ordinary display).
-  def test_a_buffered_display_verifies_clean
-    prog = program(display(:bitmap, buffered: true), halt)
+  # A buffered screen carries a boolean flag — a structural :flag slot the
+  # verifier accepts (and it stays absent, not false, on an ordinary screen).
+  def test_a_buffered_screen_verifies_clean
+    prog = program(screen(:bitmap, buffered: true), halt)
     assert_same prog, Verifier.verify!(prog)
     assert_equal true, prog.children.first[:buffered]
-    refute display(:bitmap).attrs.key?(:buffered), "the flag is absent (not false) when off"
+    refute screen(:bitmap).attrs.key?(:buffered), "the flag is absent (not false) when off"
   end
 
   def test_a_folded_constant_is_a_valid_value_node

@@ -52,7 +52,7 @@ class TestRedrawEverythingGuardrail < Minitest::Test
   # drop — that's a different concern.)
   def test_quiet_when_buffered
     prog = Build.program(
-      Build.display(:bitmap, buffered: true),
+      Build.screen(:bitmap, buffered: true),
       Build.list_new(:body, 64),
       Build.loop_(
         Build.wait_vblank,
@@ -67,7 +67,7 @@ class TestRedrawEverythingGuardrail < Minitest::Test
   # buffered flag's doing, not the IR-built shape slipping past the detector.
   def test_the_same_shape_single_buffered_still_trips_it
     prog = Build.program(
-      Build.display(:bitmap, buffered: false),
+      Build.screen(:bitmap, buffered: false),
       Build.list_new(:body, 64),
       Build.loop_(
         Build.wait_vblank,

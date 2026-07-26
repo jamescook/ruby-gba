@@ -4,7 +4,7 @@ require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 require_relative "test_helper"
 
-# The shared per-scene display-mode analysis. A game can run some scenes in
+# The shared per-scene screen-mode analysis. A game can run some scenes in
 # direct color and others tear-free, and *which* scene draws in *which* mode is a
 # property of the program, not of any target machine. This one analysis answers
 # that so the backend, the palette, and the cost model all agree instead of each
@@ -15,11 +15,11 @@ class TestIRModes < Minitest::Test
 
   Modes = RubyGBA::IR::Modes
 
-  # A scene func: its display declares +mode+ (:direct/:buffered), or nil to
+  # A scene func: its screen declares +mode+ (:direct/:buffered), or nil to
   # inherit the mode it's reached in.
   def scene(name, mode, *draws)
     body = []
-    body << display(:bitmap, buffered: mode == :buffered) unless mode.nil?
+    body << screen(:bitmap, buffered: mode == :buffered) unless mode.nil?
     func(name, *body.concat(draws))
   end
 
@@ -27,7 +27,7 @@ class TestIRModes < Minitest::Test
   # +boot+ mode.
   def game(title:, play:, boot: :direct)
     program(
-      display(:bitmap, buffered: boot == :buffered),
+      screen(:bitmap, buffered: boot == :buffered),
       set(:state, int(0)),
       scene(:_scene_title, title, clear_screen(:red)),
       scene(:_scene_play, play, clear_screen(:blue)),
@@ -35,9 +35,9 @@ class TestIRModes < Minitest::Test
     )
   end
 
-  def test_default_mode_reads_the_top_level_display
-    assert_equal :direct, Modes.resolve(program(display(:bitmap))).default_mode
-    assert_equal :buffered, Modes.resolve(program(display(:bitmap, buffered: true))).default_mode
+  def test_default_mode_reads_the_top_level_screen
+    assert_equal :direct, Modes.resolve(program(screen(:bitmap))).default_mode
+    assert_equal :buffered, Modes.resolve(program(screen(:bitmap, buffered: true))).default_mode
   end
 
   # A scene that declares tear-free resolves buffered; a scene that declares
@@ -52,9 +52,9 @@ class TestIRModes < Minitest::Test
   # that mode through the call graph.
   def test_a_helper_inherits_the_calling_scenes_mode
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       set(:state, int(0)),
-      func(:paint, clear_screen(:white)), # no display of its own
+      func(:paint, clear_screen(:white)), # no screen of its own
       scene(:_scene_play, :buffered, call(:paint)),
       loop_(wait_vblank, case_(:state, [[0, :_scene_play]])),
     )
@@ -65,7 +65,7 @@ class TestIRModes < Minitest::Test
   # both ways — a friendly build error naming the routine, not a wrong screen.
   def test_a_helper_shared_across_modes_is_a_conflict
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       set(:state, int(0)),
       func(:paint, clear_screen(:white)),
       scene(:_scene_a, nil, call(:paint)),          # direct (inherits boot)
@@ -74,7 +74,7 @@ class TestIRModes < Minitest::Test
     )
     err = assert_raises(Modes::Conflict) { Modes.resolve(prog) }
     assert_match(/paint/, err.message)
-    assert_match(/shared across display modes/, err.message)
+    assert_match(/shared across screen modes/, err.message)
   end
 
   def test_mixed_when_scenes_use_different_modes
@@ -100,13 +100,13 @@ class TestIRModes < Minitest::Test
   # A program that boots buffered contributes its main body (top-level draws) as a
   # buffered scope too, not just its funcs.
   def test_buffered_boot_includes_the_main_body
-    prog = program(display(:bitmap, buffered: true), clear_screen(:blue), loop_(wait_vblank))
+    prog = program(screen(:bitmap, buffered: true), clear_screen(:blue), loop_(wait_vblank))
     scopes = Modes.resolve(prog).buffered_scopes
     assert(scopes.any? { |node| node.kind == :clear_screen || node.walk.any? { |n| n.kind == :clear_screen } })
   end
 
   def test_mode_of_an_unreached_func_is_the_boot_mode
-    prog = program(display(:bitmap, buffered: true), func(:never_called, clear_screen(:red)), loop_(wait_vblank))
+    prog = program(screen(:bitmap, buffered: true), func(:never_called, clear_screen(:red)), loop_(wait_vblank))
     assert_equal :buffered, Modes.resolve(prog).mode_of(:never_called) # falls back to boot
   end
 

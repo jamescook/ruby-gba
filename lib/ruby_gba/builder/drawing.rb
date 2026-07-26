@@ -2,12 +2,12 @@
 
 module RubyGBA
   class Builder
-    # The bitmap drawing verbs: pick a display mode, then put color on the screen —
+    # The bitmap drawing verbs: pick a screen mode, then put color on the screen —
     # single pixels, filled rectangles (fixed or run-time positioned), a whole-screen
     # clear. A concern of {Builder}, mixed in so these stay flat DSL verbs.
     #
     # It includes Constants for the hardware register values behind the friendly
-    # names — the MODE_*/BG*_ENABLE bits in DISPLAY_MODES and the SCREEN_* bounds in
+    # names — the MODE_*/BG*_ENABLE bits in SCREEN_MODES and the SCREEN_* bounds in
     # validate_coords! (a concern doesn't inherit Builder's own Constants include).
     module Drawing
       include Constants
@@ -15,7 +15,7 @@ module RubyGBA
       # Friendly screen mode presets — the names {#screen} accepts. The tear-proof
       # double-buffered screen isn't a separate name here: it's `screen :bitmap,
       # tear_free: true` (which selects Mode 4 with an auto-built palette).
-      DISPLAY_MODES = {
+      SCREEN_MODES = {
         bitmap: MODE_3 | BG2_ENABLE, # 240x160 pixel canvas, 15-bit direct color
         tiled:  MODE_0 | BG0_ENABLE, # 4 regular tile/sprite background layers (most games)
         affine: MODE_2 | BG2_ENABLE, # 2 rotatable/scalable background layers
@@ -44,8 +44,8 @@ module RubyGBA
       def screen(mode, tear_free: false)
         case mode
         when Symbol
-          unless DISPLAY_MODES.key?(mode)
-            raise ArgumentError, "unknown screen mode: #{mode}. Known: #{DISPLAY_MODES.keys.join(', ')}"
+          unless SCREEN_MODES.key?(mode)
+            raise ArgumentError, "unknown screen mode: #{mode}. Known: #{SCREEN_MODES.keys.join(', ')}"
           end
         when Integer
           # a raw REG_DISPCNT value — passed through untouched
@@ -59,7 +59,7 @@ module RubyGBA
                 "double-buffered screen; #{mode.inspect} doesn't support it"
         end
 
-        record(Build.display(mode, buffered: tear_free))
+        record(Build.screen(mode, buffered: tear_free))
       end
 
       # Draw a single pixel in bitmap mode (MODE_3).

@@ -156,7 +156,7 @@ module RubyGBA
 end
 
 require_relative "guardrails/frame_reach"
-require_relative "guardrails/display_mode_set"
+require_relative "guardrails/screen_mode_set"
 require_relative "guardrails/vblank_sync"
 require_relative "guardrails/termination"
 require_relative "guardrails/off_screen_draw"
@@ -175,7 +175,7 @@ module RubyGBA
       # Guardrails.default_checks appends whatever's been registered on top of
       # these; instantiate a Validator with your own list to run a different set.
       BUILTIN_CHECKS = [
-        Checks::DisplayModeSet.new,
+        Checks::ScreenModeSet.new,
         Checks::VblankSync.new,
         Checks::Termination.new,
         Checks::OffScreenDraw.new,

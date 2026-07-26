@@ -67,7 +67,7 @@ class TestIRPortability < Minitest::Test
   # ---- a program's tier is the floor over its nodes ----
 
   def test_an_all_portable_program_is_portable
-    prog = program(display(:bitmap), set(:x, 1), draw_rect_at(var_ref(:x), int(0), 4, 4, :red), halt)
+    prog = program(screen(:bitmap), set(:x, 1), draw_rect_at(var_ref(:x), int(0), 4, 4, :red), halt)
     assert_equal :portable, Portability.program_tier(prog)
     assert_empty Portability.hardware_only_kinds_in(prog)
   end
@@ -76,7 +76,7 @@ class TestIRPortability < Minitest::Test
     # Even tucked in an uncalled func, a raw node drags the program's tier down —
     # the floor is over every node in the tree, reached or not.
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       func(:never_called, raw("\x00\x00\x00\x00".b)),
       halt,
     )

@@ -33,7 +33,7 @@ module RubyGBA
         # otherwise-endless game loop and then inspect the state.
         DEFAULT_MAX_STEPS = 1_000_000
 
-        attr_reader :vars, :screen, :log, :frame, :display_mode, :buffered, :audio
+        attr_reader :vars, :screen, :log, :frame, :screen_mode, :buffered, :audio
 
         def initialize
           @vars = Hash.new(0)      # variable store; an unwritten variable reads as 0
@@ -43,7 +43,7 @@ module RubyGBA
           @prev_held = Set.new     # buttons down at the previous vblank (for edges)
           @input_script = nil      # optional ->(frame) { buttons } to drive input over time
           @frame = 0               # vblanks elapsed
-          @display_mode = nil      # the mode a `display` op selected, if any
+          @screen_mode = nil       # the mode a `screen` op selected, if any
           @buffered = false        # whether that mode opted into double buffering
           @log = []               # observable events: [:vblank, n], [:halt]
           @defined_sounds = {}     # name -> musical params (from define_sound)
@@ -237,7 +237,7 @@ module RubyGBA
             throw :halt
           when :wait_vblank
             advance_frame
-          when :display
+          when :screen
             # Just remember the chosen mode; the fake screen already models the
             # bitmap the draw ops assume. Double buffering (node[:buffered]) needs
             # no different handling here: it only changes *when* a drawn frame
@@ -245,7 +245,7 @@ module RubyGBA
             # settled end-of-frame image — so a torn mid-frame never existed to
             # begin with. Recording the flag keeps the interpreter honest about
             # what the program asked for.
-            @display_mode = node[:mode]
+            @screen_mode = node[:mode]
             @buffered = node[:buffered] || false
           when :clear_screen
             @screen.clear(resolve_color(node[:color]))

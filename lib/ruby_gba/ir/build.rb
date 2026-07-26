@@ -10,7 +10,7 @@ module RubyGBA
     #   include RubyGBA::IR::Build   # or call as Build.set(...)
     #
     #   program(
-    #     display(:bitmap),
+    #     screen(:bitmap),
     #     set(:x, 100),
     #     loop_(
     #       wait_vblank,
@@ -69,18 +69,18 @@ module RubyGBA
         Node.new(:clamp, var: var, min: min, max: max)
       end
 
-      # --- drawing / display operations ---
+      # --- drawing / screen operations ---
 
-      # Select the display mode. +buffered+ opts a bitmap mode into double
+      # Pick a screen mode. +buffered+ opts a bitmap mode into double
       # buffering — drawing goes to a hidden page and is shown all at once, so the
       # picture can never tear no matter how much is drawn. It's off by default and
       # only meaningful for a bitmap mode; the flag rides on the node so a backend
       # (and the cost estimator) can tell the two apart. Absent when off, so an
-      # ordinary display node is unchanged.
-      def display(mode, buffered: false)
+      # ordinary screen node is unchanged.
+      def screen(mode, buffered: false)
         attrs = { mode: mode }
         attrs[:buffered] = true if buffered
-        Node.new(:display, **attrs)
+        Node.new(:screen, **attrs)
       end
 
       def pixel(x, y, color)

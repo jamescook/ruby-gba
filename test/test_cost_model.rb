@@ -54,7 +54,7 @@ class TestCostModel < Minitest::Test
   # DSL doesn't expose yet.
   def loop_of_clears(n, buffered:)
     Build.program(
-      Build.display(:bitmap, buffered: buffered),
+      Build.screen(:bitmap, buffered: buffered),
       Build.loop_(Build.wait_vblank, *Array.new(n) { Build.clear_screen(:black) }),
     )
   end
@@ -63,7 +63,7 @@ class TestCostModel < Minitest::Test
   # definition — so a game's sprites weigh in the estimate, not silently as zero.
   def test_blit_costs_its_image_footprint
     prog = Build.program(
-      Build.display(:bitmap),
+      Build.screen(:bitmap),
       Build.bitmap(:ship, width: 8, height: 4, pixels: Array.new(32, 0).pack("v*"), transparent: nil),
       Build.loop_(Build.wait_vblank, Build.blit(:ship, Build.int(0), Build.int(0))),
     )
@@ -85,7 +85,7 @@ class TestCostModel < Minitest::Test
   def test_a_transparent_blit_costs_more_than_an_opaque_one
     def blit_of(transparent)
       Build.program(
-        Build.display(:bitmap),
+        Build.screen(:bitmap),
         Build.bitmap(:s, width: 8, height: 8, pixels: Array.new(64, 0).pack("v*"),
                          transparent: transparent),
         Build.loop_(Build.wait_vblank, Build.blit(:s, Build.int(0), Build.int(0))),
@@ -458,7 +458,7 @@ class TestCostModel < Minitest::Test
 
   # The SAME drawing is judged against a different budget by mode: the brief
   # vblank window single-buffered, the whole frame (much larger) double-buffered.
-  def test_buffered_display_is_judged_against_the_whole_frame_budget
+  def test_buffered_screen_is_judged_against_the_whole_frame_budget
     single = loop_of_clears(3, buffered: false) # 3 whole-screen clears a frame
     double = loop_of_clears(3, buffered: true)
 
@@ -519,10 +519,10 @@ class TestPerSceneCost < Minitest::Test
   # mode is explicit.
   def mixed(direct_clears:, buffered_clears:)
     program(
-      display(:bitmap),                       # boot: direct color
+      screen(:bitmap),                       # boot: direct color
       set(:state, int(0)),
       func(:_scene_still, *Array.new(direct_clears) { clear_screen(:black) }), # inherits direct
-      func(:_scene_action, display(:bitmap, buffered: true),
+      func(:_scene_action, screen(:bitmap, buffered: true),
            *Array.new(buffered_clears) { clear_screen(:black) }),             # declares tear-free
       loop_(wait_vblank, case_(:state, [[0, :_scene_still], [1, :_scene_action]])),
     )
@@ -614,7 +614,7 @@ class TestSoundCost < Minitest::Test
   # A game that plays an +n+-note song every frame, optionally drawing +draw+ too.
   def music_game(n, draw: nil)
     program(
-      display(:bitmap),
+      screen(:bitmap),
       song_of(n),
       loop_(wait_vblank, play_song(:theme), *[draw].compact),
     )
@@ -631,7 +631,7 @@ class TestSoundCost < Minitest::Test
 
   # A beep is a small fixed burst of writes to the sound registers.
   def test_a_beep_costs_its_sound_register_writes
-    prog = program(display(:bitmap), enable_sound, loop_(wait_vblank, beep(440)))
+    prog = program(screen(:bitmap), enable_sound, loop_(wait_vblank, beep(440)))
     near Cost::BEEP_WRITES * WEIGHTS[:sound_write], Cost.new.steady_cost(prog)
   end
 

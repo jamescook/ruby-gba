@@ -170,11 +170,11 @@ module RubyGBA
         program.children.any? { |node| node.kind == :loop }
       end
 
-      # Whether the program opted into double buffering (a `buffered:` display).
+      # Whether the program opted into double buffering (a `buffered:` screen).
       # This decides which budget applies and how going over it reads: a torn
       # picture (single-buffer) versus a dropped frame (double-buffer).
       def buffered?(program)
-        program.walk.any? { |node| node.kind == :display && node[:buffered] }
+        program.walk.any? { |node| node.kind == :screen && node[:buffered] }
       end
 
       # The per-frame draw budget that applies to this program: the whole frame
@@ -183,14 +183,14 @@ module RubyGBA
         buffered?(program) ? FRAME_BUDGET : VBLANK_BUDGET
       end
 
-      # The budget a single display mode gets: the whole frame when buffered (it
+      # The budget a single screen mode gets: the whole frame when buffered (it
       # draws to a hidden page shown all at once, so it can't tear), otherwise just
       # the brief safe window before the visible frame starts.
       def mode_budget(mode)
         mode == Modes::BUFFERED ? FRAME_BUDGET : VBLANK_BUDGET
       end
 
-      # Whether the program mixes display modes across its scenes (some direct,
+      # Whether the program mixes screen modes across its scenes (some direct,
       # some tear-free). When it does, one whole-program budget is meaningless —
       # each scene has to be judged against its own mode's budget (#scene_verdicts).
       def mixed?(program)

@@ -16,7 +16,7 @@ class TestMusicBudgetGuardrail < Minitest::Test
   # A game that plays an +n+-note song every frame.
   def game_playing(n)
     program(
-      display(:bitmap),
+      screen(:bitmap),
       song(:theme, events: Array.new(n) { |i| [i, 440] }, total_frames: n),
       loop_(wait_vblank, play_song(:theme)),
     )
@@ -39,7 +39,7 @@ class TestMusicBudgetGuardrail < Minitest::Test
 
   # No music, nothing to say.
   def test_quiet_when_there_is_no_music
-    prog = program(display(:bitmap), loop_(wait_vblank, clear_screen(:black)))
+    prog = program(screen(:bitmap), loop_(wait_vblank, clear_screen(:black)))
     assert_empty Check.new.detect(prog)
   end
 
@@ -47,7 +47,7 @@ class TestMusicBudgetGuardrail < Minitest::Test
   # per-frame chain to warn about even for a long score.
   def test_quiet_without_a_game_loop
     prog = program(
-      display(:bitmap),
+      screen(:bitmap),
       song(:theme, events: Array.new(300) { |i| [i, 440] }, total_frames: 300),
       play_song(:theme),
       halt,

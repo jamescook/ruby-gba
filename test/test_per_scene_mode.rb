@@ -4,7 +4,7 @@ require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 require_relative "test_helper"
 
-# Per-scene display mode: a game can run different scenes in different display
+# Per-scene screen mode: a game can run different scenes in different screen
 # modes, switching the hardware as each scene takes over. The common shape is a
 # colorful direct-color title (Mode 3, no tear risk because it's static) and a
 # heavy-redraw gameplay scene in tear-proof double buffering (Mode 4). A scene
@@ -84,13 +84,13 @@ class TestPerSceneMode < Minitest::Test
   # the old whole-program collection would have tripped a false overflow.
   def test_a_colorful_direct_scene_does_not_overflow_the_buffered_palette
     prog = Build.program(
-      Build.display(:bitmap),        # boot: direct color
+      Build.screen(:bitmap),        # boot: direct color
       Build.set(:state, Build.int(0)),
       # A direct scene painting 250 distinct raw colors — far past the 256-slot
       # table, but direct color needs no palette, so none of these count toward it.
       Build.func(:_scene_gallery, *(1..250).map { |c| Build.pixel(0, 0, c) }),
       # The buffered scene uses just a few colors.
-      Build.func(:_scene_play, Build.display(:bitmap, buffered: true),
+      Build.func(:_scene_play, Build.screen(:bitmap, buffered: true),
                  Build.clear_screen(:blue), Build.dma_fill_rect(0, 0, 8, 8, :green)),
       Build.loop_(Build.wait_vblank,
                   Build.case_(:state, [[0, :_scene_gallery], [1, :_scene_play]])),
@@ -131,6 +131,6 @@ class TestPerSceneMode < Minitest::Test
 
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(prog) }
     assert_match(/paint/, err.message)
-    assert_match(/shared across display modes/, err.message)
+    assert_match(/shared across screen modes/, err.message)
   end
 end

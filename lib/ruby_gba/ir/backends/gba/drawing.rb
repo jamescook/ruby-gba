@@ -4,23 +4,23 @@ module RubyGBA
   module IR
     module Backends
       class GBA
-        # Direct-color (Mode 3) drawing, and the display-mode/page management around it.
+        # Direct-color (Mode 3) drawing, and the screen-mode/page management around it.
         module Drawing
           include Constants
 
           # Turn the screen on by writing the chosen mode to the display-control
           # register. Until this runs the screen stays black.
           #
-          # In a program that uses double buffering, the display mode is managed for
+          # In a program that uses double buffering, the screen mode is managed for
           # the whole program by the boot setup and each scene's mode-switch preamble,
-          # so a `display` node is only a build-time declaration of a scene's mode and
+          # so a `screen` node is only a build-time declaration of a scene's mode and
           # emits nothing here. Otherwise it's the plain one-time register write.
-          def emit_display(node)
+          def emit_screen(node)
             return if @any_buffered
 
             mode = node[:mode]
-            value = mode.is_a?(Integer) ? mode : DISPLAY_MODES.fetch(mode) do
-              raise LoweringError, "the GBA backend cannot lower display mode #{mode.inspect} yet"
+            value = mode.is_a?(Integer) ? mode : SCREEN_MODES.fetch(mode) do
+              raise LoweringError, "the GBA backend cannot lower screen mode #{mode.inspect} yet"
             end
             write_reg16(REG_DISPCNT, value)
           end
@@ -29,7 +29,7 @@ module RubyGBA
           # table (palette memory keeps it across mode switches) and put the hardware
           # in the default scene's mode. Buffered starts by showing page 0 and drawing
           # into page 1; direct is the plain Mode 3 write.
-          def emit_boot_display
+          def emit_boot_screen
             upload_palette
             if @default_mode == :buffered
               enter_buffered_mode
@@ -504,14 +504,14 @@ module RubyGBA
           # time a small loop looks up the chosen glyph and stamps its set pixels — the
           # same idea as blitting an image. It costs one shared loop plus a few dozen
           # bytes of glyph data, instead of baking every pixel of all ten digits into the
-          # code. Each display mode plots a pixel differently — direct color writes a
+          # code. Each screen mode plots a pixel differently — direct color writes a
           # color, the tear-free screen splices a palette index — but the glyph-walking
           # loop is the same one (emit_digit_glyph_loop).
           #
           # Fan-out (the fallback — a column crossing a screen edge, or a font with wide,
           # ragged, or missing digits): expand to ten mutually exclusive guards, one per
           # digit, exactly one of which draws. Each is a draw_text that clips per pixel
-          # and honors the display mode.
+          # and honors the screen mode.
           def emit_draw_digit(node)
             font = Fonts.get(node[:font])
             x = const_int(node[:x])
@@ -530,7 +530,7 @@ module RubyGBA
 
           # The fan-out fallback: ten guarded draw_texts, exactly one of which matches
           # the value and draws. Built as a sub-tree and emitted through the shared
-          # statement paths, so it honors the current display mode via draw_text.
+          # statement paths, so it honors the current screen mode via draw_text.
           def emit_draw_digit_unrolled(node)
             10.times do |k|
               emit_statement(Build.if_(Build.binop(:==, node[:value], Build.int(k)),

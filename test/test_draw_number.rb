@@ -192,7 +192,7 @@ class TestDrawNumber < Minitest::Test
   # One draw_digit node at (x, y), reading a run-time variable.
   def digit_program_at(x, y)
     Build.program(
-      Build.display(:bitmap), Build.set(:d, 0),
+      Build.screen(:bitmap), Build.set(:d, 0),
       Build.loop_(Build.wait_vblank, Build.draw_digit(Build.var_ref(:d), x, y, :white), Build.halt),
     )
   end
@@ -200,7 +200,7 @@ class TestDrawNumber < Minitest::Test
   # The same drawing spelled out as the ten-way fan-out the backend falls back to.
   def digit_fan_out_at(x, y)
     Build.program(
-      Build.display(:bitmap), Build.set(:d, 0),
+      Build.screen(:bitmap), Build.set(:d, 0),
       Build.loop_(Build.wait_vblank,
                   *(0..9).map do |k|
                     Build.if_(Build.binop(:==, Build.var_ref(:d), Build.int(k)),

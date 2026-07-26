@@ -16,7 +16,7 @@ require_relative "lib/ruby_gba"
 # A trimmed slice of examples/snake.rb — see that file for the full, commented game.
 # (Grid constants like CELL, MIN_COL, BODY_CAP and the STEP beat are defined there.)
 rom = RubyGBA.build("SNAKE", code: "BSNK", maker: "01") do
-  display :bitmap
+  screen :bitmap
   enable_sound
   define_sound :eat, frequency: 880, duty: :quarter, decay: :fast
 
@@ -86,11 +86,11 @@ rake test                  # unit + (optional) emulator integration tests
 
 ### Teaching tool first — hide the hardware
 
-Every user-facing verb speaks intent and color *names*, never registers or jargon. `display :bitmap`, `draw_rect_at`, `beep :eat`, `clear_screen :black`. The framework owns the palette, VRAM layout, VBlank timing, and DMA. Sensible, safe defaults (edge-clipping, safe writes) mean nothing corrupts memory or silently fails — and a **raw escape hatch** stays available for anyone who *wants* to drop down to the metal.
+Every user-facing verb speaks intent and color *names*, never registers or jargon. `screen :bitmap`, `draw_rect_at`, `beep :eat`, `clear_screen :black`. The framework owns the palette, VRAM layout, VBlank timing, and DMA. Sensible, safe defaults (edge-clipping, safe writes) mean nothing corrupts memory or silently fails — and a **raw escape hatch** stays available for anyone who *wants* to drop down to the metal.
 
 ### Guardrails — footguns become teaching errors
 
-The worst part of learning the GBA is that mistakes rarely tell you *what* went wrong. A wrong register, a draw that runs off-screen, an 8-bit store into 16-bit-only memory — and you get a silent black screen, or garbled visuals, or memory corruption that surfaces somewhere unrelated, or a ROM that works in one emulator and hangs on real hardware. The failure is almost never next to its cause. So known footguns are caught at **build time** and explained in plain language: *drew something but never set a display mode*, *game loop that never waits for the screen*, *a draw that lands entirely off-screen*, *a comparison used as a native Ruby `if`*. Fatal problems stop the build so a broken ROM can't ship; advisories print and let it through. Fixes are **suggested, never silently applied** (opt-in `--auto-fix` is planned). The check registry is **extensible** — a feature or plugin can register its own guardrails.
+The worst part of learning the GBA is that mistakes rarely tell you *what* went wrong. A wrong register, a draw that runs off-screen, an 8-bit store into 16-bit-only memory — and you get a silent black screen, or garbled visuals, or memory corruption that surfaces somewhere unrelated, or a ROM that works in one emulator and hangs on real hardware. The failure is almost never next to its cause. So known footguns are caught at **build time** and explained in plain language: *drew something but never set a screen mode*, *game loop that never waits for the screen*, *a draw that lands entirely off-screen*, *a comparison used as a native Ruby `if`*. Fatal problems stop the build so a broken ROM can't ship; advisories print and let it through. Fixes are **suggested, never silently applied** (opt-in `--auto-fix` is planned). The check registry is **extensible** — a feature or plugin can register its own guardrails.
 
 ### The value-centric DSL — why it matters
 
