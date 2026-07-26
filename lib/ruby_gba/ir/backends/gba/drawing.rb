@@ -499,24 +499,30 @@ module RubyGBA
           # run-time value the way an array is, so there are two ways to render it, and
           # the cheaper one is picked here.
           #
-          # Data-driven (used for a direct-color column that sits fully on-screen with a
-          # font no wider than a byte): the ten digit glyphs are embedded once as ROM
-          # data, and at run time a small loop looks up the chosen glyph and stamps its
-          # set pixels — the same idea as blitting an image. It costs one shared loop
-          # plus a few dozen bytes of glyph data, instead of baking every pixel of all
-          # ten digits into the code.
+          # Data-driven (used for a column that sits fully on-screen with a font no wider
+          # than a byte): the ten digit glyphs are embedded once as ROM data, and at run
+          # time a small loop looks up the chosen glyph and stamps its set pixels — the
+          # same idea as blitting an image. It costs one shared loop plus a few dozen
+          # bytes of glyph data, instead of baking every pixel of all ten digits into the
+          # code. Each display mode plots a pixel differently — direct color writes a
+          # color, the tear-free screen splices a palette index — but the glyph-walking
+          # loop is the same one (emit_digit_glyph_loop).
           #
-          # Fan-out (the fallback — a column crossing a screen edge, the tear-free
-          # indexed screen, or a wide font): expand to ten mutually exclusive guards,
-          # one per digit, exactly one of which draws. Each is a draw_text that clips
-          # per pixel and honors the display mode.
+          # Fan-out (the fallback — a column crossing a screen edge, or a font with wide,
+          # ragged, or missing digits): expand to ten mutually exclusive guards, one per
+          # digit, exactly one of which draws. Each is a draw_text that clips per pixel
+          # and honors the display mode.
           def emit_draw_digit(node)
             font = Fonts.get(node[:font])
             x = const_int(node[:x])
             y = const_int(node[:y])
             digit_w = uniform_digit_width(font)
-            if @lower_mode == :direct && x && y && digit_w && digit_cell_on_screen?(x, y, digit_w, font.height)
-              emit_draw_digit_data(node, font, digit_w, x, y)
+            if x && y && digit_w && digit_cell_on_screen?(x, y, digit_w, font.height)
+              if @lower_mode == :buffered
+                emit_draw_digit_data_buffered(node, font, digit_w, x, y)
+              else
+                emit_draw_digit_data(node, font, digit_w, x, y)
+              end
             else
               emit_draw_digit_unrolled(node)
             end
@@ -532,21 +538,33 @@ module RubyGBA
             end
           end
 
-          # Render one run-time digit from an embedded glyph table (direct color, the
-          # column already known to be on-screen). The ten glyphs live in ROM as row
-          # bytes — glyph d starts at d*height, one byte per row, the low +width+ bits
-          # of each byte being that row (leftmost pixel = the top bit). +width+ is the
-          # digits' shared width (the caller has checked all ten match). Walk the chosen
-          # glyph's rows and columns, writing the color wherever a bit is set.
-          #
-          # Only the digit is a run-time value; x, y and the color are constants and the
-          # cell is on-screen, so the loop needs no clipping — it just recomputes each
-          # set pixel's screen address. Registers held across the loop: r4 column, r5
-          # row, r6 the glyph's row pointer, r7 the current row byte, r8 the color.
-          # r0–r3 are per-pixel scratch.
+          # Render one run-time digit from an embedded glyph table (direct color). Walk
+          # the chosen glyph and write the color straight to VRAM at each lit pixel — the
+          # shared glyph loop does the walking; this supplies the direct-color plot.
           def emit_draw_digit_data(node, font, width, x, y)
-            table = ensure_digit_table(node[:font], font)
             color = Color.resolve(node[:color])
+            emit_digit_glyph_loop(node, font, width) do |phase|
+              case phase
+              when :hold then emit(ASM.load_immediate(8, color)) # r8 = the fill color, held
+              when :plot then emit_plot_digit_pixel(x, y)
+              end
+            end
+          end
+
+          # Walk the ten-glyph table for the run-time digit, calling +block+ once per set
+          # pixel to plot it — the shared skeleton behind the direct and tear-free digit
+          # renders. The ten glyphs live in ROM as row bytes (glyph d at d*height, one
+          # byte per row, the low +width+ bits being that row, leftmost = the top bit).
+          # +width+ is the digits' shared width (the caller checked all ten match) and
+          # the cell is on-screen, so the walk needs no clipping.
+          #
+          # The block is called with :hold once — after the glyph pointer is set up, to
+          # load any register the plot keeps for the whole glyph — and with :plot for
+          # each lit pixel, when r5 (row) and r4 (column) are live. Registers held across
+          # the loop: r4 column, r5 row, r6 the glyph's row pointer, r7 the current row
+          # byte; r0–r3 are per-pixel scratch and the plot owns r8 up.
+          def emit_digit_glyph_loop(node, font, width)
+            table = ensure_digit_table(node[:font], font)
             top_bit = 1 << (width - 1)
 
             eval_value(node[:value])              # r0 = the digit (0..9)
@@ -554,7 +572,7 @@ module RubyGBA
             emit(ASM.load_immediate(2, font.height))
             emit(ASM.mul(3, 0, 2))                # r3 = digit * height (its row offset)
             emit(ASM.add_reg(6, 1, 3))            # r6 = &glyph[digit], row 0
-            emit(ASM.load_immediate(8, color))    # r8 = the fill color, held for the glyph
+            yield :hold                           # the plot loads its per-glyph register(s)
             emit(ASM.load_immediate(5, 0))        # r5 = row = 0
 
             row_loop = gensym
@@ -567,7 +585,7 @@ module RubyGBA
             next_col = gensym
             emit(ASM.tst_imm(7, top_bit))         # is the leftmost remaining column lit?
             emit_branch(:bcond, next_col, cond: :eq)
-            emit_plot_digit_pixel(x, y)           # yes: stamp it
+            yield :plot                           # yes: stamp it
             place_label(next_col)
             emit(ASM.lsl_imm(7, 7, 1))            # shift the next column into the top bit
             emit(ASM.add_imm(4, 4, 1))
@@ -581,7 +599,7 @@ module RubyGBA
           end
 
           # Stamp the current glyph pixel: screen = VRAM + ((y+row)*W + (x+col))*2, in
-          # the held color. x/y are the constant cell origin; r5/r4 are the live
+          # the held color (r8). x/y are the constant cell origin; r5/r4 are the live
           # row/col. Uses r0–r3 as scratch and leaves the loop registers alone.
           def emit_plot_digit_pixel(x, y)
             emit_add_const(0, 5, y, 1)            # r0 = screen_y = y + row
