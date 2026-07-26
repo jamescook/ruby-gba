@@ -139,6 +139,50 @@ module RubyGBA
             end
           end
 
+          # Render one run-time digit on the hidden page from the embedded glyph table —
+          # the tear-free (indexed) counterpart of emit_draw_digit_data. It walks the ten
+          # digit glyphs with the same shared loop, but plots a palette index into VRAM
+          # instead of a color. The hidden page base flips each frame, so it's held live
+          # in r9 for the whole glyph; the index is a build-time constant.
+          def emit_draw_digit_data_buffered(node, font, width, x, y)
+            index = @palette.index_of(node[:color])
+            emit_digit_glyph_loop(node, font, width) do |phase|
+              case phase
+              when :hold then load_var(9, BACKBUF)         # r9 = the hidden page base, held
+              when :plot then emit_plot_digit_index(x, y, index)
+              end
+            end
+          end
+
+          # Splice one glyph pixel's palette index onto the hidden page: find its byte at
+          # (x+col, y+row), read the 16-bit unit that contains it, overwrite just that
+          # pixel's byte — low for an even column, high for an odd one — and write it
+          # back, since the indexed screen can't take a lone byte write. r9 holds the page
+          # base; r5/r4 are the live row/col; r0–r3 are scratch.
+          def emit_plot_digit_index(x, y, index)
+            emit_add_const(0, 5, y, 1)              # r0 = screen_y = y + row
+            emit(ASM.load_immediate(1, SCREEN_WIDTH))
+            emit(ASM.mul(2, 0, 1))                  # r2 = screen_y * width
+            emit_add_const(0, 4, x, 1)              # r0 = screen_x = x + col
+            emit(ASM.add_reg(2, 2, 0))              # r2 = byte offset = screen_y*width + screen_x
+            emit(ASM.add_reg(1, 9, 2))              # r1 = page_base + offset (the pixel's byte, maybe odd)
+            emit(ASM.lsr_imm(1, 1, 1))              # clear the low bit ->
+            emit(ASM.lsl_imm(1, 1, 1))              # r1 = the containing 16-bit unit's address
+            emit(ASM.load_halfword(0, 1))           # r0 = the current pixel pair
+            # width is even, so the offset's parity is the column's: 0 = low/even byte.
+            emit(ASM.and_imm(3, 2, 1))              # r3 = screen_x & 1
+            emit(ASM.cmp_imm(3, 0))
+            high = gensym
+            done = gensym
+            emit_branch(:bcond, high, cond: :ne)
+            splice_index_byte(0, index, false)      # even column: the low byte
+            emit_branch(:b, done)
+            place_label(high)
+            splice_index_byte(0, index, true)       # odd column: the high byte
+            place_label(done)
+            emit(ASM.store_halfword(0, 1))          # write the spliced pair back
+          end
+
           # Plot one pixel on the hidden page. With constant coordinates the target
           # half is known while building; with a computed coordinate it's found from
           # the live x at run time.
