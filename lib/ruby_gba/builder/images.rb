@@ -187,15 +187,12 @@ module RubyGBA
       # A `screen :tiled` sprite: the console draws it in hardware. Reserve a name for
       # it, boot its position and visibility, and declare it as a composited object
       # the framework draws each frame (see Builder#wait_vblank). The handle mirrors a
-      # software Sprite's, so game code reads the same in either mode.
+      # software Sprite's, so game code reads the same in either mode — including
+      # `facing:` poses, which on hardware swap which of the sprite's uploaded pictures
+      # the console draws (the tile data is managed for you).
       def hardware_sprite(name, at:, facing:, shown:)
-        if facing
-          raise ArgumentError,
-                "a `screen :tiled` sprite can't take `facing:` poses yet — that's a following slice. " \
-                "For now give it a single image, or use `screen :bitmap` for pose-swapping sprites."
-        end
-        width, height = @images[name] || raise(ArgumentError,
-              "sprite :#{name} needs an image named :#{name} — define it first with `image :#{name}, ...`")
+        poses, facing_dirs, width, height = resolve_sprite_art(name, facing)
+        poses ||= [name] # a plain sprite is a single-pose object
         start_x, start_y = at
 
         id = (@sprite_seq += 1)
@@ -203,19 +200,26 @@ module RubyGBA
         pos_x = :"__obj#{id}_x"
         pos_y = :"__obj#{id}_y"
         active = :"__obj#{id}_on"
+        facing_var = (:"__obj#{id}_face" if facing) # holds which pose is showing
 
         # Boot the hidden state (console RAM isn't zero at power-on): its start
-        # position and whether it begins shown.
-        { pos_x => start_x, pos_y => start_y, active => (shown ? 1 : 0) }.each do |var_name, value|
+        # position, whether it begins shown, and (if faceted) its starting pose.
+        boot = { pos_x => start_x, pos_y => start_y, active => (shown ? 1 : 0) }
+        boot[facing_var] = 0 if facing
+        boot.each do |var_name, value|
           at_boot(Build.set(var_name, Value.node_for(value)))
           ensure_var(var_name)
         end
 
-        record(Build.object(object_name, image: name,
+        # The pose selector: a plain sprite always shows pose 0; a faceted one shows
+        # whichever pose its facing variable currently holds.
+        pose = facing ? Build.var_ref(facing_var) : Build.int(0)
+        record(Build.object(object_name, poses: poses, pose: pose,
                                          x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
                                          active: Build.var_ref(active)))
         handle = HardwareSprite.new(self, object_name: object_name, x: pos_x, y: pos_y,
-                                          active: active, width: width, height: height)
+                                          active: active, width: width, height: height,
+                                          facing_var: facing_var, facing_dirs: facing_dirs)
         @hw_sprites << handle
         handle
       end

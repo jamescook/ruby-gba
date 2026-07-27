@@ -367,9 +367,27 @@ module RubyGBA
             mask_into_acc(0x1FF)
             orr_acc(obj[:attr1_base])
             store_halfword_acc(base + 2)
-            # attr2 = first tile of this sprite (palette bank/priority left at 0)
-            write_reg16(base + 4, obj[:tile_index])
+            # attr2 = which tiles to draw = this sprite's base tile + pose * stride
+            # (palette bank/priority left at 0). A fixed pose folds to a constant.
+            emit_object_tile_number(obj, base + 4)
             place_label(done)
+          end
+
+          # Write a sprite's tile number (attr2) for this frame. The sprite's poses sit
+          # back to back in tile memory, so the pose it's showing is base + pose*stride.
+          # A constant pose (the common single-pose sprite) folds to a plain write; a
+          # variable pose (facing / animation) is computed at run time.
+          def emit_object_tile_number(obj, attr2_addr)
+            fixed = const_int(obj[:pose])
+            if fixed
+              write_reg16(attr2_addr, obj[:tile_index] + (fixed * obj[:per_pose]))
+            else
+              eval_value(obj[:pose])                          # r0 = pose index
+              emit(ASM.load_immediate(TMP, obj[:per_pose]))   # r1 = stride between poses
+              emit(ASM.mul(2, ACC, TMP))                      # r2 = pose * stride (rd must differ from rm)
+              emit_add_const(ACC, 2, obj[:tile_index], TMP)   # r0 = r2 + base tile
+              store_halfword_acc(attr2_addr)
+            end
           end
 
           # r0 &= mask, using a scratch register so any mask width is fine.

@@ -413,11 +413,23 @@ module RubyGBA
             @obj_prev[name] = nil
             next unless eval_value(obj[:active]) == 1
 
+            image = object_pose_image(obj)
+            next if image.nil? # a pose index out of range shows nothing this frame
+
             x = eval_value(obj[:x])
             y = eval_value(obj[:y])
-            blit_image(obj[:image], x, y)
+            blit_image(image, x, y)
             @obj_prev[name] = [x, y]
           end
+        end
+
+        # Which of an object's poses to draw right now — its pose selector picks one
+        # of its same-size pictures (facing a direction, or an animation frame). An
+        # index outside the set selects nothing.
+        def object_pose_image(obj)
+          poses = obj[:poses]
+          index = eval_value(obj[:pose])
+          poses[index] if index >= 0 && index < poses.length
         end
 
         # The settled scene the objects sit on — the backdrop plus every background —
@@ -432,9 +444,10 @@ module RubyGBA
         end
 
         # Put the clean scene back where an object was last drawn (its image-sized
-        # patch), erasing it before it's redrawn at its new spot.
+        # patch), erasing it before it's redrawn at its new spot. All of an object's
+        # poses are the same size, so the first pose gives the patch to restore.
         def restore_scene_rect(scene, name, (x, y))
-          bmp = @bitmaps.fetch(@objects.fetch(name)[:image])
+          bmp = @bitmaps.fetch(@objects.fetch(name)[:poses].first)
           bmp[:height].times do |row|
             bmp[:width].times do |col|
               color = scene.pixel(x + col, y + row)
