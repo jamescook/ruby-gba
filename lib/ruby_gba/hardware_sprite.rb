@@ -102,5 +102,25 @@ module RubyGBA
       y.set(py)
       self
     end
+
+    # Hide the sprite: it stops being drawn (its table slot is marked unused) and
+    # vanishes on the next frame, its spot in the layering held for when it returns.
+    # `show` brings it back at its current position. Setting the flag is all it takes
+    # — the per-frame draw reads it — so hiding an already-hidden sprite is harmless.
+    def hide
+      record(Build.set(@active, Build.int(0)))
+      self
+    end
+
+    def show
+      record(Build.set(@active, Build.int(1)))
+      self
+    end
+
+    private
+
+    def record(node)
+      @builder.record_statement(node)
+    end
   end
 end

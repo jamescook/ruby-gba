@@ -352,36 +352,89 @@ module RubyGBA
           [8, 16] => [2, 0], [8, 32] => [2, 1],  [16, 32] => [2, 2], [32, 64] => [2, 3],
         }.freeze
 
-        # attr0 bit 13: the object reads an 8-bit (256-color) palette, the same color
-        # model the tiled background uses — so a sprite's colors are ordinary named
-        # colors, no palette banks to think about.
+        # attr0 bit 13: every sprite reads an 8-bit (256-color) palette, the same color
+        # model the tiled background uses — so sprite colors are ordinary named colors,
+        # no palette banks to think about.
         OBJ_256_COLOR = 0x2000
 
-        # Turn each declared object into the two things sprite hardware needs — its
-        # picture as tiles, and the colors those tiles index — and lay them out (which
-        # slot in the sprite table, where its tiles sit in sprite memory). Done up
-        # front so the addresses exist before the per-frame draw refers to them; the
-        # boot upload (emit_boot_objects) and the per-frame draw (emit_present_objects)
-        # are the run-time halves.
-        def prepare_objects(program)
-          slot = 0
-          tile_unit = 0 # running offset into sprite tile memory, in 32-byte units
-          program.walk do |node|
-            next unless node.kind == :object
+        # Sprite tile memory: 32KB, holding all the sprites' tile pictures at once.
+        OBJ_TILE_CAPACITY = 0x8000
 
-            prepare_one_object(node, slot, tile_unit)
-            info = @objects[node[:name]]
-            slot += 1
-            tile_unit += info[:tile_units]
+        # Lay all the declared sprites out: one shared color table every sprite indexes
+        # into, then each sprite's picture as tiles and its place in the sprite table.
+        # Done up front so the addresses exist before the per-frame draw refers to them;
+        # the boot upload (emit_boot_objects) and the per-frame draw
+        # (emit_present_objects) are the run-time halves.
+        #
+        # Slots run backwards: the last-declared sprite takes the lowest table slot, and
+        # a lower slot draws in front — so a sprite declared later sits on top of one
+        # declared earlier, the same front-to-back order the interpreter and the
+        # software sprites use. That ordering is fixed at build time, which is what lets
+        # hardware sprites hold a stable stack (one reliably in front of another) that
+        # software save-under sprites can't.
+        def prepare_objects(program)
+          nodes = program.walk.select { |node| node.kind == :object }
+          if nodes.size > MAX_SPRITES
+            raise LoweringError,
+                  "#{nodes.size} sprites declared, but the console draws at most #{MAX_SPRITES} at once"
+          end
+          build_shared_object_palette(nodes)
+
+          tile_unit = 0 # running offset into sprite tile memory, in 32-byte units
+          nodes.each_with_index do |node, index|
+            prepare_one_object(node, nodes.size - 1 - index, tile_unit)
+            tile_unit += @objects[node[:name]][:tile_units]
+          end
+          return unless tile_unit * 32 > OBJ_TILE_CAPACITY
+
+          raise LoweringError,
+                "the sprites' tiles need #{tile_unit * 32} bytes — sprite tile memory holds #{OBJ_TILE_CAPACITY}. " \
+                "Use fewer or smaller sprites."
+        end
+
+        # Build the one color table every sprite shares (8-bit color has a single
+        # 256-entry palette for all sprites). Collect every color used across all the
+        # sprite pictures — index 0 reserved for see-through — so each sprite's tiles
+        # index into the same table and no sprite's colors overwrite another's.
+        def build_shared_object_palette(nodes)
+          @obj_palette = {} # 15-bit color -> palette index (1-based; 0 = see-through)
+          nodes.each do |node|
+            bmp = @bitmaps.fetch(node[:image]) do
+              raise LoweringError,
+                    "sprite object #{node[:name].inspect} references undefined image #{node[:image].inspect}"
+            end
+            scan_object_colors(bmp, @obj_palette)
+          end
+          if @obj_palette.size + 1 > 256
+            raise LoweringError,
+                  "the sprites use #{@obj_palette.size} colors between them — sprites share one 255-color set " \
+                  "(plus see-through)"
+          end
+
+          colors = Array.new(@obj_palette.size + 1, 0x0000) # entry 0 = the see-through slot
+          @obj_palette.each { |color, index| colors[index] = color }
+          @obj_palette_blob = :__obj_palette
+          @obj_palette_units = colors.size
+          @data_blobs[@obj_palette_blob] = colors.pack("v*")
+        end
+
+        # Add every non-see-through color in a sprite picture to the shared palette,
+        # each earning the next index the first time it's seen.
+        def scan_object_colors(bmp, palette)
+          pixels = bmp[:pixels]
+          transparent = bmp[:transparent]
+          (bmp[:width] * bmp[:height]).times do |i|
+            color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
+            next if transparent && color == transparent
+
+            palette[color & 0x7FFF] ||= palette.size + 1
           end
         end
 
         def prepare_one_object(node, slot, tile_unit)
           name = node[:name]
           image = node[:image]
-          bmp = @bitmaps.fetch(image) do
-            raise LoweringError, "sprite object #{name.inspect} references undefined image #{image.inspect}"
-          end
+          bmp = @bitmaps.fetch(image) # presence already checked while building the palette
           width = bmp[:width]
           height = bmp[:height]
           shape, size = OBJ_SIZES.fetch([width, height]) do
@@ -391,23 +444,11 @@ module RubyGBA
                   "#{width}x#{height}. Resize it (sprite pictures are built from 8x8 tiles)."
           end
 
-          palette = {} # color -> palette index; index 0 is reserved for see-through
-          tiles = encode_object_tiles(bmp, palette)
-          if palette.size + 1 > 256
-            raise LoweringError,
-                  "sprite #{image.inspect} uses #{palette.size} colors — a sprite is limited to 255 (plus see-through)"
-          end
-
-          colors = Array.new(palette.size + 1, 0x0000) # entry 0 = the see-through slot
-          palette.each { |color, index| colors[index] = color }
-
-          pal_blob = :"__obj_pal_#{name}"
           tile_blob = :"__obj_tiles_#{name}"
-          @data_blobs[pal_blob] = colors.pack("v*")
+          tiles = encode_object_tiles(bmp)
           @data_blobs[tile_blob] = tiles
           @objects[name] = {
             slot: slot,
-            pal: pal_blob, pal_units: colors.size,
             tiles: tile_blob, tile_units: tiles.bytesize / 32, # sprite memory counts in 32-byte units
             tile_index: tile_unit,
             width: width, height: height,
@@ -419,11 +460,10 @@ module RubyGBA
 
         # Pack a sprite's picture into 8-bit tiles the way sprite hardware reads them:
         # 8x8 tiles in reading order (left to right, top to bottom), each tile's 64
-        # pixels row by row, every pixel a palette index. A see-through pixel becomes
-        # index 0 (the reserved transparent slot); every other color earns the next
-        # palette index. Because we use 1D mapping, the tiles simply sit one after
-        # another in memory.
-        def encode_object_tiles(bmp, palette)
+        # pixels row by row, every pixel an index into the shared palette. A see-through
+        # pixel becomes index 0. Because we use 1D mapping, the tiles simply sit one
+        # after another in memory.
+        def encode_object_tiles(bmp)
           pixels = bmp[:pixels]
           width = bmp[:width]
           transparent = bmp[:transparent]
@@ -434,11 +474,7 @@ module RubyGBA
                 TILE_PX.times do |col|
                   i = (((tile_row * TILE_PX) + row) * width) + (tile_col * TILE_PX) + col
                   color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
-                  index = if transparent && color == transparent
-                            0
-                          else
-                            palette[color & 0x7FFF] ||= palette.size + 1
-                          end
+                  index = transparent && color == transparent ? 0 : @obj_palette.fetch(color & 0x7FFF)
                   bytes << index.chr
                 end
               end
