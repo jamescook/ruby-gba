@@ -399,11 +399,13 @@ module RubyGBA
         def build_shared_object_palette(nodes)
           @obj_palette = {} # 15-bit color -> palette index (1-based; 0 = see-through)
           nodes.each do |node|
-            bmp = @bitmaps.fetch(node[:image]) do
-              raise LoweringError,
-                    "sprite object #{node[:name].inspect} references undefined image #{node[:image].inspect}"
+            node[:poses].each do |image|
+              bmp = @bitmaps.fetch(image) do
+                raise LoweringError,
+                      "sprite object #{node[:name].inspect} references undefined image #{image.inspect}"
+              end
+              scan_object_colors(bmp, @obj_palette)
             end
-            scan_object_colors(bmp, @obj_palette)
           end
           if @obj_palette.size + 1 > 256
             raise LoweringError,
@@ -433,29 +435,47 @@ module RubyGBA
 
         def prepare_one_object(node, slot, tile_unit)
           name = node[:name]
-          image = node[:image]
-          bmp = @bitmaps.fetch(image) # presence already checked while building the palette
-          width = bmp[:width]
-          height = bmp[:height]
+          poses = node[:poses]
+          width, height = object_pose_size!(name, poses)
           shape, size = OBJ_SIZES.fetch([width, height]) do
             raise LoweringError,
                   "a sprite in screen :tiled must be one of these sizes: " \
-                  "#{OBJ_SIZES.keys.map { |w, h| "#{w}x#{h}" }.join(', ')} — image #{image.inspect} is " \
+                  "#{OBJ_SIZES.keys.map { |w, h| "#{w}x#{h}" }.join(', ')} — sprite #{name.inspect} is " \
                   "#{width}x#{height}. Resize it (sprite pictures are built from 8x8 tiles)."
           end
 
+          # Upload every pose's tiles back to back; the per-frame draw points the
+          # sprite at pose k by adding k * (one pose's tile count) to its tile number.
+          tiles = poses.each_with_object(+"".b) { |image, bytes| bytes << encode_object_tiles(@bitmaps.fetch(image)) }
+          per_pose = (tiles.bytesize / 32) / poses.size # tile-number stride between poses (32-byte units)
+
           tile_blob = :"__obj_tiles_#{name}"
-          tiles = encode_object_tiles(bmp)
           @data_blobs[tile_blob] = tiles
           @objects[name] = {
             slot: slot,
             tiles: tile_blob, tile_units: tiles.bytesize / 32, # sprite memory counts in 32-byte units
-            tile_index: tile_unit,
+            tile_index: tile_unit, # this sprite's base tile number
+            per_pose: per_pose,    # stride to the next pose's tiles
+            pose: node[:pose],     # the run-time pose selector (which pose to show)
             width: width, height: height,
             x: node[:x], y: node[:y], active: node[:active], # the live position/visibility operands
             attr0_base: OBJ_256_COLOR | (shape << 14),
             attr1_base: size << 14,
           }
+        end
+
+        # All of a sprite's poses share one size (they swap in place). Confirm that and
+        # return it; a size mismatch is a build error rather than a garbled sprite.
+        def object_pose_size!(name, poses)
+          sizes = poses.map do |image|
+            bmp = @bitmaps.fetch(image) # presence already checked while building the palette
+            [bmp[:width], bmp[:height]]
+          end
+          return sizes.first if sizes.uniq.size == 1
+
+          raise LoweringError,
+                "sprite #{name.inspect} has poses of different sizes " \
+                "(#{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}) — a sprite's poses must all be the same size"
         end
 
         # Pack a sprite's picture into 8-bit tiles the way sprite hardware reads them:

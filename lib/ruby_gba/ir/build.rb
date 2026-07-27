@@ -307,12 +307,16 @@ module RubyGBA
       # is; a backend realizes it however its target does (one composites in software,
       # another hands it to sprite hardware).
 
-      # Declare an object: the picture +image+, shown at the position held in the +x+
-      # and +y+ variables, drawn while +active+ is 1 (0 = hidden). x/y/active are
-      # value operands (variables the game steers). Reserves the object; #present_objects
-      # is what actually draws the declared objects for a frame.
-      def object(name, image:, x:, y:, active:)
-        Node.new(:object, name: name, image: image, x: wrap(x), y: wrap(y), active: wrap(active))
+      # Declare an object: one of its +poses+ (a list of same-size pictures) shown at
+      # the position held in the +x+ and +y+ variables, drawn while +active+ is 1
+      # (0 = hidden). +pose+ is a value operand selecting which picture to show right
+      # now (0-based) — that's how an object faces a direction or animates: a plain
+      # object has one pose and holds `pose` at 0, a facing/animated one drives it with
+      # a variable. x/y/active/pose are value operands (variables the game steers).
+      # Reserves the object; #present_objects is what actually draws it for a frame.
+      def object(name, poses:, pose:, x:, y:, active:)
+        Node.new(:object, name: name, poses: poses, pose: wrap(pose),
+                          x: wrap(x), y: wrap(y), active: wrap(active))
       end
 
       # Draw the named objects for this frame, on top of the background, in order

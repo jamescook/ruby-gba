@@ -85,18 +85,7 @@ class TestHardwareSprite < Minitest::Test
   end
 
   # --- friendly guardrails ---
-
-  def test_facing_poses_are_a_friendly_error_in_tiled_mode
-    b = Builder.new
-    b.instance_eval do
-      screen :tiled
-      image(:hero, "#" => :red) { EIGHT_BY_EIGHT }
-    end
-    err = assert_raises(ArgumentError) do
-      b.instance_eval { sprite :hero, at: [0, 0], facing: { left: :hero, right: :hero } }
-    end
-    assert_match(/facing/, err.message)
-  end
+  # (facing/poses now work in tiled mode — see test_hardware_sprite_facing.rb)
 
   def test_a_non_tile_sized_sprite_is_a_friendly_error
     b = Builder.new

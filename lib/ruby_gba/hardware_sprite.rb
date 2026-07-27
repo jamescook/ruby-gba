@@ -42,7 +42,10 @@ module RubyGBA
     # @param active [Symbol] 1 while shown, 0 while hidden
     # @param width [Integer] the sprite's pixel width (its image's), for collision bounds
     # @param height [Integer] the sprite's pixel height, for collision bounds
-    def initialize(builder, object_name:, x:, y:, active:, width:, height:)
+    # @param facing_var [Symbol, nil] the variable holding which pose is showing (faceted only)
+    # @param facing_dirs [Hash{Symbol=>Integer}, nil] direction -> pose index (faceted only)
+    def initialize(builder, object_name:, x:, y:, active:, width:, height:,
+                   facing_var: nil, facing_dirs: nil)
       @builder = builder
       @object_name = object_name
       @x_var = x
@@ -50,6 +53,8 @@ module RubyGBA
       @active = active
       @width = width
       @height = height
+      @facing_var = facing_var   # the variable the object's pose selector reads
+      @facing_dirs = facing_dirs # direction -> pose index, for face / auto-facing move
     end
 
     # The object this handle drives — Builder#wait_vblank lists it for the per-frame
@@ -89,6 +94,9 @@ module RubyGBA
         step_x, step_y = Direction.unit(direction_or_dx)
         x.add(step_x * by) unless step_x.zero?
         y.add(step_y * by) unless step_y.zero?
+        # A sprite with poses turns to face the way it moves — press left, move AND
+        # face left in one call (only for a direction it has a pose for).
+        face(direction_or_dx) if faceted? && @facing_dirs.key?(direction_or_dx)
       else
         x.add(direction_or_dx)
         y.add(dy) if dy && dy != 0
@@ -100,6 +108,22 @@ module RubyGBA
     def move_to(px, py)
       x.set(px)
       y.set(py)
+      self
+    end
+
+    # Turn the sprite to face a direction, swapping to that pose in place (no move).
+    # Only for a sprite given `facing:` poses, and only a direction it has a pose for
+    # — anything else is a friendly error. On hardware this swaps which uploaded
+    # picture the console draws; the change shows on the next frame.
+    def face(direction)
+      unless faceted?
+        raise ArgumentError,
+              "this sprite has no poses to face with — give it `facing: { left: :img_l, right: :img_r, ... }`"
+      end
+      index = @facing_dirs[direction] or
+        raise ArgumentError, "this sprite cannot face #{direction.inspect} — it faces #{@facing_dirs.keys.join(', ')}"
+
+      record(Build.set(@facing_var, Build.int(index)))
       self
     end
 
@@ -118,6 +142,10 @@ module RubyGBA
     end
 
     private
+
+    def faceted?
+      !@facing_var.nil?
+    end
 
     def record(node)
       @builder.record_statement(node)
