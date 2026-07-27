@@ -19,13 +19,29 @@ module RubyGBA
             return if @any_buffered
 
             mode = node[:mode]
-            value = mode.is_a?(Integer) ? mode : SCREEN_MODES.fetch(mode) do
-              raise LoweringError, "the GBA backend cannot lower screen mode #{mode.inspect} yet"
-            end
+            value = if mode == :tiled
+                      # Tile mode turns on exactly the background layers the program declared,
+                      # so a stack of two or three composites; a single background is just BG0.
+                      MODE_0 | tiled_bg_enable_bits
+                    elsif mode.is_a?(Integer)
+                      mode
+                    else
+                      SCREEN_MODES.fetch(mode) do
+                        raise LoweringError, "the GBA backend cannot lower screen mode #{mode.inspect} yet"
+                      end
+                    end
             # Turn the sprite layer on alongside the chosen mode when the program has
             # sprites, and pick the simple 1D tile arrangement they're packed for.
             value |= OBJ_ENABLE | OBJ_1D_MAP if @has_objects
             write_reg16(REG_DISPCNT, value)
+          end
+
+          # The DISPCNT enable bit per layer, and the OR of them for the layers this
+          # program declared — at least BG0, so a tiled screen always has one layer on.
+          BG_ENABLES = [BG0_ENABLE, BG1_ENABLE, BG2_ENABLE, BG3_ENABLE].freeze
+          def tiled_bg_enable_bits
+            layers = [@backgrounds.size, 1].max
+            BG_ENABLES.first(layers).reduce(0, :|)
           end
 
           # One-time boot for a program that uses double buffering: upload the color
@@ -271,35 +287,49 @@ module RubyGBA
             @tiled ? emit_background_hardware(node) : emit_background_blits(node)
           end
 
-          # Where tile hardware reads from: BG0 takes its tile pictures from character
-          # block 0 (the start of video memory) and its map from screen block 8 — the
-          # 2KB region just past that 16KB character block — so the two never overlap.
-          SCREENBLOCK_MAP_OFFSET = 0x4000 # screen block 8: past character block 0's 16KB
-          BG0CNT_TILED = 0x0880           # 256-color, char block 0, screen block 8, 32x32 map, top priority
+          # The per-layer control and scroll registers, indexed by BG number (0..3), so a
+          # layer configures and scrolls its own hardware layer.
+          BG_CNT_REGS  = [REG_BG0CNT, REG_BG1CNT, REG_BG2CNT, REG_BG3CNT].freeze
+          BG_HOFS_REGS = [REG_BG0HOFS, REG_BG1HOFS, REG_BG2HOFS, REG_BG3HOFS].freeze
+          BG_VOFS_REGS = [REG_BG0VOFS, REG_BG1VOFS, REG_BG2VOFS, REG_BG3VOFS].freeze
 
-          # Tile-hardware background: hand the palette, the tile pictures, and the map
-          # to video memory by DMA, then point BG0 at them. Drawn once — after that the
-          # hardware repaints the whole layer every frame for free.
-          def emit_background_hardware(node)
-            bg = @backgrounds.fetch(node[:name])
-            emit_dma_blob(bg[:pal], BG_PALETTE, bg[:pal_units])                          # colors -> palette memory
-            emit_dma_blob(bg[:char], VRAM_START, bg[:char_units])                        # tile pictures -> char block 0
-            emit_dma_blob(bg[:map], VRAM_START + SCREENBLOCK_MAP_OFFSET, bg[:map_units]) # map -> screen block 8
-            write_reg16(REG_BG0CNT, BG0CNT_TILED)
-            write_reg16(REG_BG0HOFS, 0) # no scrolling yet
-            write_reg16(REG_BG0VOFS, 0)
+          # Upload the one palette and one character block every layer shares, once at
+          # boot — the tile pictures go to character block 0 (the start of video memory),
+          # the colors to background palette memory. Each layer's map and control register
+          # are set later, when its background node is reached (emit_background_hardware).
+          def emit_boot_backgrounds
+            emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @bg_shared[:pal_units])   # colors -> palette memory
+            emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @bg_shared[:char_units]) # tile pictures -> char block 0
           end
 
-          # Scroll the background: write the window's top-left offset into BG0's scroll
+          # Point one layer's hardware at its data: DMA its map into its own screen block,
+          # then set its control register (256-color, char block 0, that screen block, and
+          # its paint-order priority) and reset its scroll to the top-left. Drawn once —
+          # after that the hardware repaints the whole layer every frame for free, and
+          # composites the layers by priority so nearer ones sit in front.
+          def emit_background_hardware(node)
+            bg = @backgrounds.fetch(node[:name])
+            emit_dma_blob(bg[:map], VRAM_START + (bg[:screen_block] * SCREENBLOCK_BYTES), bg[:map_units])
+            write_reg16(BG_CNT_REGS[bg[:bg]], bg[:priority] | BG_256_COLOR | (bg[:screen_block] << 8))
+            write_reg16(BG_HOFS_REGS[bg[:bg]], 0) # start unscrolled
+            write_reg16(BG_VOFS_REGS[bg[:bg]], 0)
+          end
+
+          # Scroll one layer: write the window's top-left offset into that layer's scroll
           # registers. The tile hardware does the rest — it draws the layer starting at
           # that offset and wraps the map around, so a moving offset scrolls the whole
-          # background for free (no redrawing). The offset is evaluated at run time from
-          # the game's scroll variables.
+          # layer for free (no redrawing). Two layers scrolled at different speeds give
+          # parallax. The offset is evaluated at run time from the game's scroll variables.
           def emit_scroll_background(node)
+            # In tile mode this names a real layer; outside it (a bitmap-mode program that
+            # still declares a background) there's no tiled layer, so fall back to BG0 —
+            # the scroll registers do nothing when that layer isn't on, matching the
+            # interpreter's harmless handling.
+            bg_num = (@backgrounds[node[:name]] || {})[:bg] || 0
             eval_value(node[:x])          # r0 = scroll x (pixels)
-            store_halfword_acc(REG_BG0HOFS)
+            store_halfword_acc(BG_HOFS_REGS[bg_num])
             eval_value(node[:y])          # r0 = scroll y
-            store_halfword_acc(REG_BG0VOFS)
+            store_halfword_acc(BG_VOFS_REGS[bg_num])
           end
 
           # One DMA of +units+ 16-bit words from an embedded blob to a fixed address,

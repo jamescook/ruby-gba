@@ -62,6 +62,7 @@ module RubyGBA
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
+          @on_vblank = nil         # optional ->(frame) { } called each vblank, to watch a run frame by frame
         end
 
         # Execute a program (or any statement node) until it ends naturally, hits
@@ -101,6 +102,15 @@ module RubyGBA
         # by frame. Needed to observe edges (see `pressed`). Returns self.
         def input_each_frame(&block)
           @input_script = block
+          self
+        end
+
+        # Watch a run frame by frame: the block is called at each vblank with the frame
+        # number, with #screen holding the image that just settled — for capturing a run
+        # to preview it (turn a sequence of frames into a picture or animation). Purely an
+        # observer; it changes nothing about how the program runs. Returns self.
+        def each_vblank(&block)
+          @on_vblank = block
           self
         end
 
@@ -327,6 +337,7 @@ module RubyGBA
           @frame += 1
           @held = to_button_set(Array(@input_script.call(@frame))) if @input_script
           @log << [:vblank, @frame]
+          @on_vblank&.call(@frame)
         end
 
         def exec_call(name)
@@ -395,8 +406,11 @@ module RubyGBA
         end
 
         # Draw a tiled background by stamping each cell's tile onto the fake screen.
-        # The map holds an index into the tile list per cell (nil = leave it blank),
-        # and each tile is an ordinary image, so this is just a grid of blits.
+        # The map holds an index into the tile list per cell (nil = leave it blank).
+        # A tile pixel that's the backdrop color (0) is transparent — left unpainted so
+        # a background layer already on screen shows through it. That's how the console
+        # composites stacked layers: the backmost paints first, and each layer in front
+        # only covers where it has solid pixels, letting the layers behind fill its gaps.
         def exec_background(node)
           tiles = node[:tiles]
           tile_w = node[:tile_w]
@@ -405,7 +419,19 @@ module RubyGBA
             row.each_with_index do |index, c|
               next if index.nil?
 
-              blit_image(tiles[index], c * tile_w, r * tile_h)
+              stamp_tile(tiles, index, c * tile_w, r * tile_h, tile_w, tile_h)
+            end
+          end
+        end
+
+        # Paint one tile at (x0, y0), skipping its backdrop-colored (transparent) pixels
+        # so whatever's already there shows through — the per-pixel form of a tile blit
+        # that layering needs.
+        def stamp_tile(tiles, index, x0, y0, tile_w, tile_h)
+          tile_h.times do |ty|
+            tile_w.times do |tx|
+              color = background_pixel(tiles, index, tx, ty)
+              @screen.set_pixel(x0 + tx, y0 + ty, color) unless color.zero?
             end
           end
         end
@@ -442,31 +468,39 @@ module RubyGBA
             @screen.width.times do |px|
               mx = (off_x + px) % map_w
               index = row && row[mx / tile_w]
-              @screen.set_pixel(px, py, background_pixel(tiles, index, mx % tile_w, my % tile_h))
+              color = background_pixel(tiles, index, mx % tile_w, my % tile_h)
+              # A backdrop-colored pixel (0) is transparent — leave it so a layer behind
+              # this one keeps showing there (the backdrop itself was painted first).
+              @screen.set_pixel(px, py, color) unless color.zero?
             end
           end
         end
 
-        # Rebuild the whole visible screen the way tile-and-sprite hardware does: the
-        # scrolled backgrounds first (a fresh window, so last frame's sprites vanish
-        # with it — no save-under needed), then the sprites over the top in draw order.
-        # Both scroll_background and present_objects call this, so whichever runs last
-        # in a frame leaves the settled, correct image regardless of their order.
+        # Rebuild the whole visible screen the way tile-and-sprite hardware does: paint
+        # the backdrop, then the background layers from back to front (each scrolled to
+        # its own offset, so nearer layers can slide faster than far ones — parallax),
+        # then the sprites over the top in draw order. A fresh repaint means last frame's
+        # sprites vanish with it — no save-under needed. Both scroll_background and
+        # present_objects call this, so whichever runs last in a frame leaves the
+        # settled, correct image regardless of their order.
         def composite_scrolled_frame
+          @screen.clear(0) # the backdrop the layers' transparent pixels reveal
           @bg_nodes.each { |bg| paint_background_window(bg) }
           @obj_layer.each { |obj| blit_image(obj[:image], obj[:x], obj[:y]) }
         end
 
         # The color of a background cell's pixel: the tile's pixel there, or the black
         # backdrop where the cell is empty (a map hole, which the hardware shows as
-        # background-palette entry 0).
+        # background-palette entry 0). A tile pixel marked transparent (bit 15 set) reads
+        # as the backdrop (0) too — the tile hardware treats both as palette entry 0, so
+        # both let a layer behind show through. Masking to 15 bits is how we match that.
         def background_pixel(tiles, index, x, y)
           return 0 if index.nil?
 
           bmp = @bitmaps.fetch(tiles[index])
           pixels = @data.fetch(tiles[index])
           i = ((y * bmp[:width]) + x) * 2
-          pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
+          (pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)) & 0x7FFF
         end
 
         # Draw this frame's objects the way sprite hardware does: composite each one

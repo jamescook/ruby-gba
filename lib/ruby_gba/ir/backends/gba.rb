@@ -153,7 +153,8 @@ module RubyGBA
           @scene_funcs = []      # funcs entered per frame, which switch the mode on entry
           @lower_mode = :direct  # the mode draws currently lower in (set per func)
           @tiled = false         # does the program use tile mode (screen :tiled)?
-          @backgrounds = {}      # name -> resolved tiled-background blobs (palette/tiles/map)
+          @backgrounds = {}      # name -> resolved tiled-background layer (map blob, BG number, screen block, priority)
+          @bg_shared = nil       # the one palette + character block every background layer shares
           @has_objects = false   # does the program declare any composited objects (sprites)?
           @objects = {}          # name -> resolved sprite layout (OAM slot, tile/palette blobs)
         end
@@ -174,6 +175,7 @@ module RubyGBA
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
           emit_input_init if @uses_pressed
           emit_boot_screen if @any_buffered # set the boot mode + upload the palette once
+          emit_boot_backgrounds if @tiled && !@backgrounds.empty? # upload the shared BG palette + tiles once
           emit_boot_objects if @has_objects # upload sprite tiles/colors + clear the sprite table
           @lower_mode = @default_mode
           program.children.each { |stmt| emit_statement(stmt) }
@@ -268,28 +270,70 @@ module RubyGBA
         TILE_PX = 8
         MAP_CELLS = 32
 
-        # Turn each tiled background into the three blocks of data tile hardware
-        # actually reads — a color palette, the tile pictures, and the map — and
-        # stash them as ROM blobs uploaded at startup. Done up front (after every
-        # tile image is collected) so the addresses exist before the code refers to
-        # them. This is the build-time half of the tiled lowering; emit_background
-        # (in Drawing) is the run-time half that DMAs these into video memory.
+        # The four regular tiled layers the console can stack (BG0..BG3), and how many
+        # 8x8 tiles fit in one 16KB character block (all layers share it in 256-color
+        # mode). Maps go in screen blocks 8.. (2KB each), just past that character block.
+        MAX_BG_LAYERS = 4
+        CHAR_BLOCK_TILES = 256
+        FIRST_MAP_SCREENBLOCK = 8
+        SCREENBLOCK_BYTES = 0x800
+        BG_256_COLOR = 0x0080 # BGxCNT bit 7: 8-bit (256-color) tiles
+        BG_SHARED_PAL = :__bg_shared_pal   # the one palette every layer indexes into
+        BG_SHARED_CHAR = :__bg_shared_char # the one character block every layer's tiles live in
+
+        # Turn the tiled backgrounds into the data tile hardware reads — one shared color
+        # palette, one shared block of tile pictures, and a map per layer — and stash them
+        # as ROM blobs uploaded at startup. 256-color layers all draw from a single
+        # palette and (here) a single character block, so the tiles and colors of every
+        # layer are folded together, each layer remembering where its tiles start. Done up
+        # front (after every tile image is collected) so the addresses exist before the
+        # code refers to them. emit_background (in Drawing) is the run-time half.
         def prepare_backgrounds(program)
-          program.walk { |node| prepare_one_background(node) if node.kind == :background }
+          nodes = program.walk.select { |node| node.kind == :background }
+          if nodes.size > MAX_BG_LAYERS
+            raise LoweringError,
+                  "#{nodes.size} background layers were declared, but the console stacks #{MAX_BG_LAYERS} " \
+                  "tiled layers (BG0-BG3) — use at most #{MAX_BG_LAYERS} backgrounds"
+          end
+
+          # Seed the shared palette with the transparent backdrop at index 0, and the
+          # shared character block with a blank tile 0 (all index 0), so an empty map cell
+          # points at a see-through tile and layers behind it show through.
+          palette = { 0x0000 => 0 }
+          char = (+"").b << ("\x00" * (TILE_PX * TILE_PX)).b
+          nodes.each_with_index { |node, layer| prepare_one_background(node, layer, nodes.size, palette, char) }
+
+          tiles_total = char.bytesize / (TILE_PX * TILE_PX)
+          if tiles_total > CHAR_BLOCK_TILES
+            raise LoweringError,
+                  "the tiled backgrounds use #{tiles_total} tiles together, past the #{CHAR_BLOCK_TILES}-tile " \
+                  "limit of one character block — use fewer or shared tiles"
+          end
+          if palette.size > 256
+            raise LoweringError,
+                  "the tiled backgrounds use #{palette.size} colors together — the shared background palette holds 256"
+          end
+
+          colors = palette.sort_by { |_color, index| index }.map { |color, _index| color }
+          @data_blobs[BG_SHARED_PAL] = colors.pack("v*")
+          @data_blobs[BG_SHARED_CHAR] = char
+          @bg_shared = { pal_units: colors.size, char_units: char.bytesize / 2 }
         end
 
-        def prepare_one_background(node)
+        # Fold one layer into the shared palette and character block, and build its map.
+        # +layer+ is its declaration order, which is also its hardware layer number
+        # (BG0, BG1, ...) and decides its paint order: the first declared is the backmost.
+        def prepare_one_background(node, layer, count, palette, char)
           name = node[:name]
           tiles = node[:tiles]
           validate_tile_sizes!(name, tiles)
           validate_map_fits!(name, node[:map])
 
-          # Convert the tiles to indexed color: collect every distinct color into one
-          # palette (index 0 reserved for the black backdrop an empty cell shows), and
-          # rewrite each tile's pixels as palette indices. Tile 0 of the character data
-          # is a blank tile, so a map cell with no tile points at it.
-          palette = { 0x0000 => 0 }
-          char = (+"").b << ("\x00" * (TILE_PX * TILE_PX)).b
+          # Append this layer's tiles after whatever earlier layers put in the shared
+          # character block, rewriting each pixel as an index into the shared palette.
+          # tile_base is where this layer's first tile lands, so its map points at the
+          # right tiles.
+          tile_base = char.bytesize / (TILE_PX * TILE_PX)
           tiles.each do |tile|
             pixels = @bitmaps.fetch(tile)[:pixels]
             (TILE_PX * TILE_PX).times do |i|
@@ -297,14 +341,11 @@ module RubyGBA
               char << (palette[color] ||= palette.size).chr
             end
           end
-          if palette.size > 256
-            raise LoweringError,
-                  "background :#{name} uses #{palette.size} colors — a tiled background is limited to 256"
-          end
 
-          # The map: one 16-bit entry per cell in a 32x32 grid, holding which tile to
-          # draw there (+1 because character tile 0 is the blank). Cells outside the
-          # authored map stay 0 (blank).
+          # The map: one 16-bit entry per cell in a 32x32 grid, holding the shared-block
+          # tile number to draw there (tile_base + the tile's index within this layer).
+          # Cells outside the authored map, and blank cells, stay 0 — the shared blank
+          # tile, transparent so a layer behind shows through.
           entries = Array.new(MAP_CELLS * MAP_CELLS, 0)
           node[:map].each_with_index do |row, r|
             next if r >= MAP_CELLS
@@ -312,21 +353,17 @@ module RubyGBA
             row.each_with_index do |index, c|
               next if c >= MAP_CELLS || index.nil?
 
-              entries[(r * MAP_CELLS) + c] = index + 1
+              entries[(r * MAP_CELLS) + c] = tile_base + index
             end
           end
 
-          colors = palette.sort_by { |_color, index| index }.map { |color, _index| color }
-          pal_blob = :"__bg_pal_#{name}"
-          char_blob = :"__bg_char_#{name}"
           map_blob = :"__bg_map_#{name}"
-          @data_blobs[pal_blob] = colors.pack("v*")
-          @data_blobs[char_blob] = char
           @data_blobs[map_blob] = entries.pack("v*")
           @backgrounds[name] = {
-            pal: pal_blob, pal_units: colors.size,
-            char: char_blob, char_units: char.bytesize / 2,
             map: map_blob, map_units: entries.size,
+            bg: layer,                           # hardware layer (BG0..BG3), in declaration order
+            screen_block: FIRST_MAP_SCREENBLOCK + layer,
+            priority: count - 1 - layer,         # first declared is backmost (higher priority number = drawn behind)
           }
         end
 
