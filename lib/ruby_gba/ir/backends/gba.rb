@@ -63,7 +63,10 @@ module RubyGBA
         # Friendly screen-mode names → the display-control register value. Only
         # the direct-color bitmap mode is lowered here; other modes are their own
         # work. (This mirrors the DSL's names.)
-        SCREEN_MODES = { bitmap: MODE_3 | BG2_ENABLE }.freeze
+        SCREEN_MODES = {
+          bitmap: MODE_3 | BG2_ENABLE, # direct-color framebuffer
+          tiled:  MODE_0 | BG0_ENABLE, # one regular tiled background layer
+        }.freeze
 
         # Double-buffered (Mode 4) hardware layout. Mode 4 gives the program TWO
         # full screens — "pages" — in video memory, 0xA000 bytes apart. One is shown
@@ -149,6 +152,8 @@ module RubyGBA
           @func_mode = {}        # func name -> :direct | :buffered (resolved from the call graph)
           @scene_funcs = []      # funcs entered per frame, which switch the mode on entry
           @lower_mode = :direct  # the mode draws currently lower in (set per func)
+          @tiled = false         # does the program use tile mode (screen :tiled)?
+          @backgrounds = {}      # name -> resolved tiled-background blobs (palette/tiles/map)
         end
 
         # Lower a program to finished GBA machine code: run the emit pass and
@@ -159,6 +164,8 @@ module RubyGBA
         def lower(program)
           collect_definitions(program)
           resolve_modes(program)
+          @tiled = program.walk.any? { |node| node.kind == :screen && node[:mode] == :tiled }
+          prepare_backgrounds(program) if @tiled
           prepare_palette(program) if @any_buffered
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
           emit_input_init if @uses_pressed
@@ -249,6 +256,85 @@ module RubyGBA
         def prepare_palette(program)
           @palette = IR::Palette.build(program, scopes: @modes.buffered_scopes)
           @data_blobs[PALETTE_BLOB] = @palette.entries.pack("v*") # 15-bit entries, little-endian
+        end
+
+        # The console's tile size (8x8 pixels) and the number of cells across a
+        # regular background map (32x32). These are fixed hardware facts.
+        TILE_PX = 8
+        MAP_CELLS = 32
+
+        # Turn each tiled background into the three blocks of data tile hardware
+        # actually reads — a color palette, the tile pictures, and the map — and
+        # stash them as ROM blobs uploaded at startup. Done up front (after every
+        # tile image is collected) so the addresses exist before the code refers to
+        # them. This is the build-time half of the tiled lowering; emit_background
+        # (in Drawing) is the run-time half that DMAs these into video memory.
+        def prepare_backgrounds(program)
+          program.walk { |node| prepare_one_background(node) if node.kind == :background }
+        end
+
+        def prepare_one_background(node)
+          name = node[:name]
+          tiles = node[:tiles]
+          validate_tile_sizes!(name, tiles)
+
+          # Convert the tiles to indexed color: collect every distinct color into one
+          # palette (index 0 reserved for the black backdrop an empty cell shows), and
+          # rewrite each tile's pixels as palette indices. Tile 0 of the character data
+          # is a blank tile, so a map cell with no tile points at it.
+          palette = { 0x0000 => 0 }
+          char = (+"").b << ("\x00" * (TILE_PX * TILE_PX)).b
+          tiles.each do |tile|
+            pixels = @bitmaps.fetch(tile)[:pixels]
+            (TILE_PX * TILE_PX).times do |i|
+              color = (pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
+              char << (palette[color] ||= palette.size).chr
+            end
+          end
+          if palette.size > 256
+            raise LoweringError,
+                  "background :#{name} uses #{palette.size} colors — a tiled background is limited to 256"
+          end
+
+          # The map: one 16-bit entry per cell in a 32x32 grid, holding which tile to
+          # draw there (+1 because character tile 0 is the blank). Cells outside the
+          # authored map stay 0 (blank).
+          entries = Array.new(MAP_CELLS * MAP_CELLS, 0)
+          node[:map].each_with_index do |row, r|
+            next if r >= MAP_CELLS
+
+            row.each_with_index do |index, c|
+              next if c >= MAP_CELLS || index.nil?
+
+              entries[(r * MAP_CELLS) + c] = index + 1
+            end
+          end
+
+          colors = palette.sort_by { |_color, index| index }.map { |color, _index| color }
+          pal_blob = :"__bg_pal_#{name}"
+          char_blob = :"__bg_char_#{name}"
+          map_blob = :"__bg_map_#{name}"
+          @data_blobs[pal_blob] = colors.pack("v*")
+          @data_blobs[char_blob] = char
+          @data_blobs[map_blob] = entries.pack("v*")
+          @backgrounds[name] = {
+            pal: pal_blob, pal_units: colors.size,
+            char: char_blob, char_units: char.bytesize / 2,
+            map: map_blob, map_units: entries.size,
+          }
+        end
+
+        def validate_tile_sizes!(name, tiles)
+          tiles.each do |tile|
+            bmp = @bitmaps.fetch(tile) do
+              raise LoweringError, "background :#{name} references undefined tile image #{tile.inspect}"
+            end
+            next if bmp[:width] == TILE_PX && bmp[:height] == TILE_PX
+
+            raise LoweringError,
+                  "screen :tiled needs #{TILE_PX}x#{TILE_PX} tiles, but tile #{tile.inspect} is " \
+                  "#{bmp[:width]}x#{bmp[:height]} — resize it, or draw this background under screen :bitmap"
+          end
         end
 
       end

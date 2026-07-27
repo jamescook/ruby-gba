@@ -31,12 +31,10 @@ class TestTilesExample < Minitest::Test
     assert_equal Color.resolve(:green), i.screen.pixel(*GRASS), "the grass patch renders green"
   end
 
-  # The whole room is stamped tile by tile at boot, and a room this size is a few
-  # hundred stamps — more than fits in a frame or two with the current draw-each-
-  # tile approach, so give it enough frames to finish before reading pixels. (The
-  # hardware tile-mode lowering will make this instant; the test can tighten then.)
+  # Tile mode draws the whole layer from data uploaded once at boot, so a couple of
+  # frames is plenty — there's no per-tile stamping to wait on.
   def test_the_room_renders_on_the_console
-    v = assert_gemba_loads_rom(Tiles.build_rom(err: StringIO.new), frames: 20)
+    v = assert_gemba_loads_rom(Tiles.build_rom(err: StringIO.new), frames: 3)
     assert v.pixel_is?(*WALL, :gray), "wall renders on hardware, got 0x#{format('%04X', v.pixel_gba(*WALL))}"
     assert v.blue?(*WATER),  "water renders on hardware, got 0x#{format('%04X', v.pixel_gba(*WATER))}"
     assert v.green?(*GRASS), "grass renders on hardware, got 0x#{format('%04X', v.pixel_gba(*GRASS))}"

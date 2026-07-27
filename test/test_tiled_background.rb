@@ -116,6 +116,23 @@ class TestTiledBackground < Minitest::Test
     assert_match(/ragged rows/, err.message)
   end
 
+  # In tile mode the console's tile hardware only handles 8x8 tiles, so a tileset
+  # of another size gets a friendly build error naming the fix (rather than a black
+  # screen). Bitmap mode has no such limit — it stamps any size — so this is only
+  # about screen :tiled.
+  def test_tiled_mode_requires_8x8_tiles
+    b = Builder.new
+    b.instance_eval { screen :tiled }
+    solid_tile(b, :small, :red) # 4x4
+    b.instance_eval do
+      tiles :set, "R" => :small
+      background :bg, tiles: :set, map: "R"
+    end
+    b.emit_pending_functions
+    err = assert_raises(GBA::LoweringError) { GBA.new.lower(b.program) }
+    assert_match(/8x8 tiles/, err.message)
+  end
+
   # --- Hardware: the same board renders on the console ---
 
   def test_the_board_renders_on_the_console

@@ -24,8 +24,7 @@ require_relative "../lib/ruby_gba"
 
 module Tiles
   GAME = proc do
-    screen :bitmap
-    clear_screen :black
+    screen :tiled # tile mode: the console draws the background layer from tiles + a map
 
   # Four 8x8 tiles, hand-drawn like any other image. A second character in each
   # gives a little texture so a wall of them doesn't look flat.
