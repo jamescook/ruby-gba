@@ -195,6 +195,7 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | [`snake_buffered.rb`](examples/snake_buffered.rb) | The *same* game written the naïve way and still tear-free | Double-buffered, whole board redrawn each frame |
 | [`pacman.rb`](examples/pacman.rb) | `sprite` poses/facing + sprite-to-sprite `overlaps?` (no boxes) | Sprites — self-repainting, no screen clear |
 | [`sprite_mover.rb`](examples/sprite_mover.rb) | Steering a single sprite over a kept background | A sprite over a preserved background |
+| [`tiles.rb`](examples/tiles.rb) | A room built from reusable 8×8 tiles + a text map (`tiles` / `background`) | Static tiled scene (the surface; hardware tile-mode to follow) |
 
 Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static
 drawing), [`grid_cursor.rb`](examples/grid_cursor.rb) (a `grid` with a moving
