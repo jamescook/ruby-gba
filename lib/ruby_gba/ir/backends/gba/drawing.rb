@@ -260,6 +260,25 @@ module RubyGBA
             emit_rect_row_dma(node[:x], node[:y], bmp[:width], bmp[:height], node[:name], vram: :dest)
           end
 
+          # Draw a tiled background. For now each non-empty cell is stamped with the
+          # shared blit path — a positioned copy of the tile image onto the screen —
+          # so the picture matches the interpreter exactly. (The console has dedicated
+          # tile hardware that draws a whole background for free; lowering to it is a
+          # later step. This keeps the tiles/background surface working meanwhile, at
+          # the cost of one copy per cell.)
+          def emit_background(node)
+            tiles = node[:tiles]
+            tile_w = node[:tile_w]
+            tile_h = node[:tile_h]
+            node[:map].each_with_index do |row, r|
+              row.each_with_index do |index, c|
+                next if index.nil?
+
+                emit_blit(Build.blit(tiles[index], c * tile_w, r * tile_h))
+              end
+            end
+          end
+
           # Draw whichever pose a run-time index selects. The image can't be chosen at
           # build time, so this expands to one guarded blit per pose — exactly one of
           # which draws — the same shape as a run-time digit. Each guard reuses the

@@ -55,6 +55,7 @@ module RubyGBA
         draw_rect_at: :portable, draw_text: :portable, dma_fill_rect: :portable, blit: :portable,
         draw_digit: :portable, # index a font by a run-time digit — any backend can
         blit_pose: :portable,  # pick one of a set of images by a run-time index — any backend can
+        background: :portable, # stamp a grid of tiles — pixels or tile hardware, any backend can
         # save/restore a screen patch — copying pixels to/from a buffer, any backend can
         save_region: :portable, restore_region: :portable,
 
