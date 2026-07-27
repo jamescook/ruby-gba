@@ -106,6 +106,16 @@ class TestTiledBackground < Minitest::Test
     assert_match(/same size/, err.message)
   end
 
+  def test_a_ragged_map_is_a_friendly_error
+    b = Builder.new
+    solid_tile(b, :red_tile, :red)
+    b.instance_eval { tiles :one, "R" => :red_tile }
+    err = assert_raises(ArgumentError) do
+      b.instance_eval { background :ragged, tiles: :one, map: "RRR\nRR" } # rows 3 and 2 wide
+    end
+    assert_match(/ragged rows/, err.message)
+  end
+
   # --- Hardware: the same board renders on the console ---
 
   def test_the_board_renders_on_the_console

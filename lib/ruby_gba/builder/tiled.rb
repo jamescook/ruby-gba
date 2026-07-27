@@ -83,13 +83,25 @@ module RubyGBA
       private
 
       # Normalize a background map into an array of row strings. A string is split on
-      # newlines (blank lines dropped); an array is taken as its rows already.
+      # newlines (blank lines dropped); an array is taken as its rows already. A map
+      # is a rectangle, so every row must be the same width — a ragged one is almost
+      # always a typo (a stray or missing character), and left alone it would push
+      # part of the level out of line, so we catch it with a plain-language error.
       def background_rows(name, map)
-        case map
-        when String then map.each_line.map(&:chomp).reject(&:empty?)
-        when Array then map.map(&:to_s)
-        else raise ArgumentError, "background :#{name} map must be a String or an Array of row strings"
+        rows = case map
+               when String then map.each_line.map(&:chomp).reject(&:empty?)
+               when Array then map.map(&:to_s)
+               else raise ArgumentError, "background :#{name} map must be a String or an Array of row strings"
+               end
+        raise ArgumentError, "background :#{name} has an empty map" if rows.empty?
+
+        widths = rows.map(&:length).uniq
+        unless widths.size == 1
+          raise ArgumentError,
+                "background :#{name} has ragged rows (#{widths.sort.join(', ')} characters wide) — " \
+                "every row must be the same length, since a map is a rectangle"
         end
+        rows
       end
     end
   end
