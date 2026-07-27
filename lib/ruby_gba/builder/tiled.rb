@@ -23,8 +23,10 @@ module RubyGBA
     # pictures live in video memory, the map layout, the background-control
     # registers — is managed for you and never appears here.
     #
-    # (This paints a *static* background by stamping each tile once. Scrolling a map
-    # bigger than the screen, and stacking layers, build on this same surface.)
+    # One `background` paints a single layer. Declare several and they stack — the
+    # first is the backmost, each later one in front, composited by the tile hardware —
+    # and each can be scrolled independently (scroll a near and a far layer at different
+    # speeds for parallax). See {Background}.
     module Tiled
       # Define a tileset: a map from a character to the tile {#image} it stands for.
       # The images must already be defined and must all be the same size (they form

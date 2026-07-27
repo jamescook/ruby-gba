@@ -199,12 +199,18 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | [`animate.rb`](examples/animate.rb) | A flipbook `sprite` (`frames:` / `rate:`) — a spinning coin you can also walk | A software sprite cycling its frames on a hidden timer |
 | [`tiles.rb`](examples/tiles.rb) | A room built from reusable 8×8 tiles + a text map (`tiles` / `background`) | Tiled background, drawn by the tile hardware |
 | [`scroll.rb`](examples/scroll.rb) | Panning a camera over a world bigger than the screen (`background.scroll_by`, wraps at the edge) | Tiled background, scrolled by the tile hardware |
+| [`parallax.rb`](examples/parallax.rb) | Two background layers (far clouds, near trees) scrolling at different speeds to fake depth | Stacked tiled layers, composited + independently scrolled |
 
 Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static
 drawing), [`grid_cursor.rb`](examples/grid_cursor.rb) (a `grid` with a moving
 cursor), [`buffered_bounce.rb`](examples/buffered_bounce.rb), and the font demos
 [`fonts.rb`](examples/fonts.rb) / [`font_styles.rb`](examples/font_styles.rb) /
 [`floating_digits.rb`](examples/floating_digits.rb).
+
+**Watch an example without an emulator:** `rake preview EXAMPLE=parallax KEYS=right`
+runs it on the reference interpreter and writes a self-contained HTML page that plays
+the frames back — the quickest way to *see* a moving effect (scrolling, parallax,
+animation). See [`tools/preview.rb`](tools/preview.rb).
 
 ### Choosing how to draw a moving thing
 
