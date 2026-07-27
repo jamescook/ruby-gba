@@ -53,6 +53,7 @@ module RubyGBA
           @backing = {}            # name -> { width:, height:, pixels: } (saved patch under a moving object)
           @objects = {}            # name -> :object node (a composited moving picture)
           @bg_nodes = []           # :background nodes, in order (the static scene under the objects)
+          @bg_by_name = {}         # name -> :background node (for scrolling that background's window)
           @scene_fb = nil          # the settled scene (backdrop + backgrounds), built once, to restore under objects
           @obj_prev = {}           # object name -> [x, y] it was last drawn at (to erase before redrawing)
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
@@ -133,8 +134,10 @@ module RubyGBA
               @objects[n[:name]] = n
             when :background
               # Remember every background so present_objects can redraw them under the
-              # objects each frame (that clean redraw is what erases the previous frame).
+              # objects each frame (that clean redraw is what erases the previous frame),
+              # and by name so scroll_background can re-window that one.
               @bg_nodes << n
+              @bg_by_name[n[:name]] = n
             end
           end
         end
@@ -284,6 +287,8 @@ module RubyGBA
             exec_draw_digit(node)
           when :background
             exec_background(node)
+          when :scroll_background
+            exec_scroll_background(node)
           when :present_objects
             exec_present_objects(node)
           when :enable_sound
@@ -394,6 +399,44 @@ module RubyGBA
               blit_image(tiles[index], c * tile_w, r * tile_h)
             end
           end
+        end
+
+        # Scroll a background: repaint the whole visible screen as the window over the
+        # map whose top-left is at the run-time offset (x, y). The map is a torus, so an
+        # offset past an edge wraps around — the same thing tile hardware does, done here
+        # by sampling the map (with wrapping) for every screen pixel.
+        def exec_scroll_background(node)
+          bg = @bg_by_name.fetch(node[:name]) { raise ProgramError, "scroll of undeclared background #{node[:name].inspect}" }
+          tiles = bg[:tiles]
+          map = bg[:map]
+          tile_w = bg[:tile_w]
+          tile_h = bg[:tile_h]
+          map_w = map.map(&:length).max * tile_w
+          map_h = map.length * tile_h
+          off_x = eval_value(node[:x]) % map_w # Ruby % wraps negatives into 0..map_w-1
+          off_y = eval_value(node[:y]) % map_h
+
+          @screen.height.times do |py|
+            my = (off_y + py) % map_h
+            row = map[my / tile_h]
+            @screen.width.times do |px|
+              mx = (off_x + px) % map_w
+              index = row && row[mx / tile_w]
+              @screen.set_pixel(px, py, background_pixel(tiles, index, mx % tile_w, my % tile_h))
+            end
+          end
+        end
+
+        # The color of a background cell's pixel: the tile's pixel there, or the black
+        # backdrop where the cell is empty (a map hole, which the hardware shows as
+        # background-palette entry 0).
+        def background_pixel(tiles, index, x, y)
+          return 0 if index.nil?
+
+          bmp = @bitmaps.fetch(tiles[index])
+          pixels = @data.fetch(tiles[index])
+          i = ((y * bmp[:width]) + x) * 2
+          pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
         end
 
         # Draw this frame's objects the way sprite hardware does: composite each one

@@ -77,6 +77,7 @@ module RubyGBA
       @sprites = []            # live software sprites, repainted after every wait_vblank
       @hw_sprites = []         # live hardware sprites, drawn (into the sprite table) after every wait_vblank
       @animations = []         # flipbook sprites, whose pose is advanced on a beat after every wait_vblank
+      @background_scrolled = false # whether any background is scrolled (guards the scroll+sprite combo)
       @prng_used = false       # whether the program draws random numbers (seeds the stream once)
       @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
       @pending_conditions = [] # Conditions built but not yet used; leftovers are orphans
@@ -141,6 +142,7 @@ module RubyGBA
       end
 
       verify_targets_defined!
+      verify_scroll_and_sprites!
       initialize_rng_stream
       emit_boot_inits
     end
@@ -166,6 +168,13 @@ module RubyGBA
     # counterpart to how a {Value}'s mutators record through the builder's verbs.
     def record_statement(node)
       record(node)
+    end
+
+    # A {Background} handle reports here the first time it's scrolled, so the build
+    # can catch the not-yet-supported scrolling-with-sprites combo (see
+    # #verify_scroll_and_sprites).
+    def note_background_scrolled
+      @background_scrolled = true
     end
 
     # A {Condition} enters this "pending" set when it's built (Condition#initialize)
@@ -223,6 +232,18 @@ module RubyGBA
         @program.children.unshift(node)
         node.parent = @program
       end
+    end
+
+    # Scrolling a background and drawing hardware sprites over it don't compose yet —
+    # a scrolling background repaints the whole view each frame, which would erase the
+    # sprites — so catch the combination with a friendly, forward-looking error rather
+    # than a garbled screen. (Each works fine on its own.)
+    def verify_scroll_and_sprites!
+      return unless @background_scrolled && !@hw_sprites.empty?
+
+      raise ArgumentError,
+            "scrolling a background while there are sprites on screen isn't supported yet — " \
+            "for now, scroll a background on its own, or keep the sprites over a still background"
     end
 
     # Look up a variable's IWRAM address, raising if not declared.

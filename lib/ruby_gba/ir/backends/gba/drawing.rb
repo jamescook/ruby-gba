@@ -290,6 +290,18 @@ module RubyGBA
             write_reg16(REG_BG0VOFS, 0)
           end
 
+          # Scroll the background: write the window's top-left offset into BG0's scroll
+          # registers. The tile hardware does the rest — it draws the layer starting at
+          # that offset and wraps the map around, so a moving offset scrolls the whole
+          # background for free (no redrawing). The offset is evaluated at run time from
+          # the game's scroll variables.
+          def emit_scroll_background(node)
+            eval_value(node[:x])          # r0 = scroll x (pixels)
+            store_halfword_acc(REG_BG0HOFS)
+            eval_value(node[:y])          # r0 = scroll y
+            store_halfword_acc(REG_BG0VOFS)
+          end
+
           # One DMA of +units+ 16-bit words from an embedded blob to a fixed address,
           # both ends advancing — the same shape as the palette upload. Fills palette
           # and video memory at startup.

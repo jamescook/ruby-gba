@@ -44,6 +44,7 @@ module RubyGBA
             when :blit then emit_blit(node)
             when :blit_pose then emit_blit_pose(node)
             when :background then emit_background(node)
+            when :scroll_background then emit_scroll_background(node)
             when :present_objects then emit_present_objects(node)
             when :save_region then emit_save_region(node)
             when :restore_region then emit_restore_region(node)
