@@ -154,6 +154,8 @@ module RubyGBA
           @lower_mode = :direct  # the mode draws currently lower in (set per func)
           @tiled = false         # does the program use tile mode (screen :tiled)?
           @backgrounds = {}      # name -> resolved tiled-background blobs (palette/tiles/map)
+          @has_objects = false   # does the program declare any composited objects (sprites)?
+          @objects = {}          # name -> resolved sprite layout (OAM slot, tile/palette blobs)
         end
 
         # Lower a program to finished GBA machine code: run the emit pass and
@@ -166,10 +168,13 @@ module RubyGBA
           resolve_modes(program)
           @tiled = program.walk.any? { |node| node.kind == :screen && node[:mode] == :tiled }
           prepare_backgrounds(program) if @tiled
+          @has_objects = program.walk.any? { |node| node.kind == :object }
+          prepare_objects(program) if @has_objects
           prepare_palette(program) if @any_buffered
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
           emit_input_init if @uses_pressed
           emit_boot_screen if @any_buffered # set the boot mode + upload the palette once
+          emit_boot_objects if @has_objects # upload sprite tiles/colors + clear the sprite table
           @lower_mode = @default_mode
           program.children.each { |stmt| emit_statement(stmt) }
           emit_functions
@@ -335,6 +340,111 @@ module RubyGBA
                   "screen :tiled needs #{TILE_PX}x#{TILE_PX} tiles, but tile #{tile.inspect} is " \
                   "#{bmp[:width]}x#{bmp[:height]} — resize it, or draw this background under screen :bitmap"
           end
+        end
+
+        # The picture sizes sprite hardware can draw, each mapped to the two shape/size
+        # numbers that describe it. A sprite's image must be one of these; anything
+        # else gets a friendly build error listing the choices. (The sizes fall out of
+        # how the hardware groups an object's 8x8 tiles into a rectangle.)
+        OBJ_SIZES = {
+          [8, 8] => [0, 0],  [16, 16] => [0, 1], [32, 32] => [0, 2], [64, 64] => [0, 3],
+          [16, 8] => [1, 0], [32, 8] => [1, 1],  [32, 16] => [1, 2], [64, 32] => [1, 3],
+          [8, 16] => [2, 0], [8, 32] => [2, 1],  [16, 32] => [2, 2], [32, 64] => [2, 3],
+        }.freeze
+
+        # attr0 bit 13: the object reads an 8-bit (256-color) palette, the same color
+        # model the tiled background uses — so a sprite's colors are ordinary named
+        # colors, no palette banks to think about.
+        OBJ_256_COLOR = 0x2000
+
+        # Turn each declared object into the two things sprite hardware needs — its
+        # picture as tiles, and the colors those tiles index — and lay them out (which
+        # slot in the sprite table, where its tiles sit in sprite memory). Done up
+        # front so the addresses exist before the per-frame draw refers to them; the
+        # boot upload (emit_boot_objects) and the per-frame draw (emit_present_objects)
+        # are the run-time halves.
+        def prepare_objects(program)
+          slot = 0
+          tile_unit = 0 # running offset into sprite tile memory, in 32-byte units
+          program.walk do |node|
+            next unless node.kind == :object
+
+            prepare_one_object(node, slot, tile_unit)
+            info = @objects[node[:name]]
+            slot += 1
+            tile_unit += info[:tile_units]
+          end
+        end
+
+        def prepare_one_object(node, slot, tile_unit)
+          name = node[:name]
+          image = node[:image]
+          bmp = @bitmaps.fetch(image) do
+            raise LoweringError, "sprite object #{name.inspect} references undefined image #{image.inspect}"
+          end
+          width = bmp[:width]
+          height = bmp[:height]
+          shape, size = OBJ_SIZES.fetch([width, height]) do
+            raise LoweringError,
+                  "a sprite in screen :tiled must be one of these sizes: " \
+                  "#{OBJ_SIZES.keys.map { |w, h| "#{w}x#{h}" }.join(', ')} — image #{image.inspect} is " \
+                  "#{width}x#{height}. Resize it (sprite pictures are built from 8x8 tiles)."
+          end
+
+          palette = {} # color -> palette index; index 0 is reserved for see-through
+          tiles = encode_object_tiles(bmp, palette)
+          if palette.size + 1 > 256
+            raise LoweringError,
+                  "sprite #{image.inspect} uses #{palette.size} colors — a sprite is limited to 255 (plus see-through)"
+          end
+
+          colors = Array.new(palette.size + 1, 0x0000) # entry 0 = the see-through slot
+          palette.each { |color, index| colors[index] = color }
+
+          pal_blob = :"__obj_pal_#{name}"
+          tile_blob = :"__obj_tiles_#{name}"
+          @data_blobs[pal_blob] = colors.pack("v*")
+          @data_blobs[tile_blob] = tiles
+          @objects[name] = {
+            slot: slot,
+            pal: pal_blob, pal_units: colors.size,
+            tiles: tile_blob, tile_units: tiles.bytesize / 32, # sprite memory counts in 32-byte units
+            tile_index: tile_unit,
+            width: width, height: height,
+            x: node[:x], y: node[:y], active: node[:active], # the live position/visibility operands
+            attr0_base: OBJ_256_COLOR | (shape << 14),
+            attr1_base: size << 14,
+          }
+        end
+
+        # Pack a sprite's picture into 8-bit tiles the way sprite hardware reads them:
+        # 8x8 tiles in reading order (left to right, top to bottom), each tile's 64
+        # pixels row by row, every pixel a palette index. A see-through pixel becomes
+        # index 0 (the reserved transparent slot); every other color earns the next
+        # palette index. Because we use 1D mapping, the tiles simply sit one after
+        # another in memory.
+        def encode_object_tiles(bmp, palette)
+          pixels = bmp[:pixels]
+          width = bmp[:width]
+          transparent = bmp[:transparent]
+          bytes = (+"").b
+          (bmp[:height] / TILE_PX).times do |tile_row|
+            (width / TILE_PX).times do |tile_col|
+              TILE_PX.times do |row|
+                TILE_PX.times do |col|
+                  i = (((tile_row * TILE_PX) + row) * width) + (tile_col * TILE_PX) + col
+                  color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
+                  index = if transparent && color == transparent
+                            0
+                          else
+                            palette[color & 0x7FFF] ||= palette.size + 1
+                          end
+                  bytes << index.chr
+                end
+              end
+            end
+          end
+          bytes
         end
 
       end

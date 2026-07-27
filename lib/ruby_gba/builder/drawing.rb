@@ -59,6 +59,11 @@ module RubyGBA
                 "double-buffered screen; #{mode.inspect} doesn't support it"
         end
 
+        # Remember the mode by name so `sprite` knows which kind to make (a bitmap
+        # screen draws sprites in software; a tiled screen uses the console's sprite
+        # hardware). A raw register value doesn't map to a friendly name, so it leaves
+        # the mode unnamed.
+        @screen_mode = mode if mode.is_a?(Symbol)
         record(Build.screen(mode, buffered: tear_free))
       end
 

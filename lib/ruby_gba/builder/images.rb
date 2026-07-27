@@ -111,13 +111,22 @@ module RubyGBA
       # The first entry is the pose it starts in. (This is pose-swapping, not pixel
       # rotation — turning to an arbitrary angle is the affine/hardware-sprite track.)
       #
+      # The kind of sprite you get follows the screen you chose. On a `screen :bitmap`
+      # it's a *software* sprite (it remembers and restores the pixels under itself,
+      # as described above). On a `screen :tiled` it's a *hardware* sprite: the
+      # console composites it over the background for you, so it costs no per-pixel
+      # work and can stack cleanly over other sprites. The handle is the same either
+      # way — `x`/`y`/`move`/`move_to` — so the game code doesn't change.
+      #
       # @param name [Symbol] a defined image (its size becomes the sprite's size), or
       #   just the sprite's identity when +facing:+ supplies the images
       # @param at [Array(Integer, Integer)] the sprite's starting [x, y]
       # @param facing [Hash{Symbol=>Symbol}, nil] direction => image, for a sprite that turns
       # @param shown [Boolean] draw it now (true, default), or start hidden until `show`
-      # @return [Sprite] a handle: x / y / move / move_to / face / hide / show
+      # @return [Sprite, HardwareSprite] a handle: x / y / move / move_to (and, in bitmap mode, face / hide / show)
       def sprite(name, at:, facing: nil, shown: true)
+        return hardware_sprite(name, at: at, facing: facing, shown: shown) if @screen_mode == :tiled
+
         poses, facing_dirs, width, height = resolve_sprite_art(name, facing)
         start_x, start_y = at
 
@@ -174,6 +183,42 @@ module RubyGBA
       end
 
       private
+
+      # A `screen :tiled` sprite: the console draws it in hardware. Reserve a name for
+      # it, boot its position and visibility, and declare it as a composited object
+      # the framework draws each frame (see Builder#wait_vblank). The handle mirrors a
+      # software Sprite's, so game code reads the same in either mode.
+      def hardware_sprite(name, at:, facing:, shown:)
+        if facing
+          raise ArgumentError,
+                "a `screen :tiled` sprite can't take `facing:` poses yet — that's a following slice. " \
+                "For now give it a single image, or use `screen :bitmap` for pose-swapping sprites."
+        end
+        width, height = @images[name] || raise(ArgumentError,
+              "sprite :#{name} needs an image named :#{name} — define it first with `image :#{name}, ...`")
+        start_x, start_y = at
+
+        id = (@sprite_seq += 1)
+        object_name = :"__obj#{id}"
+        pos_x = :"__obj#{id}_x"
+        pos_y = :"__obj#{id}_y"
+        active = :"__obj#{id}_on"
+
+        # Boot the hidden state (console RAM isn't zero at power-on): its start
+        # position and whether it begins shown.
+        { pos_x => start_x, pos_y => start_y, active => (shown ? 1 : 0) }.each do |var_name, value|
+          at_boot(Build.set(var_name, Value.node_for(value)))
+          ensure_var(var_name)
+        end
+
+        record(Build.object(object_name, image: name,
+                                         x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
+                                         active: Build.var_ref(active)))
+        handle = HardwareSprite.new(self, object_name: object_name, x: pos_x, y: pos_y,
+                                          active: active, width: width, height: height)
+        @hw_sprites << handle
+        handle
+      end
 
       # Work out a sprite's poses and size. With +facing+, the poses are its images
       # (which must all be the same size, since they share one save-under buffer) and

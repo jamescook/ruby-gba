@@ -44,10 +44,11 @@ module RubyGBA
             when :blit then emit_blit(node)
             when :blit_pose then emit_blit_pose(node)
             when :background then emit_background(node)
+            when :present_objects then emit_present_objects(node)
             when :save_region then emit_save_region(node)
             when :restore_region then emit_restore_region(node)
             when :enable_sound then emit_enable_sound
-            when :define_sound, :song, :data, :bitmap, :backing_buffer then nil # definitions: collected, nothing to emit
+            when :define_sound, :song, :data, :bitmap, :backing_buffer, :object then nil # definitions: collected, nothing to emit
             when :beep then emit_beep(node)
             when :play_song then emit_play_song(node)
             when :stop_music then emit_stop_music

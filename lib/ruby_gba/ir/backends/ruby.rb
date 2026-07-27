@@ -51,6 +51,10 @@ module RubyGBA
           @data = {}               # name -> bytes (embedded data blobs)
           @bitmaps = {}            # name -> { width:, height: } (a blob that has a shape)
           @backing = {}            # name -> { width:, height:, pixels: } (saved patch under a moving object)
+          @objects = {}            # name -> :object node (a composited moving picture)
+          @bg_nodes = []           # :background nodes, in order (the static scene under the objects)
+          @scene_fb = nil          # the settled scene (backdrop + backgrounds), built once, to restore under objects
+          @obj_prev = {}           # object name -> [x, y] it was last drawn at (to erase before redrawing)
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
@@ -123,6 +127,14 @@ module RubyGBA
               # Reserve the patch. `pixels` stays nil until the first save_region
               # fills it — a restore before any save has nothing to put back.
               @backing[n[:name]] = { width: n[:width], height: n[:height], pixels: nil }
+            when :object
+              # Register the object, so present_objects can find its picture and the
+              # variables holding where it is and whether it's shown.
+              @objects[n[:name]] = n
+            when :background
+              # Remember every background so present_objects can redraw them under the
+              # objects each frame (that clean redraw is what erases the previous frame).
+              @bg_nodes << n
             end
           end
         end
@@ -272,9 +284,11 @@ module RubyGBA
             exec_draw_digit(node)
           when :background
             exec_background(node)
+          when :present_objects
+            exec_present_objects(node)
           when :enable_sound
             @audio << [:enabled]
-          when :define_sound, :song, :data, :bitmap, :backing_buffer
+          when :define_sound, :song, :data, :bitmap, :backing_buffer, :object
             # Definitions: gathered up front, so reaching one inline does nothing
             # (just like a func body).
             nil
@@ -380,6 +394,63 @@ module RubyGBA
               blit_image(tiles[index], c * tile_w, r * tile_h)
             end
           end
+        end
+
+        # Draw this frame's objects the way sprite hardware does: composite each one
+        # over the settled scene, leaving no trail. A console redraws the whole
+        # picture — scene and sprites — every frame; here we get the same result more
+        # cheaply by putting the clean scene back where each object was last drawn,
+        # then drawing every object at its current spot. Two passes (erase all, then
+        # draw all) so overlapping objects can't erase each other.
+        def exec_present_objects(node)
+          scene = scene_framebuffer
+          node[:names].each do |name|
+            prev = @obj_prev[name]
+            restore_scene_rect(scene, name, prev) if prev
+          end
+          node[:names].each do |name|
+            obj = @objects.fetch(name) { raise ProgramError, "present of undeclared object #{name.inspect}" }
+            @obj_prev[name] = nil
+            next unless eval_value(obj[:active]) == 1
+
+            x = eval_value(obj[:x])
+            y = eval_value(obj[:y])
+            blit_image(obj[:image], x, y)
+            @obj_prev[name] = [x, y]
+          end
+        end
+
+        # The settled scene the objects sit on — the backdrop plus every background —
+        # rendered once into its own framebuffer. Backgrounds don't change once drawn,
+        # so this is the clean picture we restore under a moving object each frame.
+        def scene_framebuffer
+          @scene_fb ||= begin
+            fb = Framebuffer.new(fill: 0) # 0 = the backdrop the empty parts of the scene show
+            drawing_into(fb) { @bg_nodes.each { |bg| exec_background(bg) } }
+            fb
+          end
+        end
+
+        # Put the clean scene back where an object was last drawn (its image-sized
+        # patch), erasing it before it's redrawn at its new spot.
+        def restore_scene_rect(scene, name, (x, y))
+          bmp = @bitmaps.fetch(@objects.fetch(name)[:image])
+          bmp[:height].times do |row|
+            bmp[:width].times do |col|
+              color = scene.pixel(x + col, y + row)
+              @screen.set_pixel(x + col, y + row, color) unless color.nil?
+            end
+          end
+        end
+
+        # Run a block with the draw ops pointed at +target+ instead of the visible
+        # screen, then restore. Lets scene-building reuse the ordinary draw path.
+        def drawing_into(target)
+          saved = @screen
+          @screen = target
+          yield
+        ensure
+          @screen = saved
         end
 
         # Draw whichever pose the run-time index selects — the sprite facing the way

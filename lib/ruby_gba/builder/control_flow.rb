@@ -56,6 +56,10 @@ module RubyGBA
         record(Build.wait_vblank)
         @sprites.each { |sprite| record(sprite.erase_node) }
         @sprites.each { |sprite| record(sprite.draw_node) }
+        # Hardware sprites need no erase pass — the console recomposites the whole
+        # picture each frame — so it's one step: draw them all from their current
+        # positions (later ones sit in front).
+        record(Build.present_objects(@hw_sprites.map(&:object_name))) unless @hw_sprites.empty?
       end
 
       # Wrap a block of code in an infinite loop. The block's statements become the

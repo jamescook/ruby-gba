@@ -73,7 +73,9 @@ module RubyGBA
       @sprite_seq = 0          # counts sprites, to name each one's hidden position/backing vars
       @images = {}             # image name → [width, height], so a sprite can size itself from its art
       @tilesets = {}           # tileset name → { chars:, tile_w:, tile_h: } (a character→tile-image map)
-      @sprites = []            # live sprites, repainted after every wait_vblank
+      @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
+      @sprites = []            # live software sprites, repainted after every wait_vblank
+      @hw_sprites = []         # live hardware sprites, drawn (into the sprite table) after every wait_vblank
       @prng_used = false       # whether the program draws random numbers (seeds the stream once)
       @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
       @pending_conditions = [] # Conditions built but not yet used; leftovers are orphans

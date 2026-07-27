@@ -52,6 +52,8 @@ module ConformanceFixture
                         pixels: [0x001F, 0x001F, 0x001F, 0x001F].pack("v*"), transparent: nil),
       B.bitmap(:tile_b, width: 2, height: 2,
                         pixels: [0x03E0, 0x03E0, 0x03E0, 0x03E0].pack("v*"), transparent: nil),
+      B.bitmap(:obj8, width: 8, height: 8, # an 8x8 picture for a composited object (a valid sprite size)
+                       pixels: Array.new(64, 0x03E0).pack("v*"), transparent: nil),
       B.backing_buffer(:under, width: 4, height: 4), # a save-under patch for a moving object
       B.func(:helper, B.set(:h, 1), B.add(:h, 2), B.wait_vblank),
       B.func(:scene_a, B.set(:picked, 10)),
@@ -87,6 +89,8 @@ module ConformanceFixture
       B.blit_pose([:sprite, :pose_b], B.var_ref(:x), :x, :y), # one pose of a same-size set, by index
       B.background(:grid, tiles: [:tile_a, :tile_b],          # a tiled grid; nil = an empty cell
                           map: [[0, 1], [1, nil]], tile_w: 2, tile_h: 2),
+      B.object(:hero_obj, image: :obj8, x: B.var_ref(:x), y: B.var_ref(:y), active: B.int(1)), # a composited object
+      B.present_objects([:hero_obj]),   # draw the declared objects for this frame
       B.save_region(:under, :x, :y),    # remember the pixels under a moving object
       B.restore_region(:under, :x, :y), # then paint them back
 

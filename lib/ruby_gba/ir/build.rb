@@ -297,6 +297,33 @@ module RubyGBA
         Node.new(:background, name: name, tiles: tiles, map: map, tile_w: tile_w, tile_h: tile_h)
       end
 
+      # --- display objects (a moving picture the display composites over the scene) ---
+      #
+      # An object is an image the display draws on top of the background every frame,
+      # at a position that can change as the game runs — a hero, an enemy, a coin. It
+      # composites over whatever's behind it (its see-through pixels let the scene
+      # show) and leaves no trail, because the display redraws the whole picture each
+      # frame rather than smearing pixels into a buffer. This says *what* the object
+      # is; a backend realizes it however its target does (one composites in software,
+      # another hands it to sprite hardware).
+
+      # Declare an object: the picture +image+, shown at the position held in the +x+
+      # and +y+ variables, drawn while +active+ is 1 (0 = hidden). x/y/active are
+      # value operands (variables the game steers). Reserves the object; #present_objects
+      # is what actually draws the declared objects for a frame.
+      def object(name, image:, x:, y:, active:)
+        Node.new(:object, name: name, image: image, x: wrap(x), y: wrap(y), active: wrap(active))
+      end
+
+      # Draw the named objects for this frame, on top of the background, in order
+      # (later ones sit in front). Emitted once per frame at the moment it's safe to
+      # change the screen — right after a vblank — so a moving object is redrawn each
+      # frame from its current position with no trail. +names+ lists the objects to
+      # present (each declared by #object).
+      def present_objects(names)
+        Node.new(:present_objects, names: names)
+      end
+
       # --- backing store (remembering the pixels under a moving object) ---
       #
       # A named off-screen buffer big enough to hold a width×height patch of the
