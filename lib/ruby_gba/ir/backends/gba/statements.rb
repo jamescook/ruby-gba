@@ -43,6 +43,7 @@ module RubyGBA
             when :draw_digit then emit_draw_digit(node)
             when :blit then emit_blit(node)
             when :blit_pose then emit_blit_pose(node)
+            when :background then emit_background(node)
             when :save_region then emit_save_region(node)
             when :restore_region then emit_restore_region(node)
             when :enable_sound then emit_enable_sound

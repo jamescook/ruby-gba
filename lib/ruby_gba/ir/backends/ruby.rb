@@ -270,6 +270,8 @@ module RubyGBA
             exec_draw_text(node)
           when :draw_digit
             exec_draw_digit(node)
+          when :background
+            exec_background(node)
           when :enable_sound
             @audio << [:enabled]
           when :define_sound, :song, :data, :bitmap, :backing_buffer
@@ -362,6 +364,22 @@ module RubyGBA
         # Copy a defined bitmap onto the fake screen at (x, y).
         def exec_blit(node)
           blit_image(node[:name], eval_value(node[:x]), eval_value(node[:y]))
+        end
+
+        # Draw a tiled background by stamping each cell's tile onto the fake screen.
+        # The map holds an index into the tile list per cell (nil = leave it blank),
+        # and each tile is an ordinary image, so this is just a grid of blits.
+        def exec_background(node)
+          tiles = node[:tiles]
+          tile_w = node[:tile_w]
+          tile_h = node[:tile_h]
+          node[:map].each_with_index do |row, r|
+            row.each_with_index do |index, c|
+              next if index.nil?
+
+              blit_image(tiles[index], c * tile_w, r * tile_h)
+            end
+          end
         end
 
         # Draw whichever pose the run-time index selects — the sprite facing the way

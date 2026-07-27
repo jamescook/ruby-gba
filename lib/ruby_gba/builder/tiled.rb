@@ -65,19 +65,26 @@ module RubyGBA
                                         "define one first with `tiles :#{tiles}, ...`")
         rows = background_rows(name, map)
         chars = set[:chars]
-        tile_w = set[:tile_w]
-        tile_h = set[:tile_h]
 
-        rows.each_with_index do |row, r|
-          row.each_char.with_index do |ch, c|
-            next if ch == " " # a blank cell — leave the background showing through
+        # Number the distinct tiles (in the order the tileset lists them), then turn
+        # the character map into a grid of those numbers — nil where a cell is blank.
+        # The grid, not a pile of draw calls, is what the background node carries, so
+        # a backend is free to stamp it pixel by pixel or hand it to tile hardware.
+        tile_names = chars.values.uniq
+        index_of = tile_names.each_with_index.to_h
+        grid = rows.map do |row|
+          row.each_char.map do |ch|
+            next nil if ch == " " # a blank cell — leave the background showing through
 
             img = chars[ch] || raise(ArgumentError,
                                      "background :#{name}: character #{ch.inspect} isn't in tileset " \
                                      ":#{tiles} (its tiles are #{chars.keys.map(&:inspect).join(', ')})")
-            blit(img, c * tile_w, r * tile_h)
+            index_of[img]
           end
         end
+
+        record(Build.background(name, tiles: tile_names, map: grid,
+                                      tile_w: set[:tile_w], tile_h: set[:tile_h]))
       end
 
       private

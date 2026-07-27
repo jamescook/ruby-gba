@@ -88,6 +88,9 @@ module RubyGBA
         dma_fill_rect: { x: :int, y: :int, w: :int, h: :int, color: :color },
         blit:          { name: :name, x: :value, y: :value },
         blit_pose:     { poses: :list, index: :value, x: :value, y: :value }, # one image of a same-size set
+        # a tiled background: the distinct tile images, the grid of indices into them
+        # (nil = empty cell), and the tile size — all author-time (the picture is fixed).
+        background:    { name: :name, tiles: :list, map: :list, tile_w: :int, tile_h: :int },
         # save/restore the pixels under a moving object; the patch size comes from
         # the named backing buffer, so these carry only where (x/y, run-time).
         save_region:    { buffer: :name, x: :value, y: :value },

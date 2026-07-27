@@ -286,6 +286,17 @@ module RubyGBA
         Node.new(:blit_pose, poses: poses, index: wrap(index), x: wrap(x), y: wrap(y))
       end
 
+      # A tiled background: a whole grid drawn from a small set of reusable tiles.
+      # +tiles+ is an ordered list of defined image names (the distinct tiles);
+      # +map+ is the grid — an array of rows, each an array of indices into +tiles+
+      # (or nil for an empty cell). +tile_w+/+tile_h+ are the tile size in pixels.
+      # This says *what* the background is, not how a machine draws it: one backend
+      # stamps the tiles pixel by pixel, another can hand the grid to tile hardware,
+      # but the picture is the same.
+      def background(name, tiles:, map:, tile_w:, tile_h:)
+        Node.new(:background, name: name, tiles: tiles, map: map, tile_w: tile_w, tile_h: tile_h)
+      end
+
       # --- backing store (remembering the pixels under a moving object) ---
       #
       # A named off-screen buffer big enough to hold a width×height patch of the
