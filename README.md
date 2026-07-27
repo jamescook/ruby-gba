@@ -207,11 +207,6 @@ cursor), [`buffered_bounce.rb`](examples/buffered_bounce.rb), and the font demos
 [`fonts.rb`](examples/fonts.rb) / [`font_styles.rb`](examples/font_styles.rb) /
 [`floating_digits.rb`](examples/floating_digits.rb).
 
-**Watch an example without an emulator:** `rake preview EXAMPLE=parallax KEYS=right`
-runs it on the reference interpreter and writes a self-contained HTML page that plays
-the frames back — the quickest way to *see* a moving effect (scrolling, parallax,
-animation). See [`tools/preview.rb`](tools/preview.rb).
-
 ### Choosing how to draw a moving thing
 
 The examples above deliberately solve the same kind of problem more than one way.
