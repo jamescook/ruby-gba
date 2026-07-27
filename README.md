@@ -193,9 +193,10 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | [`breakout.rb`](examples/breakout.rb) | A whole grid of `overlaps?` bricks, lives, angle-on-paddle-hit | Tear-free (double-buffered), whole frame redrawn |
 | [`snake.rb`](examples/snake.rb) | A growing `list` body, an `every` movement beat, live score | Direct Mode 3, **only the changed cells** redrawn |
 | [`snake_buffered.rb`](examples/snake_buffered.rb) | The *same* game written the naïve way and still tear-free | Double-buffered, whole board redrawn each frame |
-| [`pacman.rb`](examples/pacman.rb) | `sprite` poses/facing + sprite-to-sprite `overlaps?` (no boxes) | Sprites — self-repainting, no screen clear |
-| [`sprite_mover.rb`](examples/sprite_mover.rb) | Steering a single sprite over a kept background | A sprite over a preserved background |
-| [`tiles.rb`](examples/tiles.rb) | A room built from reusable 8×8 tiles + a text map (`tiles` / `background`) | Static tiled scene (the surface; hardware tile-mode to follow) |
+| [`pacman.rb`](examples/pacman.rb) | The tiled-mode flagship: a tiled room, `facing:` poses, sprite-to-sprite `overlaps?` (eat pellets, dodge a chasing ghost), sound | Tiled background + hardware (OAM) sprites |
+| [`hero.rb`](examples/hero.rb) | Walking one hardware sprite around a tiled room with the d-pad | Tiled background + a hardware sprite |
+| [`sprite_mover.rb`](examples/sprite_mover.rb) | Steering a single sprite over a kept background | A software sprite over a preserved bitmap |
+| [`tiles.rb`](examples/tiles.rb) | A room built from reusable 8×8 tiles + a text map (`tiles` / `background`) | Tiled background, drawn by the tile hardware |
 
 Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static
 drawing), [`grid_cursor.rb`](examples/grid_cursor.rb) (a `grid` with a moving
@@ -209,11 +210,15 @@ The examples above deliberately solve the same kind of problem more than one way
 Which to reach for:
 
 - **A sprite** (`sprite :hero, at: [x, y]`) — when a thing moves over a background
-  you want to keep. It saves and restores the pixels underneath, so it leaves no
-  trail and you never clear the screen; two sprites also collide for free
-  (`hero.overlaps?(coin)`), since each knows its own size. *Don't* use one in a game
-  that clears and repaints the whole screen every frame — the sprite repaints itself
-  before your scene draws, so the clear would wipe it. (see `pacman.rb`, `sprite_mover.rb`)
+  you want to keep. The *same* handle works two ways, picked by the screen: on
+  `screen :bitmap` it's a software sprite that saves and restores the pixels
+  underneath (so it leaves no trail and you never clear the screen — but *don't* use
+  one in a game that clears and repaints the whole screen every frame, since it
+  repaints itself before your scene draws and the clear would wipe it; see
+  `sprite_mover.rb`); on `screen :tiled` it's a hardware sprite the console
+  composites over the background for free, which also stacks cleanly and has none of
+  that clear-order caveat (see `pacman.rb`, `hero.rb`). Either way two sprites collide
+  for free (`hero.overlaps?(coin)`), since each knows its own size.
 - **A plain `box` + `draw_rect_at`** — when you already redraw the frame, or the
   thing isn't sprite-shaped. Collision is the same `overlaps?`. (see `pong.rb`, `breakout.rb`)
 - **Redraw only what changed** — in direct Mode 3, repaint just the few cells that
