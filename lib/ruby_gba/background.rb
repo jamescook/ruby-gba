@@ -27,11 +27,22 @@ module RubyGBA
     # @param name [Symbol] the background this handle scrolls
     # @param scroll_x [Symbol] the variable holding the window's left edge (in pixels)
     # @param scroll_y [Symbol] the variable holding the window's top edge (in pixels)
-    def initialize(builder, name:, scroll_x:, scroll_y:)
+    # @param walls [Array<Array(Integer,Integer,Integer,Integer)>] the solid-tile
+    #   rectangles [x, y, w, h] in pixels, if the tileset marked any tiles `solid:`
+    def initialize(builder, name:, scroll_x:, scroll_y:, walls: [])
       @builder = builder
       @name = name
       @scroll_x = scroll_x
       @scroll_y = scroll_y
+      @walls = walls
+    end
+
+    # The background's walls as {Box}es a sprite can be tested against — the merged
+    # solid-tile rectangles from the tileset's `solid:` tiles. Empty if none were
+    # marked solid. A {HardwareSprite} reads these when it's told to be `blocked_by`
+    # this background.
+    def solid_boxes
+      @solid_boxes ||= @walls.map { |x, y, w, h| @builder.box(x, y, w, h) }
     end
 
     # Slide the view by (+dx+, +dy+) pixels from where it is now — the usual way to
