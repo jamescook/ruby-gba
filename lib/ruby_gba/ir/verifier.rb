@@ -91,6 +91,10 @@ module RubyGBA
         # a tiled background: the distinct tile images, the grid of indices into them
         # (nil = empty cell), and the tile size — all author-time (the picture is fixed).
         background:    { name: :name, tiles: :list, map: :list, tile_w: :int, tile_h: :int },
+        # a composited moving object: its picture, and the run-time position/visibility
+        # (variables the game steers). present_objects names which to draw this frame.
+        object:          { name: :name, image: :name, x: :value, y: :value, active: :value },
+        present_objects: { names: :list },
         # save/restore the pixels under a moving object; the patch size comes from
         # the named backing buffer, so these carry only where (x/y, run-time).
         save_region:    { buffer: :name, x: :value, y: :value },

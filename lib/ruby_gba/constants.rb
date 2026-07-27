@@ -87,6 +87,12 @@ module RubyGBA
     BG2_ENABLE      = 0x0400
     BG3_ENABLE      = 0x0800
     OBJ_ENABLE      = 0x1000  # Enable sprites
+
+    # How a sprite's tiles are arranged in memory. With 1D mapping a multi-tile
+    # sprite's tiles sit one after another (the simple layout); without it they're
+    # spread across a 2D grid. We always use 1D so packing a sprite's tiles is just
+    # "write them in order".
+    OBJ_1D_MAP      = 0x0040  # DISPCNT bit 6: 1D object tile mapping
     WIN0_ENABLE     = 0x2000  # Enable window 0 (rectangular clipping region)
     WIN1_ENABLE     = 0x4000  # Enable window 1
     OBJ_WIN_ENABLE  = 0x8000  # Enable object window (sprite-shaped clipping)

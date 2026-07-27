@@ -22,6 +22,9 @@ module RubyGBA
             value = mode.is_a?(Integer) ? mode : SCREEN_MODES.fetch(mode) do
               raise LoweringError, "the GBA backend cannot lower screen mode #{mode.inspect} yet"
             end
+            # Turn the sprite layer on alongside the chosen mode when the program has
+            # sprites, and pick the simple 1D tile arrangement they're packed for.
+            value |= OBJ_ENABLE | OBJ_1D_MAP if @has_objects
             write_reg16(REG_DISPCNT, value)
           end
 
@@ -296,6 +299,95 @@ module RubyGBA
             emit(ASM.str(ACC, TMP)) # DMA source = the blob in the cartridge
             store_word_immediate(dest, REG_DMA3DAD)
             store_word_immediate(units | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
+          end
+
+          # --- sprites (hardware-composited moving objects) ---
+
+          # Where a sprite's tiles live: the object tile area of video memory, and the
+          # sprite table itself. In tile mode the console draws sprites from tiles kept
+          # in this region, separate from the background's, so the two never collide.
+          OBJ_TILE_BASE = VRAM_START + 0x10000 # object tiles start 64KB into video memory
+          OBJ_HIDDEN_ATTR0 = 0x0200            # attr0 marking a sprite-table slot unused
+          OBJ_HIDDEN_WORD  = 0x02000200        # two hidden attr0s, for a fast table clear
+
+          # One-time sprite setup at boot: blank the whole sprite table (its memory is
+          # garbage at power-on, so an untouched slot would show a stray sprite), then
+          # upload each sprite's colors and tiles into video memory. After this the
+          # per-frame draw just points slots at these tiles.
+          def emit_boot_objects
+            clear_object_table
+            @objects.each_value do |obj|
+              emit_dma_blob(obj[:pal], OBJ_PALETTE, obj[:pal_units])                        # colors -> sprite palette
+              emit_dma_blob(obj[:tiles], OBJ_TILE_BASE + (obj[:tile_index] * 32), obj[:tile_units] * 16) # tiles -> sprite memory
+            end
+          end
+
+          # Fill the sprite table with the "unused slot" marker so no leftover memory
+          # shows as a sprite. One source-fixed DMA of a word that is two hidden slots.
+          def clear_object_table
+            scratch = var_addr(:_oam_clear)
+            store_word_immediate(OBJ_HIDDEN_WORD, scratch)
+            store_word_immediate(scratch, REG_DMA3SAD)
+            store_word_immediate(OAM_START, REG_DMA3DAD)
+            store_word_immediate(dma_fill_control(OAM_SIZE / 4), REG_DMA3CNT)
+          end
+
+          # Draw this frame's sprites: write each named object's current position and
+          # visibility into its slot in the sprite table. Runs right after the vblank
+          # (when changing the table is safe), so a moving sprite lands at its new spot
+          # with no tearing. The console composites the sprites over the background for
+          # free — there's nothing to erase, unlike a software sprite.
+          def emit_present_objects(node)
+            node[:names].each { |name| emit_present_object(@objects.fetch(name)) }
+          end
+
+          # Write one sprite's three table entries from its live x/y/active variables.
+          # A hidden sprite (active == 0) gets the "unused slot" marker instead, so it
+          # vanishes; a shown one gets its position, size, and tiles.
+          def emit_present_object(obj)
+            base = OAM_START + (obj[:slot] * 8)
+
+            eval_value(obj[:active])
+            emit(ASM.cmp_imm(ACC, 0))
+            draw = gensym
+            done = gensym
+            emit_branch(:bcond, draw, cond: :ne)
+            write_reg16(base, OBJ_HIDDEN_ATTR0) # active == 0: mark the slot unused
+            emit_branch(:b, done)
+
+            place_label(draw)
+            # attr0 = (y & 0xFF) | shape + 256-color flag
+            eval_value(obj[:y])
+            mask_into_acc(0xFF)
+            orr_acc(obj[:attr0_base])
+            store_halfword_acc(base)
+            # attr1 = (x & 0x1FF) | size
+            eval_value(obj[:x])
+            mask_into_acc(0x1FF)
+            orr_acc(obj[:attr1_base])
+            store_halfword_acc(base + 2)
+            # attr2 = first tile of this sprite (palette bank/priority left at 0)
+            write_reg16(base + 4, obj[:tile_index])
+            place_label(done)
+          end
+
+          # r0 &= mask, using a scratch register so any mask width is fine.
+          def mask_into_acc(mask)
+            emit(ASM.load_immediate(TMP, mask))
+            emit(ASM.and_reg(ACC, ACC, TMP))
+          end
+
+          # r0 |= value, via a scratch register (values here have bits too high for an
+          # inline immediate).
+          def orr_acc(value)
+            emit(ASM.load_immediate(TMP, value))
+            emit(ASM.orr_reg(ACC, ACC, TMP))
+          end
+
+          # Store the low halfword of r0 to a fixed address.
+          def store_halfword_acc(address)
+            emit(ASM.load_immediate(TMP, address))
+            emit(ASM.store_halfword(ACC, TMP))
           end
 
           # Bitmap-mode background: no tile hardware, so stamp each non-empty cell with
