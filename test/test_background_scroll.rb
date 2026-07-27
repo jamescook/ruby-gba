@@ -75,23 +75,46 @@ class TestBackgroundScroll < Minitest::Test
     assert moved.red?(44, 84), "scrolled right, the landmark slid left, got 0x#{format('%04X', moved.pixel_gba(44, 84))}"
   end
 
-  # --- the friendly guardrail: scrolling + sprites isn't supported yet ---
+  # --- scrolling and sprites together: the sprite floats over the moving scene ---
 
-  def test_scrolling_with_sprites_is_a_friendly_error
-    b = Builder.new
-    err = assert_raises(ArgumentError) do
-      b.instance_eval do
-        screen :tiled
-        image(:tile, "#" => :blue) { SOLID8 }
-        image(:hero, "#" => :red)  { SOLID8 }
-        tiles :t, "#" => :tile
-        world = background :w, tiles: :t, map: Array.new(32, "#" * 32)
-        sprite :hero, at: [20, 20]
-        world.scroll_by 1, 0
-        game_loop { wait_vblank }
+  # A blue world with a RED landmark tile at cell (10,10) -> map px (80,80), a GREEN
+  # hero sprite parked at screen (100,60), and the view scrolling right 2px/frame,
+  # halting after 20 frames so it settles at offset 40 (the landmark has slid left to
+  # screen x=40, while the hero stays put on top).
+  def scroll_with_hero
+    map = Array.new(32) { |r| (0...32).map { |c| r == 10 && c == 10 ? "R" : "B" }.join }
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image(:red_t,  "#" => :red)   { SOLID8 }
+      image(:blue_t, "#" => :blue)  { SOLID8 }
+      image(:hero,   "#" => :green) { SOLID8 }
+      tiles :terrain, "R" => :red_t, "B" => :blue_t
+      world = background :world, tiles: :terrain, map: map
+      sprite :hero, at: [100, 60]
+      game_loop do
+        wait_vblank
+        world.scroll_by 2, 0
+        after(20) { halt }
       end
-      b.emit_pending_functions
     end
-    assert_match(/scrolling.*sprites|sprites.*scroll/i, err.message)
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_sprite_stays_over_a_scrolling_background
+    s = Ruby.new.run(scroll_with_hero).screen
+    assert_equal Color.resolve(:green), s.pixel(104, 64),
+                 "the hero stays drawn on top as the world scrolls under it"
+    assert_equal Color.resolve(:red), s.pixel(44, 84),
+                 "and the background really scrolled (the landmark slid left to screen x=40)"
+  end
+
+  def test_scrolling_with_a_sprite_on_the_console
+    v = assert_gemba_loads_rom(rom_for(scroll_with_hero), frames: 25)
+    assert v.green?(104, 64),
+           "the hero renders over the scrolling world on hardware, got 0x#{format('%04X', v.pixel_gba(104, 64))}"
+    assert v.red?(44, 84),
+           "the world scrolled under it on hardware, got 0x#{format('%04X', v.pixel_gba(44, 84))}"
   end
 end

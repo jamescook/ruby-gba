@@ -55,7 +55,6 @@ module RubyGBA
     # Show the background at its current offset. Recorded where scroll is called (right
     # after wait_vblank, in the safe window), so the view moves this frame.
     def apply
-      @builder.note_background_scrolled
       record(Build.scroll_background(@name, x: Build.var_ref(@scroll_x), y: Build.var_ref(@scroll_y)))
       self
     end

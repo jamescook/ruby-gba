@@ -13,8 +13,8 @@
 # What you never touch: the scroll registers, where the map lives in video memory,
 # how wrapping works. You say where the window sits, in pixels, and it goes there.
 #
-# (This pans an empty world — sprites over a scrolling background are a following
-# slice. For now it's the camera on its own.)
+# (This pans an empty world — the camera on its own. Put a sprite on top and follow
+# it and you have a follow-you camera: see examples/hero.rb.)
 #
 # Run it to build examples/scroll.gba:
 #   ruby examples/scroll.rb

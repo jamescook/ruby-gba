@@ -56,6 +56,9 @@ module RubyGBA
           @bg_by_name = {}         # name -> :background node (for scrolling that background's window)
           @scene_fb = nil          # the settled scene (backdrop + backgrounds), built once, to restore under objects
           @obj_prev = {}           # object name -> [x, y] it was last drawn at (to erase before redrawing)
+          @scrolling = false       # does this program scroll a background? (decided in collect_definitions)
+          @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
+          @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
@@ -138,6 +141,12 @@ module RubyGBA
               # and by name so scroll_background can re-window that one.
               @bg_nodes << n
               @bg_by_name[n[:name]] = n
+            when :scroll_background
+              # A program that scrolls even once can put its background at a non-zero
+              # offset, so the whole scene has to be repainted every frame — the static
+              # save-under trick objects normally ride on no longer holds. Remember that
+              # here so present_objects and scroll_background take the repaint path.
+              @scrolling = true
             end
           end
         end
@@ -401,20 +410,31 @@ module RubyGBA
           end
         end
 
-        # Scroll a background: repaint the whole visible screen as the window over the
-        # map whose top-left is at the run-time offset (x, y). The map is a torus, so an
-        # offset past an edge wraps around — the same thing tile hardware does, done here
-        # by sampling the map (with wrapping) for every screen pixel.
+        # Scroll a background: record where its window now sits (its run-time offset)
+        # and recomposite the frame. On the console this is one register write and the
+        # tile hardware redraws the layer from that offset — sprites still float on top
+        # for free; here we reproduce that by repainting the scrolled scene and drawing
+        # the sprites back over it (see #composite_scrolled_frame).
         def exec_scroll_background(node)
-          bg = @bg_by_name.fetch(node[:name]) { raise ProgramError, "scroll of undeclared background #{node[:name].inspect}" }
+          @bg_by_name.fetch(node[:name]) { raise ProgramError, "scroll of undeclared background #{node[:name].inspect}" }
+          @bg_scroll[node[:name]] = [eval_value(node[:x]), eval_value(node[:y])]
+          composite_scrolled_frame
+        end
+
+        # Repaint one background's visible window at its current scroll offset. The map
+        # is a torus, so an offset past an edge wraps around — the same thing tile
+        # hardware does, done here by sampling the map (with wrapping) for every screen
+        # pixel. A background that has never scrolled sits at offset (0, 0).
+        def paint_background_window(bg)
           tiles = bg[:tiles]
           map = bg[:map]
           tile_w = bg[:tile_w]
           tile_h = bg[:tile_h]
           map_w = map.map(&:length).max * tile_w
           map_h = map.length * tile_h
-          off_x = eval_value(node[:x]) % map_w # Ruby % wraps negatives into 0..map_w-1
-          off_y = eval_value(node[:y]) % map_h
+          off_x, off_y = @bg_scroll[bg[:name]] || [0, 0]
+          off_x %= map_w # Ruby % wraps negatives into 0..map_w-1
+          off_y %= map_h
 
           @screen.height.times do |py|
             my = (off_y + py) % map_h
@@ -425,6 +445,16 @@ module RubyGBA
               @screen.set_pixel(px, py, background_pixel(tiles, index, mx % tile_w, my % tile_h))
             end
           end
+        end
+
+        # Rebuild the whole visible screen the way tile-and-sprite hardware does: the
+        # scrolled backgrounds first (a fresh window, so last frame's sprites vanish
+        # with it — no save-under needed), then the sprites over the top in draw order.
+        # Both scroll_background and present_objects call this, so whichever runs last
+        # in a frame leaves the settled, correct image regardless of their order.
+        def composite_scrolled_frame
+          @bg_nodes.each { |bg| paint_background_window(bg) }
+          @obj_layer.each { |obj| blit_image(obj[:image], obj[:x], obj[:y]) }
         end
 
         # The color of a background cell's pixel: the tile's pixel there, or the black
@@ -445,7 +475,18 @@ module RubyGBA
         # cheaply by putting the clean scene back where each object was last drawn,
         # then drawing every object at its current spot. Two passes (erase all, then
         # draw all) so overlapping objects can't erase each other.
+        #
+        # When a background scrolls, the scene under the objects isn't fixed, so the
+        # save-under trick can't restore it — instead we snapshot which objects are on
+        # screen this frame and recomposite the whole view (scrolled scene, then these
+        # objects on top). See #composite_scrolled_frame.
         def exec_present_objects(node)
+          if @scrolling
+            snapshot_object_layer(node)
+            composite_scrolled_frame
+            return
+          end
+
           scene = scene_framebuffer
           node[:names].each do |name|
             prev = @obj_prev[name]
@@ -463,6 +504,22 @@ module RubyGBA
             y = eval_value(obj[:y])
             blit_image(image, x, y)
             @obj_prev[name] = [x, y]
+          end
+        end
+
+        # Capture the objects that are on screen this frame — their current pose picture
+        # and position, in draw order — as the sprite layer #composite_scrolled_frame
+        # paints over the scrolled scene. A hidden object, or one whose pose index is out
+        # of range, simply isn't in the layer this frame.
+        def snapshot_object_layer(node)
+          @obj_layer = node[:names].filter_map do |name|
+            obj = @objects.fetch(name) { raise ProgramError, "present of undeclared object #{name.inspect}" }
+            next unless eval_value(obj[:active]) == 1
+
+            image = object_pose_image(obj)
+            next if image.nil?
+
+            { image: image, x: eval_value(obj[:x]), y: eval_value(obj[:y]) }
           end
         end
 
