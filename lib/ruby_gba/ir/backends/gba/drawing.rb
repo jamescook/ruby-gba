@@ -260,13 +260,47 @@ module RubyGBA
             emit_rect_row_dma(node[:x], node[:y], bmp[:width], bmp[:height], node[:name], vram: :dest)
           end
 
-          # Draw a tiled background. For now each non-empty cell is stamped with the
-          # shared blit path — a positioned copy of the tile image onto the screen —
-          # so the picture matches the interpreter exactly. (The console has dedicated
-          # tile hardware that draws a whole background for free; lowering to it is a
-          # later step. This keeps the tiles/background surface working meanwhile, at
-          # the cost of one copy per cell.)
+          # Draw a tiled background. In tile mode the console draws the whole layer
+          # from data in video memory, so it's uploaded once (emit_background_hardware).
+          # In bitmap mode there's no tile hardware, so each cell is stamped with the
+          # blit path instead — correct, just a copy per cell.
           def emit_background(node)
+            @tiled ? emit_background_hardware(node) : emit_background_blits(node)
+          end
+
+          # Where tile hardware reads from: BG0 takes its tile pictures from character
+          # block 0 (the start of video memory) and its map from screen block 8 — the
+          # 2KB region just past that 16KB character block — so the two never overlap.
+          SCREENBLOCK_MAP_OFFSET = 0x4000 # screen block 8: past character block 0's 16KB
+          BG0CNT_TILED = 0x0880           # 256-color, char block 0, screen block 8, 32x32 map, top priority
+
+          # Tile-hardware background: hand the palette, the tile pictures, and the map
+          # to video memory by DMA, then point BG0 at them. Drawn once — after that the
+          # hardware repaints the whole layer every frame for free.
+          def emit_background_hardware(node)
+            bg = @backgrounds.fetch(node[:name])
+            emit_dma_blob(bg[:pal], BG_PALETTE, bg[:pal_units])                          # colors -> palette memory
+            emit_dma_blob(bg[:char], VRAM_START, bg[:char_units])                        # tile pictures -> char block 0
+            emit_dma_blob(bg[:map], VRAM_START + SCREENBLOCK_MAP_OFFSET, bg[:map_units]) # map -> screen block 8
+            write_reg16(REG_BG0CNT, BG0CNT_TILED)
+            write_reg16(REG_BG0HOFS, 0) # no scrolling yet
+            write_reg16(REG_BG0VOFS, 0)
+          end
+
+          # One DMA of +units+ 16-bit words from an embedded blob to a fixed address,
+          # both ends advancing — the same shape as the palette upload. Fills palette
+          # and video memory at startup.
+          def emit_dma_blob(blob_name, dest, units)
+            emit_load_data_address(ACC, blob_name)
+            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            emit(ASM.str(ACC, TMP)) # DMA source = the blob in the cartridge
+            store_word_immediate(dest, REG_DMA3DAD)
+            store_word_immediate(units | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
+          end
+
+          # Bitmap-mode background: no tile hardware, so stamp each non-empty cell with
+          # the shared blit path — a positioned copy of the tile image onto the screen.
+          def emit_background_blits(node)
             tiles = node[:tiles]
             tile_w = node[:tile_w]
             tile_h = node[:tile_h]
