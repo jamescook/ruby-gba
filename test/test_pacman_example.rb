@@ -1,14 +1,16 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "stringio"
 require_relative "../lib/ruby_gba"
 require_relative "../examples/pacman"
 require_relative "test_helper"
 
-# The Pac-Man example: steer him and he turns to face the way he goes, using the
-# sprite `facing:` poses + directional `move`. Asserts he appears, moves, and turns
-# to face his heading (via the framework's facing variable, and on the screen), on
-# the interpreter and on gemba.
+# The Pac-Man example (examples/pacman.rb): the tiled-mode flagship. Pac, the
+# pellets, and the ghost are HARDWARE sprites composited over a TILED room; Pac
+# faces the way he moves, eats pellets on contact, and the ghost chases him. Asserts
+# the whole stack renders and behaves — on the interpreter oracle and on real
+# hardware. (Facing correctness itself is pinned in test_hardware_sprite_facing.rb.)
 class TestPacmanExample < Minitest::Test
   include GembaSupport
   include RubyGBA::Constants
@@ -18,47 +20,61 @@ class TestPacmanExample < Minitest::Test
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
 
-  START_X = (Pacman::SCREEN_W - Pacman::SIZE) / 2
-  START_Y = (Pacman::SCREEN_H - Pacman::SIZE) / 2
-  # facing map order is right, left, up, down -> pose indices 0..3
-  FACE = { right: 0, left: 1, up: 2, down: 3 }.freeze
+  START_X, START_Y = Pacman::START
 
-  def yellow_on?(screen)
-    (0...Pacman::SCREEN_H).any? { |y| (0...Pacman::SCREEN_W).any? { |x| screen.pixel(x, y) == Color.resolve(:yellow) } }
-  end
-
-  def test_pac_appears_facing_right
-    i = Ruby.new.run(Pacman.program, max_steps: 300)
-    assert yellow_on?(i.screen), "Pac-Man should be on screen"
-    assert_equal FACE[:right], i[:__spr1_face], "he should start facing right (the first pose)"
-  end
-
-  def test_steering_moves_and_turns_him
-    left = Ruby.new.input_each_frame { |_f| [:left] }.run(Pacman.program, max_steps: 3000)
-    assert_operator left[:__spr1_x], :<, START_X, "holding left should move him left"
-    assert_equal FACE[:left], left[:__spr1_face], "moving left should turn him to face left"
-
-    up = Ruby.new.input_each_frame { |_f| [:up] }.run(Pacman.program, max_steps: 3000)
-    assert_operator up[:__spr1_y], :<, START_Y, "holding up should move him up"
-    assert_equal FACE[:up], up[:__spr1_face], "moving up should turn him to face up"
-  end
-
-  def test_running_into_the_pellet_eats_it
-    # The pellet starts just to Pac-Man's right, so holding right walks him into it;
-    # overlaps? fires and the eaten count climbs. Both are sprites — no boxes.
-    r = Ruby.new.input_each_frame { |_f| [:right] }.run(Pacman.program, max_steps: 3000)
-    assert_operator r[:eaten], :>=, 1, "running into the pellet should eat it"
+  # Is there a pixel of +color+ anywhere in the box (x0..x1, y0..y1)?
+  def any_pixel?(screen, color, x_range, y_range)
+    want = Color.resolve(color)
+    x_range.any? { |x| y_range.any? { |y| screen.pixel(x, y) == want } }
   end
 
   def test_it_builds_a_rom
-    assert Pacman.build_rom.size.positive?
+    assert_operator Pacman.build_rom(err: StringIO.new).size, :>, 0, "the built ROM should be non-empty"
   end
+
+  # Pac (yellow), a pellet (white), and the ghost (red) all render over the room —
+  # three hardware sprites of different colors composited on the tiled background.
+  def test_pac_the_pellets_and_the_ghost_all_render
+    s = Ruby.new.run(Pacman.program, max_steps: 400).screen
+    assert any_pixel?(s, :yellow, START_X..(START_X + Pacman::SIZE), START_Y..(START_Y + Pacman::SIZE)),
+           "Pac-Man renders in the middle"
+    px, py = Pacman::PELLET_SPOTS.first
+    assert any_pixel?(s, :white, px..(px + 8), py..(py + 8)), "a pellet renders"
+    # the ghost is the only red thing, and it's already creeping toward Pac
+    assert any_pixel?(s, :red, 0..239, 0..159), "the ghost renders"
+  end
+
+  # Holding left walks Pac left of where he started — he's found in yellow there.
+  def test_steering_moves_pac
+    s = Ruby.new.input_each_frame { [:left] }.run(Pacman.program, max_steps: 400).screen
+    assert any_pixel?(s, :yellow, 64..104, START_Y..(START_Y + Pacman::SIZE)),
+           "holding left should walk Pac left of centre"
+  end
+
+  # A pellet sits directly above Pac, so just holding up walks him into it — well
+  # before the ghost (starting in a far corner) is any threat. overlaps? fires and
+  # the eaten count climbs. Both are sprites, so there are no boxes.
+  def test_eating_a_pellet
+    r = Ruby.new.input_each_frame { [:up] }.run(Pacman.program, max_steps: 1000)
+    assert_operator r[:eaten], :>=, 1, "walking into a pellet should eat it"
+  end
+
+  # Leave Pac still and the ghost, creeping toward him each frame, eventually catches
+  # him — collision across two moving hardware sprites, driving the whole loop.
+  def test_the_ghost_catches_an_idle_pac
+    r = Ruby.new.run(Pacman.program, max_steps: 4000)
+    assert_operator r[:caught], :>=, 1, "the chasing ghost should catch a still Pac"
+  end
+
+  # --- Hardware (gemba): it renders and steers on the console ---
 
   def test_it_renders_and_steers_on_hardware
     rom = ROM.assemble(GBA.new.lower(Pacman.program), title: "PACMAN", code: "BPAC", maker: "01")
     v = assert_gemba_loads_rom(rom, frames: 10, keys: KEY_LEFT)
-    # he's moved left of centre and is drawn there in yellow
-    moved = (10...START_X).any? { |x| (START_Y...START_Y + Pacman::SIZE).any? { |y| v.pixel_is?(x, y, :yellow) } }
-    assert moved, "Pac-Man should be found in yellow to the left of centre on hardware"
+    moved = (40...START_X).any? { |x| (START_Y...START_Y + Pacman::SIZE).any? { |y| v.pixel_is?(x, y, :yellow) } }
+    assert moved, "Pac-Man should be found in yellow left of centre on hardware"
+    gx, gy = Pacman::GHOST_START
+    ghost_there = (gx...gx + Pacman::SIZE).any? { |x| (gy...gy + Pacman::SIZE).any? { |y| v.red?(x, y) } }
+    assert ghost_there, "the ghost should render on hardware"
   end
 end
