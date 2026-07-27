@@ -56,9 +56,12 @@ module RubyGBA
       # of row strings. Each character is stamped as its tile at that cell; a space
       # leaves the cell empty (the background shows through).
       #
+      # Returns a {Background} handle you can scroll (`world.scroll_by dx, dy`).
+      #
       # @param name [Symbol] the background's name
       # @param tiles [Symbol] a tileset defined with {#tiles}
       # @param map [String, Array<String>] the grid of tile characters
+      # @return [Background] a handle: scroll_by / scroll_to
       def background(name, tiles:, map:)
         set = @tilesets[tiles] || raise(ArgumentError,
                                         "background :#{name}: no tileset named :#{tiles} — " \
@@ -85,6 +88,14 @@ module RubyGBA
 
         record(Build.background(name, tiles: tile_names, map: grid,
                                       tile_w: set[:tile_w], tile_h: set[:tile_h]))
+
+        # The window's top-left, in pixels, tracked in two hidden variables (cleared at
+        # boot since console RAM isn't zero at power-on). A background that never
+        # scrolls simply leaves them at 0.
+        scroll_x = :"__bg_#{name}_sx"
+        scroll_y = :"__bg_#{name}_sy"
+        [scroll_x, scroll_y].each { |var| at_boot(Build.set(var, Build.int(0))); ensure_var(var) }
+        Background.new(self, name: name, scroll_x: scroll_x, scroll_y: scroll_y)
       end
 
       private

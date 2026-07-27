@@ -91,6 +91,9 @@ module RubyGBA
         # a tiled background: the distinct tile images, the grid of indices into them
         # (nil = empty cell), and the tile size — all author-time (the picture is fixed).
         background:    { name: :name, tiles: :list, map: :list, tile_w: :int, tile_h: :int },
+        # move the visible window over a background: which background, and the run-time
+        # top-left offset (x, y) in pixels.
+        scroll_background: { name: :name, x: :value, y: :value },
         # a composited moving object: its same-size poses, a run-time index picking
         # which to show (facing/animation), and its run-time position/visibility.
         # present_objects names which to draw this frame.

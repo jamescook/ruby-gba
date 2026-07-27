@@ -198,6 +198,7 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | [`sprite_mover.rb`](examples/sprite_mover.rb) | Steering a single sprite over a kept background | A software sprite over a preserved bitmap |
 | [`animate.rb`](examples/animate.rb) | A flipbook `sprite` (`frames:` / `rate:`) — a spinning coin you can also walk | A software sprite cycling its frames on a hidden timer |
 | [`tiles.rb`](examples/tiles.rb) | A room built from reusable 8×8 tiles + a text map (`tiles` / `background`) | Tiled background, drawn by the tile hardware |
+| [`scroll.rb`](examples/scroll.rb) | Panning a camera over a world bigger than the screen (`background.scroll_by`, wraps at the edge) | Tiled background, scrolled by the tile hardware |
 
 Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static
 drawing), [`grid_cursor.rb`](examples/grid_cursor.rb) (a `grid` with a moving

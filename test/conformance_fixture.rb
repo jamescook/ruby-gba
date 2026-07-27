@@ -89,6 +89,7 @@ module ConformanceFixture
       B.blit_pose([:sprite, :pose_b], B.var_ref(:x), :x, :y), # one pose of a same-size set, by index
       B.background(:grid, tiles: [:tile_a, :tile_b],          # a tiled grid; nil = an empty cell
                           map: [[0, 1], [1, nil]], tile_w: 2, tile_h: 2),
+      B.scroll_background(:grid, x: B.var_ref(:x), y: B.var_ref(:y)), # move the window over it
       B.object(:hero_obj, poses: [:obj8], pose: B.int(0), # a composited object (one pose, held at index 0)
                           x: B.var_ref(:x), y: B.var_ref(:y), active: B.int(1)),
       B.present_objects([:hero_obj]),   # draw the declared objects for this frame

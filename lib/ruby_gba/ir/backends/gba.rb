@@ -282,6 +282,7 @@ module RubyGBA
           name = node[:name]
           tiles = node[:tiles]
           validate_tile_sizes!(name, tiles)
+          validate_map_fits!(name, node[:map])
 
           # Convert the tiles to indexed color: collect every distinct color into one
           # palette (index 0 reserved for the black backdrop an empty cell shows), and
@@ -327,6 +328,21 @@ module RubyGBA
             char: char_blob, char_units: char.bytesize / 2,
             map: map_blob, map_units: entries.size,
           }
+        end
+
+        # A tiled background fits one screen block: up to 32x32 tiles (256x256 pixels,
+        # already larger than the screen, and it wraps). A bigger map would need the
+        # multi-block layouts, so for now it's a friendly build error rather than a
+        # silently cropped level. (This is what a "larger maps" slice lifts.)
+        def validate_map_fits!(name, map)
+          cols = map.map(&:length).max || 0
+          rows = map.length
+          return if cols <= MAP_CELLS && rows <= MAP_CELLS
+
+          raise LoweringError,
+                "background :#{name} is #{cols}x#{rows} tiles, but a tiled background is at most " \
+                "#{MAP_CELLS}x#{MAP_CELLS} tiles for now (256x256 pixels, which already scrolls and wraps). " \
+                "Use a smaller map, or split the level."
         end
 
         def validate_tile_sizes!(name, tiles)

@@ -297,6 +297,16 @@ module RubyGBA
         Node.new(:background, name: name, tiles: tiles, map: map, tile_w: tile_w, tile_h: tile_h)
       end
 
+      # Show the named background scrolled to the offset (+x+, +y+) in pixels — the
+      # top-left of the visible window over the map. x/y are value operands (variables
+      # the game moves), so the view slides as they change; a map is a torus, so an
+      # offset past its edge wraps around. This says *where the window sits*, not how a
+      # machine scrolls: one backend re-renders the window, another nudges the tile
+      # hardware's scroll offset.
+      def scroll_background(name, x:, y:)
+        Node.new(:scroll_background, name: name, x: wrap(x), y: wrap(y))
+      end
+
       # --- display objects (a moving picture the display composites over the scene) ---
       #
       # An object is an image the display draws on top of the background every frame,
