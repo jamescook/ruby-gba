@@ -311,13 +311,14 @@ module RubyGBA
           OBJ_HIDDEN_WORD  = 0x02000200        # two hidden attr0s, for a fast table clear
 
           # One-time sprite setup at boot: blank the whole sprite table (its memory is
-          # garbage at power-on, so an untouched slot would show a stray sprite), then
-          # upload each sprite's colors and tiles into video memory. After this the
-          # per-frame draw just points slots at these tiles.
+          # garbage at power-on, so an untouched slot would show a stray sprite), upload
+          # the one shared color table every sprite indexes into, then each sprite's
+          # tiles into video memory. After this the per-frame draw just points slots at
+          # these tiles.
           def emit_boot_objects
             clear_object_table
+            emit_dma_blob(@obj_palette_blob, OBJ_PALETTE, @obj_palette_units) # the shared sprite palette, once
             @objects.each_value do |obj|
-              emit_dma_blob(obj[:pal], OBJ_PALETTE, obj[:pal_units])                        # colors -> sprite palette
               emit_dma_blob(obj[:tiles], OBJ_TILE_BASE + (obj[:tile_index] * 32), obj[:tile_units] * 16) # tiles -> sprite memory
             end
           end
