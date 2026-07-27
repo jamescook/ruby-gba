@@ -55,6 +55,7 @@ module RubyGBA
       @height = height
       @facing_var = facing_var   # the variable the object's pose selector reads
       @facing_dirs = facing_dirs # direction -> pose index, for face / auto-facing move
+      @walls = nil               # solid-tile Boxes this sprite is blocked by (nil until blocked_by)
     end
 
     # The object this handle drives — Builder#wait_vblank lists it for the per-frame
@@ -92,16 +93,50 @@ module RubyGBA
     def move(direction_or_dx, dy = nil, by: 1)
       if direction_or_dx.is_a?(Symbol)
         step_x, step_y = Direction.unit(direction_or_dx)
-        x.add(step_x * by) unless step_x.zero?
-        y.add(step_y * by) unless step_y.zero?
+        step(:x, step_x * by) unless step_x.zero?
+        step(:y, step_y * by) unless step_y.zero?
         # A sprite with poses turns to face the way it moves — press left, move AND
         # face left in one call (only for a direction it has a pose for).
         face(direction_or_dx) if faceted? && @facing_dirs.key?(direction_or_dx)
       else
-        x.add(direction_or_dx)
-        y.add(dy) if dy && dy != 0
+        step(:x, direction_or_dx) if direction_or_dx != 0
+        step(:y, dy) if dy && dy != 0
       end
       self
+    end
+
+    # Stop this sprite from moving through +background+'s wall tiles — the ones its
+    # tileset marked `solid:`. After this, `move` is checked automatically: a step that
+    # would put the sprite into a wall simply doesn't happen, so it slides along walls
+    # and stops at them with no collision code of your own.
+    #
+    #   world = background :maze, tiles: :bricks, map: MAZE   # bricks marked solid:
+    #   hero  = sprite :hero, at: [24, 24]
+    #   hero.blocked_by world
+    #   game_loop do
+    #     wait_vblank
+    #     held(:right).then { hero.move :right }   # walks until a wall, then stops
+    #   end
+    #
+    # You keep full manual control too: `can_move?` asks before moving so you can do
+    # your own thing when blocked, and the raw position ops (`move_to`, `x`/`y`) are
+    # never checked — an escape hatch for teleports and scripted moves.
+    def blocked_by(background)
+      @walls = background.solid_boxes
+      self
+    end
+
+    # Whether this sprite could step +by+ pixels in +direction+ without hitting a wall
+    # — a {Condition} to branch on, for taking collision into your own hands:
+    #
+    #   hero.can_move?(:left).then { hero.move :left }   # or do something else if not
+    #
+    # Needs `blocked_by` to have named the walls first.
+    def can_move?(direction, by: 1)
+      raise ArgumentError, "call blocked_by(background) before can_move? — it needs to know the walls" if @walls.nil?
+
+      step_x, step_y = Direction.unit(direction)
+      clear_of_walls(x + (step_x * by), y + (step_y * by))
     end
 
     # Jump the sprite to an exact spot — sugar for x.set / y.set.
@@ -142,6 +177,31 @@ module RubyGBA
     end
 
     private
+
+    # Move +delta+ pixels along one axis. With no walls it's a plain nudge; blocked, it
+    # happens only if the sprite's box at the destination is clear of every wall (each
+    # axis checked on its own, so the sprite can still slide along a wall it's pressed
+    # against).
+    def step(axis, delta)
+      var = axis == :x ? x : y
+      return var.add(delta) if @walls.nil? || @walls.empty?
+
+      target_x = axis == :x ? x + delta : x
+      target_y = axis == :y ? y + delta : y
+      clear_of_walls(target_x, target_y).then { var.add(delta) }
+    end
+
+    # A {Condition} true when the sprite's box, placed at (target_x, target_y), doesn't
+    # overlap any wall. "Doesn't overlap" is separated on some axis — the destination
+    # ends at or before a wall begins, or begins at or after it ends — so a sprite can
+    # rest flush against a wall (touching isn't overlapping) yet never cross into one.
+    def clear_of_walls(target_x, target_y)
+      right = target_x + @width
+      bottom = target_y + @height
+      @walls.map do |wall|
+        (right <= wall.x) | (wall.right <= target_x) | (bottom <= wall.y) | (wall.bottom <= target_y)
+      end.reduce(:&)
+    end
 
     def faceted?
       !@facing_var.nil?

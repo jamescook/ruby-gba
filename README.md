@@ -200,6 +200,7 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | [`tiles.rb`](examples/tiles.rb) | A room built from reusable 8×8 tiles + a text map (`tiles` / `background`) | Tiled background, drawn by the tile hardware |
 | [`scroll.rb`](examples/scroll.rb) | Panning a camera over a world bigger than the screen (`background.scroll_by`, wraps at the edge) | Tiled background, scrolled by the tile hardware |
 | [`parallax.rb`](examples/parallax.rb) | Two background layers (far clouds, near trees) scrolling at different speeds to fake depth | Stacked tiled layers, composited + independently scrolled |
+| [`maze.rb`](examples/maze.rb) | A hero that walks corridors and is stopped by the walls (`tiles solid:`, `sprite.blocked_by`) | Tiled room + a hardware sprite with tile collision |
 
 Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static
 drawing), [`grid_cursor.rb`](examples/grid_cursor.rb) (a `grid` with a moving

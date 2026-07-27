@@ -33,10 +33,24 @@ module RubyGBA
       # a uniform grid). The characters are the alphabet a `background` map is drawn
       # with.
       #
+      # Add `solid:` to mark which tiles are walls a sprite can't move through — a
+      # list of the characters that block (`solid: ["#"]`, or one char `solid: "#"`).
+      # A `background` built from this tileset then knows where its walls are, so a
+      # sprite told to be `blocked_by` it stops at them (see {HardwareSprite#blocked_by}).
+      #
       # @param name [Symbol] the tileset's name, referenced by `background(tiles:)`
       # @param char_map [Hash{String=>Symbol}] one entry per tile: character => image name
       def tiles(name, char_map)
+        char_map = char_map.dup
+        solid = Array(char_map.delete(:solid)) # characters whose tiles block movement (walls)
         raise ArgumentError, "tiles :#{name} needs at least one character => tile mapping" if char_map.empty?
+
+        unknown = solid.reject { |ch| char_map.key?(ch) }
+        unless unknown.empty?
+          raise ArgumentError,
+                "tiles :#{name}: solid #{unknown.map(&:inspect).join(', ')} " \
+                "#{unknown.one? ? 'is' : 'are'} not in the tileset (its tiles are #{char_map.keys.map(&:inspect).join(', ')})"
+        end
 
         sizes = char_map.map do |ch, img|
           @images[img] || raise(ArgumentError,
@@ -49,7 +63,7 @@ module RubyGBA
                 "got #{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}"
         end
 
-        @tilesets[name] = { chars: char_map.dup, tile_w: sizes.first[0], tile_h: sizes.first[1] }
+        @tilesets[name] = { chars: char_map.dup, tile_w: sizes.first[0], tile_h: sizes.first[1], solid: solid }
       end
 
       # Paint a tiled background: a tileset plus a map of which tile goes in each
@@ -97,10 +111,50 @@ module RubyGBA
         scroll_x = :"__bg_#{name}_sx"
         scroll_y = :"__bg_#{name}_sy"
         [scroll_x, scroll_y].each { |var| at_boot(Build.set(var, Build.int(0))); ensure_var(var) }
-        Background.new(self, name: name, scroll_x: scroll_x, scroll_y: scroll_y)
+        Background.new(self, name: name, scroll_x: scroll_x, scroll_y: scroll_y,
+                             walls: wall_rects(rows, set))
       end
 
       private
+
+      # The wall rectangles for a background: the cells whose tile is `solid:` in the
+      # tileset, merged into as few rectangles as possible and given in pixels. A sprite
+      # `blocked_by` this background is stopped from entering any of them. Merging keeps
+      # the count small — a bordered room is four rectangles, not one per wall tile — so
+      # the per-frame overlap tests stay cheap.
+      def wall_rects(rows, set)
+        solid = set[:solid]
+        return [] if solid.empty?
+
+        grid = rows.map { |row| row.each_char.map { |ch| solid.include?(ch) } }
+        merge_solid_cells(grid).map do |col, row, w, h|
+          [col * set[:tile_w], row * set[:tile_h], w * set[:tile_w], h * set[:tile_h]]
+        end
+      end
+
+      # Greedily cover the solid cells with rectangles: from each unclaimed solid cell,
+      # grow right as far as the run goes, then down as far as that whole width stays
+      # solid, claim the block, and move on. Maze-shaped walls collapse to a handful of
+      # rectangles this way. Returns [col, row, width, height] in tile units.
+      def merge_solid_cells(grid)
+        rows = grid.length
+        cols = grid.map(&:length).max || 0
+        claimed = Array.new(rows) { Array.new(cols, false) }
+        rects = []
+        rows.times do |r|
+          cols.times do |c|
+            next unless grid[r][c] && !claimed[r][c]
+
+            w = 1
+            w += 1 while c + w < cols && grid[r][c + w] && !claimed[r][c + w]
+            h = 1
+            h += 1 while r + h < rows && (c...c + w).all? { |cc| grid[r + h][cc] && !claimed[r + h][cc] }
+            (r...r + h).each { |rr| (c...c + w).each { |cc| claimed[rr][cc] = true } }
+            rects << [c, r, w, h]
+          end
+        end
+        rects
+      end
 
       # Normalize a background map into an array of row strings. A string is split on
       # newlines (blank lines dropped); an array is taken as its rows already. A map
