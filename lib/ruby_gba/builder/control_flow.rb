@@ -60,6 +60,9 @@ module RubyGBA
         # picture each frame — so it's one step: draw them all from their current
         # positions (later ones sit in front).
         record(Build.present_objects(@hw_sprites.map(&:object_name))) unless @hw_sprites.empty?
+        # Then step every flipbook sprite's pose along its beat, so the next frame
+        # shows the next picture.
+        @animations.each { |anim| advance_animation(anim).each { |node| record(node) } }
       end
 
       # Wrap a block of code in an infinite loop. The block's statements become the
@@ -176,6 +179,22 @@ module RubyGBA
       end
 
       private
+
+      # The statements that advance one flipbook a single frame: tick its hidden
+      # counter, and once it reaches the sprite's rate, reset the counter and step to
+      # the next frame, wrapping back to the first at the end. Plain counter + compare
+      # logic, so every backend runs it and the animation is nothing but data.
+      def advance_animation(anim)
+        pose = anim[:pose]
+        tick = anim[:tick]
+        wrap = Build.if_(Build.binop(:>=, Build.var_ref(pose), Build.int(anim[:frames])),
+                         Build.set(pose, Build.int(0)))
+        step = Build.if_(Build.binop(:>=, Build.var_ref(tick), Build.int(anim[:rate])),
+                         Build.set(tick, Build.int(0)),
+                         Build.add(pose, Build.int(1)),
+                         wrap)
+        [Build.add(tick, Build.int(1)), step]
+      end
 
       # Record an `if` node comparing a variable against an operand, and gather the
       # block's statements into it.

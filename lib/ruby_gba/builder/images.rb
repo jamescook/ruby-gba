@@ -118,16 +118,32 @@ module RubyGBA
       # work and can stack cleanly over other sprites. The handle is the same either
       # way — `x`/`y`/`move`/`move_to` — so the game code doesn't change.
       #
+      # Pass +frames:+ a list of same-size images and +rate:+ to make the sprite a
+      # FLIPBOOK: the framework cycles through those frames — one every +rate+ frames —
+      # with the timer hidden and managed for you, so a coin spins or a torch flickers
+      # with nothing to drive by hand. It composes with movement (walk it with `move`
+      # while it animates), and works the same on a `screen :bitmap` or `screen :tiled`.
+      #
+      #   spin = sprite :coin, at: [x, y], frames: [:coin1, :coin2, :coin3, :coin4], rate: 6
+      #
+      # +facing:+ and +frames:+ are two ways to drive the same pose, so a sprite takes
+      # one or the other, not both.
+      #
       # @param name [Symbol] a defined image (its size becomes the sprite's size), or
-      #   just the sprite's identity when +facing:+ supplies the images
+      #   just the sprite's identity when +facing:+ / +frames:+ supply the images
       # @param at [Array(Integer, Integer)] the sprite's starting [x, y]
       # @param facing [Hash{Symbol=>Symbol}, nil] direction => image, for a sprite that turns
+      # @param frames [Array<Symbol>, nil] same-size images to cycle as an animation
+      # @param rate [Integer, nil] frames-per-step for +frames:+ (required with it)
       # @param shown [Boolean] draw it now (true, default), or start hidden until `show`
       # @return [Sprite, HardwareSprite] a handle: x / y / move / move_to (and, in bitmap mode, face / hide / show)
-      def sprite(name, at:, facing: nil, shown: true)
-        return hardware_sprite(name, at: at, facing: facing, shown: shown) if @screen_mode == :tiled
+      def sprite(name, at:, facing: nil, frames: nil, rate: nil, shown: true)
+        validate_animation!(name, facing, frames, rate)
+        return hardware_sprite(name, at: at, facing: facing, frames: frames, rate: rate, shown: shown) \
+          if @screen_mode == :tiled
 
-        poses, facing_dirs, width, height = resolve_sprite_art(name, facing)
+        poses, facing_dirs, width, height = resolve_sprite_art(name, facing, frames)
+        has_poses = !poses.nil?
         start_x, start_y = at
 
         id = (@sprite_seq += 1)
@@ -137,17 +153,18 @@ module RubyGBA
         old_y = :"__spr#{id}_oy"
         active = :"__spr#{id}_on"
         buffer = :"__spr#{id}_under"
-        facing_var = (:"__spr#{id}_face" if facing)
+        pose_var = (:"__spr#{id}_face" if has_poses) # the pose selector (a facing or a frame)
 
         # Hidden state, set at boot (console RAM isn't zero at power-on): the current
         # and last-drawn positions both start at `at`, the on/off flag records
-        # whether the sprite starts visible, and a faceted sprite starts on pose 0.
+        # whether the sprite starts visible, and a posed sprite starts on pose 0.
         boot = { pos_x => start_x, pos_y => start_y, old_x => start_x, old_y => start_y, active => (shown ? 1 : 0) }
-        boot[facing_var] = 0 if facing
+        boot[pose_var] = 0 if has_poses
         boot.each do |var_name, value|
           at_boot(Build.set(var_name, Value.node_for(value)))
           ensure_var(var_name)
         end
+        register_animation(pose_var, rate, poses.length) if frames
 
         # Reserve the backing store (always — its RAM is fixed at build time). A
         # sprite that starts shown is drawn once at its start (capture what's under it
@@ -158,8 +175,8 @@ module RubyGBA
 
         handle = Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
                                   active: active, buffer: buffer, width: width, height: height,
-                                  image: (facing ? nil : name), poses: poses,
-                                  facing_var: facing_var, facing_dirs: facing_dirs)
+                                  image: (has_poses ? nil : name), poses: poses,
+                                  facing_var: pose_var, facing_dirs: facing_dirs)
         @sprites << handle
         handle.draw_initial if shown
         handle
@@ -190,9 +207,10 @@ module RubyGBA
       # software Sprite's, so game code reads the same in either mode — including
       # `facing:` poses, which on hardware swap which of the sprite's uploaded pictures
       # the console draws (the tile data is managed for you).
-      def hardware_sprite(name, at:, facing:, shown:)
-        poses, facing_dirs, width, height = resolve_sprite_art(name, facing)
+      def hardware_sprite(name, at:, facing:, frames:, rate:, shown:)
+        poses, facing_dirs, width, height = resolve_sprite_art(name, facing, frames)
         poses ||= [name] # a plain sprite is a single-pose object
+        posed = facing || frames # does it choose a pose at run time (a facing or a frame)?
         start_x, start_y = at
 
         id = (@sprite_seq += 1)
@@ -200,52 +218,97 @@ module RubyGBA
         pos_x = :"__obj#{id}_x"
         pos_y = :"__obj#{id}_y"
         active = :"__obj#{id}_on"
-        facing_var = (:"__obj#{id}_face" if facing) # holds which pose is showing
+        pose_var = (:"__obj#{id}_face" if posed) # holds which pose is showing
 
         # Boot the hidden state (console RAM isn't zero at power-on): its start
-        # position, whether it begins shown, and (if faceted) its starting pose.
+        # position, whether it begins shown, and (if posed) its starting pose.
         boot = { pos_x => start_x, pos_y => start_y, active => (shown ? 1 : 0) }
-        boot[facing_var] = 0 if facing
+        boot[pose_var] = 0 if posed
         boot.each do |var_name, value|
           at_boot(Build.set(var_name, Value.node_for(value)))
           ensure_var(var_name)
         end
+        register_animation(pose_var, rate, poses.length) if frames
 
-        # The pose selector: a plain sprite always shows pose 0; a faceted one shows
-        # whichever pose its facing variable currently holds.
-        pose = facing ? Build.var_ref(facing_var) : Build.int(0)
+        # The pose selector: a plain sprite always shows pose 0; a posed one shows
+        # whichever pose its pose variable currently holds.
+        pose = posed ? Build.var_ref(pose_var) : Build.int(0)
         record(Build.object(object_name, poses: poses, pose: pose,
                                          x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
                                          active: Build.var_ref(active)))
         handle = HardwareSprite.new(self, object_name: object_name, x: pos_x, y: pos_y,
                                           active: active, width: width, height: height,
-                                          facing_var: facing_var, facing_dirs: facing_dirs)
+                                          facing_var: pose_var, facing_dirs: facing_dirs)
         @hw_sprites << handle
         handle
       end
 
-      # Work out a sprite's poses and size. With +facing+, the poses are its images
-      # (which must all be the same size, since they share one save-under buffer) and
-      # facing_dirs maps each direction to a pose index. Without it, the sprite is a
-      # single named image. Returns [poses, facing_dirs, width, height].
-      def resolve_sprite_art(name, facing)
+      # Work out a sprite's poses and size. An animation (+frames+) is a list of
+      # same-size images the framework cycles, with no manual facing (empty dirs). A
+      # faceted sprite (+facing+) has one image per direction, and facing_dirs maps
+      # each direction to a pose index. A plain sprite is a single named image.
+      # Returns [poses, facing_dirs, width, height].
+      def resolve_sprite_art(name, facing, frames = nil)
+        if frames
+          poses, width, height = same_size_images!(name, "animation frame", frames)
+          return [poses, {}, width, height]
+        end
         unless facing
           width, height = @images[name] || raise(ArgumentError,
                 "sprite :#{name} needs an image named :#{name} — define it first with `image :#{name}, ...`")
           return [nil, nil, width, height]
         end
 
-        sizes = facing.values.map do |img|
+        poses, width, height = same_size_images!(name, "facing image", facing.values)
+        [poses, facing.keys.each_with_index.to_h, width, height]
+      end
+
+      # Resolve a list of image names to [names, width, height], insisting each is
+      # defined and they all share one size (poses swap in place — a facing pose or an
+      # animation frame). +kind+ names them in the error. Shared by facing: and frames:.
+      def same_size_images!(name, kind, images)
+        sizes = images.map do |img|
           @images[img] || raise(ArgumentError,
-                "sprite :#{name} facing image :#{img} is not defined — define it first with `image :#{img}, ...`")
+                "sprite :#{name} #{kind} :#{img} is not defined — define it first with `image :#{img}, ...`")
         end
         unless sizes.uniq.size == 1
           raise ArgumentError,
-                "sprite :#{name} facing images must all be the same size (its poses share one save-under " \
-                "buffer), got #{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}"
+                "sprite :#{name} #{kind}s must all be the same size, " \
+                "got #{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}"
         end
-        width, height = sizes.first
-        [facing.values, facing.keys.each_with_index.to_h, width, height]
+        [images, *sizes.first]
+      end
+
+      # Guard the animation options up front: facing: and frames: are two ways to drive
+      # the same pose (so not both), an animation needs at least two frames to cycle,
+      # and it needs a positive rate (frames-per-step). Friendly errors, not silence.
+      def validate_animation!(name, facing, frames, rate)
+        if facing && frames
+          raise ArgumentError,
+                "sprite :#{name} takes facing: OR frames:, not both — they both drive the sprite's pose"
+        end
+        return unless frames
+
+        unless frames.is_a?(Array) && frames.length >= 2
+          raise ArgumentError,
+                "sprite :#{name} frames: needs a list of at least two images to cycle, " \
+                "e.g. frames: [:step1, :step2]"
+        end
+        return if rate.is_a?(Integer) && rate.positive?
+
+        raise ArgumentError,
+              "sprite :#{name} frames: needs a positive rate: (how many frames each picture is shown), " \
+              "got #{rate.inspect}"
+      end
+
+      # Register a flipbook so Builder#wait_vblank advances it every frame: a hidden
+      # tick counter, cleared at boot, steps the pose selector to the next frame once
+      # every +rate+ frames and wraps at the end. The whole timer is managed here.
+      def register_animation(pose_var, rate, frame_count)
+        tick = :"#{pose_var}_tick"
+        at_boot(Build.set(tick, Build.int(0)))
+        ensure_var(tick)
+        @animations << { pose: pose_var, tick: tick, rate: rate, frames: frame_count }
       end
 
       # Array form of #image: validate the dimensions and pack the pixel colors.

@@ -196,6 +196,7 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | [`pacman.rb`](examples/pacman.rb) | The tiled-mode flagship: a tiled room, `facing:` poses, sprite-to-sprite `overlaps?` (eat pellets, dodge a chasing ghost), sound | Tiled background + hardware (OAM) sprites |
 | [`hero.rb`](examples/hero.rb) | Walking one hardware sprite around a tiled room with the d-pad | Tiled background + a hardware sprite |
 | [`sprite_mover.rb`](examples/sprite_mover.rb) | Steering a single sprite over a kept background | A software sprite over a preserved bitmap |
+| [`animate.rb`](examples/animate.rb) | A flipbook `sprite` (`frames:` / `rate:`) — a spinning coin you can also walk | A software sprite cycling its frames on a hidden timer |
 | [`tiles.rb`](examples/tiles.rb) | A room built from reusable 8×8 tiles + a text map (`tiles` / `background`) | Tiled background, drawn by the tile hardware |
 
 Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static
