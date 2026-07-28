@@ -170,17 +170,18 @@ class TestIRBackendRubyHardware < Minitest::Test
   def test_play_song_triggers_notes_frame_by_frame_and_loops
     i = run_ir(program(
       enable_sound,
-      song(:tune, events: [[1, 262], [2, 330]], total_frames: 4),
+      song(:tune, events: [[0, 262], [2, 330]], total_frames: 4),
       set(:n, 0),
       loop_(
         wait_vblank,
         play_song(:tune),
         add(:n, 1),
-        if_(binop(:>=, var_ref(:n), int(5)), halt),
+        if_(binop(:>=, var_ref(:n), int(6)), halt),
       ),
     ))
     notes = i.audio.select { |e| e[0] == :note }
-    # frames 1,2 fire 262,330; frame 4 wraps the counter; frame 5 fires 262 again.
+    # The counter runs 0,1,2,3,0,1: frame 0 fires 262 (the downbeat), frame 2 fires
+    # 330, then it wraps at length 4 and frame 0 fires 262 again — the loop.
     assert_equal [[:note, :tune, 262], [:note, :tune, 330], [:note, :tune, 262]], notes
   end
 
