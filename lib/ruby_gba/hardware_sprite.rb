@@ -27,7 +27,7 @@ module RubyGBA
   # per frame, during the vertical blank — the brief safe window to change the
   # screen — so moving one is just changing `x`/`y`, and it shows on the next frame.
   class HardwareSprite
-    include Bounds # gains overlaps? from x / y / right / bottom (its image size)
+    include Bounds # gains overlaps? from left / top / right / bottom (its collision box)
 
     Build = IR::Build
 
@@ -40,19 +40,18 @@ module RubyGBA
     # @param x [Symbol] the variable holding the sprite's current x (exposed as #x)
     # @param y [Symbol] the variable holding its current y (exposed as #y)
     # @param active [Symbol] 1 while shown, 0 while hidden
-    # @param width [Integer] the sprite's pixel width (its image's), for collision bounds
-    # @param height [Integer] the sprite's pixel height, for collision bounds
+    # @param hitbox [Array(Integer,Integer,Integer,Integer)] the collision box [x, y, w, h]
+    #   relative to the sprite's top-left (by default the box around its visible pixels)
     # @param facing_var [Symbol, nil] the variable holding which pose is showing (faceted only)
     # @param facing_dirs [Hash{Symbol=>Integer}, nil] direction -> pose index (faceted only)
-    def initialize(builder, object_name:, x:, y:, active:, width:, height:,
+    def initialize(builder, object_name:, x:, y:, active:, hitbox:,
                    facing_var: nil, facing_dirs: nil)
       @builder = builder
       @object_name = object_name
       @x_var = x
       @y_var = y
       @active = active
-      @width = width
-      @height = height
+      @hit_x, @hit_y, @hit_w, @hit_h = hitbox # collision box, offset from the sprite's top-left
       @facing_var = facing_var   # the variable the object's pose selector reads
       @facing_dirs = facing_dirs # direction -> pose index, for face / auto-facing move
       @walls = nil               # solid-tile Boxes this sprite is blocked by (nil until blocked_by)
@@ -73,14 +72,23 @@ module RubyGBA
       Value.new(@builder, Build.var_ref(@y_var), name: @y_var)
     end
 
-    # The sprite's far edges, as {Value}s — its position plus its image size. These
-    # are what make `overlaps?` work on a sprite with no box: `hero.overlaps?(coin)`.
+    # The sprite's collision-box edges, as {Value}s — its position plus its hitbox
+    # (by default the box hugging its visible pixels). These are what make `overlaps?`
+    # work on a sprite with no box of its own: `hero.overlaps?(coin)`.
+    def left
+      x + @hit_x
+    end
+
+    def top
+      y + @hit_y
+    end
+
     def right
-      x + @width
+      x + @hit_x + @hit_w
     end
 
     def bottom
-      y + @height
+      y + @hit_y + @hit_h
     end
 
     # Move the sprite, the same two ways a software {Sprite} moves: a named direction
@@ -196,10 +204,12 @@ module RubyGBA
     # ends at or before a wall begins, or begins at or after it ends — so a sprite can
     # rest flush against a wall (touching isn't overlapping) yet never cross into one.
     def clear_of_walls(target_x, target_y)
-      right = target_x + @width
-      bottom = target_y + @height
+      left = target_x + @hit_x
+      top = target_y + @hit_y
+      right = left + @hit_w
+      bottom = top + @hit_h
       @walls.map do |wall|
-        (right <= wall.x) | (wall.right <= target_x) | (bottom <= wall.y) | (wall.bottom <= target_y)
+        (right <= wall.x) | (wall.right <= left) | (bottom <= wall.y) | (wall.bottom <= top)
       end.reduce(:&)
     end
 
