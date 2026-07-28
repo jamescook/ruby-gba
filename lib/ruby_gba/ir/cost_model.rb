@@ -302,7 +302,8 @@ module RubyGBA
           break_even = (cap - ((steady - budget) / body)).floor
           next unless break_even.between?(0, cap - 1)
 
-          { list: name, break_even: break_even, cap: cap, budget: budget, steady: steady }
+          { list: name, break_even: break_even, cap: cap, budget: budget, steady: steady,
+            source: loop_node.source }
         end
       end
 
@@ -353,7 +354,8 @@ module RubyGBA
 
           cost = song_cost(name)
           { name: name, notes: song_notes(name), steady_cost: cost,
-            budget: MUSIC_STEADY_BUDGET, over: cost > MUSIC_STEADY_BUDGET }
+            budget: MUSIC_STEADY_BUDGET, over: cost > MUSIC_STEADY_BUDGET,
+            source: @songs[name].source }
         end
       end
 

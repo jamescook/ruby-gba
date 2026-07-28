@@ -23,13 +23,27 @@ module RubyGBA
       #              non-fatal footgun, or an error the pass auto-fixed for you)
       #   message  — plain language written for the person, not a log
       #   fix      — an optional Fix the pass may apply; nil if there's no safe one
-      Finding = Data.define(:check, :severity, :message, :fix) do
+      #   source   — the DSL call site of the offending node ("hero.rb:42"), or nil.
+      #              A check just hands over the node's source; the "(at …)" suffix is
+      #              appended in one place (#full_message), so no check formats it into
+      #              its own sentence and a new guardrail gets it for free.
+      Finding = Data.define(:check, :severity, :message, :fix, :source) do
+        def initialize(check:, severity:, message:, fix: nil, source: nil)
+          super
+        end
+
         def error?
           severity == :error
         end
 
         def warning?
           severity == :warning
+        end
+
+        # The message shown to the person: the plain message, plus the source
+        # location appended when the check knew which node was at fault.
+        def full_message
+          source ? "#{message} (at #{source})" : message
         end
       end
 
@@ -59,7 +73,7 @@ module RubyGBA
         def raise_on_error!
           return self if ok?
 
-          raise ValidationError, errors.map(&:message).join("\n\n")
+          raise ValidationError, errors.map(&:full_message).join("\n\n")
         end
 
         # Write every finding's plain-language message to +to+, in order — the one
@@ -69,7 +83,12 @@ module RubyGBA
         # stream is injectable: $stderr for a real build, a StringIO to capture it in
         # a test, or a null sink to silence it. Returns self so it chains.
         def emit(to: $stderr)
-          findings.each { |finding| to.puts(finding.message) }
+          # A blank line between findings so two or more don't run together as one
+          # wall of text.
+          findings.each_with_index do |finding, i|
+            to.puts if i.positive?
+            to.puts(finding.full_message)
+          end
           self
         end
       end
@@ -142,7 +161,7 @@ module RubyGBA
               if autofix && finding.fix
                 program = finding.fix.apply.call(program)
                 findings << Finding.new(check: finding.check, severity: :warning,
-                                        message: finding.fix.message, fix: nil)
+                                        message: finding.fix.message, fix: nil, source: finding.source)
               else
                 findings << finding
               end

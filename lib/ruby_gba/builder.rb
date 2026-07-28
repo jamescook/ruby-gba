@@ -310,10 +310,22 @@ module RubyGBA
 
     # --- IR tree construction ---
 
-    # Attach a freshly built IR node to the open container and return it.
+    # Attach a freshly built IR node to the open container and return it. Stamp it
+    # with the DSL call site that built it (unless it already carries one), so a
+    # later guardrail finding can point the author straight at the line.
     def record(node)
+      node.source ||= caller_source_location
       @container_stack.last.add_child(node)
       node
+    end
+
+    # The user's call site that led here — "hero.rb:42", the nearest caller that
+    # isn't framework code — for diagnostics. nil if the whole stack is internal.
+    def caller_source_location
+      frame = caller_locations.find do |loc|
+        loc.absolute_path && !loc.absolute_path.start_with?(SOURCE_ROOT)
+      end
+      frame && "#{File.basename(frame.absolute_path)}:#{frame.lineno}"
     end
 
     # Build a container node, attach it, and keep it open while the block runs so

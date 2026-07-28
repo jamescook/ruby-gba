@@ -64,6 +64,23 @@ class TestBudgetThresholdGuardrail < Minitest::Test
     assert_empty Check.new.detect(prog)
   end
 
+  # The finding points at the exact DSL line the loop was written on — built through
+  # the DSL so the node carries its call site (compared against the node's own source
+  # rather than a hard-coded line, so it survives edits to this file).
+  def test_a_finding_cites_the_dsl_source_line
+    prog = growing_draw_game(cap: 64, cell: 20)
+    loop_node = prog.walk.find { |node| node.kind == :repeat }
+
+    refute_nil loop_node.source, "the loop node should carry its DSL call site"
+    assert_match(/test_.*\.rb:\d+/, loop_node.source)
+
+    finding = Check.new.detect(prog).first
+    assert_equal loop_node.source, finding.source, "the finding carries the loop's source"
+    # The location is appended automatically by the framework, not baked into the message.
+    assert_includes finding.full_message, loop_node.source
+    refute_includes finding.message, loop_node.source, "the raw message stays location-free"
+  end
+
   # It's a builtin: it fires in the default validation pass.
   def test_it_runs_in_the_default_validation_pass
     report = RubyGBA::IR::Guardrails::Validator.new.run(growing_draw_game(cap: 64, cell: 20), autofix: false)
