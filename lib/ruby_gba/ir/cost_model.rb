@@ -107,6 +107,19 @@ module RubyGBA
         overlap_pixel: 0.044,
       }.freeze
 
+      # Kinds that legitimately cost nothing per frame, so they fall through op_cost /
+      # expr_cost without being flagged. Everything ELSE that falls through is a kind the
+      # model doesn't know how to estimate — it gets counted as zero, which would hide
+      # real work, so it's collected and announced instead (see #unpriced_kinds). This
+      # is the split that keeps a newly-added op from slipping by as free: price it, or
+      # declare it free here, or the estimate calls it out. (Control-flow kinds — loop,
+      # if, case, call, and so on — never reach here; they're handled in #build.)
+      FREE_STATEMENT_KINDS = %i[
+        screen wait_vblank halt raw object
+        define_sound song data bitmap backing_buffer list_new
+      ].freeze
+      FREE_VALUE_KINDS = %i[int var_ref data_byte list_get list_len held pressed read_scanline].freeze
+
       def initialize(**weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)
       end
@@ -363,10 +376,31 @@ module RubyGBA
         end
       end
 
+      # The IR kinds this program uses that the model has no estimate for — neither
+      # priced nor declared free (see FREE_STATEMENT_KINDS / FREE_VALUE_KINDS). They're
+      # counted as zero, which would hide real work, so the estimate announces them.
+      # Empty for a program the model fully understands.
+      def unpriced_kinds(program)
+        analyze(program) # walking every node leaves the set in @unpriced as a side effect
+        @unpriced.dup
+      end
+
+      # A loud line, above the estimate, naming any op the model couldn't account for —
+      # so a newly-added op nobody taught it to price can't slip by as free. Reads the
+      # set left by the most recent analysis; silent when everything was understood.
+      def emit_unpriced_banner(out)
+        return if @unpriced.nil? || @unpriced.empty?
+
+        out.puts "!! can't estimate: #{@unpriced.sort.join(', ')} — counted as FREE, so the real per-frame " \
+                 "cost may be higher. Teach the cost model to price it."
+      end
+
       # Print a short, human draw-cost estimate to +out+: the per-frame cost against
       # the frame budget for a game loop, or the one-time boot cost otherwise. (The
       # full drill-down tree comes later; this is the at-a-glance summary.)
       def report(program, out: $stdout)
+        analyze(program) # populate the unpriced set before the header prints
+        emit_unpriced_banner(out)
         out.puts "draw-cost estimate (scanlines of the ~68-line vblank window, measured on hardware):"
         verdict_lines(program, out)
         glyph_footprint_lines(program, out)
@@ -377,6 +411,7 @@ module RubyGBA
       # bounds how deep it prints (deeper subtrees collapse to a rollup line).
       def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5)
         tree = aggregate(analyze(program, focus: focus))
+        emit_unpriced_banner(out) # loud, at the very top, before the estimate itself
         out.puts "draw-cost estimate (scanlines of the ~68-line vblank window, measured on hardware):"
         if focus
           out.puts "  func :#{focus} ~ #{fmt(tree.sum { |node| node[:cost] })} scanlines"
@@ -409,6 +444,7 @@ module RubyGBA
           scenes: scene_verdicts(program),   # per-scene cost vs each scene's own budget
           songs: song_verdicts(program),     # per-song music cost vs the music budget
           glyphs: IR::GlyphUsage.footprint(program), # per-font reachable-glyph footprint
+          unestimated: unpriced_kinds(program).sort,  # op kinds the model can't price (counted as free)
           tree: analyze(program),
         }
       end
@@ -544,6 +580,7 @@ module RubyGBA
       # costed by its note count), and the bitmaps (so a `blit` can be costed by its
       # image's size, which lives on the definition, not the blit op).
       def index(program)
+        @unpriced = [] # kinds seen with no estimate — reset each analysis (see #unpriced_kinds)
         @funcs = {}
         @capacities = {}
         @songs = {}
@@ -692,8 +729,16 @@ module RubyGBA
         when :list_push then @weights[:op_step] + expr_cost(node[:value])
         when :list_set then @weights[:op_step] + expr_cost(node[:index]) + expr_cost(node[:value])
         when :list_drop then @weights[:op_step]
-        else 0 # declarations, control markers, definitions: no per-frame work of their own
+        else note_unpriced(node.kind, FREE_STATEMENT_KINDS)
         end
+      end
+
+      # A kind that fell through to the zero-cost fallback: 0 if it's a declared-free
+      # kind, otherwise 0 too — but remembered, so the estimate can announce that it
+      # couldn't account for it (rather than silently treating real work as free).
+      def note_unpriced(kind, free_kinds)
+        @unpriced << kind unless free_kinds.include?(kind) || @unpriced.include?(kind)
+        0
       end
 
       # The cost of evaluating a value expression: every operator it's built from,
@@ -709,7 +754,7 @@ module RubyGBA
         when :neg then @weights[:op_step] + expr_cost(value[:operand])
         when :chance then @weights[:op_step] # a random draw and a compare
         when :pixels_overlap then pixels_overlap_cost(value)
-        else 0 # int / var_ref / held / pressed / read_scanline — a load, effectively free
+        else note_unpriced(value.kind, FREE_VALUE_KINDS) # int/var_ref/held/… are free loads; anything else is unknown
         end
       end
 

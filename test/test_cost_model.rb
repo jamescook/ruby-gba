@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "stringio"
 require_relative "../lib/ruby_gba"
 require_relative "test_helper"
+require_relative "conformance_fixture"
 
 # Costs are in scanlines (measured on hardware — see the timing probe), so the
 # expected values are derived from the model's own weights rather than hard-coded:
@@ -69,6 +70,38 @@ class TestCostModel < Minitest::Test
   def test_per_pixel_collision_is_priced_by_overlap_area
     delta = Cost.new.frame_cost(overlap_game(8)) - Cost.new.frame_cost(overlap_game(4))
     near(((8 * 8) - (4 * 4)) * WEIGHTS[:overlap_pixel], delta)
+  end
+
+  # Self-audit: the conformance fixture exercises every IR kind, so the model must have
+  # an estimate (or a deliberate free classification) for each — nothing it touches
+  # should be flagged unpriced. This is what catches a new op added without a cost.
+  def test_the_cost_model_understands_every_ir_kind
+    assert_empty Cost.new.unpriced_kinds(ConformanceFixture.program),
+                 "these kinds have no cost estimate — price them in op_cost/expr_cost, or add to a FREE_*_KINDS list"
+  end
+
+  # An op the model can't price is announced loudly at the very top of the estimate,
+  # rather than silently counted as free.
+  def test_an_unpriced_op_is_announced_at_the_top
+    mystery = RubyGBA::IR::Node.new(:mystery_op)
+    prog = Build.program(Build.screen(:bitmap), Build.loop_(Build.wait_vblank, mystery))
+    cost = Cost.new
+    assert_includes cost.unpriced_kinds(prog), :mystery_op
+
+    io = StringIO.new
+    cost.render(prog, out: io)
+    assert_match(/can't estimate: .*mystery_op/, io.string.lines.first, "the warning leads the output")
+  end
+
+  # A program the model fully understands prints no such warning.
+  def test_a_fully_priced_program_has_no_warning
+    prog = program do
+      screen :bitmap
+      game_loop { wait_vblank; clear_screen :black }
+    end
+    io = StringIO.new
+    Cost.new.render(prog, out: io)
+    refute_match(/can't estimate/, io.string)
   end
 
   # A game loop that clears the whole screen +n+ times a frame, single- or
