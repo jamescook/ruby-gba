@@ -118,6 +118,14 @@ module RubyGBA
         TMP = 1   # temporary / I/O address register
         ADDR = 12 # variable address scratch
 
+        # Interrupt-driven frame timing. `wait_vblank` asks the BIOS to sleep the CPU
+        # until the next VBlank rather than busy-poll the scanline counter — the BIOS
+        # routine VBlankIntrWait (software-interrupt number 5). It only returns once a
+        # VBlank interrupt has fired, which needs the interrupts set up at boot and a
+        # small handler that acknowledges each one (see #emit_irq_setup / #emit_irq_handler).
+        SWI_VBLANK_INTR_WAIT = 0x05
+        IRQ_HANDLER_LABEL = "__irq_vblank" # the interrupt routine, addressed by the vector
+
         # Comparison operator → the ARM condition that is TRUE for it and the
         # condition under which it is FALSE (used to skip setting the result to 1).
         COMPARISONS = {
@@ -173,6 +181,8 @@ module RubyGBA
           prepare_objects(program) if @has_objects
           prepare_palette(program) if @any_buffered
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
+          @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
+          emit_irq_setup if @uses_vblank # turn on VBlank interrupts so wait_vblank can sleep on them
           emit_input_init if @uses_pressed
           emit_boot_screen if @any_buffered # set the boot mode + upload the palette once
           emit_boot_backgrounds if @tiled && !@backgrounds.empty? # upload the shared BG palette + tiles once
@@ -180,6 +190,7 @@ module RubyGBA
           @lower_mode = @default_mode
           program.children.each { |stmt| emit_statement(stmt) }
           emit_functions
+          emit_irq_handler if @uses_vblank # the interrupt routine itself, reached only via the vector
           emit_data_region
           resolve_fixups
           @code
@@ -211,6 +222,49 @@ module RubyGBA
         end
 
         private
+
+        # Turn on VBlank interrupts at boot so `wait_vblank` can sleep the CPU until the
+        # next frame instead of spinning on the scanline counter. This is the whole dance
+        # the DSL hides: point the interrupt vector at our handler, tell the display to
+        # raise a VBlank interrupt each frame (DISPSTAT bit 3), enable just that interrupt
+        # (IE), and switch interrupts on (IME). IME goes off first so nothing can fire
+        # mid-setup and on last once everything's in place — the order boot code uses.
+        def emit_irq_setup
+          write_io_halfword(REG_IME, 0)                        # interrupts off while we wire things up
+          write_io_halfword(REG_DISPSTAT, DISPSTAT_VBLANK_IRQ) # display raises a VBlank interrupt each frame
+          write_io_halfword(REG_IE, IRQ_VBLANK)                # listen for (only) the VBlank interrupt
+          emit(ASM.load_immediate(TMP, REG_INTR_VECTOR))       # the vector the BIOS reads on every interrupt
+          emit_load_label_address(ACC, IRQ_HANDLER_LABEL)      # ...store our handler's address there
+          emit(ASM.str(ACC, TMP))
+          write_io_halfword(REG_IME, 1)                        # interrupts on
+        end
+
+        # The VBlank interrupt handler, reached only through the vector. The BIOS enters it
+        # in ARM state having already saved r0-r3/r12/lr and set up the interrupt stack, so
+        # it may use r0-r3 freely and returns with BX LR. It must acknowledge the interrupt
+        # in TWO places or the BIOS's VBlankIntrWait would never wake: the hardware flag
+        # register (REG_IF, where writing a 1 bit clears it) and the BIOS's own copy
+        # (REG_IFBIOS, OR the bit in) that VBlankIntrWait polls.
+        def emit_irq_handler
+          place_label(IRQ_HANDLER_LABEL)
+          emit(ASM.load_immediate(0, REG_IF))     # r0 = hardware interrupt-flag register
+          emit(ASM.load_immediate(1, IRQ_VBLANK)) # r1 = the VBlank bit
+          emit(ASM.store_halfword(1, 0))          # REG_IF = VBlank -> acknowledge the hardware
+          emit(ASM.load_immediate(2, REG_IFBIOS)) # r2 = the BIOS's interrupt-flag copy
+          emit(ASM.load_halfword(3, 2))           # r3 = its current value
+          emit(ASM.orr_reg(3, 3, 1))              # r3 |= VBlank
+          emit(ASM.store_halfword(3, 2))          # write it back -> VBlankIntrWait can now wake
+          emit(ASM.return)                        # BX LR back to the BIOS dispatcher
+        end
+
+        # Store a 16-bit immediate into a memory-mapped I/O register — both the address and
+        # the value are known at build time, so: load the address, load the value, store the
+        # halfword. (r0/r1 are scratch between statements, so this needs no save/restore.)
+        def write_io_halfword(address, value)
+          emit(ASM.load_immediate(TMP, address))
+          emit(ASM.load_immediate(ACC, value))
+          emit(ASM.store_halfword(ACC, TMP))
+        end
 
         # Register every definition in the tree up front — funcs, named sound
         # effects, and songs — so a later reference can reach one defined earlier

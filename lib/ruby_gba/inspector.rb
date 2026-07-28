@@ -184,6 +184,12 @@ module RubyGBA
         return ["BX    #{reg(rm)}", regs]
       end
 
+      # SWI (software interrupt — trap into a BIOS routine; number is in the top byte)
+      if (inst & 0x0F000000) == 0x0F000000
+        comment = inst & 0x00FFFFFF
+        return ["SWI   ##{(comment >> 16) & 0xFF} (0x#{comment.to_s(16)})", regs]
+      end
+
       # MUL rd, rm, rs
       if (inst & 0x0FF000F0) == 0x00000090
         rd = (inst >> 16) & 0xF

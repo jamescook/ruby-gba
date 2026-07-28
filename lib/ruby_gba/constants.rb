@@ -176,8 +176,15 @@ module RubyGBA
     # ========================================================================
 
     REG_IE  = 0x04000200  # Interrupt enable (which IRQs to listen for)
-    REG_IF  = 0x04000202  # Interrupt flags (which IRQs have fired)
+    REG_IF  = 0x04000202  # Interrupt flags (which IRQs have fired; write a 1 bit to clear it)
     REG_IME = 0x04000208  # Master enable (global on/off switch)
+
+    # Two well-known spots the BIOS reads, both living in the top of Internal Work RAM
+    # (mirrored, so the same bytes also answer to 0x03FFFFFC / 0x03FFFFF8):
+    REG_INTR_VECTOR = 0x03007FFC # the BIOS jumps here on every IRQ — we store our handler's address
+    REG_IFBIOS      = 0x03007FF8 # the BIOS's own copy of "which IRQs fired"; IntrWait/VBlankIntrWait
+    #                              wait on it, so a handler must OR the acknowledged bit in here too
+    DISPSTAT_VBLANK_IRQ = 0x0008 # REG_DISPSTAT bit 3: have the display raise a VBlank interrupt each frame
 
     IRQ_VBLANK  = 0x0001  # Fires once per frame (~60Hz) — primary game tick
     IRQ_HBLANK  = 0x0002  # Fires once per scanline — for raster effects
