@@ -378,17 +378,19 @@ module RubyGBA
                                             volume: node[:volume], defined: @defined_sounds)
         end
 
-        # Advance a song by one frame and record any note that lands on this frame
-        # (frequency 0 is a rest). The counter increments first, then wraps at the
-        # song's length so it loops — matching how the ROM sequences the same song.
+        # Record any note that lands on the song's CURRENT frame (frequency 0 is a
+        # rest), then advance the frame counter, wrapping at the song's length so it
+        # loops. The counter starts at 0 and the note is played *before* advancing,
+        # so a note at frame 0 — the downbeat every tune begins on — sounds. This
+        # matches how the ROM sequences the same song.
         def exec_play_song(name)
           song = @songs[name] || raise(ProgramError, "play_song for undefined song #{name.inspect}")
-          frame = @music_frames[name] + 1
+          frame = @music_frames[name]
           song[:events].each do |offset, frequency|
             @audio << [:note, name, frequency] if offset == frame
           end
-          frame = 0 if frame >= song[:total_frames]
-          @music_frames[name] = frame
+          total = song[:total_frames]
+          @music_frames[name] = total.zero? ? 0 : (frame + 1) % total
         end
 
         # Multi-way dispatch: call the scene/func for the clause whose value equals

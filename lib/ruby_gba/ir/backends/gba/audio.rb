@@ -36,20 +36,18 @@ module RubyGBA
             emit_writes(Sound::Registers.stop_music)
           end
 
-          # Advance a song by one frame. A per-song counter in IWRAM ticks up; each
-          # note whose frame matches the counter triggers, and once the counter
-          # reaches the song's length it wraps to 0 so the tune loops. This unrolls
-          # the whole score into frame comparisons — the same sequencer the legacy
-          # emitter builds, so migrated songs sound identical.
+          # Advance a song by one frame. A per-song counter lives in IWRAM and starts
+          # at 0 (memory there is zero-initialized). First every note whose frame
+          # matches the counter's *current* value triggers — so the note at frame 0,
+          # the downbeat every tune opens on, plays. Then the counter ticks up, and
+          # once it reaches the song's length it wraps to 0 so the tune loops. This
+          # unrolls the whole score into frame comparisons — the same sequencer the
+          # legacy emitter builds, so migrated songs sound identical.
           def emit_play_song(node)
             song = @songs.fetch(node[:name]) do
               raise LoweringError, "play_song for undefined song #{node[:name].inspect}"
             end
             counter = :"_music_frame_#{node[:name]}"
-
-            load_var(ACC, counter)             # counter += 1
-            emit(ASM.add_imm(ACC, ACC, 1))
-            store_var(ACC, counter)
 
             song[:events].each do |frame, frequency|
               skip = gensym
@@ -60,6 +58,10 @@ module RubyGBA
                                                          duty: song[:duty], volume: song[:volume]))
               place_label(skip)
             end
+
+            load_var(ACC, counter)               # counter += 1
+            emit(ASM.add_imm(ACC, ACC, 1))
+            store_var(ACC, counter)
 
             wrap = gensym                        # loop: if counter >= length, reset to 0
             load_var(ACC, counter)

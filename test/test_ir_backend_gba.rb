@@ -411,6 +411,20 @@ class TestIRBackendGBA < Minitest::Test
     assert v.sound?, "play_song should trigger notes on the music channel"
   end
 
+  # A song whose only note is on frame 0 — the downbeat. If the sequencer skipped
+  # frame 0 (advancing its counter before comparing), this ROM would be silent
+  # forever; hearing anything proves the first note actually plays on hardware.
+  def test_play_song_plays_the_note_on_frame_zero
+    rom = lower(program(
+      screen(:bitmap),
+      enable_sound,
+      song(:downbeat, events: [[0, 262]], total_frames: 8),
+      loop_(wait_vblank, play_song(:downbeat)),
+    ))
+    v = assert_gemba_loads_rom(rom, frames: 10)
+    assert v.sound?, "the note on frame 0 should sound"
+  end
+
   def test_play_song_for_an_undefined_song_is_a_lowering_error
     assert_raises(GBA::LoweringError) do
       lower(program(enable_sound, play_song(:ghost), halt))
