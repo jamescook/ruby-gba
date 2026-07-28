@@ -317,6 +317,34 @@ class TestCostModel < Minitest::Test
     assert_equal 200, pruned[0][:cost]
   end
 
+  # A repeated multi-op block folds into one group, shown once, with its ×N count
+  # and the whole run's rolled-up cost — the wall an unrolled per-thing check (brick
+  # collision) turns into.
+  def test_collapse_repeats_folds_a_repeated_block
+    block = [
+      { op: :set, label: "set", cost: 1, children: [] },
+      { op: :beep, label: "beep :brick", cost: 1, children: [] },
+    ]
+    tree = block * 3 # the same 2-op block, three times in a row
+    folded = Cost.new.collapse_repeats(tree)
+
+    assert_equal 1, folded.length
+    assert_equal :group, folded[0][:op]
+    assert_equal 3, folded[0][:count]
+    assert_equal "(repeated ×3)", folded[0][:label]
+    assert_equal 6, folded[0][:cost] # 3 blocks × 2 ops × cost 1
+    assert_equal %i[set beep], folded[0][:children].map { |n| n[:op] } # the block, once
+  end
+
+  # A sequence that doesn't repeat is left exactly as it was.
+  def test_collapse_repeats_leaves_a_non_repeating_sequence
+    tree = [
+      { op: :set, label: "set", cost: 1, children: [] },
+      { op: :add, label: "add", cost: 1, children: [] },
+    ]
+    assert_equal tree, Cost.new.collapse_repeats(tree)
+  end
+
   # The flat "profiler" view ranks op kinds by total cost.
   def test_hot_ops_ranks_op_kinds_by_total_cost
     tree = [
