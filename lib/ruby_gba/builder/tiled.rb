@@ -33,17 +33,35 @@ module RubyGBA
       # a uniform grid). The characters are the alphabet a `background` map is drawn
       # with.
       #
+      #   tiles :dungeon, "#" => :brick, "." => :floor
+      #
+      # Or IMPORT the tiles from a tile sheet — one image file holding the tiles in a
+      # grid — with `from:` (the file) and `tile:` (each tile's size in pixels). Then
+      # each character points at a cell instead of a hand-drawn image: a cell number
+      # (counting left-to-right, top-to-bottom) or `[column, row]`. The file is found
+      # next to your script; `transparent: true` honors a cut-out background.
+      #
+      #   tiles :dungeon, from: "dungeon.png", tile: 8, "#" => 0, "." => 1
+      #
       # Add `solid:` to mark which tiles are walls a sprite can't move through — a
       # list of the characters that block (`solid: ["#"]`, or one char `solid: "#"`).
       # A `background` built from this tileset then knows where its walls are, so a
       # sprite told to be `blocked_by` it stops at them (see {HardwareSprite#blocked_by}).
       #
       # @param name [Symbol] the tileset's name, referenced by `background(tiles:)`
-      # @param char_map [Hash{String=>Symbol}] one entry per tile: character => image name
+      # @param char_map [Hash] one entry per tile: character => image name, or (with
+      #   `from:`) character => cell. Options `from:`/`tile:`/`transparent:`/`solid:`.
       def tiles(name, char_map)
         char_map = char_map.dup
         solid = Array(char_map.delete(:solid)) # characters whose tiles block movement (walls)
+        from = char_map.delete(:from)          # a tile sheet to import the tiles from, if any
+        tile = char_map.delete(:tile)          # each tile's size in that sheet
+        transparent = char_map.delete(:transparent) { false }
         raise ArgumentError, "tiles :#{name} needs at least one character => tile mapping" if char_map.empty?
+
+        # With `from:`, each character named a cell; import those cells into images so
+        # the rest of this method sees the same character => image-name map as inline.
+        char_map = import_tile_cells(name, from, tile, transparent, char_map) if from
 
         unknown = solid.reject { |ch| char_map.key?(ch) }
         unless unknown.empty?
@@ -116,6 +134,23 @@ module RubyGBA
       end
 
       private
+
+      # Import a tileset from a sheet: slice the file into cells of the given size and
+      # define the cell each character points at as an image, returning the character
+      # => image-name map the tileset is built from. Each character's value is a cell
+      # number or [column, row]. The internal image names are unique per tileset.
+      def import_tile_cells(name, path, tile, transparent, cells)
+        tile_w, tile_h = sheet_tile_size("tiles :#{name}", tile)
+        sheet = Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
+        cells.each_with_index.each_with_object({}) do |((char, where), idx), out|
+          col, row = sheet_cell_at("tiles :#{name} tile #{char.inspect}", where, sheet.cols)
+          bmp = sheet.cell(col, row)
+          img = :"__tile_#{name}_#{idx}"
+          define_pixel_image(img, width: bmp.width, height: bmp.height, data: bmp.data,
+                                  transparent: bmp.transparent)
+          out[char] = img
+        end
+      end
 
       # The wall rectangles for a background: the cells whose tile is `solid:` in the
       # tileset, merged into as few rectangles as possible and given in pixels. A sprite

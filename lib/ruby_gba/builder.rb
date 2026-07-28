@@ -247,6 +247,67 @@ module RubyGBA
       @variables[name] = { address: addr }
     end
 
+    # --- Importing art from image files ---
+
+    # This gem's own source directory. Frames of the call stack under here are
+    # framework internals; the first frame outside it is the user's script — which
+    # is where a relative image path should be resolved from (see #resolve_asset_path).
+    SOURCE_ROOT = __dir__
+
+    # Turn an image path the user wrote into a real file path. An absolute path is
+    # taken as-is. A relative one is resolved *next to the script that named it* —
+    # the natural expectation ("hero.png is beside my game") — falling back to the
+    # working directory, and finally a plain-language error that names where it
+    # looked. (Resolving against the current directory alone is a classic footgun:
+    # it works when you run from the project root and mysteriously fails otherwise.)
+    def resolve_asset_path(path)
+      return path if File.absolute_path?(path)
+
+      dir = caller_script_dir
+      if dir
+        beside_script = File.expand_path(path, dir)
+        return beside_script if File.exist?(beside_script)
+      end
+      return path if File.exist?(path) # a working-directory-relative path that happens to resolve
+
+      looked = [dir && File.expand_path(path, dir), File.expand_path(path)].compact.uniq
+      raise ArgumentError,
+            "can't find the image #{path.inspect} — looked at #{looked.map(&:inspect).join(' and ')}. " \
+            "Put it next to your script, or pass a full path."
+    end
+
+    # The directory of the nearest caller that isn't framework code — i.e. the user's
+    # script — so an asset path can be resolved relative to it. nil if the whole
+    # stack is internal (nothing sensible to resolve against).
+    def caller_script_dir
+      frame = caller_locations.find do |loc|
+        loc.absolute_path && !loc.absolute_path.start_with?(SOURCE_ROOT)
+      end
+      frame && File.dirname(frame.absolute_path)
+    end
+
+    # A sheet cell's pixel size: one number means a square cell, [w, h] a rectangle.
+    def sheet_tile_size(name, tile)
+      case tile
+      when Integer then [tile, tile]
+      when Array then tile
+      when nil
+        raise ArgumentError, "importing #{name} from an image needs tile: — the size of each cell in pixels"
+      else
+        raise ArgumentError, "tile: must be a number (square) or [width, height], got #{tile.inspect}"
+      end
+    end
+
+    # Where a cell sits in a sheet grid: [column, row], or a single number counting
+    # cells left-to-right then top-to-bottom. +label+ names it in any error.
+    def sheet_cell_at(label, where, cols)
+      case where
+      when Array then where
+      when Integer then [where % cols, where / cols]
+      else raise ArgumentError, "#{label} must be a cell number or [column, row], got #{where.inspect}"
+      end
+    end
+
     # --- IR tree construction ---
 
     # Attach a freshly built IR node to the open container and return it.
