@@ -60,6 +60,47 @@ module RubyGBA
         end
       end
 
+      # Import several images at once from a sheet — one PNG holding a grid of
+      # equal-size pictures, the way art is usually drawn: a tile sheet, or a
+      # sprite sheet of animation frames. You give the cell size and a name for
+      # each cell you want; each becomes an ordinary `image`, so it drops straight
+      # into `tiles`, `sprite`, or `blit` with no other change — an imported tile
+      # and a hand-drawn one are interchangeable at the use site.
+      #
+      #   sheet "dungeon.png", tile: 8, as: { brick: [0, 0], floor: [1, 0], water: [2, 0] }
+      #   tiles :dungeon, "#" => :brick, "." => :floor, solid: ["#"]
+      #   background :room, tiles: :dungeon, map: MAP
+      #
+      # A cell is addressed by [column, row] (both from zero, left-to-right then
+      # top-to-bottom) — or by a single number counting the same way, handy for a
+      # one-row strip of animation frames:
+      #
+      #   sheet "hero.png", tile: 16, as: { stand: 0, step1: 1, step2: 2 }, transparent: true
+      #   hero = sprite :hero, at: [x, y], frames: [:step1, :step2], rate: 8
+      #
+      # +transparent: true+ honors the sheet's cut-out background (for sprites that
+      # shouldn't draw a box around themselves); leave it off for solid tiles.
+      #
+      # @param path [String] a sheet image on your machine (PNG, …)
+      # @param tile [Integer, Array(Integer, Integer)] cell size — one number for a
+      #   square, or [width, height]
+      # @param as [Hash{Symbol=>Array(Integer,Integer), Integer}] image name => cell
+      # @param transparent [Boolean] honor the sheet's transparency for cut-out cells
+      # @return [Array<Symbol>] the names of the images it defined
+      def sheet(path, tile:, as:, transparent: false)
+        tile_w, tile_h = normalize_tile(tile)
+        raise ArgumentError, "sheet #{path.inspect} needs at least one cell in as: { name => cell }" if as.empty?
+
+        sliced = Image.slice(path, tile_w: tile_w, tile_h: tile_h, transparent: transparent)
+        as.each do |img_name, where|
+          col, row = sheet_cell(img_name, where, sliced.cols)
+          bmp = sliced.cell(col, row)
+          define_pixel_image(img_name, width: bmp.width, height: bmp.height, data: bmp.data,
+                                       transparent: bmp.transparent)
+        end
+        as.keys
+      end
+
       # Draw a bitmap (defined with `image`) at a position, which may be a variable
       # (a moving object) or a constant. Keep it on-screen — off-screen parts aren't
       # clipped at run time yet.
@@ -309,6 +350,30 @@ module RubyGBA
         at_boot(Build.set(tick, Build.int(0)))
         ensure_var(tick)
         @animations << { pose: pose_var, tick: tick, rate: rate, frames: frame_count }
+      end
+
+      # A sheet's cell size: one number means a square cell, [w, h] a rectangle.
+      def normalize_tile(tile)
+        case tile
+        when Integer then [tile, tile]
+        when Array then tile
+        else raise ArgumentError, "sheet tile: must be a number (square) or [width, height], got #{tile.inspect}"
+        end
+      end
+
+      # Where a named cell sits in the sheet grid: [column, row], or a single number
+      # counting cells left-to-right then top-to-bottom. +img_name+ only names the
+      # cell in any error.
+      def sheet_cell(img_name, where, cols)
+        case where
+        when Array
+          where
+        when Integer
+          [where % cols, where / cols]
+        else
+          raise ArgumentError,
+                "sheet cell for :#{img_name} must be [column, row] or a cell number, got #{where.inspect}"
+        end
       end
 
       # Array form of #image: validate the dimensions and pack the pixel colors.

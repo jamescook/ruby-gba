@@ -38,6 +38,19 @@ module RubyGBA
           extract(path, width, height, format: "RGBA", background: "none")
         end
 
+        # The image's own pixel size, [width, height], read from its header without
+        # loading any pixels. A sheet importer needs this to know how the picture
+        # divides into tiles before it slices — asking for the pixels at that exact
+        # size is then a no-op resize, so no tile is ever squashed.
+        def dimensions(path)
+          out, err, status = Open3.capture3(binary, path, "-format", "%w %h", "info:")
+          unless status.success?
+            raise Error, "ImageMagick could not read #{path.inspect}: #{err.strip}"
+          end
+
+          out.split.map(&:to_i)
+        end
+
         # The resolved command, found once and remembered. If ImageMagick isn't
         # installed — the single most likely setup problem — say so in plain
         # language and name the install step, rather than leaking a raw
