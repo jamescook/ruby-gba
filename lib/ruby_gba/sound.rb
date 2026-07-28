@@ -98,9 +98,21 @@ module RubyGBA
         [[REG_SOUND2CNT_L, control], [REG_SOUND2CNT_H, trigger]]
       end
 
-      # A single music note on channel 1 (the music channel). A frequency of 0 is
-      # a rest — silence the channel. Music notes sustain (no fade) until the next
-      # note replaces them.
+      # A single music note on one of the two square-wave voices (the music
+      # channels): channel 1 or channel 2. Music notes sustain (no fade) until the
+      # next note replaces them, so both voices of a layered tune hold their pitch
+      # between events. A song's parts map to these in order; +channel+ is chosen by
+      # the backend, not the score.
+      def channel_note(channel, frequency:, duty:, volume:)
+        case channel
+        when 1 then channel1_note(frequency: frequency, duty: duty, volume: volume)
+        when 2 then channel2_note(frequency: frequency, duty: duty, volume: volume)
+        else raise ArgumentError, "no music voice on channel #{channel}"
+        end
+      end
+
+      # A single music note on channel 1 (the first music voice). A frequency of 0
+      # is a rest — silence the voice. Sustains until the next note replaces it.
       def channel1_note(frequency:, duty:, volume:)
         return [[REG_SOUND1CNT_H, 0x0000], [REG_SOUND1CNT_X, 0x8000]] if frequency.zero?
 
@@ -113,9 +125,26 @@ module RubyGBA
         ]
       end
 
-      # Silence the music channel.
+      # A single music note on channel 2 (the second music voice), for a layered
+      # tune's harmony/bass part. Same sustaining behavior as channel 1, but this
+      # voice has no sweep register, so it's just control + trigger. A frequency of
+      # 0 is a rest. (Channel 2 doubles as the SFX voice; a two-part song and beeps
+      # can't both use it at once.)
+      def channel2_note(frequency:, duty:, volume:)
+        return [[REG_SOUND2CNT_L, 0x0000], [REG_SOUND2CNT_H, 0x8000]] if frequency.zero?
+
+        control = (duty_bits(duty) << 6) | (volume << 12)
+        trigger = 0x8000 | frequency_value(frequency)
+        [[REG_SOUND2CNT_L, control], [REG_SOUND2CNT_H, trigger]]
+      end
+
+      # Silence the music — both square-wave voices, so a layered tune stops
+      # cleanly (and any note left ringing on channel 2 stops too).
       def stop_music
-        [[REG_SOUND1CNT_H, 0x0000], [REG_SOUND1CNT_X, 0x8000]]
+        [
+          [REG_SOUND1CNT_H, 0x0000], [REG_SOUND1CNT_X, 0x8000],
+          [REG_SOUND2CNT_L, 0x0000], [REG_SOUND2CNT_H, 0x8000],
+        ]
       end
     end
   end

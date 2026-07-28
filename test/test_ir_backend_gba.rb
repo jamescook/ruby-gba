@@ -425,6 +425,22 @@ class TestIRBackendGBA < Minitest::Test
     assert v.sound?, "the note on frame 0 should sound"
   end
 
+  # A two-part song lowers each part onto its own square-wave channel; both are
+  # driven, so the ROM makes sound.
+  def test_play_song_lowers_a_layered_two_part_song
+    rom = lower(program(
+      screen(:bitmap),
+      enable_sound,
+      song(:duet, total_frames: 4, voices: [
+        { events: [[0, 523], [2, 587]], duty: :half, volume: 12 },
+        { events: [[0, 131]], duty: :half, volume: 8 },
+      ]),
+      loop_(wait_vblank, play_song(:duet)),
+    ))
+    v = assert_gemba_loads_rom(rom, frames: 10)
+    assert v.sound?, "a two-part song should drive the music channels"
+  end
+
   def test_play_song_for_an_undefined_song_is_a_lowering_error
     assert_raises(GBA::LoweringError) do
       lower(program(enable_sound, play_song(:ghost), halt))

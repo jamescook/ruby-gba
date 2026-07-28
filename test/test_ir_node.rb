@@ -202,17 +202,17 @@ class TestIRNode < Minitest::Test
   end
 
   def test_song_stores_a_resolved_score
+    # A single-part song: events/duty/volume are taken as its one voice.
     n = song(:gameplay, events: [[0, 262], [30, 330]], total_frames: 60, volume: 10)
     assert_equal :song, n.kind
-    assert_equal [[0, 262], [30, 330]], n[:events]
+    assert_equal [{ events: [[0, 262], [30, 330]], duty: :half, volume: 10 }], n[:voices]
     assert_equal 60, n[:total_frames]
-    assert_equal 10, n[:volume]
   end
 
   def test_a_song_node_survives_to_h_with_its_score_intact
-    # events is a bare array of pairs (not value nodes); to_h must keep it as-is.
+    # voices is a bare array of plain hashes (not value nodes); to_h must keep it as-is.
     h = song(:tune, events: [[0, 262]], total_frames: 30).to_h
-    assert_equal [[0, 262]], h[:attrs][:events]
+    assert_equal [{ events: [[0, 262]], duty: :half, volume: 12 }], h[:attrs][:voices]
   end
 
   # ========================================================================

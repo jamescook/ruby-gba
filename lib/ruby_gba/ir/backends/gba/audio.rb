@@ -36,27 +36,39 @@ module RubyGBA
             emit_writes(Sound::Registers.stop_music)
           end
 
+          # Which hardware channel each of a song's parts plays on, in order: the
+          # two square-wave voices. The score names parts, not channels — this
+          # mapping is the console's business and lives here in the lowering.
+          MUSIC_CHANNELS = [1, 2].freeze
+
           # Advance a song by one frame. A per-song counter lives in IWRAM and starts
           # at 0 (memory there is zero-initialized). First every note whose frame
           # matches the counter's *current* value triggers — so the note at frame 0,
-          # the downbeat every tune opens on, plays. Then the counter ticks up, and
-          # once it reaches the song's length it wraps to 0 so the tune loops. This
-          # unrolls the whole score into frame comparisons — the same sequencer the
-          # legacy emitter builds, so migrated songs sound identical.
+          # the downbeat every tune opens on, plays. A layered song has more than one
+          # part, each on its own channel, all read against the same counter so they
+          # stay in lock-step. Then the counter ticks up, and once it reaches the
+          # song's length it wraps to 0 so the tune loops. This unrolls the whole
+          # score into frame comparisons — the same sequencer the legacy emitter
+          # builds, so migrated songs sound identical.
           def emit_play_song(node)
             song = @songs.fetch(node[:name]) do
               raise LoweringError, "play_song for undefined song #{node[:name].inspect}"
             end
             counter = :"_music_frame_#{node[:name]}"
 
-            song[:events].each do |frame, frequency|
-              skip = gensym
-              load_var(ACC, counter)
-              compare_acc_to(frame)
-              emit_branch(:bcond, skip, cond: :ne) # counter != this note's frame? skip it
-              emit_writes(Sound::Registers.channel1_note(frequency: frequency,
-                                                         duty: song[:duty], volume: song[:volume]))
-              place_label(skip)
+            song[:voices].each_with_index do |voice, index|
+              channel = MUSIC_CHANNELS.fetch(index) do
+                raise LoweringError, "song #{node[:name].inspect} has more parts than this console can play"
+              end
+              voice[:events].each do |frame, frequency|
+                skip = gensym
+                load_var(ACC, counter)
+                compare_acc_to(frame)
+                emit_branch(:bcond, skip, cond: :ne) # counter != this note's frame? skip it
+                emit_writes(Sound::Registers.channel_note(channel, frequency: frequency,
+                                                          duty: voice[:duty], volume: voice[:volume]))
+                place_label(skip)
+              end
             end
 
             load_var(ACC, counter)               # counter += 1

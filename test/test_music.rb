@@ -26,12 +26,13 @@ class TestMusic < Minitest::Test
       rest :eighth
     end
 
-    assert_equal 3, ctx.events.size
+    events = ctx.voices.first[:events]
+    assert_equal 3, events.size
     # At 120 BPM, quarter = 30 frames, eighth = 15 frames
-    assert_equal [0, 262], ctx.events[0]     # C4 at frame 0
-    assert_equal [30, 330], ctx.events[1]    # E4 at frame 30
-    assert_equal [45, 0], ctx.events[2]      # rest at frame 45
-    assert_equal 60, ctx.total_frames        # 30 + 15 + 15
+    assert_equal [0, 262], events[0]     # C4 at frame 0
+    assert_equal [30, 330], events[1]    # E4 at frame 30
+    assert_equal [45, 0], events[2]      # rest at frame 45
+    assert_equal 60, ctx.total_frames    # 30 + 15 + 15
   end
 
   def test_song_context_tempo_affects_duration
@@ -52,8 +53,9 @@ class TestMusic < Minitest::Test
       note :D4, :dotted_eighth   # 0.75 * 30 = 22.5 → 23 (rounded)
     end
 
-    assert_equal [0, 262], ctx.events[0]
-    assert_equal [45, 294], ctx.events[1]
+    events = ctx.voices.first[:events]
+    assert_equal [0, 262], events[0]
+    assert_equal [45, 294], events[1]
   end
 
   def test_song_context_duty_and_volume
@@ -88,8 +90,9 @@ class TestMusic < Minitest::Test
       note 440, :quarter  # A4 by frequency
     end
 
-    assert_equal 1, ctx.events.size
-    assert_equal [0, 440], ctx.events[0]
+    events = ctx.voices.first[:events]
+    assert_equal 1, events.size
+    assert_equal [0, 440], events[0]
   end
 
   def test_song_context_note_bad_frequency_raises
@@ -118,6 +121,72 @@ class TestMusic < Minitest::Test
     assert_raises(ArgumentError) do
       ctx.volume(20)
     end
+  end
+
+  # ========================================================================
+  # SongContext — layered parts (voices)
+  # ========================================================================
+
+  def test_voice_blocks_collect_separate_parts
+    ctx = RubyGBA::Music::SongContext.new
+    ctx.instance_eval do
+      tempo 120
+      voice :melody do
+        note :C5, :quarter   # frame 0
+        note :E5, :quarter   # frame 30
+      end
+      voice :bass do
+        note :C3, :half      # frame 0, lasts 60
+      end
+    end
+
+    voices = ctx.voices
+    assert_equal 2, voices.size
+    assert_equal [[0, 523], [30, 659]], voices[0][:events]
+    assert_equal [[0, 131]], voices[1][:events]
+    # The song loops at the length of its longest part.
+    assert_equal 60, ctx.total_frames
+  end
+
+  def test_each_voice_keeps_its_own_duty_and_volume
+    ctx = RubyGBA::Music::SongContext.new
+    ctx.instance_eval do
+      voice :lead do
+        duty :quarter
+        volume 12
+        note :C5, :quarter
+      end
+      voice :bass do
+        volume 6
+        note :C3, :quarter
+      end
+    end
+
+    assert_equal({ duty: :quarter, volume: 12 }, ctx.voices[0].slice(:duty, :volume))
+    assert_equal({ duty: :half, volume: 6 }, ctx.voices[1].slice(:duty, :volume))
+  end
+
+  def test_too_many_parts_is_a_friendly_error
+    ctx = RubyGBA::Music::SongContext.new
+    err = assert_raises(ArgumentError) do
+      ctx.instance_eval do
+        voice(:a) { note :C4, :quarter }
+        voice(:b) { note :E4, :quarter }
+        voice(:c) { note :G4, :quarter }
+      end
+    end
+    assert_match(/at most 2 parts/, err.message)
+  end
+
+  def test_mixing_loose_notes_and_voice_blocks_is_a_friendly_error
+    ctx = RubyGBA::Music::SongContext.new
+    err = assert_raises(ArgumentError) do
+      ctx.instance_eval do
+        note :C4, :quarter
+        voice(:bass) { note :C3, :quarter }
+      end
+    end
+    assert_match(/loose notes or `voice` blocks/, err.message)
   end
 
   # ========================================================================

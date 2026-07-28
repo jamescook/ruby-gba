@@ -51,17 +51,28 @@ module Jukebox
     # --- The three tunes, each a plain note/tempo score ---
 
     # Beethoven, "Ode to Joy" (Symphony No. 9) — stepwise and instantly familiar.
+    # Played two-handed: the tune up top over a simple tonic/dominant (C/G) bass,
+    # one whole note a measure. The two parts share the tempo and stay in step.
     song :ode_to_joy do
       tempo 100
-      duty :half
-      note :E4, :quarter; note :E4, :quarter; note :F4, :quarter; note :G4, :quarter
-      note :G4, :quarter; note :F4, :quarter; note :E4, :quarter; note :D4, :quarter
-      note :C4, :quarter; note :C4, :quarter; note :D4, :quarter; note :E4, :quarter
-      note :E4, :dotted_quarter; note :D4, :eighth; note :D4, :half
-      note :E4, :quarter; note :E4, :quarter; note :F4, :quarter; note :G4, :quarter
-      note :G4, :quarter; note :F4, :quarter; note :E4, :quarter; note :D4, :quarter
-      note :C4, :quarter; note :C4, :quarter; note :D4, :quarter; note :E4, :quarter
-      note :D4, :dotted_quarter; note :C4, :eighth; note :C4, :half
+      voice :melody do
+        duty :half
+        volume 12
+        note :E4, :quarter; note :E4, :quarter; note :F4, :quarter; note :G4, :quarter
+        note :G4, :quarter; note :F4, :quarter; note :E4, :quarter; note :D4, :quarter
+        note :C4, :quarter; note :C4, :quarter; note :D4, :quarter; note :E4, :quarter
+        note :E4, :dotted_quarter; note :D4, :eighth; note :D4, :half
+        note :E4, :quarter; note :E4, :quarter; note :F4, :quarter; note :G4, :quarter
+        note :G4, :quarter; note :F4, :quarter; note :E4, :quarter; note :D4, :quarter
+        note :C4, :quarter; note :C4, :quarter; note :D4, :quarter; note :E4, :quarter
+        note :D4, :dotted_quarter; note :C4, :eighth; note :C4, :half
+      end
+      voice :bass do
+        duty :half
+        volume 7
+        note :C3, :whole; note :G2, :whole; note :C3, :whole; note :G2, :whole
+        note :C3, :whole; note :G2, :whole; note :C3, :whole; note :C3, :whole
+      end
     end
 
     # Beethoven, "Für Elise" — the famous rocking opening in A minor.

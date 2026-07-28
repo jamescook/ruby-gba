@@ -556,11 +556,13 @@ module RubyGBA
         SONG_TICK * @weights[:sound_write] + song_notes(name) * @weights[:note_check]
       end
 
-      # How many notes a song holds (its score is a list of [frame, frequency]
-      # events). 0 for an unknown name.
+      # How many notes a song holds — summed across its parts, since every part's
+      # notes are re-checked each frame. 0 for an unknown name.
       def song_notes(name)
         song = @songs && @songs[name]
-        song ? song[:events].to_a.length : 0
+        return 0 unless song
+
+        song[:voices].sum { |voice| voice[:events].to_a.length }
       end
 
       # A blit costs by how it's drawn: an opaque image streams by per-row DMA, but a
