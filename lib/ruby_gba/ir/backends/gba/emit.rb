@@ -34,10 +34,14 @@ module RubyGBA
           end
 
           # Second pass: every label and data-blob position is known now, so patch
-          # each placeholder — a branch to a label, or a load of a blob's address.
+          # each placeholder — a branch to a label, or a load of a blob's / label's address.
           def resolve_fixups
             @fixups.each do |fix|
-              fix[:kind] == :data_addr ? resolve_data_address(fix) : resolve_branch(fix)
+              case fix[:kind]
+              when :data_addr then resolve_data_address(fix)
+              when :label_addr then resolve_label_address(fix)
+              else resolve_branch(fix)
+              end
             end
           end
 
@@ -67,6 +71,25 @@ module RubyGBA
             end
             address = ROM_START + RubyGBA::ROM::ENTRY_OFFSET + position
             @code[fix[:pos], 16] = ASM.load_immediate_fixed(fix[:reg], address)
+          end
+
+          # Patch a load with a *code label's* run-time address — the same cartridge
+          # math as a data blob (base + header + position), but the position comes from
+          # the label table. Used to hand the interrupt vector the address of a routine
+          # that lives in the code, not in the data region.
+          def resolve_label_address(fix)
+            position = @labels.fetch(fix[:target]) do
+              raise LoweringError, "reference to undefined label #{fix[:target].inspect}"
+            end
+            address = ROM_START + RubyGBA::ROM::ENTRY_OFFSET + position
+            @code[fix[:pos], 16] = ASM.load_immediate_fixed(fix[:reg], address)
+          end
+
+          # Load the run-time address of a named code label into +reg+ (a fixed-size
+          # placeholder patched in the second pass, once the label's position is known).
+          def emit_load_label_address(reg, label)
+            @fixups << { pos: pos, kind: :label_addr, reg: reg, target: label }
+            emit(ASM.load_immediate_fixed(reg, 0))
           end
 
           # Lay the embedded blobs out after all the code, remembering where each

@@ -78,18 +78,13 @@ module RubyGBA
             emit(ASM.cmp_reg(ACC, TMP))
           end
 
-          # Busy-wait for the vertical blank — the brief pause between drawn frames,
-          # the safe moment to change what's on screen. We poll the scanline counter:
-          # first let any current blank finish, then wait for the next to begin. The
-          # two back-jumps are a fixed two instructions, so they need no label.
+          # Wait for the vertical blank — the brief pause between drawn frames, the safe
+          # moment to change what's on screen. Rather than spin reading the scanline
+          # counter, we ask the BIOS to sleep the CPU until the next VBlank interrupt
+          # (VBlankIntrWait). The interrupt itself was armed once at boot (emit_irq_setup),
+          # so this is a single instruction; the CPU draws no power while it waits.
           def emit_wait_vblank
-            emit(ASM.load_immediate(ACC, REG_VCOUNT))
-            emit(ASM.load_halfword(TMP, ACC))
-            emit(ASM.cmp_imm(TMP, 160))
-            emit(ASM.branch_cond(:ge, -2))  # still past line 160: keep waiting
-            emit(ASM.load_halfword(TMP, ACC))
-            emit(ASM.cmp_imm(TMP, 160))
-            emit(ASM.branch_cond(:lt, -2))  # not yet at line 160: keep waiting
+            emit(ASM.swi(SWI_VBLANK_INTR_WAIT << 16))
 
             # A new frame begins now, so refresh the input snapshot: last frame's
             # keys become "previous", and we latch this frame's keys as "current".
