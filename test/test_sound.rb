@@ -267,4 +267,27 @@ class TestSound < Minitest::Test
 
     assert_gemba_loads_rom(rom, frames: 30)
   end
+
+  # ========================================================================
+  # noise — the percussion / explosion voice
+  # ========================================================================
+
+  def test_noise_preset_builds
+    rom = build do
+      enable_sound
+      noise :explosion
+      halt
+    end
+    assert_operator rom.size, :>, 0
+  end
+
+  def test_noise_before_enable_sound_raises
+    err = assert_raises(ArgumentError) do
+      build do
+        noise :hit
+        halt
+      end
+    end
+    assert_match(/enable_sound before noise/, err.message)
+  end
 end

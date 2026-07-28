@@ -70,7 +70,8 @@ module RubyGBA
       # (Playing a song is priced separately — see #song_cost.)
       ENABLE_WRITES = 3 # power the sound hardware on
       BEEP_WRITES   = 2 # one channel-2 sound effect
-      STOP_WRITES   = 2 # silence the music channel
+      NOISE_WRITES  = 2 # one channel-4 percussion hit
+      STOP_WRITES   = 4 # silence both music voices (channels 1 and 2)
       SONG_TICK     = 6 # per frame: advance the song's frame counter and wrap it at the end
 
       # Per-op costs in scanlines, measured on hardware by the timing probe (see the
@@ -526,6 +527,7 @@ module RubyGBA
         when :save_region, :restore_region then region_cost(node[:buffer])
         when :play_song then song_cost(node[:name])
         when :beep then BEEP_WRITES * @weights[:sound_write]
+        when :noise then NOISE_WRITES * @weights[:sound_write]
         when :enable_sound then ENABLE_WRITES * @weights[:sound_write]
         when :stop_music then STOP_WRITES * @weights[:sound_write]
         else 0 # non-draw, non-sound ops: no per-frame cost

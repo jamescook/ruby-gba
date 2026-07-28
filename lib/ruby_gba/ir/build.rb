@@ -152,6 +152,14 @@ module RubyGBA
         Node.new(:beep, tone: tone, duty: duty, decay: decay, volume: volume)
       end
 
+      # Play a percussion / explosion hit on the noise voice now. +preset+ names a
+      # built-in noise sound (or is nil for a plain hit); the keyword overrides
+      # default to the preset's values when left nil, resolved by a backend.
+      def noise(preset = nil, pitch: nil, decay: nil, volume: nil, metallic: nil)
+        Node.new(:noise, preset: preset, pitch: pitch, decay: decay,
+                         volume: volume, metallic: metallic)
+      end
+
       # Define a named tune. A song is one or more parts (voices) played together.
       # Each part is { events:, duty:, volume: } where +events+ is the resolved
       # score — a list of [frame_offset, frequency_hz] pairs, a rest being

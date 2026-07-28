@@ -318,6 +318,8 @@ module RubyGBA
             nil
           when :beep
             @audio << [:beep, resolve_effect(node)]
+          when :noise
+            @audio << [:noise, resolve_noise(node)]
           when :play_song
             exec_play_song(node[:name])
           when :stop_music
@@ -376,6 +378,14 @@ module RubyGBA
         def resolve_effect(node)
           Sound.resolve_effect(node[:tone], duty: node[:duty], decay: node[:decay],
                                             volume: node[:volume], defined: @defined_sounds)
+        end
+
+        # Resolve a noise hit's preset + overrides into the concrete musical values
+        # that played — the shared rule, so the interpreter and the ROM agree on
+        # what a given hit means.
+        def resolve_noise(node)
+          Sound.resolve_noise(node[:preset], pitch: node[:pitch], decay: node[:decay],
+                                             volume: node[:volume], metallic: node[:metallic])
         end
 
         # Record any note that lands on the song's CURRENT frame (frequency 0 is a

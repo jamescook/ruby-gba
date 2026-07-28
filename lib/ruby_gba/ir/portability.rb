@@ -62,8 +62,8 @@ module RubyGBA
         # save/restore a screen patch — copying pixels to/from a buffer, any backend can
         save_region: :portable, restore_region: :portable,
 
-        # audio — square-wave PSG a web-audio backend can synthesize
-        enable_sound: :portable, define_sound: :portable, beep: :portable,
+        # audio — square-wave PSG and noise a web-audio backend can synthesize
+        enable_sound: :portable, define_sound: :portable, beep: :portable, noise: :portable,
         song: :portable, play_song: :portable, stop_music: :portable,
 
         # control flow

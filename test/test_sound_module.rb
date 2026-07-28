@@ -46,7 +46,9 @@ class TestSoundModule < Minitest::Test
   # ---- register encoding (exact hardware writes) ----
 
   def test_enable_writes_the_master_registers
-    assert_equal [[REG_SOUNDCNT_X, 0x0080], [REG_SOUNDCNT_L, 0x3377], [REG_SOUNDCNT_H, 0x0002]],
+    # 0xFF77 routes all four channels to both speakers (so a channel-2 music voice
+    # or a channel-4 noise hit is heard), at full master volume.
+    assert_equal [[REG_SOUNDCNT_X, 0x0080], [REG_SOUNDCNT_L, 0xFF77], [REG_SOUNDCNT_H, 0x0002]],
                  Registers.enable
   end
 
@@ -91,5 +93,38 @@ class TestSoundModule < Minitest::Test
     assert_raises(ArgumentError) do
       Registers.channel2(frequency: 440, duty: :wobble, decay: :fast, volume: 15)
     end
+  end
+
+  # ---- noise (channel 4) ----
+
+  def test_noise_preset_resolves_to_its_values
+    assert_equal({ pitch: :low, decay: :slow, volume: 15, metallic: false },
+                 Sound.resolve_noise(:explosion))
+  end
+
+  def test_noise_overrides_replace_preset_values
+    got = Sound.resolve_noise(:explosion, pitch: :high, volume: 9, metallic: true)
+    assert_equal({ pitch: :high, decay: :slow, volume: 9, metallic: true }, got)
+  end
+
+  def test_a_nil_noise_preset_is_the_default_hit
+    assert_equal Sound.resolve_noise(:hit), Sound.resolve_noise(nil)
+  end
+
+  def test_unknown_noise_preset_is_a_friendly_error
+    err = assert_raises(ArgumentError) { Sound.resolve_noise(:kaboom) }
+    assert_match(/unknown noise preset/, err.message)
+  end
+
+  def test_channel4_encodes_the_noise_registers
+    # volume 15 (0xF<<12) + fast decay (step 1 <<8) = 0xF100; trigger sets the
+    # restart bit, the low-pitch shift (8<<4 = 0x80), and 15-bit width (metallic off).
+    assert_equal [[REG_SOUND4CNT_L, 0xF100], [REG_SOUND4CNT_H, 0x8080]],
+                 Registers.channel4(pitch: :low, decay: :fast, volume: 15, metallic: false)
+  end
+
+  def test_metallic_noise_sets_the_seven_bit_width_bit
+    _control, trigger = Registers.channel4(pitch: :high, decay: :fast, volume: 8, metallic: true)
+    assert_equal 0x0008, trigger[1] & 0x0008, "metallic noise sets the 7-bit counter-width bit"
   end
 end
