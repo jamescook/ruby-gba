@@ -51,6 +51,7 @@ module RubyGBA
             when :enable_sound then emit_enable_sound
             when :define_sound, :song, :data, :bitmap, :backing_buffer, :object then nil # definitions: collected, nothing to emit
             when :beep then emit_beep(node)
+            when :noise then emit_noise(node)
             when :play_song then emit_play_song(node)
             when :stop_music then emit_stop_music
             else

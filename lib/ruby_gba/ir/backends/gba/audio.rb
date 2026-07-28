@@ -31,6 +31,15 @@ module RubyGBA
             emit_writes(Sound::Registers.channel2(**effect))
           end
 
+          # A one-off percussion / explosion hit on channel 4 (the noise voice).
+          # Resolve the hit to concrete musical values (a preset name plus any
+          # overrides), then write the channel-4 registers.
+          def emit_noise(node)
+            hit = Sound.resolve_noise(node[:preset], pitch: node[:pitch], decay: node[:decay],
+                                                     volume: node[:volume], metallic: node[:metallic])
+            emit_writes(Sound::Registers.channel4(**hit))
+          end
+
           # Silence the music channel.
           def emit_stop_music
             emit_writes(Sound::Registers.stop_music)

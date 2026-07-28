@@ -394,6 +394,12 @@ class TestIRBackendGBA < Minitest::Test
     assert v.sound?, "an enabled beep should produce audible PCM"
   end
 
+  def test_a_lowered_noise_hit_actually_plays_sound
+    rom = lower(program(enable_sound, noise(:explosion), halt))
+    v = assert_gemba_loads_rom(rom, frames: 8)
+    assert v.sound?, "an enabled noise hit should produce audible PCM on channel 4"
+  end
+
   def test_enabling_sound_without_a_beep_stays_silent
     rom = lower(program(enable_sound, halt))
     v = assert_gemba_loads_rom(rom, frames: 8)

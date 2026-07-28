@@ -51,6 +51,39 @@ module RubyGBA
       }
     end
 
+    # Built-in noise presets — the percussion voice, as plain intent. A game says
+    # `noise :explosion` and gets a rumble; the numbers are the framework's job.
+    # +pitch+ is how high the hiss sits (:low rumble … :high hiss), +decay+ how
+    # fast it fades, +metallic+ a tighter, more tonal rattle (for a snare/hat).
+    NOISE_PRESETS = {
+      hit:       { pitch: :mid,  decay: :fast,   volume: 12, metallic: false },
+      kick:      { pitch: :low,  decay: :medium, volume: 15, metallic: false },
+      snare:     { pitch: :mid,  decay: :fast,   volume: 13, metallic: true },
+      hat:       { pitch: :high, decay: :fast,   volume: 8,  metallic: true },
+      explosion: { pitch: :low,  decay: :slow,   volume: 15, metallic: false },
+      zap:       { pitch: :high, decay: :medium, volume: 12, metallic: false },
+    }.freeze
+
+    # What an unnamed noise hit defaults to.
+    NOISE_DEFAULT = :hit
+
+    # Resolve a noise hit into concrete musical values. +preset+ names a built-in
+    # (or is nil for the default hit); any non-nil override replaces the preset's
+    # value. Purely musical — no hardware in sight.
+    def self.resolve_noise(preset, pitch: nil, decay: nil, volume: nil, metallic: nil)
+      base = NOISE_PRESETS.fetch(preset || NOISE_DEFAULT) do
+        raise ArgumentError, "unknown noise preset #{preset.inspect} — " \
+                             "built-in: #{NOISE_PRESETS.keys.join(', ')}"
+      end
+
+      {
+        pitch:    pitch  || base[:pitch],
+        decay:    decay  || base[:decay],
+        volume:   volume || base[:volume],
+        metallic: metallic.nil? ? base[:metallic] : metallic,
+      }
+    end
+
     # The console-specific half: encode musical values into sound-register writes.
     # Each method returns a list of [register_address, 16-bit value] pairs in the
     # order they must be written; a backend just stores each one.
@@ -66,6 +99,11 @@ module RubyGBA
       # Fade speed → the envelope step the hardware counts down by.
       DECAY_PRESETS = { fast: 1, medium: 3, slow: 5, none: 0 }.freeze
 
+      # Noise pitch → the noise generator's shift-clock exponent. The hiss's
+      # frequency divides down as the exponent grows, so a bigger number is a
+      # lower, rumblier noise and a smaller one a higher hiss.
+      NOISE_SHIFTS = { high: 2, mid: 5, low: 8 }.freeze
+
       # The console tunes a channel by a period value, not a frequency:
       # freq_hz = 131072 / (2048 - value). Invert that and keep it in range.
       def frequency_value(freq_hz)
@@ -80,12 +118,15 @@ module RubyGBA
         DECAY_PRESETS.fetch(decay) { raise ArgumentError, "unknown decay #{decay.inspect}" }
       end
 
-      # Power on the sound hardware: master enable, both PSG channels routed to
-      # both speakers at full volume, PSG output at 100%.
+      # Power on the sound hardware: master enable, all four PSG channels routed to
+      # both speakers at full volume, PSG output at 100%. Routing every channel
+      # (0xFF..) rather than just the first two means a music voice on channel 2 or
+      # a noise hit on channel 4 is actually heard; a channel stays silent until it
+      # is triggered, so routing an unused one costs nothing.
       def enable
         [
           [REG_SOUNDCNT_X, 0x0080],
-          [REG_SOUNDCNT_L, 0x3377],
+          [REG_SOUNDCNT_L, 0xFF77],
           [REG_SOUNDCNT_H, 0x0002],
         ]
       end
@@ -145,6 +186,20 @@ module RubyGBA
           [REG_SOUND1CNT_H, 0x0000], [REG_SOUND1CNT_X, 0x8000],
           [REG_SOUND2CNT_L, 0x0000], [REG_SOUND2CNT_H, 0x8000],
         ]
+      end
+
+      # A percussion / explosion hit on channel 4 (the noise voice). Channel 4
+      # makes pseudo-random noise rather than a pitched tone: a control word sets
+      # the starting volume and how fast it fades (the envelope, same layout as the
+      # square channels), and a trigger word sets how high the hiss sits (the shift
+      # clock), whether it's the tighter 7-bit "metallic" noise or the full 15-bit
+      # hiss, and the restart bit. The envelope fades it to silence, so no note
+      # length is needed.
+      def channel4(pitch:, decay:, volume:, metallic:)
+        shift = NOISE_SHIFTS.fetch(pitch) { raise ArgumentError, "unknown noise pitch #{pitch.inspect}" }
+        control = (volume << 12) | (decay_step(decay) << 8)  # fades out (envelope counts down)
+        trigger = 0x8000 | (shift << 4) | (metallic ? 0x0008 : 0x0000)
+        [[REG_SOUND4CNT_L, control], [REG_SOUND4CNT_H, trigger]]
       end
     end
   end

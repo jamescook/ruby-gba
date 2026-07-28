@@ -52,6 +52,27 @@ module RubyGBA
 
         record(Build.beep(tone, duty: duty, decay: decay, volume: volume))
       end
+
+      # Play a percussion or explosion hit on the noise voice (channel 4) — the
+      # console's drum/crash sound, made from filtered randomness rather than a
+      # pitched tone.
+      #
+      # @param preset [Symbol, nil] a built-in noise sound (:hit, :kick, :snare,
+      #   :hat, :explosion, :zap); omit for a plain hit
+      # @param pitch [Symbol] how high the hiss sits (:low, :mid, :high)
+      # @param decay [Symbol] fade speed (:fast, :medium, :slow, :none)
+      # @param volume [Integer] initial volume 0-15
+      # @param metallic [Boolean] a tighter, more tonal rattle (snare/hat)
+      #
+      # @example
+      #   noise :explosion
+      #   noise :hat
+      #   noise pitch: :low, decay: :slow, volume: 15
+      def noise(preset = nil, pitch: nil, decay: nil, volume: nil, metallic: nil)
+        raise ArgumentError, "call enable_sound before noise" unless @sound_enabled
+
+        record(Build.noise(preset, pitch: pitch, decay: decay, volume: volume, metallic: metallic))
+      end
     end
   end
 end

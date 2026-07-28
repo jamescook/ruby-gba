@@ -151,6 +151,12 @@ class TestIRBackendRubyHardware < Minitest::Test
     assert_equal [:stop_music], i.audio[2]
   end
 
+  def test_a_noise_hit_is_recorded_with_its_resolved_values
+    i = run_ir(program(enable_sound, noise(:explosion)))
+    assert_equal :noise, i.audio[1][0]
+    assert_equal({ pitch: :low, decay: :slow, volume: 15, metallic: false }, i.audio[1][1])
+  end
+
   def test_beep_resolves_a_defined_sound_by_name
     i = run_ir(program(
       enable_sound,

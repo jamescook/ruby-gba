@@ -108,6 +108,7 @@ module RubyGBA
         enable_sound: {},
         define_sound: { name: :name, frequency: :int, duty: :option, decay: :option, volume: :int },
         beep:         { tone: :tone, duty: :option, decay: :option, volume: :int },
+        noise:        { preset: :option, pitch: :option, decay: :option, volume: :int, metallic: :flag },
         song:         { name: :name, voices: :list, total_frames: :int },
         play_song:    { name: :name },
         stop_music:   {},

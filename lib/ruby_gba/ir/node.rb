@@ -58,7 +58,7 @@ module RubyGBA
         # audio operations. define_sound and song are definitions (like func):
         # named registries the audio triggers refer to. beep is a one-off effect,
         # play_song advances a defined song, stop_music silences it.
-        enable_sound: :sound, define_sound: :sound, beep: :sound,
+        enable_sound: :sound, define_sound: :sound, beep: :sound, noise: :sound,
         song: :sound, play_song: :sound, stop_music: :sound,
 
         # control flow — these carry nested statements in #children
