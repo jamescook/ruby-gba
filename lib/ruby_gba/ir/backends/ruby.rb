@@ -650,6 +650,47 @@ module RubyGBA
           end
         end
 
+        # --- per-pixel collision (do two sprites' solid pixels actually touch?) ---
+
+        # True when a non-transparent pixel of one posed sprite lands on a
+        # non-transparent pixel of the other. Each side names its current picture (from
+        # its poses and run-time pose), and where it sits; we walk only the rectangle
+        # where their boxes overlap and stop at the first pixel solid in both.
+        def pixels_overlap?(node)
+          a = collision_sprite(node[:a_poses], node[:a_pose], node[:a_x], node[:a_y])
+          b = collision_sprite(node[:b_poses], node[:b_pose], node[:b_x], node[:b_y])
+          x0 = [a[:x], b[:x]].max
+          y0 = [a[:y], b[:y]].max
+          x1 = [a[:x] + a[:w], b[:x] + b[:w]].min
+          y1 = [a[:y] + a[:h], b[:y] + b[:h]].min
+          return false if x0 >= x1 || y0 >= y1
+
+          (y0...y1).each do |y|
+            (x0...x1).each do |x|
+              return true if solid_pixel?(a, x - a[:x], y - a[:y]) && solid_pixel?(b, x - b[:x], y - b[:y])
+            end
+          end
+          false
+        end
+
+        # The picture a posed sprite is showing right now, with where it sits — what
+        # #pixels_overlap? needs to read its solid pixels.
+        def collision_sprite(poses, pose_node, x_node, y_node)
+          name = poses[eval_value(pose_node)]
+          bmp = @bitmaps.fetch(name)
+          { pixels: @data.fetch(name), w: bmp[:width], h: bmp[:height],
+            transparent: bmp[:transparent], x: eval_value(x_node), y: eval_value(y_node) }
+        end
+
+        # Whether pixel (col, row) of a sprite's picture is drawn (not its see-through
+        # colour) — the same "skip the transparent pixel" test the blit uses.
+        def solid_pixel?(sprite, col, row)
+          i = ((row * sprite[:w]) + col) * 2
+          color = sprite[:pixels].getbyte(i) | (sprite[:pixels].getbyte(i + 1) << 8)
+          transparent = sprite[:transparent]
+          transparent.nil? || color != transparent
+        end
+
         # --- backing store (save the pixels under a moving object, then put them back) ---
 
         # Copy the buffer-sized screen patch at (x, y) into the named backing buffer.
@@ -790,6 +831,7 @@ module RubyGBA
           when :pressed then bool(button_pressed?(node[:button]))
           # A chance holds when the random draw lands below the threshold.
           when :chance then bool(eval_value(node[:draw]) < node[:percent])
+          when :pixels_overlap then bool(pixels_overlap?(node))
           when :data_byte then data_byte(node[:name], node[:index])
           when :list_get then eval_list_get(node)
           when :list_len then list_for(node[:name]).length

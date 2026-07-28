@@ -8,6 +8,7 @@ require_relative "gba/buffered"
 require_relative "gba/audio"
 require_relative "gba/expressions"
 require_relative "gba/primitives"
+require_relative "gba/collision"
 
 module RubyGBA
   module IR
@@ -57,6 +58,7 @@ module RubyGBA
         include Audio
         include Expressions
         include Primitives
+        include Collision
 
         class LoweringError < StandardError; end
 
@@ -174,6 +176,7 @@ module RubyGBA
         # out.
         def lower(program)
           collect_definitions(program)
+          prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
           resolve_modes(program)
           @tiled = program.walk.any? { |node| node.kind == :screen && node[:mode] == :tiled }
           prepare_backgrounds(program) if @tiled

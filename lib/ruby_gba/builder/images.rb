@@ -194,7 +194,7 @@ module RubyGBA
         record(Build.backing_buffer(buffer, width: width, height: height))
 
         handle = Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
-                                  active: active, buffer: buffer, hitbox: box,
+                                  active: active, buffer: buffer, hitbox: box, pixel_perfect: hitbox.nil?,
                                   image: (has_poses ? nil : name), poses: poses,
                                   facing_var: pose_var, facing_dirs: facing_dirs)
         @sprites << handle
@@ -258,7 +258,7 @@ module RubyGBA
                                          x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
                                          active: Build.var_ref(active)))
         handle = HardwareSprite.new(self, object_name: object_name, x: pos_x, y: pos_y,
-                                          active: active, hitbox: box,
+                                          active: active, hitbox: box, poses: poses, pixel_perfect: hitbox.nil?,
                                           facing_var: pose_var, facing_dirs: facing_dirs)
         @hw_sprites << handle
         handle

@@ -108,6 +108,10 @@ module RubyGBA
 
         # a probability test as an operand — true a given percent of the time
         chance: :value,
+
+        # do two posed sprites' solid pixels actually overlap? — the shape-accurate
+        # half of a collision test, read from each sprite's own picture
+        pixels_overlap: :value,
       }.freeze
 
       # The distinct categories, in a stable order (useful for coverage checks).

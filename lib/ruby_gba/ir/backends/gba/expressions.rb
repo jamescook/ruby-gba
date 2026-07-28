@@ -22,6 +22,7 @@ module RubyGBA
             # A chance is "the random draw is below the threshold" — evaluate it as
             # exactly that comparison.
             when :chance then eval_value(Build.binop(:<, node[:draw], Build.int(node[:percent])))
+            when :pixels_overlap then eval_pixels_overlap(node)
             when :data_byte then eval_data_byte(node)
             when :list_get then eval_list_get(node)
             when :list_len then eval_list_len(node)

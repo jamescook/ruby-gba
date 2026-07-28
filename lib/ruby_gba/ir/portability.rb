@@ -90,6 +90,7 @@ module RubyGBA
         data_byte: :portable, list_get: :portable, list_len: :portable,
         held: :portable, pressed: :portable,
         chance: :portable, # a random draw compared to a threshold — plain arithmetic
+        pixels_overlap: :portable, # reads each sprite's picture; any backend with the images can test it
       }.freeze
 
       # The tier of a kind (a Symbol) or a Node. Raises on an unclassified kind —

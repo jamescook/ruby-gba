@@ -27,7 +27,8 @@ module RubyGBA
   # per frame, during the vertical blank — the brief safe window to change the
   # screen — so moving one is just changing `x`/`y`, and it shows on the next frame.
   class HardwareSprite
-    include Bounds # gains overlaps? from left / top / right / bottom (its collision box)
+    include Bounds       # gains overlaps? from left / top / right / bottom (its collision box)
+    include PixelBounds  # ...and makes that overlaps? shape-accurate (per-pixel) by default
 
     Build = IR::Build
 
@@ -42,9 +43,12 @@ module RubyGBA
     # @param active [Symbol] 1 while shown, 0 while hidden
     # @param hitbox [Array(Integer,Integer,Integer,Integer)] the collision box [x, y, w, h]
     #   relative to the sprite's top-left (by default the box around its visible pixels)
+    # @param poses [Array<Symbol>] the sprite's picture(s), for the per-pixel collision test
+    # @param pixel_perfect [Boolean] collide on the drawn pixels (true) or just the box (false,
+    #   set when the sprite was given an explicit hitbox:)
     # @param facing_var [Symbol, nil] the variable holding which pose is showing (faceted only)
     # @param facing_dirs [Hash{Symbol=>Integer}, nil] direction -> pose index (faceted only)
-    def initialize(builder, object_name:, x:, y:, active:, hitbox:,
+    def initialize(builder, object_name:, x:, y:, active:, hitbox:, poses:, pixel_perfect:,
                    facing_var: nil, facing_dirs: nil)
       @builder = builder
       @object_name = object_name
@@ -52,10 +56,20 @@ module RubyGBA
       @y_var = y
       @active = active
       @hit_x, @hit_y, @hit_w, @hit_h = hitbox # collision box, offset from the sprite's top-left
+      @poses = poses             # the picture(s) the per-pixel collision test reads
+      @pixel_perfect = pixel_perfect
       @facing_var = facing_var   # the variable the object's pose selector reads
       @facing_dirs = facing_dirs # direction -> pose index, for face / auto-facing move
       @walls = nil               # solid-tile Boxes this sprite is blocked by (nil until blocked_by)
     end
+
+    # What per-pixel collision (see {PixelBounds}) reads off this sprite: the build to
+    # record into, its picture set, the pose it's showing now, and whether it collides
+    # on its drawn pixels at all.
+    def pixel_perfect? = @pixel_perfect
+    def collision_builder = @builder
+    def collision_poses = @poses
+    def collision_pose = @facing_var ? Build.var_ref(@facing_var) : Build.int(0)
 
     # The object this handle drives — Builder#wait_vblank lists it for the per-frame
     # draw.
