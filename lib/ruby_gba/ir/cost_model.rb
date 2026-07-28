@@ -275,6 +275,48 @@ module RubyGBA
         Modes.resolve(program).mixed?
       end
 
+      # For a program already over budget at full capacity, the count at which each
+      # growing loop tips the frame over. A loop whose trip count is a list's length
+      # draws more as the list fills; this reports the break-even count and the
+      # list's declared cap. Facts, not advice — only loops whose break-even is
+      # actually reachable (below their cap, so capping lower would bring the frame
+      # back under) are returned; a loop that fits even full is left out. The
+      # guardrail turns these into a warning. Each entry:
+      #   { list:, break_even:, cap:, budget:, steady: }
+      def budget_thresholds(program)
+        index(program)
+        return [] unless looping?(program)
+
+        budget = budget_for(program)
+        steady = steady_cost(program)
+        return [] if steady <= budget # fits even at full capacity — nothing tips it over
+
+        @stack = []
+        capacity_bounded_loops(program).filter_map do |loop_node|
+          name = loop_node[:count][:name]
+          cap = @capacities[name]
+          body = loop_node.children.sum { |child| steady(child) } # one iteration's cost
+          next unless body.positive?
+
+          # cost(N) = (steady - cap*body) + N*body, so it crosses the budget at:
+          break_even = (cap - ((steady - budget) / body)).floor
+          next unless break_even.between?(0, cap - 1)
+
+          { list: name, break_even: break_even, cap: cap, budget: budget, steady: steady }
+        end
+      end
+
+      # The reachable repeat loops whose trip count is a list's length — so their
+      # cost grows with a runtime count the list's capacity bounds.
+      def capacity_bounded_loops(program)
+        program.walk.select do |node|
+          next false unless node.kind == :repeat
+
+          count = node[:count]
+          count.is_a?(Node) && count.kind == :list_len && @capacities[count[:name]]
+        end
+      end
+
       # Per-scene render verdicts, for a game that switches modes between scenes.
       # Each scene the loop dispatches to gets its own steady per-frame cost judged
       # against its own mode's budget — so a heavy direct-color scene is caught even
