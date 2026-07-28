@@ -15,14 +15,44 @@ require_relative "preview"
 #
 #   ruby tools/make_example_assets.rb
 #
-# It writes two sheets under examples/assets/:
+# It writes two sheets and a level map under examples/assets/:
 #   - tiles.png  — a 2-cell tile sheet: an 8x8 brick, then an 8x8 floor.
 #   - hero.png   — a 4-frame sprite sheet: 16x16 walk frames on a see-through
 #                  (alpha) background, so the imported sprite is a cut-out.
+#   - level.csv  — a tilemap the way a map editor (like Tiled) exports one: a grid
+#                  of tile numbers (1 = brick from the sheet, 2 = floor, 0 = empty),
+#                  imported by examples/level.rb via `background from:`.
 module MakeExampleAssets
   Color = RubyGBA::Color
 
   ASSETS = File.expand_path("../examples/assets", __dir__)
+
+  # The room examples/level.rb draws, authored here as ASCII (a wall border around
+  # open floor, with a few pillars) and written out as a CSV of tile numbers. It's the
+  # same 30x20 room shape as examples/sheet.rb — the point of the pair is that the map
+  # can be an inline text grid OR a file exported from an editor.
+  LEVEL = [
+    "##############################",
+    "#............................#",
+    "#............................#",
+    "#......####........####......#",
+    "#......####........####......#",
+    "#............................#",
+    "#............................#",
+    "#............................#",
+    "#............####............#",
+    "#............####............#",
+    "#............####............#",
+    "#............................#",
+    "#............................#",
+    "#......####........####......#",
+    "#......####........####......#",
+    "#............................#",
+    "#............................#",
+    "#............................#",
+    "#............................#",
+    "##############################",
+  ].freeze
 
   # --- palette (5-bit-per-channel console colors) ---
   BRICK   = Color.rgb(24, 6, 4)    # a warm red brick body
@@ -39,7 +69,17 @@ module MakeExampleAssets
     Dir.mkdir(ASSETS) unless Dir.exist?(ASSETS)
     File.binwrite(File.join(ASSETS, "tiles.png"), tiles_png)
     File.binwrite(File.join(ASSETS, "hero.png"), hero_png)
-    puts "wrote #{ASSETS}/tiles.png and hero.png"
+    File.write(File.join(ASSETS, "level.csv"), level_csv)
+    puts "wrote #{ASSETS}/tiles.png, hero.png and level.csv"
+  end
+
+  # The LEVEL room as a CSV tilemap: each character becomes a tile number — "#" the
+  # brick (tile 1 of tiles.png), "." the floor (tile 2). This is the shape a map
+  # editor writes when you export a layer, so examples/level.rb can import it as-is.
+  def level_csv
+    LEVEL.map do |row|
+      row.each_char.map { |ch| ch == "#" ? 1 : 2 }.join(",")
+    end.join("\n") << "\n"
   end
 
   # A 16x8 sheet: brick tile in cells 0, floor tile in cell 1 (each 8x8). Opaque,

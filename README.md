@@ -136,7 +136,6 @@ This entire tool is AI-written, and the workflow is designed so an agent can ite
 
 - **Tight, mechanical feedback loops.** The Ruby interpreter renders the IR headlessly (no emulator needed), a pixel Verifier reads back actual frames, guardrails give plain-language pass/fail at build time, and `rom.explain` emits a machine-readable cost tree an agent can reason over. An agent can build → validate → run → diff → explain without leaving Ruby.
 - **Mechanical safety rails.** An IR verifier enforces the value model on every build (a malformed tree is a *library* bug, raised loudly); the conformance fixture diffs backends so a change can't silently break one target.
-- **Persistent, cross-session memory.** Work is tracked in [**beads**](https://github.com/gastownhall/beads) (`bd`) — a dependency-aware issue graph living in the repo — so an agent can recover context, see what's ready, and pick up mid-stream across sessions. Agent guidance lives in `CLAUDE.md` / `AGENTS.md`.
 
 ---
 
@@ -153,25 +152,29 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Value-centric expression DSL — `.then`/`.else`, `&`/`|`, integer division
 - [x] Control flow — `func`/`call`, `scene`/`case_var`, `game_loop`, `repeat`
 - [x] Input — D-pad + buttons (`held` / `pressed`)
-- [x] Sound — two PSG channels (music + SFX): `song`, `beep`, `define_sound`
+- [x] Double-buffering — tear-free Mode 4 page-flip (`screen :bitmap, tear_free: true`) + auto-managed palette
+- [x] Hardware sprites / OAM — poses (`facing:`), flipbook animation (`frames:` / `rate:`), stacking, sprite/tile collision
+- [x] Tiled backgrounds (Mode 0) — text or CSV maps, scrolling, stacked parallax layers
+- [x] Sound — four PSG channels (music, SFX, noise, wave) + multi-voice songs (`song`/`voice`, `beep`, `noise`, `wave`)
 - [x] Deterministic randomness — `seed` / `roll` / `rand` / `chance` / `randomize`
 - [x] Timing + motion — `every` / `after`, `approach`
 - [x] Runtime collection — `list`
-- [x] Guardrails (extensible registry) + build-time validation
+- [x] Asset pipeline — PNG → tiles / sprites / animation frames, and CSV tilemaps → backgrounds
+- [x] Fonts — built-in + register your own (`font` from glyph art)
+- [x] Guardrails (extensible registry) + build-time validation, findings traced to the DSL line
 - [x] Cost estimator + `rom.explain`
 - [x] IR + two backends (GBA lowering, Ruby interpreter) with a conformance fixture + portability tagging
 
 **Planned**
 
-- [ ] Double-buffering (Mode 4/5 page-flip) + auto-managed palette
-- [ ] Hardware sprites / OAM
-- [ ] Tiled backgrounds & scrolling (Mode 0/1)
 - [ ] VBlank-IRQ frame timing (retire the busy-wait)
-- [ ] Sound completeness — 4 PSG channels + sampled PCM (Direct Sound)
-- [ ] Asset pipeline — PNG → tiles / sprites / palette
+- [ ] Sampled PCM audio (Direct Sound / DMA sound)
+- [ ] Affine transforms — rotation & scaling for sprites and backgrounds (Mode 7-style)
+- [ ] Tiled TMX import + larger streamed maps (beyond one 32×32 screenblock)
+- [ ] Opt-in guardrail auto-fix (`--auto-fix`)
 - [ ] Screen effects — fade / shake / flash (camera + brightness primitives)
 - [ ] More motion verbs — lerp / wrap / bounce / snap
-- [ ] Plugin registries — register your own effect verbs and fonts
+- [ ] Plugin registries — register your own effect verbs
 - [ ] Target-neutral draw layer (decouple draw intent from the framebuffer)
 - [ ] Save / load persistence (SRAM / flash)
 - [ ] CLI — `ruby-gba build` / `preview` / `doctor`
@@ -202,6 +205,7 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | [`parallax.rb`](examples/parallax.rb) | Two background layers (far clouds, near trees) scrolling at different speeds to fake depth | Stacked tiled layers, composited + independently scrolled |
 | [`maze.rb`](examples/maze.rb) | A hero that walks corridors and is stopped by the walls (`tiles solid:`, `sprite.blocked_by`) | Tiled room + a hardware sprite with tile collision |
 | [`sheet.rb`](examples/sheet.rb) | Art imported from PNG files: a tile sheet paints the room, a transparent sprite sheet animates the hero (`tiles from:` / `sprite frames_from:`) | Tiled room + a hardware sprite, both imported from images |
+| [`level.rb`](examples/level.rb) | A level designed in a map editor: import the whole tile sheet as numbered tiles, then read the room straight from a CSV export (`tiles from:` / `background from:`) | Tiled room from a CSV tilemap + a hardware sprite |
 | [`jukebox.rb`](examples/jukebox.rb) | The sound showcase: three classical tunes written as plain notes (`song` / `note`) — Ode to Joy played two-handed with a `voice :melody` over a `voice :bass` — a cursor that picks one to play and loop, and bobbing "now playing" bars | Tear-free (double-buffered) bitmap menu |
 
 Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static
@@ -257,4 +261,4 @@ assets/                      # captured GIFs / screenshots
 
 ## Status
 
-Pre-1.0 and moving fast. Core bitmap games work end-to-end (see `examples/`); sprites, tiled modes, and the alternate backends are in progress. Building ROMs is **pure Ruby, no C extensions** — the optional pixel-level Verifier uses the `gemba` (mGBA) gem for emulator-backed tests, and integration tests skip gracefully without it.
+Pre-1.0 and moving fast. Full games work end-to-end on both bitmap and tiled screens — sprites, scrolling backgrounds, four-channel sound, and the asset pipeline are all in (see `examples/`); sampled audio, affine transforms, and the alternate backends are the next frontier. Building ROMs is **pure Ruby, no C extensions** — the optional pixel-level Verifier uses the `gemba` (mGBA) gem for emulator-backed tests, and integration tests skip gracefully without it.
