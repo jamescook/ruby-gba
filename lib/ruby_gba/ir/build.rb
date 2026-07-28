@@ -311,6 +311,19 @@ module RubyGBA
         Node.new(:blit_pose, poses: poses, index: wrap(index), x: wrap(x), y: wrap(y))
       end
 
+      # A run-time test: do the visible (non-transparent) pixels of two posed things
+      # actually overlap? Each side is its set of same-size +poses+ (image names), the
+      # +pose+ index it's showing now, and the +x+/+y+ where it sits. Yields 1 when a
+      # solid pixel of one lands on a solid pixel of the other, else 0 — the
+      # shape-accurate, animation-aware core of sprite collision (a cheap box overlap
+      # gates it, so this only runs for things already close). A backend reads each
+      # side's own picture to know which pixels are solid, so both agree on the shape.
+      def pixels_overlap(a_poses:, a_pose:, a_x:, a_y:, b_poses:, b_pose:, b_x:, b_y:)
+        Node.new(:pixels_overlap,
+                 a_poses: a_poses, a_pose: wrap(a_pose), a_x: wrap(a_x), a_y: wrap(a_y),
+                 b_poses: b_poses, b_pose: wrap(b_pose), b_x: wrap(b_x), b_y: wrap(b_y))
+      end
+
       # A tiled background: a whole grid drawn from a small set of reusable tiles.
       # +tiles+ is an ordered list of defined image names (the distinct tiles);
       # +map+ is the grid — an array of rows, each an array of indices into +tiles+

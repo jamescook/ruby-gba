@@ -101,6 +101,10 @@ module RubyGBA
         # scroll. Estimated, same scanline unit.
         obj_write:   0.086,   # rewrite one hardware sprite's position each frame (a few IO writes)
         scroll_write: 0.057,  # move a background: its two scroll-register writes
+        # Per-pixel collision: one cell of the overlap rectangle — the index math plus
+        # the two mask loads-and-compares, roughly twenty data steps. Priced per pixel,
+        # times the worst-case overlap area, so a big shape-accurate hit shows its cost.
+        overlap_pixel: 0.044,
       }.freeze
 
       def initialize(**weights)
@@ -561,7 +565,11 @@ module RubyGBA
       def build(node)
         case node.kind
         when :program, :loop then node.children.flat_map { |child| build(child) }
-        when :if then (node.children + [node[:else]].compact).flat_map { |child| build(child) }
+        when :if
+          # The test itself runs every frame, whichever way it branches, so its cost is
+          # real per-frame work and shown as its own leaf — a per-pixel collision test
+          # especially is not free. Then the branches.
+          condition_leaf(node[:cond]) + (node.children + [node[:else]].compact).flat_map { |child| build(child) }
         when :else then node.children.flat_map { |child| build(child) }
         when :case then [build_case(node)]
         when :call then [build_call(node)]
@@ -571,6 +579,18 @@ module RubyGBA
         when :func then [] # a definition: it costs only where it's called
         else build_leaf(node)
         end
+      end
+
+      # A branch test as a cost leaf — the work of evaluating an `if`'s condition every
+      # frame. Only shown when it isn't free (a comparison and up cost something; a bare
+      # variable read doesn't). A collision (`overlaps?`) reads as "collision test", since
+      # its per-pixel half is the expensive part; anything else reads as "test".
+      def condition_leaf(cond)
+        c = expr_cost(cond)
+        return [] unless c.positive?
+
+        label = cond && cond.walk.any? { |n| n.kind == :pixels_overlap } ? "collision test" : "test"
+        [{ op: :cond, label: label, cost: c, children: [] }]
       end
 
       # A drawing op becomes a leaf; anything else costs nothing and is dropped.
@@ -688,8 +708,26 @@ module RubyGBA
         when :binop then op_weight(value[:op]) + expr_cost(value[:lhs]) + expr_cost(value[:rhs])
         when :neg then @weights[:op_step] + expr_cost(value[:operand])
         when :chance then @weights[:op_step] # a random draw and a compare
+        when :pixels_overlap then pixels_overlap_cost(value)
         else 0 # int / var_ref / held / pressed / read_scanline — a load, effectively free
         end
+      end
+
+      # The worst-case cost of a per-pixel collision test: walking the whole overlap
+      # rectangle. That rectangle can be no wider than the narrower sprite and no taller
+      # than the shorter one, so its worst case is min(widths) x min(heights) cells,
+      # each priced at one overlap_pixel. (The cheap box gate around it is priced as the
+      # ordinary comparisons it lowers to.)
+      def pixels_overlap_cost(node)
+        aw, ah = mask_dims(node[:a_poses])
+        bw, bh = mask_dims(node[:b_poses])
+        [aw, bw].min * [ah, bh].min * @weights[:overlap_pixel]
+      end
+
+      # A sprite's pixel dimensions from its (same-size) poses, or [0, 0] if unknown.
+      def mask_dims(poses)
+        dims = @bitmaps && @bitmaps[poses.first]
+        dims ? [dims[0], dims[1]] : [0, 0]
       end
 
       # An operator's weight: multiply and divide are their own (pricier) tiers;

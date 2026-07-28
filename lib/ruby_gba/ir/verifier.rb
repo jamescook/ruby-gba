@@ -154,6 +154,10 @@ module RubyGBA
         pressed: { button: :option },
         chance:  { draw: :value, percent: :int }, # draw is the 0..99 value; percent an author-time bound
         read_scanline: {}, # the current scanline (VCOUNT) — a hardware-only value read, no operands
+        # do two posed sprites' solid pixels overlap? each side: its poses (image names),
+        # the run-time pose index, and where it sits (value operands)
+        pixels_overlap: { a_poses: :list, a_pose: :value, a_x: :value, a_y: :value,
+                          b_poses: :list, b_pose: :value, b_x: :value, b_y: :value },
       }.freeze
 
       # Verify a whole program tree. Returns the node on success; raises

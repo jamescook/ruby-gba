@@ -39,7 +39,8 @@ module RubyGBA
   # stably STACKED — held one on top of the other with a set priority; that's the
   # hardware-sprite feature. Passing, touching, and colliding are fine.
   class Sprite
-    include Bounds # gains overlaps? from left / top / right / bottom (its collision box)
+    include Bounds       # gains overlaps? from left / top / right / bottom (its collision box)
+    include PixelBounds  # ...and makes that overlaps? shape-accurate (per-pixel) by default
 
     Build = IR::Build
 
@@ -57,11 +58,14 @@ module RubyGBA
     # @param buffer [Symbol] the backing store holding the pixels under the sprite
     # @param hitbox [Array(Integer,Integer,Integer,Integer)] the collision box [x, y, w, h]
     #   relative to the sprite's top-left (by default the box around its visible pixels)
-    def initialize(builder, x:, y:, old_x:, old_y:, active:, buffer:, hitbox:,
+    # @param pixel_perfect [Boolean] collide on the drawn pixels (true) or just the box (false,
+    #   set when the sprite was given an explicit hitbox:)
+    def initialize(builder, x:, y:, old_x:, old_y:, active:, buffer:, hitbox:, pixel_perfect: true,
                    image: nil, poses: nil, facing_var: nil, facing_dirs: nil)
       @builder = builder
       @image = image             # a plain sprite draws this one image
       @poses = poses             # a faceted sprite draws poses[facing_var] instead
+      @pixel_perfect = pixel_perfect
       @facing_var = facing_var   # the variable holding which pose is showing
       @facing_dirs = facing_dirs # direction -> pose index, for face / auto-facing move
       @x_var = x
@@ -72,6 +76,14 @@ module RubyGBA
       @buffer = buffer
       @hit_x, @hit_y, @hit_w, @hit_h = hitbox # collision box, offset from the sprite's top-left
     end
+
+    # What per-pixel collision (see {PixelBounds}) reads off this sprite: the build to
+    # record into, its picture set, the pose it's showing now, and whether it collides
+    # on its drawn pixels at all.
+    def pixel_perfect? = @pixel_perfect
+    def collision_builder = @builder
+    def collision_poses = @poses || [@image]
+    def collision_pose = @facing_var ? Build.var_ref(@facing_var) : Build.int(0)
 
     # The sprite's position, as {Value} handles — steer them with the expression
     # DSL (`hero.x.add 2`, `hero.y.clamp 0, 150`). The framework reads them each

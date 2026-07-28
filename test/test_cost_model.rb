@@ -49,6 +49,28 @@ class TestCostModel < Minitest::Test
     b.program
   end
 
+  # Per-pixel collision is priced, never a silent zero, and it scales with the work —
+  # the overlap rectangle it walks. The SAME game with 8x8 sprites vs 4x4 sprites differs
+  # only in that area (the box gate and the sprite upkeep are identical), so the frame
+  # cost delta is exactly the extra overlap pixels, each one an overlap_pixel.
+  def overlap_game(size)
+    program do
+      screen :tiled
+      image(:blk, "#" => :red) { (["#" * size] * size).join("\n") }
+      a = sprite :blk, at: [10, 10]
+      b = sprite :blk, at: [40, 40]
+      game_loop do
+        wait_vblank
+        a.overlaps?(b).then { set :touch, 1 }
+      end
+    end
+  end
+
+  def test_per_pixel_collision_is_priced_by_overlap_area
+    delta = Cost.new.frame_cost(overlap_game(8)) - Cost.new.frame_cost(overlap_game(4))
+    near(((8 * 8) - (4 * 4)) * WEIGHTS[:overlap_pixel], delta)
+  end
+
   # A game loop that clears the whole screen +n+ times a frame, single- or
   # double-buffered. Built straight from the IR so it can flip the buffered flag the
   # DSL doesn't expose yet.
