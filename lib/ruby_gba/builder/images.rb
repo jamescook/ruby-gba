@@ -50,55 +50,14 @@ module RubyGBA
         if block
           define_ascii_image(name, opts, &block)
         elsif opts[:from]
-          bmp = Image.load(opts[:from], width: opts[:width], height: opts[:height],
-                                        transparent: opts.fetch(:transparent, false))
+          bmp = Image.load(resolve_asset_path(opts[:from]), width: opts[:width], height: opts[:height],
+                                                            transparent: opts.fetch(:transparent, false))
           define_pixel_image(name, width: bmp.width, height: bmp.height, data: bmp.data,
                                    transparent: bmp.transparent)
         else
           define_pixel_image(name, width: opts[:width], height: opts[:height], data: opts[:data],
                                    transparent: opts[:transparent])
         end
-      end
-
-      # Import several images at once from a sheet — one PNG holding a grid of
-      # equal-size pictures, the way art is usually drawn: a tile sheet, or a
-      # sprite sheet of animation frames. You give the cell size and a name for
-      # each cell you want; each becomes an ordinary `image`, so it drops straight
-      # into `tiles`, `sprite`, or `blit` with no other change — an imported tile
-      # and a hand-drawn one are interchangeable at the use site.
-      #
-      #   sheet "dungeon.png", tile: 8, as: { brick: [0, 0], floor: [1, 0], water: [2, 0] }
-      #   tiles :dungeon, "#" => :brick, "." => :floor, solid: ["#"]
-      #   background :room, tiles: :dungeon, map: MAP
-      #
-      # A cell is addressed by [column, row] (both from zero, left-to-right then
-      # top-to-bottom) — or by a single number counting the same way, handy for a
-      # one-row strip of animation frames:
-      #
-      #   sheet "hero.png", tile: 16, as: { stand: 0, step1: 1, step2: 2 }, transparent: true
-      #   hero = sprite :hero, at: [x, y], frames: [:step1, :step2], rate: 8
-      #
-      # +transparent: true+ honors the sheet's cut-out background (for sprites that
-      # shouldn't draw a box around themselves); leave it off for solid tiles.
-      #
-      # @param path [String] a sheet image on your machine (PNG, …)
-      # @param tile [Integer, Array(Integer, Integer)] cell size — one number for a
-      #   square, or [width, height]
-      # @param as [Hash{Symbol=>Array(Integer,Integer), Integer}] image name => cell
-      # @param transparent [Boolean] honor the sheet's transparency for cut-out cells
-      # @return [Array<Symbol>] the names of the images it defined
-      def sheet(path, tile:, as:, transparent: false)
-        tile_w, tile_h = normalize_tile(tile)
-        raise ArgumentError, "sheet #{path.inspect} needs at least one cell in as: { name => cell }" if as.empty?
-
-        sliced = Image.slice(path, tile_w: tile_w, tile_h: tile_h, transparent: transparent)
-        as.each do |img_name, where|
-          col, row = sheet_cell(img_name, where, sliced.cols)
-          bmp = sliced.cell(col, row)
-          define_pixel_image(img_name, width: bmp.width, height: bmp.height, data: bmp.data,
-                                       transparent: bmp.transparent)
-        end
-        as.keys
       end
 
       # Draw a bitmap (defined with `image`) at a position, which may be a variable
@@ -167,19 +126,38 @@ module RubyGBA
       #
       #   spin = sprite :coin, at: [x, y], frames: [:coin1, :coin2, :coin3, :coin4], rate: 6
       #
-      # +facing:+ and +frames:+ are two ways to drive the same pose, so a sprite takes
-      # one or the other, not both.
+      # Or skip drawing the frames by hand and IMPORT them from a sprite sheet — one
+      # image file holding the frames in a row (or grid). +frames_from:+ names the
+      # file and +tile:+ the size of each frame; every cell becomes a frame, in order,
+      # so there's nothing to name or number:
+      #
+      #   run = sprite :hero, at: [x, y], frames_from: "hero.png", tile: 16, rate: 8, transparent: true
+      #
+      # +transparent: true+ honors the sheet's cut-out background so only the figure
+      # draws, not a box around it. The file is found next to your script.
+      #
+      # +facing:+, +frames:+, and +frames_from:+ all supply the sprite's pictures, so
+      # a sprite takes exactly one of them.
       #
       # @param name [Symbol] a defined image (its size becomes the sprite's size), or
-      #   just the sprite's identity when +facing:+ / +frames:+ supply the images
+      #   just the sprite's identity when the poses come from +facing:+/+frames:+/+frames_from:+
       # @param at [Array(Integer, Integer)] the sprite's starting [x, y]
       # @param facing [Hash{Symbol=>Symbol}, nil] direction => image, for a sprite that turns
       # @param frames [Array<Symbol>, nil] same-size images to cycle as an animation
-      # @param rate [Integer, nil] frames-per-step for +frames:+ (required with it)
+      # @param frames_from [String, nil] a sprite-sheet image file to slice into frames
+      # @param tile [Integer, Array(Integer, Integer), nil] frame size for +frames_from:+
+      # @param transparent [Boolean] honor the sheet's transparency (for +frames_from:+)
+      # @param rate [Integer, nil] frames-per-step for +frames:+/+frames_from:+ (required with them)
       # @param shown [Boolean] draw it now (true, default), or start hidden until `show`
       # @return [Sprite, HardwareSprite] a handle: x / y / move / move_to (and, in bitmap mode, face / hide / show)
-      def sprite(name, at:, facing: nil, frames: nil, rate: nil, shown: true)
-        validate_animation!(name, facing, frames, rate)
+      def sprite(name, at:, facing: nil, frames: nil, frames_from: nil, tile: nil, transparent: false,
+                 rate: nil, shown: true)
+        if frames_from
+          raise ArgumentError, "sprite :#{name} takes frames: OR frames_from:, not both — both supply the frames" if frames
+
+          frames = import_frames(name, frames_from, tile, transparent)
+        end
+        validate_animation!(name, facing, frames, rate, frames_from: frames_from)
         return hardware_sprite(name, at: at, facing: facing, frames: frames, rate: rate, shown: shown) \
           if @screen_mode == :tiled
 
@@ -320,26 +298,42 @@ module RubyGBA
         [images, *sizes.first]
       end
 
-      # Guard the animation options up front: facing: and frames: are two ways to drive
-      # the same pose (so not both), an animation needs at least two frames to cycle,
-      # and it needs a positive rate (frames-per-step). Friendly errors, not silence.
-      def validate_animation!(name, facing, frames, rate)
+      # Guard the animation options up front: a sprite's pose comes from exactly one
+      # of facing:/frames:/frames_from: (so not two at once), an animation needs at
+      # least two frames to cycle, and it needs a positive rate (frames-per-step).
+      # Friendly errors, not silence. By here frames_from: has already become frames.
+      def validate_animation!(name, facing, frames, rate, frames_from: nil)
         if facing && frames
+          drove = frames_from ? "frames_from:" : "frames:"
           raise ArgumentError,
-                "sprite :#{name} takes facing: OR frames:, not both — they both drive the sprite's pose"
+                "sprite :#{name} takes facing: OR #{drove}, not both — they both drive the sprite's pose"
         end
         return unless frames
 
+        source = frames_from ? "frames_from: needs a sheet of at least two frames" : "frames: needs a list of at least two images to cycle, e.g. frames: [:step1, :step2]"
         unless frames.is_a?(Array) && frames.length >= 2
-          raise ArgumentError,
-                "sprite :#{name} frames: needs a list of at least two images to cycle, " \
-                "e.g. frames: [:step1, :step2]"
+          raise ArgumentError, "sprite :#{name} #{source}"
         end
         return if rate.is_a?(Integer) && rate.positive?
 
         raise ArgumentError,
-              "sprite :#{name} frames: needs a positive rate: (how many frames each picture is shown), " \
-              "got #{rate.inspect}"
+              "sprite :#{name} needs a positive rate: (how many frames each picture is shown), got #{rate.inspect}"
+      end
+
+      # Import a sprite sheet into animation frames: slice the file into cells of the
+      # given size and define each as an image, in row-major order. Returns the list
+      # of frame image names, ready for the flipbook path — so `frames_from:` needs no
+      # naming or numbering, just "cut it up and cycle the pieces."
+      def import_frames(name, path, tile, transparent)
+        tile_w, tile_h = sheet_tile_size("sprite :#{name}", tile)
+        sheet = Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
+        (0...(sheet.cols * sheet.rows)).map do |i|
+          bmp = sheet.cell(i % sheet.cols, i / sheet.cols)
+          frame = :"__frame_#{name}_#{i}"
+          define_pixel_image(frame, width: bmp.width, height: bmp.height, data: bmp.data,
+                                    transparent: bmp.transparent)
+          frame
+        end
       end
 
       # Register a flipbook so Builder#wait_vblank advances it every frame: a hidden
@@ -350,30 +344,6 @@ module RubyGBA
         at_boot(Build.set(tick, Build.int(0)))
         ensure_var(tick)
         @animations << { pose: pose_var, tick: tick, rate: rate, frames: frame_count }
-      end
-
-      # A sheet's cell size: one number means a square cell, [w, h] a rectangle.
-      def normalize_tile(tile)
-        case tile
-        when Integer then [tile, tile]
-        when Array then tile
-        else raise ArgumentError, "sheet tile: must be a number (square) or [width, height], got #{tile.inspect}"
-        end
-      end
-
-      # Where a named cell sits in the sheet grid: [column, row], or a single number
-      # counting cells left-to-right then top-to-bottom. +img_name+ only names the
-      # cell in any error.
-      def sheet_cell(img_name, where, cols)
-        case where
-        when Array
-          where
-        when Integer
-          [where % cols, where / cols]
-        else
-          raise ArgumentError,
-                "sheet cell for :#{img_name} must be [column, row] or a cell number, got #{where.inspect}"
-        end
       end
 
       # Array form of #image: validate the dimensions and pack the pixel colors.

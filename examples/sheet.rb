@@ -4,19 +4,18 @@
 # Sheet — bring your art in from PNG files instead of typing it out.
 #
 # Small pictures are lovely to draw right in the code (see maze.rb's ASCII tiles),
-# but real games keep their art in image files drawn in a proper tool. `sheet` pulls
-# many pictures out of ONE image at once — a tile sheet, or a sprite sheet of
-# animation frames — and names each cell. Every named cell becomes an ordinary
-# image, so it drops straight into `tiles`, `sprite`, or `blit`: an imported tile
-# and a hand-drawn one are the same thing at the point you use them.
+# but real games keep their art in image files drawn in a proper tool. You import
+# right where you use the art, with no in-between step:
 #
-#   sheet TILES, tile: 8,  as: { brick: [0, 0], floor: [1, 0] }
-#   sheet HERO,  tile: 16, as: { walk1: 0, walk2: 1, walk3: 2, walk4: 3 }, transparent: true
+#   tiles :dungeon, from: "tiles.png", tile: 8, "#" => 0, "." => 1   # the map-character IS the tile
+#   sprite :hero, at: [x, y], frames_from: "hero.png", tile: 16, rate: 8, transparent: true
 #
-# The two PNGs live next to this file in assets/ (regenerate them with
-# tools/make_example_assets.rb). The tile sheet paints the room; the sprite sheet's
-# four frames animate the hero as it walks. Nothing here mentions palettes, VRAM, or
-# how the console stores color — importing handles all of that.
+# `tiles from:` cuts the tile sheet into 8x8 tiles and lets each map character point
+# at one (a cell number, counting left-to-right). `sprite frames_from:` cuts the
+# sprite sheet into 16x16 frames and cycles them as a walk animation — nothing to
+# name or number. Image paths are found next to this script (the two PNGs live in
+# assets/, drawn by tools/make_example_assets.rb). Nothing here mentions palettes,
+# VRAM, or how the console stores color — importing handles all of that.
 #
 # Run it to build examples/sheet.gba:
 #   ruby examples/sheet.rb
@@ -26,9 +25,9 @@ require_relative "../lib/ruby_gba"
 module Sheet
   SPEED = 2
 
-  # The art files, imported at build time.
-  TILES = File.join(__dir__, "assets", "tiles.png") # a 2-cell tile sheet (brick, floor)
-  HERO  = File.join(__dir__, "assets", "hero.png")  # a 4-frame walk-cycle sprite sheet
+  # The art files, imported at build time — found next to this script.
+  TILES = "assets/tiles.png" # a 2-cell tile sheet (brick, then floor)
+  HERO  = "assets/hero.png"  # a 4-frame walk-cycle sprite sheet
 
   # A 30x20-tile room (the whole 240x160 screen): a wall border around open floor
   # with a few pillars. "#" is a wall, "." is floor.
@@ -58,20 +57,15 @@ module Sheet
   GAME = proc do
     screen :tiled # tile mode: a background room + a hardware sprite over it
 
-    # Import the tile sheet: cell [0,0] is the brick, cell [1,0] the floor. Each cell
-    # becomes an image, exactly as if it had been drawn inline.
-    sheet TILES, tile: 8, as: { brick: [0, 0], floor: [1, 0] }
-    tiles :dungeon, "#" => :brick, "." => :floor, solid: ["#"]
+    # Import the tile sheet straight into the tileset: "#" is its first tile (the
+    # brick), "." its second (the floor). solid: makes the brick a wall.
+    tiles :dungeon, from: TILES, tile: 8, "#" => 0, "." => 1, solid: ["#"]
     room = background :room, tiles: :dungeon, map: ROOM
 
-    # Import the sprite sheet: four 16x16 walk frames, addressed by their cell number
-    # (0..3, left to right). transparent: true honors the cut-out background so only
-    # the figure draws, not a box around it.
-    sheet HERO, tile: 16, as: { walk1: 0, walk2: 1, walk3: 2, walk4: 3 }, transparent: true
-
-    # frames: cycles those four pictures into a walk animation (one every 8 frames);
-    # blocked_by keeps the hero out of the walls.
-    hero = sprite :hero, at: [16, 16], frames: %i[walk1 walk2 walk3 walk4], rate: 8
+    # Import the sprite sheet's four 16x16 frames and cycle them into a walk animation
+    # (one every 8 frames). transparent: true honors the cut-out background so only
+    # the figure draws, not a box; blocked_by keeps the hero out of the walls.
+    hero = sprite :hero, at: [16, 16], frames_from: HERO, tile: 16, rate: 8, transparent: true
     hero.blocked_by room
 
     game_loop do
