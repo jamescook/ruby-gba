@@ -30,7 +30,8 @@ module RubyGBA
               bounds = constant_bounds(node, bitmaps)
               next unless bounds && entirely_off_screen?(*bounds)
 
-              Finding.new(check: NAME, severity: :warning, message: message(node, bounds), fix: nil)
+              Finding.new(check: NAME, severity: :warning, message: message(node, bounds),
+                          fix: nil, source: node.source)
             end
           end
 

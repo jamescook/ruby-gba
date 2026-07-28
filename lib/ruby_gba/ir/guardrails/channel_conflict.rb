@@ -26,7 +26,8 @@ module RubyGBA
             layered = played.select { |name| (song = songs[name]) && song[:voices].length >= 2 }
 
             layered.map do |name|
-              Finding.new(check: NAME, severity: :warning, message: message(name), fix: nil)
+              Finding.new(check: NAME, severity: :warning, message: message(name),
+                          fix: nil, source: songs[name].source)
             end
           end
 

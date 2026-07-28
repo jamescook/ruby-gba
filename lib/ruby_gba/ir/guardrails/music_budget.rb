@@ -25,7 +25,7 @@ module RubyGBA
             return [] unless model.looping?(program)
 
             model.song_verdicts(program).select { |song| song[:over] }.map do |song|
-              Finding.new(check: NAME, severity: :warning, message: message(song), fix: nil)
+              Finding.new(check: NAME, severity: :warning, message: message(song), fix: nil, source: song[:source])
             end
           end
 
