@@ -138,6 +138,64 @@ module RubyGBA
         end
       end
 
+      # Fold runs of an identical repeated *block* of siblings into one group shown
+      # once, with a "×N". Where #aggregate tames a run of the same single op (10
+      # glyphs), this tames a repeated multi-op pattern — the wall of identical
+      # "set, add, sub, negate, beep" groups an unrolled per-thing check (a brick
+      # grid's collision) turns into. The group carries the whole run's rolled-up
+      # cost; its children show the block once. Recurses into children first.
+      def collapse_repeats(nodes)
+        folded = nodes.map do |node|
+          node[:children].to_a.empty? ? node : node.merge(children: collapse_repeats(node[:children]))
+        end
+
+        out = []
+        i = 0
+        while i < folded.length
+          period, count = longest_repeat(folded, i)
+          if count >= 2
+            run = folded[i, period * count]
+            out << { op: :group, label: "(repeated ×#{count})",
+                     cost: run.sum { |node| node[:cost] }, count: count, children: folded[i, period] }
+            i += period * count
+          else
+            out << folded[i]
+            i += 1
+          end
+        end
+        out
+      end
+
+      # Starting at +i+, the adjacent block-repeat that folds the most nodes: the
+      # [period, count] maximizing period*count with at least two repeats (so the
+      # smallest repeating unit wins a tie). [1, 1] means nothing repeats.
+      def longest_repeat(nodes, i)
+        best = [1, 1]
+        ((nodes.length - i) / 2).downto(2) do |period|
+          count = repeat_run(nodes, i, period)
+          best = [period, count] if count >= 2 && (period * count) >= (best[0] * best[1])
+        end
+        best
+      end
+
+      # How many times the +period+-long block at +i+ repeats back to back.
+      def repeat_run(nodes, i, period)
+        first = nodes[i, period].map { |node| signature(node) }
+        count = 1
+        j = i + period
+        while j + period <= nodes.length && nodes[j, period].map { |node| signature(node) } == first
+          count += 1
+          j += period
+        end
+        count
+      end
+
+      # A structural fingerprint: two nodes match when their op, label, size, and
+      # children all match — so only truly identical blocks fold together.
+      def signature(node)
+        [node[:op], node[:label], node[:w], node[:h], node[:children].to_a.map { |child| signature(child) }]
+      end
+
       # Collapse subtrees deeper than +max_depth+ into a leaf that remembers how many
       # ops it hid — the depth limit that keeps a big program's tree readable.
       def prune(nodes, max_depth, depth = 0)
@@ -271,7 +329,7 @@ module RubyGBA
         else
           verdict_lines(program, out)
         end
-        render_tree(prune(tree, max_depth), 1, out)
+        render_tree(collapse_repeats(prune(tree, max_depth)), 1, out)
         hot = hot_ops(tree, top)
         out.puts "  hottest: " + hot.map { |h| "#{h[:op]}×#{h[:count]} ~#{fmt(h[:cost])}" }.join("  ") unless hot.empty?
         glyph_footprint_lines(program, out)
