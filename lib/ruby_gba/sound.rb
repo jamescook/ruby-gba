@@ -84,6 +84,33 @@ module RubyGBA
       }
     end
 
+    # The wave voice (channel 3) plays a short looping waveform — a wavetable — so
+    # it can make richer, non-square timbres than the two square channels. A shape
+    # name resolves to 32 four-bit samples (0-15); the same table both backends use,
+    # so they agree on the timbre. WAVE_SAMPLES is the table size the hardware loops.
+    WAVE_SAMPLES = 32
+
+    # Built-in wave shapes, each a plain 0..15 sample table. A game says
+    # `wave :triangle, :C4` and gets that timbre; the samples are the framework's job.
+    def self.wavetable(shape)
+      case shape
+      when :square
+        Array.new(WAVE_SAMPLES) { |i| i < WAVE_SAMPLES / 2 ? 15 : 0 }
+      when :sawtooth
+        Array.new(WAVE_SAMPLES) { |i| (i * 15.0 / (WAVE_SAMPLES - 1)).round }
+      when :triangle
+        Array.new(WAVE_SAMPLES) do |i|
+          up = i < WAVE_SAMPLES / 2
+          pos = up ? i : (WAVE_SAMPLES - 1 - i)
+          (pos * 15.0 / (WAVE_SAMPLES / 2 - 1)).round.clamp(0, 15)
+        end
+      when :sine
+        Array.new(WAVE_SAMPLES) { |i| (7.5 + 7.5 * Math.sin(2 * Math::PI * i / WAVE_SAMPLES)).round.clamp(0, 15) }
+      else
+        raise ArgumentError, "unknown wave shape #{shape.inspect} — built-in: :sine, :triangle, :sawtooth, :square"
+      end
+    end
+
     # The console-specific half: encode musical values into sound-register writes.
     # Each method returns a list of [register_address, 16-bit value] pairs in the
     # order they must be written; a backend just stores each one.
@@ -200,6 +227,61 @@ module RubyGBA
         control = (volume << 12) | (decay_step(decay) << 8)  # fades out (envelope counts down)
         trigger = 0x8000 | (shift << 4) | (metallic ? 0x0008 : 0x0000)
         [[REG_SOUND4CNT_L, control], [REG_SOUND4CNT_H, trigger]]
+      end
+
+      # Channel 3's output levels — it has no envelope like the other channels,
+      # just a fixed volume: full, three-quarter, half, quarter, or silent.
+      WAVE_VOLUMES = {
+        mute:          0x0000,
+        full:          0x2000, # bits 13-14 = 1 (100%)
+        half:          0x4000, # bits 13-14 = 2 (50%)
+        quarter:       0x6000, # bits 13-14 = 3 (25%)
+        three_quarter: 0x8000, # bit 15 forces 75%
+      }.freeze
+
+      # Play a wavetable on channel 3 (the wave voice). +samples+ is 32 values
+      # (0-15) that the hardware loops as one waveform period. Unlike the square and
+      # noise voices there's no envelope: the tone holds at +volume+ until it is
+      # replaced or stopped.
+      #
+      # The waveform lives in a small block of "wave RAM" split into two banks; the
+      # CPU can reach one bank while the channel plays the other, which is a classic
+      # source of silence (upload to the bank that isn't playing and you hear
+      # nothing). To sidestep that entirely we write the same table to *both* banks,
+      # so whichever one the channel loops, it loops our waveform.
+      def wave_play(samples, frequency:, volume:)
+        level = WAVE_VOLUMES.fetch(volume) { raise ArgumentError, "unknown wave volume #{volume.inspect}" }
+        halfwords = pack_wavetable(samples)
+
+        writes = []
+        writes << [REG_SOUND3CNT_L, 0x0000]                 # DAC off, CPU reaches bank 0
+        halfwords.each_with_index { |hw, i| writes << [REG_WAVE_RAM + (i * 2), hw] }
+        writes << [REG_SOUND3CNT_L, 0x0040]                 # DAC off, CPU reaches bank 1
+        halfwords.each_with_index { |hw, i| writes << [REG_WAVE_RAM + (i * 2), hw] }
+        writes << [REG_SOUND3CNT_L, 0x0080]                 # DAC on, one 32-sample bank
+        writes << [REG_SOUND3CNT_H, level]
+        writes << [REG_SOUND3CNT_X, 0x8000 | wave_rate(frequency)] # restart bit + sample rate
+        writes
+      end
+
+      # Silence the wave voice — switch its DAC off.
+      def wave_stop
+        [[REG_SOUND3CNT_L, 0x0000]]
+      end
+
+      # Channel 3 tunes by a sample rate, and a 32-sample waveform completes one
+      # cycle every 32 samples, so the tone works out to 65536/(2048-value) Hz.
+      # Invert that for the register value and keep it in range.
+      def wave_rate(freq_hz)
+        (2048 - (65_536.0 / freq_hz)).round.clamp(0, 2047)
+      end
+
+      # Pack 32 four-bit samples into wave RAM's eight 16-bit words. Two samples to
+      # a byte (the earlier sample in the high nibble), two bytes to a little-endian
+      # word.
+      def pack_wavetable(samples)
+        bytes = samples.each_slice(2).map { |hi, lo| ((hi & 0xF) << 4) | (lo & 0xF) }
+        bytes.each_slice(2).map { |low, high| ((high || 0) << 8) | low }
       end
     end
   end

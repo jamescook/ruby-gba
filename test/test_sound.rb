@@ -290,4 +290,39 @@ class TestSound < Minitest::Test
     end
     assert_match(/enable_sound before noise/, err.message)
   end
+
+  # ========================================================================
+  # wave — the programmable wave voice (channel 3)
+  # ========================================================================
+
+  def test_wave_tone_builds
+    rom = build do
+      enable_sound
+      wave :triangle, :C4
+      stop_wave
+      halt
+    end
+    assert_operator rom.size, :>, 0
+  end
+
+  def test_wave_before_enable_sound_raises
+    err = assert_raises(ArgumentError) do
+      build do
+        wave :sine, :C4
+        halt
+      end
+    end
+    assert_match(/enable_sound before wave/, err.message)
+  end
+
+  def test_wave_with_an_unknown_note_raises
+    err = assert_raises(ArgumentError) do
+      build do
+        enable_sound
+        wave :sine, :Z9
+        halt
+      end
+    end
+    assert_match(/unknown note/, err.message)
+  end
 end

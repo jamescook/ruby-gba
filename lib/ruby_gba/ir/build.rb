@@ -160,6 +160,18 @@ module RubyGBA
                          volume: volume, metallic: metallic)
       end
 
+      # Play a sustained tone on the wave voice with a given +shape+ (a wavetable
+      # timbre) at +frequency+ Hz and a fixed +volume+ level. It holds until
+      # replaced or stopped — the wave voice has no envelope.
+      def wave(shape:, frequency:, volume:)
+        Node.new(:wave, shape: shape, frequency: frequency, volume: volume)
+      end
+
+      # Silence the wave voice.
+      def stop_wave
+        Node.new(:stop_wave)
+      end
+
       # Define a named tune. A song is one or more parts (voices) played together.
       # Each part is { events:, duty:, volume: } where +events+ is the resolved
       # score — a list of [frame_offset, frequency_hz] pairs, a rest being
