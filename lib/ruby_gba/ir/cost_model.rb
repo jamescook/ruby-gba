@@ -95,6 +95,12 @@ module RubyGBA
         op_step:     0.0022,  # add / sub / compare / copy / set — a single data-processing step
         op_mul:      0.0044,  # a multiply (multi-cycle)
         op_div:      0.0500,  # a divide — trap into the BIOS Div routine (SWI 0x06)
+        # Tiled-mode per-frame upkeep. The display hardware composites the picture —
+        # a background and its sprites — for free every scanline; what costs the CPU
+        # is MOVING it each frame: rewriting each sprite's position and nudging the
+        # scroll. Estimated, same scanline unit.
+        obj_write:   0.086,   # rewrite one hardware sprite's position each frame (a few IO writes)
+        scroll_write: 0.057,  # move a background: its two scroll-register writes
       }.freeze
 
       def initialize(**weights)
@@ -599,6 +605,11 @@ module RubyGBA
         when :blit then blit_cost(node[:name])
         when :blit_pose then blit_cost(node[:poses].first)         # one pose draws; all are the same size
         when :save_region, :restore_region then region_cost(node[:buffer])
+        # Tiled-mode per-frame upkeep: one position rewrite per presented sprite, and
+        # the two scroll-register writes when a background moves.
+        when :present_objects then node[:names].to_a.length * @weights[:obj_write]
+        when :scroll_background then @weights[:scroll_write] + expr_cost(node[:x]) + expr_cost(node[:y])
+        when :background then dma_blob(background_cells(node)) # one-time map stamp (boot, not per frame)
         when :play_song then song_cost(node[:name])
         when :beep then BEEP_WRITES * @weights[:sound_write]
         when :noise then NOISE_WRITES * @weights[:sound_write]
@@ -646,6 +657,12 @@ module RubyGBA
         when :/ then @weights[:op_div]
         else @weights[:op_step]
         end
+      end
+
+      # How many map cells a background stamps — the map is rows of tile cells, so
+      # this is their total, the size of the one-time upload to tile memory.
+      def background_cells(node)
+        node[:map].to_a.sum { |row| row.respond_to?(:length) ? row.length : 1 }
       end
 
       # A rectangle filled/copied by DMA one row at a time (a fill, an opaque blit, a
@@ -709,6 +726,9 @@ module RubyGBA
         when :blit_pose then "blit_pose (#{node[:poses].length} poses)"
         when :save_region then "save_region :#{node[:buffer]}"
         when :restore_region then "restore_region :#{node[:buffer]}"
+        when :present_objects then "present_objects (#{node[:names].to_a.length} sprites)"
+        when :scroll_background then "scroll_background :#{node[:name]}"
+        when :background then "background :#{node[:name]}"
         when :play_song then "play_song :#{node[:name]} (#{song_notes(node[:name])} notes)"
         when :beep then "beep #{node[:tone].inspect}"
         else node.kind.to_s

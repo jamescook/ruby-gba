@@ -600,6 +600,28 @@ class TestCostModel < Minitest::Test
     assert_operator Cost.new.steady_cost(prog), :>, 0,
                     "the overlaps? comparisons cost even with an empty body"
   end
+
+  # --- tiled-mode per-frame upkeep is no longer free (gba-86vh) ---
+
+  # Presenting sprites costs one position rewrite per sprite (the display composites
+  # them for free, but moving them each frame is real CPU work).
+  def test_present_objects_costs_one_update_per_sprite
+    prog = Build.program(
+      Build.screen(:tiled),
+      Build.loop_(Build.wait_vblank, Build.present_objects(%i[hero ghost coin])),
+    )
+    near 3 * WEIGHTS[:obj_write], Cost.new.steady_cost(prog)
+  end
+
+  # Scrolling a background costs its two scroll-register writes; constant offsets are
+  # free to evaluate.
+  def test_scroll_background_costs_its_scroll_writes
+    prog = Build.program(
+      Build.screen(:tiled),
+      Build.loop_(Build.wait_vblank, Build.scroll_background(:world, x: Build.int(4), y: Build.int(0))),
+    )
+    near WEIGHTS[:scroll_write], Cost.new.steady_cost(prog)
+  end
 end
 
 # Per-scene budgets: a game that runs some scenes in direct color and others
