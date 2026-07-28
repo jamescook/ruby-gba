@@ -151,18 +151,19 @@ module RubyGBA
       # @param shown [Boolean] draw it now (true, default), or start hidden until `show`
       # @return [Sprite, HardwareSprite] a handle: x / y / move / move_to (and, in bitmap mode, face / hide / show)
       def sprite(name, at:, facing: nil, frames: nil, frames_from: nil, tile: nil, transparent: false,
-                 rate: nil, shown: true)
+                 rate: nil, shown: true, hitbox: nil)
         if frames_from
           raise ArgumentError, "sprite :#{name} takes frames: OR frames_from:, not both — both supply the frames" if frames
 
           frames = import_frames(name, frames_from, tile, transparent)
         end
         validate_animation!(name, facing, frames, rate, frames_from: frames_from)
-        return hardware_sprite(name, at: at, facing: facing, frames: frames, rate: rate, shown: shown) \
+        return hardware_sprite(name, at: at, facing: facing, frames: frames, rate: rate, shown: shown, hitbox: hitbox) \
           if @screen_mode == :tiled
 
         poses, facing_dirs, width, height = resolve_sprite_art(name, facing, frames)
         has_poses = !poses.nil?
+        box = collision_box(name, poses || [name], width, height, hitbox)
         start_x, start_y = at
 
         id = (@sprite_seq += 1)
@@ -193,7 +194,7 @@ module RubyGBA
         record(Build.backing_buffer(buffer, width: width, height: height))
 
         handle = Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
-                                  active: active, buffer: buffer, width: width, height: height,
+                                  active: active, buffer: buffer, hitbox: box,
                                   image: (has_poses ? nil : name), poses: poses,
                                   facing_var: pose_var, facing_dirs: facing_dirs)
         @sprites << handle
@@ -226,9 +227,10 @@ module RubyGBA
       # software Sprite's, so game code reads the same in either mode — including
       # `facing:` poses, which on hardware swap which of the sprite's uploaded pictures
       # the console draws (the tile data is managed for you).
-      def hardware_sprite(name, at:, facing:, frames:, rate:, shown:)
+      def hardware_sprite(name, at:, facing:, frames:, rate:, shown:, hitbox:)
         poses, facing_dirs, width, height = resolve_sprite_art(name, facing, frames)
         poses ||= [name] # a plain sprite is a single-pose object
+        box = collision_box(name, poses, width, height, hitbox)
         posed = facing || frames # does it choose a pose at run time (a facing or a frame)?
         start_x, start_y = at
 
@@ -256,10 +258,61 @@ module RubyGBA
                                          x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
                                          active: Build.var_ref(active)))
         handle = HardwareSprite.new(self, object_name: object_name, x: pos_x, y: pos_y,
-                                          active: active, width: width, height: height,
+                                          active: active, hitbox: box,
                                           facing_var: pose_var, facing_dirs: facing_dirs)
         @hw_sprites << handle
         handle
+      end
+
+      # Work out a sprite's collision box — the rectangle `overlaps?` and `blocked_by`
+      # test — as [x, y, w, h] relative to the sprite's top-left. By default it's the
+      # box around the sprite's visible pixels (union of every pose, so it stays put as
+      # the sprite animates), which trims the wasted transparent margin so a hit isn't
+      # a pixel or two of empty space early. It's still a rectangle, though — it doesn't
+      # follow a round or concave outline. `hitbox:` overrides it: `:full` for the whole
+      # image (the old behaviour), an Integer to shrink the whole image by that many
+      # pixels on every side, or an explicit `[x, y, w, h]`.
+      def collision_box(name, images, width, height, hitbox)
+        case hitbox
+        when nil then visible_bounds_union(images)
+        when :full then [0, 0, width, height]
+        when Integer then inset_box(name, width, height, hitbox)
+        when Array then explicit_hitbox(name, hitbox)
+        else
+          raise ArgumentError,
+                "sprite :#{name} hitbox: must be :full, a number of pixels to shrink by, or [x, y, w, h] — " \
+                "got #{hitbox.inspect}"
+        end
+      end
+
+      # The smallest box covering the visible pixels of every one of +images+ (a plain
+      # sprite has one, a posed/animated one has several) — so the collision box holds
+      # still while the picture changes.
+      def visible_bounds_union(images)
+        boxes = images.map { |img| @image_bounds[img] || [0, 0, *@images[img]] }
+        left = boxes.map { |x, _, _, _| x }.min
+        top = boxes.map { |_, y, _, _| y }.min
+        right = boxes.map { |x, _, w, _| x + w }.max
+        bottom = boxes.map { |_, y, _, h| y + h }.max
+        [left, top, right - left, bottom - top]
+      end
+
+      def inset_box(name, width, height, by)
+        if by.negative? || (2 * by) >= width || (2 * by) >= height
+          raise ArgumentError,
+                "sprite :#{name} hitbox: #{by} shrinks a #{width}x#{height} sprite past nothing — " \
+                "use a smaller inset (under #{[width, height].min / 2})"
+        end
+        [by, by, width - (2 * by), height - (2 * by)]
+      end
+
+      def explicit_hitbox(name, box)
+        ok = box.length == 4 && box.all? { |n| n.is_a?(Integer) } &&
+             box[0] >= 0 && box[1] >= 0 && box[2].positive? && box[3].positive?
+        return box if ok
+
+        raise ArgumentError,
+              "sprite :#{name} hitbox: must be [x, y, w, h] — x/y at or past 0, w/h above 0 — got #{box.inspect}"
       end
 
       # Work out a sprite's poses and size. An animation (+frames+) is a list of
@@ -362,6 +415,7 @@ module RubyGBA
         pixels = data.map { |c| c == transparent ? transparent : Color.resolve(c) }.pack("v*")
         record(Build.bitmap(name, width: width, height: height, pixels: pixels, transparent: transparent))
         @images[name] = [width, height] # remember the shape, so a sprite can size itself from it
+        record_visible_bounds(name, width, height, data, transparent)
       end
 
       # ASCII-art form of #image: split the block's art into rows, infer the size
@@ -393,6 +447,37 @@ module RubyGBA
                                   pixels: colors.pack("v*"),
                                   transparent: transparent ? TRANSPARENT_PIXEL : nil))
         @images[name] = [widths.first, rows.size] # remember the shape, so a sprite can size itself from it
+        record_visible_bounds(name, widths.first, rows.size, colors, transparent ? TRANSPARENT_PIXEL : nil)
+      end
+
+      # Remember the box around an image's visible (non-transparent) pixels, so a
+      # sprite made from it collides on the art itself, not the empty margin around it.
+      # +cells+ is the image's pixels row-major and +transparent+ the value that marks a
+      # see-through one (nil if the image is fully opaque — then the box is the whole
+      # image). A blank image (nothing but transparent) also falls back to the whole
+      # image, so its collision box is never empty.
+      def record_visible_bounds(name, width, height, cells, transparent)
+        if transparent.nil?
+          @image_bounds[name] = [0, 0, width, height]
+          return
+        end
+
+        min_x = width
+        min_y = height
+        max_x = -1
+        max_y = -1
+        height.times do |y|
+          width.times do |x|
+            next if cells[(y * width) + x] == transparent
+
+            min_x = x if x < min_x
+            max_x = x if x > max_x
+            min_y = y if y < min_y
+            max_y = y if y > max_y
+          end
+        end
+
+        @image_bounds[name] = max_x.negative? ? [0, 0, width, height] : [min_x, min_y, max_x - min_x + 1, max_y - min_y + 1]
       end
 
       def positive_dims!(name, width, height)

@@ -39,7 +39,7 @@ module RubyGBA
   # stably STACKED — held one on top of the other with a set priority; that's the
   # hardware-sprite feature. Passing, touching, and colliding are fine.
   class Sprite
-    include Bounds # gains overlaps? from x / y / right / bottom (its image size)
+    include Bounds # gains overlaps? from left / top / right / bottom (its collision box)
 
     Build = IR::Build
 
@@ -55,9 +55,9 @@ module RubyGBA
     # @param old_y [Symbol] the y half of the last-drawn position
     # @param active [Symbol] 1 while shown, 0 while hidden (guards the repaint)
     # @param buffer [Symbol] the backing store holding the pixels under the sprite
-    # @param width [Integer] the sprite's pixel width (its image's), for collision bounds
-    # @param height [Integer] the sprite's pixel height, for collision bounds
-    def initialize(builder, x:, y:, old_x:, old_y:, active:, buffer:, width:, height:,
+    # @param hitbox [Array(Integer,Integer,Integer,Integer)] the collision box [x, y, w, h]
+    #   relative to the sprite's top-left (by default the box around its visible pixels)
+    def initialize(builder, x:, y:, old_x:, old_y:, active:, buffer:, hitbox:,
                    image: nil, poses: nil, facing_var: nil, facing_dirs: nil)
       @builder = builder
       @image = image             # a plain sprite draws this one image
@@ -70,8 +70,7 @@ module RubyGBA
       @old_y = old_y
       @active = active
       @buffer = buffer
-      @width = width
-      @height = height
+      @hit_x, @hit_y, @hit_w, @hit_h = hitbox # collision box, offset from the sprite's top-left
     end
 
     # The sprite's position, as {Value} handles — steer them with the expression
@@ -85,14 +84,23 @@ module RubyGBA
       Value.new(@builder, Build.var_ref(@y_var), name: @y_var)
     end
 
-    # The sprite's far edges, as {Value}s — its position plus its image size. These
-    # are what make `overlaps?` work on a sprite with no box: `hero.overlaps?(coin)`.
+    # The sprite's collision-box edges, as {Value}s — its position plus its hitbox (by
+    # default the box hugging its visible pixels). These are what make `overlaps?` work
+    # on a sprite with no box of its own: `hero.overlaps?(coin)`.
+    def left
+      x + @hit_x
+    end
+
+    def top
+      y + @hit_y
+    end
+
     def right
-      x + @width
+      x + @hit_x + @hit_w
     end
 
     def bottom
-      y + @height
+      y + @hit_y + @hit_h
     end
 
     # Move the sprite. Two ways, whichever reads better where you are:

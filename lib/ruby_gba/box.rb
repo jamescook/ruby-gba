@@ -9,9 +9,14 @@ module RubyGBA
   # `right` is `x + w`, `bottom` is `y + h` — so a test composes with the same
   # expression sugar as everything else. Make one with the `box` verb.
   class Box
-    include Bounds # gains overlaps? from x / y / right / bottom
+    include Bounds # gains overlaps? from left / top / right / bottom
 
     attr_reader :x, :y, :w, :h
+
+    # A box is exactly its rectangle — its collision edges are its corner and size,
+    # with no transparent margin to trim (unlike a sprite, whose box hugs its art).
+    alias left x
+    alias top y
 
     # @param builder [Builder] the build its coordinates belong to
     # @param x, y, w, h [Integer, Symbol, Value] corner and size, each an operand

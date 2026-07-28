@@ -72,6 +72,7 @@ module RubyGBA
       @number_seq = 0          # counts draw_number calls, to name each one's hidden digit vars
       @sprite_seq = 0          # counts sprites, to name each one's hidden position/backing vars
       @images = {}             # image name → [width, height], so a sprite can size itself from its art
+      @image_bounds = {}       # image name → [x, y, w, h] box around its visible (non-transparent) pixels, for collision
       @tilesets = {}           # tileset name → { chars:, by_number:, tile_w:, tile_h:, solid_images: } — a tile-image map addressable by character or by number (a CSV cell)
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
       @sprites = []            # live software sprites, repainted after every wait_vblank
