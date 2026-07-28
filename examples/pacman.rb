@@ -20,10 +20,10 @@
 #     own rectangle: `pac.overlaps?(pellet)` and `ghost.overlaps?(pac)` need no boxes.
 #   * SOUND — a waka when Pac eats, a buzz when the ghost catches him.
 #
-# Run into a pellet to eat it (it reappears elsewhere and your count climbs); let the
+# Run into a pellet to eat it (it reappears elsewhere and the SCORE climbs); let the
 # ghost touch you and Pac jumps back to the middle. The room is open — Pac is kept
-# inside its walls. (Corridor mazes with wall collision, and an on-screen score, are
-# tiled features still ahead; this example grows as they land.)
+# inside its walls. (Corridor mazes with wall collision are a tiled feature still
+# ahead; this example grows as they land.)
 #
 # The four Pac poses are generated, not hand-drawn: a yellow disc with a wedge — the
 # mouth — bitten out on the side he faces. Turning to an arbitrary angle would need
@@ -160,6 +160,14 @@ module Pacman
     image(:ghost, "." => :transparent, "R" => :red, "W" => :white) { GHOST_ART }
     ghost = sprite :ghost, at: GHOST_START
     caught = var :caught, 0 # how many times the ghost has caught Pac
+
+    # --- the score, right on the screen ---
+    # A tiled screen has no framebuffer to paint text into, so draw_text / draw_number
+    # draw each character as a little sprite the console lays over the game. You declare
+    # them ONCE here (like a sprite); the number then follows :eaten and repaints itself
+    # every frame — there's nothing to redraw inside the loop.
+    draw_text "SCORE", 8, 4, :white
+    draw_number :eaten, 46, 4, :white, digits: 3
 
     game_loop do
       wait_vblank # the framework draws the sprites here, in the safe window

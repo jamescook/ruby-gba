@@ -76,6 +76,8 @@ module RubyGBA
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
       @sprites = []            # live software sprites, repainted after every wait_vblank
       @hw_sprites = []         # live hardware sprites, drawn (into the sprite table) after every wait_vblank
+      @hud_objects = []        # tiled-mode text/number glyph sprites, drawn on top after every wait_vblank
+      @glyph_images = {}       # [font, char, color] → a cached glyph image name (one 8x8 sprite tile per glyph)
       @animations = []         # flipbook sprites, whose pose is advanced on a beat after every wait_vblank
       @prng_used = false       # whether the program draws random numbers (seeds the stream once)
       @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
