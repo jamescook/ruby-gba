@@ -68,8 +68,23 @@ class TestSoundModule < Minitest::Test
                  Registers.channel1_note(frequency: 0, duty: :half, volume: 12)
   end
 
-  def test_stop_music_silences_channel_one
-    assert_equal [[REG_SOUND1CNT_H, 0x0000], [REG_SOUND1CNT_X, 0x8000]], Registers.stop_music
+  def test_stop_music_silences_both_music_voices
+    assert_equal [[REG_SOUND1CNT_H, 0x0000], [REG_SOUND1CNT_X, 0x8000],
+                  [REG_SOUND2CNT_L, 0x0000], [REG_SOUND2CNT_H, 0x8000]], Registers.stop_music
+  end
+
+  # Channel 2 as a sustaining music voice mirrors channel 1 (same control word),
+  # but has no sweep register, so it's just control + trigger.
+  def test_channel2_note_sustains_like_channel_one_without_sweep
+    assert_equal [[REG_SOUND2CNT_L, 0xC080], [REG_SOUND2CNT_H, 0x86D6]],
+                 Registers.channel2_note(frequency: 440, duty: :half, volume: 12)
+  end
+
+  def test_channel_note_dispatches_by_channel
+    assert_equal Registers.channel1_note(frequency: 440, duty: :half, volume: 12),
+                 Registers.channel_note(1, frequency: 440, duty: :half, volume: 12)
+    assert_equal Registers.channel2_note(frequency: 440, duty: :half, volume: 12),
+                 Registers.channel_note(2, frequency: 440, duty: :half, volume: 12)
   end
 
   def test_unknown_duty_is_a_friendly_error

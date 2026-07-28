@@ -41,11 +41,16 @@ class TestJukeboxExample < Minitest::Test
   end
 
   # Row 0 is selected at the start, so the first tune plays with no input and
-  # sounds its opening note.
+  # sounds its opening note. Ode to Joy is a two-part arrangement, so both the
+  # melody's downbeat and the bass note under it sound together on frame 0.
+  ODE_BASS_FIRST = 131 # C3, the bass note under the opening measure
+
   def test_the_first_song_plays_by_default_on_the_interpreter
     i = Ruby.new.run(Jukebox.program, max_steps: 4000)
     assert_includes notes(i), [:note, :ode_to_joy, ODE_FIRST],
-                    "the highlighted tune should sound its downbeat"
+                    "the highlighted tune should sound its melody downbeat"
+    assert_includes notes(i), [:note, :ode_to_joy, ODE_BASS_FIRST],
+                    "the two-part arrangement should sound its bass under the melody"
   end
 
   # Move the cursor down one row and the second tune takes over the channel.

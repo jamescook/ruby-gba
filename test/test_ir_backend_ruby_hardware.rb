@@ -185,6 +185,30 @@ class TestIRBackendRubyHardware < Minitest::Test
     assert_equal [[:note, :tune, 262], [:note, :tune, 330], [:note, :tune, 262]], notes
   end
 
+  # A layered song's parts play against one shared frame counter, so notes on the
+  # same frame in different parts sound together.
+  def test_play_song_plays_layered_parts_together
+    i = run_ir(program(
+      enable_sound,
+      song(:duet, total_frames: 4, voices: [
+        { events: [[0, 523], [2, 587]], duty: :half, volume: 12 }, # melody: C5 then D5
+        { events: [[0, 131]], duty: :half, volume: 8 },            # bass: C3, held
+      ]),
+      set(:n, 0),
+      loop_(
+        wait_vblank,
+        play_song(:duet),
+        add(:n, 1),
+        if_(binop(:>=, var_ref(:n), int(3)), halt),
+      ),
+    ))
+    notes = i.audio.select { |e| e[0] == :note }
+    # Frame 0: melody C5 (523) and bass C3 (131) together; frame 2: melody D5 (587).
+    assert_includes notes, [:note, :duet, 523]
+    assert_includes notes, [:note, :duet, 131]
+    assert_includes notes, [:note, :duet, 587]
+  end
+
   # ---- observation log ----
 
   def test_log_records_vblank_ticks_and_halt

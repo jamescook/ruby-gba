@@ -152,14 +152,19 @@ module RubyGBA
         Node.new(:beep, tone: tone, duty: duty, decay: decay, volume: volume)
       end
 
-      # Define a named tune. +events+ is the resolved score — a list of
-      # [frame_offset, frequency_hz] pairs, a rest being frequency 0 — and
-      # +total_frames+ is its length, so the tune loops by wrapping there. The
-      # frame timing is worked out once when the song is written, so every backend
-      # replays the same score. +duty+/+volume+ shape every note.
-      def song(name, events:, total_frames:, duty: :half, volume: 12)
-        Node.new(:song, name: name, events: events, total_frames: total_frames,
-                        duty: duty, volume: volume)
+      # Define a named tune. A song is one or more parts (voices) played together.
+      # Each part is { events:, duty:, volume: } where +events+ is the resolved
+      # score — a list of [frame_offset, frequency_hz] pairs, a rest being
+      # frequency 0. +total_frames+ is the song's length, so it loops by wrapping
+      # there; the frame timing is worked out once when the song is written, so
+      # every backend replays the same score. The parts play in order on the
+      # console's voices — which one is the backend's business, not the score's.
+      #
+      # For a one-part tune, pass +events:+ (plus optional +duty:+/+volume:+)
+      # directly instead of a +voices:+ list — it's taken as the single part.
+      def song(name, total_frames:, voices: nil, events: nil, duty: :half, volume: 12)
+        voices ||= [{ events: events, duty: duty, volume: volume }]
+        Node.new(:song, name: name, voices: voices, total_frames: total_frames)
       end
 
       # Advance the named tune by one frame — call once per frame in the loop.

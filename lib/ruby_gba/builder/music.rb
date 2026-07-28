@@ -33,10 +33,10 @@ module RubyGBA
         ctx.instance_eval(&block)
         @songs[name] = ctx
 
-        # In the IR a song carries its already-resolved score (frame/frequency
-        # pairs) and length, so every backend replays the same tune.
-        record(Build.song(name, events: ctx.events, total_frames: ctx.total_frames,
-                                duty: ctx.duty, volume: ctx.volume))
+        # In the IR a song carries its already-resolved score — one or more parts
+        # (each a list of frame/frequency pairs, with its own tone and volume) and
+        # the song's length — so every backend replays the same tune.
+        record(Build.song(name, voices: ctx.voices, total_frames: ctx.total_frames))
       end
 
       # Advance a previously defined song by one frame. Call once per frame inside

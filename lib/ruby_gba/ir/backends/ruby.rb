@@ -379,15 +379,19 @@ module RubyGBA
         end
 
         # Record any note that lands on the song's CURRENT frame (frequency 0 is a
-        # rest), then advance the frame counter, wrapping at the song's length so it
-        # loops. The counter starts at 0 and the note is played *before* advancing,
-        # so a note at frame 0 — the downbeat every tune begins on — sounds. This
+        # rest), across every part of the song, then advance the shared frame counter,
+        # wrapping at the song's length so it loops. The counter starts at 0 and the
+        # notes are played *before* advancing, so a note at frame 0 — the downbeat
+        # every tune begins on — sounds. A layered song records each part's note on a
+        # frame, all against the one counter, so the parts stay in lock-step. This
         # matches how the ROM sequences the same song.
         def exec_play_song(name)
           song = @songs[name] || raise(ProgramError, "play_song for undefined song #{name.inspect}")
           frame = @music_frames[name]
-          song[:events].each do |offset, frequency|
-            @audio << [:note, name, frequency] if offset == frame
+          song[:voices].each do |voice|
+            voice[:events].each do |offset, frequency|
+              @audio << [:note, name, frequency] if offset == frame
+            end
           end
           total = song[:total_frames]
           @music_frames[name] = total.zero? ? 0 : (frame + 1) % total
