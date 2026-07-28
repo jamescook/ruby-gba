@@ -99,6 +99,8 @@ module ConformanceFixture
       # --- every sound trigger ---
       B.beep(:blip),
       B.noise(:explosion),
+      B.wave(shape: :sine, frequency: 440, volume: :full),
+      B.stop_wave,
       B.play_song(:tune),
       B.stop_music,
 

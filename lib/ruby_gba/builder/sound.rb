@@ -73,6 +73,47 @@ module RubyGBA
 
         record(Build.noise(preset, pitch: pitch, decay: decay, volume: volume, metallic: metallic))
       end
+
+      # Play a sustained tone on the wave voice (channel 3) with a chosen timbre —
+      # a richer, non-square sound than a beep. The tone holds until you call it
+      # again or `stop_wave`; the wave voice has no fade.
+      #
+      # @param shape [Symbol] the timbre: :sine, :triangle, :sawtooth, :square
+      # @param pitch [Symbol, Integer] a note name (:C4, :Fs4) or frequency in Hz
+      # @param volume [Symbol] :full, :three_quarter, :half, :quarter, :mute
+      #
+      # @example
+      #   wave :triangle, :C4
+      #   wave :sine, 440, volume: :half
+      def wave(shape, pitch, volume: :full)
+        raise ArgumentError, "call enable_sound before wave" unless @sound_enabled
+
+        record(Build.wave(shape: shape, frequency: note_frequency(pitch), volume: volume))
+      end
+
+      # Silence the wave voice (channel 3).
+      def stop_wave
+        record(Build.stop_wave)
+      end
+
+      private
+
+      # A note name (:C4) or a raw frequency in Hz to a positive frequency.
+      def note_frequency(pitch)
+        case pitch
+        when Symbol
+          RubyGBA::Music::NOTE_FREQUENCIES.fetch(pitch) do
+            raise ArgumentError, "unknown note :#{pitch}. " \
+              "Available: #{RubyGBA::Music::NOTE_FREQUENCIES.keys.first(12).join(', ')}, ..."
+          end
+        when Integer
+          raise ArgumentError, "frequency must be positive (got #{pitch})" unless pitch.positive?
+
+          pitch
+        else
+          raise ArgumentError, "wave pitch must be a note name (:C4) or a frequency (440), got #{pitch.class}"
+        end
+      end
     end
   end
 end

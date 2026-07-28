@@ -127,4 +127,50 @@ class TestSoundModule < Minitest::Test
     _control, trigger = Registers.channel4(pitch: :high, decay: :fast, volume: 8, metallic: true)
     assert_equal 0x0008, trigger[1] & 0x0008, "metallic noise sets the 7-bit counter-width bit"
   end
+
+  # ---- wave voice (channel 3) ----
+
+  def test_wavetable_shapes_generate_sample_tables
+    assert_equal([15] * 16 + [0] * 16, Sound.wavetable(:square))
+    saw = Sound.wavetable(:sawtooth)
+    assert_equal 32, saw.length
+    assert_equal 0, saw.first
+    assert_equal 15, saw.last
+    assert(Sound.wavetable(:sine).all? { |s| s.between?(0, 15) })
+  end
+
+  def test_unknown_wave_shape_is_a_friendly_error
+    err = assert_raises(ArgumentError) { Sound.wavetable(:zigzag) }
+    assert_match(/unknown wave shape/, err.message)
+  end
+
+  def test_wave_rate_inverts_the_channel3_frequency_formula
+    # tone = 65536/(2048-value), so value = 2048 - 65536/freq. 440 Hz -> 1899.
+    assert_equal 1899, Registers.wave_rate(440)
+  end
+
+  def test_pack_wavetable_packs_two_samples_per_byte_two_bytes_per_word
+    # A [15,0,15,0,...] table: each byte is 0xF0, each little-endian word 0xF0F0.
+    assert_equal [0xF0F0] * 8, Registers.pack_wavetable([15, 0] * 16)
+  end
+
+  def test_wave_play_uploads_the_table_and_triggers_the_channel
+    writes = Registers.wave_play(Sound.wavetable(:sine), frequency: 440, volume: :full)
+    assert_equal 21, writes.length, "two bank uploads (8 words each) plus 5 control writes"
+    assert_equal [REG_SOUND3CNT_L, 0x0000], writes.first, "starts with the DAC off to load wave RAM"
+    assert_includes writes, [REG_SOUND3CNT_L, 0x0080], "turns the DAC on to play"
+    assert_includes writes, [REG_SOUND3CNT_H, 0x2000], "full volume"
+    assert_equal [REG_SOUND3CNT_X, 0x8000 | Registers.wave_rate(440)], writes.last, "restart + sample rate last"
+  end
+
+  def test_wave_stop_switches_the_dac_off
+    assert_equal [[REG_SOUND3CNT_L, 0x0000]], Registers.wave_stop
+  end
+
+  def test_unknown_wave_volume_is_a_friendly_error
+    err = assert_raises(ArgumentError) do
+      Registers.wave_play(Sound.wavetable(:sine), frequency: 440, volume: :loud)
+    end
+    assert_match(/unknown wave volume/, err.message)
+  end
 end

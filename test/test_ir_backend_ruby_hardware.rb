@@ -157,6 +157,12 @@ class TestIRBackendRubyHardware < Minitest::Test
     assert_equal({ pitch: :low, decay: :slow, volume: 15, metallic: false }, i.audio[1][1])
   end
 
+  def test_a_wave_tone_and_its_stop_are_recorded
+    i = run_ir(program(enable_sound, wave(shape: :triangle, frequency: 262, volume: :full), stop_wave))
+    assert_equal [:wave, { shape: :triangle, frequency: 262, volume: :full }], i.audio[1]
+    assert_equal [:stop_wave], i.audio[2]
+  end
+
   def test_beep_resolves_a_defined_sound_by_name
     i = run_ir(program(
       enable_sound,

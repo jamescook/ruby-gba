@@ -320,6 +320,10 @@ module RubyGBA
             @audio << [:beep, resolve_effect(node)]
           when :noise
             @audio << [:noise, resolve_noise(node)]
+          when :wave
+            @audio << [:wave, { shape: node[:shape], frequency: node[:frequency], volume: node[:volume] }]
+          when :stop_wave
+            @audio << [:stop_wave]
           when :play_song
             exec_play_song(node[:name])
           when :stop_music

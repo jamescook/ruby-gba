@@ -40,6 +40,18 @@ module RubyGBA
             emit_writes(Sound::Registers.channel4(**hit))
           end
 
+          # Play a sustained wavetable tone on channel 3. Resolve the shape to its
+          # sample table, then write the wave-RAM upload and channel-3 control.
+          def emit_wave(node)
+            samples = Sound.wavetable(node[:shape])
+            emit_writes(Sound::Registers.wave_play(samples, frequency: node[:frequency], volume: node[:volume]))
+          end
+
+          # Silence the wave voice.
+          def emit_stop_wave
+            emit_writes(Sound::Registers.wave_stop)
+          end
+
           # Silence the music channel.
           def emit_stop_music
             emit_writes(Sound::Registers.stop_music)
