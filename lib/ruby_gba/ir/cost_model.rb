@@ -84,6 +84,17 @@ module RubyGBA
         plot_pixel:  0.0267,  # one pixel written by hand — a lone pixel, a transparent blit, a font pixel
         sound_write: 0.0286,  # one write to a sound register (a beep, powering sound on)
         note_check:  0.003,   # per song note, the frame-counter check that runs every frame (estimated)
+        # Logic / compute steps, in the same scanline unit (all estimated, not
+        # measured — like note_check). A step is a plain data op (add, subtract,
+        # compare, copy, move a value); it's the cheap baseline. Multiply is a few
+        # cycles more. Divide is the outlier: this CPU has no divide instruction, so
+        # a division traps into the BIOS Div routine — a bounded but real detour
+        # (the trap in and out plus the division), on the order of tens of cycles,
+        # roughly twenty steps' worth. That's exactly the hidden cost a per-frame
+        # loop can bury. Keyed by op so the tiers stay tunable data, not code.
+        op_step:     0.0022,  # add / sub / compare / copy / set — a single data-processing step
+        op_mul:      0.0044,  # a multiply (multi-cycle)
+        op_div:      0.0500,  # a divide — trap into the BIOS Div routine (SWI 0x06)
       }.freeze
 
       def initialize(**weights)
@@ -302,7 +313,10 @@ module RubyGBA
       def raw_steady(node)
         case node.kind
         when :program, :loop, :else then node.children.sum { |child| steady(child) }
-        when :if then node.children.sum { |child| steady(child) } + (node[:else] ? steady(node[:else]) : 0)
+        # The condition is tested every frame, whichever way it goes — that's where a
+        # collision test's comparison chain lives — so it's priced in full here; only
+        # the branch bodies are scaled by how often they run.
+        when :if then expr_cost(node[:cond]) + node.children.sum { |child| steady(child) } + (node[:else] ? steady(node[:else]) : 0)
         when :repeat then repeat_factor(node).first * node.children.sum { |child| steady(child) }
         # A timed trigger's steady per-frame cost follows from its kind: every(k)
         # runs one frame in k, so its body counts 1/k; after(n) fires once ever, so
@@ -534,7 +548,45 @@ module RubyGBA
         when :stop_wave then STOP_WAVE_WRITES * @weights[:sound_write]
         when :enable_sound then ENABLE_WRITES * @weights[:sound_write]
         when :stop_music then STOP_WRITES * @weights[:sound_write]
-        else 0 # non-draw, non-sound ops: no per-frame cost
+        # Logic / compute statements. Each is at least one step, plus the cost of the
+        # expression it evaluates (so a divide buried in a value shows up). This is
+        # what stops a compute loop — enemy AI, physics, a list walk — from reading
+        # as free: run it N times and its per-op cost scales with N.
+        when :set then @weights[:op_step] + expr_cost(node[:value])
+        when :add, :sub then @weights[:op_step] + expr_cost(node[:operand])
+        when :copy, :negate, :abs, :negate_abs then @weights[:op_step]
+        when :clamp then 2 * @weights[:op_step] # a low compare and a high compare
+        when :list_push then @weights[:op_step] + expr_cost(node[:value])
+        when :list_set then @weights[:op_step] + expr_cost(node[:index]) + expr_cost(node[:value])
+        when :list_drop then @weights[:op_step]
+        else 0 # declarations, control markers, definitions: no per-frame work of their own
+        end
+      end
+
+      # The cost of evaluating a value expression: every operator it's built from,
+      # summed. A bare variable or literal is a load — effectively free — so the cost
+      # is in the operators, and a divide weighs far more than an add (see the op_*
+      # weights). This is why `(a * b) / c` in a per-frame loop isn't free, and why
+      # the chain of comparisons behind a collision test (overlaps?) has a real cost.
+      def expr_cost(value)
+        return 0 unless value.is_a?(Node)
+
+        case value.kind
+        when :binop then op_weight(value[:op]) + expr_cost(value[:lhs]) + expr_cost(value[:rhs])
+        when :neg then @weights[:op_step] + expr_cost(value[:operand])
+        when :chance then @weights[:op_step] # a random draw and a compare
+        else 0 # int / var_ref / held / pressed / read_scanline — a load, effectively free
+        end
+      end
+
+      # An operator's weight: multiply and divide are their own (pricier) tiers;
+      # everything else — add, subtract, the comparisons, the and/or that combine
+      # conditions — is one plain step.
+      def op_weight(op)
+        case op
+        when :* then @weights[:op_mul]
+        when :/ then @weights[:op_div]
+        else @weights[:op_step]
         end
       end
 

@@ -125,8 +125,9 @@ class TestCostModel < Minitest::Test
       repeat(body.length) { |i| draw_rect_at 0, 0, 8, 8, :green }
       halt
     end
-    # ...but the estimate assumes the worst: 8 (capacity) * one 8x8 rect.
-    near 8 * dma_rows(8, 8), Cost.new.frame_cost(prog)
+    # ...but the estimate assumes the worst: 8 (capacity) * one 8x8 rect, plus the
+    # one-time push that seeded the list (a single logic step).
+    near (8 * dma_rows(8, 8)) + WEIGHTS[:op_step], Cost.new.frame_cost(prog)
   end
 
   # Inside a game loop, case_var runs exactly ONE scene per frame, so the per-frame
@@ -437,20 +438,35 @@ class TestCostModel < Minitest::Test
         draw_number :score, 8, 8, :white, digits: 1 # one column -> one draw_digit
       end
     end
-    near digit_cost, Cost.new.steady_cost(prog) # one glyph
-    near digit_cost, Cost.new.frame_cost(prog)  # one glyph too (no phantom fan-out)
+    # digits:1 draws exactly one glyph — plus the cheap arithmetic to pull the digit
+    # out of the number. So the cost is one glyph's worth and change, never a phantom
+    # fan-out to more columns (which would be two glyphs or more).
+    assert_operator Cost.new.steady_cost(prog), :>=, digit_cost
+    assert_operator Cost.new.steady_cost(prog), :<, 2 * digit_cost
+    assert_operator Cost.new.frame_cost(prog), :>=, digit_cost
+    assert_operator Cost.new.frame_cost(prog), :<, 2 * digit_cost
   end
 
   # chance(p) holds p% of the time, so a gated body counts at p%.
   def test_chance_body_counts_at_its_probability
-    prog = program do
+    gated = program do
       screen :bitmap
       game_loop do
         wait_vblank
         chance(25).then { draw_rect_at 0, 0, 8, 8, :green } # one 8x8 rect, 25% of frames
       end
     end
-    near dma_rows(8, 8) * 0.25, Cost.new.steady_cost(prog)
+    # The roll runs every frame; isolate it with an empty-bodied roll so this asserts
+    # the SELECTIVITY (the body counts at 25%) without pinning the roll's own cost.
+    roll_only = program do
+      screen :bitmap
+      game_loop do
+        wait_vblank
+        chance(25).then { nil }
+      end
+    end
+    overhead = Cost.new.steady_cost(roll_only)
+    near overhead + (dma_rows(8, 8) * 0.25), Cost.new.steady_cost(gated)
   end
 
   # --- mode-aware budget: double buffering draws to a hidden page, so it gets the
@@ -499,6 +515,62 @@ class TestCostModel < Minitest::Test
     assert_equal Cost::FRAME_BUDGET, Cost.new.as_json(loop_of_clears(2, buffered: true))[:budget]
     assert_equal true, Cost.new.as_json(loop_of_clears(2, buffered: true))[:buffered]
     assert_equal false, Cost.new.as_json(loop_of_clears(2, buffered: false))[:buffered]
+  end
+
+  # --- logic / compute is no longer free (gba-lpak) ---
+
+  # A loop whose body only does arithmetic — no drawing — still costs, and the cost
+  # scales with how many times it runs. This is what lets the analysis see a
+  # compute-bound loop (AI, physics) instead of reading it as free.
+  def test_a_compute_loop_is_not_free_and_scales_with_its_count
+    one = program do
+      screen :bitmap
+      var :x, 0
+      game_loop { wait_vblank; repeat(1) { add :x, 1 } }
+    end
+    ten = program do
+      screen :bitmap
+      var :x, 0
+      game_loop { wait_vblank; repeat(10) { add :x, 1 } }
+    end
+    c_one = Cost.new.steady_cost(one)
+    c_ten = Cost.new.steady_cost(ten)
+
+    assert_operator c_one, :>, 0, "a compute loop is not free"
+    near c_one * 10, c_ten, "ten iterations cost about ten times one"
+  end
+
+  # A divide is priced well above an add, because on this CPU it traps into the BIOS
+  # Div routine rather than running as a single instruction.
+  def test_a_divide_costs_more_than_an_add
+    adder = program do
+      screen :bitmap
+      x = var :x, 100
+      game_loop { wait_vblank; x.set(x + 1) }
+    end
+    divider = program do
+      screen :bitmap
+      x = var :x, 100
+      game_loop { wait_vblank; x.set(x / 2) }
+    end
+
+    assert_operator Cost.new.steady_cost(divider), :>, Cost.new.steady_cost(adder),
+                    "a divide (BIOS routine) should cost more than an add"
+  end
+
+  # A collision test's comparison chain runs every frame, whether or not it hits, so
+  # it carries a cost even when the response body is empty.
+  def test_a_collision_condition_is_not_free
+    prog = program do
+      screen :bitmap
+      x = var :x, 0
+      hero = box x, 0, 8, 8
+      wall = box 100, 0, 8, 8
+      game_loop { wait_vblank; hero.overlaps?(wall).then { nil } }
+    end
+
+    assert_operator Cost.new.steady_cost(prog), :>, 0,
+                    "the overlaps? comparisons cost even with an empty body"
   end
 end
 
