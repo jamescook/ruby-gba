@@ -58,8 +58,10 @@ module RubyGBA
         @sprites.each { |sprite| record(sprite.draw_node) }
         # Hardware sprites need no erase pass — the console recomposites the whole
         # picture each frame — so it's one step: draw them all from their current
-        # positions (later ones sit in front).
-        record(Build.present_objects(@hw_sprites.map(&:object_name))) unless @hw_sprites.empty?
+        # positions (later ones sit in front). Tiled-mode text/number glyphs are
+        # hardware sprites too, drawn last so a HUD sits on top of the game.
+        present = @hw_sprites.map(&:object_name) + @hud_objects
+        record(Build.present_objects(present)) unless present.empty?
         # Then step every flipbook sprite's pose along its beat, so the next frame
         # shows the next picture.
         @animations.each { |anim| advance_animation(anim).each { |node| record(node) } }

@@ -68,6 +68,14 @@ module RubyGBA
         end
         Fonts.get(font) # fail early with a friendly error on an unknown font name
 
+        # A tiled screen has no framebuffer to paint into, so text is drawn as little
+        # sprite glyphs the console composites each frame — declared once, like a
+        # sprite (see #draw_text_tiled).
+        if @screen_mode == :tiled
+          require_hud_declared_once!("draw_text")
+          return draw_text_tiled(text, x, y, color, font)
+        end
+
         record(Build.draw_text(text, x, y, color, font: font))
       end
 
@@ -91,6 +99,13 @@ module RubyGBA
       def draw_number(value, x, y, color, digits: DEFAULT_DIGITS, font: :default)
         unless digits.is_a?(Integer) && digits.positive?
           raise ArgumentError, "draw_number needs a positive number of digits, got #{digits.inspect}"
+        end
+
+        # On a tiled screen, a number is drawn as sprite glyphs, declared once and
+        # left to update itself each frame (see #draw_number_tiled).
+        if @screen_mode == :tiled
+          require_hud_declared_once!("draw_number")
+          return draw_number_tiled(value, x, y, color, digits, font)
         end
 
         case value
@@ -173,6 +188,142 @@ module RubyGBA
       def next_number_var
         @number_seq += 1
         :"__number_#{@number_seq}"
+      end
+
+      # --- tiled-mode text: glyphs drawn as sprites -------------------------------
+      #
+      # A tiled screen draws from tiles and sprites, not a framebuffer, so there's
+      # nowhere for the bitmap draw_text/draw_number to plot pixels. Instead each
+      # character becomes a tiny hardware sprite — one 8x8 glyph — that the console
+      # composites over the game every frame. Because a sprite is drawn for you each
+      # frame, tiled text is declared ONCE (before the game loop, like `sprite`) and
+      # then stays; a live number's sprite chooses which digit to show from its value
+      # each frame, so it updates itself with nothing to call in the loop.
+
+      # A glyph fits in one 8x8 sprite tile.
+      HUD_GLYPH_PX = 8
+
+      # Draw a fixed string as a row of glyph sprites at (x, y), advancing one font
+      # cell per character. A space or a character the font lacks draws nothing but
+      # still takes its column, so words stay aligned.
+      def draw_text_tiled(text, x, y, color, font)
+        f = Fonts.get(font)
+        text.each_char.with_index do |ch, i|
+          next unless f.glyph(ch) # a blank or unknown character: leave the gap, draw nothing
+
+          hud_glyph_object(poses: [glyph_image(font, ch, color)], pose: Build.int(0),
+                           x: x + i * f.cell_w, y: y)
+        end
+        nil
+      end
+
+      # Draw a number as glyph sprites. A fixed number is just its right-aligned
+      # digits (like draw_text). A live number gets one sprite per digit column, each
+      # showing the matching glyph for its place in the value — recomputed every frame
+      # from the variable, with leading zeros left blank so it reads naturally.
+      def draw_number_tiled(value, x, y, color, digits, font)
+        cell = Fonts.get(font).cell_w
+        if value.is_a?(Integer)
+          text = value.to_s
+          pad = [digits - text.length, 0].max # right-align in the field
+          return draw_text_tiled(text, x + pad * cell, y, color, font)
+        end
+
+        source = hud_number_variable(value)
+        poses = [blank_glyph_image] + ("0".."9").map { |d| glyph_image(font, d, color) }
+        digits.times do |i|
+          place = 10**(digits - 1 - i)
+          hud_glyph_object(poses: poses, pose: hud_digit_pose(source, place),
+                           x: x + i * cell, y: y)
+        end
+        nil
+      end
+
+      # The variable a live tiled number tracks. A digit column reads it every frame,
+      # so it must be a plain variable (a Symbol, or a `var` handle), not a one-off
+      # expression — there's no per-frame place to recompute an expression into.
+      def hud_number_variable(value)
+        name = value.is_a?(Symbol) ? value : (value.node[:name] if value.node.kind == :var_ref)
+        return name if name
+
+        raise ArgumentError,
+              "on a tiled screen, draw_number follows a variable so it can update itself each frame — " \
+              "give it a variable (like :score), not a one-off expression. Work the value out into a " \
+              "variable first (e.g. `set :shown, hp - 1`) and draw that."
+      end
+
+      # The sprite pose that shows the digit of +source+ at +place+ (1, 10, 100, …).
+      # Pose 0 is the blank glyph and poses 1..10 are the digits 0..9, so the value to
+      # show is (that digit + 1). Every column but the ones column blanks out while the
+      # number hasn't reached its place yet — that's what drops the leading zeros —
+      # which is exactly `(source >= place)` (0 or 1) times the digit-plus-one.
+      def hud_digit_pose(source, place)
+        show = Build.binop(:+, digit_at(source, place), Build.int(1))
+        return show if place == 1
+
+        Build.binop(:*, Build.binop(:>=, Build.var_ref(source), Build.int(place)), show)
+      end
+
+      # Declare one glyph sprite (an object) at a fixed screen spot and remember it so
+      # every frame's repaint draws it, on top of the game. active is always 1 — a HUD
+      # glyph is simply always shown.
+      def hud_glyph_object(poses:, pose:, x:, y:)
+        name = :"__hud#{@sprite_seq += 1}"
+        record(Build.object(name, poses: poses, pose: pose,
+                                  x: Build.int(x), y: Build.int(y), active: Build.int(1)))
+        @hud_objects << name
+        name
+      end
+
+      # The image name for one glyph of a font in a color — an 8x8 sprite tile with the
+      # glyph's lit pixels in that color and everything else transparent. Cached, so a
+      # digit reused across columns (or a repeated letter) is built once.
+      def glyph_image(font_name, char, color)
+        @glyph_images[[font_name, char, color]] ||= begin
+          font = Fonts.get(font_name)
+          fits_a_glyph_tile!(font_name, font)
+          data = Array.new(HUD_GLYPH_PX * HUD_GLYPH_PX, Images::TRANSPARENT_PIXEL)
+          font.each_pixel(char.to_s) { |dx, dy| data[(dy * HUD_GLYPH_PX) + dx] = color }
+          name = :"__glyph#{@glyph_images.size}"
+          define_pixel_image(name, width: HUD_GLYPH_PX, height: HUD_GLYPH_PX,
+                                   data: data, transparent: Images::TRANSPARENT_PIXEL)
+          name
+        end
+      end
+
+      # The all-transparent glyph a digit column shows for a leading zero.
+      def blank_glyph_image
+        @blank_glyph_image ||= begin
+          data = Array.new(HUD_GLYPH_PX * HUD_GLYPH_PX, Images::TRANSPARENT_PIXEL)
+          define_pixel_image(:__glyph_blank, width: HUD_GLYPH_PX, height: HUD_GLYPH_PX,
+                                             data: data, transparent: Images::TRANSPARENT_PIXEL)
+          :__glyph_blank
+        end
+      end
+
+      # A glyph must fit one 8x8 sprite tile in tiled mode. The built-in :default (5x7)
+      # and :tiny (3x5) do; a taller/wider custom font would need a bigger sprite, which
+      # isn't wired up yet — so say so plainly rather than clip the glyph.
+      def fits_a_glyph_tile!(font_name, font)
+        return if font.cell_w <= HUD_GLYPH_PX && font.height <= HUD_GLYPH_PX
+
+        raise ArgumentError,
+              "on a tiled screen, text is drawn as #{HUD_GLYPH_PX}x#{HUD_GLYPH_PX} sprite glyphs, but font " \
+              ":#{font_name} is #{font.cell_w}x#{font.height} per character — use a smaller font " \
+              "(the built-in :default and :tiny fit), or draw this text on a `screen :bitmap`."
+      end
+
+      # Tiled text is declared once and redrawn for you every frame, so it belongs at
+      # the top level (before game_loop), not inside the loop — declared inside, it
+      # would be re-added every frame and never make it into the frame's sprite list.
+      # Point at the fix rather than let a HUD silently fail to appear.
+      def require_hud_declared_once!(verb)
+        return if @container_stack.length == 1 # only the program itself is open
+
+        raise ArgumentError,
+              "call #{verb} once, above your game_loop — not inside it. On a tiled screen the text is an " \
+              "element the console redraws every frame (like a sprite), so you declare it once and it stays. " \
+              "If it shows a value that changes, pass the variable and it updates itself."
       end
     end
   end
