@@ -43,7 +43,107 @@ module RubyGBA
     # wants. It's plain data and knows nothing about ROMs or hardware.
     Bitmap = Struct.new(:width, :height, :data, :transparent)
 
+    # A single picture holding a grid of equal-size cells — a tile sheet or a
+    # sprite sheet. It keeps the whole picture's pixels once, and hands back any
+    # one cell (by column and row, top-left origin) as a ready-to-use {Bitmap}, so
+    # a sheet of many tiles is decoded a single time rather than once per tile.
+    class Sheet
+      # How many cells across (+cols+) and down (+rows+) the sheet divides into.
+      attr_reader :cols, :rows, :tile_w, :tile_h
+
+      # @param pixels [String] the whole sheet's raw channel bytes, row-major
+      # @param stride [Integer] the sheet's full pixel width (bytes per row = stride*per)
+      # @param per [Integer] bytes per pixel in +pixels+ (3 for RGB, 4 for RGBA)
+      # @param transparent [Boolean] whether cells honor an alpha cutout
+      def initialize(pixels:, stride:, tile_w:, tile_h:, cols:, rows:, per:, transparent:, alpha_threshold:)
+        @pixels = pixels
+        @stride = stride
+        @tile_w = tile_w
+        @tile_h = tile_h
+        @cols = cols
+        @rows = rows
+        @per = per
+        @transparent = transparent
+        @alpha_threshold = alpha_threshold
+      end
+
+      # The cell at column +col+, row +row+ (both zero-based, left-to-right then
+      # top-to-bottom) as a {Bitmap} of the sheet's tile size. Raises with a
+      # plain-language error if that cell is outside the grid.
+      def cell(col, row)
+        unless col.between?(0, @cols - 1) && row.between?(0, @rows - 1)
+          raise Error, "cell [#{col}, #{row}] is outside this #{@cols}x#{@rows}-cell sheet"
+        end
+
+        ox = col * @tile_w
+        oy = row * @tile_h
+        data = Array.new(@tile_w * @tile_h) do |i|
+          base = (((oy + (i / @tile_w)) * @stride) + ox + (i % @tile_w)) * @per
+          pixel_color(base)
+        end
+        Bitmap.new(@tile_w, @tile_h, data, @transparent ? TRANSPARENT : nil)
+      end
+
+      private
+
+      # One pixel's console color at byte offset +base+: for an opaque sheet just
+      # its RGB folded down; for a transparent one, the see-through marker where the
+      # pixel is more transparent than the cutoff, otherwise its color.
+      def pixel_color(base)
+        r = @pixels.getbyte(base)
+        g = @pixels.getbyte(base + 1)
+        b = @pixels.getbyte(base + 2)
+        return Color.rgb8(r, g, b) unless @transparent
+        return TRANSPARENT if @pixels.getbyte(base + 3) < @alpha_threshold
+
+        Color.rgb8(r, g, b)
+      end
+    end
+
     module_function
+
+    # Slice a sheet image into a grid of equal-size cells. Reads the picture at its
+    # own resolution (no resizing, so tiles come across pixel-exact) and returns a
+    # {Sheet} you pull individual cells from. Used by the `sheet` DSL verb to pull
+    # named tiles / animation frames out of one PNG.
+    #
+    # @param path [String] a sheet image on the host machine (PNG, …)
+    # @param tile_w [Integer] each cell's width in pixels
+    # @param tile_h [Integer] each cell's height in pixels
+    # @param transparent [Boolean] honor the sheet's transparency (for sprite cells
+    #   whose background is cut out), turning see-through pixels into the marker.
+    # @param alpha_threshold [Integer] the opacity cutoff (0–255) when +transparent+.
+    # @param adapter the image tool; defaults to ImageMagick (a seam for tests).
+    # @return [Sheet]
+    def slice(path, tile_w:, tile_h:, transparent: false, alpha_threshold: DEFAULT_ALPHA_THRESHOLD,
+              adapter: default_adapter)
+      native_w, native_h = adapter.dimensions(path)
+      divides_evenly!(path, native_w, native_h, tile_w, tile_h)
+
+      per = transparent ? 4 : 3
+      pixels = if transparent
+                 adapter.rgba_pixels(path, width: native_w, height: native_h)
+               else
+                 adapter.rgb_pixels(path, width: native_w, height: native_h)
+               end
+      verify_size!(pixels, native_w, native_h, per)
+
+      Sheet.new(pixels: pixels, stride: native_w, tile_w: tile_w, tile_h: tile_h,
+                cols: native_w / tile_w, rows: native_h / tile_h,
+                per: per, transparent: transparent, alpha_threshold: alpha_threshold)
+    end
+
+    # A sheet must split into whole tiles — a size that doesn't divide evenly means
+    # the tile size (or the picture) is wrong, and slicing anyway would shear every
+    # tile after the first, so we stop with a clear explanation instead.
+    def divides_evenly!(path, native_w, native_h, tile_w, tile_h)
+      raise Error, "sheet tile size must be positive, got #{tile_w}x#{tile_h}" unless tile_w.positive? && tile_h.positive?
+      return if (native_w % tile_w).zero? && (native_h % tile_h).zero?
+
+      raise Error,
+            "sheet #{path.inspect} is #{native_w}x#{native_h}, which doesn't divide evenly into " \
+            "#{tile_w}x#{tile_h} tiles (#{native_w}/#{tile_w} across, #{native_h}/#{tile_h} down)"
+    end
 
     # Load an image file and convert it to +width+ x +height+ pixels.
     #
