@@ -151,6 +151,7 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Text + `draw_number` (built-in 5×7 font)
 - [x] Value-centric expression DSL — `.then`/`.else`, `&`/`|`, integer division
 - [x] Control flow — `func`/`call`, `scene`/`case_var`, `game_loop`, `repeat`
+- [x] Scenes / screens — a game is a state machine of scenes; each **owns what it draws** (a scene's sprites/HUD show only while it's active), plus per-scene display mode
 - [x] Input — D-pad + buttons (`held` / `pressed`)
 - [x] Double-buffering — tear-free Mode 4 page-flip (`screen :bitmap, tear_free: true`) + auto-managed palette
 - [x] Hardware sprites / OAM — poses (`facing:`), flipbook animation (`frames:` / `rate:`), stacking, sprite/tile collision
@@ -206,7 +207,7 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | [`maze.rb`](examples/maze.rb) | A hero that walks corridors and is stopped by the walls (`tiles solid:`, `sprite.blocked_by`) | Tiled room + a hardware sprite with tile collision |
 | [`sheet.rb`](examples/sheet.rb) | Art imported from PNG files: a tile sheet paints the room, a transparent sprite sheet animates the hero (`tiles from:` / `sprite frames_from:`) | Tiled room + a hardware sprite, both imported from images |
 | [`level.rb`](examples/level.rb) | A level designed in a map editor: import the whole tile sheet as numbered tiles, then read the room straight from a CSV export (`tiles from:` / `background from:`) | Tiled room from a CSV tilemap + a hardware sprite |
-| [`shmup.rb`](examples/shmup.rb) + [`shmup/`](examples/shmup) | A game **split across files**: `player.rb`, `enemies.rb`, `hud.rb` are plain Ruby objects that take the build and call `build.sprite`/`build.held`/… — no base class, no magic. Ship, fixed-N diving enemies, per-pixel shot hits, a live HUD | Tiled: hardware sprites + text HUD + per-pixel collision |
+| [`shmup.rb`](examples/shmup.rb) + [`shmup/`](examples/shmup) | A game **split across files** with real **scenes**: `player.rb`, `enemies.rb`, `hud.rb` are plain Ruby objects that take the build — no base class, no magic. Ship, diving enemies, per-pixel shot hits, a live HUD, and a **PLAYING → GAME OVER → restart** flow where losing the last ship hides the field and shows the game-over screen (no visibility flags) | Tiled: hardware sprites + text HUD + per-pixel collision, scene-scoped |
 | [`jukebox.rb`](examples/jukebox.rb) | The sound showcase: three classical tunes written as plain notes (`song` / `note`) — Ode to Joy played two-handed with a `voice :melody` over a `voice :bass` — a cursor that picks one to play and loop, and bobbing "now playing" bars | Tear-free (double-buffered) bitmap menu |
 
 Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static
@@ -214,6 +215,39 @@ drawing), [`grid_cursor.rb`](examples/grid_cursor.rb) (a `grid` with a moving
 cursor), [`buffered_bounce.rb`](examples/buffered_bounce.rb), and the font demos
 [`fonts.rb`](examples/fonts.rb) / [`font_styles.rb`](examples/font_styles.rb) /
 [`floating_digits.rb`](examples/floating_digits.rb).
+
+### Scenes — a game is a state machine of screens
+
+A real game has screens: a title, the game itself, a game-over card. Model each as a
+`scene`, hold the current one in a variable, and `case_var` runs exactly one per frame:
+
+```ruby
+var :state, PLAYING
+
+scene :playing do
+  ship = sprite :ship, at: [112, 132]     # belongs to :playing
+  draw_number :score, 46, 4, :yellow       # so does the HUD
+  # ... move, shoot, collide ...
+  (lives <= 0).then { set :state, GAME_OVER }
+end
+
+scene :game_over do
+  draw_text "GAME OVER", 93, 68, :red       # shown only on this screen
+  pressed(:start).then { set :state, PLAYING }
+end
+
+game_loop do
+  wait_vblank
+  case_var(:state) { when_val PLAYING, :playing; when_val GAME_OVER, :game_over }
+end
+```
+
+The point: **a scene owns what it draws.** A sprite or HUD element declared inside a scene
+is on screen only while that scene is active — so switching state switches the whole
+screen, with no "hide this" flag anywhere. (Declare something at the top level instead and
+it shows in every scene — a persistent HUD.) A scene can also be a class in its own file
+(construct it inside its `scene` block) and can run in its own display mode. Worked
+example: [`shmup.rb`](examples/shmup.rb) (PLAYING → GAME OVER → restart).
 
 ### Choosing how to draw a moving thing
 
