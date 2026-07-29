@@ -60,8 +60,16 @@ module RubyGBA
         # picture each frame — so it's one step: draw them all from their current
         # positions (later ones sit in front). Tiled-mode text/number glyphs are
         # hardware sprites too, drawn last so a HUD sits on top of the game.
-        present = @hw_sprites.map(&:object_name) + @hud_objects
-        record(Build.present_objects(present)) unless present.empty?
+        #
+        # The list of objects to present is filled in at finalize (see
+        # finalize_present_lists), not here: a scene declares its own sprites/HUD inside
+        # its body, which is built after this loop, so they aren't in @hw_sprites/
+        # @hud_objects yet. Presenting them all is safe because a scene-owned object is
+        # hidden while its scene is inactive (its `active` gate); a program with no
+        # objects drops this node at finalize.
+        present_node = Build.present_objects([])
+        record(present_node)
+        @present_nodes << present_node
         # Then step every flipbook sprite's pose along its beat, so the next frame
         # shows the next picture.
         @animations.each { |anim| advance_animation(anim).each { |node| record(node) } }

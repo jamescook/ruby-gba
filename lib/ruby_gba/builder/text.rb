@@ -269,8 +269,11 @@ module RubyGBA
       # glyph is simply always shown.
       def hud_glyph_object(poses:, pose:, x:, y:)
         name = :"__hud#{@sprite_seq += 1}"
+        # active is 1 (a HUD glyph is always shown) unless it's declared inside a scene,
+        # where scene_gate scopes it to when that scene is active — so a scene's HUD comes
+        # and goes with the scene, with nothing to toggle by hand.
         record(Build.object(name, poses: poses, pose: pose,
-                                  x: Build.int(x), y: Build.int(y), active: Build.int(1)))
+                                  x: Build.int(x), y: Build.int(y), active: scene_gate(Build.int(1))))
         @hud_objects << name
         name
       end
@@ -319,6 +322,7 @@ module RubyGBA
       # Point at the fix rather than let a HUD silently fail to appear.
       def require_hud_declared_once!(verb)
         return if @container_stack.length == 1 # only the program itself is open
+        return if @building_scene # a scene declares its own HUD in its body (built once, off the loop)
 
         raise ArgumentError,
               "call #{verb} once, above your game_loop — not inside it. On a tiled screen the text is an " \
