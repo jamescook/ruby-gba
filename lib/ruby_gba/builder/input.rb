@@ -13,7 +13,7 @@ module RubyGBA
       def if_held(button, &block)
         check_button!(button)
         push_container(Build.if_(Build.held(button))) do
-          instance_eval(&block)
+          run_block(&block)
         end
       end
 
@@ -24,7 +24,7 @@ module RubyGBA
       def if_pressed(button, &block)
         check_button!(button)
         push_container(Build.if_(Build.pressed(button))) do
-          instance_eval(&block)
+          run_block(&block)
         end
       end
 
