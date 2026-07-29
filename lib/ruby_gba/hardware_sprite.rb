@@ -168,6 +168,19 @@ module RubyGBA
       self
     end
 
+    # Keep the sprite fully on the screen: pin its position so its box never crosses
+    # an edge, worked out from the sprite's own size — no coordinate literals. The
+    # counterpart to the off-screen tests ({Bounds#off_screen?} and friends): call it
+    # after a move to pen a player inside the play field. Clamps x/y in place, returns
+    # self. (It keeps the sprite's collision box on screen; a transparent margin around
+    # the art may still slide off, which is what you want.)
+    def clamp_to_screen
+      x.clamp(-@hit_x, IR::Screen::WIDTH - @hit_x - @hit_w)
+      y.clamp(-@hit_y, IR::Screen::HEIGHT - @hit_y - @hit_h)
+      self
+    end
+    alias stay_on_screen clamp_to_screen
+
     # Turn the sprite to face a direction, swapping to that pose in place (no move).
     # Only for a sprite given `facing:` poses, and only a direction it has a pose for
     # — anything else is a friendly error. On hardware this swaps which uploaded

@@ -59,7 +59,7 @@ module Shmup
     def update
       @build.held(:left).then  { @ship.move :left,  by: SPEED }
       @build.held(:right).then { @ship.move :right, by: SPEED }
-      @ship.x.clamp 0, 240 - 16 # the ship is 16 wide
+      @ship.clamp_to_screen # keep the ship on screen — it works out its own size
 
       fire_when_ready
       fly_the_shot
@@ -92,7 +92,7 @@ module Shmup
     def fly_the_shot
       (@shot_live == 1).then do
         @shot.move 0, -SHOT_SPEED # travel up
-        (@shot.y < 0).then { reclaim_shot } # gone off the top: ready to fire again
+        @shot.above_top?.then { reclaim_shot } # gone off the top: ready to fire again
       end
     end
   end
