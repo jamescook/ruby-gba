@@ -113,4 +113,24 @@ class TestVariables < Minitest::Test
     assert builder.variables.key?(:counter)
     assert builder.variables.key?(:step)
   end
+
+  # A declaration initializes ONCE, at program start — not every time the declaration
+  # runs. Declared inside a loop, `var :ticks, 0` doesn't re-zero the counter each frame,
+  # so it accumulates; if the initializer ran every frame it would be stuck at 1. This is
+  # what lets a game object declare its own state in setup that lives inside a scene.
+  def test_var_initializes_once_even_when_declared_inside_a_loop
+    builder = build_with_builder do
+      screen :bitmap
+      game_loop do
+        wait_vblank
+        var :ticks, 0 # declared inside the per-frame loop
+        add :ticks, 1 # ++ every frame
+      end
+    end
+    builder.emit_pending_functions
+
+    i = RubyGBA::IR::Backends::Ruby.new.run(builder.program, max_steps: 5_000)
+    assert_operator i[:ticks], :>, 1,
+                    "var's initializer runs once at boot, so the counter accumulates rather than resetting to 0 each frame"
+  end
 end

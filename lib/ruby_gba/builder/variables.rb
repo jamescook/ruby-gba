@@ -24,9 +24,21 @@ module RubyGBA
         Value.new(self, Build.var_ref(name), name: name)
       end
 
-      # Explicit variable declaration — same as `set` but reads better
-      # when you want to declare variables at the top of a build block.
-      alias var set
+      # Declare a variable and give it a starting value. Unlike {#set} (a runtime
+      # assignment that happens where you write it), a declaration's initial value is
+      # applied once, at program start — so declaring a variable inside a scene or a loop
+      # still initializes it a single time, not every time that code runs. That's what
+      # lets a game object declare its own state (a score, a flag) in its setup even when
+      # that setup lives inside a scene. Returns a {Value} handle for the variable.
+      #
+      # @param name [Symbol] variable name
+      # @param value [Integer, Symbol, Value] the starting value
+      # @return [Value] a handle to the variable
+      def var(name, value)
+        ensure_var(name)
+        at_boot(Build.set(name, Value.node_for(value)))
+        Value.new(self, Build.var_ref(name), name: name)
+      end
 
       # Add to a variable: var += operand.
       # Operand can be an immediate (Integer) or another variable (Symbol).
