@@ -92,10 +92,12 @@ module RubyGBA
         # hardware as each scene takes over. A hidden variable holds which mode is
         # live, so a scene only touches the display registers when the mode actually
         # changes (a transition), not every frame. Direct = single-buffered Mode 3,
-        # Buffered = double-buffered Mode 4.
+        # Buffered = double-buffered Mode 4, Tiled = tile backgrounds + hardware
+        # sprites (Mode 0).
         MODE_STATE = :__mode
         MODE_DIRECT = 0
         MODE_BUFFERED = 1
+        MODE_TILED = 2
 
         # This backend's mapping of the shared button vocabulary (IR::Buttons) to
         # hardware: each name → its bit in the key register. The key register is
@@ -158,6 +160,8 @@ module RubyGBA
           @palette = nil         # the color table, built once when any scene is buffered
           @modes = nil           # IR::Modes: which screen mode each scene resolves to
           @any_buffered = false  # does any scene use double buffering?
+          @mixed_display = false # does the program cross the bitmap/tiled boundary?
+          @manage_modes = false  # is the display switched per scene (buffered or mixed)?
           @default_mode = :direct # the boot screen mode (from the top-level `screen`)
           @func_mode = {}        # func name -> :direct | :buffered (resolved from the call graph)
           @scene_funcs = []      # funcs entered per frame, which switch the mode on entry
@@ -179,7 +183,6 @@ module RubyGBA
           prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
           resolve_modes(program)
           @tiled = program.walk.any? { |node| node.kind == :screen && node[:mode] == :tiled }
-          reject_mixed_bitmap_and_tiled!(program) if @tiled
           prepare_backgrounds(program) if @tiled
           @has_objects = program.walk.any? { |node| node.kind == :object }
           prepare_objects(program) if @has_objects
@@ -188,9 +191,16 @@ module RubyGBA
           @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
           emit_irq_setup if @uses_vblank # turn on VBlank interrupts so wait_vblank can sleep on them
           emit_input_init if @uses_pressed
-          emit_boot_screen if @any_buffered # set the boot mode + upload the palette once
-          emit_boot_backgrounds if @tiled && !@backgrounds.empty? # upload the shared BG palette + tiles once
-          emit_boot_objects if @has_objects # upload sprite tiles/colors + clear the sprite table
+          emit_boot_screen if @manage_modes # set the boot mode (+ palette for buffered)
+          # Upload the tiled assets once at boot only when the program stays in tiled
+          # mode. When it crosses the bitmap/tiled boundary, a bitmap scene overwrites
+          # the video memory the tiles live in, so the assets are (re)uploaded on each
+          # entry into a tiled scene instead (enter_tiled_mode) — always current, and
+          # only paid on the actual switch.
+          unless @manage_modes
+            emit_boot_backgrounds if @tiled && !@backgrounds.empty? # shared BG palette + tiles
+            emit_boot_objects if @has_objects # sprite tiles/colors + clear the sprite table
+          end
           @lower_mode = @default_mode
           program.children.each { |stmt| emit_statement(stmt) }
           emit_functions
@@ -221,34 +231,18 @@ module RubyGBA
           @func_mode = @modes.func_mode
           @scene_funcs = @modes.scene_funcs
           @any_buffered = @modes.any_buffered?
+          @mixed_display = @modes.mixed_display?
+          # When a program switches the hardware per scene — because some scene double-
+          # buffers, or because it crosses the bitmap/tiled boundary — the display
+          # registers are managed centrally: set once at boot, then re-set only on a
+          # scene's mode transition (its preamble). A single-display-system program
+          # leaves each `screen` node to write DISPCNT inline, exactly as before.
+          @manage_modes = @any_buffered || @mixed_display
         rescue IR::Modes::Conflict => e
           raise LoweringError, e.message
         end
 
         private
-
-        # Per-scene bitmap<->tiled switching is modeled on the reference interpreter but
-        # not yet realized on the console: crossing the boundary needs a runtime display
-        # reconfigure (the mode register, and re-laying-out the same video memory as a
-        # framebuffer vs. a tilemap + sprite table) that this backend doesn't emit yet.
-        # Rather than quietly build a ROM that black-screens — a bitmap draw and a tiled
-        # layout fighting over the same VRAM — say what happened and how to proceed. A
-        # program that stays on one side of the boundary is unaffected: all bitmap
-        # (single- or double-buffered) or all tiled lowers exactly as before. The tiled
-        # test matches the interpreter's, so both agree on what counts as crossing.
-        def reject_mixed_bitmap_and_tiled!(program)
-          bitmap_screen = program.walk.find do |node|
-            node.kind == :screen && node[:mode].is_a?(Symbol) && node[:mode] != :tiled
-          end
-          return unless bitmap_screen
-
-          raise LoweringError,
-                "this program mixes a bitmap screen and a tiled screen. Switching " \
-                "between them runs on the interpreter but isn't supported on the GBA " \
-                "yet, so it would build a black-screen ROM. For now keep a ROM on one " \
-                "display system: all bitmap (screen :bitmap, with or without " \
-                "tear_free:) or all tiled (screen :tiled)."
-        end
 
         # Turn on VBlank interrupts at boot so `wait_vblank` can sleep the CPU until the
         # next frame instead of spinning on the scanline counter. This is the whole dance
