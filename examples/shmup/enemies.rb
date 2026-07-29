@@ -44,7 +44,7 @@ module Shmup
     def update(player, hud)
       @enemies.each do |enemy|
         enemy.move 0, SPEED                        # drift down
-        (enemy.y > 160).then { respawn enemy }     # off the bottom: come round again
+        enemy.below_bottom?.then { respawn enemy } # off the bottom: come round again
 
         # A live shot that lands: score it, take the shot out of play, send the enemy back.
         (player.shot_live == 1).then do
