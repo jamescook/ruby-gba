@@ -179,6 +179,7 @@ module RubyGBA
           prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
           resolve_modes(program)
           @tiled = program.walk.any? { |node| node.kind == :screen && node[:mode] == :tiled }
+          reject_mixed_bitmap_and_tiled!(program) if @tiled
           prepare_backgrounds(program) if @tiled
           @has_objects = program.walk.any? { |node| node.kind == :object }
           prepare_objects(program) if @has_objects
@@ -225,6 +226,29 @@ module RubyGBA
         end
 
         private
+
+        # Per-scene bitmap<->tiled switching is modeled on the reference interpreter but
+        # not yet realized on the console: crossing the boundary needs a runtime display
+        # reconfigure (the mode register, and re-laying-out the same video memory as a
+        # framebuffer vs. a tilemap + sprite table) that this backend doesn't emit yet.
+        # Rather than quietly build a ROM that black-screens — a bitmap draw and a tiled
+        # layout fighting over the same VRAM — say what happened and how to proceed. A
+        # program that stays on one side of the boundary is unaffected: all bitmap
+        # (single- or double-buffered) or all tiled lowers exactly as before. The tiled
+        # test matches the interpreter's, so both agree on what counts as crossing.
+        def reject_mixed_bitmap_and_tiled!(program)
+          bitmap_screen = program.walk.find do |node|
+            node.kind == :screen && node[:mode].is_a?(Symbol) && node[:mode] != :tiled
+          end
+          return unless bitmap_screen
+
+          raise LoweringError,
+                "this program mixes a bitmap screen and a tiled screen. Switching " \
+                "between them runs on the interpreter but isn't supported on the GBA " \
+                "yet, so it would build a black-screen ROM. For now keep a ROM on one " \
+                "display system: all bitmap (screen :bitmap, with or without " \
+                "tear_free:) or all tiled (screen :tiled)."
+        end
 
         # Turn on VBlank interrupts at boot so `wait_vblank` can sleep the CPU until the
         # next frame instead of spinning on the scanline counter. This is the whole dance

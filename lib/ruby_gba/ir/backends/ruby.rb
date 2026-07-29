@@ -272,13 +272,22 @@ module RubyGBA
           when :wait_vblank
             advance_frame
           when :screen
-            # Just remember the chosen mode; the fake screen already models the
-            # bitmap the draw ops assume. Double buffering (node[:buffered]) needs
-            # no different handling here: it only changes *when* a drawn frame
-            # becomes visible on real hardware, and this oracle already reads the
-            # settled end-of-frame image — so a torn mid-frame never existed to
-            # begin with. Recording the flag keeps the interpreter honest about
-            # what the program asked for.
+            # Remember the chosen mode; the fake screen already models the bitmap the
+            # draw ops assume. Double buffering (node[:buffered]) needs no different
+            # handling here: it only changes *when* a drawn frame becomes visible on
+            # real hardware, and this oracle already reads the settled end-of-frame
+            # image — so a torn mid-frame never existed to begin with.
+            #
+            # Crossing between the bitmap display (a linear framebuffer) and the tiled
+            # display (a tilemap plus hardware sprites) is different: the two reuse the
+            # same video memory in incompatible ways, so the console shows one surface
+            # or the other, never both. A bitmap title handing off to a tiled game means
+            # the title's pixels stop being shown the instant the mode flips. Model that
+            # by wiping the picture on the crossing, so a previous scene's mode can't
+            # bleed through under the new one. A switch that stays within the bitmap
+            # family (single- vs double-buffered) keeps the same surface, so it doesn't
+            # wipe — the existing per-scene bitmap-mode behavior is unchanged.
+            @screen.clear(0) if @screen_mode && tiled_mode?(node[:mode]) != tiled_mode?(@screen_mode)
             @screen_mode = node[:mode]
             @buffered = node[:buffered] || false
           when :clear_screen
@@ -349,6 +358,15 @@ module RubyGBA
         def exec_call(name)
           func = @funcs[name] || raise(ProgramError, "call to undefined func #{name.inspect}")
           func.children.each { |child| exec(child) }
+        end
+
+        # Whether a display mode uses the tiled system (a tilemap plus hardware
+        # sprites) rather than the bitmap one (a linear framebuffer). This is the
+        # boundary that flips which surface the console shows — the same test the DSL
+        # uses to decide whether a scene's sprites are hardware or software — so the
+        # two agree on when a scene crosses from one display system to the other.
+        def tiled_mode?(mode)
+          mode == :tiled
         end
 
         # Render a string with the built-in bitmap font: each set pixel of each

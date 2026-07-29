@@ -143,12 +143,20 @@ module RubyGBA
     def emit_pending_functions
       @scene_gates = scan_scene_gates # which state value each scene is shown for (from case_var)
 
+      # The program's default display mode — whatever the top-level `screen` left set.
+      # Each scene starts from this, so one scene's `screen` (a tiled game) can't leak
+      # into the next (a bitmap title): a scene is bitmap or tiled by what IT declares,
+      # or the default, never by which scene happened to be built before it. That's what
+      # lets `sprite`/`draw_text`/`draw_number` pick software vs hardware per scene.
+      default_screen_mode = @screen_mode
+
       @functions.each do |name, block|
         # A scene's declarations belong to it: while its body is built, remember the
         # scene (so its HUD/sprites may be declared here) and the state gate that scopes
         # what it presents to when the scene is active.
         @building_scene = name if @scene_gates.key?(name)
         @current_scene_gate = @scene_gates[name]
+        @screen_mode = default_screen_mode
         push_container(Build.func(name)) do
           run_block(&block)
         end
