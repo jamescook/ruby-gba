@@ -22,8 +22,15 @@ module RubyGBA
       # Raised when one drawing routine is reached from scenes of different modes.
       class Conflict < StandardError; end
 
-      DIRECT = :direct     # single-buffered direct color
-      BUFFERED = :buffered # double-buffered, tear-free
+      DIRECT = :direct     # single-buffered direct color (bitmap)
+      BUFFERED = :buffered # double-buffered, tear-free (bitmap)
+      TILED = :tiled       # tile backgrounds + hardware sprites
+
+      # The two bitmap display modes — the same linear framebuffer, single- or
+      # double-buffered. They're one display *system*; tiled is the other. The
+      # buffered-vs-direct machinery is about these two, so several queries below
+      # deliberately count only them and leave tiled out.
+      BITMAP_MODES = [DIRECT, BUFFERED].freeze
 
       def self.resolve(program)
         new(program)
@@ -51,6 +58,21 @@ module RubyGBA
       # single-buffered path (no palette, no page flips).
       def any_buffered?
         @default_mode == BUFFERED || @func_mode.value?(BUFFERED)
+      end
+
+      # Does any scene run in tiled mode?
+      def any_tiled?
+        @default_mode == TILED || @func_mode.value?(TILED)
+      end
+
+      # Does the program cross the display-system boundary — some scene bitmap
+      # (single- or double-buffered) while another is tiled? That's the case the
+      # console has to switch the whole display for (the mode register plus the
+      # VRAM/OAM layout), not just flip a page. A program that stays on one system is
+      # left on its existing path.
+      def mixed_display?
+        modes = @func_mode.values + [@default_mode]
+        modes.any? { |m| BITMAP_MODES.include?(m) } && modes.include?(TILED)
       end
 
       # Whether the program mixes modes — some scene direct, some buffered. A
@@ -102,9 +124,10 @@ module RubyGBA
           return if @func_mode[name] == mode
 
           raise Conflict,
-                "the drawing routine :#{self.class.friendly_name(name)} is used from both a " \
-                "direct-color scene and a double-buffered one — a drawing routine can't be shared " \
-                "across screen modes. Give each mode its own routine, or move the shared drawing inline."
+                "the drawing routine :#{self.class.friendly_name(name)} is reached from scenes " \
+                "of different screen modes — a drawing routine can't be shared across screen " \
+                "modes (they draw to different places). Give each mode its own routine, or move " \
+                "the shared drawing inline."
         end
 
         @func_mode[name] = mode
@@ -112,10 +135,15 @@ module RubyGBA
       end
 
       # The screen mode a run of statements declares, via a `screen` node among
-      # them (nil if none): buffered when the screen opted into double buffering.
+      # them (nil if none): tiled for a tiled screen, else buffered when the screen
+      # opted into double buffering, else plain direct color.
       def declared_mode(statements)
         statements.each do |node|
-          return node[:buffered] ? BUFFERED : DIRECT if node.kind == :screen
+          next unless node.kind == :screen
+
+          return TILED if node[:mode] == :tiled
+
+          return node[:buffered] ? BUFFERED : DIRECT
         end
         nil
       end

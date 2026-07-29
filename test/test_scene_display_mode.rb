@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require_relative "../lib/ruby_gba"
+require_relative "test_helper"
 
 # Per-scene bitmap<->tiled switching: a game can run one scene as a direct-color
 # BITMAP screen (a linear framebuffer — plain draws, software sprites) and another
@@ -12,9 +13,13 @@ require_relative "../lib/ruby_gba"
 # This pins the model on the reference interpreter (the oracle). The GBA hardware
 # realization — reconfiguring DISPCNT / VRAM / OAM on the crossing — is its sibling.
 class TestSceneDisplayMode < Minitest::Test
+  include GembaSupport
+  include RubyGBA::Constants
+
   Builder = RubyGBA::Builder
   Ruby = RubyGBA::IR::Backends::Ruby
   GBA = RubyGBA::IR::Backends::GBA
+  ROM = RubyGBA::ROM
   Color = RubyGBA::Color
 
   RED = Color.resolve(:red)     # the bitmap title's fill
@@ -108,12 +113,30 @@ class TestSceneDisplayMode < Minitest::Test
                        "the bitmap scene's sprite stays a software sprite, even though a tiled scene was built first"
   end
 
-  # Crossing bitmap<->tiled is modeled on the interpreter but not on hardware yet, so
-  # lowering a mixed program to the GBA is a friendly build error, not a silent
-  # black-screen ROM. (Its sibling bead teaches the GBA backend the runtime switch.)
-  def test_mixing_bitmap_and_tiled_is_a_friendly_error_on_the_gba_backend
-    err = assert_raises(GBA::LoweringError) { GBA.new.lower(bitmap_to_tiled_program) }
-    assert_match(/mixes a bitmap screen and a tiled screen/, err.message)
-    assert_match(/all tiled/, err.message)
+  # A program that crosses the bitmap/tiled boundary lowers to a GBA ROM — the backend
+  # switches the whole display per scene (the mode register plus the VRAM/OAM layout),
+  # so it no longer refuses the program. (Its behavior on the console is asserted by the
+  # gemba test below.)
+  def test_a_mixed_bitmap_and_tiled_program_lowers_to_a_rom
+    code = GBA.new.lower(bitmap_to_tiled_program)
+    assert_operator code.bytesize, :>, 0
+  end
+
+  # The same crossing on real hardware (gemba): the console shows the direct-color
+  # bitmap title, and after START it reconfigures the whole display — the mode
+  # register, the sprite table, the VRAM the tiles/sprites live in — so the tiled
+  # scene's hardware sprite renders and the bitmap title's red is gone.
+  def test_the_switch_flips_the_display_on_the_console
+    rom = ROM.assemble(GBA.new.lower(bitmap_to_tiled_program), title: "MIX", code: "BMIX", maker: "01")
+
+    title = assert_gemba_loads_rom(rom, frames: 4) # no input: the Mode 3 bitmap title
+    assert title.red?(0, 0),
+           "the bitmap title is red on the console, got 0x#{format('%04X', title.pixel_gba(0, 0))}"
+
+    play = assert_gemba_loads_rom(rom, frames: 8, keys: KEY_START) # START -> the tiled scene
+    assert play.green?(103, 79),
+           "the tiled hardware sprite renders after the switch, got 0x#{format('%04X', play.pixel_gba(103, 79))}"
+    refute play.red?(0, 0),
+           "the bitmap title's red is gone once the display crosses into tiled, got 0x#{format('%04X', play.pixel_gba(0, 0))}"
   end
 end

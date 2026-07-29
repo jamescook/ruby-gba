@@ -206,7 +206,7 @@ module RubyGBA
               # Draws in this func lower in its resolved mode; a scene (a per-frame
               # entry point) also switches the hardware to that mode as it takes over.
               @lower_mode = @func_mode.fetch(name, @default_mode)
-              emit_scene_preamble(name) if @any_buffered && @scene_funcs.include?(name)
+              emit_scene_preamble(name) if @manage_modes && @scene_funcs.include?(name)
               fnode.children.each { |stmt| emit_statement(stmt) }
               emit(ASM.pop(15))                           # pop {pc}  (return)
               @func_ranges[name] = (start...pos)          # byte span, for dump_func

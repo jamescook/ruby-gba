@@ -11,12 +11,13 @@ module RubyGBA
           # Turn the screen on by writing the chosen mode to the display-control
           # register. Until this runs the screen stays black.
           #
-          # In a program that uses double buffering, the screen mode is managed for
-          # the whole program by the boot setup and each scene's mode-switch preamble,
-          # so a `screen` node is only a build-time declaration of a scene's mode and
-          # emits nothing here. Otherwise it's the plain one-time register write.
+          # In a program that switches the hardware per scene — some scene double-
+          # buffered, or crossing the bitmap/tiled boundary — the screen mode is managed
+          # for the whole program by the boot setup and each scene's mode-switch
+          # preamble, so a `screen` node is only a build-time declaration of a scene's
+          # mode and emits nothing here. Otherwise it's the plain one-time register write.
           def emit_screen(node)
-            return if @any_buffered
+            return if @manage_modes
 
             mode = node[:mode]
             value = if mode == :tiled
@@ -44,16 +45,17 @@ module RubyGBA
             BG_ENABLES.first(layers).reduce(0, :|)
           end
 
-          # One-time boot for a program that uses double buffering: upload the color
-          # table (palette memory keeps it across mode switches) and put the hardware
-          # in the default scene's mode. Buffered starts by showing page 0 and drawing
-          # into page 1; direct is the plain Mode 3 write.
+          # One-time boot for a program that switches the hardware per scene: put the
+          # display in the default scene's mode. A buffered program also uploads its
+          # color table here (palette memory survives mode switches), then starts by
+          # showing page 0 and drawing into page 1; a tiled default brings up the tile
+          # layers and sprites; a direct default is the plain Mode 3 write.
           def emit_boot_screen
-            upload_palette
-            if @default_mode == :buffered
-              enter_buffered_mode
-            else
-              enter_direct_mode
+            upload_palette if @any_buffered # the palette exists only for the buffered path
+            case @default_mode
+            when :tiled then enter_tiled_mode
+            when :buffered then enter_buffered_mode
+            else enter_direct_mode
             end
           end
 
@@ -68,24 +70,62 @@ module RubyGBA
             store_word_immediate(MODE_BUFFERED, var_addr(MODE_STATE))
           end
 
-          # Switch the hardware into direct-color (Mode 3) and record it as live.
+          # Switch the hardware into direct-color (Mode 3) and record it as live. Writing
+          # the whole register also turns the tile and sprite layers off, so nothing a
+          # tiled scene left on screen bleeds under the bitmap one — only BG2 (the
+          # framebuffer) shows, which the bitmap scene redraws.
           def enter_direct_mode
             write_reg16(REG_DISPCNT, MODE_3 | BG2_ENABLE)
             store_word_immediate(MODE_DIRECT, var_addr(MODE_STATE))
           end
 
-          # Emitted at the top of each scene when a program mixes modes: switch the
-          # hardware into this scene's mode, but only if it isn't already there (a
+          # Switch the hardware into tiled mode (Mode 0). Because the bitmap framebuffer
+          # and the tiles share video memory, a bitmap scene overwrites the tile data, so
+          # the tile pictures/colors and sprite tiles are (re)uploaded here on entry —
+          # cheap, and only on the actual switch. Then turn on the declared background
+          # layers (plus the sprite layer if the game has sprites) and record it live.
+          # Each background's map and control register are re-set by its own node in the
+          # scene body, which runs right after this preamble.
+          def enter_tiled_mode
+            emit_boot_backgrounds if @tiled && !@backgrounds.empty? # shared BG palette + tile pictures
+            emit_boot_objects if @has_objects                       # sprite palette + tiles, and clear OAM
+            value = MODE_0 | tiled_bg_enable_bits
+            value |= OBJ_ENABLE | OBJ_1D_MAP if @has_objects
+            write_reg16(REG_DISPCNT, value)
+            store_word_immediate(MODE_TILED, var_addr(MODE_STATE))
+          end
+
+          # Emitted at the top of each scene when a program switches the hardware per
+          # scene: switch into this scene's mode, but only if it isn't already there (a
           # transition). Steady frames — the same scene running again — cost just the
           # compare, and a buffered scene's DISPCNT is left to the page flip.
           def emit_scene_preamble(name)
-            want = @func_mode[name] == :buffered ? MODE_BUFFERED : MODE_DIRECT
+            mode = @func_mode[name]
             load_var(ACC, MODE_STATE)
-            emit(ASM.cmp_imm(ACC, want))
+            emit(ASM.cmp_imm(ACC, mode_state_marker(mode)))
             skip = gensym
             emit_branch(:bcond, skip, cond: :eq) # already in this mode? nothing to do
-            @func_mode[name] == :buffered ? enter_buffered_mode : enter_direct_mode
+            enter_mode(mode)
             place_label(skip)
+          end
+
+          # A scene's resolved mode -> the marker stored in MODE_STATE, and the routine
+          # that switches the hardware into it. Kept as two small methods (not a load-time
+          # table) so they resolve the MODE_* constants at call time.
+          def mode_state_marker(mode)
+            case mode
+            when :tiled then MODE_TILED
+            when :buffered then MODE_BUFFERED
+            else MODE_DIRECT
+            end
+          end
+
+          def enter_mode(mode)
+            case mode
+            when :tiled then enter_tiled_mode
+            when :buffered then enter_buffered_mode
+            else enter_direct_mode
+            end
           end
 
           # Copy the color table from the cartridge into background palette memory —
