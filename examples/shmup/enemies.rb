@@ -37,7 +37,6 @@ module Shmup
     def initialize(build)
       @build = build
       build.image(:enemy, "." => :transparent, "#" => :red) { ENEMY }
-      build.seed 0xC0DE
       # Start them spread across the top, at staggered heights.
       @enemies = Array.new(COUNT) { |i| build.sprite(:enemy, at: [36 + (i * 72), i * 52]) }
     end
@@ -62,6 +61,11 @@ module Shmup
           respawn enemy
         end
       end
+    end
+
+    # Back to the start: each enemy at its opening column and staggered height.
+    def reset
+      @enemies.each_with_index { |enemy, i| enemy.move_to 36 + (i * 72), i * 52 }
     end
 
     private
