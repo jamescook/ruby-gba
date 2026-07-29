@@ -71,6 +71,12 @@ module Shmup
       @shot_live.set 0
     end
 
+    # Back to the start: ship centred, no shot in flight.
+    def reset
+      @ship.move_to 112, 132
+      reclaim_shot
+    end
+
     private
 
     def fire_when_ready
