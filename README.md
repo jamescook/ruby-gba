@@ -206,6 +206,7 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | [`maze.rb`](examples/maze.rb) | A hero that walks corridors and is stopped by the walls (`tiles solid:`, `sprite.blocked_by`) | Tiled room + a hardware sprite with tile collision |
 | [`sheet.rb`](examples/sheet.rb) | Art imported from PNG files: a tile sheet paints the room, a transparent sprite sheet animates the hero (`tiles from:` / `sprite frames_from:`) | Tiled room + a hardware sprite, both imported from images |
 | [`level.rb`](examples/level.rb) | A level designed in a map editor: import the whole tile sheet as numbered tiles, then read the room straight from a CSV export (`tiles from:` / `background from:`) | Tiled room from a CSV tilemap + a hardware sprite |
+| [`shmup.rb`](examples/shmup.rb) + [`shmup/`](examples/shmup) | A game **split across files**: `player.rb`, `enemies.rb`, `hud.rb` are plain Ruby objects that take the build and call `build.sprite`/`build.held`/… — no base class, no magic. Ship, fixed-N diving enemies, per-pixel shot hits, a live HUD | Tiled: hardware sprites + text HUD + per-pixel collision |
 | [`jukebox.rb`](examples/jukebox.rb) | The sound showcase: three classical tunes written as plain notes (`song` / `note`) — Ode to Joy played two-handed with a `voice :melody` over a `voice :bass` — a cursor that picks one to play and loop, and bobbing "now playing" bars | Tear-free (double-buffered) bitmap menu |
 
 Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static

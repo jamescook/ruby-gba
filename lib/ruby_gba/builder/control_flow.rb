@@ -77,7 +77,7 @@ module RubyGBA
       #   end
       def game_loop(&block)
         push_container(Build.loop_) do
-          instance_eval(&block)
+          run_block(&block)
         end
       end
 
@@ -102,7 +102,7 @@ module RubyGBA
         ensure_var(count)
         i = Value.new(self, Build.var_ref(index), name: index)
         push_container(Build.repeat(Value.node_for(count), index)) do
-          instance_exec(i, &block)
+          run_block(i, &block)
         end
       end
 
@@ -131,7 +131,7 @@ module RubyGBA
         # turns it into the frame counter + compare. The counter itself is still
         # allocated and cleared at boot by timer_counter! above.
         push_container(Build.every(counter, to_frames(n, unit))) do
-          instance_eval(&block)
+          run_block(&block)
         end
       end
 
@@ -152,7 +152,7 @@ module RubyGBA
         # each backend counts up only until the target so the body fires exactly
         # once. The counter is allocated and cleared at boot by timer_counter!.
         push_container(Build.after(counter, to_frames(n, unit))) do
-          instance_eval(&block)
+          run_block(&block)
         end
       end
 
@@ -210,7 +210,7 @@ module RubyGBA
         ensure_var(operand)
 
         push_container(Build.if_(condition)) do
-          instance_eval(&block)
+          run_block(&block)
         end
       end
 

@@ -139,7 +139,7 @@ module RubyGBA
     def emit_pending_functions
       @functions.each do |name, block|
         push_container(Build.func(name)) do
-          instance_eval(&block)
+          run_block(&block)
         end
       end
 
@@ -159,7 +159,7 @@ module RubyGBA
     def record_conditional(cond_node, &block)
       if_node = Build.if_(cond_node)
       push_container(if_node) do
-        instance_eval(&block)
+        run_block(&block)
       end
       if_node
     end
@@ -198,7 +198,7 @@ module RubyGBA
       else_node = Build.else_
       @container_stack.push(else_node)
       begin
-        instance_eval(&block)
+        run_block(&block)
       ensure
         @container_stack.pop
       end
@@ -340,6 +340,19 @@ module RubyGBA
       yield
     ensure
       @container_stack.pop
+    end
+
+    # Run a DSL block (a game loop body, a `.then`, a func body…) at the current build
+    # point. It runs in the block's OWN context, not instance_eval'd onto the builder,
+    # so its `self` stays wherever the block was written: this builder at the top level
+    # (where these blocks live inside RubyGBA.build's instance_eval, so `self` already
+    # is the builder), or a plain Ruby object when a game is split across files — there
+    # the block still sees that object's @ivars, while its bare verbs delegate back here
+    # (see {RubyGBA::Part}). +args+ pass through to a block that takes them (a loop
+    # index). Sub-DSLs with their own vocabulary — `entry`, `case_var`, `font`, `song` —
+    # keep instance_eval instead, since their blocks speak a different verb set.
+    def run_block(*args, &block)
+      block.call(*args)
     end
 
     # Low-level entry context for raw instruction emission.
