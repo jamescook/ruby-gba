@@ -83,6 +83,10 @@ module RubyGBA
       @prng_used = false       # whether the program draws random numbers (seeds the stream once)
       @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
       @pending_conditions = [] # Conditions built but not yet used; leftovers are orphans
+      @present_nodes = []      # every frame's present-objects node, filled with the full object list at finalize
+      @scene_gates = {}        # scene func name → [state_var, value] it's dispatched on (from case_var), for gating its presentation
+      @current_scene_gate = nil # while a scene func's body is being built: the [state_var, value] its declarations belong to
+      @building_scene = nil    # the scene func name currently being built (lets its presentation be declared inside it)
 
       # The program the DSL builds: an IR tree of nodes that {RubyGBA.build}
       # lowers to a ROM. Each statement attaches to the container on top of the
@@ -137,12 +141,23 @@ module RubyGBA
     # call and case target names a function that exists. Called automatically by
     # RubyGBA.build after the DSL block.
     def emit_pending_functions
+      @scene_gates = scan_scene_gates # which state value each scene is shown for (from case_var)
+
       @functions.each do |name, block|
+        # A scene's declarations belong to it: while its body is built, remember the
+        # scene (so its HUD/sprites may be declared here) and the state gate that scopes
+        # what it presents to when the scene is active.
+        @building_scene = name if @scene_gates.key?(name)
+        @current_scene_gate = @scene_gates[name]
         push_container(Build.func(name)) do
           run_block(&block)
         end
+      ensure
+        @building_scene = nil
+        @current_scene_gate = nil
       end
 
+      finalize_present_lists
       verify_targets_defined!
       initialize_rng_stream
       emit_boot_inits
@@ -225,6 +240,46 @@ module RubyGBA
       @boot_inits.reverse_each do |node|
         @program.children.unshift(node)
         node.parent = @program
+      end
+    end
+
+    # Which scenes are shown for which state, read from the case_var dispatch(es):
+    # a scene func named as a case target is presented only while the dispatched
+    # variable holds that clause's value. Maps a scene func name → [state_var, value],
+    # so a sprite/HUD declared inside that scene can be gated to when the scene is live.
+    def scan_scene_gates
+      gates = {}
+      @program.walk do |node|
+        next unless node.kind == :case
+
+        node[:clauses].each { |value, target| gates[target] ||= [node[:var], value] }
+      end
+      gates
+    end
+
+    # Gate an object's visibility to its scene: a scene-owned object is shown only when
+    # both its own shown-flag is set AND its scene is the active one. Rides the object's
+    # existing per-frame `active` value, so presentation stays automatic — nothing new to
+    # call, and no per-draw flag in game code. Outside a scene, visibility is unchanged.
+    def scene_gate(active_node)
+      return active_node unless @current_scene_gate
+
+      state_var, value = @current_scene_gate
+      Build.binop(:*, active_node, Build.binop(:==, Build.var_ref(state_var), Build.int(value)))
+    end
+
+    # Fill every frame's present-objects node with the complete object list once all
+    # scenes are built — a scene declares its sprites/HUD inside its own body (built after
+    # the game loop), so the list isn't known when wait_vblank records the node. A frame
+    # that ends up with no objects drops the node, so an object-free program is unchanged.
+    def finalize_present_lists
+      names = @hw_sprites.map(&:object_name) + @hud_objects
+      @present_nodes.each do |node|
+        if names.empty?
+          node.parent&.children&.delete(node)
+        else
+          node[:names] = names
+        end
       end
     end
 
@@ -347,8 +402,8 @@ module RubyGBA
     # so its `self` stays wherever the block was written: this builder at the top level
     # (where these blocks live inside RubyGBA.build's instance_eval, so `self` already
     # is the builder), or a plain Ruby object when a game is split across files — there
-    # the block still sees that object's @ivars, while its bare verbs delegate back here
-    # (see {RubyGBA::Part}). +args+ pass through to a block that takes them (a loop
+    # the block still sees that object's @ivars, while its bare verbs resolve against the
+    # build it was handed (see examples/shmup). +args+ pass through to a block that takes them (a loop
     # index). Sub-DSLs with their own vocabulary — `entry`, `case_var`, `font`, `song` —
     # keep instance_eval instead, since their blocks speak a different verb set.
     def run_block(*args, &block)

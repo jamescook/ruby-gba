@@ -256,7 +256,7 @@ module RubyGBA
         pose = posed ? Build.var_ref(pose_var) : Build.int(0)
         record(Build.object(object_name, poses: poses, pose: pose,
                                          x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
-                                         active: Build.var_ref(active)))
+                                         active: scene_gate(Build.var_ref(active))))
         handle = HardwareSprite.new(self, object_name: object_name, x: pos_x, y: pos_y,
                                           active: active, hitbox: box, poses: poses, pixel_perfect: hitbox.nil?,
                                           facing_var: pose_var, facing_dirs: facing_dirs)
