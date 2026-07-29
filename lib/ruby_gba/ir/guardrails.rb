@@ -187,6 +187,7 @@ require_relative "guardrails/channel_conflict"
 require_relative "guardrails/redraw_everything"
 require_relative "guardrails/sprite_cleared_each_frame"
 require_relative "guardrails/manual_sprite_blit"
+require_relative "guardrails/seed_in_loop"
 
 module RubyGBA
   module IR
@@ -207,6 +208,7 @@ module RubyGBA
         Checks::RedrawEverything.new,
         Checks::SpriteClearedEachFrame.new,
         Checks::ManualSpriteBlit.new,
+        Checks::SeedInLoop.new,
       ].freeze
     end
   end
