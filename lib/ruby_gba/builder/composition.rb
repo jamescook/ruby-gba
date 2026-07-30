@@ -32,14 +32,27 @@ module RubyGBA
       # Returns a {Pool} handle — spawn instances, iterate the live ones with `each`,
       # ask its `count` / `full?`.
       #
+      # Give the pool an `image:` and each live instance draws itself as a hardware
+      # sprite at its x/y (spawn shows one, remove hides it) and gains a collision box:
+      #
+      #   enemies = pool :enemy, x: 0, y: 0, hp: 3, capacity: 16, image: :ufo
+      #   enemies.each { |e| e.y.add 1; bullet.overlaps?(e).then { e.remove } }
+      #
+      # A spriteful pool needs x: and y: fields and a `screen :tiled` (its instances are
+      # hardware sprites). Without an image it's a pure-data pool (draw it yourself in
+      # `each`).
+      #
       # @param name [Symbol] the pool's name
       # @param capacity [Integer] the most instances that can be live at once
+      # @param image [Symbol, nil] the sprite image each live instance draws
       # @param fields [Hash{Symbol=>Object}] field name => default value
       # @return [Pool]
-      def pool(name, capacity:, **fields)
+      def pool(name, capacity:, image: nil, **fields)
         validate_pool!(name, capacity, fields)
-        handle = Pool.new(self, name, fields, capacity)
+        hitbox = image && spriteful_hitbox!(name, image, fields)
+        handle = Pool.new(self, name, fields, capacity, image: image, hitbox: hitbox)
         setup_pool_storage(handle, capacity, fields)
+        setup_pool_sprites(handle, capacity) if image
         handle
       end
 
@@ -67,6 +80,42 @@ module RubyGBA
               "pool :#{name} of #{capacity} x #{fields.size} fields needs about #{bytes / 1024}KB of fast RAM, " \
               "but a pool must stay well under #{POOL_MAX_BYTES / 1024}KB (the GBA has 32KB in total). Use a " \
               "smaller capacity or fewer fields."
+      end
+
+      # Validate a spriteful pool and return the collision box its image gives every
+      # instance. Its instances are hardware sprites, so it needs a tiled screen and x/y
+      # position fields, and the image must be defined.
+      def spriteful_hitbox!(name, image, fields)
+        unless @screen_mode == :tiled
+          raise ArgumentError,
+                "pool :#{name} has an image, so its instances are hardware sprites — declare it under a " \
+                "`screen :tiled` (or drop image: and draw the pool yourself in each on a bitmap screen)."
+        end
+        missing = %i[x y] - fields.keys
+        unless missing.empty?
+          raise ArgumentError,
+                "a spriteful pool needs x: and y: fields (its sprite's position) — pool :#{name} is missing " \
+                "#{missing.map { |f| "#{f}:" }.join(' and ')}."
+        end
+        size = @images[image] or
+          raise ArgumentError, "pool :#{name} draws image :#{image}, but no `image :#{image}` is defined yet."
+
+        collision_box(image, [image], *size, nil)
+      end
+
+      # Declare one hardware-sprite object per slot, each bound to the field lists at its
+      # fixed index — so present_objects draws every live slot at its x/y and hides the
+      # dead ones for free. The active flag is scene-gated, so a pool declared in a scene
+      # only shows while that scene is live.
+      def setup_pool_sprites(pool, capacity)
+        capacity.times do |slot|
+          name = pool.object_name(slot)
+          record(Build.object(name, poses: [pool.image], pose: Build.int(0),
+                                    x: Build.list_get(pool.field_list(:x), Build.int(slot)),
+                                    y: Build.list_get(pool.field_list(:y), Build.int(slot)),
+                                    active: scene_gate(Build.list_get(pool.active_list, Build.int(slot)))))
+          @pool_objects << name
+        end
       end
 
       # Create the backing lists once at boot — not where `pool` is written, so a pool
