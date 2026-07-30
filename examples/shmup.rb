@@ -95,4 +95,7 @@ if __FILE__ == $PROGRAM_NAME
   output = File.join(__dir__, "shmup.gba")
   rom.write(output)
   puts "Built shmup.gba (#{rom.size} bytes)"
+  # Set EXPLAIN=1 to print the per-frame draw/sound-cost breakdown — grouped by the
+  # collaborator file each bit of work came from (player.rb, enemies.rb, hud.rb).
+  rom.explain if ENV["EXPLAIN"]
 end
