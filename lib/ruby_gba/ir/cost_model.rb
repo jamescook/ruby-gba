@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require_relative "printer"
 
 module RubyGBA
   module IR
@@ -428,48 +429,51 @@ module RubyGBA
       # A loud line, above the estimate, naming any op the model couldn't account for —
       # so a newly-added op nobody taught it to price can't slip by as free. Reads the
       # set left by the most recent analysis; silent when everything was understood.
-      def emit_unpriced_banner(out)
+      def emit_unpriced_banner(printer)
         return if @unpriced.nil? || @unpriced.empty?
 
-        out.puts "!! can't estimate: #{@unpriced.sort.join(', ')} — counted as FREE, so the real per-frame " \
-                 "cost may be higher. Teach the cost model to price it."
+        printer.puts "!! can't estimate: #{@unpriced.sort.join(', ')} — counted as FREE, so the real per-frame " \
+                     "cost may be higher. Teach the cost model to price it.", emphasis: :banner
       end
 
       # Print a short, human draw-cost estimate to +out+: the per-frame cost against
       # the frame budget for a game loop, or the one-time boot cost otherwise. (The
       # full drill-down tree comes later; this is the at-a-glance summary.)
-      def report(program, out: $stdout)
+      def report(program, out: $stdout, color: :auto)
+        printer = Printer.for(out, color: color)
         analyze(program) # populate the unpriced set before the header prints
-        emit_unpriced_banner(out)
-        out.puts "draw-cost estimate (scanlines of the ~68-line vblank window, measured on hardware):"
-        verdict_lines(program, out)
-        glyph_footprint_lines(program, out)
+        emit_unpriced_banner(printer)
+        printer.puts "draw-cost estimate (scanlines of the ~68-line vblank window, measured on hardware):"
+        verdict_lines(program, printer)
+        glyph_footprint_lines(program, printer)
       end
 
       # The drill-down: the verdict, then the (aggregated, depth-limited) cost tree,
       # then the hottest ops. +focus+ roots the tree at a named func; +max_depth+
       # bounds how deep it prints (deeper subtrees collapse to a rollup line).
-      def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5)
+      def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5, color: :auto)
+        printer = Printer.for(out, color: color)
         tree = group_by_source(aggregate(analyze(program, focus: focus)))
-        emit_unpriced_banner(out) # loud, at the very top, before the estimate itself
-        out.puts "draw-cost estimate (scanlines of the ~68-line vblank window, measured on hardware):"
+        frame_total = tree.sum { |node| node[:cost] } # the reference for a node's share-of-frame heat
+        emit_unpriced_banner(printer) # loud, at the very top, before the estimate itself
+        printer.puts "draw-cost estimate (scanlines of the ~68-line vblank window, measured on hardware):"
         if focus
-          out.puts "  func :#{focus} ~ #{fmt(tree.sum { |node| node[:cost] })} scanlines"
+          printer.puts "  func :#{focus} ~ #{fmt(frame_total)} scanlines"
         else
-          verdict_lines(program, out)
+          verdict_lines(program, printer)
         end
-        render_tree(collapse_repeats(prune(tree, max_depth)), 1, out)
+        render_tree(collapse_repeats(prune(tree, max_depth)), 1, printer, frame_total)
         hot = hot_ops(tree, top)
-        out.puts "  hottest: " + hot.map { |h| "#{h[:op]}×#{h[:count]} ~#{fmt(h[:cost])}" }.join("  ") unless hot.empty?
-        glyph_footprint_lines(program, out)
+        printer.puts "  hottest: " + hot.map { |h| "#{h[:op]}×#{h[:count]} ~#{fmt(h[:cost])}" }.join("  ") unless hot.empty?
+        glyph_footprint_lines(program, printer)
       end
 
       # One line per font whose text this program draws: how many of its glyphs are
       # actually reachable — the footprint a data-driven font would embed. Silent
       # when the program draws no text.
-      def glyph_footprint_lines(program, out)
+      def glyph_footprint_lines(program, printer)
         IR::GlyphUsage.footprint(program).each do |f|
-          out.puts "  text: font :#{f[:font]} draws #{f[:drawn]} of its #{f[:total]} glyphs"
+          printer.puts "  text: font :#{f[:font]} draws #{f[:drawn]} of its #{f[:total]} glyphs"
         end
       end
 
@@ -546,13 +550,13 @@ module RubyGBA
       # one-off spike when it's larger; for a static program, the one-time boot cost.
       # A game that switches modes between scenes is reported scene by scene, since
       # each mode has its own budget.
-      def verdict_lines(program, out)
+      def verdict_lines(program, printer)
         unless looping?(program)
-          out.puts "  boot draw ~ #{fmt(frame_cost(program))} scanlines   " \
-                   "(no game loop — drawn once, then halts)   ok"
+          printer.puts "  boot draw ~ #{fmt(frame_cost(program))} scanlines   " \
+                       "(no game loop — drawn once, then halts)   ok", severity: :good
           return
         end
-        return scene_verdict_lines(program, out) if mixed?(program)
+        return scene_verdict_lines(program, printer) if mixed?(program)
 
         steady = steady_cost(program)
         full = frame_cost(program)
@@ -561,17 +565,17 @@ module RubyGBA
         # Over budget reads differently depending on the mode: a single-buffered
         # frame tears, a double-buffered one just drops below 60fps.
         over_note = buffered?(program) ? "! over budget — the frame rate drops" : "! over budget — the screen tears"
-        out.puts "  steady per frame ~ #{fmt(steady)} of ~#{budget} scanlines (#{pct(steady, budget)})   " \
-                 "#{over ? over_note : 'ok — fits the frame'}"
+        printer.puts "  steady per frame ~ #{fmt(steady)} of ~#{budget} scanlines (#{pct(steady, budget)})   " \
+                     "#{over ? over_note : 'ok — fits the frame'}", severity: severity_for(steady, budget)
         if full > steady
-          out.puts "  heaviest frame   ~ #{fmt(full)} scanlines   " \
-                   "(a one-off spike — a transition frame or an every() tick, not the steady load)"
+          printer.puts "  heaviest frame   ~ #{fmt(full)} scanlines   " \
+                       "(a one-off spike — a transition frame or an every() tick, not the steady load)"
         end
       end
 
       # One verdict line per scene, each against its own mode's budget — the report
       # for a game that runs some scenes direct-color and others tear-free.
-      def scene_verdict_lines(program, out)
+      def scene_verdict_lines(program, printer)
         scene_verdicts(program).each do |s|
           mode_label = s[:mode] == Modes::BUFFERED ? "tear-free" : "direct"
           note =
@@ -580,16 +584,20 @@ module RubyGBA
             else
               s[:mode] == Modes::BUFFERED ? "ok — fits the frame" : "ok — fits the safe window"
             end
-          out.puts "  scene :#{s[:name]} (#{mode_label}) ~ #{fmt(s[:steady_cost])} of ~#{s[:budget]} scanlines " \
-                   "(#{pct(s[:steady_cost], s[:budget])})   #{note}"
+          printer.puts "  scene :#{s[:name]} (#{mode_label}) ~ #{fmt(s[:steady_cost])} of ~#{s[:budget]} scanlines " \
+                       "(#{pct(s[:steady_cost], s[:budget])})   #{note}", severity: severity_for(s[:steady_cost], s[:budget])
         end
       end
 
-      def render_tree(nodes, depth, out)
+      # Print the cost tree, tinting each line by its share of the frame's work (the
+      # green→orange heatmap, never red) and marking a group heading — a per-file
+      # subtotal — bold so the structure stands out from its leaves.
+      def render_tree(nodes, depth, printer, frame_total)
         nodes.each do |node|
           tag = node[:collapsed] ? "  (+#{node[:collapsed]} ops collapsed)" : ""
-          out.puts format("  %-52s ~%s", ("  " * depth) + node[:label] + tag, fmt(node[:cost]))
-          render_tree(node[:children], depth + 1, out) unless node[:children].to_a.empty?
+          printer.cost_line(("  " * depth) + node[:label] + tag, fmt(node[:cost]),
+                            severity: heat_for(node[:cost], frame_total), group: node[:op] == :group)
+          render_tree(node[:children], depth + 1, printer, frame_total) unless node[:children].to_a.empty?
         end
       end
 
@@ -605,6 +613,43 @@ module RubyGBA
       # A cost as a whole-percent share of a budget, e.g. "66%".
       def pct(cost, budget)
         "#{((cost.to_f / budget) * 100).round}%"
+      end
+
+      # The VERDICT scale, as fractions of the frame budget — the one place red comes
+      # from. `:hot` is exactly `cost > budget`, the same test the over-budget verdict
+      # uses, so a red verdict and the "over budget" wording can never disagree; the
+      # cooler bands grade a frame that still fits.
+      SEVERITY_THRESHOLDS = { hot: 1.0, warm: 0.66, ok: 0.33 }.freeze
+
+      # Which verdict band +cost+ falls in against +budget+ (see {Printer} for colours).
+      # Red means "over the frame budget — it will tear or drop frames"; a missing or
+      # zero budget can't be exceeded, so it reads as good/cheap.
+      def severity_for(cost, budget)
+        return :good unless budget&.positive?
+
+        fraction = cost.to_f / budget
+        return :hot  if fraction > SEVERITY_THRESHOLDS[:hot]
+        return :warm if fraction >= SEVERITY_THRESHOLDS[:warm]
+        return :ok   if fraction >= SEVERITY_THRESHOLDS[:ok]
+
+        :good
+      end
+
+      # The TREE heatmap, as a share of the frame's total drawn work — deliberately
+      # never red. Red is reserved for the over-budget verdict, so a game that fits
+      # shows no alarm anywhere in the drill-down; the tree only grades where the time
+      # goes (a big slice is orange = "your hottest work", not "a problem to fix"). The
+      # bands are shares of +frame_total+, so they don't depend on the hardware budget.
+      HEAT_THRESHOLDS = { warm: 0.33, ok: 0.10 }.freeze
+
+      def heat_for(cost, frame_total)
+        return :good unless frame_total&.positive?
+
+        share = cost.to_f / frame_total
+        return :warm if share >= HEAT_THRESHOLDS[:warm]
+        return :ok   if share >= HEAT_THRESHOLDS[:ok]
+
+        :good
       end
 
       def leaf_count(node)

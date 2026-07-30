@@ -100,6 +100,11 @@ module RubyGBA
     # +format+ selects the view: :human is the drill-down tree (accepts max_depth:,
     # focus:, top: to scope it), :summary is the one-line verdict, and :json is the
     # structured cost tree for tools and tests to consume without parsing text.
+    #
+    # The human/summary views print a colour heatmap — each cost line tinted by how much
+    # of the frame budget it uses, file subtotals in bold — when the output is a terminal.
+    # Pass color: false to force plain text (or false-y auto-off happens for a pipe or a
+    # captured StringIO, and whenever NO_COLOR is set).
     def explain(format: :human, out: $stdout, **opts)
       unless source_program
         raise ROMError, "this ROM has no source program to explain (assemble via RubyGBA.build)"
@@ -108,7 +113,7 @@ module RubyGBA
       model = IR::CostModel.new
       case format
       when :human   then model.render(source_program, out: out, **opts)
-      when :summary then model.report(source_program, out: out)
+      when :summary then model.report(source_program, out: out, **opts)
       when :json    then out.puts(JSON.generate(model.as_json(source_program)))
       else raise ArgumentError, "unknown explain format #{format.inspect} (use :human, :summary, or :json)"
       end
