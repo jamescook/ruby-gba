@@ -66,6 +66,7 @@ module RubyGBA
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
+          @samples = {}           # name -> { rate:, length: } (a defined PCM sample)
           @timers = {}            # name -> { hz:, running:, overflows: } (a hardware timer)
           @timer_handlers = {}    # name -> on_timer node whose body runs on each overflow
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
@@ -145,6 +146,8 @@ module RubyGBA
               }
             when :song
               @songs[n[:name]] = n
+            when :sample
+              @samples[n[:name]] = { rate: n[:rate], length: n[:bytes].bytesize }
             when :data
               @data[n[:name]] = n[:bytes]
             when :bitmap
@@ -340,7 +343,7 @@ module RubyGBA
             exec_present_objects(node)
           when :enable_sound
             @audio << [:enabled]
-          when :define_sound, :song, :data, :bitmap, :backing_buffer, :object
+          when :define_sound, :song, :sample, :data, :bitmap, :backing_buffer, :object
             # Definitions: gathered up front, so reaching one inline does nothing
             # (just like a func body).
             nil
@@ -356,6 +359,11 @@ module RubyGBA
             exec_play_song(node[:name])
           when :stop_music
             @audio << [:stop_music]
+          when :play_sample
+            @samples[node[:name]] || raise(ProgramError, "play_sample of undefined sample #{node[:name].inspect}")
+            @audio << [:sample, node[:name]]
+          when :stop_sample
+            @audio << [:stop_sample]
           when :timer_start
             # Start (or restart) a timer: it now runs at hz overflows/sec, its elapsed
             # count reset to zero (advance_frame accrues the overflows each frame).

@@ -54,6 +54,7 @@ module ConformanceFixture
                         pixels: [0x03E0, 0x03E0, 0x03E0, 0x03E0].pack("v*"), transparent: nil),
       B.bitmap(:obj8, width: 8, height: 8, # an 8x8 picture for a composited object (a valid sprite size)
                        pixels: Array.new(64, 0x03E0).pack("v*"), transparent: nil),
+      B.sample(:clip, [0, 60, 120, 60, 0, -60, -120, -60].pack("c*"), 8000), # a tiny PCM clip
       B.backing_buffer(:under, width: 4, height: 4), # a save-under patch for a moving object
       B.func(:helper, B.set(:h, 1), B.add(:h, 2), B.wait_vblank),
       B.func(:scene_a, B.set(:picked, 10)),
@@ -106,6 +107,8 @@ module ConformanceFixture
       B.stop_wave,
       B.play_song(:tune),
       B.stop_music,
+      B.play_sample(:clip), # a recorded sound through Direct Sound
+      B.stop_sample,
 
       # --- a list: create, push (constant and computed), overwrite, read, drop ---
       B.list_new(:trail, 4),

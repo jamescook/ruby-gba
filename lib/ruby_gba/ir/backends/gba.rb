@@ -10,6 +10,7 @@ require_relative "gba/expressions"
 require_relative "gba/primitives"
 require_relative "gba/collision"
 require_relative "gba/timers"
+require_relative "gba/direct_sound"
 
 module RubyGBA
   module IR
@@ -61,6 +62,7 @@ module RubyGBA
         include Primitives
         include Collision
         include Timers
+        include DirectSound
 
         class LoweringError < StandardError; end
 
@@ -157,6 +159,8 @@ module RubyGBA
           @bitmaps = {}          # name -> { width:, height: } (a blob that has a shape)
           @backing = {}          # name -> { width:, height:, base: } (a sprite's save-under RAM)
           @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)
+          @samples = {}          # name -> { rate:, length: } (a Direct Sound PCM sample)
+          @plays_samples = false # does the program play any sample (uses Direct Sound)?
           @timers = {}           # name -> { rate:, count: } (which hardware timer(s) back it)
           @next_hw_timer = 0     # next free hardware timer index (0-3)
           @label_seq = 0
@@ -184,6 +188,7 @@ module RubyGBA
         # out.
         def lower(program)
           collect_definitions(program)
+          prepare_direct_sound(program) # embed samples; reserve timers 0-1 for Direct Sound
           register_timers(program) # assign each named timer its hardware timer index(es)
           prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
           resolve_modes(program)
@@ -252,7 +257,7 @@ module RubyGBA
         # Does the program need any interrupt at all — VBlank (for wait_vblank) or a timer
         # (for an on_tick handler)? If so we arm the interrupts and install the dispatcher.
         def uses_irq?
-          @uses_vblank || irq_timers.any?
+          @uses_vblank || irq_timers.any? || direct_sound?
         end
 
         # The registers the dispatcher saves around a handler body: r4-r11 (callee-saved,
@@ -270,6 +275,9 @@ module RubyGBA
           enabled = 0
           enabled |= IRQ_VBLANK if @uses_vblank
           irq_timers.each { |_, info| enabled |= timer_irq_bit(info[:rate]) }
+          enabled |= timer_irq_bit(DS_LENGTH_TIMER) if direct_sound? # the end-of-clip interrupt
+
+
 
           write_io_halfword(REG_IME, 0)                          # interrupts off while we wire things up
           write_io_halfword(REG_DISPSTAT, DISPSTAT_VBLANK_IRQ) if @uses_vblank # display raises VBlank each frame
@@ -297,6 +305,8 @@ module RubyGBA
               info[:handler].children.each { |child| emit_statement(child) }
             end
           end
+          # Direct Sound's length timer interrupts once a clip has fully played — stop it.
+          emit_irq_source(timer_irq_bit(DS_LENGTH_TIMER)) { emit_stop_sample } if direct_sound?
           emit(ASM.pop(*IRQ_SAVED_REGS))
           emit(ASM.return) # BX LR back to the BIOS dispatcher
         end

@@ -119,6 +119,7 @@ module RubyGBA
         screen wait_vblank halt raw object
         define_sound song data bitmap backing_buffer list_new
         timer_start timer_stop on_timer
+        sample play_sample stop_sample
       ].freeze
       FREE_VALUE_KINDS = %i[int var_ref data_byte list_get list_len held pressed read_scanline timer_ticks].freeze
 

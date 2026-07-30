@@ -61,6 +61,9 @@ module RubyGBA
         enable_sound: :sound, define_sound: :sound, beep: :sound, noise: :sound,
         wave: :sound, stop_wave: :sound,
         song: :sound, play_song: :sound, stop_music: :sound,
+        # sampled (PCM) audio: play_sample/stop_sample trigger a recorded sound; the
+        # `sample` definition that names its data is a :data kind (below).
+        play_sample: :sound, stop_sample: :sound,
 
         # control flow — these carry nested statements in #children
         # (a scene is just a named func, so it needs no kind of its own; `case`
@@ -95,6 +98,7 @@ module RubyGBA
         # so a draw op knows its shape; `backing_buffer` is a width×height patch of
         # writable RAM a moving object saves the pixels under itself into.
         data: :data, bitmap: :data, backing_buffer: :data,
+        sample: :data, # named 8-bit PCM sound data, embedded and played by play_sample
 
         # list operations — a bounded, ordered collection whose size is decided at
         # run time: create one (list_new), grow it (list_push), shrink it from
