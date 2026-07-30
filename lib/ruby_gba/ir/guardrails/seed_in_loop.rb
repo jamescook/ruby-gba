@@ -24,6 +24,8 @@ module RubyGBA
         # (`randomize`/`roll`/`rand`) reads the stream to advance it, so it isn't a
         # re-seed and belongs in the loop; only a fresh assignment counts.
         class SeedInLoop
+          include PerFrameScope
+
           NAME = :seed_in_loop
 
           def detect(program)
@@ -62,71 +64,13 @@ module RubyGBA
             value.is_a?(Node) && value.walk.any? { |n| n.kind == :var_ref && n[:name] == rng_state }
           end
 
-          # A container whose body re-runs each frame: the game loop, a runtime-counted
-          # repeat, an every-N-frames timer, or a per-frame func (a scene dispatched by
-          # case_var, or a routine the loop calls). `after` is one-shot — a seed there
-          # runs once and is fine — and a conditional (`.then`) isn't a container here, so
-          # a seed it guards is treated as a deliberate re-seed.
-          def per_frame_container?(container, per_frame_funcs)
-            return false unless container
-
-            case container.kind
-            when :loop, :repeat, :every then true
-            when :func then per_frame_funcs.include?(container[:name])
-            else false
-            end
-          end
-
-          # Every func that runs each frame: the call/case targets reached from inside a
-          # per-frame loop (the game loop and its timers), followed transitively — a func
-          # a per-frame func calls is itself per-frame.
-          def per_frame_func_names(program)
-            funcs = {}
-            program.walk { |n| funcs[n[:name]] = n if n.kind == :func }
-
-            reached = {}
-            queue = []
-            program.walk { |n| queue.concat(call_targets(n)) if %i[loop repeat every].include?(n.kind) }
-            until queue.empty?
-              name = queue.shift
-              next if reached[name]
-
-              reached[name] = true
-              queue.concat(call_targets(funcs[name])) if funcs[name]
-            end
-            reached.keys
-          end
-
-          # Every func a node's subtree calls or dispatches to (including else-branches,
-          # which live in an attr rather than in #children — hence walk, not each).
-          def call_targets(node)
-            targets = []
-            node.walk do |n|
-              targets << n[:target] if n.kind == :call
-              n[:clauses].each { |_value, target| targets << target } if n.kind == :case
-            end
-            targets
-          end
-
           def message_for(container)
             "seed sets the random stream's starting point — something you do once, in setup. " \
-              "This seed is inside #{where(container)}, so it re-runs every frame and keeps resetting " \
-              "the stream to the same point: every random draw then returns the same value (enemies, " \
-              "drops, and rolls stop varying). Move the seed to setup — above the loop, or outside the " \
-              "scene — so it runs once. To keep stirring the stream while you wait for input, call " \
-              "`randomize` there instead."
-          end
-
-          # A plain-language name for where the offending seed sits, for the message.
-          def where(container)
-            case container.kind
-            when :loop then "your game loop"
-            when :repeat then "a repeat loop"
-            when :every then "an every(...) timer"
-            when :func
-              name = container[:name].to_s
-              name.start_with?("_scene_") ? "the scene :#{name.sub('_scene_', '')}" : "the :#{name} routine (it runs every frame)"
-            end
+              "This seed is inside #{per_frame_where(container)}, so it re-runs every frame and keeps " \
+              "resetting the stream to the same point: every random draw then returns the same value " \
+              "(enemies, drops, and rolls stop varying). Move the seed to setup — above the loop, or " \
+              "outside the scene — so it runs once. To keep stirring the stream while you wait for " \
+              "input, call `randomize` there instead."
           end
         end
       end
