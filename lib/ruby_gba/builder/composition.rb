@@ -18,6 +18,10 @@ module RubyGBA
       # declare one (it would clash with spawn/remove/each/count/…).
       POOL_RESERVED_FIELDS = %i[active free count slot spawn remove each full index name capacity].freeze
 
+      # What spawn does when the pool is full: :drop ignores it (a safe no-op),
+      # :recycle_oldest reuses the longest-lived instance so a new one always appears.
+      POOL_FULL_POLICIES = %i[drop recycle_oldest].freeze
+
       # A single pool must fit comfortably within IWRAM (the GBA's 32KB of fast RAM).
       # This is the cheap first-line ceiling that turns an insane capacity into a
       # friendly build error; the thorough whole-program budget (vars + lists + several
@@ -42,15 +46,23 @@ module RubyGBA
       # hardware sprites). Without an image it's a pure-data pool (draw it yourself in
       # `each`).
       #
+      # By default a spawn onto a full pool is a safe no-op. Pass `on_full: :recycle_oldest`
+      # (the usual choice for particles and effects) so a new spawn instead reuses the
+      # longest-lived instance — a new one always appears:
+      #
+      #   sparks = pool :spark, x: 0, y: 0, life: 0, capacity: 32, on_full: :recycle_oldest
+      #
       # @param name [Symbol] the pool's name
       # @param capacity [Integer] the most instances that can be live at once
       # @param image [Symbol, nil] the sprite image each live instance draws
+      # @param on_full [Symbol] :drop (default) or :recycle_oldest — see above
       # @param fields [Hash{Symbol=>Object}] field name => default value
       # @return [Pool]
-      def pool(name, capacity:, image: nil, **fields)
+      def pool(name, capacity:, image: nil, on_full: :drop, **fields)
         validate_pool!(name, capacity, fields)
+        validate_on_full!(name, on_full)
         hitbox = image && spriteful_hitbox!(name, image, fields)
-        handle = Pool.new(self, name, fields, capacity, image: image, hitbox: hitbox)
+        handle = Pool.new(self, name, fields, capacity, image: image, hitbox: hitbox, on_full: on_full)
         setup_pool_storage(handle, capacity, fields)
         setup_pool_sprites(handle, capacity) if image
         handle
@@ -80,6 +92,15 @@ module RubyGBA
               "pool :#{name} of #{capacity} x #{fields.size} fields needs about #{bytes / 1024}KB of fast RAM, " \
               "but a pool must stay well under #{POOL_MAX_BYTES / 1024}KB (the GBA has 32KB in total). Use a " \
               "smaller capacity or fewer fields."
+      end
+
+      def validate_on_full!(name, policy)
+        return if POOL_FULL_POLICIES.include?(policy)
+
+        raise ArgumentError,
+              "pool :#{name} got on_full: #{policy.inspect}, but it must be one of " \
+              "#{POOL_FULL_POLICIES.map(&:inspect).join(', ')} — :drop ignores a spawn when the pool is full, " \
+              ":recycle_oldest reuses the longest-lived instance so a new one always appears."
       end
 
       # Validate a spriteful pool and return the collision box its image gives every
@@ -123,10 +144,15 @@ module RubyGBA
       # and fill every slot so each field is randomly addressable from the start.
       def setup_pool_storage(pool, capacity, fields)
         lists = fields.keys.map { |f| pool.field_list(f) } + [pool.active_list, pool.free_list]
+        lists << pool.born_list if pool.recycle_oldest? # a per-slot age stamp for the oldest scan
         lists.each { |list_name| at_boot(Build.list_new(list_name, capacity)) }
         ensure_var(pool.count_var)
         ensure_var(pool.slot_var)
         at_boot(Build.set(pool.count_var, Build.int(0)))
+        if pool.recycle_oldest?
+          ensure_var(pool.seq_var)
+          at_boot(Build.set(pool.seq_var, Build.int(0))) # the monotonic spawn counter starts at 0
+        end
         at_boot(build_pool_fill(pool, capacity, fields))
       end
 
@@ -138,6 +164,7 @@ module RubyGBA
         ensure_var(index)
         body = fields.keys.map { |f| Build.list_push(pool.field_list(f), Build.int(0)) }
         body << Build.list_push(pool.active_list, Build.int(0))
+        body << Build.list_push(pool.born_list, Build.int(0)) if pool.recycle_oldest?
         body << Build.list_push(pool.free_list, Build.var_ref(index))
         Build.repeat(Build.int(capacity), index, *body)
       end
