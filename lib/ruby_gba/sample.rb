@@ -32,9 +32,9 @@ module RubyGBA
       self
     end
 
-    # Stop the sampled-audio channel (cut off whatever is playing). Returns self.
+    # Stop this sample — cut off any of its voices that are still sounding. Returns self.
     def stop
-      @builder.record_statement(IR::Build.stop_sample)
+      @builder.record_statement(IR::Build.stop_sample(@name))
       self
     end
   end

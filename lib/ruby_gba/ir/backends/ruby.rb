@@ -38,7 +38,14 @@ module RubyGBA
         # model both backends treat "a frame" as, so their timer counts line up.
         FRAME_RATE = 60
 
-        attr_reader :vars, :screen, :log, :frame, :screen_mode, :buffered, :audio
+        attr_reader :vars, :screen, :log, :frame, :screen_mode, :buffered, :audio, :peak_voices
+
+        # The names of the samples sounding right now — one entry per voice, so the same
+        # sample played twice shows up twice. Lets a test see that several sounds really
+        # overlap in the mix instead of cutting each other off.
+        def active_samples
+          @voices.map { |v| v[:name] }
+        end
 
         def initialize
           @vars = Hash.new(0)      # variable store; an unwritten variable reads as 0
@@ -67,7 +74,8 @@ module RubyGBA
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @samples = {}           # name -> { rate:, length: } (a defined PCM sample)
-          @playing_sample = nil   # the sample currently on the audio channel: { name:, loop:, frames_left:, frames_total: }
+          @voices = []            # the samples sounding right now, mixed together: [{ name:, loop:, frames_left:, frames_total: }, ...]
+          @peak_voices = 0        # the most that ever sounded at once (how much polyphony the run used)
           @timers = {}            # name -> { hz:, running:, overflows: } (a hardware timer)
           @timer_handlers = {}    # name -> on_timer node whose body runs on each overflow
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
@@ -363,8 +371,7 @@ module RubyGBA
           when :play_sample
             start_sample(node)
           when :stop_sample
-            @playing_sample = nil
-            @audio << [:stop_sample]
+            stop_sample(node)
           when :timer_start
             # Start (or restart) a timer: it now runs at hz overflows/sec, its elapsed
             # count reset to zero (advance_frame accrues the overflows each frame).
@@ -398,37 +405,53 @@ module RubyGBA
           # overflows this frame — that's what timer_ticks reads back, and each whole
           # overflow crossed this frame runs its on_tick handler once.
           @timers.each { |name, t| accrue_timer(name, t) if t[:running] }
-          advance_playing_sample
+          advance_voices
           @held = to_button_set(Array(@input_script.call(@frame))) if @input_script
           @log << [:vblank, @frame]
           @on_vblank&.call(@frame)
         end
 
-        # Put a sample on the audio channel: log the play, and remember how many frames it
-        # runs for (from its length and rate) so a looping clip can re-trigger itself at
-        # the end. A one-shot simply falls silent there.
+        # The most samples the mixer sounds at once. A new play past this is dropped rather
+        # than stealing one already sounding (safe and quiet — a game rarely needs more).
+        MAX_VOICES = 8
+
+        # Start a sample sounding: add a voice to the mix (samples play together, they do
+        # not cut each other off), remembering how many frames it runs for (from its length
+        # and rate) so a looping voice can re-trigger itself at the end. A one-shot voice
+        # simply falls silent there. Past MAX_VOICES the new one is dropped.
         def start_sample(node)
           info = @samples[node[:name]] ||
                  raise(ProgramError, "play_sample of undefined sample #{node[:name].inspect}")
-          frames = [(info[:length].to_f / info[:rate] * FRAME_RATE).ceil, 1].max
-          @playing_sample = { name: node[:name], loop: node[:loop], frames_left: frames, frames_total: frames }
           @audio << [:sample, node[:name]]
+          return if @voices.size >= MAX_VOICES
+
+          frames = [(info[:length].to_f / info[:rate] * FRAME_RATE).ceil, 1].max
+          @voices << { name: node[:name], loop: node[:loop], frames_left: frames, frames_total: frames }
+          @peak_voices = [@peak_voices, @voices.size].max
         end
 
-        # Age the sample on the audio channel by one frame. When it plays out, a looping
-        # clip starts over — logged again, so the loop shows up in the audio log — and a
-        # one-shot goes quiet.
-        def advance_playing_sample
-          sample = @playing_sample or return
-          sample[:frames_left] -= 1
-          return if sample[:frames_left].positive?
+        # Stop a sample: drop its voices from the mix (or every voice, if no name is given).
+        def stop_sample(node)
+          @voices.reject! { |v| node[:name].nil? || v[:name] == node[:name] }
+          @audio << [:stop_sample]
+        end
 
-          if sample[:loop]
-            sample[:frames_left] = sample[:frames_total]
-            @audio << [:sample, sample[:name]]
-          else
-            @playing_sample = nil
+        # Age every sounding voice by one frame. When a voice plays out, a looping one
+        # starts over — logged again, so the loop shows up in the audio log — and a one-shot
+        # leaves the mix.
+        def advance_voices
+          @voices.each do |voice|
+            voice[:frames_left] -= 1
+            next if voice[:frames_left].positive?
+
+            if voice[:loop]
+              voice[:frames_left] = voice[:frames_total]
+              @audio << [:sample, voice[:name]]
+            else
+              voice[:done] = true
+            end
           end
+          @voices.reject! { |voice| voice[:done] }
         end
 
         def exec_call(name)
