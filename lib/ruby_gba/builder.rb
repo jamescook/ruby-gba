@@ -79,6 +79,7 @@ module RubyGBA
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
       @sprites = []            # live software sprites, repainted after every wait_vblank
       @hw_sprites = []         # live hardware sprites, drawn (into the sprite table) after every wait_vblank
+      @pool_objects = []       # a spriteful pool's per-slot sprite object names, drawn among the game sprites
       @hud_objects = []        # tiled-mode text/number glyph sprites, drawn on top after every wait_vblank
       @glyph_images = {}       # [font, char, color] → a cached glyph image name (one 8x8 sprite tile per glyph)
       @animations = []         # flipbook sprites, whose pose is advanced on a beat after every wait_vblank
@@ -295,7 +296,7 @@ module RubyGBA
     # the game loop), so the list isn't known when wait_vblank records the node. A frame
     # that ends up with no objects drops the node, so an object-free program is unchanged.
     def finalize_present_lists
-      names = @hw_sprites.map(&:object_name) + @hud_objects
+      names = @hw_sprites.map(&:object_name) + @pool_objects + @hud_objects
       @present_nodes.each do |node|
         if names.empty?
           node.parent&.children&.delete(node)

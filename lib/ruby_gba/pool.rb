@@ -30,12 +30,27 @@ module RubyGBA
     # @param name [Symbol] the pool's name
     # @param fields [Hash{Symbol=>Object}] field name => default value
     # @param capacity [Integer] the live cap (the most instances at once)
-    def initialize(builder, name, fields, capacity)
+    # @param image [Symbol, nil] the sprite image each live instance draws (nil = pure data)
+    # @param hitbox [Array(Integer,Integer,Integer,Integer), nil] the collision box
+    #   [x, y, w, h] relative to an instance's top-left, from the image (nil = no size)
+    def initialize(builder, name, fields, capacity, image: nil, hitbox: nil)
       @builder = builder
       @name = name
       @fields = fields
       @capacity = capacity
+      @image = image
+      @hitbox = hitbox
     end
+
+    # The sprite image live instances draw (nil for a pure-data pool), and the collision
+    # box derived from it (nil when there's no size).
+    attr_reader :image, :hitbox
+
+    # Whether instances draw themselves as sprites (an image was given).
+    def spriteful? = !@image.nil?
+
+    # The per-slot sprite object's name (one hardware sprite per slot).
+    def object_name(slot) = :"__pool_#{@name}_obj_#{slot}"
 
     # --- backing-storage names (also used by Builder#pool to set the storage up) ---
 
@@ -120,7 +135,13 @@ module RubyGBA
     # are reached by name (`b.x`, `b.hp`) — each a mutable {FieldRef} at this slot — and
     # `b.remove` retires it. The instance is only valid inside the `each` iteration that
     # yielded it (it's bound to the loop's current slot), not something to keep around.
+    #
+    # A spriteful pool's instance also has a rectangle (its x/y fields plus the image's
+    # collision box), so it gains `overlaps?`, the screen-edge tests, and
+    # `clamp_to_screen` from {Bounds} — `bullet.overlaps?(enemy)`, `b.off_screen?`.
     class Instance
+      include Bounds # overlaps? + off_screen?/edge tests, from left/top/right/bottom below
+
       def initialize(pool, index)
         @pool = pool
         @index = index # a Value: the loop's current slot
@@ -131,7 +152,34 @@ module RubyGBA
         @pool.remove_at(@index)
       end
 
+      # This instance's collision-box edges, as Values — its x/y fields plus the image's
+      # box. These need a spriteful pool (one with an image, hence a size).
+      def left = field(:x) + hit(0)
+      def top = field(:y) + hit(1)
+      def right = field(:x) + hit(0) + hit(2)
+      def bottom = field(:y) + hit(1) + hit(3)
+
+      # Keep this instance fully on the screen, using the sprite's own size — the
+      # per-instance counterpart to {Sprite#clamp_to_screen}. Clamps its x/y in place.
+      def clamp_to_screen
+        hit_x, hit_y, hit_w, hit_h = require_box!
+        field(:x).clamp(-hit_x, IR::Screen::WIDTH - hit_x - hit_w)
+        field(:y).clamp(-hit_y, IR::Screen::HEIGHT - hit_y - hit_h)
+        self
+      end
+
       private
+
+      def field(name) = @pool.field_ref(name, @index)
+
+      def hit(component) = require_box![component]
+
+      # The pool's collision box, or a friendly error if it has no size (no image).
+      def require_box!
+        @pool.hitbox || raise(ArgumentError,
+                              "pool :#{@pool.name} has no size, so an instance has no rectangle — give the " \
+                              "pool an `image:` to use overlaps? / the off-screen tests / clamp_to_screen")
+      end
 
       # A field read like `b.x` becomes a FieldRef at this instance's slot.
       def method_missing(name, *args)
