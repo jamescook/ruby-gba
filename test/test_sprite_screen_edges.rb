@@ -92,7 +92,6 @@ class TestSpriteScreenEdges < Minitest::Test
   # The helpers are shared through Bounds, so a plain Box gets the off-screen tests too.
   def test_a_box_also_answers_the_off_screen_tests
     b = Builder.new
-    on = off = nil
     b.instance_eval do
       screen :bitmap
       var :on_flag, 0
