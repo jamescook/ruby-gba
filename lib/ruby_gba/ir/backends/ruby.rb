@@ -70,8 +70,14 @@ module RubyGBA
         # self so callers can chain and then inspect variables.
         def run(node, max_steps: DEFAULT_MAX_STEPS)
           @max_steps = max_steps
+          # Past the soft budget a frame-based program runs on to the next frame boundary
+          # (so it stops on a complete screen, never a torn mid-frame); the hard cap bounds
+          # the rare case where that boundary never comes (a loop that stops calling vblank).
+          @hard_cap = max_steps * 2
           @steps = 0
           @stopped_at_budget = false
+          @over_budget = false
+          @uses_frames = false # set once the program reaches its first vblank (advance_frame)
           collect_definitions(node)
           catch(:halt) { exec(node) }
           self
@@ -166,7 +172,13 @@ module RubyGBA
           return if @steps <= @max_steps
 
           @stopped_at_budget = true
-          throw :halt
+          # A frame-based program doesn't stop here — mid-frame would leave a torn,
+          # half-drawn screen. Mark it over budget and let it run on to the next frame
+          # boundary, where advance_frame stops it with the in-flight frame complete. A
+          # program with no frames, or one past the hard cap (its next vblank never came),
+          # stops right here.
+          @over_budget = true
+          throw :halt unless @uses_frames && @steps <= @hard_cap
         end
 
         def exec(node)
@@ -348,6 +360,12 @@ module RubyGBA
         # be spotted), advance the frame counter, and pull the next frame's input
         # if a script is driving it.
         def advance_frame
+          # This is a frame boundary: if we're past the budget, stop HERE — the frame just
+          # drawn is complete, and the next one's clear/draws haven't started, so the screen
+          # is settled. Reaching a vblank also marks the program as frame-based (see tick!).
+          throw :halt if @over_budget
+
+          @uses_frames = true
           @prev_held = @held
           @frame += 1
           @held = to_button_set(Array(@input_script.call(@frame))) if @input_script
