@@ -26,9 +26,19 @@ module RubyGBA
           # interrupt — so one handler serves both one-shots and looping music.
           DS_LOOP_STATE = :__ds_loop
 
-          # The most samples a clip can have — the length counter is a single 16-bit timer,
-          # so it can count up to 65536 sample overflows before it would wrap.
-          MAX_SAMPLE_LENGTH = 65_536
+          # A long clip is played in equal chunks (see CHUNK_SAMPLES). The length counter
+          # can only span one chunk at a time, so these hidden variables count the chunks
+          # down: DS_CHUNKS_LEFT ticks toward zero as each chunk plays, and once it hits
+          # zero the whole clip has played (loop back, or stop). DS_CHUNKS_TOTAL reloads it
+          # for the next loop.
+          DS_CHUNKS_LEFT  = :__ds_chunks
+          DS_CHUNKS_TOTAL = :__ds_chunks_n
+
+          # The most samples one chunk can span — the length counter is a single 16-bit
+          # timer, so it counts up to 65536 sample overflows before it would wrap. A clip
+          # longer than this is split into equal chunks that each fit, and played straight
+          # from ROM back to back (no copying — the DMA just keeps reading the cartridge).
+          CHUNK_SAMPLES = 65_536
 
           # Does the program play any sample? If so we reserve the Direct Sound timers and
           # install its end-of-clip interrupt.
@@ -42,8 +52,8 @@ module RubyGBA
             program.walk.each do |node|
               case node.kind
               when :sample
-                @data_blobs[node[:name]] = node[:bytes] # embed the PCM data as a ROM blob
-                @samples[node[:name]] = { rate: node[:rate], length: node[:bytes].bytesize }
+                @data_blobs[node[:name]] = pad_sample_blob(node[:bytes]) # embed as a ROM blob
+                @samples[node[:name]] = sample_playback_plan(node[:rate], node[:bytes].bytesize)
               when :play_sample
                 @plays_samples = true
               end
@@ -54,21 +64,44 @@ module RubyGBA
             @next_hw_timer = DS_LENGTH_TIMER + 1
           end
 
+          # How a clip is played: how many equal chunks it splits into (one for anything up
+          # to a chunk), and how many samples each chunk spans (each fits the 16-bit length
+          # counter). A short clip is one chunk of its own length — the same single-count
+          # playback as before; a long one is several equal chunks played back to back.
+          def sample_playback_plan(rate, length)
+            chunks = [(length + CHUNK_SAMPLES - 1) / CHUNK_SAMPLES, 1].max # ceil, at least 1
+            chunk_len = (length + chunks - 1) / chunks # ceil(length / chunks) — always <= CHUNK_SAMPLES
+            { rate: rate, length: length, chunks: chunks, chunk_len: chunk_len }
+          end
+
+          # Round a clip's data up so its length is a whole number of chunks (see
+          # #sample_playback_plan), by repeating a few samples from its own start. The DMA
+          # plays a whole number of equal chunks and then loops, and the handful of extra
+          # samples at the seam are the start of the clip — so a loop reads on smoothly.
+          # A clip that already fits one chunk is returned untouched.
+          def pad_sample_blob(bytes)
+            plan = sample_playback_plan(nil, bytes.bytesize)
+            padded = plan[:chunks] * plan[:chunk_len]
+            return bytes if padded == bytes.bytesize
+
+            bytes + bytes.byteslice(0, padded - bytes.bytesize)
+          end
+
           # Start a sample playing on channel A: power on Direct Sound, reset its FIFO, point
           # the DMA at the sample data feeding the FIFO, and start the two timers (the clock,
-          # and the length counter that will interrupt at the end). Re-runnable — playing
-          # again just restarts the channel with the new sample.
+          # and the length counter that interrupts at the end of each chunk). Re-runnable —
+          # playing again just restarts the channel with the new sample. The whole clip
+          # streams straight from ROM however long it is; the length counter spans one chunk
+          # and a chunk count (in hidden variables) tracks the rest.
           def emit_play_sample(node)
             sample = sample_info(node[:name])
-            if sample[:length] > MAX_SAMPLE_LENGTH
-              raise LoweringError,
-                    "sample #{node[:name].inspect} is #{sample[:length]} samples, longer than Direct Sound can " \
-                    "play in one go (#{MAX_SAMPLE_LENGTH}). Use a shorter or lower-rate clip."
-            end
             prescaler, reload = timer_config(sample[:rate]) # timer 0 overflows at the sample rate
 
             emit(ASM.load_immediate(ACC, node[:loop] ? 1 : 0)) # remember loop-vs-one-shot for the
             store_var(ACC, DS_LOOP_STATE)                      # end-of-clip interrupt to act on
+            emit(ASM.load_immediate(ACC, sample[:chunks]))     # how many chunks make up the clip
+            store_var(ACC, DS_CHUNKS_LEFT)                     # ...counted down as it plays
+            store_var(ACC, DS_CHUNKS_TOTAL)                    # ...and kept to reload on a loop
             write_reg16(REG_SOUNDCNT_X, SOUND_MASTER_ENABLE) # master sound on
             write_reg16(REG_SOUNDCNT_H, direct_sound_a_config) # enable A, full volume, reset its FIFO
 
@@ -79,22 +112,32 @@ module RubyGBA
 
             write_reg16(timer_reg_l(DS_CLOCK_TIMER), reload)          # the sample clock...
             write_reg16(timer_reg_h(DS_CLOCK_TIMER), TIMER_ENABLE | prescaler)
-            write_reg16(timer_reg_l(DS_LENGTH_TIMER), MAX_SAMPLE_LENGTH - sample[:length]) # ...and the length counter
+            write_reg16(timer_reg_l(DS_LENGTH_TIMER), CHUNK_SAMPLES - sample[:chunk_len]) # ...one chunk's worth
             write_reg16(timer_reg_h(DS_LENGTH_TIMER), TIMER_ENABLE | TIMER_CASCADE | TIMER_IRQ)
           end
 
-          # The end-of-clip interrupt (timer 1 has counted the whole clip through). A
-          # one-shot stops here; a looping clip restarts so it plays again with no gap.
-          # Which one was chosen is remembered in a hidden variable at play time, so this
-          # single handler serves both. Runs inside the interrupt dispatcher, touching
-          # only r0/r1/r12 (all saved by the BIOS on interrupt entry).
+          # The end-of-chunk interrupt (timer 1 has counted one chunk of the clip through).
+          # Most chunks just tick the counter down and let playback flow on into the next
+          # chunk (the DMA is already reading it straight from ROM). Only when the last
+          # chunk has played — the whole clip is done — does a one-shot stop and a loop
+          # restart from the top. A short clip is a single chunk, so this acts the first
+          # time, exactly as a one-count clip did. Runs inside the interrupt dispatcher,
+          # touching only r0/r1/r12 (all saved by the BIOS on interrupt entry).
           def emit_ds_end_of_clip
-            load_var(ACC, DS_LOOP_STATE)                 # r0 = is the current clip looping?
+            load_var(ACC, DS_CHUNKS_LEFT)                # r0 = chunks still to play
+            emit(ASM.sub_imm(ACC, ACC, 1))
+            store_var(ACC, DS_CHUNKS_LEFT)
+            done = gensym
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, done, cond: :ne)         # more chunks to go -> keep streaming
+
+            load_var(ACC, DS_LOOP_STATE)                 # whole clip played: is it looping?
             emit(ASM.cmp_imm(ACC, 0))
             stop = gensym
-            done = gensym
             emit_branch(:bcond, stop, cond: :eq)         # not looping -> stop the channel
             emit_ds_restart                              # looping -> feed it from the top again
+            load_var(ACC, DS_CHUNKS_TOTAL)               # ...and reload the chunk count for next time
+            store_var(ACC, DS_CHUNKS_LEFT)
             emit_branch(:b, done)
             place_label(stop)
             emit_stop_sample
