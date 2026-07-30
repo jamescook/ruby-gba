@@ -197,6 +197,29 @@ module RubyGBA
         Node.new(:stop_music)
       end
 
+      # --- sampled (PCM) audio ---
+      #
+      # A recorded sound, played back through the sampled-audio hardware rather than
+      # synthesized on a PSG voice. `sample` is a definition — it names the raw sound
+      # data (8-bit signed PCM) and the rate it was recorded at; +play_sample+ triggers
+      # it, +stop_sample+ cuts it off.
+
+      # Define a named PCM sample: +bytes+ is its 8-bit signed samples (a binary string),
+      # +rate+ how many of them play per second (its recording rate in Hz).
+      def sample(name, bytes, rate)
+        Node.new(:sample, name: name, bytes: bytes, rate: rate)
+      end
+
+      # Play the named sample once, from the start.
+      def play_sample(name)
+        Node.new(:play_sample, name: name)
+      end
+
+      # Stop the sampled-audio channel (whatever is playing on it).
+      def stop_sample
+        Node.new(:stop_sample)
+      end
+
       # --- control flow ---  (bodies are nested statements)
 
       def if_(cond, *body)

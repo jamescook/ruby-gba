@@ -245,6 +245,9 @@ module RubyGBA
     DMA_AT_VBLANK  = 0x10000000  # Start transfer at next VBlank
     DMA_AT_HBLANK  = 0x20000000  # Start transfer at next HBlank
     DMA_SRC_FIXED  = 0x01000000  # Keep re-reading the same source word (for fills)
+    DMA_REPEAT     = 0x02000000  # Re-arm after each transfer (so a sound FIFO feed runs continuously)
+    DMA_DEST_FIXED = 0x00400000  # Keep writing the same destination word (the sound FIFO register)
+    DMA_SPECIAL    = 0x30000000  # Start timing "special": for DMA1/2, transfer on a sound FIFO request
 
     # ========================================================================
     # Sound — PSG channels + Direct Sound control
@@ -262,6 +265,23 @@ module RubyGBA
     REG_SOUNDCNT_L = 0x04000080  # PSG channel volume and L/R panning
     REG_SOUNDCNT_H = 0x04000082  # Direct Sound (DMA audio) control
     REG_SOUNDCNT_X = 0x04000084  # Master sound enable (bit 7)
+    SOUND_MASTER_ENABLE = 0x0080 # SOUNDCNT_X bit 7: power the sound hardware on
+
+    # Direct Sound — two DMA-driven PCM channels (A and B) for playing recorded samples.
+    # Each has a small FIFO the DMA keeps topped up; a hardware timer paces how fast
+    # samples are pulled out and played (so the timer's overflow rate IS the sample rate).
+    # We drive channel A.
+    REG_FIFO_A = 0x040000A0  # Direct Sound A's sample FIFO — the DMA writes 8-bit PCM here
+    REG_FIFO_B = 0x040000A4  # Direct Sound B's sample FIFO
+
+    # SOUNDCNT_H bits for Direct Sound A:
+    PSG_VOLUME_FULL      = 0x0002  # bits 0-1 = 2: the PSG channels at 100% (what enable_sound sets)
+    DSOUND_A_VOLUME_FULL = 0x0004  # bit 2: channel A at 100% volume (else 50%)
+    DSOUND_A_RIGHT       = 0x0100  # bit 8: mix A into the right speaker
+    DSOUND_A_LEFT        = 0x0200  # bit 9: ...and the left
+    DSOUND_A_TIMER0      = 0x0000  # bit 10 = 0: timer 0 clocks A's sample rate
+    DSOUND_A_TIMER1      = 0x0400  # bit 10 = 1: timer 1 clocks it instead
+    DSOUND_A_RESET_FIFO  = 0x0800  # bit 11: clear A's FIFO (set once when (re)starting playback)
 
     # Channel 1 — square wave with sweep
     REG_SOUND1CNT_L = 0x04000060  # Sweep (shift, direction, time)

@@ -17,6 +17,7 @@ require_relative "builder/collision"
 require_relative "builder/tiled"
 require_relative "builder/composition"
 require_relative "builder/timers"
+require_relative "builder/sampled_audio"
 
 module RubyGBA
   # DSL context for building a GBA ROM.
@@ -56,6 +57,7 @@ module RubyGBA
     include Tiled      # tiles, background (tiled-graphics surface; hardware lowering to follow)
     include Composition # pool (a component + a pool of instances, per-instance update)
     include Timers     # timer (a hardware counter running at a chosen rate)
+    include SampledAudio # sample (a recorded PCM sound, played via Direct Sound)
 
     # Shorthand for the IR node constructors, so DSL methods can build tree
     # nodes as terse Build.set(...) calls.
