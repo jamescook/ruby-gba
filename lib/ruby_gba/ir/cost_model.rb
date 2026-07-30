@@ -189,6 +189,46 @@ module RubyGBA
         out
       end
 
+      # Bucket consecutive sibling nodes by the source FILE they came from, so a game
+      # split across collaborator files (player.rb, enemies.rb, hud.rb — each a plain
+      # object handed the builder) shows each file's per-frame work as its own labeled
+      # subtotal instead of one flat list. No author effort: every node already carries
+      # its DSL call site, so organizing code into files is the only step and the
+      # breakdown follows. Recurses into children first, and only groups where the
+      # siblings actually come from two or more files — there's nothing to separate in a
+      # single-file scene, so it's left untouched. Order is preserved (like
+      # #collapse_repeats), and a lone node from a file isn't wrapped in a group of one.
+      def group_by_source(nodes)
+        folded = nodes.map do |node|
+          node[:children].to_a.empty? ? node : node.merge(children: group_by_source(node[:children]))
+        end
+        return folded if folded.map { |node| source_file(node) }.compact.uniq.length < 2
+
+        out = []
+        i = 0
+        while i < folded.length
+          file = source_file(folded[i])
+          unless file
+            out << folded[i]
+            i += 1
+            next
+          end
+          j = i
+          j += 1 while j < folded.length && source_file(folded[j]) == file
+          run = folded[i...j]
+          out << (run.length > 1 ? { op: :group, label: file, cost: run.sum { |n| n[:cost] }, children: run } : run.first)
+          i = j
+        end
+        out
+      end
+
+      # The source file a cost node came from — the basename of its DSL call site
+      # ("player.rb" from "player.rb:42"), or nil for a node with no recorded site.
+      def source_file(node)
+        site = node[:source]
+        site && site.split(":").first
+      end
+
       # Starting at +i+, the adjacent block-repeat that folds the most nodes: the
       # [period, count] maximizing period*count with at least two repeats (so the
       # smallest repeating unit wins a tie). [1, 1] means nothing repeats.
@@ -410,7 +450,7 @@ module RubyGBA
       # then the hottest ops. +focus+ roots the tree at a named func; +max_depth+
       # bounds how deep it prints (deeper subtrees collapse to a rollup line).
       def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5)
-        tree = aggregate(analyze(program, focus: focus))
+        tree = group_by_source(aggregate(analyze(program, focus: focus)))
         emit_unpriced_banner(out) # loud, at the very top, before the estimate itself
         out.puts "draw-cost estimate (scanlines of the ~68-line vblank window, measured on hardware):"
         if focus
@@ -445,7 +485,7 @@ module RubyGBA
           songs: song_verdicts(program),     # per-song music cost vs the music budget
           glyphs: IR::GlyphUsage.footprint(program), # per-font reachable-glyph footprint
           unestimated: unpriced_kinds(program).sort,  # op kinds the model can't price (counted as free)
-          tree: analyze(program),
+          tree: group_by_source(analyze(program)),
         }
       end
 
@@ -637,7 +677,8 @@ module RubyGBA
         c = op_cost(node)
         return [] unless c.positive?
 
-        [{ op: node.kind, label: label_of(node), cost: c, w: node[:w], h: node[:h], children: [] }]
+        [{ op: node.kind, label: label_of(node), cost: c, w: node[:w], h: node[:h],
+           source: node.source, children: [] }]
       end
 
       # case_var runs one scene per frame, so its cost is the heaviest branch.
@@ -646,20 +687,21 @@ module RubyGBA
           kids = func_children(target)
           { op: :branch, label: "#{value} -> :#{target}", cost: sum(kids), children: kids }
         end
-        { op: :case, label: "case_var :#{node[:var]}", cost: (branches.map { |b| b[:cost] }.max || 0), children: branches }
+        { op: :case, label: "case_var :#{node[:var]}", cost: (branches.map { |b| b[:cost] }.max || 0),
+          source: node.source, children: branches }
       end
 
       # A call is its target func's body, inlined (guarding against a call cycle).
       def build_call(node)
         kids = func_children(node[:target])
-        { op: :call, label: "call :#{node[:target]}", cost: sum(kids), children: kids }
+        { op: :call, label: "call :#{node[:target]}", cost: sum(kids), source: node.source, children: kids }
       end
 
       # A repeat runs its body count times, so its cost multiplies.
       def build_repeat(node)
         factor, note = repeat_factor(node)
         kids = node.children.flat_map { |child| build(child) }
-        { op: :repeat, label: "repeat #{note}", cost: factor * sum(kids), children: kids }
+        { op: :repeat, label: "repeat #{note}", cost: factor * sum(kids), source: node.source, children: kids }
       end
 
       # A timed trigger (every/after) as a labeled container: it carries its body's
@@ -668,7 +710,7 @@ module RubyGBA
       # (see #raw_steady). The label names the intent, e.g. "every 30".
       def build_timer(node, label)
         kids = node.children.flat_map { |child| build(child) }
-        { op: node.kind, label: label, cost: sum(kids), children: kids }
+        { op: node.kind, label: label, cost: sum(kids), source: node.source, children: kids }
       end
 
       def func_children(name)
