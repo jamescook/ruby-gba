@@ -210,9 +210,10 @@ module RubyGBA
         Node.new(:sample, name: name, bytes: bytes, rate: rate)
       end
 
-      # Play the named sample once, from the start.
-      def play_sample(name)
-        Node.new(:play_sample, name: name)
+      # Play the named sample from the start. +loop+ true replays it seamlessly on a
+      # loop (background music); false plays it once and stops (a one-shot sound).
+      def play_sample(name, loop: false)
+        Node.new(:play_sample, name: name, loop: loop)
       end
 
       # Stop the sampled-audio channel (whatever is playing on it).

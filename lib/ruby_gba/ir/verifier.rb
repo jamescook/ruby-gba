@@ -114,7 +114,7 @@ module RubyGBA
         song:         { name: :name, voices: :list, total_frames: :int },
         play_song:    { name: :name },
         stop_music:   {},
-        play_sample:  { name: :name }, # trigger a named PCM sample
+        play_sample:  { name: :name, loop: :flag }, # trigger a named PCM sample (loop: replays it)
         stop_sample:  {},              # stop the sampled-audio channel
 
         # control flow (bodies nest as #children; an if's else is a :branch attr).

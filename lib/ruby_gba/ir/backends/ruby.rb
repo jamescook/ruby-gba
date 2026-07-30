@@ -67,6 +67,7 @@ module RubyGBA
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @samples = {}           # name -> { rate:, length: } (a defined PCM sample)
+          @playing_sample = nil   # the sample currently on the audio channel: { name:, loop:, frames_left:, frames_total: }
           @timers = {}            # name -> { hz:, running:, overflows: } (a hardware timer)
           @timer_handlers = {}    # name -> on_timer node whose body runs on each overflow
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
@@ -360,9 +361,9 @@ module RubyGBA
           when :stop_music
             @audio << [:stop_music]
           when :play_sample
-            @samples[node[:name]] || raise(ProgramError, "play_sample of undefined sample #{node[:name].inspect}")
-            @audio << [:sample, node[:name]]
+            start_sample(node)
           when :stop_sample
+            @playing_sample = nil
             @audio << [:stop_sample]
           when :timer_start
             # Start (or restart) a timer: it now runs at hz overflows/sec, its elapsed
@@ -397,9 +398,37 @@ module RubyGBA
           # overflows this frame — that's what timer_ticks reads back, and each whole
           # overflow crossed this frame runs its on_tick handler once.
           @timers.each { |name, t| accrue_timer(name, t) if t[:running] }
+          advance_playing_sample
           @held = to_button_set(Array(@input_script.call(@frame))) if @input_script
           @log << [:vblank, @frame]
           @on_vblank&.call(@frame)
+        end
+
+        # Put a sample on the audio channel: log the play, and remember how many frames it
+        # runs for (from its length and rate) so a looping clip can re-trigger itself at
+        # the end. A one-shot simply falls silent there.
+        def start_sample(node)
+          info = @samples[node[:name]] ||
+                 raise(ProgramError, "play_sample of undefined sample #{node[:name].inspect}")
+          frames = [(info[:length].to_f / info[:rate] * FRAME_RATE).ceil, 1].max
+          @playing_sample = { name: node[:name], loop: node[:loop], frames_left: frames, frames_total: frames }
+          @audio << [:sample, node[:name]]
+        end
+
+        # Age the sample on the audio channel by one frame. When it plays out, a looping
+        # clip starts over — logged again, so the loop shows up in the audio log — and a
+        # one-shot goes quiet.
+        def advance_playing_sample
+          sample = @playing_sample or return
+          sample[:frames_left] -= 1
+          return if sample[:frames_left].positive?
+
+          if sample[:loop]
+            sample[:frames_left] = sample[:frames_total]
+            @audio << [:sample, sample[:name]]
+          else
+            @playing_sample = nil
+          end
         end
 
         def exec_call(name)

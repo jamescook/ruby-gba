@@ -21,6 +21,11 @@ module RubyGBA
           DS_CLOCK_TIMER  = 0 # timer 0 clocks channel A's sample rate
           DS_LENGTH_TIMER = 1 # timer 1 counts samples played and interrupts at the end
 
+          # A hidden variable remembering whether the clip now playing should loop (1) or
+          # stop (0) when it reaches its end. Set at play time, read by the end-of-clip
+          # interrupt — so one handler serves both one-shots and looping music.
+          DS_LOOP_STATE = :__ds_loop
+
           # The most samples a clip can have — the length counter is a single 16-bit timer,
           # so it can count up to 65536 sample overflows before it would wrap.
           MAX_SAMPLE_LENGTH = 65_536
@@ -62,6 +67,8 @@ module RubyGBA
             end
             prescaler, reload = timer_config(sample[:rate]) # timer 0 overflows at the sample rate
 
+            emit(ASM.load_immediate(ACC, node[:loop] ? 1 : 0)) # remember loop-vs-one-shot for the
+            store_var(ACC, DS_LOOP_STATE)                      # end-of-clip interrupt to act on
             write_reg16(REG_SOUNDCNT_X, SOUND_MASTER_ENABLE) # master sound on
             write_reg16(REG_SOUNDCNT_H, direct_sound_a_config) # enable A, full volume, reset its FIFO
 
@@ -74,6 +81,34 @@ module RubyGBA
             write_reg16(timer_reg_h(DS_CLOCK_TIMER), TIMER_ENABLE | prescaler)
             write_reg16(timer_reg_l(DS_LENGTH_TIMER), MAX_SAMPLE_LENGTH - sample[:length]) # ...and the length counter
             write_reg16(timer_reg_h(DS_LENGTH_TIMER), TIMER_ENABLE | TIMER_CASCADE | TIMER_IRQ)
+          end
+
+          # The end-of-clip interrupt (timer 1 has counted the whole clip through). A
+          # one-shot stops here; a looping clip restarts so it plays again with no gap.
+          # Which one was chosen is remembered in a hidden variable at play time, so this
+          # single handler serves both. Runs inside the interrupt dispatcher, touching
+          # only r0/r1/r12 (all saved by the BIOS on interrupt entry).
+          def emit_ds_end_of_clip
+            load_var(ACC, DS_LOOP_STATE)                 # r0 = is the current clip looping?
+            emit(ASM.cmp_imm(ACC, 0))
+            stop = gensym
+            done = gensym
+            emit_branch(:bcond, stop, cond: :eq)         # not looping -> stop the channel
+            emit_ds_restart                              # looping -> feed it from the top again
+            emit_branch(:b, done)
+            place_label(stop)
+            emit_stop_sample
+            place_label(done)
+          end
+
+          # Restart channel A's DMA from the start of the current clip, to loop it. The
+          # DMA source register still points at the clip — the hardware advanced only its
+          # own private copy while playing — so switching the channel off then on reloads
+          # that source and the clip feeds the FIFO again from the top. The sample clock
+          # and the length counter are left running, so each loop is timed like the first.
+          def emit_ds_restart
+            store_word_immediate(0, REG_DMA1CNT)                # off (re-enabling reloads the source)
+            store_word_immediate(dma_fifo_control, REG_DMA1CNT) # on -> feeds the FIFO from clip start
           end
 
           # Stop the sampled-audio channel: disable the DMA and both timers, and clear

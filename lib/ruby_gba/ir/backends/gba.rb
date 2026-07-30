@@ -305,8 +305,9 @@ module RubyGBA
               info[:handler].children.each { |child| emit_statement(child) }
             end
           end
-          # Direct Sound's length timer interrupts once a clip has fully played — stop it.
-          emit_irq_source(timer_irq_bit(DS_LENGTH_TIMER)) { emit_stop_sample } if direct_sound?
+          # Direct Sound's length timer interrupts once a clip has fully played — stop it,
+          # or loop it back to the start, depending on how it was played.
+          emit_irq_source(timer_irq_bit(DS_LENGTH_TIMER)) { emit_ds_end_of_clip } if direct_sound?
           emit(ASM.pop(*IRQ_SAVED_REGS))
           emit(ASM.return) # BX LR back to the BIOS dispatcher
         end
