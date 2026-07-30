@@ -56,6 +56,8 @@ module RubyGBA
             when :stop_wave then emit_stop_wave
             when :play_song then emit_play_song(node)
             when :stop_music then emit_stop_music
+            when :timer_start then emit_timer_start(node)
+            when :timer_stop then emit_timer_stop(node)
             else
               raise LoweringError, "the GBA backend cannot lower #{node.kind.inspect} yet"
             end

@@ -33,6 +33,11 @@ module RubyGBA
         # otherwise-endless game loop and then inspect the state.
         DEFAULT_MAX_STEPS = 1_000_000
 
+        # The frame rate this backend models: a timer running at H Hz overflows
+        # H/FRAME_RATE times per frame. The console runs at ~59.7fps; 60 is the clean
+        # model both backends treat "a frame" as, so their timer counts line up.
+        FRAME_RATE = 60
+
         attr_reader :vars, :screen, :log, :frame, :screen_mode, :buffered, :audio
 
         def initialize
@@ -61,6 +66,7 @@ module RubyGBA
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
+          @timers = {}            # name -> { hz:, running:, overflows: } (a hardware timer)
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
           @on_vblank = nil         # optional ->(frame) { } called each vblank, to watch a run frame by frame
         end
@@ -349,6 +355,12 @@ module RubyGBA
             exec_play_song(node[:name])
           when :stop_music
             @audio << [:stop_music]
+          when :timer_start
+            # Start (or restart) a timer: it now runs at hz overflows/sec, its elapsed
+            # count reset to zero (advance_frame accrues the overflows each frame).
+            @timers[node[:name]] = { hz: node[:hz], running: true, overflows: 0.0 }
+          when :timer_stop
+            @timers[node[:name]]&.[]=(:running, false)
           else
             raise ProgramError,
                   "the Ruby backend cannot execute #{node.kind.inspect} " \
@@ -368,6 +380,9 @@ module RubyGBA
           @uses_frames = true
           @prev_held = @held
           @frame += 1
+          # A running timer overflows hz times a second, so it accrues hz/FRAME_RATE
+          # overflows this frame — that's what timer_ticks reads back.
+          @timers.each_value { |t| t[:overflows] += t[:hz].to_f / FRAME_RATE if t[:running] }
           @held = to_button_set(Array(@input_script.call(@frame))) if @input_script
           @log << [:vblank, @frame]
           @on_vblank&.call(@frame)
@@ -871,6 +886,7 @@ module RubyGBA
           when :data_byte then data_byte(node[:name], node[:index])
           when :list_get then eval_list_get(node)
           when :list_len then list_for(node[:name]).length
+          when :timer_ticks then timer_ticks(node[:name])
           else raise ProgramError, "not a value node: #{node.kind.inspect}"
           end
         end
@@ -883,6 +899,13 @@ module RubyGBA
           end
           bytes.getbyte(index) ||
             raise(ProgramError, "data_byte index #{index} is past the end of #{name.inspect}")
+        end
+
+        # How many whole times a timer has overflowed since it started, wrapped at
+        # 65536 to match the 16-bit hardware counter. Zero for a timer never started.
+        def timer_ticks(name)
+          timer = @timers[name]
+          Int32.wrap(timer ? timer[:overflows].floor % 65_536 : 0)
         end
 
         # A button is "held" while it's down. It's "pressed" only on the edge —

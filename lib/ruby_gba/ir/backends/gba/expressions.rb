@@ -27,6 +27,7 @@ module RubyGBA
             when :list_get then eval_list_get(node)
             when :list_len then eval_list_len(node)
             when :read_scanline then eval_read_scanline
+            when :timer_ticks then eval_timer_ticks(node)
             else
               raise LoweringError, "the GBA backend cannot evaluate #{node.kind.inspect}"
             end

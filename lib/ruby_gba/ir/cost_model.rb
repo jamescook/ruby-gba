@@ -118,8 +118,9 @@ module RubyGBA
       FREE_STATEMENT_KINDS = %i[
         screen wait_vblank halt raw object
         define_sound song data bitmap backing_buffer list_new
+        timer_start timer_stop
       ].freeze
-      FREE_VALUE_KINDS = %i[int var_ref data_byte list_get list_len held pressed read_scanline].freeze
+      FREE_VALUE_KINDS = %i[int var_ref data_byte list_get list_len held pressed read_scanline timer_ticks].freeze
 
       def initialize(**weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)

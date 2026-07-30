@@ -76,6 +76,12 @@ module RubyGBA
         # (rather than baking in the counter+compare they lower to).
         every: :control, after: :control,
 
+        # hardware timers — a counter that runs at a chosen rate (overflowing that
+        # many times a second), used for timed work and (later) to clock sampled
+        # audio. Starting and stopping one are statements; reading how many times it
+        # has overflowed since it started is a value (timer_ticks, below).
+        timer_start: :control, timer_stop: :control,
+
         # a raw escape hatch: pre-assembled target bytes appended verbatim. The
         # one node that isn't portable — only a native backend can place it, and
         # the interpreter refuses it (tagged hardware-only in IR::Portability).
@@ -97,6 +103,7 @@ module RubyGBA
         # expression values — operands, live inside another node's #attrs
         int: :value, var_ref: :value, binop: :value, neg: :value,
         data_byte: :value, list_get: :value, list_len: :value,
+        timer_ticks: :value, # how many times a timer has overflowed since it started
 
         # input reads — an operand whose value comes from the gamepad
         held: :value, pressed: :value,

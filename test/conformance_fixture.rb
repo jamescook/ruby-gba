@@ -131,6 +131,11 @@ module ConformanceFixture
       B.every(:every_ctr, 2, B.set(:acc, 1)), # fires one frame in two
       B.after(:after_ctr, 3, B.set(:acc, 2)), # fires once, three frames in
 
+      # --- a hardware timer: start it, read its elapsed ticks, stop it ---
+      B.timer_start(:beat, 60),
+      B.set(:acc, B.timer_ticks(:beat)), # read the count into a scratch var
+      B.timer_stop(:beat),
+
       # --- terminate: a loop that syncs once then halts (covers loop + halt) ---
       B.loop_(B.wait_vblank, B.halt),
     )
