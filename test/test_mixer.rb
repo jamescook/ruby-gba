@@ -1,0 +1,97 @@
+# frozen_string_literal: true
+
+require "minitest/autorun"
+require_relative "../lib/ruby_gba"
+require_relative "test_helper"
+
+# The mixer: several samples sound at once instead of cutting each other off — background
+# music plus overlapping sound effects, and (later) chords. `sample.play` adds a voice to
+# the mix; `sample.stop` drops that sample's voices. This is the interpreter oracle for the
+# mixer — it pins the behavior both backends must share (the GBA software-mix lowering
+# matches it). The surface stays plain: play and stop, no voices or channels exposed.
+class TestMixer < Minitest::Test
+  Builder = RubyGBA::Builder
+  Ruby = RubyGBA::IR::Backends::Ruby
+
+  # Run a DSL block that sets up sounds, then loops for `frames` frames.
+  def run_frames(frames, &setup)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      instance_exec(&setup)
+      counter = var(:__f, 0)
+      game_loop do
+        wait_vblank
+        counter.add 1
+        (counter >= frames).then { halt }
+      end
+    end
+    Ruby.new.run(b.program, max_steps: 200_000)
+  end
+
+  def test_two_looping_samples_sound_at_the_same_time
+    i = run_frames(30) do
+      music = sample :music, pcm: [40, -40] * 400, rate: 8000  # ~0.1s, loops
+      hum   = sample :hum, pcm: [20, -20] * 400, rate: 8000
+      music.play(loop: true)
+      hum.play(loop: true)
+    end
+    # both are still in the mix together — neither cut the other off
+    assert_includes i.active_samples, :music
+    assert_includes i.active_samples, :hum
+    assert_operator i.peak_voices, :>=, 2, "two voices sounded at once"
+  end
+
+  def test_music_plus_two_effects_overlap
+    # the acceptance case: background music and two effects going at once = three voices.
+    i = run_frames(20) do
+      music = sample :music, pcm: [30, -30] * 2000, rate: 8000 # long, loops under the effects
+      shot  = sample :shot, pcm: [50, -50] * 2000, rate: 8000
+      hit   = sample :hit, pcm: [60, -60] * 2000, rate: 8000
+      music.play(loop: true)
+      shot.play
+      hit.play
+    end
+    assert_operator i.peak_voices, :>=, 3, "music + two effects mixed together (#{i.peak_voices})"
+  end
+
+  def test_stop_drops_only_that_samples_voices
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      music = sample :music, pcm: [30, -30] * 2000, rate: 8000
+      blip  = sample :blip, pcm: [10, -10] * 2000, rate: 8000
+      music.play(loop: true)
+      blip.play(loop: true)
+      counter = var(:__f, 0)
+      game_loop do
+        wait_vblank
+        counter.add 1
+        (counter == 5).then { blip.stop } # silence just the blip; music keeps going
+        (counter >= 20).then { halt }
+      end
+    end
+    i = Ruby.new.run(b.program, max_steps: 200_000)
+    assert_includes i.active_samples, :music, "music keeps playing"
+    refute_includes i.active_samples, :blip, "the stopped sample is gone from the mix"
+  end
+
+  def test_the_same_sample_can_overlap_itself
+    # firing one effect rapidly stacks voices (a real sound has echo/overlap, not a restart)
+    i = run_frames(10) do
+      zap = sample :zap, pcm: [70, -70] * 2000, rate: 8000
+      zap.play
+      zap.play
+      zap.play
+    end
+    assert_operator i.peak_voices, :>=, 3, "the same effect overlaps itself (#{i.peak_voices})"
+  end
+
+  def test_past_the_voice_limit_new_plays_are_dropped_not_crashed
+    i = run_frames(5) do
+      buzz = sample :buzz, pcm: [25, -25] * 2000, rate: 8000
+      20.times { buzz.play } # far more than MAX_VOICES
+    end
+    assert_equal Ruby::MAX_VOICES, i.peak_voices, "the mix is capped at MAX_VOICES, extra plays dropped"
+  end
+end

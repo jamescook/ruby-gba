@@ -216,9 +216,10 @@ module RubyGBA
         Node.new(:play_sample, name: name, loop: loop)
       end
 
-      # Stop the sampled-audio channel (whatever is playing on it).
-      def stop_sample
-        Node.new(:stop_sample)
+      # Stop a playing sample. With +name+, silences that sample's voices; without one,
+      # stops everything on the sampled-audio output.
+      def stop_sample(name = nil)
+        Node.new(:stop_sample, name: name)
       end
 
       # --- control flow ---  (bodies are nested statements)
