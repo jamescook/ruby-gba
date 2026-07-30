@@ -15,6 +15,7 @@ require_relative "builder/control_flow"
 require_relative "builder/scenes"
 require_relative "builder/collision"
 require_relative "builder/tiled"
+require_relative "builder/composition"
 
 module RubyGBA
   # DSL context for building a GBA ROM.
@@ -52,6 +53,7 @@ module RubyGBA
     include Scenes     # func, call, scene, case_var, dump_func
     include Collision  # box (overlaps? lives on the shape — Box/Sprite via Bounds)
     include Tiled      # tiles, background (tiled-graphics surface; hardware lowering to follow)
+    include Composition # pool (a component + a pool of instances, per-instance update)
 
     # Shorthand for the IR node constructors, so DSL methods can build tree
     # nodes as terse Build.set(...) calls.
@@ -192,6 +194,18 @@ module RubyGBA
     # counterpart to how a {Value}'s mutators record through the builder's verbs.
     def record_statement(node)
       record(node)
+    end
+
+    # A reusable hidden variable a handle can round-trip a read-modify-write through —
+    # e.g. a {FieldRef} mutating a pool slot (load the slot, apply a Value mutator, store
+    # it back). One is enough: such mutations are sequential statements, never nested.
+    # An internal hook like #record_statement / #ensure_var, not a DSL verb.
+    def field_scratch_var
+      @field_scratch ||= begin
+        name = :__field_scratch
+        ensure_var(name)
+        name
+      end
     end
 
     # A {Condition} enters this "pending" set when it's built (Condition#initialize)
