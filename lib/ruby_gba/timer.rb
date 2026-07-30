@@ -29,6 +29,22 @@ module RubyGBA
       Value.new(@builder, IR::Build.timer_ticks(@name))
     end
 
+    # Run +block+ every time the timer ticks (overflows), driven by the timer itself —
+    # so it runs at the timer's rate, precisely, independent of the game loop (where
+    # `every`/`after` top out at the frame rate). Returns self so it chains.
+    #
+    #   timer(:beat, per_second: 100).on_tick { add :metronome, 1 }
+    #
+    # This is a low-level building block: it's the machinery higher-level features (a
+    # metronome, sampled-audio playback, music timing) are meant to sit on top of, so a
+    # game generally reaches for those friendlier verbs rather than an on_tick handler
+    # directly. Note the handler runs "between" the game loop's steps, so if it and the
+    # loop change the same variable they can race — have the handler own what it touches.
+    def on_tick(&block)
+      @builder.record_container(IR::Build.on_timer(@name), &block)
+      self
+    end
+
     # Stop the timer — it stops counting and freezes at its current tick count. Returns
     # self so it chains.
     def stop

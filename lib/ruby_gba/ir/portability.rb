@@ -73,7 +73,8 @@ module RubyGBA
         every: :portable, after: :portable, # timed triggers: plain counter logic any backend can run
         # hardware timers: the node carries a rate in Hz (portable intent) — a backend
         # realizes it however it likes (GBA timer registers, or a frame-clock model).
-        timer_start: :portable, timer_stop: :portable,
+        # on_timer's handler body runs once per overflow — plain repetition any backend models.
+        timer_start: :portable, timer_stop: :portable, on_timer: :portable,
 
         # the opaque escape hatch — pre-assembled native bytes no backend can model
         raw: :hardware_only,

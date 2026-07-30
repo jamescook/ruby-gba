@@ -34,12 +34,14 @@ module RubyGBA
           # partner in the very next slot. Runs during the definitions pass.
           def register_timers(program)
             counted = program.walk.select { |n| n.kind == :timer_ticks }.map { |n| n[:name] }.to_set
+            handlers = {}
+            program.walk.each { |n| handlers[n[:timer]] = n if n.kind == :on_timer } # last wins if repeated
             program.walk.select { |n| n.kind == :timer_start }.each do |node|
-              register_timer(node[:name], counted.include?(node[:name]))
+              register_timer(node[:name], counted.include?(node[:name]), handlers[node[:name]])
             end
           end
 
-          def register_timer(name, counted)
+          def register_timer(name, counted, handler)
             return if @timers.key?(name)
 
             rate = @next_hw_timer
@@ -50,7 +52,13 @@ module RubyGBA
                     "the program uses more hardware timers than the GBA has (#{NUM_HW_TIMERS}). Reading a " \
                     "timer's ticks costs two timers (one to run, one to count its overflows); use fewer timers."
             end
-            @timers[name] = { rate: rate, count: count }
+            @timers[name] = { rate: rate, count: count, handler: handler }
+          end
+
+          # The timers with an on_tick handler, each [name, info], in hardware-timer order —
+          # each one raises an interrupt the dispatcher services.
+          def irq_timers
+            @timers.select { |_, info| info[:handler] }.sort_by { |_, info| info[:rate] }
           end
 
           # Start (or restart) a timer at its requested rate. We disable it first so the
@@ -60,9 +68,13 @@ module RubyGBA
           def emit_timer_start(node)
             info = timer_info(node[:name])
             prescaler, reload = timer_config(node[:hz])
-            write_reg16(timer_reg_h(info[:rate]), 0)                       # off
-            write_reg16(timer_reg_l(info[:rate]), reload)                  # reload value
-            write_reg16(timer_reg_h(info[:rate]), TIMER_ENABLE | prescaler) # on
+            # A timer with an on_tick handler also raises an interrupt on each overflow,
+            # which the dispatcher services.
+            rate_ctrl = TIMER_ENABLE | prescaler
+            rate_ctrl |= TIMER_IRQ if info[:handler]
+            write_reg16(timer_reg_h(info[:rate]), 0)             # off
+            write_reg16(timer_reg_l(info[:rate]), reload)        # reload value
+            write_reg16(timer_reg_h(info[:rate]), rate_ctrl)     # on
             return unless info[:count]
 
             write_reg16(timer_reg_h(info[:count]), 0)                     # off
