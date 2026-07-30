@@ -35,7 +35,6 @@ class TestPool < Minitest::Test
         wait_vblank
         clear_screen :black
         bullets.each { |bl| draw_rect_at bl.x, bl.y, 2, 2, :green }
-        after(3) { halt } # stop on a complete frame, not mid-draw at the step budget
       end
     end
     b.emit_pending_functions
@@ -64,7 +63,6 @@ class TestPool < Minitest::Test
           m.y.clamp 0, 80
           draw_rect_at m.x, m.y, 2, 2, :green
         end
-        after(60) { halt } # enough frames to reach the clamp; stop on a complete frame
       end
     end
     b.emit_pending_functions
@@ -91,7 +89,6 @@ class TestPool < Minitest::Test
           (t.x == 20).then { t.remove }
           draw_rect_at t.x, t.y, 2, 2, :green
         end
-        after(5) { halt } # a few frames so the removed one is skipped; stop on a complete frame
       end
     end
     b.emit_pending_functions
