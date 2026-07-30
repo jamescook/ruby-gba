@@ -65,16 +65,18 @@ class TestDirectSound < Minitest::Test
     assert_match(/ghost/, err.message)
   end
 
-  def test_a_sample_longer_than_the_hardware_can_play_is_a_friendly_error
+  def test_a_clip_longer_than_the_length_counter_still_builds
+    # A clip past the 65536-sample length counter used to be a hard error; now it streams
+    # straight from ROM in chunks, so it lowers to a ROM without complaint.
     b = Builder.new
     b.instance_eval do
       screen :bitmap
-      huge = sample :huge, pcm: [0] * 70_000, rate: 8000 # over the 65536 length counter
-      huge.play
-      halt
+      long = sample :long, pcm: [0, 40, 0, -40] * 20_000, rate: 8000 # 80000 samples, over one chunk
+      long.play(loop: true)
+      game_loop { wait_vblank }
     end
-    err = assert_raises(LoweringError) { GBA.new.lower(b.program) }
-    assert_match(/longer than Direct Sound/i, err.message)
+    code = GBA.new.lower(b.program) # no LoweringError
+    assert code.bytesize.positive?, "a long looping clip lowers to a ROM"
   end
 
   # --- hardware: the sample really sounds on the console ---
