@@ -9,6 +9,7 @@ require_relative "gba/audio"
 require_relative "gba/expressions"
 require_relative "gba/primitives"
 require_relative "gba/collision"
+require_relative "gba/timers"
 
 module RubyGBA
   module IR
@@ -59,6 +60,7 @@ module RubyGBA
         include Expressions
         include Primitives
         include Collision
+        include Timers
 
         class LoweringError < StandardError; end
 
@@ -155,6 +157,8 @@ module RubyGBA
           @bitmaps = {}          # name -> { width:, height: } (a blob that has a shape)
           @backing = {}          # name -> { width:, height:, base: } (a sprite's save-under RAM)
           @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)
+          @timers = {}           # name -> { rate:, count: } (which hardware timer(s) back it)
+          @next_hw_timer = 0     # next free hardware timer index (0-3)
           @label_seq = 0
           @uses_pressed = false  # whether the program reads edge-detected input
           @palette = nil         # the color table, built once when any scene is buffered
@@ -180,6 +184,7 @@ module RubyGBA
         # out.
         def lower(program)
           collect_definitions(program)
+          register_timers(program) # assign each named timer its hardware timer index(es)
           prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
           resolve_modes(program)
           @tiled = program.walk.any? { |node| node.kind == :screen && node[:mode] == :tiled }

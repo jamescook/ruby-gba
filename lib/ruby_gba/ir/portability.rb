@@ -71,6 +71,9 @@ module RubyGBA
         if: :portable, else: :portable, loop: :portable, repeat: :portable,
         func: :portable, call: :portable, case: :portable, wait_vblank: :portable, halt: :portable,
         every: :portable, after: :portable, # timed triggers: plain counter logic any backend can run
+        # hardware timers: the node carries a rate in Hz (portable intent) — a backend
+        # realizes it however it likes (GBA timer registers, or a frame-clock model).
+        timer_start: :portable, timer_stop: :portable,
 
         # the opaque escape hatch — pre-assembled native bytes no backend can model
         raw: :hardware_only,
@@ -88,6 +91,7 @@ module RubyGBA
         # expression values
         int: :portable, var_ref: :portable, binop: :portable, neg: :portable,
         data_byte: :portable, list_get: :portable, list_len: :portable,
+        timer_ticks: :portable, # elapsed timer overflows — a plain counter any backend can model
         held: :portable, pressed: :portable,
         chance: :portable, # a random draw compared to a threshold — plain arithmetic
         pixels_overlap: :portable, # reads each sprite's picture; any backend with the images can test it

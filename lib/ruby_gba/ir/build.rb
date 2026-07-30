@@ -243,6 +243,33 @@ module RubyGBA
         Node.new(:func, children: body, name: name)
       end
 
+      # --- hardware timers ---
+      #
+      # A named counter that runs at a chosen rate: it overflows +hz+ times a second.
+      # Used for timed work and (later) to clock sampled audio. The rate is a plain
+      # frequency in Hz — portable intent — so each backend realizes it its own way
+      # (the GBA picks a prescaler + reload; the interpreter models a frame clock).
+
+      # Start (or restart) the named timer running at +hz+ overflows per second. Restart
+      # resets its elapsed-overflow count to zero.
+      def timer_start(name, hz)
+        unless hz.is_a?(Integer) && hz.positive?
+          raise ArgumentError, "a timer's rate must be a positive whole number of Hz, got #{hz.inspect}"
+        end
+        Node.new(:timer_start, name: name, hz: hz)
+      end
+
+      # Stop the named timer (it stops counting; its last count is frozen).
+      def timer_stop(name)
+        Node.new(:timer_stop, name: name)
+      end
+
+      # How many times the named timer has overflowed since it started — a value, so it
+      # can drive an operand. Wraps at 65536 (a 16-bit count), like the hardware counter.
+      def timer_ticks(name)
+        Node.new(:timer_ticks, name: name)
+      end
+
       def call(name)
         Node.new(:call, target: name)
       end

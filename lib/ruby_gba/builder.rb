@@ -16,6 +16,7 @@ require_relative "builder/scenes"
 require_relative "builder/collision"
 require_relative "builder/tiled"
 require_relative "builder/composition"
+require_relative "builder/timers"
 
 module RubyGBA
   # DSL context for building a GBA ROM.
@@ -54,6 +55,7 @@ module RubyGBA
     include Collision  # box (overlaps? lives on the shape — Box/Sprite via Bounds)
     include Tiled      # tiles, background (tiled-graphics surface; hardware lowering to follow)
     include Composition # pool (a component + a pool of instances, per-instance update)
+    include Timers     # timer (a hardware counter running at a chosen rate)
 
     # Shorthand for the IR node constructors, so DSL methods can build tree
     # nodes as terse Build.set(...) calls.
