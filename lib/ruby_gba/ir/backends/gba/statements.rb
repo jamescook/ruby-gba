@@ -58,6 +58,7 @@ module RubyGBA
             when :stop_music then emit_stop_music
             when :timer_start then emit_timer_start(node)
             when :timer_stop then emit_timer_stop(node)
+            when :on_timer then nil # a handler definition — its body is emitted in the interrupt dispatcher
             else
               raise LoweringError, "the GBA backend cannot lower #{node.kind.inspect} yet"
             end

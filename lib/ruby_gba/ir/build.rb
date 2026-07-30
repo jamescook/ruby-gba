@@ -264,6 +264,13 @@ module RubyGBA
         Node.new(:timer_stop, name: name)
       end
 
+      # Run +body+ every time the named timer overflows — a handler driven by the timer
+      # itself, so it runs at the timer's rate independent of the frame loop (where every/
+      # after are frame-paced). The body's statements are the node's children.
+      def on_timer(timer, *body)
+        Node.new(:on_timer, children: body, timer: timer)
+      end
+
       # How many times the named timer has overflowed since it started — a value, so it
       # can drive an operand. Wraps at 65536 (a 16-bit count), like the hardware counter.
       def timer_ticks(name)

@@ -127,6 +127,7 @@ module RubyGBA
         # hardware timers: a named counter at an author-time rate in Hz; stop by name.
         timer_start: { name: :name, hz: :int },
         timer_stop:  { name: :name },
+        on_timer:    { timer: :name }, # handler body is #children, run on each overflow
         func:       { name: :name },
         call:       { target: :name },
         case:       { var: :name, clauses: :list },

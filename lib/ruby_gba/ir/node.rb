@@ -79,8 +79,10 @@ module RubyGBA
         # hardware timers — a counter that runs at a chosen rate (overflowing that
         # many times a second), used for timed work and (later) to clock sampled
         # audio. Starting and stopping one are statements; reading how many times it
-        # has overflowed since it started is a value (timer_ticks, below).
-        timer_start: :control, timer_stop: :control,
+        # has overflowed since it started is a value (timer_ticks, below). `on_timer`
+        # carries a handler body (its #children) run each time the timer overflows —
+        # the timer raises an interrupt and the body runs off it.
+        timer_start: :control, timer_stop: :control, on_timer: :control,
 
         # a raw escape hatch: pre-assembled target bytes appended verbatim. The
         # one node that isn't portable — only a native backend can place it, and

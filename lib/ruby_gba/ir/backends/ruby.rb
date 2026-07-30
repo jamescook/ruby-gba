@@ -67,6 +67,7 @@ module RubyGBA
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @timers = {}            # name -> { hz:, running:, overflows: } (a hardware timer)
+          @timer_handlers = {}    # name -> on_timer node whose body runs on each overflow
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
           @on_vblank = nil         # optional ->(frame) { } called each vblank, to watch a run frame by frame
         end
@@ -361,6 +362,10 @@ module RubyGBA
             @timers[node[:name]] = { hz: node[:hz], running: true, overflows: 0.0 }
           when :timer_stop
             @timers[node[:name]]&.[]=(:running, false)
+          when :on_timer
+            # Arm the handler: its body runs on each of the timer's overflows, which
+            # advance_frame drives as the timer accrues them.
+            @timer_handlers[node[:timer]] = node
           else
             raise ProgramError,
                   "the Ruby backend cannot execute #{node.kind.inspect} " \
@@ -381,8 +386,9 @@ module RubyGBA
           @prev_held = @held
           @frame += 1
           # A running timer overflows hz times a second, so it accrues hz/FRAME_RATE
-          # overflows this frame — that's what timer_ticks reads back.
-          @timers.each_value { |t| t[:overflows] += t[:hz].to_f / FRAME_RATE if t[:running] }
+          # overflows this frame — that's what timer_ticks reads back, and each whole
+          # overflow crossed this frame runs its on_tick handler once.
+          @timers.each { |name, t| accrue_timer(name, t) if t[:running] }
           @held = to_button_set(Array(@input_script.call(@frame))) if @input_script
           @log << [:vblank, @frame]
           @on_vblank&.call(@frame)
@@ -391,6 +397,17 @@ module RubyGBA
         def exec_call(name)
           func = @funcs[name] || raise(ProgramError, "call to undefined func #{name.inspect}")
           func.children.each { |child| exec(child) }
+        end
+
+        # Advance one timer by a frame's worth of overflows, and run its on_tick handler
+        # once for each whole overflow it crosses this frame.
+        def accrue_timer(name, timer)
+          before = timer[:overflows].floor
+          timer[:overflows] += timer[:hz].to_f / FRAME_RATE
+          handler = @timer_handlers[name] or return
+          (timer[:overflows].floor - before).times do
+            handler.children.each { |child| exec(child) }
+          end
         end
 
         # Whether a display mode uses the tiled system (a tilemap plus hardware

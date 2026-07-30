@@ -199,6 +199,14 @@ module RubyGBA
       record(node)
     end
 
+    # Record a container node and run +block+ to fill its children — the hook a handle
+    # reaches for to attach a body from outside the builder (e.g. Timer#on_tick). Lives
+    # in the core, not a concern, so it isn't scanned as a DSL verb. Returns the node.
+    def record_container(node, &block)
+      push_container(node) { run_block(&block) }
+      node
+    end
+
     # A reusable hidden variable a handle can round-trip a read-modify-write through —
     # e.g. a {FieldRef} mutating a pool slot (load the slot, apply a Value mutator, store
     # it back). One is enough: such mutations are sequential statements, never nested.

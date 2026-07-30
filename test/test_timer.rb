@@ -100,6 +100,44 @@ class TestTimer < Minitest::Test
     assert_match(/hardware timers/i, err.message)
   end
 
+  # --- on_tick: a handler driven by the timer's overflow ---
+
+  # Runs `beat.on_tick { add :hits, 1 }` at the given rate and halts at `stop_frame`;
+  # returns the interpreter so a test can read :hits.
+  def run_on_tick(per_second:, stop_frame:, stop_at: nil)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      var :hits, 0
+      beat = timer :beat, per_second: per_second
+      beat.on_tick { add :hits, 1 }
+      fc = var :fc, 0
+      game_loop do
+        wait_vblank
+        add :fc, 1
+        (fc == stop_at).then { beat.stop } if stop_at
+        (fc == stop_frame).then { halt }
+      end
+    end
+    Ruby.new.run(b.program)
+  end
+
+  # At 60/sec on a 60fps model the handler runs once per frame — so after N frames it has
+  # run N times.
+  def test_on_tick_runs_the_handler_on_each_overflow
+    assert_equal 10, run_on_tick(per_second: 60, stop_frame: 10)[:hits]
+  end
+
+  # A faster timer runs the handler more often — twice a frame at 120/sec.
+  def test_on_tick_runs_more_often_for_a_faster_timer
+    assert_equal 20, run_on_tick(per_second: 120, stop_frame: 10)[:hits]
+  end
+
+  # Stopping the timer stops its handler: stopped at frame 5, the count freezes at 5.
+  def test_on_tick_stops_with_the_timer
+    assert_equal 5, run_on_tick(per_second: 60, stop_frame: 10, stop_at: 5)[:hits]
+  end
+
   # --- hardware: the timer really runs on the console ---
 
   def test_the_timer_counts_on_the_console
@@ -122,5 +160,25 @@ class TestTimer < Minitest::Test
     # ~20 overflows after 20 frames at 60/sec (allowing for real ~59.7fps + startup);
     # the wide window still catches a timer that never ran (0) or counted raw ticks (huge).
     assert seen.between?(10, 30), "the timer should have counted ~20 ticks over 20 frames, got #{seen}"
+  end
+
+  # An on_tick handler really runs off the timer interrupt on the console: it increments
+  # a variable each overflow, alongside the VBlank the game loop sleeps on (so the
+  # dispatcher is servicing two sources).
+  def test_on_tick_handler_runs_on_the_console
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      var :hits, 0
+      timer(:beat, per_second: 60).on_tick { add :hits, 1 }
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    backend = GBA.new
+    rom = ROM.assemble(backend.lower(b.program), title: "TICK", code: "BTCK", maker: "01")
+    v = assert_gemba_loads_rom(rom, frames: 20, vars: backend.var_addresses)
+    hits = v.var(:hits)
+    assert hits.between?(10, 30), "the on_tick handler should have run ~20 times over 20 frames, got #{hits}"
   end
 end
