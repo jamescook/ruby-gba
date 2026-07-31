@@ -47,6 +47,12 @@ module RubyGBA
           @voices.map { |v| v[:name] }
         end
 
+        # The level a currently-sounding sample is playing at (its first voice), or nil if
+        # it isn't playing — so a test can see `play(volume:)` took effect.
+        def volume_of(name)
+          @voices.find { |v| v[:name] == name }&.fetch(:volume)
+        end
+
         def initialize
           @vars = Hash.new(0)      # variable store; an unwritten variable reads as 0
           @funcs = {}              # name -> :func node
@@ -426,7 +432,8 @@ module RubyGBA
           return if @voices.size >= MAX_VOICES
 
           frames = [(info[:length].to_f / info[:rate] * FRAME_RATE).ceil, 1].max
-          @voices << { name: node[:name], loop: node[:loop], frames_left: frames, frames_total: frames }
+          @voices << { name: node[:name], loop: node[:loop], volume: node[:volume],
+                       frames_left: frames, frames_total: frames }
           @peak_voices = [@peak_voices, @voices.size].max
         end
 

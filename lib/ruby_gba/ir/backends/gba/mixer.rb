@@ -32,14 +32,22 @@ module RubyGBA
           # FIFO). It's the only hardware timer the mixer needs.
           CLOCK_TIMER = 0
 
-          # A voice slot is five words in IWRAM: the sample's address in ROM, how far it has
-          # played (a byte offset), its length, whether it loops, and whether it's sounding.
+          # A voice slot is six words in IWRAM: the sample's address in ROM, how far it has
+          # played (a byte offset), its length, whether it loops, whether it's sounding, and
+          # its level (0..64, applied as it's mixed).
           SLOT_SRC = 0
           SLOT_POS = 4
           SLOT_LEN = 8
           SLOT_LOOP = 12
           SLOT_ACTIVE = 16
-          SLOT_BYTES = 20
+          SLOT_VOL = 20
+          SLOT_BYTES = 24
+
+          # Volume level names → a 0..64 gain the mix multiplies each sample by (then shifts
+          # right by 6, i.e. divides by 64) — so :full leaves a sample unchanged and :half
+          # halves it. The same words the other sound verbs use.
+          MIX_LEVELS = { full: 64, three_quarter: 48, half: 32, quarter: 16, mute: 0 }.freeze
+          VOL_SHIFT = 6 # 2**6 = 64, the :full gain
 
           # The frame rate the mixer refills at — one slice of sound per displayed frame.
           MIXER_FPS = 60
@@ -106,6 +114,8 @@ module RubyGBA
             emit(ASM.str_offset(TMP, 0, SLOT_LEN))          # slot.len = length
             emit(ASM.load_immediate(TMP, node[:loop] ? 1 : 0))
             emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # slot.loop
+            emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node[:volume], MIX_LEVELS[:full])))
+            emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..64 gain)
             emit(ASM.load_immediate(TMP, 1))
             emit(ASM.str_offset(TMP, 0, SLOT_ACTIVE))       # slot.active = 1 (now it sounds)
             place_label(done)
@@ -197,6 +207,7 @@ module RubyGBA
             emit(ASM.add_reg(6, 6, 8))                   # r6 = read pointer = src + pos
             emit(ASM.ldr_offset(9, 4, SLOT_LEN))         # r9 = len
             emit(ASM.ldr_offset(10, 4, SLOT_LOOP))       # r10 = loop flag
+            emit(ASM.ldr_offset(12, 4, SLOT_VOL))        # r12 = volume gain (0..64)
             emit(ASM.load_immediate(7, dest))            # r7 = write pointer = start of dest
             emit(ASM.load_immediate(11, @mixer_spf))     # r11 = samples to add
 
@@ -205,9 +216,11 @@ module RubyGBA
             retire = gensym
             end_voice = gensym
             place_label(sample)
-            emit(ASM.ldrsb(0, 6))                        # r0 = the voice's sample (signed)
-            emit(ASM.ldrsb(1, 7))                        # r1 = what's already in the buffer
-            emit(ASM.add_reg(1, 1, 0))                   # sum them
+            emit(ASM.ldrsb(0, 6))                        # r0 = the voice's raw sample (signed)
+            emit(ASM.mul(1, 0, 12))                      # r1 = sample × volume...
+            emit(ASM.asr_imm(1, 1, VOL_SHIFT))           # ...÷ 64 (so :full is unchanged)
+            emit(ASM.ldrsb(0, 7))                        # r0 = what's already in the buffer
+            emit(ASM.add_reg(1, 1, 0))                   # add the scaled sample
             # clamp r1 into [-128, 127]
             skip_hi = gensym
             skip_lo = gensym

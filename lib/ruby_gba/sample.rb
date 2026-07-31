@@ -21,14 +21,24 @@ module RubyGBA
     # @return [Symbol] the sample's name
     attr_reader :name
 
-    # Play the sample from the start. By default it plays once; `loop: true` replays it
-    # on a seamless loop — how you'd play a piece of background music that keeps going
-    # until you `stop` it. Returns self so it chains.
+    # How loud a voice sits in the mix — from full down to silent. These are the levels
+    # `play(volume:)` accepts (the same words the other sound verbs use).
+    VOLUME_LEVELS = %i[full three_quarter half quarter mute].freeze
+
+    # Play the sample from the start. By default it plays once at full volume; `loop: true`
+    # replays it on a seamless loop (background music that keeps going until you `stop` it),
+    # and `volume:` sets how loud this voice is in the mix (:full, :three_quarter, :half,
+    # :quarter, :mute). Returns self so it chains.
     #
-    #   music.play(loop: true)   # a looping background track
-    #   boom.play                # a one-shot sound effect
-    def play(loop: false)
-      @builder.record_statement(IR::Build.play_sample(@name, loop: loop))
+    #   music.play(loop: true, volume: :half)  # a quiet looping background track
+    #   boom.play                              # a one-shot effect at full volume
+    def play(loop: false, volume: :full)
+      unless VOLUME_LEVELS.include?(volume)
+        raise ArgumentError,
+              "play volume #{volume.inspect} isn't a level — use one of #{VOLUME_LEVELS.join(', ')}"
+      end
+
+      @builder.record_statement(IR::Build.play_sample(@name, loop: loop, volume: volume))
       self
     end
 
