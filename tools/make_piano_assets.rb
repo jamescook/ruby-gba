@@ -28,15 +28,21 @@ module MakePianoAssets
 
   # --- The hand's size and where its four fingers sit ---
   # A 64x32 sprite (a valid hardware-sprite size). The four fingers hang down from
-  # the palm, evenly spaced so each one lines up with a 16px-wide key below it.
+  # a shallow palm, evenly spaced so each lines up with a 16px-wide key below it.
+  # Seen as the back of a LEFT hand: left to right they are pinky, ring, middle,
+  # index. Their RESTING lengths differ — middle longest, pinky shortest — which is
+  # what makes the silhouette read as a hand and not a comb; a finger PRESSING a key
+  # extends down to a common lower row (a clear, uniform stab onto the keys).
   HAND_W = 64
   HAND_H = 32
   FINGERS = 4
   FINGER_CX = Array.new(FINGERS) { |k| 8 + (k * 16) } # 8, 24, 40, 56 — a finger per key
-  PALM_BOTTOM = 13     # the palm fills the top rows down to here
-  FINGER_TOP = 12      # fingers start just inside the palm
-  REST_TIP = 23        # a resting fingertip reaches this row
-  PRESS_TIP = 30       # a pressed finger extends this far down (onto the key)
+  FINGER_HALF = 4            # half a finger's width (9px across)
+  PALM_TOP = 1
+  PALM_BOTTOM = 9            # a shallow palm, leaving most of the sprite for fingers
+  FINGER_TOP = 8             # fingers grow out of the palm's lower edge
+  REST_TIPS = [19, 22, 24, 21].freeze # pinky, ring, middle, index at rest (natural lengths)
+  PRESS_TIP = 31             # a pressed finger stabs down to here, onto the key
 
   # --- palette (5-bit-per-channel console colors) ---
   SKIN    = Color.rgb(31, 23, 17)  # the back of the hand / fingers
@@ -76,46 +82,40 @@ module MakePianoAssets
 
     draw_palm(put)
     FINGERS.times do |k|
-      tip = pressed == k ? PRESS_TIP : REST_TIP
+      tip = pressed == k ? PRESS_TIP : REST_TIPS[k]
       draw_finger(put, FINGER_CX[k], tip)
     end
-    draw_thumb(put) # a small thumb nub on the right, so it reads as a left hand
 
     rgba_png(HAND_W, HAND_H, rgb, alpha)
   end
 
-  # The back of the hand: a filled, outlined block across the top of the sprite.
+  # The back of the hand: a filled block outlined on top and sides. The bottom is
+  # left open — that's where the fingers grow out of it, so they merge seamlessly.
   def draw_palm(put)
-    (2..PALM_BOTTOM).each do |y|
+    (PALM_TOP..PALM_BOTTOM).each do |y|
       (3..60).each { |x| put.call(x, y, SKIN) }
     end
-    outline_box(put, 2, 1, 61, PALM_BOTTOM) # a dark border around the palm
+    (3..60).each { |x| put.call(x, PALM_TOP, OUTLINE) }                             # top edge
+    (PALM_TOP..PALM_BOTTOM).each { |y| put.call(2, y, OUTLINE); put.call(61, y, OUTLINE) } # sides
   end
 
-  # One finger: a rounded column of skin from the palm down to +tip+, outlined on
-  # both sides with a pale nail at the very end. +cx+ is its center column.
+  # One finger: a column of skin from the palm down to +tip+ — outlined on both
+  # sides, tapered to a rounded fingertip, with a knuckle crease near the top and a
+  # pale nail at the end. +cx+ is its center column; a longer +tip+ is a press.
   def draw_finger(put, cx, tip)
-    (FINGER_TOP..tip).each do |y|
-      (cx - 4..cx + 3).each { |x| put.call(x, y, SKIN) }
-      put.call(cx - 4, y, SKIN_D) # a little shading down the seams
-      put.call(cx + 3, y, SKIN_D)
+    left = cx - FINGER_HALF
+    right = cx + FINGER_HALF
+    (FINGER_TOP..tip - 1).each do |y|
+      inset = y >= tip - 1 ? 2 : 1                 # pull the last skin row in for a round tip
+      (left + inset..right - inset).each { |x| put.call(x, y, SKIN) }
     end
-    outline_box(put, cx - 5, FINGER_TOP, cx + 4, tip)
-    (tip - 2..tip - 1).each { |y| (cx - 3..cx + 2).each { |x| put.call(x, y, NAIL) } }
-  end
-
-  # A short thumb sticking off the right side of the palm.
-  def draw_thumb(put)
-    (7..15).each do |y|
-      (58..62).each { |x| put.call(x, y, SKIN) }
-    end
-    outline_box(put, 57, 6, 63, 16)
-  end
-
-  # Draw a rectangle's border (used as the cartoon outline around a part).
-  def outline_box(put, x0, y0, x1, y1)
-    (x0..x1).each { |x| put.call(x, y0, OUTLINE); put.call(x, y1, OUTLINE) }
-    (y0..y1).each { |y| put.call(x0, y, OUTLINE); put.call(x1, y, OUTLINE) }
+    (FINGER_TOP + 1..tip - 2).each { |y| put.call(right - 1, y, SKIN_D) } # shading down one side
+    (FINGER_TOP..tip - 2).each { |y| put.call(left, y, OUTLINE); put.call(right, y, OUTLINE) }
+    put.call(left + 1, tip - 1, OUTLINE)           # rounded-tip outline
+    put.call(right - 1, tip - 1, OUTLINE)
+    (left + 2..right - 2).each { |x| put.call(x, tip, OUTLINE) }
+    (left + 1..right - 1).each { |x| put.call(x, FINGER_TOP + 2, SKIN_D) } # knuckle crease
+    (tip - 5..tip - 3).each { |y| (cx - 1..cx + 1).each { |x| put.call(x, y, NAIL) } } # nail
   end
 
   # --- the note ---
