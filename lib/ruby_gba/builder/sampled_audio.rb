@@ -39,6 +39,19 @@ module RubyGBA
         Sample.new(self, name)
       end
 
+      # Define a playable instrument from a recorded sample — the same `pcm:`/`from:`/`rate:`
+      # as `sample`, plus the note it was recorded at (`note:`, default :C4). You play notes
+      # on the returned {Instrument}, and one recording covers the whole keyboard:
+      #
+      #   piano = instrument :piano, from: "piano_c4.wav", note: :C4
+      #   piano.play(:E4)             # a note
+      #   piano.play(:C4, :E4, :G4)   # ...or a chord
+      #
+      # @return [Instrument]
+      def instrument(name, pcm: nil, from: nil, rate: nil, note: :C4)
+        Instrument.new(self, sample(name, pcm: pcm, from: from, rate: rate, note: note))
+      end
+
       private
 
       # Resolve the sample's [bytes, rate] from whichever source was given — a WAV file
