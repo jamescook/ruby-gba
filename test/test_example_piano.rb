@@ -79,7 +79,7 @@ class TestExamplePiano < Minitest::Test
     assert_equal 0x0000, v.mem16(0x0500_0200), "sprite palette slot 0 must be see-through (palette not byte-shifted)"
 
     assert v.pixel_is?(100, 150, WHITE), "the keyboard's white keys should be white"
-    assert v.pixel_is?(120, 100, SKIN),  "the hand should be skin-colored, not a scrambled palette"
+    assert v.pixel_is?(128, 95, SKIN),   "the hand should be skin-colored, not a scrambled palette"
     assert v.sound?, "the piano should be audible (energy #{v.audio_energy})"
   end
 end
