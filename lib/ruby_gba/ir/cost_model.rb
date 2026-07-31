@@ -15,10 +15,11 @@ module RubyGBA
     # Costs are in *scanlines* — the console draws the screen one scanline at a time,
     # so a scanline of drawing time is the natural unit, and the vertical blank (the
     # safe window to draw before the picture tears) is about 68 scanlines. So "this
-    # frame costs 45 scanlines" means "it eats 45 of your ~68 safe scanlines." The
-    # weights are measured on hardware (see the timing probe): reading VCOUNT right
-    # after a known workload, so a glyph really is measured against a DMA fill. A game
-    # dev can override any of them.
+    # frame costs 45 scanlines" means "it eats 45 of your ~68 safe scanlines." Weights
+    # are calibrated with the timing probe (gemba-core), which counts the CPU cycles a
+    # known workload actually burns in a frame — the mixer's is measured that way; the
+    # drawing and logic tiers are still hand estimates in the same unit (marked below).
+    # A game dev can override any of them.
     #
     # Two things drive the cost. Drawing is dominated by DMA *operations*: a fill, a
     # blit, a save/restore is one DMA per row, and the per-row setup dwarfs the
@@ -88,7 +89,12 @@ module RubyGBA
       # the model prices the heaviest a frame can reach.
       MIXER_VOICES = 8          # voices the mixer sums at once (mirrors the backend's capacity)
       MIXER_FPS = 60            # it refills one frame's worth of samples per frame
-      MIXER_CLEAR_OPS = 5       # instructions per output sample to clear the buffer (a byte-clear loop)
+      # Fixed per-output-sample overhead the mixer pays regardless of voice count —
+      # clearing the accumulator, copying the mixed buffer, and the DMA/FIFO refill.
+      # Measured via the timing probe: a sounding program's per-frame cost has a
+      # ~6-scanline floor at 8192Hz that doesn't move with voices; expressed here in
+      # op_step units per sample (~22) so it scales with the buffer size like the rest.
+      MIXER_OVERHEAD_OPS = 22
       DEFAULT_MIXER_RATE = 8192 # fallback output rate when no sample declares one
 
       # Per-op costs in scanlines, measured on hardware by the timing probe (see the
@@ -99,7 +105,7 @@ module RubyGBA
         plot_pixel:  0.0267,  # one pixel written by hand — a lone pixel, a transparent blit, a font pixel
         sound_write: 0.0286,  # one write to a sound register (a beep, powering sound on)
         note_check:  0.003,   # per song note, the frame-counter check that runs every frame (estimated)
-        mix_voice_sample: 0.06, # mixing one source sample into one voice for one output slot — the inner mix loop (estimated)
+        mix_voice_sample: 0.133, # mixing one source sample into one voice for one output slot — the inner mix loop (measured via the timing probe: ~18 scanlines per added voice at 8192Hz)
         # Logic / compute steps, in the same scanline unit (all estimated, not
         # measured — like note_check). A step is a plain data op (add, subtract,
         # compare, copy, move a value); it's the cheap baseline. Multiply is a few
@@ -515,7 +521,8 @@ module RubyGBA
       # sound. The mixer sums every sounding voice into the output buffer once a frame —
       # CPU work outside the drawing budget — so it's judged against the whole frame, not
       # the vblank window. Priced at the worst case (its full voice count) times the
-      # buffer it fills each frame, plus the cost of clearing that buffer. Each entry:
+      # buffer it fills each frame, plus the fixed per-frame overhead (clearing the
+      # accumulator, copying the mixed buffer, the DMA/FIFO refill). Each entry:
       # { voices:, samples_per_frame:, rate:, cost:, budget:, over: }
       def mixer_verdict(program)
         return nil unless program.walk.any? { |node| node.kind == :play_sample }
@@ -523,8 +530,8 @@ module RubyGBA
         rate = mixer_rate(program)
         spf = [(rate + MIXER_FPS - 1) / MIXER_FPS, 1].max # samples the mixer fills each frame (ceil)
         mixing = MIXER_VOICES * spf * @weights[:mix_voice_sample]
-        clearing = spf * MIXER_CLEAR_OPS * @weights[:op_step]
-        cost = mixing + clearing
+        overhead = spf * MIXER_OVERHEAD_OPS * @weights[:op_step]
+        cost = mixing + overhead
         { voices: MIXER_VOICES, samples_per_frame: spf, rate: rate,
           cost: cost, budget: FRAME_BUDGET, over: cost > FRAME_BUDGET }
       end
