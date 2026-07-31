@@ -51,6 +51,22 @@ class TestGembaCoreCore < Minitest::Test
     core.destroy
   end
 
+  def test_timing_primitives
+    core = GembaCore::Core.new(red_rom)
+    assert_equal 280_896, core.frame_cycles
+    4.times { core.run_frame } # settle past boot (the first frame doesn't run full-length)
+    before = core.global_cycles
+    core.run_frame
+    assert_equal core.frame_cycles, core.global_cycles - before, "a frame advances global time by a frame"
+    # step advances global time (finer than a whole frame); cpu_cycles is an Integer.
+    gc = core.global_cycles
+    core.step
+    assert_operator core.global_cycles, :>=, gc
+    assert_kind_of Integer, core.cpu_cycles
+    assert_includes [true, false], core.cpu_halted?
+    core.destroy
+  end
+
   def test_set_keys_accepts_a_bitmask_without_raising
     core = GembaCore::Core.new(red_rom)
     core.set_keys(GembaCore::KEY_RIGHT | GembaCore::KEY_A)
