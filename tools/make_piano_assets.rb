@@ -16,11 +16,12 @@ require_relative "preview"
 #   ruby tools/make_piano_assets.rb
 #
 # It writes, under examples/assets/:
-#   - piano_hand_rest.png  — the hand hovering, no finger down
-#   - piano_hand_f0..f3.png — the same hand with one finger pressed (f0 = the
-#     leftmost/pinky over the lowest key … f3 = the rightmost over the highest)
-#   - piano.wav            — a single ~0.6s piano-ish note at C4, which the
-#     `instrument` verb pitches across the keys.
+#   - piano_right_rest.png + piano_right_f0..f3.png — the right hand hovering, and
+#     with each finger pressed (f0 leftmost … f3 rightmost) — it plays the melody
+#   - piano_left_rest.png + piano_left_chord.png    — the left hand hovering, and
+#     its two-finger block chord (the outer two fingers down together)
+#   - piano.wav — a single ~0.6s piano-ish note at C4, which the `instrument` verb
+#     pitches across the keys.
 module MakePianoAssets
   Color = RubyGBA::Color
 
@@ -41,8 +42,14 @@ module MakePianoAssets
   PALM_TOP = 1
   PALM_BOTTOM = 9            # a shallow palm, leaving most of the sprite for fingers
   FINGER_TOP = 8             # fingers grow out of the palm's lower edge
-  REST_TIPS = [19, 22, 24, 21].freeze # pinky, ring, middle, index at rest (natural lengths)
   PRESS_TIP = 31             # a pressed finger stabs down to here, onto the key
+
+  # Natural resting finger lengths, so the silhouette reads as a hand. The left hand
+  # runs pinky, ring, middle, index left to right; the right hand is its mirror, so
+  # its lengths are the same list reversed. (Longest in the middle either way.)
+  LEFT_REST_TIPS  = [19, 22, 24, 21].freeze
+  RIGHT_REST_TIPS = LEFT_REST_TIPS.reverse.freeze
+  CHORD_FINGERS = [0, 3].freeze # the outer two fingers, for the left hand's block chord
 
   # --- palette (5-bit-per-channel console colors) ---
   SKIN    = Color.rgb(31, 23, 17)  # the back of the hand / fingers
@@ -59,18 +66,24 @@ module MakePianoAssets
 
   def run
     Dir.mkdir(ASSETS) unless Dir.exist?(ASSETS)
-    File.binwrite(File.join(ASSETS, "piano_hand_rest.png"), hand_png(nil))
-    FINGERS.times { |k| File.binwrite(File.join(ASSETS, "piano_hand_f#{k}.png"), hand_png(k)) }
+    # Right hand plays the melody — a resting pose plus one pose per finger pressed.
+    File.binwrite(File.join(ASSETS, "piano_right_rest.png"), hand_png([], RIGHT_REST_TIPS))
+    FINGERS.times { |k| File.binwrite(File.join(ASSETS, "piano_right_f#{k}.png"), hand_png([k], RIGHT_REST_TIPS)) }
+    # Left hand plays a block chord — just resting and its two-finger chord pose.
+    File.binwrite(File.join(ASSETS, "piano_left_rest.png"), hand_png([], LEFT_REST_TIPS))
+    File.binwrite(File.join(ASSETS, "piano_left_chord.png"), hand_png(CHORD_FINGERS, LEFT_REST_TIPS))
     File.binwrite(File.join(ASSETS, "piano.wav"), piano_wav)
-    puts "wrote #{ASSETS}/piano_hand_rest.png, piano_hand_f0..f#{FINGERS - 1}.png and piano.wav"
+    puts "wrote #{ASSETS}/piano_right_rest.png, piano_right_f0..f#{FINGERS - 1}.png, " \
+         "piano_left_rest.png, piano_left_chord.png and piano.wav"
   end
 
   # --- the hand poses ---
 
-  # Draw the left hand. +pressed+ is nil for the resting pose, or a finger index
-  # 0..3 for the pose where that one finger is pushed down onto its key. Everything
-  # is drawn onto a transparent background so the imported sprite is a clean cut-out.
-  def hand_png(pressed)
+  # Draw a hand. +pressed+ is the list of finger indices pushed down onto their keys
+  # (empty for the resting pose, one for a melody note, two for the left hand's block
+  # chord); +rest_tips+ gives each finger's resting length, which is what makes a left
+  # or right hand. Drawn on a transparent background so the sprite is a clean cut-out.
+  def hand_png(pressed, rest_tips)
     rgb = Array.new(HAND_W * HAND_H, SKIN)
     alpha = Array.new(HAND_W * HAND_H, 0) # see-through until a pixel is drawn
     put = lambda do |x, y, color|
@@ -82,7 +95,7 @@ module MakePianoAssets
 
     draw_palm(put)
     FINGERS.times do |k|
-      tip = pressed == k ? PRESS_TIP : REST_TIPS[k]
+      tip = pressed.include?(k) ? PRESS_TIP : rest_tips[k]
       draw_finger(put, FINGER_CX[k], tip)
     end
 
