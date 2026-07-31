@@ -243,6 +243,22 @@ class TestIRBackendGBA < Minitest::Test
     assert_includes gba.code, "\xDE\xAD\xBE\xEF".b
   end
 
+  def test_embedded_blobs_stay_word_aligned_after_an_odd_length_one
+    # Blobs are DMA'd into palette / VRAM / sound memory, whose source address must
+    # be aligned. An odd-length blob (an 8-bit sample of odd length, say) must not
+    # push the blobs after it onto odd addresses — a misaligned palette DMA reads a
+    # byte out of step and tints the whole screen wrong. Every blob starts on a word
+    # boundary regardless of what preceded it. (Addresses are ROM base + 0xC0 header
+    # + position, and 0xC0 is word-aligned, so an aligned position is an aligned
+    # address.)
+    gba = GBA.new
+    gba.lower(program(data(:odd, "\x01\x02\x03".b), data(:after, "\xAA\xBB\xCC\xDD".b), halt))
+    positions = gba.instance_variable_get(:@data_positions)
+    positions.each do |name, pos|
+      assert_equal 0, pos % 4, "data blob #{name.inspect} sits at byte #{pos}, not a word boundary"
+    end
+  end
+
   def test_a_byte_from_embedded_data_drives_a_pixel
     # The whole chain on hardware: blob in ROM -> address fixup resolved -> byte
     # read at run time -> used as a pixel's x. The byte is 10, so red lands at x=10.
