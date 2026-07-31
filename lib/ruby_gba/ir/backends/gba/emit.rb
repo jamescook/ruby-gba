@@ -92,11 +92,22 @@ module RubyGBA
             emit(ASM.load_immediate_fixed(reg, 0))
           end
 
+          # Blobs are copied into palette / video / sound memory by DMA, whose source
+          # address must be aligned to its transfer unit — a halfword (2 bytes) for a
+          # palette or tilemap, a word (4 bytes) for the sound FIFO. So every blob has
+          # to START on an aligned address. An odd-length blob (an 8-bit sample of odd
+          # length, say) would otherwise push the next blob to an odd address, and the
+          # DMA would read it a byte out of step — a palette shifted by one byte tints
+          # the whole screen wrong, a tilemap turns to garbage. Pad each blob up to a
+          # word boundary so every one starts aligned regardless of what preceded it.
+          DATA_ALIGN = 4
+
           # Lay the embedded blobs out after all the code, remembering where each
           # landed so resolve_data_address can turn a name into an address. Data
           # after the code means the main flow never runs into it.
           def emit_data_region
             @data_blobs.each do |name, bytes|
+              emit("\x00".b * ((-pos) % DATA_ALIGN)) # pad up to the next word boundary
               @data_positions[name] = pos
               emit(bytes)
             end
