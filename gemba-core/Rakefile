@@ -1,0 +1,33 @@
+# frozen_string_literal: true
+
+require "rake/testtask"
+require "rbconfig"
+
+EXT_DIR = File.expand_path("ext/gemba_core_ext", __dir__)
+EXT_BUNDLE = File.join(EXT_DIR, "gemba_core_ext.#{RbConfig::CONFIG['DLEXT']}")
+
+desc "Build the gemba_core C extension (headless libmgba probe)"
+task :compile do
+  Dir.chdir(EXT_DIR) do
+    ruby "extconf.rb"
+    sh "make"
+  end
+end
+
+desc "Remove built extension artifacts"
+task :clean do
+  Dir.chdir(EXT_DIR) do
+    sh "make", "clean" if File.exist?("Makefile")
+    rm_f Dir.glob("Makefile") + Dir.glob("*.#{RbConfig::CONFIG['DLEXT']}") +
+         Dir.glob("*.o") + Dir.glob("mkmf.log")
+  end
+end
+
+# The tests require the built extension, so compile first.
+Rake::TestTask.new(test: :compile) do |t|
+  t.libs << "test" << "lib" << EXT_DIR
+  t.test_files = FileList["test/**/test_*.rb"]
+  t.warning = false
+end
+
+task default: :test
