@@ -56,10 +56,22 @@ jobs:
         env:
           CI: '1'
 
-      - name: Upload test log
+      # gemba-core is the headless libmgba probe vendored under gemba-core/. It has
+      # its own suite (compiled C ext + tests), kept out of the main `rake test`
+      # glob, so run it separately. No Xvfb/PulseAudio here — it's headless, with no
+      # SDL2 or Tk. The build deps it needs (libmgba-dev, build-essential) are already
+      # installed above for gemba.
+      - name: Compile and test gemba-core (headless libmgba probe)
+        run: bundle exec rake test:mgba 2>&1 | tee gemba-core-test.log
+        env:
+          CI: '1'
+
+      - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-log-ruby${{ matrix.ruby }}
-          path: test-output.log
+          path: |
+            test-output.log
+            gemba-core-test.log
           retention-days: 7
