@@ -70,10 +70,14 @@ class TestCostTreeBySource < Minitest::Test
     end
     b.emit_pending_functions
 
+    # Both walls draw fills, so they land in the drawing section; within it, the
+    # per-file grouping still separates each collaborator's work.
     tree = Cost.new.as_json(b.program)[:tree]
-    groups = tree.select { |n| n[:op] == :group }
+    drawing = tree.find { |n| n[:category] == :drawing }
+    refute_nil drawing, "the walls' drawing is its own section"
+    groups = drawing[:children].select { |n| n[:op] == :group }
     assert_equal ["left_wall.rb", "right_wall.rb"], groups.map { |n| n[:label] },
-                 "each collaborator file is its own labeled group"
+                 "each collaborator file is its own labeled group within the section"
     assert(groups.all? { |g| g[:cost].positive? }, "each group carries a real subtotal")
     assert(groups.all? { |g| g[:children].length == 2 }, "each wall's two fills sit under its group")
   end

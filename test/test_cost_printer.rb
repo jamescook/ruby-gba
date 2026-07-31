@@ -128,20 +128,21 @@ class TestCostPrinter < Minitest::Test
     io.string
   end
 
+  # The 60fps line in the bottom budget summary — where the frame verdict now lives.
   def verdict_line(text)
-    text.lines.find { |line| line.include?("steady per frame") }
+    text.lines.find { |line| line.include?("60fps") }
   end
 
   def test_an_over_budget_frame_paints_the_verdict_red
     line = verdict_line(rendered(over_budget_program, color: true))
     assert_includes line, Color::COLORS[:hot]
-    assert_includes line, "over budget", "colour and verdict agree: both say over"
+    assert_includes line, "over —", "colour and verdict agree: both say over"
   end
 
   def test_a_cheap_frame_paints_the_verdict_green
     line = verdict_line(rendered(cheap_program, color: true))
     assert_includes line, Color::COLORS[:good]
-    assert_includes line, "ok — fits"
+    assert_includes line, "ok — holds 60fps"
   end
 
   # The heart of the DX decision: a game that FITS shows no red anywhere — red is the
@@ -149,19 +150,19 @@ class TestCostPrinter < Minitest::Test
   # stays green→orange, and the reader isn't told to fix a game that's fine.
   def test_a_fitting_program_has_no_red_anywhere
     output = rendered(cheap_program, color: true)
-    assert_includes verdict_line(output), "ok — fits"
+    assert_includes verdict_line(output), "ok — holds 60fps"
     refute_includes output, Color::COLORS[:hot], "nothing is red when the frame fits"
   end
 
   # Even when the program IS over budget, red belongs only to the alarm lines (the
-  # verdict / the unpriced banner) — never to a tree row, which only grades where the
-  # time goes. A big one-off in the tree is orange ("your hottest work"), not red.
+  # budget verdict / the unpriced banner) — never to a tree row or the roll-up total,
+  # which only grade where the time goes. A big one-off is orange, not red.
   def test_red_is_confined_to_alarm_lines_not_the_tree
     output = rendered(over_budget_program, color: true)
     red_lines = output.lines.select { |line| line.include?(Color::COLORS[:hot]) }
     refute_empty red_lines, "an over-budget program does raise the alarm somewhere"
     red_lines.each do |line|
-      assert line.include?("over budget") || line.include?("can't estimate"),
+      assert line.include?("over —") || line.include?("can't estimate"),
              "red only on an alarm line, got a tree row: #{line.inspect}"
     end
   end

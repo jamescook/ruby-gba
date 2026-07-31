@@ -77,6 +77,20 @@ module RubyGBA
       STOP_WRITES   = 4  # silence both music voices (channels 1 and 2)
       SONG_TICK     = 6 # per frame: advance the song's frame counter and wrap it at the end
 
+      # The software mixer's per-frame CPU. When a program plays sampled sound, a
+      # software mixer runs once every frame (right after wait_vblank), summing every
+      # sounding voice into the output buffer — real recurring work the drawing budget
+      # can't see. Unlike drawing, it's CPU work spread across the whole frame, not the
+      # brief vblank window, so it's judged against the full frame (overrunning drops a
+      # frame; it can't tear, since it touches no video memory). Its cost scales with
+      # the buffer it fills each frame (the sample rate / 60) and the voices it sums,
+      # priced at the worst case — the mixer's full voice count — the way the rest of
+      # the model prices the heaviest a frame can reach.
+      MIXER_VOICES = 8          # voices the mixer sums at once (mirrors the backend's capacity)
+      MIXER_FPS = 60            # it refills one frame's worth of samples per frame
+      MIXER_CLEAR_OPS = 5       # instructions per output sample to clear the buffer (a byte-clear loop)
+      DEFAULT_MIXER_RATE = 8192 # fallback output rate when no sample declares one
+
       # Per-op costs in scanlines, measured on hardware by the timing probe (see the
       # class note). Override per-call: CostModel.new(glyph: 0.5).
       DEFAULT_WEIGHTS = {
@@ -85,6 +99,7 @@ module RubyGBA
         plot_pixel:  0.0267,  # one pixel written by hand — a lone pixel, a transparent blit, a font pixel
         sound_write: 0.0286,  # one write to a sound register (a beep, powering sound on)
         note_check:  0.003,   # per song note, the frame-counter check that runs every frame (estimated)
+        mix_voice_sample: 0.06, # mixing one source sample into one voice for one output slot — the inner mix loop (estimated)
         # Logic / compute steps, in the same scanline unit (all estimated, not
         # measured — like note_check). A step is a plain data op (add, subtract,
         # compare, copy, move a value); it's the cheap baseline. Multiply is a few
@@ -122,6 +137,19 @@ module RubyGBA
         sample play_sample stop_sample
       ].freeze
       FREE_VALUE_KINDS = %i[int var_ref data_byte list_get list_len held pressed read_scanline timer_ticks].freeze
+
+      # Every costed op falls into one of three buckets, so a frame's work reads as
+      # drawing vs sound vs logic — the sections the estimate rolls up into. DRAWING is
+      # the vblank-constrained work (writes to video memory), and it alone carries the
+      # tear check. SOUND is the sound-register writes plus the software mixer. Anything
+      # else the loop computes — moving things, collisions, counters — is LOGIC. They
+      # all share the one frame, so they all roll into the frame total.
+      DRAW_KINDS = %i[
+        pixel fill_rect dma_fill_rect draw_rect_at clear_screen draw_text draw_digit
+        blit blit_pose save_region restore_region present_objects scroll_background background
+      ].freeze
+      SOUND_KINDS = %i[play_song beep noise wave stop_wave enable_sound stop_music mixer].freeze
+      CATEGORY_ORDER = %i[drawing sound logic].freeze
 
       def initialize(**weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)
@@ -230,6 +258,70 @@ module RubyGBA
       def source_file(node)
         site = node[:source]
         site && site.split(":").first
+      end
+
+      # Which section an op belongs to: drawing, sound, or logic (the fallback).
+      def category_of(op)
+        return :drawing if DRAW_KINDS.include?(op)
+        return :sound if SOUND_KINDS.include?(op)
+
+        :logic
+      end
+
+      # The section a cost-tree node belongs to: a leaf by its op (or an explicit
+      # :category a synthetic node declares), a container by where most of its cost
+      # lives — a repeat that's mostly drawing counts as drawing.
+      def node_category(node)
+        return node[:category] if node[:category]
+        return category_of(node[:op]) if node[:children].to_a.empty?
+
+        category_totals(node).max_by { |_cat, cost| cost }&.first || :logic
+      end
+
+      # Sum a subtree's leaf costs by section — used to place a container in the
+      # section holding most of its work.
+      def category_totals(node, sums = Hash.new(0))
+        if node[:children].to_a.empty?
+          sums[node[:category] || category_of(node[:op])] += node[:cost]
+        else
+          node[:children].each { |child| category_totals(child, sums) }
+        end
+        sums
+      end
+
+      # Group a frame's cost nodes into drawing / sound / logic sections, each a
+      # rolled-up subtotal, in that fixed order. The software mixer's per-frame cost
+      # joins the sound section as a leaf — it's real recurring work, just not an IR op
+      # — so it stops being a bolt-on and rolls up with everything else. Within a
+      # section the per-file / repeat folding still applies.
+      def group_by_category(nodes, program)
+        nodes += mixer_nodes(program)
+        buckets = nodes.group_by { |node| node_category(node) }
+        CATEGORY_ORDER.filter_map do |cat|
+          kids = buckets[cat]
+          next if kids.nil? || kids.empty?
+
+          { op: :category, category: cat, label: cat.to_s, cost: kids.sum { |node| node[:cost] },
+            children: group_by_source(kids) }
+        end
+      end
+
+      # The mixer as a cost leaf for the sound section, or none when the program plays
+      # no sampled sound. (Its cost model lives in #mixer_verdict.)
+      def mixer_nodes(program)
+        v = mixer_verdict(program)
+        return [] unless v
+
+        [{ op: :mixer, category: :sound, cost: v[:cost], children: [],
+           label: "software mixer — worst case, all #{v[:voices]} voices summed each frame" }]
+      end
+
+      # The frame's cost as drawing / sound / logic sections — the categorized tree the
+      # report renders and #as_json serializes. Left raw (per-file grouping only); the
+      # display folding (aggregate/collapse for readability) happens at render time, so
+      # it can't erase the structure #as_json and its tests read.
+      def category_tree(program, focus: nil)
+        group_by_category(analyze(program, focus: focus), program)
       end
 
       # Starting at +i+, the adjacent block-repeat that folds the most nodes: the
@@ -419,6 +511,33 @@ module RubyGBA
         end
       end
 
+      # The software mixer's per-frame cost, or nil when the program plays no sampled
+      # sound. The mixer sums every sounding voice into the output buffer once a frame —
+      # CPU work outside the drawing budget — so it's judged against the whole frame, not
+      # the vblank window. Priced at the worst case (its full voice count) times the
+      # buffer it fills each frame, plus the cost of clearing that buffer. Each entry:
+      # { voices:, samples_per_frame:, rate:, cost:, budget:, over: }
+      def mixer_verdict(program)
+        return nil unless program.walk.any? { |node| node.kind == :play_sample }
+
+        rate = mixer_rate(program)
+        spf = [(rate + MIXER_FPS - 1) / MIXER_FPS, 1].max # samples the mixer fills each frame (ceil)
+        mixing = MIXER_VOICES * spf * @weights[:mix_voice_sample]
+        clearing = spf * MIXER_CLEAR_OPS * @weights[:op_step]
+        cost = mixing + clearing
+        { voices: MIXER_VOICES, samples_per_frame: spf, rate: rate,
+          cost: cost, budget: FRAME_BUDGET, over: cost > FRAME_BUDGET }
+      end
+
+      # The rate the mixer runs at — the one most of the program's samples were recorded
+      # at (matching the backend), so the buffer size is right. Defaults when none say.
+      def mixer_rate(program)
+        rates = program.walk.select { |node| node.kind == :sample }.filter_map { |node| node[:rate] }
+        return DEFAULT_MIXER_RATE if rates.empty?
+
+        rates.group_by(&:itself).max_by { |_rate, list| list.size }.first
+      end
+
       # The IR kinds this program uses that the model has no estimate for — neither
       # priced nor declared free (see FREE_STATEMENT_KINDS / FREE_VALUE_KINDS). They're
       # counted as zero, which would hide real work, so the estimate announces them.
@@ -443,11 +562,14 @@ module RubyGBA
       # full drill-down tree comes later; this is the at-a-glance summary.)
       def report(program, out: $stdout, color: :auto)
         printer = Printer.for(out, color: color)
-        analyze(program) # populate the unpriced set before the header prints
+        tree = category_tree(program) # also populates the unpriced set before the header prints
+        frame_total = tree.sum { |node| node[:cost] }
         emit_unpriced_banner(printer)
-        printer.puts "draw-cost estimate (scanlines of the ~68-line vblank window, measured on hardware):"
-        verdict_lines(program, printer)
+        printer.puts "per-frame cost estimate (scanlines, measured on hardware):"
+        printer.puts "  per frame ~ #{fmt(frame_total)} scanlines" # the roll-up; the verdict/red is at the bottom
+        tree.each { |cat| category_line(cat, printer, frame_total) } # section subtotals, no detail
         glyph_footprint_lines(program, printer)
+        budget_summary_lines(program, printer, frame_total, drawing_total(tree))
       end
 
       # The drill-down: the verdict, then the (aggregated, depth-limited) cost tree,
@@ -455,19 +577,19 @@ module RubyGBA
       # bounds how deep it prints (deeper subtrees collapse to a rollup line).
       def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5, color: :auto)
         printer = Printer.for(out, color: color)
-        tree = group_by_source(aggregate(analyze(program, focus: focus)))
+        tree = category_tree(program, focus: focus)
         frame_total = tree.sum { |node| node[:cost] } # the reference for a node's share-of-frame heat
         emit_unpriced_banner(printer) # loud, at the very top, before the estimate itself
-        printer.puts "draw-cost estimate (scanlines of the ~68-line vblank window, measured on hardware):"
+        printer.puts "per-frame cost estimate (scanlines, measured on hardware):"
         if focus
           printer.puts "  func :#{focus} ~ #{fmt(frame_total)} scanlines"
         else
-          verdict_lines(program, printer)
+          printer.puts "  per frame ~ #{fmt(frame_total)} scanlines" # the roll-up; the verdict/red is at the bottom
         end
-        render_tree(collapse_repeats(prune(tree, max_depth)), 1, printer, frame_total)
-        hot = hot_ops(tree, top)
-        printer.puts "  hottest: " + hot.map { |h| "#{h[:op]}×#{h[:count]} ~#{fmt(h[:cost])}" }.join("  ") unless hot.empty?
+        render_category_tree(tree, printer, frame_total, max_depth)
+        render_hottest(tree, printer, top)
         glyph_footprint_lines(program, printer)
+        budget_summary_lines(program, printer, frame_total, drawing_total(tree)) unless focus
       end
 
       # One line per font whose text this program draws: how many of its glyphs are
@@ -482,16 +604,19 @@ module RubyGBA
       # The analysis as a plain Hash, ready to serialize (rom.explain format: :json).
       def as_json(program)
         {
-          frame_cost: frame_cost(program),   # full cost of everything on a frame
-          steady_cost: steady_cost(program), # what recurs every frame (the tear risk)
-          budget: budget_for(program),       # the applicable budget (wider when buffered)
-          buffered: buffered?(program),      # double-buffered? (over budget = a dropped frame, not a tear)
+          frame_cost: frame_cost(program) + mixer_cost(program), # everything on a frame, incl. the mixer
+          steady_cost: steady_cost(program), # what recurs every frame from the op tree (the tear risk)
+          frame_budget: FRAME_BUDGET,        # the whole-frame 60fps deadline
+          budget: budget_for(program),       # the drawing/tear budget (vblank, or the whole frame when buffered)
+          buffered: buffered?(program),      # double-buffered? (drawing can't tear, over frame = a dropped frame)
           looping: looping?(program),
+          categories: category_tree(program).map { |c| { category: c[:category], cost: c[:cost] } }, # drawing/sound/logic subtotals
           scenes: scene_verdicts(program),   # per-scene cost vs each scene's own budget
           songs: song_verdicts(program),     # per-song music cost vs the music budget
+          mixer: mixer_verdict(program),     # the software mixer's per-frame CPU (nil if no sampled sound)
           glyphs: IR::GlyphUsage.footprint(program), # per-font reachable-glyph footprint
           unestimated: unpriced_kinds(program).sort,  # op kinds the model can't price (counted as free)
-          tree: group_by_source(analyze(program)),
+          tree: category_tree(program),      # the frame's cost as drawing / sound / logic sections
         }
       end
 
@@ -547,32 +672,95 @@ module RubyGBA
         end
       end
 
-      # The verdict, printed to +out+: for a game loop, the STEADY per-frame cost
-      # against the budget (the tear risk), plus the heaviest single frame as a
-      # one-off spike when it's larger; for a static program, the one-time boot cost.
-      # A game that switches modes between scenes is reported scene by scene, since
-      # each mode has its own budget.
-      def verdict_lines(program, printer)
+      # The software mixer's per-frame cost (0 when the program plays no samples) — it
+      # runs every frame, so it's part of the recurring load, not the tree of ops.
+      def mixer_cost(program)
+        mixer_verdict(program)&.fetch(:cost) || 0
+      end
+
+      # Render the categorized tree: each section (drawing / sound / logic) as a
+      # subtotal header, then its detail nested under it. No verdicts here — just where
+      # the frame's time goes; the pass/fail summary comes at the very bottom.
+      def render_category_tree(categories, printer, frame_total, max_depth)
+        categories.each do |cat|
+          category_line(cat, printer, frame_total)
+          detail = collapse_repeats(prune(aggregate(cat[:children]), max_depth))
+          render_tree(detail, 3, printer, frame_total)
+        end
+      end
+
+      # One section header: its name and rolled-up cost, tinted by its share of the
+      # frame (like the rest of the tree). Shared by the full tree and the summary.
+      def category_line(cat, printer, frame_total)
+        printer.puts "    #{cat[:category].to_s.ljust(9)}~ #{fmt(cat[:cost])}", severity: heat_for(cat[:cost], frame_total)
+      end
+
+      # The costliest ops as a tight, aligned bullet list — "where the time really
+      # goes" at a glance, rather than one dense run-on line.
+      def render_hottest(tree, printer, top)
+        hot = hot_ops(tree, top)
+        return if hot.empty?
+
+        printer.puts "  hottest:"
+        width = hot.map { |h| h[:op].to_s.length }.max
+        hot.each { |h| printer.puts "    • #{h[:op].to_s.ljust(width)}  ~#{fmt(h[:cost])}" }
+      end
+
+      # The drawing section's cost from the categorized tree (0 if it draws nothing) —
+      # the figure the tear check judges against the vblank window.
+      def drawing_total(tree)
+        tree.find { |cat| cat[:category] == :drawing }&.dig(:cost) || 0
+      end
+
+      # The budget verdict, at the BOTTOM — the pass/fail summary once the costs are
+      # laid out above. Two deadlines share the one frame: 60fps (the whole frame vs
+      # ~228 scanlines) and, for a single-buffered game, tearing (drawing alone vs the
+      # ~68-line vblank). A static program reports its one-time boot cost; a scene-
+      # switching game reports each scene against its own mode's budget.
+      def budget_summary_lines(program, printer, frame_total, drawing)
         unless looping?(program)
-          printer.puts "  boot draw ~ #{fmt(frame_cost(program))} scanlines   " \
-                       "(no game loop — drawn once, then halts)   ok", severity: :good
+          printer.puts "  budget: boot cost #{fmt(frame_total)} scanlines, done once   ok", severity: :good
           return
         end
-        return scene_verdict_lines(program, printer) if mixed?(program)
 
-        steady = steady_cost(program)
-        full = frame_cost(program)
-        budget = budget_for(program)
-        over = steady > budget
-        # Over budget reads differently depending on the mode: a single-buffered
-        # frame tears, a double-buffered one just drops below 60fps.
-        over_note = buffered?(program) ? "! over budget — the frame rate drops" : "! over budget — the screen tears"
-        printer.puts "  steady per frame ~ #{fmt(steady)} of ~#{budget} scanlines (#{pct(steady, budget)})   " \
-                     "#{over ? over_note : 'ok — fits the frame'}", severity: severity_for(steady, budget)
-        if full > steady
-          printer.puts "  heaviest frame   ~ #{fmt(full)} scanlines   " \
-                       "(a one-off spike — a transition frame or an every() tick, not the steady load)"
+        printer.puts "  budget:"
+        if mixed?(program)
+          scene_verdict_lines(program, printer)
+        else
+          frame_budget_line(program, printer, frame_total)
+          tear_budget_line(program, printer, drawing)
         end
+
+        if (mv = mixer_verdict(program))
+          printer.puts "    (sound is the worst case — all #{mv[:voices]} mixer voices at once; a typical frame sounds fewer)"
+        end
+
+        recurring = steady_cost(program) + mixer_cost(program)
+        return unless recurring + 0.1 < frame_total
+
+        printer.puts "    (~#{fmt(recurring)} recurs every frame; the rest is a one-off spike — a transition or an every() tick)"
+      end
+
+      # The 60fps check: the whole frame's work against the ~228-scanline frame.
+      def frame_budget_line(program, printer, frame_total)
+        over = frame_total > FRAME_BUDGET
+        printer.puts "    60fps    #{fmt(frame_total)} of #{FRAME_BUDGET} frame scanlines (#{pct(frame_total, FRAME_BUDGET)})   " \
+                     "#{over ? '! over — the frame drops below 60fps' : 'ok — holds 60fps'}",
+                     severity: severity_for(frame_total, FRAME_BUDGET)
+      end
+
+      # The tear check: drawing alone must land in the ~68-line vblank window, unless the
+      # game double-buffers (draws to a hidden page shown at once, so it can't tear).
+      def tear_budget_line(program, printer, drawing)
+        if buffered?(program)
+          printer.puts "    tearing  double-buffered — drawing can't tear   ok", severity: :good
+          return
+        end
+
+        over = drawing > VBLANK_BUDGET
+        printer.puts "    tearing  drawing #{fmt(drawing)} of #{VBLANK_BUDGET}-line vblank (#{pct(drawing, VBLANK_BUDGET)})   " \
+                     "#{over ? '! over — the screen tears' : 'ok — no tearing'}",
+                     severity: severity_for(drawing, VBLANK_BUDGET)
       end
 
       # One verdict line per scene, each against its own mode's budget — the report

@@ -240,8 +240,8 @@ class TestCostModel < Minitest::Test
     end
     io = StringIO.new
     Cost.new.report(prog, out: io)
-    assert_match(/boot draw ~ .* scanlines/, io.string)
-    assert_match(/drawn once/, io.string)
+    assert_match(/boot cost .* scanlines/, io.string)
+    assert_match(/done once/, io.string)
   end
 
   # A game loop that draws far more than a frame's budget is flagged.
@@ -255,7 +255,7 @@ class TestCostModel < Minitest::Test
     end
     io = StringIO.new
     Cost.new.report(prog, out: io)
-    assert_match(/over budget/, io.string)
+    assert_match(/over — the frame drops below 60fps/, io.string)
   end
 
   # A ROM built through RubyGBA.build can report on itself.
@@ -267,7 +267,7 @@ class TestCostModel < Minitest::Test
     end
     io = StringIO.new
     rom.explain(out: io)
-    assert_match(/boot draw ~ .* scanlines/, io.string)
+    assert_match(/boot cost .* scanlines/, io.string)
   end
 
   # --- the structured cost tree (what rom.explain renders / dumps as JSON) ---
@@ -331,7 +331,11 @@ class TestCostModel < Minitest::Test
     data = JSON.parse(io.string)
     near dma_rows(10, 10), data["frame_cost"]
     assert_equal false, data["looping"]
-    assert_equal "fill_rect", data["tree"].first["op"]
+    # The tree is now organized into drawing / sound / logic sections; the fill_rect
+    # sits inside the drawing section.
+    assert_equal "drawing", data["tree"].first["category"]
+    assert_equal "fill_rect", data["tree"].first["children"].first["op"]
+    assert_equal "drawing", data["categories"].first["category"]
   end
 
   # --- scoping transforms (data in, data out — the guts of the drill-down view) ---
@@ -577,11 +581,12 @@ class TestCostModel < Minitest::Test
   def test_verdict_wording_reflects_the_mode
     io = StringIO.new
     Cost.new.report(loop_of_clears(3, buffered: false), out: io)
-    assert_match(/over budget — the screen tears/, io.string)
+    assert_match(/over — the screen tears/, io.string)
 
     io = StringIO.new
     Cost.new.report(loop_of_clears(3, buffered: true), out: io)
-    assert_match(/ok — fits the frame/, io.string)
+    assert_match(/ok — holds 60fps/, io.string)
+    assert_match(/double-buffered — drawing can't tear/, io.string)
   end
 
   # Even double buffering has a ceiling: draw more than fits in a whole frame and
@@ -589,7 +594,7 @@ class TestCostModel < Minitest::Test
   def test_buffered_over_a_whole_frame_reads_as_a_dropped_frame_not_tearing
     io = StringIO.new
     Cost.new.report(loop_of_clears(7, buffered: true), out: io) # 268,800 > 240,000
-    assert_match(/over budget — the frame rate drops/, io.string)
+    assert_match(/over — the frame drops below 60fps/, io.string)
     refute_match(/tears/, io.string)
   end
 
@@ -598,6 +603,66 @@ class TestCostModel < Minitest::Test
     assert_equal Cost::FRAME_BUDGET, Cost.new.as_json(loop_of_clears(2, buffered: true))[:budget]
     assert_equal true, Cost.new.as_json(loop_of_clears(2, buffered: true))[:buffered]
     assert_equal false, Cost.new.as_json(loop_of_clears(2, buffered: false))[:buffered]
+  end
+
+  # --- the software mixer: real per-frame CPU the estimate must account for (gba-44ot) ---
+
+  # A program that plays a sample each frame, so the software mixer runs.
+  def sample_game(rate: 8192)
+    program do
+      screen :bitmap
+      clip = sample :blip, pcm: [10, -10] * 100, rate: rate
+      game_loop do
+        wait_vblank
+        clip.play
+      end
+    end
+  end
+
+  def silent_game
+    program { screen :bitmap; game_loop { wait_vblank; fill_rect 0, 0, 10, 10, :red } }
+  end
+
+  # The mixer's per-frame cost shows up as a leaf in the SOUND section — rolled up
+  # with everything else, not a bolt-on line.
+  def test_the_mixer_shows_up_in_the_sound_section
+    sound = Cost.new.category_tree(sample_game).find { |c| c[:category] == :sound }
+    refute_nil sound, "a sample-playing program has a sound section"
+    assert sound[:children].any? { |n| n[:op] == :mixer }, "the mixer is a leaf in the sound section"
+    assert_operator sound[:cost], :>, 0
+  end
+
+  # It's judged against the WHOLE FRAME (the 60fps deadline), not the vblank window —
+  # the mixer is CPU work after wait_vblank and draws nothing.
+  def test_the_mixer_is_priced_against_the_frame_budget
+    v = Cost.new.mixer_verdict(sample_game)
+    assert_equal Cost::FRAME_BUDGET, v[:budget]
+    assert_equal Cost::MIXER_VOICES, v[:voices]
+  end
+
+  # A silent program has no mixer cost and no sound section.
+  def test_no_mixer_for_a_silent_program
+    assert_nil Cost.new.mixer_verdict(silent_game)
+    assert_nil Cost.new.category_tree(silent_game).find { |c| c[:category] == :sound }
+  end
+
+  # Its cost grows with the buffer it fills each frame — a higher sample rate means
+  # more samples per frame, so more mixing.
+  def test_the_mixer_cost_grows_with_the_sample_rate
+    low = Cost.new.mixer_verdict(sample_game(rate: 8000))
+    high = Cost.new.mixer_verdict(sample_game(rate: 16000))
+    assert_operator high[:samples_per_frame], :>, low[:samples_per_frame]
+    assert_operator high[:cost], :>, low[:cost]
+  end
+
+  # The AC: a fitting sample-playing game still reads GREEN — the mixer is expected
+  # work, not an alarm. Its worst case (all voices) is well under the whole frame.
+  def test_a_sample_playing_game_reads_green
+    io = StringIO.new
+    Cost.new.render(sample_game, out: io)
+    assert_match(/software mixer/, io.string)
+    assert_match(/ok — holds 60fps/, io.string)
+    refute Cost.new.mixer_verdict(sample_game)[:over], "the mixer's worst case still fits the frame"
   end
 
   # --- logic / compute is no longer free (gba-lpak) ---
