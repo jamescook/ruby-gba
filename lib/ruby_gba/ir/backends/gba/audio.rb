@@ -121,6 +121,10 @@ module RubyGBA
           def emit_wait_vblank
             emit(ASM.swi(SWI_VBLANK_INTR_WAIT << 16))
 
+            # A new frame just started — build the next slice of mixed sound and hand it to
+            # the DMA. This is the mixer's heartbeat: one refill per displayed frame.
+            emit_mixer_tick if @plays_samples
+
             # A new frame begins now, so refresh the input snapshot: last frame's
             # keys become "previous", and we latch this frame's keys as "current".
             snapshot_keys if @uses_pressed

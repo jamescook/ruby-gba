@@ -10,8 +10,17 @@ require_relative "test_helper"
 # mixer — it pins the behavior both backends must share (the GBA software-mix lowering
 # matches it). The surface stays plain: play and stop, no voices or channels exposed.
 class TestMixer < Minitest::Test
+  include GembaSupport
+
   Builder = RubyGBA::Builder
   Ruby = RubyGBA::IR::Backends::Ruby
+  GBA = RubyGBA::IR::Backends::GBA
+  ROM = RubyGBA::ROM
+
+  # mem8 hands back an unsigned byte; the mix buffer holds signed 8-bit samples.
+  def signed8(byte)
+    byte >= 128 ? byte - 256 : byte
+  end
 
   # Run a DSL block that sets up sounds, then loops for `frames` frames.
   def run_frames(frames, &setup)
@@ -93,5 +102,32 @@ class TestMixer < Minitest::Test
       20.times { buzz.play } # far more than MAX_VOICES
     end
     assert_equal Ruby::MAX_VOICES, i.peak_voices, "the mix is capped at MAX_VOICES, extra plays dropped"
+  end
+
+  # --- hardware: the console really sums the voices ---
+  #
+  # Two constant-valued samples play at once; the mixer adds them into its output buffer,
+  # which we read straight off the console. Every byte should be the SUM (not the last voice
+  # to play, which would prove nothing was mixed).
+  def test_two_voices_are_summed_on_the_console
+    quiet, loud = 20, 30
+    gba = GBA.new
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      a = sample :a, pcm: [quiet] * 400, rate: 8000 # steady levels so the sum is the same everywhere
+      c = sample :c, pcm: [loud] * 400, rate: 8000
+      a.play(loop: true)
+      c.play(loop: true)
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    rom = ROM.assemble(gba.lower(b.program), title: "MIX0", code: "BMIX", maker: "01")
+    v = assert_gemba_loads_rom(rom, frames: 6)
+
+    mixed = (0...8).map { |i| signed8(v.mem8(gba.mix_buf0 + i)) }
+    assert v.sound?, "the mix should be audible (energy #{v.audio_energy})"
+    assert mixed.all?(quiet + loud), "both voices summed to #{quiet + loud}, but the buffer held #{mixed.inspect}"
   end
 end

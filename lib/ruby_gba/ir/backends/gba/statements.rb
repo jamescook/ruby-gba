@@ -61,7 +61,7 @@ module RubyGBA
             when :on_timer then nil # a handler definition — its body is emitted in the interrupt dispatcher
             when :sample then nil # a definition — its PCM data is embedded, nothing to emit here
             when :play_sample then emit_play_sample(node)
-            when :stop_sample then emit_stop_sample
+            when :stop_sample then emit_stop_sample(node)
             else
               raise LoweringError, "the GBA backend cannot lower #{node.kind.inspect} yet"
             end
