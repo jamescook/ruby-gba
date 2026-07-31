@@ -25,20 +25,35 @@ module RubyGBA
     # `play(volume:)` accepts (the same words the other sound verbs use).
     VOLUME_LEVELS = %i[full three_quarter half quarter mute].freeze
 
+    # Check a note name (a pitch to play at, or a sample's recorded note) is one the framework
+    # knows, with a friendly error naming the range. Shared by `sample note:` and `play pitch:`.
+    def self.validate_note!(note, label)
+      return if RubyGBA::Music::NOTE_FREQUENCIES.key?(note)
+
+      known = RubyGBA::Music::NOTE_FREQUENCIES.keys
+      raise ArgumentError,
+            "#{label} #{note.inspect} isn't a note — use one like :C4 or :Fs4 (range #{known.first}..#{known.last})"
+    end
+
     # Play the sample from the start. By default it plays once at full volume; `loop: true`
     # replays it on a seamless loop (background music that keeps going until you `stop` it),
     # and `volume:` sets how loud this voice is in the mix (:full, :three_quarter, :half,
     # :quarter, :mute). Returns self so it chains.
     #
     #   music.play(loop: true, volume: :half)  # a quiet looping background track
-    #   boom.play                              # a one-shot effect at full volume
-    def play(loop: false, volume: :full)
+    #   piano.play(pitch: :E4)                  # the recorded note, shifted to E4
+    #   boom.play                               # a one-shot effect at full volume
+    #
+    # `pitch:` plays the sample at a different note by reading through it faster or slower
+    # (so one recorded note covers a whole keyboard); it shifts from the sample's own `note:`.
+    def play(loop: false, volume: :full, pitch: nil)
       unless VOLUME_LEVELS.include?(volume)
         raise ArgumentError,
               "play volume #{volume.inspect} isn't a level — use one of #{VOLUME_LEVELS.join(', ')}"
       end
+      Sample.validate_note!(pitch, "play pitch:") if pitch
 
-      @builder.record_statement(IR::Build.play_sample(@name, loop: loop, volume: volume))
+      @builder.record_statement(IR::Build.play_sample(@name, loop: loop, volume: volume, pitch: pitch))
       self
     end
 

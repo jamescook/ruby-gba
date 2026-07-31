@@ -205,16 +205,19 @@ module RubyGBA
       # it, +stop_sample+ cuts it off.
 
       # Define a named PCM sample: +bytes+ is its 8-bit signed samples (a binary string),
-      # +rate+ how many of them play per second (its recording rate in Hz).
-      def sample(name, bytes, rate)
-        Node.new(:sample, name: name, bytes: bytes, rate: rate)
+      # +rate+ how many of them play per second (its recording rate in Hz). +note+ is the
+      # musical pitch it was recorded at — the reference `play(pitch:)` shifts from.
+      def sample(name, bytes, rate, note: :C4)
+        Node.new(:sample, name: name, bytes: bytes, rate: rate, note: note)
       end
 
       # Play the named sample from the start. +loop+ true replays it seamlessly on a
       # loop (background music); false plays it once and stops (a one-shot sound).
       # +volume+ is a level name (:full, :half, …) — how loud this voice sits in the mix.
-      def play_sample(name, loop: false, volume: :full)
-        Node.new(:play_sample, name: name, loop: loop, volume: volume)
+      # +pitch+ is a note name to play it at (shifted from the sample's own note); nil plays
+      # it at its recorded pitch.
+      def play_sample(name, loop: false, volume: :full, pitch: nil)
+        Node.new(:play_sample, name: name, loop: loop, volume: volume, pitch: pitch)
       end
 
       # Stop a playing sample. With +name+, silences that sample's voices; without one,
