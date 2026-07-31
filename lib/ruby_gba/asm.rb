@@ -299,6 +299,21 @@ module RubyGBA
       [0xE5800000 | (rn << 16) | (rd << 12)].pack("V")
     end
 
+    # STRB rd, [rn] — store the low byte of rd to the address in rn (the B, bit 22,
+    # is what makes STR a byte store instead of a word store). A general byte write —
+    # anything laid out as bytes rather than words.
+    def strb(rd, rn)
+      [0xE5C00000 | (rn << 16) | (rd << 12)].pack("V")
+    end
+
+    # LDRSB rd, [rn] — load a byte and sign-extend it (so 0x80..0xFF read as -128..-1)
+    # into the whole register, versus the zero-extending LDRB. The general way to read a
+    # signed 8-bit value. (Signed loads use the extra load/store encoding, hence the
+    # different shape from LDR/LDRB.)
+    def ldrsb(rd, rn)
+      [0xE1D000D0 | (rn << 16) | (rd << 12)].pack("V")
+    end
+
     # STR rd, [rn, #offset] — store with immediate offset
     def str_offset(rd, rn, offset)
       if offset >= 0

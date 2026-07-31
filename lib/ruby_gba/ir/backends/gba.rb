@@ -11,6 +11,7 @@ require_relative "gba/primitives"
 require_relative "gba/collision"
 require_relative "gba/timers"
 require_relative "gba/direct_sound"
+require_relative "gba/mixer"
 
 module RubyGBA
   module IR
@@ -63,6 +64,7 @@ module RubyGBA
         include Collision
         include Timers
         include DirectSound
+        include Mixer
 
         class LoweringError < StandardError; end
 
@@ -188,7 +190,10 @@ module RubyGBA
         # out.
         def lower(program)
           collect_definitions(program)
-          prepare_direct_sound(program) # embed samples; reserve timers 0-1 for Direct Sound
+          prepare_direct_sound(program) # embed the program's samples as ROM data
+          @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
+          prepare_mixer(program) # the software mixer's rate, buffers, voice slots, timer
+          guard_mixer_needs_game_loop
           register_timers(program) # assign each named timer its hardware timer index(es)
           prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
           resolve_modes(program)
@@ -198,9 +203,9 @@ module RubyGBA
           prepare_objects(program) if @has_objects
           prepare_palette(program) if @any_buffered
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
-          @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
+          emit_mixer_boot if @plays_samples # start the sound DMA + clock; voices added by `play`
           emit_boot_screen if @manage_modes # set the boot mode (+ palette for buffered)
           # Upload the tiled assets once at boot only when the program stays in tiled
           # mode. When it crosses the bitmap/tiled boundary, a bitmap scene overwrites
@@ -255,9 +260,21 @@ module RubyGBA
         private
 
         # Does the program need any interrupt at all — VBlank (for wait_vblank) or a timer
-        # (for an on_tick handler)? If so we arm the interrupts and install the dispatcher.
+        # (for an on_tick handler)? The mixer needs none: it refills on the frame loop, in
+        # the main thread, not off an interrupt.
         def uses_irq?
-          @uses_vblank || irq_timers.any? || direct_sound?
+          @uses_vblank || irq_timers.any?
+        end
+
+        # Playing samples means the mixer, and the mixer refills once per frame right after
+        # wait_vblank — so a program that plays sound without a game loop would fill its
+        # buffer once and then go silent. Catch that as a friendly build error.
+        def guard_mixer_needs_game_loop
+          return unless @plays_samples && !@uses_vblank
+
+          raise LoweringError,
+                "this program plays samples but never waits for vblank, so the sound mixer has no " \
+                "frame to refill on — play sound from inside a `game_loop` (with `wait_vblank`)."
         end
 
         # The registers the dispatcher saves around a handler body: r4-r11 (callee-saved,
@@ -275,9 +292,6 @@ module RubyGBA
           enabled = 0
           enabled |= IRQ_VBLANK if @uses_vblank
           irq_timers.each { |_, info| enabled |= timer_irq_bit(info[:rate]) }
-          enabled |= timer_irq_bit(DS_LENGTH_TIMER) if direct_sound? # the end-of-clip interrupt
-
-
 
           write_io_halfword(REG_IME, 0)                          # interrupts off while we wire things up
           write_io_halfword(REG_DISPSTAT, DISPSTAT_VBLANK_IRQ) if @uses_vblank # display raises VBlank each frame
@@ -305,9 +319,6 @@ module RubyGBA
               info[:handler].children.each { |child| emit_statement(child) }
             end
           end
-          # Direct Sound's length timer interrupts once a clip has fully played — stop it,
-          # or loop it back to the start, depending on how it was played.
-          emit_irq_source(timer_irq_bit(DS_LENGTH_TIMER)) { emit_ds_end_of_clip } if direct_sound?
           emit(ASM.pop(*IRQ_SAVED_REGS))
           emit(ASM.return) # BX LR back to the BIOS dispatcher
         end

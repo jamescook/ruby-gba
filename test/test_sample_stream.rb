@@ -4,12 +4,10 @@ require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 require_relative "test_helper"
 
-# Streaming a long clip: a PCM clip longer than the 16-bit sample-length counter (65536
-# samples) used to be a hard error. Now it plays straight from ROM in equal chunks — the
-# DMA just keeps reading the cartridge, and a small chunk counter tracks when the whole
-# clip has gone by so it can loop or stop. This is what lets a real, minutes-long track
-# loop as background music. The chunking math is the backend's contract, so it's asserted
-# directly; the surface is pinned on the interpreter and gemba.
+# Streaming a long clip: a PCM clip longer than the old 65536-sample hardware limit used to
+# be a hard error. Now any length just plays — the mixer reads one frame's worth of the clip
+# out of the cartridge each frame and advances its play position, so a minutes-long track
+# loops as background music with no special handling. Pinned on the interpreter and gemba.
 class TestSampleStream < Minitest::Test
   include GembaSupport
 
@@ -18,46 +16,11 @@ class TestSampleStream < Minitest::Test
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
 
-  CHUNK = GBA::CHUNK_SAMPLES # 65536 — the most one length-counter pass can span
-
-  def plan(length)
-    GBA.new.send(:sample_playback_plan, 8000, length)
-  end
-
-  # --- the chunking math (the backend contract) ---
-
-  def test_a_clip_within_the_counter_is_a_single_chunk
-    p = plan(1000)
-    assert_equal 1, p[:chunks], "a short clip plays in one length-counter pass"
-    assert_equal 1000, p[:chunk_len], "the one chunk is the clip's own length"
-  end
-
-  def test_a_long_clip_splits_into_chunks_that_each_fit_the_counter
-    [CHUNK + 1, 100_000, 500_000, 2_000_000].each do |len|
-      p = plan(len)
-      assert_operator p[:chunks], :>, 1, "a clip past the counter needs more than one chunk (len #{len})"
-      assert_operator p[:chunk_len], :<=, CHUNK, "each chunk fits the 16-bit counter (len #{len})"
-      assert_operator p[:chunks] * p[:chunk_len], :>=, len, "the chunks cover the whole clip (len #{len})"
-    end
-  end
-
-  def test_padding_rounds_a_long_clip_up_to_whole_chunks_from_its_own_start
-    len = 100_000
-    bytes = ("\x01".b * (len - 4)) + "\x02\x03\x04\x05".b # a distinct head to spot the repeat
-    padded = GBA.new.send(:pad_sample_blob, bytes)
-    p = plan(len)
-
-    assert_equal p[:chunks] * p[:chunk_len], padded.bytesize, "padded to a whole number of chunks"
-    assert_operator padded.bytesize - len, :<, p[:chunks], "only a few samples of padding"
-    tail = padded.byteslice(len, padded.bytesize - len)
-    assert_equal bytes.byteslice(0, padded.bytesize - len), tail, "the padding repeats the clip's own start"
-  end
-
-  # --- the surface plays a long clip on both backends ---
+  OLD_LIMIT = 65_536 # the sample count that used to be the hard ceiling
 
   def test_a_long_looping_clip_still_loops_on_the_interpreter
     b = Builder.new
-    clip = [40, -40] * ((CHUNK / 2) + 40) # 65616 samples — just past one chunk
+    clip = [40, -40] * ((OLD_LIMIT / 2) + 40) # ~65616 samples — well past the old limit
     b.instance_eval do
       screen :bitmap
       music = sample :music, pcm: clip, rate: 200_000 # fast rate so it loops within a few frames
@@ -66,7 +29,7 @@ class TestSampleStream < Minitest::Test
     end
     i = Ruby.new.run(b.program, max_steps: 20_000)
     plays = i.audio.count { |e| e == [:sample, :music] }
-    assert_operator plays, :>, 1, "a clip past the length counter loops just like a short one (#{plays} plays)"
+    assert_operator plays, :>, 1, "a clip past the old limit loops just like a short one (#{plays} plays)"
   end
 
   def test_a_long_clip_lowers_without_the_old_length_error
@@ -83,7 +46,7 @@ class TestSampleStream < Minitest::Test
 
   def test_a_long_streamed_clip_plays_real_audio_on_the_console
     b = Builder.new
-    wave = ([90] * 4 + [-90] * 4) * 9_000 # 72000 samples, past one chunk
+    wave = ([90] * 4 + [-90] * 4) * 9_000 # 72000 samples, past the old limit
     b.instance_eval do
       screen :bitmap
       clear_screen :black
