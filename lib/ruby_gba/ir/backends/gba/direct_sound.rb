@@ -29,7 +29,7 @@ module RubyGBA
               case node.kind
               when :sample
                 @data_blobs[node[:name]] = node[:bytes] # embed the PCM data as a ROM blob
-                @samples[node[:name]] = { rate: node[:rate], length: node[:bytes].bytesize }
+                @samples[node[:name]] = { rate: node[:rate], length: node[:bytes].bytesize, note: node[:note] }
               when :play_sample
                 @plays_samples = true
               end

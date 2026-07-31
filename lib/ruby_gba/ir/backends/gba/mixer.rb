@@ -32,16 +32,24 @@ module RubyGBA
           # FIFO). It's the only hardware timer the mixer needs.
           CLOCK_TIMER = 0
 
-          # A voice slot is six words in IWRAM: the sample's address in ROM, how far it has
-          # played (a byte offset), its length, whether it loops, whether it's sounding, and
-          # its level (0..64, applied as it's mixed).
+          # A voice slot in IWRAM: the sample's address in ROM, how far it has played (a whole
+          # sample index), its length, whether it loops, whether it's sounding, its level
+          # (0..64), and — for pitch — a 16.16 fixed-point STEP (how many source samples to
+          # advance per output sample: 1.0 = 0x10000 plays at the recorded pitch, 2.0 an
+          # octave up) plus a FRAC accumulator carrying the leftover fraction between samples.
           SLOT_SRC = 0
           SLOT_POS = 4
           SLOT_LEN = 8
           SLOT_LOOP = 12
           SLOT_ACTIVE = 16
           SLOT_VOL = 20
-          SLOT_BYTES = 24
+          SLOT_STEP = 24
+          SLOT_FRAC = 28
+          SLOT_BYTES = 32
+
+          # The fixed-point shift for STEP/FRAC: 16 fractional bits, so 1.0 == 1 << 16.
+          STEP_SHIFT = 16
+          STEP_ONE = 1 << STEP_SHIFT
 
           # Volume level names → a 0..64 gain the mix multiplies each sample by (then shifts
           # right by 6, i.e. divides by 64) — so :full leaves a sample unchanged and :half
@@ -56,6 +64,7 @@ module RubyGBA
           MIX_FRONT = :__mix_front
 
           attr_reader :mix_buf0, :mix_buf1 # the two output buffers' addresses (a test reads them back)
+          attr_reader :voice_base          # the voice slots' base address (a test reads a voice's state)
 
           # Decide the mixer's output rate and per-frame buffer size, and reserve its memory:
           # two output buffers in EWRAM and the voice slots in IWRAM. The rate follows the
@@ -116,9 +125,27 @@ module RubyGBA
             emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # slot.loop
             emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node[:volume], MIX_LEVELS[:full])))
             emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..64 gain)
+            emit(ASM.load_immediate(TMP, voice_step(node, sample)))
+            emit(ASM.str_offset(TMP, 0, SLOT_STEP))         # slot.step (pitch + rate, 16.16)
+            emit(ASM.load_immediate(TMP, 0))
+            emit(ASM.str_offset(TMP, 0, SLOT_FRAC))         # slot.frac = 0 (fresh)
             emit(ASM.load_immediate(TMP, 1))
             emit(ASM.str_offset(TMP, 0, SLOT_ACTIVE))       # slot.active = 1 (now it sounds)
             place_label(done)
+          end
+
+          # The 16.16 step for a voice: how many source samples to advance per output sample.
+          # It rolls the sample's own rate against the mixer's output rate (so an off-rate
+          # clip still sounds right) and the pitch shift (playing at a note other than the
+          # sample's recorded one reads it faster or slower). At least 1, so it never stalls.
+          def voice_step(node, sample)
+            ratio = 1.0
+            if node[:pitch]
+              notes = RubyGBA::Music::NOTE_FREQUENCIES
+              ratio = notes.fetch(node[:pitch]).to_f / notes.fetch(sample[:note] || :C4)
+            end
+            step = (sample[:rate].to_f / @mixer_rate) * ratio
+            [(step * STEP_ONE).round, 1].max
           end
 
           # stop_sample: silence a sample by clearing every voice slot playing it (or every
@@ -182,16 +209,18 @@ module RubyGBA
           end
 
           # Fill +dest+ (one frame of bytes) with the sum of every sounding voice, clamped to
-          # the 8-bit range so loud moments don't wrap around. Clears to silence, then adds
-          # each active voice's next run of samples, advancing that voice and looping or
-          # retiring it at its end. Runs on the main thread with every register free.
+          # the 8-bit range so loud moments don't wrap around. Clears to silence, then for
+          # each active voice adds its next run of samples — scaled by the voice's volume,
+          # and stepped through the clip by the voice's fixed-point STEP so a pitched voice
+          # reads faster or slower — advancing it and looping or retiring it at its end.
+          # Runs on the main thread with every register free.
           #
-          # Registers: r2/r3 hold the clamp limits; r4 walks the voice slots, r5 counts them
-          # down; per voice r6=read pointer, r7=write pointer, r8=position, r9=length,
-          # r10=loop flag, r11=samples-left; r0/r1 are scratch.
+          # Registers held across voices: r3 = clamp floor (-128), r4 = slot pointer,
+          # r5 = voices left. Per voice: r2 = output samples left, r6 = read pointer,
+          # r7 = write pointer, r8 = play position (whole samples), r9 = length, r10 = step,
+          # r11 = fraction accumulator, r12 = volume; r0/r1 scratch (127 is the clamp ceiling).
           def emit_mix_into(dest)
             emit_zero_region(dest, @mixer_spf)            # start from silence
-            emit(ASM.load_immediate(2, 127))             # clamp ceiling
             emit(ASM.mvn_imm(3, 127))                    # clamp floor = -128
             emit(ASM.load_immediate(4, @voice_base))     # first slot
             emit(ASM.load_immediate(5, MAX_VOICES))      # voices to visit
@@ -203,15 +232,17 @@ module RubyGBA
             emit(ASM.cmp_imm(0, 0))
             emit_branch(:bcond, next_voice, cond: :eq)   # idle slot -> skip
             emit(ASM.ldr_offset(6, 4, SLOT_SRC))         # r6 = src
-            emit(ASM.ldr_offset(8, 4, SLOT_POS))         # r8 = pos
+            emit(ASM.ldr_offset(8, 4, SLOT_POS))         # r8 = play position (whole samples)
             emit(ASM.add_reg(6, 6, 8))                   # r6 = read pointer = src + pos
             emit(ASM.ldr_offset(9, 4, SLOT_LEN))         # r9 = len
-            emit(ASM.ldr_offset(10, 4, SLOT_LOOP))       # r10 = loop flag
+            emit(ASM.ldr_offset(10, 4, SLOT_STEP))       # r10 = step (16.16)
+            emit(ASM.ldr_offset(11, 4, SLOT_FRAC))       # r11 = fraction carried in
             emit(ASM.ldr_offset(12, 4, SLOT_VOL))        # r12 = volume gain (0..64)
             emit(ASM.load_immediate(7, dest))            # r7 = write pointer = start of dest
-            emit(ASM.load_immediate(11, @mixer_spf))     # r11 = samples to add
+            emit(ASM.load_immediate(2, @mixer_spf))      # r2 = output samples to fill
 
             sample = gensym
+            advance = gensym
             wrapped = gensym
             retire = gensym
             end_voice = gensym
@@ -224,34 +255,41 @@ module RubyGBA
             # clamp r1 into [-128, 127]
             skip_hi = gensym
             skip_lo = gensym
-            emit(ASM.cmp_reg(1, 2))
+            emit(ASM.cmp_imm(1, 127))
             emit_branch(:bcond, skip_hi, cond: :le)
-            emit(ASM.mov_reg(1, 2))
+            emit(ASM.load_immediate(1, 127))
             place_label(skip_hi)
             emit(ASM.cmp_reg(1, 3))
             emit_branch(:bcond, skip_lo, cond: :ge)
             emit(ASM.mov_reg(1, 3))
             place_label(skip_lo)
             emit(ASM.strb(1, 7))                         # write the mixed byte
-            emit(ASM.add_imm(6, 6, 1))                   # read pointer++
             emit(ASM.add_imm(7, 7, 1))                   # write pointer++
-            emit(ASM.add_imm(8, 8, 1))                   # pos++
+
+            # advance the play position by STEP: frac += step, move whole samples by the
+            # carry (frac >> 16), keep the leftover fraction (frac & 0xFFFF).
+            emit(ASM.add_reg(11, 11, 10))                # frac += step
+            emit(ASM.lsr_imm(0, 11, STEP_SHIFT))         # r0 = whole samples to advance
+            emit(ASM.add_reg(8, 8, 0))                   # pos += that
+            emit(ASM.add_reg(6, 6, 0))                   # read pointer += that
+            emit(ASM.lsl_imm(11, 11, STEP_SHIFT))        # drop the whole part...
+            emit(ASM.lsr_imm(11, 11, STEP_SHIFT))        # ...leaving frac in [0, 0xFFFF]
             emit(ASM.cmp_reg(8, 9))                      # pos vs len
-            emit_branch(:bcond, wrapped, cond: :ge)      # reached the end of the clip
-            emit(ASM.sub_imm(11, 11, 1))
-            emit(ASM.cmp_imm(11, 0))
+            emit_branch(:bcond, wrapped, cond: :ge)      # reached (or passed) the end
+            place_label(advance)
+            emit(ASM.sub_imm(2, 2, 1))
+            emit(ASM.cmp_imm(2, 0))
             emit_branch(:bcond, sample, cond: :ne)       # more of the buffer to fill
             emit_branch(:b, end_voice)
 
             place_label(wrapped)
-            emit(ASM.cmp_imm(10, 0))                     # loop?
+            emit(ASM.ldr_offset(0, 4, SLOT_LOOP))        # loop?
+            emit(ASM.cmp_imm(0, 0))
             emit_branch(:bcond, retire, cond: :eq)
-            emit(ASM.load_immediate(8, 0))               # loop: back to the start
-            emit(ASM.ldr_offset(6, 4, SLOT_SRC))         # read pointer = src (pos 0)
-            emit(ASM.sub_imm(11, 11, 1))
-            emit(ASM.cmp_imm(11, 0))
-            emit_branch(:bcond, sample, cond: :ne)
-            emit_branch(:b, end_voice)
+            emit(ASM.sub_reg(8, 8, 9))                   # loop: wrap the position back (pos -= len)
+            emit(ASM.ldr_offset(0, 4, SLOT_SRC))         # ...and re-point the read pointer at src + pos
+            emit(ASM.add_reg(6, 0, 8))
+            emit_branch(:b, advance)
 
             place_label(retire)                          # one-shot done: mark idle, stop adding
             emit(ASM.load_immediate(0, 0))
@@ -259,6 +297,7 @@ module RubyGBA
 
             place_label(end_voice)
             emit(ASM.str_offset(8, 4, SLOT_POS))         # remember how far this voice has played
+            emit(ASM.str_offset(11, 4, SLOT_FRAC))       # ...and the leftover fraction
 
             place_label(next_voice)
             emit(ASM.add_imm(4, 4, SLOT_BYTES))          # next slot

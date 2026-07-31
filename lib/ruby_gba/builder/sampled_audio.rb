@@ -25,7 +25,7 @@ module RubyGBA
       # @param from [String, nil] a .wav file to load (or use pcm:)
       # @param rate [Integer, nil] samples per second — defaults to the WAV's rate, or 8192 for pcm:
       # @return [Sample]
-      def sample(name, pcm: nil, from: nil, rate: nil)
+      def sample(name, pcm: nil, from: nil, rate: nil, note: :C4)
         raise ArgumentError, "a sample needs a name (a Symbol), got #{name.inspect}" unless name.is_a?(Symbol)
 
         bytes, rate = sample_data(name, pcm, from, rate)
@@ -33,8 +33,9 @@ module RubyGBA
           raise ArgumentError, "sample :#{name} needs a positive rate (samples a second), got #{rate.inspect}"
         end
         raise ArgumentError, "sample :#{name} has no sound data" if bytes.empty?
+        Sample.validate_note!(note, "sample :#{name} note:")
 
-        record(IR::Build.sample(name, bytes, rate))
+        record(IR::Build.sample(name, bytes, rate, note: note))
         Sample.new(self, name)
       end
 

@@ -162,7 +162,7 @@ module RubyGBA
             when :song
               @songs[n[:name]] = n
             when :sample
-              @samples[n[:name]] = { rate: n[:rate], length: n[:bytes].bytesize }
+              @samples[n[:name]] = { rate: n[:rate], length: n[:bytes].bytesize, note: n[:note] }
             when :data
               @data[n[:name]] = n[:bytes]
             when :bitmap
@@ -431,10 +431,23 @@ module RubyGBA
           @audio << [:sample, node[:name]]
           return if @voices.size >= MAX_VOICES
 
-          frames = [(info[:length].to_f / info[:rate] * FRAME_RATE).ceil, 1].max
-          @voices << { name: node[:name], loop: node[:loop], volume: node[:volume],
+          # A pitched voice reads its sample faster (higher notes) or slower (lower), so it
+          # plays out in proportionally fewer or more frames.
+          ratio = pitch_ratio(node[:pitch], info[:note])
+          frames = [(info[:length].to_f / (info[:rate] * ratio) * FRAME_RATE).ceil, 1].max
+          @voices << { name: node[:name], loop: node[:loop], volume: node[:volume], pitch: node[:pitch],
                        frames_left: frames, frames_total: frames }
           @peak_voices = [@peak_voices, @voices.size].max
+        end
+
+        # How much faster (>1) or slower (<1) a voice reads its sample when played at +pitch+
+        # instead of the sample's recorded note +base+ — the frequency ratio. nil pitch plays
+        # it at its recorded pitch (ratio 1).
+        def pitch_ratio(pitch, base)
+          return 1.0 unless pitch
+
+          notes = RubyGBA::Music::NOTE_FREQUENCIES
+          notes.fetch(pitch).to_f / notes.fetch(base || :C4)
         end
 
         # Stop a sample: drop its voices from the mix (or every voice, if no name is given).

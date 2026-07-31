@@ -114,7 +114,7 @@ module RubyGBA
         song:         { name: :name, voices: :list, total_frames: :int },
         play_song:    { name: :name },
         stop_music:   {},
-        play_sample:  { name: :name, loop: :flag, volume: :option }, # a named PCM sample (loop/level)
+        play_sample:  { name: :name, loop: :flag, volume: :option, pitch: :option }, # loop/level/pitch
         stop_sample:  { name: :name }, # stop a sample's voices (or all if no name)
 
         # control flow (bodies nest as #children; an if's else is a :branch attr).
@@ -142,7 +142,7 @@ module RubyGBA
         data_byte: { name: :name, index: :int }, # a fixed index into the blob
         bitmap:    { name: :name, width: :int, height: :int, pixels: :text, transparent: :int },
         backing_buffer: { name: :name, width: :int, height: :int }, # a RAM patch a sprite saves under itself
-        sample:    { name: :name, bytes: :text, rate: :int }, # 8-bit PCM sound data + its play rate
+        sample:    { name: :name, bytes: :text, rate: :int, note: :option }, # PCM data + rate + recorded pitch
 
         # lists
         list_new:  { name: :name, capacity: :int },
