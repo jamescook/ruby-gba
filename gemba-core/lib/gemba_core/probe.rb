@@ -116,6 +116,66 @@ module GembaCore
       audio_energy <= threshold
     end
 
+    # --- cost / timing (for calibrating the cost model) --------------------
+
+    # A GBA video frame is 228 scanlines of CPU time. The cost model counts in
+    # scanlines, so a measured cycle count divides by this to land in its unit.
+    SCANLINES_PER_FRAME = 228
+
+    # Cumulative emulated CPU cycles since reset.
+    def global_cycles
+      ensure_open!
+      @core.global_cycles
+    end
+
+    # Cycles in one video frame (constant, ~280896 on GBA).
+    def frame_cycles
+      ensure_open!
+      @core.frame_cycles
+    end
+
+    # Emulated CPU cycles per scanline (~1232 on GBA).
+    def cycles_per_scanline
+      frame_cycles.to_f / SCANLINES_PER_FRAME
+    end
+
+    # Whether the CPU is currently halted (asleep until the next interrupt).
+    def cpu_halted?
+      ensure_open!
+      @core.cpu_halted?
+    end
+
+    # Measure the CPU cycles this ROM actually burns in one frame — the cycles
+    # it spends executing, not halted waiting for vblank. This is the real
+    # per-frame cost of the game loop, the number to calibrate op weights
+    # against. Advancing the measurement steps one frame of emulated time.
+    #
+    # Pass +settle:+ to run that many frames first so the ROM is in steady state
+    # (past boot) before the measured frame.
+    #
+    # Meaningful for a workload that FITS in a frame (the regime you calibrate
+    # in): there it's stable and repeatable. A ROM whose per-frame work can't
+    # finish in one frame has no single per-frame cost — the number caps out
+    # near a full frame and wobbles, which is the honest answer.
+    #
+    # @return [Integer] busy cycles for the measured frame
+    def busy_cycles(settle: 0)
+      ensure_open!
+      step(settle) if settle.positive?
+      cycles = @core.measure_frame_busy_cycles
+      @frames_run += 1
+      @prev_pixels = @pixels
+      @pixels = @core.video_buffer
+      cycles
+    end
+
+    # {#busy_cycles} expressed in the cost model's unit — scanlines.
+    #
+    # @return [Float]
+    def busy_scanlines(settle: 0)
+      busy_cycles(settle: settle) / cycles_per_scanline
+    end
+
     # Number of pixels lit (non-black) on the current frame — a cheap
     # "is anything on screen?" measure.
     #
