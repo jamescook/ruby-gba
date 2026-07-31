@@ -363,6 +363,20 @@ module RubyGBA
       [0xE1A00000 | (rd << 12) | rm].pack("V")
     end
 
+    # MOV{cond} rd, rm — a register move that only happens when +cond+ holds (ARM
+    # predication). Follows a compare, so a value can be clamped with no branch (and
+    # no pipeline flush) on a hot inner loop. cond: :gt, :lt, :ge, :le, :eq, :ne.
+    def mov_reg_cond(cond, rd, rm)
+      [(resolve_cond(cond) << 28) | 0x01A00000 | (rd << 12) | rm].pack("V")
+    end
+
+    # MOV{cond} rd, #imm — the immediate form of a predicated move (see #mov_reg_cond).
+    def mov_imm_cond(cond, rd, imm)
+      imm12 = encode_rotated_immediate(imm) or
+        raise ArgumentError, "cannot encode #{imm} as an ARM rotated immediate"
+      [(resolve_cond(cond) << 28) | 0x03A00000 | (rd << 12) | imm12].pack("V")
+    end
+
     # --- SWI (software interrupt: trap into a BIOS routine) ---
 
     # SWI #comment — hand control to the BIOS to run one of its built-in routines

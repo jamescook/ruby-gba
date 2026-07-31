@@ -252,17 +252,13 @@ module RubyGBA
             emit(ASM.asr_imm(1, 1, VOL_SHIFT))           # ...÷ 64 (so :full is unchanged)
             emit(ASM.ldrsb(0, 7))                        # r0 = what's already in the buffer
             emit(ASM.add_reg(1, 1, 0))                   # add the scaled sample
-            # clamp r1 into [-128, 127]
-            skip_hi = gensym
-            skip_lo = gensym
+            # Saturate r1 into [-128, 127] with no branch: ARM predication does the
+            # clamp in the compare's shadow — movgt/movlt only fire when out of range —
+            # so the hot per-sample path takes no pipeline flush. r3 holds -128.
             emit(ASM.cmp_imm(1, 127))
-            emit_branch(:bcond, skip_hi, cond: :le)
-            emit(ASM.load_immediate(1, 127))
-            place_label(skip_hi)
+            emit(ASM.mov_imm_cond(:gt, 1, 127))          # r1 > 127  -> 127
             emit(ASM.cmp_reg(1, 3))
-            emit_branch(:bcond, skip_lo, cond: :ge)
-            emit(ASM.mov_reg(1, 3))
-            place_label(skip_lo)
+            emit(ASM.mov_reg_cond(:lt, 1, 3))            # r1 < -128 -> -128
             emit(ASM.strb(1, 7))                         # write the mixed byte
             emit(ASM.add_imm(7, 7, 1))                   # write pointer++
 
