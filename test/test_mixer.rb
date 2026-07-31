@@ -130,4 +130,44 @@ class TestMixer < Minitest::Test
     assert v.sound?, "the mix should be audible (energy #{v.audio_energy})"
     assert mixed.all?(quiet + loud), "both voices summed to #{quiet + loud}, but the buffer held #{mixed.inspect}"
   end
+
+  # --- level control ---
+
+  def test_volume_is_carried_on_the_voice
+    i = run_frames(3) do
+      m = sample :m, pcm: [50, -50] * 400, rate: 8000
+      m.play(loop: true, volume: :half)
+    end
+    assert_equal :half, i.volume_of(:m), "play(volume:) sets the voice's level"
+  end
+
+  def test_a_bad_volume_is_a_friendly_error
+    err = assert_raises(ArgumentError) do
+      Builder.new.instance_eval do
+        screen :bitmap
+        s = sample :s, pcm: [0, 1], rate: 8000
+        s.play(volume: :loud)
+      end
+    end
+    assert_match(/level/i, err.message)
+  end
+
+  def test_volume_scales_a_voice_on_the_console
+    # a steady sample of 40 at :half should mix to 20 (40 * 32 / 64) in the output buffer.
+    gba = GBA.new
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      a = sample :a, pcm: [40] * 400, rate: 8000
+      a.play(loop: true, volume: :half)
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    rom = ROM.assemble(gba.lower(b.program), title: "VOL0", code: "BVOL", maker: "01")
+    v = assert_gemba_loads_rom(rom, frames: 6)
+
+    mixed = (0...8).map { |i| signed8(v.mem8(gba.mix_buf0 + i)) }
+    assert mixed.all?(20), "a :half voice of 40 should mix to 20, but the buffer held #{mixed.inspect}"
+  end
 end

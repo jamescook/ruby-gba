@@ -212,8 +212,9 @@ module RubyGBA
 
       # Play the named sample from the start. +loop+ true replays it seamlessly on a
       # loop (background music); false plays it once and stops (a one-shot sound).
-      def play_sample(name, loop: false)
-        Node.new(:play_sample, name: name, loop: loop)
+      # +volume+ is a level name (:full, :half, …) — how loud this voice sits in the mix.
+      def play_sample(name, loop: false, volume: :full)
+        Node.new(:play_sample, name: name, loop: loop, volume: volume)
       end
 
       # Stop a playing sample. With +name+, silences that sample's voices; without one,
