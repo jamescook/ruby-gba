@@ -458,6 +458,28 @@ class TestASM < Minitest::Test
     assert_equal 0xD, (inst >> 21) & 0xF  # MOV opcode
   end
 
+  # A predicated register move: the condition rides in the top nibble, so the move
+  # only executes when the condition holds (the branchless-clamp primitive).
+  def test_mov_reg_cond_carries_the_condition
+    inst = unpack(A.mov_reg_cond(:lt, 1, 3))
+    assert_equal 1, rd(inst)
+    assert_equal 3, rm(inst)
+    assert_equal 0xD, (inst >> 21) & 0xF  # MOV opcode
+    assert_equal 0xB, (inst >> 28) & 0xF  # LT, not AL (0xE)
+  end
+
+  def test_mov_imm_cond_carries_the_condition_and_immediate
+    inst = unpack(A.mov_imm_cond(:gt, 1, 127))
+    assert_equal 1, rd(inst)
+    assert_equal 127, inst & 0xFF         # imm8 (rotation 0)
+    assert_equal 1, (inst >> 25) & 0x1    # immediate form
+    assert_equal 0xC, (inst >> 28) & 0xF  # GT
+  end
+
+  def test_mov_imm_cond_rejects_an_unencodable_immediate
+    assert_raises(ArgumentError) { A.mov_imm_cond(:gt, 1, 0x12345) }
+  end
+
   # ========================================================================
   # Condition code resolution
   # ========================================================================

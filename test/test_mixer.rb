@@ -131,6 +131,50 @@ class TestMixer < Minitest::Test
     assert mixed.all?(quiet + loud), "both voices summed to #{quiet + loud}, but the buffer held #{mixed.inspect}"
   end
 
+  # The saturating clamp: two loud voices that would sum past the 8-bit ceiling are
+  # pinned at +127, not wrapped to a negative (which would be a harsh click). This
+  # exercises the branchless (predicated) clamp on the hot mix path.
+  def test_the_mix_saturates_at_the_ceiling
+    gba = GBA.new
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      a = sample :a, pcm: [100] * 400, rate: 8000 # 100 + 100 = 200, past +127
+      c = sample :c, pcm: [100] * 400, rate: 8000
+      a.play(loop: true)
+      c.play(loop: true)
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    rom = ROM.assemble(gba.lower(b.program), title: "MIXH", code: "BMXH", maker: "01")
+    v = assert_gemba_loads_rom(rom, frames: 6)
+
+    mixed = (0...8).map { |i| signed8(v.mem8(gba.mix_buf0 + i)) }
+    assert mixed.all?(127), "200 should saturate to +127, but the buffer held #{mixed.inspect}"
+  end
+
+  # ...and the floor: two very negative voices pin at -128, not wrap to a positive.
+  def test_the_mix_saturates_at_the_floor
+    gba = GBA.new
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      a = sample :a, pcm: [-100] * 400, rate: 8000 # -100 + -100 = -200, past -128
+      c = sample :c, pcm: [-100] * 400, rate: 8000
+      a.play(loop: true)
+      c.play(loop: true)
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    rom = ROM.assemble(gba.lower(b.program), title: "MIXL", code: "BMXL", maker: "01")
+    v = assert_gemba_loads_rom(rom, frames: 6)
+
+    mixed = (0...8).map { |i| signed8(v.mem8(gba.mix_buf0 + i)) }
+    assert mixed.all?(-128), "-200 should saturate to -128, but the buffer held #{mixed.inspect}"
+  end
+
   # --- level control ---
 
   def test_volume_is_carried_on_the_voice
