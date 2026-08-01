@@ -28,10 +28,16 @@ module RubyGBA
       class Ruby
         class ProgramError < StandardError; end
 
-        # A generous default so an accidental infinite loop can't hang a test
-        # forever. Pass a small max_steps to deliberately run N steps of an
-        # otherwise-endless game loop and then inspect the state.
+        # A generous cap so an accidental infinite loop can't hang a test forever.
+        # It's the runaway guard, not the usual stop — see DEFAULT_FRAMES.
         DEFAULT_MAX_STEPS = 1_000_000
+
+        # How many frames a game loop runs when the caller caps neither `frames:`
+        # nor `max_steps:`. A non-halting loop otherwise grinds all the way to the
+        # step budget (thousands of frames) when a handful is all a test needs — so
+        # the default is small and deliberately cheap. A test that needs to play
+        # further (gameplay reaching some state) passes a larger `frames:`.
+        DEFAULT_FRAMES = 20
 
         # The frame rate this backend models: a timer running at H Hz overflows
         # H/FRAME_RATE times per frame. The console runs at ~59.7fps; 60 is the clean
@@ -89,14 +95,27 @@ module RubyGBA
         end
 
         # Execute a program (or any statement node) until it ends naturally, hits
-        # a `halt`, or exhausts the step budget — whichever comes first. Returns
-        # self so callers can chain and then inspect variables.
-        def run(node, max_steps: DEFAULT_MAX_STEPS)
-          @max_steps = max_steps
+        # a `halt`, runs the requested number of `frames:`, or exhausts the step
+        # budget — whichever comes first. Returns self so callers can chain and
+        # then inspect variables.
+        #
+        # Pass `frames:` to play a game loop for exactly N frames and stop with the
+        # Nth frame fully drawn (a settled screen, never a torn mid-frame) — the
+        # natural way to say "play this far in", and how the gemba tests express it
+        # too. It's the stop condition when given; `max_steps` then only guards the
+        # runaway case of a frame that never reaches vblank.
+        #
+        # Cap neither and a game loop stops after DEFAULT_FRAMES — small and cheap,
+        # since a handful of frames is all most tests need; pass a larger `frames:`
+        # to play further. Passing `max_steps:` alone opts back into a step budget.
+        def run(node, max_steps: nil, frames: nil)
+          frames = DEFAULT_FRAMES if frames.nil? && max_steps.nil?
+          @frames_limit = frames
+          @max_steps = max_steps || DEFAULT_MAX_STEPS
           # Past the soft budget a frame-based program runs on to the next frame boundary
           # (so it stops on a complete screen, never a torn mid-frame); the hard cap bounds
           # the rare case where that boundary never comes (a loop that stops calling vblank).
-          @hard_cap = max_steps * 2
+          @hard_cap = @max_steps * 2
           @steps = 0
           @stopped_at_budget = false
           @over_budget = false
@@ -403,6 +422,12 @@ module RubyGBA
           # drawn is complete, and the next one's clear/draws haven't started, so the screen
           # is settled. Reaching a vblank also marks the program as frame-based (see tick!).
           throw :halt if @over_budget
+
+          # Same settled-boundary stop once we've played the requested number of frames:
+          # @frame counts frames already completed, so at == the limit the next frame's
+          # draws haven't begun. Not a budget cutoff — it ran exactly as asked, so
+          # #stopped_at_budget? stays false.
+          throw :halt if @frames_limit && @frame >= @frames_limit
 
           @uses_frames = true
           @prev_held = @held
