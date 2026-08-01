@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Quick sanity check: build ROMs with ruby-gba, run them in gemba
+# Quick sanity check: build ROMs with ruby-gba, run them in the emulator
 # in-process for 100 frames, and confirm they don't crash.
 #
 # Usage:
@@ -19,11 +19,11 @@ def build_and_run(name, &block)
 
   Tempfile.create([name.downcase, ".gba"]) do |f|
     rom.write(f.path)
-    core = Gemba::Core.new(f.path)
+    core = RubyGBA::Emulator.open(f.path)
     100.times { core.run_frame }
     core.destroy
   end
-  puts "Ran 100 frames in gemba OK"
+  puts "Ran 100 frames in the emulator OK"
   puts "-" * 60
   puts
 end
@@ -32,7 +32,7 @@ end
 # script body — otherwise it would run (and exit) during the test suite.
 if __FILE__ == $PROGRAM_NAME
   unless GembaSupport.gem_available?
-    warn "gemba not available — skipping run (gem install gemba)"
+    warn "gemba-core not available — skipping run (build it with rake test:mgba)"
     exit 0
   end
 

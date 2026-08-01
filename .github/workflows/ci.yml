@@ -12,7 +12,7 @@ concurrency:
 jobs:
   test:
     name: test (ruby ${{ matrix.ruby }})
-    runs-on: ubuntu-24.04        # stable + pre-cached Ruby; ships Tcl/Tk 8.6 natively
+    runs-on: ubuntu-24.04        # stable, pre-cached Ruby
     strategy:
       fail-fast: false
       matrix:
@@ -21,47 +21,37 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # gemba's build deps, Tcl-8.6 path from its Dockerfile.ci-test: teek (Tcl/Tk),
-      # teek-sdl2 (SDL2 family), gemba (links system libmgba). No pkg-config symlink
-      # needed on 8.6, and libtk-img is a normal package here (the Debian fetch was
-      # tcl9-only). imagemagick is also used by ruby-gba's PNG import.
-      - name: Install gemba dependencies
+      # Build dependencies: a compiler + libmgba to build gemba-core's C extension
+      # (the headless libmgba probe the emulator-backed tests run on), and
+      # ImageMagick for ruby-gba's PNG import. gemba-core is headless — no SDL2, Tk,
+      # or X11 — so no display server or audio daemon is needed.
+      - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential make pkg-config \
-            libyaml-dev libffi-dev libreadline-dev zlib1g-dev libssl-dev \
-            libx11-dev libxcursor-dev \
-            libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-gfx-dev \
-            libmgba-dev \
-            tcl-dev tk-dev libtk-img \
-            bwidget xvfb pulseaudio imagemagick ffmpeg
+            build-essential make pkg-config zlib1g-dev \
+            libmgba-dev imagemagick
 
-      # No committed Gemfile.lock → fresh resolve (no frozen/checksum issues).
-      # bundler-cache caches the compiled teek/gemba extensions across runs.
-      - name: Set up Ruby (+ bundle install, which compiles gemba/teek)
+      # No committed Gemfile.lock → fresh resolve. ruby-gba's deps are pure Ruby
+      # (rake, minitest), so bundle install compiles nothing.
+      - name: Set up Ruby (+ bundle install)
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
 
-      # Headless: PulseAudio null sink for SDL audio, then run under Xvfb (teek
-      # wants a display). gemba-backed tests skip gracefully if it can't load.
+      # `rake test` builds gemba-core's C extension first (it's required), then runs
+      # the suite headless against it.
       - name: Run tests
         run: |
           set -o pipefail
-          pulseaudio --start --daemonize --exit-idle-time=-1 2>/dev/null || true
-          pactl load-module module-null-sink sink_name=dummy >/dev/null 2>&1 || true
-          xvfb-run -a bundle exec rake test 2>&1 | tee test-output.log
+          bundle exec rake test 2>&1 | tee test-output.log
         env:
           CI: '1'
 
-      # gemba-core is the headless libmgba probe vendored under gemba-core/. It has
-      # its own suite (compiled C ext + tests), kept out of the main `rake test`
-      # glob, so run it separately. No Xvfb/PulseAudio here — it's headless, with no
-      # SDL2 or Tk. The build deps it needs (libmgba-dev, build-essential) are already
-      # installed above for gemba.
-      - name: Compile and test gemba-core (headless libmgba probe)
+      # gemba-core also has its OWN suite (its C ext + probe, tested in isolation),
+      # kept out of the main `rake test` glob — run it separately.
+      - name: Test gemba-core itself (headless libmgba probe)
         run: bundle exec rake test:mgba 2>&1 | tee gemba-core-test.log
         env:
           CI: '1'

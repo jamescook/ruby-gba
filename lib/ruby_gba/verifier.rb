@@ -6,7 +6,8 @@ module RubyGBA
   # This is the definitive answer to "did my ROM actually draw anything?"
   # Instead of squinting at an emulator window, assert exact pixel values.
   #
-  # Requires gemba to be available (loads Gemba::Core).
+  # Requires gemba-core to be available (loads GembaCore::Core) — the headless
+  # libmgba probe vendored under gemba-core/ in this repo.
   #
   # @example Verify a pixel
   #   rom = RubyGBA.build("TEST", code: "BTST", maker: "01") do
@@ -44,7 +45,7 @@ module RubyGBA
       @audio = nil
       @width = SCREEN_WIDTH
       @height = SCREEN_HEIGHT
-      load_mgba!
+      Emulator.load! # fail fast if the emulator backend isn't built
     end
 
     # Get the 8-bit RGB color at a screen coordinate.
@@ -242,15 +243,6 @@ module RubyGBA
 
     private
 
-    def load_mgba!
-      begin
-        require "gemba/core"  # Ruby class shell
-        require "gemba_ext"   # C extension with actual methods
-      rescue LoadError => e
-        raise LoadError, "Verifier requires gemba (gem install gemba). Original error: #{e.message}"
-      end
-    end
-
     def ensure_rendered!
       return if @pixels
 
@@ -266,7 +258,7 @@ module RubyGBA
       @tempfile.binmode
       @rom.write(@tempfile.path)
       @tempfile.flush
-      @core = Gemba::Core.new(@tempfile.path)
+      @core = Emulator.open(@tempfile.path)
       @audio = +"".b
       @frames.times do |frame|
         @core.set_keys(keys_for(frame)) if @keys

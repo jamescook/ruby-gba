@@ -4,11 +4,11 @@ A lean, **headless** binding to [libmgba](https://mgba.io)'s `mCore` — boot a 
 ROM, step it a frame at a time, and read back video, audio, and memory as plain
 Ruby data. No UI of any kind.
 
-This is a stripped copy of the native core from the `gemba` emulator, split out
-so ruby-gba's tests and dev tooling can verify a ROM against a real emulator
-without pulling in the whole GUI stack (`teek`, `teek-sdl2`, `teek-ui`). It is
-**not published as a gem** — it lives inside the ruby-gba repo for development
-only, and is kept deliberately close to gemba's C so the two can be re-synced.
+It's a lean subset of the `gemba` emulator's native core — just the headless
+mCore binding, none of the GUI stack (`teek`, `teek-sdl2`, `teek-ui`) — so
+ruby-gba's tests and dev tooling can verify a ROM against a real emulator. It is
+**not published as a gem**; it lives inside the ruby-gba repo for development
+only, kept deliberately close to gemba's C so the two can be re-synced.
 
 ## What it's for
 
