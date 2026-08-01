@@ -121,17 +121,17 @@ puts "Wrote /tmp/debug_blocks.gba"
 puts
 
 # ============================================================
-# Run in gemba (in-process)
+# Run in the emulator (in-process)
 # ============================================================
 if GembaSupport.gem_available?
   ["/tmp/debug_bigrect.gba", "/tmp/debug_blocks.gba"].each do |path|
-    puts "Running #{path} in gemba for 100 frames..."
-    core = Gemba::Core.new(path)
+    puts "Running #{path} in the emulator for 100 frames..."
+    core = RubyGBA::Emulator.open(path)
     100.times { core.run_frame }
     core.destroy
     puts "OK"
     puts "-" * 40
   end
 else
-  puts "gemba not available — skipping run (gem install gemba)"
+  puts "gemba-core not available — skipping run (build it with rake test:mgba)"
 end

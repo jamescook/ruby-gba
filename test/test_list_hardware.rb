@@ -130,7 +130,7 @@ class TestListHardware < Minitest::Test
     # and never let length run past capacity. So this is a console-only check: push
     # four into a capacity-2 list and confirm exactly the first two (30, 90) are
     # drawn, with the overflowing 150/210 absent.
-    skip_unless_gemba
+    require_gemba_core!
 
     prog = program(
       screen(:bitmap), clear_screen(:black),

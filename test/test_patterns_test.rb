@@ -43,7 +43,7 @@ class TestTestPatternsRendering < Minitest::Test
   include GembaSupport
 
   def setup
-    skip_unless_gemba
+    require_gemba_core!
   end
 
   def test_solid_fill_renders_red

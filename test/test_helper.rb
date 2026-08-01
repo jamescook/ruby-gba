@@ -3,28 +3,26 @@
 require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 
-# Shared helpers for tests that exercise the gemba emulator in-process.
+# Shared helpers for tests that exercise the emulator in-process. The emulator
+# backend (gemba-core, a headless libmgba probe) is reached through
+# RubyGBA::Emulator — the one seam — so nothing here names it directly.
 #
 # Include this in a test class instead of copy-pasting begin/require/rescue
 # blocks or per-test availability guards.
 module GembaSupport
-  # Whether the in-process gemba Core can be loaded. Memoized: the require is
-  # attempted once per run.
+  # Whether the in-process emulator core can be loaded — for the standalone
+  # debug scripts that degrade gracefully. Suite tests use #require_gemba_core!,
+  # which fails loud, since gemba-core is required, not optional.
   def self.gem_available?
-    return @gem_available unless @gem_available.nil?
-    @gem_available =
-      begin
-        require "gemba/core"  # Ruby class shell
-        require "gemba_ext"   # C extension with the real methods
-        true
-      rescue LoadError
-        false
-      end
+    RubyGBA::Emulator.available?
   end
 
-  # Skip the current test unless the in-process gemba emulator is available.
-  def skip_unless_gemba
-    skip "gemba not available (gem install gemba)" unless GembaSupport.gem_available?
+  # Ensure the emulator (gemba-core) is available, failing loudly if it isn't.
+  # gemba-core is required to verify ROMs, so a missing build is a real error,
+  # not a reason to silently skip and pass with the coverage gutted. `rake test`
+  # builds it first; run `rake test:mgba` to build it by hand.
+  def require_gemba_core!
+    RubyGBA::Emulator.load!
   end
 
   # Lower an IR program to a finished ROM, the way the gemba tests need it — a
@@ -36,18 +34,19 @@ module GembaSupport
                           title: name, code: "TEST", maker: "01")
   end
 
-  # Load +rom+ into gemba and run it headless for +frames+ frames, asserting it
-  # loads and runs without raising. Skips when gemba isn't installed. Returns a
-  # RubyGBA::Verifier so callers can make pixel assertions on the rendered frame:
+  # Load +rom+ into the emulator and run it headless for +frames+ frames,
+  # asserting it loads and runs without raising. Fails loudly if gemba-core isn't
+  # built (it's required). Returns a RubyGBA::Verifier so callers can make pixel
+  # assertions on the rendered frame:
   #
   #   v = assert_gemba_loads_rom(rom, frames: 30)
   #   assert v.red?(120, 80)
   def assert_gemba_loads_rom(rom, frames: 10, **opts)
-    skip_unless_gemba
+    require_gemba_core!
     verifier = RubyGBA::Verifier.new(rom, frames: frames, **opts)
-    verifier.pixel(0, 0) # force gemba to load the ROM and run the frames
+    verifier.pixel(0, 0) # force the emulator to load the ROM and run the frames
     verifier
   rescue StandardError => e
-    flunk "gemba failed to load/run ROM after #{frames} frames: #{e.class}: #{e.message}"
+    flunk "the emulator failed to load/run ROM after #{frames} frames: #{e.class}: #{e.message}"
   end
 end

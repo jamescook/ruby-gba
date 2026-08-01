@@ -2,18 +2,25 @@
 
 require "rake/testtask"
 
-Rake::TestTask.new(:test) do |t|
+# Build gemba-core's C extension (the headless libmgba probe that the
+# emulator-backed tests run on) before the suite. gemba-core is required to run
+# the tests — the emulator path is not optional — so if it can't build, fail
+# loudly and stop, rather than letting the suite pass with its coverage gutted.
+desc "Build gemba-core's C extension (required for the emulator-backed tests)"
+task :compile_gemba_core do
+  Dir.chdir("gemba-core") { sh "rake", "compile" }
+end
+
+Rake::TestTask.new(test: :compile_gemba_core) do |t|
   t.libs << "test" << "lib"
   t.test_files = FileList["test/**/test_*.rb"]
 end
 
 namespace :test do
-  # gemba-core (gemba-core/) is a headless libmgba binding used for dev/test
-  # verification. It's a self-contained, unpublished mini-gem with a C
-  # extension and its OWN test suite — kept out of the main `test` glob above so
-  # `rake test` stays pure-Ruby and never needs a compiler. Delegate to its
+  # gemba-core has its OWN test suite (its C extension + probe, tested in
+  # isolation) — kept out of the main `test` glob above. Delegate to its
   # Rakefile, which compiles the extension first.
-  desc "Compile and test gemba-core (the headless libmgba verification core)"
+  desc "Compile and test gemba-core itself (the headless libmgba verification core)"
   task :mgba do
     Dir.chdir("gemba-core") { sh "rake", "test" }
   end

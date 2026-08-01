@@ -9,9 +9,9 @@ require_relative "gemba_core/version"
 # extension defines {GembaCore::Core} (the thin mCore wrapper) and the +KEY_*+
 # constants; {GembaCore::Probe} sits on top and returns plain Ruby data.
 #
-# This is not the +gemba+ gem — it's a stripped, unpublished core kept inside
-# ruby-gba for development only. Kept deliberately close to gemba's native code
-# so the two can be re-synced.
+# This is not the +gemba+ gem — it's a lean, unpublished core kept inside
+# ruby-gba for development only, deliberately close to gemba's native code so the
+# two can be re-synced.
 module GembaCore
   class << self
     # Boot +rom_path+ and return a {Probe} ready to {Probe#step}.
