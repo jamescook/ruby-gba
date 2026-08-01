@@ -150,8 +150,15 @@ module RubyGBA
       # @param rate [Integer, nil] frames-per-step for +frames:+/+frames_from:+ (required with them)
       # @param shown [Boolean] draw it now (true, default), or start hidden until `show`
       # @return [Sprite, HardwareSprite] a handle: x / y / move / move_to (and, in bitmap mode, face / hide / show)
-      def sprite(name, at:, facing: nil, frames: nil, frames_from: nil, tile: nil, transparent: false,
-                 rate: nil, shown: true, hitbox: nil)
+      def sprite(name, at:, facing: nil, frames: nil, frames_from: nil, facing_from: nil, dirs: nil,
+                 tile: nil, transparent: false, rate: nil, shown: true, hitbox: nil)
+        if facing_from
+          raise ArgumentError, "sprite :#{name} has both facing: and facing_from:. They both set the facing poses. Use only one." if facing
+          raise ArgumentError, "sprite :#{name} has both facing_from: and frames:. They both set the sprite's pose. Use only one." if frames
+          raise ArgumentError, "sprite :#{name} has both facing_from: and frames_from:. They both slice a sheet for the pose. Use only one." if frames_from
+
+          facing = import_facing(name, facing_from, tile, dirs, transparent)
+        end
         if frames_from
           raise ArgumentError, "sprite :#{name} has both frames: and frames_from:. They both supply the frames. Use only one." if frames
 
@@ -452,6 +459,39 @@ module RubyGBA
           define_pixel_image(frame, width: bmp.width, height: bmp.height, data: bmp.data,
                                     transparent: bmp.transparent)
           frame
+        end
+      end
+
+      # Import a directional sprite sheet into facing: poses. The sheet is a grid: each
+      # ROW is a direction (in the order dirs: gives, top to bottom), and the COLUMNS of
+      # that row are its frames. So a one-column sheet gives one still pose per direction
+      # (a plain facing: sprite), and a several-column sheet gives a per-direction
+      # animation (a walk cycle each way it faces). Returns the facing: hash the normal
+      # sprite path then handles — a single image per direction, or a list of frames.
+      def import_facing(name, path, tile, dirs, transparent)
+        unless dirs.is_a?(Array) && dirs.any? && dirs.all? { |d| d.is_a?(Symbol) }
+          raise ArgumentError,
+                "sprite :#{name} facing_from: needs dirs: — the direction of each row of the sheet, " \
+                "top to bottom, like dirs: [:down, :left, :right, :up]. Got #{dirs.inspect}."
+        end
+
+        tile_w, tile_h = sheet_tile_size("sprite :#{name}", tile)
+        sheet = Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
+        unless sheet.rows == dirs.length
+          raise ArgumentError,
+                "sprite :#{name} facing_from: has #{sheet.rows} rows, but dirs: names #{dirs.length}. " \
+                "Give one direction for each row of the sheet."
+        end
+
+        dirs.each_with_index.to_h do |dir, row|
+          frames = (0...sheet.cols).map do |col|
+            bmp = sheet.cell(col, row)
+            img = :"__face_#{name}_#{dir}_#{col}"
+            define_pixel_image(img, width: bmp.width, height: bmp.height, data: bmp.data, transparent: bmp.transparent)
+            img
+          end
+          # One column: a still pose per direction. Several: this direction's frame list.
+          [dir, sheet.cols == 1 ? frames.first : frames]
         end
       end
 
