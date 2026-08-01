@@ -32,13 +32,13 @@ class TestInterpreterBudget < Minitest::Test
   end
 
   def test_a_budget_cutoff_stops_at_a_frame_boundary_not_mid_frame
-    i = Ruby.new.run(marker_program) # endless loop -> runs to the step budget
+    i = Ruby.new.run(marker_program, max_steps: 1000) # endless loop -> runs to the step budget
     assert_equal Color.resolve(:green), i.screen.pixel(2, 2),
                  "the cutoff should finish the in-flight frame (marker drawn), not tear it mid-draw"
   end
 
   def test_it_still_reports_that_the_budget_was_reached
-    i = Ruby.new.run(marker_program)
+    i = Ruby.new.run(marker_program, max_steps: 1000)
     assert i.stopped_at_budget?, "an endless loop still hits the budget; it just stops cleanly"
   end
 

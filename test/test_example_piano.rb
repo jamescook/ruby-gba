@@ -26,7 +26,7 @@ class TestExamplePiano < Minitest::Test
   def play(frames)
     i = Ruby.new
     i.each_vblank { |f| yield(i, f) if block_given? && f <= frames }
-    i.run(Piano.program, max_steps: frames * 3_000)
+    i.run(Piano.program, frames: frames)
     i
   end
 

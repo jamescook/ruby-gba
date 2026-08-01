@@ -38,7 +38,7 @@ class TestTimers < Minitest::Test
   # timer's behavior over a known window is observable. The block is spliced into
   # the loop body after the frame counter ticks.
   def run_for(frames, &body)
-    interpret do
+    interpret(frames: frames) do
       var :frame, 0
       var :fires, 0
       var :last_fire, 0

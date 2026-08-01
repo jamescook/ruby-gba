@@ -26,12 +26,14 @@ class TestBreakoutExample < Minitest::Test
 
   # Drive input frame by frame: START on frame 1 to leave the title, then whatever
   # `then_hold` says for the rest (a Breakout game auto-plays — the ball moves on
-  # its own — so this is enough to exercise real gameplay).
-  def play(then_hold: [], frames_of_input: 1)
+  # its own — so this is enough to exercise real gameplay). 120 frames is a
+  # comfortable margin: the ball breaks its first brick and a held paddle clamps at
+  # the wall well before frame 40, so the asserted state has settled by here.
+  def play(then_hold: [], frames: 120)
     script = lambda do |frame|
       frame == 1 ? [:start] : then_hold
     end
-    Ruby.new.input_each_frame(&script).run(Breakout.program)
+    Ruby.new.input_each_frame(&script).run(Breakout.program, frames: frames)
   end
 
   # RubyGBA.build runs the guardrails and Doctor, so a clean, non-empty build is

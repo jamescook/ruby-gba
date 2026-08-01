@@ -66,7 +66,7 @@ class TestPool < Minitest::Test
       end
     end
     b.emit_pending_functions
-    i = Ruby.new.run(b.program)
+    i = Ruby.new.run(b.program, frames: 45) # the mover needs ~35 frames to reach its clamp
 
     assert_equal GREEN, i.screen.pixel(50, 80), "it moved down and settled at the clamp"
     assert_equal BLACK, i.screen.pixel(50, 10), "it left its start"
