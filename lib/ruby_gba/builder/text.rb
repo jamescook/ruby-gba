@@ -63,8 +63,8 @@ module RubyGBA
       def draw_text(text, x, y, color, font: :default)
         unless text.is_a?(String)
           raise ArgumentError,
-                "draw_text draws words (a String); for a number like a score or a counter use " \
-                "draw_number — got #{text.inspect}"
+                "draw_text draws words (a String). For a number like a score or a counter, use " \
+                "draw_number. Got #{text.inspect}."
         end
         Fonts.get(font) # fail early with a friendly error on an unknown font name
 
@@ -98,7 +98,7 @@ module RubyGBA
       # @param digits [Integer] how many digit columns to reserve
       def draw_number(value, x, y, color, digits: DEFAULT_DIGITS, font: :default)
         unless digits.is_a?(Integer) && digits.positive?
-          raise ArgumentError, "draw_number needs a positive number of digits, got #{digits.inspect}"
+          raise ArgumentError, "draw_number needs a positive number of digits. Got #{digits.inspect}."
         end
 
         # On a tiled screen, a number is drawn as sprite glyphs, declared once and
@@ -113,7 +113,7 @@ module RubyGBA
         when Symbol, Value  then draw_live_number(value, x, y, color, digits, font)
         else
           raise ArgumentError,
-                "draw_number draws a number — a value, a variable, or an expression — got #{value.inspect}"
+                "draw_number draws a number: a value, a variable, or an expression. Got #{value.inspect}."
         end
       end
 
@@ -247,9 +247,9 @@ module RubyGBA
         return name if name
 
         raise ArgumentError,
-              "on a tiled screen, draw_number follows a variable so it can update itself each frame — " \
-              "give it a variable (like :score), not a one-off expression. Work the value out into a " \
-              "variable first (e.g. `set :shown, hp - 1`) and draw that."
+              "On a tiled screen, draw_number follows a variable and updates itself each frame. " \
+              "Give it a variable (like :score), not an expression. Store the value in a variable " \
+              "first (for example `set :shown, hp - 1`). Then draw that variable."
       end
 
       # The sprite pose that shows the digit of +source+ at +place+ (1, 10, 100, …).
@@ -311,9 +311,9 @@ module RubyGBA
         return if font.cell_w <= HUD_GLYPH_PX && font.height <= HUD_GLYPH_PX
 
         raise ArgumentError,
-              "on a tiled screen, text is drawn as #{HUD_GLYPH_PX}x#{HUD_GLYPH_PX} sprite glyphs, but font " \
-              ":#{font_name} is #{font.cell_w}x#{font.height} per character — use a smaller font " \
-              "(the built-in :default and :tiny fit), or draw this text on a `screen :bitmap`."
+              "On a tiled screen, the console draws text as #{HUD_GLYPH_PX}x#{HUD_GLYPH_PX} sprite glyphs. " \
+              "Font :#{font_name} is #{font.cell_w}x#{font.height} per character. That is too big for one glyph tile. " \
+              "Use a smaller font (the built-in :default and :tiny fit), or draw this text on a `screen :bitmap`."
       end
 
       # Tiled text is declared once and redrawn for you every frame, so it belongs at
@@ -325,9 +325,9 @@ module RubyGBA
         return if @building_scene # a scene declares its own HUD in its body (built once, off the loop)
 
         raise ArgumentError,
-              "call #{verb} once, above your game_loop — not inside it. On a tiled screen the text is an " \
-              "element the console redraws every frame (like a sprite), so you declare it once and it stays. " \
-              "If it shows a value that changes, pass the variable and it updates itself."
+              "Call #{verb} once, above your game_loop. Do not call it inside the loop. " \
+              "On a tiled screen, the console redraws the text every frame (like a sprite). " \
+              "You declare it once and it stays. If it shows a value that changes, pass the variable and it updates itself."
       end
     end
   end

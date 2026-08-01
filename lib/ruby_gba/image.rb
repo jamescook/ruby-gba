@@ -72,7 +72,8 @@ module RubyGBA
       # plain-language error if that cell is outside the grid.
       def cell(col, row)
         unless col.between?(0, @cols - 1) && row.between?(0, @rows - 1)
-          raise Error, "cell [#{col}, #{row}] is outside this #{@cols}x#{@rows}-cell sheet"
+          raise Error, "Cell [#{col}, #{row}] is outside this #{@cols}x#{@rows}-cell sheet. " \
+                       "Columns and rows start at 0. Use a column and row inside the grid."
         end
 
         ox = col * @tile_w
@@ -137,12 +138,13 @@ module RubyGBA
     # the tile size (or the picture) is wrong, and slicing anyway would shear every
     # tile after the first, so we stop with a clear explanation instead.
     def divides_evenly!(path, native_w, native_h, tile_w, tile_h)
-      raise Error, "sheet tile size must be positive, got #{tile_w}x#{tile_h}" unless tile_w.positive? && tile_h.positive?
+      raise Error, "The sheet tile size is #{tile_w}x#{tile_h}. The width and height must both be more than 0." unless tile_w.positive? && tile_h.positive?
       return if (native_w % tile_w).zero? && (native_h % tile_h).zero?
 
       raise Error,
-            "sheet #{path.inspect} is #{native_w}x#{native_h}, which doesn't divide evenly into " \
-            "#{tile_w}x#{tile_h} tiles (#{native_w}/#{tile_w} across, #{native_h}/#{tile_h} down)"
+            "The sheet #{path.inspect} is #{native_w}x#{native_h}. This size does not divide evenly into " \
+            "#{tile_w}x#{tile_h} tiles (#{native_w}/#{tile_w} across, #{native_h}/#{tile_h} down). " \
+            "Change the tile size or the picture so the size divides evenly."
     end
 
     # Load an image file and convert it to +width+ x +height+ pixels.
@@ -200,8 +202,8 @@ module RubyGBA
       expected = width * height * per_pixel
       return if bytes.bytesize == expected
 
-      raise Error, "expected #{expected} bytes of pixel data for a #{width}x#{height} " \
-                   "image, but the adapter returned #{bytes.bytesize}"
+      raise Error, "The #{width}x#{height} image needs #{expected} bytes of pixel data. " \
+                   "The adapter returned #{bytes.bytesize} bytes."
     end
 
     # The adapter used when a caller doesn't name one. A single shared instance

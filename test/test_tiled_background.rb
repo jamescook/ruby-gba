@@ -83,7 +83,7 @@ class TestTiledBackground < Minitest::Test
     err = assert_raises(ArgumentError) do
       b.instance_eval { tiles :bad, "#" => :nonexistent }
     end
-    assert_match(/isn't a defined image/, err.message)
+    assert_match(/not a defined image/, err.message)
   end
 
   def test_a_map_character_not_in_the_tileset_is_a_friendly_error
@@ -93,7 +93,7 @@ class TestTiledBackground < Minitest::Test
     err = assert_raises(ArgumentError) do
       b.instance_eval { background :oops, tiles: :one, map: "RX" } # X is unmapped
     end
-    assert_match(/isn't in tileset/, err.message)
+    assert_match(/not in tileset/, err.message)
   end
 
   def test_mismatched_tile_sizes_are_a_friendly_error
@@ -113,7 +113,7 @@ class TestTiledBackground < Minitest::Test
     err = assert_raises(ArgumentError) do
       b.instance_eval { background :ragged, tiles: :one, map: "RRR\nRR" } # rows 3 and 2 wide
     end
-    assert_match(/ragged rows/, err.message)
+    assert_match(/same length/, err.message)
   end
 
   # In tile mode the console's tile hardware only handles 8x8 tiles, so a tileset

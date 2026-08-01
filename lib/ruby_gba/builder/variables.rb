@@ -60,8 +60,8 @@ module RubyGBA
       def save_var(name, default)
         unless default.is_a?(Integer)
           raise ArgumentError,
-                "save_var's default must be a whole number (the value on a fresh " \
-                "cartridge), got #{default.inspect}"
+                "save_var's default must be a whole number. This is the value on a " \
+                "fresh cartridge. You gave #{default.inspect}."
         end
 
         ensure_var(name)
@@ -157,8 +157,8 @@ module RubyGBA
       # @param target [Integer, Symbol, Value] where it's heading
       # @param step [Integer] the most it may move per call (a positive constant)
       def approach(name, target, step)
-        raise ArgumentError, "approach's step must be a whole number, got #{step.inspect}" unless step.is_a?(Integer)
-        raise ArgumentError, "approach's step must be positive, got #{step}" unless step.positive?
+        raise ArgumentError, "approach's step must be a whole number. You gave #{step.inspect}." unless step.is_a?(Integer)
+        raise ArgumentError, "approach's step must be positive. You gave #{step}." unless step.positive?
 
         ensure_var(name)
         ensure_var(target)

@@ -323,6 +323,6 @@ class TestSound < Minitest::Test
         halt
       end
     end
-    assert_match(/unknown note/, err.message)
+    assert_match(/not known/, err.message)
   end
 end

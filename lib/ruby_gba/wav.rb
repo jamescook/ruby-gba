@@ -25,14 +25,14 @@ module RubyGBA
     # Parse a WAV file's bytes into { bytes:, rate: }. +source+ names it in errors.
     def parse(riff, source = "the WAV data")
       unless riff.byteslice(0, 4) == "RIFF" && riff.byteslice(8, 4) == "WAVE"
-        raise Error, "#{source} isn't a WAV file (no RIFF/WAVE header)"
+        raise Error, "#{source} is not a WAV file. It has no RIFF/WAVE header. Use a plain PCM WAV file."
       end
 
-      fmt = find_chunk(riff, "fmt ") or raise Error, "#{source} has no fmt chunk"
-      data = find_chunk(riff, "data") or raise Error, "#{source} has no data chunk"
+      fmt = find_chunk(riff, "fmt ") or raise Error, "#{source} has no fmt chunk. The fmt chunk holds the audio format. Export the file as a plain PCM WAV file."
+      data = find_chunk(riff, "data") or raise Error, "#{source} has no data chunk. The data chunk holds the samples. Export the file as a plain PCM WAV file."
       format, channels, rate, _byte_rate, _align, bits = fmt.unpack("vvVVvv")
       unless format == PCM_FORMAT
-        raise Error, "#{source} isn't uncompressed PCM (format #{format}) — export it as a plain PCM WAV"
+        raise Error, "#{source} is not uncompressed PCM (format #{format}). This framework loads only uncompressed PCM. Export it as a plain PCM WAV file."
       end
 
       { bytes: to_signed_8bit_mono(data, channels, bits, source), rate: rate }
@@ -58,7 +58,7 @@ module RubyGBA
         case bits
         when 8  then data.unpack("C*").map { |b| b - 128 }  # WAV 8-bit is unsigned (0..255) — recenter to -128..127
         when 16 then data.unpack("s<*").map { |s| s >> 8 }  # keep the signed high byte of each 16-bit sample
-        else raise Error, "#{path} is #{bits}-bit — only 8- or 16-bit PCM is supported"
+        else raise Error, "#{path} is #{bits}-bit. This framework loads only 8-bit or 16-bit PCM. Export the file as 8-bit or 16-bit PCM."
         end
       # Stereo (or more) interleaves the channels sample-by-sample; average them to mono.
       mono = channels <= 1 ? samples : samples.each_slice(channels).map { |group| group.sum / group.size }

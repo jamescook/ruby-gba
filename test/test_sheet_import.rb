@@ -166,7 +166,7 @@ class TestSheetImport < Minitest::Test
         sprite :h, at: [0, 0], frames_from: "/sheet/x.png", frames: %i[a b], tile: 8, rate: 2
       end
     end
-    assert_match(/frames: OR frames_from:/, err.message)
+    assert_match(/frames: and frames_from:/, err.message)
   end
 
   # ---- paths resolve next to the script, not the working directory -----------
@@ -176,7 +176,7 @@ class TestSheetImport < Minitest::Test
     err = assert_raises(ArgumentError) do
       builder.instance_eval { screen :tiled; tiles :d, from: "definitely_missing.png", tile: 8, "#" => 0 }
     end
-    assert_match(/can't find/, err.message)
+    assert_match(/find the image/, err.message)
     assert_match(/definitely_missing\.png/, err.message)
   end
 end

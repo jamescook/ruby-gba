@@ -12,7 +12,7 @@ module RubyGBA
       # Enable the GBA sound hardware. Call once at the top of your build block.
       # Without this, all beep calls are silent.
       def enable_sound
-        raise ArgumentError, "enable_sound already called — only call it once" if @sound_enabled
+        raise ArgumentError, "enable_sound is already on. Call enable_sound one time only." if @sound_enabled
 
         @sound_enabled = true
         record(Build.enable_sound)
@@ -48,7 +48,7 @@ module RubyGBA
       #   beep 880
       #   beep 440, duty: :quarter, decay: :slow
       def beep(tone, duty: nil, decay: nil, volume: nil)
-        raise ArgumentError, "call enable_sound before beep" unless @sound_enabled
+        raise ArgumentError, "Sound is off. Call enable_sound before beep." unless @sound_enabled
 
         record(Build.beep(tone, duty: duty, decay: decay, volume: volume))
       end
@@ -69,7 +69,7 @@ module RubyGBA
       #   noise :hat
       #   noise pitch: :low, decay: :slow, volume: 15
       def noise(preset = nil, pitch: nil, decay: nil, volume: nil, metallic: nil)
-        raise ArgumentError, "call enable_sound before noise" unless @sound_enabled
+        raise ArgumentError, "Sound is off. Call enable_sound before noise." unless @sound_enabled
 
         record(Build.noise(preset, pitch: pitch, decay: decay, volume: volume, metallic: metallic))
       end
@@ -86,7 +86,7 @@ module RubyGBA
       #   wave :triangle, :C4
       #   wave :sine, 440, volume: :half
       def wave(shape, pitch, volume: :full)
-        raise ArgumentError, "call enable_sound before wave" unless @sound_enabled
+        raise ArgumentError, "Sound is off. Call enable_sound before wave." unless @sound_enabled
 
         record(Build.wave(shape: shape, frequency: note_frequency(pitch), volume: volume))
       end
@@ -103,15 +103,15 @@ module RubyGBA
         case pitch
         when Symbol
           RubyGBA::Music::NOTE_FREQUENCIES.fetch(pitch) do
-            raise ArgumentError, "unknown note :#{pitch}. " \
-              "Available: #{RubyGBA::Music::NOTE_FREQUENCIES.keys.first(12).join(', ')}, ..."
+            raise ArgumentError, "The note :#{pitch} is not known. " \
+              "Available notes: #{RubyGBA::Music::NOTE_FREQUENCIES.keys.first(12).join(', ')}, ..."
           end
         when Integer
-          raise ArgumentError, "frequency must be positive (got #{pitch})" unless pitch.positive?
+          raise ArgumentError, "The frequency must be positive. You gave #{pitch}." unless pitch.positive?
 
           pitch
         else
-          raise ArgumentError, "wave pitch must be a note name (:C4) or a frequency (440), got #{pitch.class}"
+          raise ArgumentError, "The wave pitch must be a note name (:C4) or a frequency (440). You gave #{pitch.class}."
         end
       end
     end

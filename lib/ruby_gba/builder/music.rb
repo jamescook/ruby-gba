@@ -25,7 +25,7 @@ module RubyGBA
       #     rest :quarter
       #   end
       def song(name, &block)
-        raise ArgumentError, "song :#{name} already defined" if @songs.key?(name)
+        raise ArgumentError, "The song :#{name} is already defined. Use a different name." if @songs.key?(name)
 
         # Fully qualified: RubyGBA::Music is the note/tempo DSL the block is written
         # in — a bare `Music` here would mean this Builder::Music concern instead.
@@ -48,9 +48,9 @@ module RubyGBA
       # @example
       #   play_song :gameplay
       def play_song(name)
-        raise ArgumentError, "call enable_sound before play_song" unless @sound_enabled
+        raise ArgumentError, "Sound is off. Call enable_sound before play_song." unless @sound_enabled
         unless @songs.key?(name)
-          raise ArgumentError, "unknown song :#{name}. Define it with `song :#{name} do ... end`"
+          raise ArgumentError, "The song :#{name} is not defined. Define it with `song :#{name} do ... end`."
         end
 
         record(Build.play_song(name))

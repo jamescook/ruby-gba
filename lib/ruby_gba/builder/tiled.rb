@@ -92,18 +92,19 @@ module RubyGBA
         unless unknown.empty?
           raise ArgumentError,
                 "tiles :#{name}: solid #{unknown.map(&:inspect).join(', ')} " \
-                "#{unknown.one? ? 'is' : 'are'} not in the tileset (its tiles are #{char_map.keys.map(&:inspect).join(', ')})"
+                "#{unknown.one? ? 'is' : 'are'} not in the tileset. Mark as solid only its tiles: " \
+                "#{char_map.keys.map(&:inspect).join(', ')}."
         end
 
         sizes = char_map.map do |ch, img|
           @images[img] || raise(ArgumentError,
-                                 "tiles :#{name}: tile #{ch.inspect} => :#{img} isn't a defined image — " \
-                                 "define it first with `image :#{img}, ...`")
+                                 "tiles :#{name}: tile #{ch.inspect} => :#{img} is not a defined image. " \
+                                 "Define it first with `image :#{img}, ...`.")
         end
         unless sizes.uniq.size == 1
           raise ArgumentError,
-                "tiles :#{name} tiles must all be the same size (they form a uniform grid), " \
-                "got #{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}"
+                "tiles :#{name}: all tiles must be the same size. They form a uniform grid. " \
+                "These sizes are different: #{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}."
         end
 
         # Number the tiles 1, 2, 3… in the order they're listed, so this same tileset
@@ -143,8 +144,8 @@ module RubyGBA
       # @return [Background] a handle: scroll_by / scroll_to
       def background(name, tiles:, map: nil, from: nil)
         set = @tilesets[tiles] || raise(ArgumentError,
-                                        "background :#{name}: no tileset named :#{tiles} — " \
-                                        "define one first with `tiles :#{tiles}, ...`")
+                                        "background :#{name}: there is no tileset named :#{tiles}. " \
+                                        "Define one first with `tiles :#{tiles}, ...`.")
 
         img_rows, tile_names = background_image_grid(name, tiles, set, map: map, from: from)
 
@@ -213,8 +214,8 @@ module RubyGBA
         unless unknown.empty?
           raise ArgumentError,
                 "tiles :#{name}: solid #{unknown.map(&:inspect).join(', ')} " \
-                "#{unknown.one? ? 'is' : 'are'} not a tile number in the sheet " \
-                "(it holds tiles #{by_number.keys.min}..#{by_number.keys.max})"
+                "#{unknown.one? ? 'is' : 'are'} not a tile number in the sheet. " \
+                "The sheet holds tiles #{by_number.keys.min}..#{by_number.keys.max}."
         end
 
         @tilesets[name] = { chars: {}, by_number: by_number, tile_w: tile_w, tile_h: tile_h,
@@ -244,8 +245,9 @@ module RubyGBA
         chars = set[:chars]
         if chars.empty?
           raise ArgumentError,
-                "background :#{name}: tileset :#{tiles} was imported as numbered tiles (it has no characters), " \
-                "so it can't be drawn with a character map: — author the map as a CSV of tile numbers and pass from: instead"
+                "background :#{name}: tileset :#{tiles} was imported as numbered tiles, so it has no characters. " \
+                "A character map: cannot select its tiles. " \
+                "Write the map as a CSV of tile numbers and pass it with from: instead."
         end
 
         img_rows = background_rows(name, map).map do |row|
@@ -253,8 +255,8 @@ module RubyGBA
             next nil if ch == " " # a blank cell — leave the background showing through
 
             chars[ch] || raise(ArgumentError,
-                               "background :#{name}: character #{ch.inspect} isn't in tileset " \
-                               ":#{tiles} (its tiles are #{chars.keys.map(&:inspect).join(', ')})")
+                               "background :#{name}: character #{ch.inspect} is not in tileset " \
+                               ":#{tiles}. Its tiles are #{chars.keys.map(&:inspect).join(', ')}.")
           end
         end
         [img_rows, chars.values.uniq]
@@ -272,8 +274,8 @@ module RubyGBA
 
             by_number[n] || raise(ArgumentError,
                                   "background :#{name}: the map uses tile number #{n}, but tileset :#{tiles} " \
-                                  "only has tiles #{by_number.keys.min}..#{by_number.keys.max} — " \
-                                  "is this CSV from a different tile sheet?")
+                                  "has only tiles #{by_number.keys.min}..#{by_number.keys.max}. " \
+                                  "Make sure this CSV is from the same tile sheet.")
           end
         end
         [img_rows, by_number.keys.sort.map { |k| by_number[k] }.uniq]
@@ -290,8 +292,8 @@ module RubyGBA
           line.split(",").map(&:strip).reject(&:empty?).map do |field|
             unless field.match?(/\A\d+\z/)
               raise ArgumentError,
-                    "background :#{name}: the tilemap should be a grid of numbers (a CSV export), " \
-                    "but line #{r + 1} has #{field.inspect}"
+                    "background :#{name}: the tilemap must be a grid of numbers (a CSV export), " \
+                    "but line #{r + 1} has #{field.inspect}."
             end
             field.to_i & 0x1FFFFFFF # drop a map editor's tile-flip flags (the top 3 bits of the number)
           end
@@ -301,8 +303,8 @@ module RubyGBA
         widths = rows.map(&:length).uniq
         unless widths.size == 1
           raise ArgumentError,
-                "background :#{name}: the tilemap has ragged rows (#{widths.sort.join(', ')} cells wide) — " \
-                "every row must be the same length, since a map is a rectangle"
+                "background :#{name}: the tilemap has rows of different widths (#{widths.sort.join(', ')} cells). " \
+                "Every row must be the same length, because a map is a rectangle."
         end
         rows
       end
@@ -363,8 +365,8 @@ module RubyGBA
         widths = rows.map(&:length).uniq
         unless widths.size == 1
           raise ArgumentError,
-                "background :#{name} has ragged rows (#{widths.sort.join(', ')} characters wide) — " \
-                "every row must be the same length, since a map is a rectangle"
+                "background :#{name} has rows of different widths (#{widths.sort.join(', ')} characters). " \
+                "Every row must be the same length, because a map is a rectangle."
         end
         rows
       end
