@@ -31,11 +31,17 @@ module RubyGBA
             # whole-program budget and hide it.
             return per_scene(model, program) if model.mixed?(program)
 
-            steady = model.steady_cost(program)
             budget = model.budget_for(program)
+            buffered = model.buffered?(program)
+            # Tearing is a drawing-only risk — only drawing races the brief vblank
+            # window; logic and sound run through the visible frame and can't tear. A
+            # double-buffered game can't tear at all, so its risk is the whole frame's
+            # recurring work (drawing + logic + sound) against the 60fps budget.
+            mixer = model.mixer_verdict(program)&.fetch(:cost) || 0
+            steady = buffered ? model.steady_cost(program) + mixer : model.steady_drawing_cost(program)
             return [] if steady <= budget
 
-            message = model.buffered?(program) ? buffered_message(steady, budget) : message(steady, budget)
+            message = buffered ? buffered_message(steady, budget) : message(steady, budget)
             [Finding.new(check: NAME, severity: :warning, message: message, fix: nil)]
           end
 
