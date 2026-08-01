@@ -19,11 +19,12 @@ module RubyGBA
       # @param per_second [Integer] how many times a second it ticks (a positive whole number)
       # @return [Timer]
       def timer(name, per_second:)
-        raise ArgumentError, "a timer needs a name (a Symbol), got #{name.inspect}" unless name.is_a?(Symbol)
+        raise ArgumentError, "A timer name must be a Symbol. Got #{name.inspect}. Use a name like :beat." unless name.is_a?(Symbol)
         unless per_second.is_a?(Integer) && per_second.positive?
           raise ArgumentError,
-                "timer :#{name} needs per_second to be a positive whole number (ticks a second), got " \
-                "#{per_second.inspect}. For slower or fractional timing, use `every`/`after` by frames or seconds."
+                "timer :#{name} needs per_second to be a positive whole number of ticks a second. " \
+                "Got #{per_second.inspect}. " \
+                "For slower or fractional timing, use `every` or `after` by frames or seconds."
         end
 
         # The IR speaks in Hz (overflows per second) — the same number, named for what it

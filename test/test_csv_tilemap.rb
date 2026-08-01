@@ -83,7 +83,7 @@ class TestCsvTilemap < Minitest::Test
 
   def test_a_ragged_csv_is_a_friendly_error
     err = assert_raises(ArgumentError) { checker_screen("1,2\n1\n") }
-    assert_match(/ragged rows/, err.message)
+    assert_match(/same length/, err.message)
   end
 
   def test_a_non_numeric_cell_is_a_friendly_error

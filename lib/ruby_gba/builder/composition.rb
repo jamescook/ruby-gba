@@ -71,16 +71,16 @@ module RubyGBA
       private
 
       def validate_pool!(name, capacity, fields)
-        raise ArgumentError, "a pool needs a name (a Symbol), got #{name.inspect}" unless name.is_a?(Symbol)
+        raise ArgumentError, "A pool needs a name that is a Symbol. Got #{name.inspect}." unless name.is_a?(Symbol)
         unless capacity.is_a?(Integer) && capacity.positive?
-          raise ArgumentError, "pool :#{name} needs a positive capacity, got #{capacity.inspect}"
+          raise ArgumentError, "pool :#{name} needs a positive capacity. Got #{capacity.inspect}."
         end
 
         reserved = fields.keys & POOL_RESERVED_FIELDS
         unless reserved.empty?
           raise ArgumentError,
-                "pool :#{name} can't have a field named :#{reserved.first} — that name is reserved (it would " \
-                "clash with a pool method). Pick another field name."
+                "pool :#{name} cannot have a field named :#{reserved.first}. That name is reserved because a " \
+                "pool method uses it. Pick a different field name."
         end
 
         # Insane capacity: a friendly build error rather than a silent IWRAM overrun.
@@ -89,18 +89,19 @@ module RubyGBA
         return unless bytes > POOL_MAX_BYTES
 
         raise ArgumentError,
-              "pool :#{name} of #{capacity} x #{fields.size} fields needs about #{bytes / 1024}KB of fast RAM, " \
-              "but a pool must stay well under #{POOL_MAX_BYTES / 1024}KB (the GBA has 32KB in total). Use a " \
-              "smaller capacity or fewer fields."
+              "pool :#{name} has #{capacity} instances of #{fields.size} fields each. It needs about " \
+              "#{bytes / 1024}KB of fast RAM. This is too much. A pool must use much less than " \
+              "#{POOL_MAX_BYTES / 1024}KB. The GBA has only 32KB of fast RAM in total. Use a smaller " \
+              "capacity or fewer fields."
       end
 
       def validate_on_full!(name, policy)
         return if POOL_FULL_POLICIES.include?(policy)
 
         raise ArgumentError,
-              "pool :#{name} got on_full: #{policy.inspect}, but it must be one of " \
-              "#{POOL_FULL_POLICIES.map(&:inspect).join(', ')} — :drop ignores a spawn when the pool is full, " \
-              ":recycle_oldest reuses the longest-lived instance so a new one always appears."
+              "pool :#{name} got on_full: #{policy.inspect}. on_full must be one of " \
+              "#{POOL_FULL_POLICIES.map(&:inspect).join(', ')}. :drop ignores a spawn when the pool is full. " \
+              ":recycle_oldest reuses the longest-lived instance, so a new one always appears."
       end
 
       # Validate a spriteful pool and return the collision box its image gives every
@@ -109,17 +110,20 @@ module RubyGBA
       def spriteful_hitbox!(name, image, fields)
         unless @screen_mode == :tiled
           raise ArgumentError,
-                "pool :#{name} has an image, so its instances are hardware sprites — declare it under a " \
-                "`screen :tiled` (or drop image: and draw the pool yourself in each on a bitmap screen)."
+                "pool :#{name} has an image, so its instances are hardware sprites. Hardware sprites need a " \
+                "`screen :tiled`. Declare the pool under one. Or remove image: and draw the pool yourself in " \
+                "each on a bitmap screen."
         end
         missing = %i[x y] - fields.keys
         unless missing.empty?
           raise ArgumentError,
-                "a spriteful pool needs x: and y: fields (its sprite's position) — pool :#{name} is missing " \
-                "#{missing.map { |f| "#{f}:" }.join(' and ')}."
+                "A spriteful pool needs x: and y: fields. They set the sprite position. pool :#{name} is " \
+                "missing #{missing.map { |f| "#{f}:" }.join(' and ')}."
         end
         size = @images[image] or
-          raise ArgumentError, "pool :#{name} draws image :#{image}, but no `image :#{image}` is defined yet."
+          raise ArgumentError,
+                "pool :#{name} draws image :#{image}, but no `image :#{image}` is defined yet. Define the " \
+                "image before the pool."
 
         collision_box(image, [image], *size, nil)
       end

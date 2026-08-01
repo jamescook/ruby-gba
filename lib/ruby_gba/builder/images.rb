@@ -153,7 +153,7 @@ module RubyGBA
       def sprite(name, at:, facing: nil, frames: nil, frames_from: nil, tile: nil, transparent: false,
                  rate: nil, shown: true, hitbox: nil)
         if frames_from
-          raise ArgumentError, "sprite :#{name} takes frames: OR frames_from:, not both — both supply the frames" if frames
+          raise ArgumentError, "sprite :#{name} has both frames: and frames_from:. They both supply the frames. Use only one." if frames
 
           frames = import_frames(name, frames_from, tile, transparent)
         end
@@ -280,8 +280,8 @@ module RubyGBA
         when Array then explicit_hitbox(name, hitbox)
         else
           raise ArgumentError,
-                "sprite :#{name} hitbox: must be :full, a number of pixels to shrink by, or [x, y, w, h] — " \
-                "got #{hitbox.inspect}"
+                "sprite :#{name} hitbox: must be :full, a number of pixels to shrink each side, or [x, y, w, h]. " \
+                "Got #{hitbox.inspect}."
         end
       end
 
@@ -300,8 +300,8 @@ module RubyGBA
       def inset_box(name, width, height, by)
         if by.negative? || (2 * by) >= width || (2 * by) >= height
           raise ArgumentError,
-                "sprite :#{name} hitbox: #{by} shrinks a #{width}x#{height} sprite past nothing — " \
-                "use a smaller inset (under #{[width, height].min / 2})"
+                "sprite :#{name} hitbox: #{by} is too large. It shrinks a #{width}x#{height} sprite to nothing. " \
+                "Use a smaller inset, under #{[width, height].min / 2}."
         end
         [by, by, width - (2 * by), height - (2 * by)]
       end
@@ -312,7 +312,7 @@ module RubyGBA
         return box if ok
 
         raise ArgumentError,
-              "sprite :#{name} hitbox: must be [x, y, w, h] — x/y at or past 0, w/h above 0 — got #{box.inspect}"
+              "sprite :#{name} hitbox: must be [x, y, w, h]. x and y must be 0 or more. w and h must be more than 0. Got #{box.inspect}."
       end
 
       # Work out a sprite's poses and size. An animation (+frames+) is a list of
@@ -327,7 +327,7 @@ module RubyGBA
         end
         unless facing
           width, height = @images[name] || raise(ArgumentError,
-                "sprite :#{name} needs an image named :#{name} — define it first with `image :#{name}, ...`")
+                "sprite :#{name} needs an image named :#{name}. Define the image first with `image :#{name}, ...`.")
           return [nil, nil, width, height]
         end
 
@@ -341,12 +341,12 @@ module RubyGBA
       def same_size_images!(name, kind, images)
         sizes = images.map do |img|
           @images[img] || raise(ArgumentError,
-                "sprite :#{name} #{kind} :#{img} is not defined — define it first with `image :#{img}, ...`")
+                "sprite :#{name} #{kind} :#{img} is not defined. Define the image first with `image :#{img}, ...`.")
         end
         unless sizes.uniq.size == 1
           raise ArgumentError,
-                "sprite :#{name} #{kind}s must all be the same size, " \
-                "got #{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}"
+                "sprite :#{name} #{kind}s must all be the same size. " \
+                "Got #{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}."
         end
         [images, *sizes.first]
       end
@@ -359,18 +359,18 @@ module RubyGBA
         if facing && frames
           drove = frames_from ? "frames_from:" : "frames:"
           raise ArgumentError,
-                "sprite :#{name} takes facing: OR #{drove}, not both — they both drive the sprite's pose"
+                "sprite :#{name} has both facing: and #{drove}. They both set the sprite's pose. Use only one."
         end
         return unless frames
 
-        source = frames_from ? "frames_from: needs a sheet of at least two frames" : "frames: needs a list of at least two images to cycle, e.g. frames: [:step1, :step2]"
+        source = frames_from ? "frames_from: needs a sheet of at least two frames" : "frames: needs a list of at least two images to cycle, for example frames: [:step1, :step2]"
         unless frames.is_a?(Array) && frames.length >= 2
           raise ArgumentError, "sprite :#{name} #{source}"
         end
         return if rate.is_a?(Integer) && rate.positive?
 
         raise ArgumentError,
-              "sprite :#{name} needs a positive rate: (how many frames each picture is shown), got #{rate.inspect}"
+              "sprite :#{name} needs a positive rate: (how many frames each picture is shown). Got #{rate.inspect}."
       end
 
       # Import a sprite sheet into animation frames: slice the file into cells of the
@@ -409,7 +409,7 @@ module RubyGBA
         expected = width * height
         unless data.length == expected
           raise ArgumentError,
-                "image :#{name} is #{width}x#{height}, so it needs #{expected} pixels, but got #{data.length}"
+                "image :#{name} is #{width}x#{height}, so it needs #{expected} pixels. Got #{data.length}."
         end
 
         pixels = data.map { |c| c == transparent ? transparent : Color.resolve(c) }.pack("v*")
@@ -422,18 +422,18 @@ module RubyGBA
       # from its shape, map each char to a color (or transparency), and pack it.
       def define_ascii_image(name, char_map)
         rows = yield.to_s.each_line.map(&:chomp).reject(&:empty?)
-        raise ArgumentError, "image :#{name} has no art" if rows.empty?
+        raise ArgumentError, "image :#{name} has no art. Add art rows to the block." if rows.empty?
 
         widths = rows.map(&:length).uniq
         unless widths.size == 1
           raise ArgumentError,
-                "image :#{name} has ragged rows (#{widths.sort.join(', ')} wide) — every row must be the same length"
+                "image :#{name} has rows of different lengths (#{widths.sort.join(', ')} wide). Every row must be the same length."
         end
 
         transparent = false
         colors = rows.flat_map do |row|
           row.each_char.map do |ch|
-            spec = char_map.fetch(ch) { raise ArgumentError, "image :#{name}: no color mapped for '#{ch}'" }
+            spec = char_map.fetch(ch) { raise ArgumentError, "image :#{name}: the character '#{ch}' has no color. Give '#{ch}' a color in the map." }
             if spec == :transparent
               transparent = true
               TRANSPARENT_PIXEL
@@ -483,7 +483,7 @@ module RubyGBA
       def positive_dims!(name, width, height)
         return if width.is_a?(Integer) && width.positive? && height.is_a?(Integer) && height.positive?
 
-        raise ArgumentError, "image :#{name} needs positive width and height (got #{width}x#{height})"
+        raise ArgumentError, "image :#{name} needs a width and height above 0. Got #{width}x#{height}."
       end
     end
   end

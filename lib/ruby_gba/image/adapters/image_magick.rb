@@ -45,7 +45,7 @@ module RubyGBA
         def dimensions(path)
           out, err, status = Open3.capture3(binary, path, "-format", "%w %h", "info:")
           unless status.success?
-            raise Error, "ImageMagick could not read #{path.inspect}: #{err.strip}"
+            raise Error, "ImageMagick cannot read #{path.inspect}. #{err.strip}"
           end
 
           out.split.map(&:to_i)
@@ -81,7 +81,7 @@ module RubyGBA
                   "-depth", "8", "#{format}:-"]
           out, err, status = Open3.capture3(*args, binmode: true)
           unless status.success?
-            raise Error, "ImageMagick could not convert #{path.inspect}: #{err.strip}"
+            raise Error, "ImageMagick cannot convert #{path.inspect}. #{err.strip}"
           end
 
           out
@@ -97,9 +97,10 @@ module RubyGBA
 
         def unavailable_error
           BackendUnavailable.new(
-            "ImageMagick isn't installed, so images can't be imported. Install it " \
-            "and try again — on macOS run `brew install imagemagick`, on " \
-            "Debian/Ubuntu run `sudo apt-get install imagemagick`.",
+            "ImageMagick is not installed, so images cannot be imported. Install " \
+            "ImageMagick, then try the build again. On macOS, run " \
+            "`brew install imagemagick`. On Debian or Ubuntu, run " \
+            "`sudo apt-get install imagemagick`.",
           )
         end
       end

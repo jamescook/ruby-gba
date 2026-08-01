@@ -50,13 +50,15 @@ module RubyGBA
         when Integer
           # a raw REG_DISPCNT value — passed through untouched
         else
-          raise ArgumentError, "expected Symbol or Integer, got #{mode.class}"
+          raise ArgumentError,
+                "screen needs a Symbol (a name like :bitmap) or an Integer (a raw register value). " \
+                "Got #{mode.class}."
         end
 
         if tear_free && mode != :bitmap
           raise ArgumentError,
-                "tear_free: true is only for `screen :bitmap` — it turns on the tear-proof " \
-                "double-buffered screen; #{mode.inspect} doesn't support it"
+                "tear_free: true works only with `screen :bitmap`. It enables the tear-proof " \
+                "double-buffered screen. #{mode.inspect} does not support it."
         end
 
         # Remember the mode by name so `sprite` knows which kind to make (a bitmap
@@ -145,8 +147,8 @@ module RubyGBA
       private
 
       def validate_coords!(x, y)
-        raise ArgumentError, "x=#{x} out of range (0-#{SCREEN_WIDTH - 1})" unless (0...SCREEN_WIDTH).cover?(x)
-        raise ArgumentError, "y=#{y} out of range (0-#{SCREEN_HEIGHT - 1})" unless (0...SCREEN_HEIGHT).cover?(y)
+        raise ArgumentError, "x=#{x} is outside the screen. Use an x from 0 to #{SCREEN_WIDTH - 1}." unless (0...SCREEN_WIDTH).cover?(x)
+        raise ArgumentError, "y=#{y} is outside the screen. Use a y from 0 to #{SCREEN_HEIGHT - 1}." unless (0...SCREEN_HEIGHT).cover?(y)
       end
     end
   end

@@ -54,7 +54,7 @@ module RubyGBA
       def check_button!(button)
         return if IR::Buttons.known?(button)
 
-        raise ArgumentError, "unknown button: #{button}"
+        raise ArgumentError, "#{button} is not a known button. Use one of these: :a :b :select :start :right :left :up :down :r :l."
       end
 
       # held/pressed hand back a Condition and take no block. A block here means a
@@ -62,8 +62,8 @@ module RubyGBA
       # ignored — so name the fix instead of losing the code.
       def reject_block!(verb, button)
         raise ArgumentError,
-              "#{verb}(:#{button}) has no block form — write #{verb}(:#{button}).then { ... } " \
-              "(or the block-taking if_#{verb} :#{button} do ... end)"
+              "#{verb}(:#{button}) takes no block. To run code, write #{verb}(:#{button}).then { ... }. " \
+              "Or use the block form: if_#{verb} :#{button} do ... end."
       end
     end
   end

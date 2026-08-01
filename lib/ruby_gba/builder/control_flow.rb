@@ -28,7 +28,7 @@ module RubyGBA
       #   draw_text "HELLO"      # ← never recorded
       #   game_loop { ... }      # ← never recorded
       def debug_halt
-        warn "[ruby-gba] debug_halt — ROM truncated here. Remove debug_halt when done."
+        warn "[ruby-gba] debug_halt stops the build here. The code after debug_halt is not in the ROM. Remove debug_halt when you are done."
         record(Build.halt) # the lowered ROM stops (branches to self) at this point
         @debug_halted = true
         throw :debug_halt
@@ -228,13 +228,13 @@ module RubyGBA
       def timer_counter!(verb, n, unit, block)
         raise ArgumentError, "#{verb} needs a block: #{verb}(n) { ... }" unless block
         unless %i[frames seconds].include?(unit)
-          raise ArgumentError, "#{verb}'s unit is :frames or :seconds, got #{unit.inspect}"
+          raise ArgumentError, "#{verb}'s unit must be :frames or :seconds. You gave #{unit.inspect}."
         end
         # Frames are whole; seconds may be fractional (half a second is fine), but
         # either way the interval must come out to at least one frame.
         valid = unit == :frames ? n.is_a?(Integer) : n.is_a?(Numeric)
         unless valid && n.positive? && to_frames(n, unit).positive?
-          raise ArgumentError, "#{verb} needs a positive number of #{unit}, got #{n.inspect}"
+          raise ArgumentError, "#{verb} needs a positive number of #{unit}. You gave #{n.inspect}."
         end
 
         @timer_seq += 1

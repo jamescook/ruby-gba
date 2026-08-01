@@ -120,7 +120,7 @@ module RubyGBA
       # @return [Condition] the yes/no test
       def chance(percent)
         unless percent.is_a?(Integer) && (0..100).cover?(percent)
-          raise ArgumentError, "chance takes a whole percent from 0 to 100, got #{percent.inspect}"
+          raise ArgumentError, "chance needs a whole percent from 0 to 100. You gave #{percent.inspect}."
         end
 
         draw = next_rng_var
@@ -173,20 +173,20 @@ module RubyGBA
       def range_bounds(range)
         unless range.is_a?(Range) && range.begin.is_a?(Integer) && range.end.is_a?(Integer)
           raise ArgumentError,
-                "give roll/rand a range of whole numbers like 0..9 or 0...10, got #{range.inspect}"
+                "roll/rand needs a range of whole numbers, like 0..9 or 0...10. You gave #{range.inspect}."
         end
 
         lo = range.begin
         hi = range.exclude_end? ? range.end - 1 : range.end
         unless in_int32?(lo) && in_int32?(hi)
           raise ArgumentError,
-                "roll/rand's range #{range.inspect} is out of bounds — its ends must fit in a " \
-                "32-bit number (#{IR::Int32::MIN}..#{IR::Int32::MAX})"
+                "The range #{range.inspect} does not fit the console. Each end must fit in a " \
+                "32-bit number (#{IR::Int32::MIN}..#{IR::Int32::MAX})."
         end
 
         width = hi - lo + 1
         unless width.positive?
-          raise ArgumentError, "the range #{range.inspect} is empty — its start must be at or below its end"
+          raise ArgumentError, "The range #{range.inspect} is empty. Its start must be at or below its end."
         end
         if width > MAX_ROLL_SPAN
           raise ArgumentError,

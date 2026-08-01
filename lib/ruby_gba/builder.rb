@@ -355,7 +355,7 @@ module RubyGBA
     # Look up a variable's IWRAM address, raising if not declared.
     def var_address!(name)
       entry = @variables[name]
-      raise ArgumentError, "unknown variable :#{name}. Use `set :#{name}, value` first." unless entry
+      raise ArgumentError, "The variable :#{name} is not defined. Use `set :#{name}, value` first." unless entry
       entry[:address]
     end
 
@@ -399,8 +399,8 @@ module RubyGBA
 
       looked = [dir && File.expand_path(path, dir), File.expand_path(path)].compact.uniq
       raise ArgumentError,
-            "can't find the image #{path.inspect} — looked at #{looked.map(&:inspect).join(' and ')}. " \
-            "Put it next to your script, or pass a full path."
+            "Cannot find the image #{path.inspect}. Looked at #{looked.map(&:inspect).join(' and ')}. " \
+            "Put the image next to your script, or pass a full path."
     end
 
     # The directory of the nearest caller that isn't framework code — i.e. the user's
@@ -419,9 +419,9 @@ module RubyGBA
       when Integer then [tile, tile]
       when Array then tile
       when nil
-        raise ArgumentError, "importing #{name} from an image needs tile: — the size of each cell in pixels"
+        raise ArgumentError, "To import #{name} from an image, give tile:. tile: is the size of each cell in pixels."
       else
-        raise ArgumentError, "tile: must be a number (square) or [width, height], got #{tile.inspect}"
+        raise ArgumentError, "tile: must be a number (square) or [width, height]. You gave #{tile.inspect}."
       end
     end
 
@@ -431,7 +431,7 @@ module RubyGBA
       case where
       when Array then where
       when Integer then [where % cols, where / cols]
-      else raise ArgumentError, "#{label} must be a cell number or [column, row], got #{where.inspect}"
+      else raise ArgumentError, "#{label} must be a cell number or [column, row]. You gave #{where.inspect}."
       end
     end
 

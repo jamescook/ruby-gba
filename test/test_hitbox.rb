@@ -93,7 +93,7 @@ class TestHitbox < Minitest::Test
 
   def test_a_too_big_inset_is_a_friendly_error
     err = assert_raises(ArgumentError) { collided?(100, 103, hitbox: 4) } # 8x8 shrunk by 4 each side = nothing
-    assert_match(/past nothing/, err.message)
+    assert_match(/to nothing/, err.message)
   end
 
   def test_a_malformed_rectangle_is_a_friendly_error

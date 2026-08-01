@@ -26,7 +26,7 @@ module RubyGBA
         lines = []
         errors.each { |e| lines << "ERROR:   #{e}" }
         warnings.each { |w| lines << "WARNING: #{w}" }
-        lines << "OK — no issues found" if ok? && warnings.empty?
+        lines << "OK. No issues found." if ok? && warnings.empty?
         lines.join("\n")
       end
     end
@@ -66,7 +66,7 @@ module RubyGBA
 
     def check_minimum_size
       if @buf.bytesize < 0xC0
-        @errors << "ROM is only #{@buf.bytesize} bytes — minimum valid size is 192 (0xC0) for header"
+        @errors << "The ROM is only #{@buf.bytesize} bytes. The minimum valid size is 192 bytes (0xC0) for the header. Make the ROM 192 bytes or larger."
       end
     end
 
@@ -74,7 +74,7 @@ module RubyGBA
       return if @buf.bytesize <= HEADER_FIXED
       val = @buf.getbyte(HEADER_FIXED)
       if val != 0x96
-        @errors << "Fixed byte at 0xB2 is 0x#{format('%02X', val)} — must be 0x96 or BIOS/mGBA will reject the ROM"
+        @errors << "The fixed byte at 0xB2 is 0x#{format('%02X', val)}. This byte must be 0x96. If this byte is not 0x96, the BIOS and mGBA reject the ROM."
       end
     end
 
@@ -85,11 +85,11 @@ module RubyGBA
       return if actual == HEADER_LOGO_BYTES
 
       if actual.each_byte.all?(&:zero?)
-        @errors << "Nintendo logo (0x04..0x9F) is all zeros — the BIOS validates it on boot, " \
-                   "so the ROM won't run on real hardware or accuracy-focused emulators (mGBA skips the check)"
+        @errors << "The Nintendo logo (0x04..0x9F) is all zeros. The BIOS checks this logo at boot. " \
+                   "If the logo is wrong, the ROM does not run on real hardware or on accurate emulators. mGBA does not check the logo."
       else
-        @errors << "Nintendo logo (0x04..0x9F) doesn't match the required bytes — " \
-                   "the BIOS will reject the ROM on real hardware"
+        @errors << "The Nintendo logo (0x04..0x9F) does not match the required bytes. " \
+                   "The BIOS rejects the ROM on real hardware."
       end
     end
 
@@ -99,7 +99,7 @@ module RubyGBA
       sum = (HEADER_TITLE..0xBC).sum { |i| @buf.getbyte(i) }
       expected = (-(sum + 0x19)) & 0xFF
       if stored != expected
-        @errors << "Header checksum is 0x#{format('%02X', stored)} — expected 0x#{format('%02X', expected)}. Was finalize! called?"
+        @errors << "The header checksum is 0x#{format('%02X', stored)}. The correct value is 0x#{format('%02X', expected)}. Make sure finalize! is called."
       end
     end
 
@@ -109,7 +109,7 @@ module RubyGBA
       cond = (word >> 24) & 0xFF
 
       unless cond == 0xEA
-        @errors << "Entry point at 0x00 is not an unconditional branch (got 0x#{format('%08X', word)}). Missing finalize!?"
+        @errors << "The entry point at 0x00 is not an unconditional branch. The value there is 0x#{format('%08X', word)}. Make sure finalize! is called."
         return
       end
 
@@ -118,9 +118,9 @@ module RubyGBA
       target = (offset + 2) * 4
 
       if target < 0xC0
-        @errors << "Entry branch jumps to 0x#{format('%02X', target)} — inside the header (before 0xC0). Code will corrupt header data"
+        @errors << "The entry branch jumps to 0x#{format('%02X', target)}. This address is inside the header (before 0xC0). The code corrupts the header data at this address."
       elsif target >= @buf.bytesize
-        @errors << "Entry branch jumps to 0x#{format('%X', target)} — beyond end of ROM (#{@buf.bytesize} bytes)"
+        @errors << "The entry branch jumps to 0x#{format('%X', target)}. This address is beyond the end of the ROM (#{@buf.bytesize} bytes)."
       end
     end
 
@@ -130,7 +130,7 @@ module RubyGBA
       # Check if there's any non-zero code after the header
       code_region = @buf[0xC0..]
       if code_region.bytes.all?(&:zero?)
-        @warnings << "Code region (0xC0+) is all zeros — ROM has no instructions. Did you forget to add code in the build block?"
+        @warnings << "The code region (0xC0+) is all zeros. The ROM has no instructions. Add code in the build block."
       end
     end
 
@@ -138,7 +138,7 @@ module RubyGBA
       return if @buf.bytesize < HEADER_TITLE + 12
       title = @buf[HEADER_TITLE, 12]
       if title.bytes.all?(&:zero?)
-        @warnings << "Game title is empty — ROM will work but won't be identifiable"
+        @warnings << "The game title is empty. The ROM works, but nothing identifies it by name."
       end
     end
   end

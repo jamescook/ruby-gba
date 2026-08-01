@@ -16,7 +16,7 @@ module RubyGBA
       #
       # @param name [Symbol] function name
       def func(name, &block)
-        raise ArgumentError, "function :#{name} already defined" if @functions.key?(name)
+        raise ArgumentError, "The function :#{name} is already defined. Use a different name for each function." if @functions.key?(name)
 
         @functions[name] = block
       end
@@ -107,7 +107,7 @@ module RubyGBA
       def check_target_defined!(name)
         return if @functions.key?(name)
 
-        raise ArgumentError, "function :#{name} called but never defined"
+        raise ArgumentError, "The function :#{name} is called but never defined. Define it with func :#{name} do ... end, or check the name."
       end
     end
   end

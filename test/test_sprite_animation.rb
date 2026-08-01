@@ -122,7 +122,7 @@ class TestSpriteAnimation < Minitest::Test
         sprite :s, at: [0, 0], facing: { left: :a, right: :b }, frames: %i[a b], rate: 4
       end
     end
-    assert_match(/not both/, err.message)
+    assert_match(/Use only one/, err.message)
   end
 
   def test_an_undefined_animation_frame_is_a_friendly_error
