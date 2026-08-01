@@ -30,12 +30,12 @@ module RubyGBA
           SPRITE_OPS = %i[save_region restore_region].freeze
 
           PROBLEM =
-            "This game moves a sprite but also clears the whole screen every frame, and the two work against " \
-            "each other. A sprite already redraws itself each frame and puts back the pixels underneath it as " \
-            "it moves — that's how it leaves no trail without a redraw. Clearing the screen every frame wipes " \
-            "the field the sprite just restored, and the sprite with it, so it flickers or disappears (and the " \
-            "tearing a sprite avoids comes back). Paint the field ONCE, before the game loop, and let the " \
-            "sprite handle the rest — drop the clear from inside the loop."
+            "This game moves a sprite, but it also clears the whole screen every frame. The two work against " \
+            "each other. A sprite draws itself each frame and puts back the pixels under it as it moves. This " \
+            "is how it leaves no trail. When you clear the screen every frame, you wipe the field the sprite " \
+            "just put back, and the sprite with it. So the sprite flickers or disappears. To fix this, draw " \
+            "the field one time, before the game loop. Let the sprite do the rest, and remove the clear from " \
+            "inside the loop."
 
           def detect(program)
             funcs = FrameReach.index_funcs(program)

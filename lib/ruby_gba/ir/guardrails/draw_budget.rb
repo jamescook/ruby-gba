@@ -55,31 +55,29 @@ module RubyGBA
                      else
                        message(scene[:steady_cost], scene[:budget])
                      end
-              Finding.new(check: NAME, severity: :warning, message: "Scene :#{scene[:name]} — #{body}", fix: nil)
+              Finding.new(check: NAME, severity: :warning, message: "Scene :#{scene[:name]}. #{body}", fix: nil)
             end
           end
 
           # Single-buffered: over budget means the drawing spills past the safe
           # window and the picture tears.
           def message(steady, budget)
-            "This game looks like it draws a lot every frame (roughly #{format('%.0f', steady)} scanlines vs a " \
-              "budget of about #{budget}) — more than the console can finish in the brief moment it has to " \
-              "change the screen, so the picture may tear or flicker, and worse as things grow. The usual " \
-              "cause is clearing and repainting the whole screen each frame: instead, draw the parts that " \
-              "don't change once, and each frame repaint only what actually moved. Or switch on double " \
-              "buffering, which can't tear. Call `rom.explain` on the built ROM to see where the per-frame " \
-              "drawing goes."
+            "This game draws a lot every frame: about #{format('%.0f', steady)} scanlines, against a budget of " \
+              "about #{budget}. This is more than the console can finish in the short moment it has to change " \
+              "the screen. So the picture can tear or flicker, and it gets worse as things grow. The usual " \
+              "cause is a full clear and draw of the whole screen each frame. Instead, draw the fixed parts " \
+              "one time. Then each frame, draw only what moved. Or enable double buffering, which cannot tear. " \
+              "To see where the per-frame drawing goes, call `rom.explain` on the built ROM."
           end
 
           # Double-buffered: it can't tear, but drawing this much every frame is
           # more than fits in a frame, so the frame rate drops below 60fps.
           def buffered_message(steady, budget)
-            "This game draws a lot every frame (roughly #{format('%.0f', steady)} scanlines vs a whole-frame " \
-              "budget of about #{budget}). It won't tear — double buffering prevents that — but it's more than " \
-              "fits in one " \
-              "frame, so the game will run slower than 60 frames a second and feel choppy. Draw less each " \
-              "frame: repaint only what actually moved rather than redrawing the whole screen. Call " \
-              "`rom.explain` on the built ROM to see where the per-frame drawing goes."
+            "This game draws a lot every frame: about #{format('%.0f', steady)} scanlines, against a whole-frame " \
+              "budget of about #{budget}. It does not tear, because double buffering prevents that. But it is " \
+              "more than fits in one frame. So the game runs slower than 60 frames a second, and the motion " \
+              "looks choppy. To fix this, draw less each frame: draw only what moved, not the whole screen. " \
+              "To see where the per-frame drawing goes, call `rom.explain` on the built ROM."
           end
         end
       end

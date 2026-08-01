@@ -60,11 +60,11 @@ module RubyGBA
           end
 
           def message(name)
-            "This game blits the image :#{name} by hand, but :#{name} is also a sprite — and a sprite draws " \
-              "itself every frame, remembering the pixels underneath so it leaves no trail. Blitting it " \
-              "yourself stamps a second copy that never gets erased, so it smears a trail as it moves. Move " \
-              "the sprite instead (change its x/y) and drop the `blit :#{name}`; or, if you wanted a plain " \
-              "stamp that doesn't move, give it a different image name so it isn't the sprite's."
+            "This game blits the image :#{name} by hand. But :#{name} is also a sprite. A sprite draws " \
+              "itself every frame. It remembers the pixels under it, so it leaves no trail. When you also " \
+              "blit it by hand, you stamp a second copy that nothing erases. So it smears a trail as it " \
+              "moves. To fix this, move the sprite (change its x/y) and remove the `blit :#{name}`. Or, for " \
+              "a plain stamp that does not move, give it a different image name, so it is not the sprite's image."
           end
         end
       end

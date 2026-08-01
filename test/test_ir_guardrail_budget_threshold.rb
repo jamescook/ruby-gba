@@ -37,7 +37,7 @@ class TestBudgetThresholdGuardrail < Minitest::Test
     assert_equal 1, findings.length
     assert findings.first.warning?, "the threshold is advisory, not a hard error"
     assert_match(/swarm/, findings.first.message)          # names the list to cap
-    assert_match(/over the frame budget/, findings.first.message)
+    assert_match(/over budget/, findings.first.message)
   end
 
   # The analysis itself: the tip-over count is within the cap (so it's reachable).

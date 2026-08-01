@@ -22,11 +22,11 @@ module RubyGBA
           NAME = :vblank_sync
 
           PROBLEM =
-            "This game loop never waits for the screen to refresh, so it runs " \
-            "thousands of times a second instead of 60 — the usual signs are a game " \
-            "that plays far too fast and a picture that tears or flickers. Add " \
-            "`wait_vblank` (usually the first line inside the loop) so each pass " \
-            "runs in step with the display."
+            "This game loop never waits for the screen to refresh. So it runs " \
+            "thousands of times a second, not 60. The usual signs are a game that " \
+            "plays too fast and a picture that tears or flickers. Add `wait_vblank` " \
+            "as the first line inside the loop. Then each pass runs in step with " \
+            "the display."
 
           # Warn for every loop from which no frame sync is reachable. Reachability
           # — not a direct-child check — because a game may sync inside a scene it

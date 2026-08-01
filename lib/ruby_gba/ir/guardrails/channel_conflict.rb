@@ -34,11 +34,10 @@ module RubyGBA
           private
 
           def message(name)
-            "The song :#{name} plays in two parts, and its second part uses the same sound voice your " \
-              "beeps play on — the console has only so many voices to go around. While :#{name} is playing, " \
-              "a beep and the song's lower part will keep interrupting each other. If you need beeps and this " \
-              "music at the same time, make :#{name} a single-part song (just the melody), or save the beeps " \
-              "for when it isn't playing."
+            "The song :#{name} plays in two parts. Its second part uses the same sound voice as your beeps. " \
+              "The console has only a few voices. While :#{name} plays, a beep and the song's lower part " \
+              "interrupt each other. To use beeps and this music together, make :#{name} a one-part song, " \
+              "just the melody. Or play the beeps only while :#{name} does not play."
           end
         end
       end

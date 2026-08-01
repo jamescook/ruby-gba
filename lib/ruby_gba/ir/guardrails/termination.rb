@@ -26,10 +26,10 @@ module RubyGBA
           DEFINITIONS = %i[func define_sound song data bitmap].freeze
 
           PROBLEM =
-            "This program runs off the end of your code — nothing tells the console " \
-            "to stop, so after the last line it keeps executing whatever happens to " \
-            "be in memory next (garbage). End with `halt` to stop, or run a " \
-            "`game_loop` that loops forever."
+            "This program does not stop at the end of your code. Nothing tells the " \
+            "console to stop. So after the last line, it runs whatever is next in " \
+            "memory (garbage). To fix this, end with `halt`. Or run a `game_loop`, " \
+            "which loops forever."
 
           def detect(program)
             funcs = index_funcs(program)
