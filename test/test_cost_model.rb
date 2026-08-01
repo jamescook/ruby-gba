@@ -903,10 +903,10 @@ class TestSoundCost < Minitest::Test
   # A tune long enough that its per-frame note-check chain is heavy on its own is
   # flagged over the music budget; an ordinary short one is not.
   def test_a_long_song_is_over_the_music_budget
-    long = Cost.new.song_verdicts(music_game(300)).first # 6 + 300*3 = 906 > 800
+    long = Cost.new.song_verdicts(music_game(400)).first # ~400 per-frame note-checks, over the 1-scanline music budget
     assert long[:over]
 
-    short = Cost.new.song_verdicts(music_game(50)).first # 6 + 50*3 = 156
+    short = Cost.new.song_verdicts(music_game(50)).first # only ~50, well under
     refute short[:over]
   end
 end

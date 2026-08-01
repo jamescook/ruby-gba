@@ -39,9 +39,12 @@ class TestIRBackendGBA < Minitest::Test
       func(:inc, set(:x, 1)),
     ))
 
-    bl = gba.code[0, 4].unpack1("V")
-    assert_equal 0xEB, bl >> 24, "first instruction should be a BL (call)"
-    assert_equal gba.labels["func_inc"], branch_target(gba.code, 0)
+    # The WAITCNT boot setup (6 instructions = 24 bytes) is emitted first, then the
+    # program, so the forward call's BL lands just past that prologue.
+    call_off = 24
+    bl = gba.code[call_off, 4].unpack1("V")
+    assert_equal 0xEB, bl >> 24, "the forward call lowers to a BL"
+    assert_equal gba.labels["func_inc"], branch_target(gba.code, call_off)
   end
 
   def test_loop_branches_backward_to_its_top
