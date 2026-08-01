@@ -14,6 +14,7 @@ module RubyGBA
         sound_write: 0.0161,
         mix_voice_sample: 0.0840,
         mix_overhead_sample: 0.0283,
+        music_voice: 0.0544,
       }.freeze
     end
   end
