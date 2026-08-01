@@ -190,9 +190,9 @@ module RubyGBA
         end
         if width > MAX_ROLL_SPAN
           raise ArgumentError,
-                "roll/rand can spread across at most #{MAX_ROLL_SPAN} values at once, but " \
-                "#{range.inspect} spans #{width} — for a wider spread, scale up a smaller draw, " \
-                "e.g. rand(0..999) * 1000 + rand(0..999)"
+                "roll/rand can spread across at most #{MAX_ROLL_SPAN} values at once. " \
+                "#{range.inspect} spans #{width}. For a wider spread, multiply a smaller roll, " \
+                "for example rand(0..999) * 1000 + rand(0..999)."
         end
 
         [lo, width]
