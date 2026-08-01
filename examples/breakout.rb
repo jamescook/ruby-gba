@@ -114,6 +114,11 @@ module Breakout
     ball_dx     = var :ball_dx, BALL_SPEED
     ball_dy     = var :ball_dy, -BALL_SPEED  # negative = heading up toward the wall
     score       = var :score, 0
+    # The best score so far, kept in the cartridge's save memory so it survives the
+    # console being turned off. `save_var` is used just like `var`; the framework
+    # loads it at boot and saves it automatically whenever it changes (see the two
+    # game-ending branches in update_ball). No save hardware to touch.
+    high        = save_var :high_score, 0
     lives       = var :lives, START_LIVES
     bricks_left = var :bricks_left, BRICKS.length
     state       = var :state, 0   # 0=title, 1=playing, 2=cleared, 3=game_over
@@ -189,7 +194,10 @@ module Breakout
             end
           end
         end
-        (bricks_left <= 0).then { state.set 2 } # wall cleared — you win
+        (bricks_left <= 0).then do # wall cleared — you win
+          (score > high).then { high.set score } # record a new best (saved automatically)
+          state.set 2
+        end
       end
 
       # Past the bottom edge: the paddle missed. Lose a life and re-serve, or end
@@ -197,7 +205,10 @@ module Breakout
       (ball_y >= SCREEN_H).then do
         lives.sub 1
         beep :lose
-        (lives <= 0).then { state.set 3 }.else { call :serve }
+        (lives <= 0).then do
+          (score > high).then { high.set score } # record a new best (saved automatically)
+          state.set 3
+        end.else { call :serve }
       end
     end
 
@@ -218,10 +229,12 @@ module Breakout
     scene :title do
       clear_screen :black
       draw_text "BREAKOUT", 92, 50, :cyan
+      draw_text "BEST", 92, 70, :gray
+      draw_number :high_score, 128, 70, :white, digits: 3
       every(0.5, :seconds) do
         (blink == 1).then { blink.set 0 }.else { blink.set 1 }
       end
-      (blink == 1).then { draw_text "PRESS START", 76, 90, :gray }
+      (blink == 1).then { draw_text "PRESS START", 76, 96, :gray }
       pressed(:start).then { call :new_game }
     end
 
@@ -251,18 +264,22 @@ module Breakout
     scene :cleared do
       clear_screen :black
       draw_text "YOU WIN!", 88, 50, :green
-      draw_text "SCORE", 84, 78, :gray
-      draw_number score, 132, 78, :white, digits: 3
-      draw_text "PRESS START", 76, 108, :gray
+      draw_text "SCORE", 84, 74, :gray
+      draw_number score, 132, 74, :white, digits: 3
+      draw_text "BEST", 84, 88, :gray
+      draw_number :high_score, 132, 88, :white, digits: 3
+      draw_text "PRESS START", 76, 112, :gray
       pressed(:start).then { state.set 0 }
     end
 
     scene :game_over do
       clear_screen :black
       draw_text "GAME OVER", 84, 50, :red
-      draw_text "SCORE", 84, 78, :gray
-      draw_number score, 132, 78, :white, digits: 3
-      draw_text "PRESS START", 76, 108, :gray
+      draw_text "SCORE", 84, 74, :gray
+      draw_number score, 132, 74, :white, digits: 3
+      draw_text "BEST", 84, 88, :gray
+      draw_number :high_score, 132, 88, :white, digits: 3
+      draw_text "PRESS START", 76, 112, :gray
       pressed(:start).then { state.set 0 }
     end
 

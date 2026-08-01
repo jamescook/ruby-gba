@@ -108,6 +108,11 @@ module Snake
     food_x   = var :food_x, 0
     food_y   = var :food_y, 0
     score    = var :score, 0
+    # The best score ever reached, kept in the cartridge's save memory so it's still
+    # there next time the game is switched on. `save_var` is used exactly like `var`;
+    # the framework loads it at boot and saves it whenever it changes (see the death
+    # handler in step_snake). Nothing here touches save hardware — just a variable.
+    high     = save_var :high_score, 0
     self_hit = var :self_hit, 0 # set when the new head lands on the body
     placed   = var :placed, 0   # set once food has found an empty cell
 
@@ -209,6 +214,9 @@ module Snake
       dead.then do
         set :state, 2
         beep :die
+        # Record a new best. Setting a save_var writes it through to save memory
+        # automatically, so the high score is kept even after the power goes off.
+        (score > high).then { high.set score }
       end.else do
         # The current head is about to become a body segment — repaint it green.
         board.set_cell xs.last, ys.last, :green
@@ -239,6 +247,8 @@ module Snake
     scene :title do
       clear_screen :black
       draw_text "SNAKE", 105, 56, :green
+      draw_text "HIGH", 92, 78, :gray
+      draw_number :high_score, 128, 78, :white, digits: 3
 
       # Flash the prompt on and off twice a second.
       every(0.5, :seconds) { (blink == 1).then { blink.set 0 }.else { blink.set 1 } }
@@ -267,8 +277,10 @@ module Snake
     scene :game_over do
       clear_screen :black
       draw_text "GAME OVER", 93, 52, :red
-      draw_text "SCORE", 84, 80, :gray
-      draw_number score, 132, 80, :white, digits: 3
+      draw_text "SCORE", 84, 76, :gray
+      draw_number score, 132, 76, :white, digits: 3
+      draw_text "HIGH", 84, 90, :gray
+      draw_number :high_score, 132, 90, :white, digits: 3
 
       every(0.5, :seconds) { (blink == 1).then { blink.set 0 }.else { blink.set 1 } }
       (blink == 1).then { draw_text "PRESS START", 87, 110, :gray }

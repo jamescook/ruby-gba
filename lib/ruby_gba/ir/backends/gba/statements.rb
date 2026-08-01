@@ -19,6 +19,8 @@ module RubyGBA
             when :abs then emit_conditional_negate(node[:var], skip_when: :ge)
             when :negate_abs then emit_conditional_negate(node[:var], skip_when: :le)
             when :clamp then emit_clamp(node)
+            when :save_init then emit_save_init(node)
+            when :save_store then emit_save_store(node)
             when :if then emit_if(node)
             when :loop then emit_loop(node)
             when :repeat then emit_repeat(node)
