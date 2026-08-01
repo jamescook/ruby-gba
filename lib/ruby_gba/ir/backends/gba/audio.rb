@@ -62,47 +62,115 @@ module RubyGBA
           # mapping is the console's business and lives here in the lowering.
           MUSIC_CHANNELS = [1, 2].freeze
 
-          # Advance a song by one frame. A per-song counter lives in IWRAM and starts
-          # at 0 (memory there is zero-initialized). First every note whose frame
-          # matches the counter's *current* value triggers — so the note at frame 0,
-          # the downbeat every tune opens on, plays. A layered song has more than one
-          # part, each on its own channel, all read against the same counter so they
-          # stay in lock-step. Then the counter ticks up, and once it reaches the
-          # song's length it wraps to 0 so the tune loops. This unrolls the whole
-          # score into frame comparisons — the same sequencer the legacy emitter
-          # builds, so migrated songs sound identical.
+          # Advance a song by one frame. A shared per-song frame counter lives in IWRAM
+          # (starting at 0, since that memory is zero-initialized), and each voice keeps
+          # its own cursor — an index into that voice's event table. Every frame we look
+          # at only the ONE event each cursor points at: if its frame matches the
+          # counter we write that note's registers and step the cursor forward, else we
+          # do nothing. So the per-frame cost is one check per voice, not one per note in
+          # the whole score — a long tune costs the same as a short one. A layered song
+          # has a cursor per part, each on its own channel, all read against the same
+          # counter so the parts stay in lock-step. When the counter reaches the song's
+          # length it wraps to 0 and every cursor rewinds, so the tune loops. The events
+          # themselves — a frame plus the note's two register values — live in a ROM
+          # table built once at compile time (build_song_tables).
+          #
+          # Registers: r5 holds the frame counter for the whole update; r2/r3/r4 are
+          # scratch for walking one voice's table (base, cursor address, value).
           def emit_play_song(node)
             song = @songs.fetch(node[:name]) do
               raise LoweringError, "play_song for undefined song #{node[:name].inspect}"
             end
             counter = :"_music_frame_#{node[:name]}"
+            cursors = build_song_tables(node[:name], song)
+            r_counter, r_base, r_entry, r_val = 5, 2, 3, 4
 
-            song[:voices].each_with_index do |voice, index|
-              channel = MUSIC_CHANNELS.fetch(index) do
+            load_var(r_counter, counter) # this frame's counter, held across every voice
+
+            cursors.each_with_index do |cursor, index|
+              regs = music_voice_regs(MUSIC_CHANNELS.fetch(index) do
                 raise LoweringError, "song #{node[:name].inspect} has more parts than this console can play"
+              end)
+              skip = gensym
+
+              emit_load_data_address(r_base, :"_music_events_#{node[:name]}_#{index}") # &table
+              load_var(r_entry, cursor)                        # this voice's cursor (an event index)
+              emit(ASM.lsl_imm(r_entry, r_entry, 3))           # * 8 bytes per event
+              emit(ASM.add_reg(r_entry, r_base, r_entry))      # &table[cursor]
+              emit(ASM.ldr(ACC, r_entry))                      # the event's frame (a 32-bit word)
+              emit(ASM.cmp_reg(ACC, r_counter))                # due this frame?
+              emit_branch(:bcond, skip, cond: :ne)             # no — leave the voice alone
+
+              regs[:const].each do |addr, value|               # e.g. channel 1's sweep = 0, written first
+                emit(ASM.load_immediate(r_val, value))
+                emit(ASM.load_immediate(TMP, addr))
+                emit(ASM.store_halfword(r_val, TMP))
               end
-              voice[:events].each do |frame, frequency|
-                skip = gensym
-                load_var(ACC, counter)
-                compare_acc_to(frame)
-                emit_branch(:bcond, skip, cond: :ne) # counter != this note's frame? skip it
-                emit_writes(Sound::Registers.channel_note(channel, frequency: frequency,
-                                                          duty: voice[:duty], volume: voice[:volume]))
-                place_label(skip)
+              [[4, regs[:reg_a]], [6, regs[:reg_b]]].each do |offset, addr| # the two stored values -> registers
+                emit(ASM.add_imm(TMP, r_entry, offset))
+                emit(ASM.load_halfword(r_val, TMP))
+                emit(ASM.load_immediate(TMP, addr))
+                emit(ASM.store_halfword(r_val, TMP))
               end
+              load_var(ACC, cursor)                            # step this voice to its next event
+              emit(ASM.add_imm(ACC, ACC, 1))
+              store_var(ACC, cursor)
+              place_label(skip)
             end
 
-            load_var(ACC, counter)               # counter += 1
-            emit(ASM.add_imm(ACC, ACC, 1))
-            store_var(ACC, counter)
-
-            wrap = gensym                        # loop: if counter >= length, reset to 0
-            load_var(ACC, counter)
-            compare_acc_to(song[:total_frames])
-            emit_branch(:bcond, wrap, cond: :lt)
-            emit(ASM.load_immediate(ACC, 0))
-            store_var(ACC, counter)
+            emit(ASM.add_imm(r_counter, r_counter, 1))         # counter += 1
+            wrap = gensym                                      # loop the tune: at the end, rewind
+            emit(ASM.load_immediate(TMP, song[:total_frames]))
+            emit(ASM.cmp_reg(r_counter, TMP))
+            emit_branch(:bcond, wrap, cond: :lt)               # not at the end yet
+            emit(ASM.load_immediate(r_counter, 0))             # counter back to 0...
+            cursors.each do |cursor|                           # ...and every cursor back to its first event
+              emit(ASM.load_immediate(ACC, 0))
+              store_var(ACC, cursor)
+            end
             place_label(wrap)
+            store_var(r_counter, counter)
+          end
+
+          # Which two sound registers carry a music note's varying values on a given
+          # channel — the control (duty/volume) and the frequency/trigger. Channel 1
+          # also clears its sweep register (const 0), written before the note so the
+          # trigger lands last.
+          def music_voice_regs(channel)
+            case channel
+            when 1 then { const: [[REG_SOUND1CNT_L, 0]], reg_a: REG_SOUND1CNT_H, reg_b: REG_SOUND1CNT_X }
+            when 2 then { const: [],                     reg_a: REG_SOUND2CNT_L, reg_b: REG_SOUND2CNT_H }
+            else raise LoweringError, "no music voice on channel #{channel}"
+            end
+          end
+
+          # Build each voice's event table as a ROM blob and return the voices' cursor
+          # variable names. Each 8-byte entry is [frame (u32), reg_a value (u16), reg_b
+          # value (u16)] — the note's register values, pre-computed here so the per-frame
+          # code just copies them out. A sentinel entry (frame = the song length, which
+          # the counter never reaches mid-tune) sits after the last note so a finished
+          # voice doesn't re-trigger before the song loops.
+          def build_song_tables(name, song)
+            song[:voices].each_index.map do |index|
+              voice = song[:voices][index]
+              regs = music_voice_regs(MUSIC_CHANNELS.fetch(index) do
+                raise LoweringError, "song #{name.inspect} has more parts than this console can play"
+              end)
+              rows = voice[:events].map do |frame, frequency|
+                writes = Sound::Registers.channel_note(MUSIC_CHANNELS.fetch(index),
+                                                       frequency: frequency, duty: voice[:duty], volume: voice[:volume])
+                [frame, note_reg_value(writes, regs[:reg_a]), note_reg_value(writes, regs[:reg_b])].pack("Vvv")
+              end
+              rows << [song[:total_frames], 0, 0].pack("Vvv") # sentinel: never matches while the tune plays
+              @data_blobs[:"_music_events_#{name}_#{index}"] = rows.join
+              :"_music_idx_#{name}_#{index}"
+            end
+          end
+
+          # The value a note writes to a given sound register (0 if it doesn't touch it).
+          def note_reg_value(writes, reg)
+            found = writes.find { |addr, _| addr == reg }
+            found ? found.last : 0
           end
 
           # Compare the accumulator to a constant. The constant loads into a temp

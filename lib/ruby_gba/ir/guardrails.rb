@@ -182,7 +182,6 @@ require_relative "guardrails/off_screen_draw"
 require_relative "guardrails/orphaned_condition"
 require_relative "guardrails/draw_budget"
 require_relative "guardrails/budget_threshold"
-require_relative "guardrails/music_budget"
 require_relative "guardrails/channel_conflict"
 require_relative "guardrails/redraw_everything"
 require_relative "guardrails/sprite_cleared_each_frame"
@@ -206,7 +205,6 @@ module RubyGBA
         Checks::OffScreenDraw.new,
         Checks::DrawBudget.new,
         Checks::BudgetThreshold.new,
-        Checks::MusicBudget.new,
         Checks::ChannelConflict.new,
         Checks::RedrawEverything.new,
         Checks::SpriteClearedEachFrame.new,

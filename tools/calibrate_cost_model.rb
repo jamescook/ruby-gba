@@ -80,6 +80,20 @@ def mixer_busy(n)
   measure("mix#{n}", rom)
 end
 
+# The per-frame cost of playing a song with `n` voices. The sequencer keeps a
+# cursor per voice and touches only the note currently due each frame, so cost is
+# per active voice, not per note — every voice plays the same 40-note line.
+def music_busy(n)
+  rom = RubyGBA.build("mus#{n}", code: "MUS#{n}", maker: "01", err: StringIO.new) do
+    screen :bitmap
+    clear_screen :black
+    enable_sound
+    song(:tune) { tempo 150; n.times { |v| voice(:"p#{v}") { 40.times { note :C4, :sixteenth } } } }
+    game_loop { wait_vblank; play_song :tune }
+  end
+  measure("mus#{n}", rom)
+end
+
 measured = {}
 
 # --- logic (op_* tiers) ---
@@ -106,13 +120,19 @@ base  = v1 - slope             # the voice-independent floor (0 voices)
 measured[:mix_voice_sample] = slope / MIXER_SPF
 measured[:mix_overhead_sample] = base / MIXER_SPF
 
+# --- music: cost per active voice per frame (a 2-voice tune minus a 1-voice one
+# isolates one voice; the per-song counter overhead cancels).
+measured[:music_voice] = music_busy(2) - music_busy(1)
+
 # --- report + write the fixture ---
 current = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
 puts format("%-20s %12s %12s %8s", "weight", "current", "measured", "ratio")
 puts "-" * 56
 measured.each do |k, v|
   cur = current[k]
-  puts format("%-20s %12.5f %12.5f %7.2fx", k, cur, v, cur ? v / cur : Float::NAN)
+  cur_s = cur ? format("%12.5f", cur) : format("%12s", "(new)")
+  ratio_s = cur ? format("%7.2fx", v / cur) : format("%8s", "-")
+  puts format("%-20s %s %12.5f %s", k, cur_s, v, ratio_s)
 end
 
 rows = measured.map { |k, v| "        #{k}: #{format('%.4f', v)}," }

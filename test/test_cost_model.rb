@@ -846,7 +846,9 @@ class TestSoundCost < Minitest::Test
 
   Cost = RubyGBA::IR::CostModel
 
-  def song_frame_cost(notes) = (Cost::SONG_TICK * WEIGHTS[:sound_write]) + (notes * WEIGHTS[:note_check])
+  # A playing song costs per active VOICE, not per note (the sequencer touches only
+  # the note currently due each frame). song_of makes a one-voice tune.
+  def song_frame_cost(_notes = nil) = WEIGHTS[:music_voice]
 
   # An +n+-note song: n [frame, frequency] events, looping at frame n.
   def song_of(n)
@@ -862,13 +864,14 @@ class TestSoundCost < Minitest::Test
     )
   end
 
-  # Playing a song costs one frame-counter check per note every frame, plus the
-  # fixed cost of advancing and wrapping the counter.
-  def test_playing_a_song_costs_a_check_per_note_every_frame
-    # 10 notes: the fixed per-frame tick plus a check per note.
-    near song_frame_cost(10), Cost.new.steady_cost(music_game(10))
-    # twice the notes, ~twice the per-note work (the fixed tick is unchanged)
-    near song_frame_cost(20), Cost.new.steady_cost(music_game(20))
+  # Playing a song costs per active voice, not per note: the sequencer keeps a
+  # cursor per voice and only touches the note currently due, so a long tune costs
+  # exactly what a short one does.
+  def test_playing_a_song_costs_per_voice_not_per_note
+    ten = Cost.new.steady_cost(music_game(10))
+    hundred = Cost.new.steady_cost(music_game(100))
+    near WEIGHTS[:music_voice], ten           # one voice
+    near ten, hundred                          # 10x the notes, identical cost
   end
 
   # A beep is a small fixed burst of writes to the sound registers.
@@ -900,13 +903,12 @@ class TestSoundCost < Minitest::Test
     refute song[:over], "a 10-note song is well under the music budget"
   end
 
-  # A tune long enough that its per-frame note-check chain is heavy on its own is
-  # flagged over the music budget; an ordinary short one is not.
-  def test_a_long_song_is_over_the_music_budget
-    long = Cost.new.song_verdicts(music_game(400)).first # ~400 per-frame note-checks, over the 1-scanline music budget
-    assert long[:over]
-
-    short = Cost.new.song_verdicts(music_game(50)).first # only ~50, well under
-    refute short[:over]
+  # A long tune is NOT heavy: the pointer-based sequencer costs the same per frame
+  # as a short one (per voice, not per note), so neither trips the music budget.
+  def test_a_long_song_is_not_heavier_than_a_short_one
+    long = Cost.new.song_verdicts(music_game(400)).first
+    short = Cost.new.song_verdicts(music_game(50)).first
+    assert_equal short[:steady_cost], long[:steady_cost], "cost is per voice, so length doesn't change it"
+    refute long[:over], "a long song is still well under the music budget"
   end
 end

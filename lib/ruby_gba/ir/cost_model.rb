@@ -20,9 +20,9 @@ module RubyGBA
     # are calibrated with the timing probe (gemba-core), which counts the CPU cycles a
     # known workload actually burns in a frame — see tools/calibrate_cost_model.rb,
     # which measures each one and is re-run whenever the lowering of a priced op
-    # changes. The logic steps, plot_pixel, sound_write, and the mixer are measured
-    # that way; note_check and the DMA weights (dma_setup/dma_pixel) are still
-    # estimates — the DMA pair fits dma_fill_rect but under-prices the CPU-plotted
+    # changes. The logic steps, plot_pixel, sound_write, the mixer, and music (per
+    # voice) are measured that way; only the DMA weights (dma_setup/dma_pixel) are
+    # still estimates — the DMA pair fits dma_fill_rect but under-prices the CPU-plotted
     # fill_rect (a known gap). A game dev can override any of them.
     #
     # Two things drive the cost. Drawing is dominated by DMA *operations*: a fill, a
@@ -80,7 +80,6 @@ module RubyGBA
       WAVE_WRITES   = 21 # a channel-3 tone: upload the wavetable to both banks + control
       STOP_WAVE_WRITES = 1 # silence the wave voice
       STOP_WRITES   = 4  # silence both music voices (channels 1 and 2)
-      SONG_TICK     = 6 # per frame: advance the song's frame counter and wrap it at the end
 
       # The software mixer's per-frame CPU. When a program plays sampled sound, a
       # software mixer runs once every frame (right after wait_vblank), summing every
@@ -97,17 +96,14 @@ module RubyGBA
 
       # Hand estimates, in scanlines per op — the weights the calibration tool doesn't
       # measure *yet*. None of these are unmeasurable (they're all CPU work the probe
-      # sees); each is still an estimate for a specific reason. note_check: a quick
-      # probe shows song playback is flat-cost, not per-note, so the real per-note cost
-      # is ~0 — the model likely over-charges, which needs reconciling before a measured
-      # value replaces it. The DMA pair fits dma_fill_rect (real, width-independent DMA)
-      # but under-prices the CPU-plotted fill_rect (a known gap) — the model must split
-      # them first. The tiled/collision tiers just have no microbench yet. The
-      # MEASURED_WEIGHTS below override any of these they name.
+      # sees); each is still an estimate for a specific reason. The DMA pair fits
+      # dma_fill_rect (real, width-independent DMA) but under-prices the CPU-plotted
+      # fill_rect (a known gap) — the model must split them first. The tiled/collision
+      # tiers just have no microbench yet. The MEASURED_WEIGHTS below override any of
+      # these they name.
       ESTIMATED_WEIGHTS = {
         dma_setup:   0.102,   # the fixed per-row setup of a DMA transfer (a fill/blit/save row)
         dma_pixel:   0.00124, # one pixel filled or copied by DMA (the transfer, on top of setup)
-        note_check:  0.003,   # per song note, the frame-counter check that runs every frame
         # Tiled-mode per-frame upkeep. The display hardware composites the picture —
         # a background and its sprites — for free every scanline; what costs the CPU
         # is MOVING it each frame: rewriting each sprite's position and nudging the
@@ -1118,18 +1114,20 @@ module RubyGBA
         @weights[:dma_setup] + pixels * @weights[:dma_pixel]
       end
 
-      # The per-frame cost of playing +name+: its score is unrolled into one
-      # frame-counter check per note, all re-run every frame, plus a small fixed
-      # cost to advance and wrap the counter — so the recurring work grows with the
-      # note count. An unknown name costs nothing (the backend reports it).
+      # The per-frame cost of playing +name+. The sequencer keeps a cursor per voice
+      # and writes only the note currently due each frame (see the GBA backend's
+      # pointer-based emit_play_song), so the cost is per active VOICE, not per note —
+      # a long tune costs the same as a short one, the same way a real GBA sound
+      # driver works. An unknown name costs nothing (the backend reports it).
       def song_cost(name)
-        return 0 unless @songs && @songs[name]
+        song = @songs && @songs[name]
+        return 0 unless song
 
-        SONG_TICK * @weights[:sound_write] + song_notes(name) * @weights[:note_check]
+        song[:voices].length * @weights[:music_voice]
       end
 
-      # How many notes a song holds — summed across its parts, since every part's
-      # notes are re-checked each frame. 0 for an unknown name.
+      # How many notes a song holds — summed across its parts. Informational (shown in
+      # the music-budget message); the per-frame cost no longer depends on it.
       def song_notes(name)
         song = @songs && @songs[name]
         return 0 unless song
