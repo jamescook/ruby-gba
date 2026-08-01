@@ -123,10 +123,11 @@ module RubyGBA
 
           def message(total, users)
             top = users.first(TOP_USERS).map { |user| "#{user[:label]} (#{human(user[:bytes])})" }.join(", ")
-            "This program reserves about #{human(total)} of fast RAM, but the GBA has #{human(IWRAM_BYTES)} " \
-              "in total and only about #{human(BUDGET_BYTES)} of that is free for your data — the rest holds " \
-              "the call stack and the framework's own state. The biggest users are #{top}. Use a smaller " \
-              "capacity — a pool's or a list's — fewer fields, or one big list instead of several, so it all fits."
+            "This program reserves about #{human(total)} of fast RAM. But the GBA has only #{human(IWRAM_BYTES)} " \
+              "of fast RAM in total. Only about #{human(BUDGET_BYTES)} of that is free for your data. The rest " \
+              "holds the call stack and the framework's own state. The biggest users are #{top}. To fix this, " \
+              "use a smaller capacity for a pool or a list. Or use fewer fields. Or use one large list in place " \
+              "of several. Then it all fits."
           end
 
           # Bytes as a short human size: whole KB where it's exact, one decimal otherwise,

@@ -121,7 +121,7 @@ class TestIRGuardrailOrphanedCondition < Minitest::Test
       end
     end
 
-    assert_match(/never used to branch/, err.string)
+    assert_match(/uses it to branch/, err.string)
     assert_match(/\.then/, err.string)
   end
 

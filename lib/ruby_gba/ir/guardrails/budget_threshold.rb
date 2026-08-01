@@ -30,11 +30,12 @@ module RubyGBA
           private
 
           def message(threshold)
-            "The :#{threshold[:list]} list is drawn item by item every frame, so the more it holds the more the " \
-              "frame draws. Past about #{threshold[:break_even]} items it goes over the frame budget and the " \
-              "picture starts to tear or slow — but :#{threshold[:list]} can grow to #{threshold[:cap]}. Cap it " \
-              "lower (nearer #{threshold[:break_even]}), or draw less per item — repaint only what moved instead " \
-              "of the whole list each frame. Call `rom.explain` on the built ROM to see the per-frame breakdown."
+            "The :#{threshold[:list]} list is drawn item by item every frame. So the more items it holds, the " \
+              "more the frame draws. Past about #{threshold[:break_even]} items, the frame goes over budget, and " \
+              "the picture tears or slows. But :#{threshold[:list]} can grow to #{threshold[:cap]}. To fix this, " \
+              "cap :#{threshold[:list]} lower, near #{threshold[:break_even]}. Or draw less per item: draw only " \
+              "what moved, not the whole list each frame. To see the per-frame breakdown, call `rom.explain` on " \
+              "the built ROM."
           end
         end
       end

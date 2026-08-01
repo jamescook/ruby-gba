@@ -103,10 +103,10 @@ module RubyGBA
 
           def message(node, bounds)
             x, y, w, h = bounds
-            "#{describe(node)} at (#{x}, #{y}) sized #{w}x#{h} lands entirely off the " \
-              "#{SCREEN_W}x#{SCREEN_H} screen, so nothing will show. The screen runs from " \
+            "#{describe(node)} at (#{x}, #{y}), sized #{w}x#{h}, is fully off the " \
+              "#{SCREEN_W}x#{SCREEN_H} screen, so nothing shows. The screen runs from " \
               "(0, 0) at the top-left to (#{SCREEN_W - 1}, #{SCREEN_H - 1}) at the " \
-              "bottom-right — double-check the position (a swapped x and y is a common cause)."
+              "bottom-right. Check the position. A swapped x and y is a common cause."
           end
 
           def describe(node)

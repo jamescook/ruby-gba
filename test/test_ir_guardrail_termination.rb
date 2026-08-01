@@ -94,7 +94,7 @@ class TestIRGuardrailTermination < Minitest::Test
       clear_screen :black # draws, then just ends
     end
 
-    assert_match(/runs off the end/i, err.string)
+    assert_match(/end of your code/i, err.string)
   end
 
   def test_build_is_quiet_for_a_program_that_halts

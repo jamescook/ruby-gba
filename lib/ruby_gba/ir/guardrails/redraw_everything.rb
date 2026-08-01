@@ -29,11 +29,11 @@ module RubyGBA
           PAINTS = %i[pixel fill_rect clear_screen draw_rect_at draw_text dma_fill_rect blit].freeze
 
           PROBLEM =
-            "This game clears the whole screen every frame and then repaints a collection that grows as it " \
-            "plays (a snake's body, a list of shots). That's fine while it's short, but the redraw gets " \
-            "heavier as the collection grows, until it no longer fits in the brief moment the console has to " \
-            "change the screen — and the picture tears. Paint the board once when a round starts, then each " \
-            "frame repaint only the cells that actually change (draw the new one, erase the one that left)."
+            "This game clears the whole screen every frame. It then draws a list that grows as the game plays " \
+            "(a snake's body, a list of shots). While the list is short, this is fine. As the list grows, the " \
+            "drawing gets larger. Past a point it no longer fits the short time the console has to change the " \
+            "screen, and the picture tears. To fix this, draw the board one time when a round starts. Then, " \
+            "each frame, draw only the cells that change: draw the new cell, and erase the old one."
 
           def detect(program)
             # Double buffering is the cure for exactly this footgun: drawing goes to

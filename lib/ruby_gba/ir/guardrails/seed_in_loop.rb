@@ -65,12 +65,12 @@ module RubyGBA
           end
 
           def message_for(container)
-            "seed sets the random stream's starting point — something you do once, in setup. " \
-              "This seed is inside #{per_frame_where(container)}, so it re-runs every frame and keeps " \
-              "resetting the stream to the same point: every random draw then returns the same value " \
-              "(enemies, drops, and rolls stop varying). Move the seed to setup — above the loop, or " \
-              "outside the scene — so it runs once. To keep stirring the stream while you wait for " \
-              "input, call `randomize` there instead."
+            "seed sets the start point of the random stream. You do this one time, in setup. " \
+              "This seed is inside #{per_frame_where(container)}. So it re-runs every frame and resets " \
+              "the stream to the same start point. Then every random value is the same, and enemies, " \
+              "drops, and rolls no longer vary. To fix this, move the seed to setup: above the loop, or " \
+              "outside the scene. Then it runs one time. To move the stream while you wait for input, " \
+              "call `randomize` there instead."
           end
         end
       end

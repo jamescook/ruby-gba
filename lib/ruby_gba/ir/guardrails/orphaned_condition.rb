@@ -41,12 +41,11 @@ module RubyGBA
           def self.finding(source)
             where = source ? " (at #{source})" : ""
             message =
-              "A comparison like `x > 5` was built here but never used to branch#{where}. " \
-              "That almost always means it was dropped into a native Ruby `if` — and a " \
-              "comparison in this DSL is a Condition object, which Ruby treats as always " \
-              "true, so the `if` body would run unconditionally with the comparison " \
-              "silently ignored. Branch with `.then`: write `(x > 5).then { ... }`, not " \
-              "`if x > 5`."
+              "You built a comparison like `x > 5` here. But nothing uses it to branch#{where}. " \
+              "This almost always means it went into a native Ruby `if`. In this DSL, a " \
+              "comparison is a Condition object. Ruby treats that object as always true. So " \
+              "the `if` body runs every time, and the comparison has no effect. To fix this, " \
+              "branch with `.then`. Write `(x > 5).then { ... }`, not `if x > 5`."
             Finding.new(check: NAME, severity: :error, message: message, fix: nil)
           end
         end
