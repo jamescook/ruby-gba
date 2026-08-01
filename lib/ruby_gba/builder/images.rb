@@ -161,8 +161,9 @@ module RubyGBA
         return hardware_sprite(name, at: at, facing: facing, frames: frames, rate: rate, shown: shown, hitbox: hitbox) \
           if @screen_mode == :tiled
 
-        poses, facing_dirs, width, height = resolve_sprite_art(name, facing, frames)
+        poses, facing_dirs, width, height, frames_per_dir = resolve_sprite_art(name, facing, frames)
         has_poses = !poses.nil?
+        animated_facing = frames_per_dir > 1 # a facing: with a list of frames per direction
         box = collision_box(name, poses || [name], width, height, hitbox)
         start_x, start_y = at
 
@@ -174,17 +175,25 @@ module RubyGBA
         active = :"__spr#{id}_on"
         buffer = :"__spr#{id}_under"
         pose_var = (:"__spr#{id}_face" if has_poses) # the pose selector (a facing or a frame)
+        frame_var = (:"__spr#{id}_frame" if animated_facing) # animation frame, composed with the facing
 
         # Hidden state, set at boot (console RAM isn't zero at power-on): the current
         # and last-drawn positions both start at `at`, the on/off flag records
         # whether the sprite starts visible, and a posed sprite starts on pose 0.
         boot = { pos_x => start_x, pos_y => start_y, old_x => start_x, old_y => start_y, active => (shown ? 1 : 0) }
         boot[pose_var] = 0 if has_poses
+        boot[frame_var] = 0 if animated_facing
         boot.each do |var_name, value|
           at_boot(Build.set(var_name, Value.node_for(value)))
           ensure_var(var_name)
         end
-        register_animation(pose_var, rate, poses.length) if frames
+        # A directional animation cycles the FRAME (its direction is chosen by `face`);
+        # a plain frames: animation cycles the single pose selector.
+        if animated_facing
+          register_animation(frame_var, rate, frames_per_dir)
+        elsif frames
+          register_animation(pose_var, rate, poses.length)
+        end
 
         # Reserve the backing store (always — its RAM is fixed at build time). A
         # sprite that starts shown is drawn once at its start (capture what's under it
@@ -196,7 +205,8 @@ module RubyGBA
         handle = Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
                                   active: active, buffer: buffer, hitbox: box, pixel_perfect: hitbox.nil?,
                                   image: (has_poses ? nil : name), poses: poses,
-                                  facing_var: pose_var, facing_dirs: facing_dirs)
+                                  facing_var: pose_var, facing_dirs: facing_dirs,
+                                  frame_var: frame_var, frames_per_dir: frames_per_dir)
         @sprites << handle
         handle.draw_initial if shown
         handle
@@ -228,8 +238,9 @@ module RubyGBA
       # `facing:` poses, which on hardware swap which of the sprite's uploaded pictures
       # the console draws (the tile data is managed for you).
       def hardware_sprite(name, at:, facing:, frames:, rate:, shown:, hitbox:)
-        poses, facing_dirs, width, height = resolve_sprite_art(name, facing, frames)
+        poses, facing_dirs, width, height, frames_per_dir = resolve_sprite_art(name, facing, frames)
         poses ||= [name] # a plain sprite is a single-pose object
+        animated_facing = frames_per_dir > 1 # a facing: with a list of frames per direction
         box = collision_box(name, poses, width, height, hitbox)
         posed = facing || frames # does it choose a pose at run time (a facing or a frame)?
         start_x, start_y = at
@@ -240,26 +251,43 @@ module RubyGBA
         pos_y = :"__obj#{id}_y"
         active = :"__obj#{id}_on"
         pose_var = (:"__obj#{id}_face" if posed) # holds which pose is showing
+        frame_var = (:"__obj#{id}_frame" if animated_facing) # animation frame, composed with the facing
 
         # Boot the hidden state (console RAM isn't zero at power-on): its start
         # position, whether it begins shown, and (if posed) its starting pose.
         boot = { pos_x => start_x, pos_y => start_y, active => (shown ? 1 : 0) }
         boot[pose_var] = 0 if posed
+        boot[frame_var] = 0 if animated_facing
         boot.each do |var_name, value|
           at_boot(Build.set(var_name, Value.node_for(value)))
           ensure_var(var_name)
         end
-        register_animation(pose_var, rate, poses.length) if frames
+        # A directional animation cycles the FRAME (its direction is chosen by `face`);
+        # a plain frames: animation cycles the single pose selector.
+        if animated_facing
+          register_animation(frame_var, rate, frames_per_dir)
+        elsif frames
+          register_animation(pose_var, rate, poses.length)
+        end
 
-        # The pose selector: a plain sprite always shows pose 0; a posed one shows
-        # whichever pose its pose variable currently holds.
-        pose = posed ? Build.var_ref(pose_var) : Build.int(0)
+        # The pose selector. A plain sprite always shows pose 0. A facing or frames
+        # sprite shows the pose its selector holds. A directional animation composes
+        # both: pose = direction * frames_per_direction + frame.
+        pose = if animated_facing
+                 Build.binop(:+, Build.binop(:*, Build.var_ref(pose_var), Build.int(frames_per_dir)),
+                             Build.var_ref(frame_var))
+               elsif posed
+                 Build.var_ref(pose_var)
+               else
+                 Build.int(0)
+               end
         record(Build.object(object_name, poses: poses, pose: pose,
                                          x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
                                          active: scene_gate(Build.var_ref(active))))
         handle = HardwareSprite.new(self, object_name: object_name, x: pos_x, y: pos_y,
                                           active: active, hitbox: box, poses: poses, pixel_perfect: hitbox.nil?,
-                                          facing_var: pose_var, facing_dirs: facing_dirs)
+                                          facing_var: pose_var, facing_dirs: facing_dirs,
+                                          frame_var: frame_var, frames_per_dir: frames_per_dir)
         @hw_sprites << handle
         handle
       end
@@ -318,21 +346,50 @@ module RubyGBA
       # Work out a sprite's poses and size. An animation (+frames+) is a list of
       # same-size images the framework cycles, with no manual facing (empty dirs). A
       # faceted sprite (+facing+) has one image per direction, and facing_dirs maps
-      # each direction to a pose index. A plain sprite is a single named image.
-      # Returns [poses, facing_dirs, width, height].
+      # each direction to its index. A directional animation gives each direction a LIST
+      # of frames (facing: { left: [:l1, :l2], ... }): the frames flatten in direction
+      # order, so pose = direction * frames_per_direction + frame. A plain sprite is a
+      # single named image. Returns [poses, facing_dirs, width, height, frames_per_dir].
       def resolve_sprite_art(name, facing, frames = nil)
         if frames
           poses, width, height = same_size_images!(name, "animation frame", frames)
-          return [poses, {}, width, height]
+          return [poses, {}, width, height, 1]
         end
         unless facing
           width, height = @images[name] || raise(ArgumentError,
                 "sprite :#{name} needs an image named :#{name}. Define the image first with `image :#{name}, ...`.")
-          return [nil, nil, width, height]
+          return [nil, nil, width, height, 1]
         end
+        return resolve_directional_frames(name, facing) if facing.values.any? { |v| v.is_a?(Array) }
 
         poses, width, height = same_size_images!(name, "facing image", facing.values)
-        [poses, facing.keys.each_with_index.to_h, width, height]
+        [poses, facing.keys.each_with_index.to_h, width, height, 1]
+      end
+
+      # A directional animation: each direction is a list of the same number of frames.
+      # The frames flatten in direction order (all of :left, then all of :right, ...), so
+      # a pose index of direction * frames_per_direction + frame lands on the right
+      # picture. facing_dirs maps each direction to its 0-based row.
+      def resolve_directional_frames(name, facing)
+        unless facing.values.all? { |v| v.is_a?(Array) }
+          raise ArgumentError,
+                "sprite :#{name} facing: gives some directions a list of frames and some a single image. " \
+                "Give every direction the same shape: a list of frames each, or a single image each."
+        end
+        per_dir = facing.values.map(&:length).uniq
+        unless per_dir.size == 1
+          raise ArgumentError,
+                "sprite :#{name} facing: needs the same number of frames in every direction. " \
+                "Got #{facing.transform_values(&:length).inspect}."
+        end
+        if per_dir.first < 2
+          raise ArgumentError,
+                "sprite :#{name} facing: has one frame per direction, so it is not an animation. " \
+                "For a still pose per direction, give a single image: facing: { left: :img_l, right: :img_r }."
+        end
+
+        poses, width, height = same_size_images!(name, "facing frame", facing.values.flatten)
+        [poses, facing.keys.each_with_index.to_h, width, height, per_dir.first]
       end
 
       # Resolve a list of image names to [names, width, height], insisting each is
@@ -360,6 +417,15 @@ module RubyGBA
           drove = frames_from ? "frames_from:" : "frames:"
           raise ArgumentError,
                 "sprite :#{name} has both facing: and #{drove}. They both set the sprite's pose. Use only one."
+        end
+
+        # A directional animation (facing: with a list of frames per direction) cycles
+        # its frames, so it needs a rate the same way a plain frames: animation does.
+        if facing && facing.values.any? { |v| v.is_a?(Array) && v.length >= 2 }
+          return if rate.is_a?(Integer) && rate.positive?
+
+          raise ArgumentError,
+                "sprite :#{name} needs a positive rate: (how many game frames each picture is shown). Got #{rate.inspect}."
         end
         return unless frames
 

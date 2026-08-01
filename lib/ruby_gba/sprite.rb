@@ -61,13 +61,16 @@ module RubyGBA
     # @param pixel_perfect [Boolean] collide on the drawn pixels (true) or just the box (false,
     #   set when the sprite was given an explicit hitbox:)
     def initialize(builder, x:, y:, old_x:, old_y:, active:, buffer:, hitbox:, pixel_perfect: true,
-                   image: nil, poses: nil, facing_var: nil, facing_dirs: nil)
+                   image: nil, poses: nil, facing_var: nil, facing_dirs: nil,
+                   frame_var: nil, frames_per_dir: 1)
       @builder = builder
       @image = image             # a plain sprite draws this one image
-      @poses = poses             # a faceted sprite draws poses[facing_var] instead
+      @poses = poses             # a faceted sprite draws poses[pose index] instead
       @pixel_perfect = pixel_perfect
-      @facing_var = facing_var   # the variable holding which pose is showing
-      @facing_dirs = facing_dirs # direction -> pose index, for face / auto-facing move
+      @facing_var = facing_var   # the variable holding the facing (or the single pose selector)
+      @facing_dirs = facing_dirs # direction -> facing index, for face / auto-facing move
+      @frame_var = frame_var     # a directional animation's frame variable; nil otherwise
+      @frames_per_dir = frames_per_dir # frames per direction (1 unless a directional animation)
       @x_var = x
       @y_var = y
       @old_x = old_x
@@ -83,7 +86,19 @@ module RubyGBA
     def pixel_perfect? = @pixel_perfect
     def collision_builder = @builder
     def collision_poses = @poses || [@image]
-    def collision_pose = @facing_var ? Build.var_ref(@facing_var) : Build.int(0)
+    def collision_pose = pose_index_node
+
+    # Which pose to show right now, as a value node. A plain sprite is pose 0. A facing
+    # or frames sprite is its selector. A directional animation composes the two, so the
+    # frame animates within whichever direction the sprite faces:
+    # pose = facing * frames_per_direction + frame.
+    def pose_index_node
+      return Build.int(0) unless @facing_var
+      return Build.var_ref(@facing_var) unless @frame_var
+
+      Build.binop(:+, Build.binop(:*, Build.var_ref(@facing_var), Build.int(@frames_per_dir)),
+                  Build.var_ref(@frame_var))
+    end
 
     # The sprite's position, as {Value} handles — steer them with the expression
     # DSL (`hero.x.add 2`, `hero.y.clamp 0, 150`). The framework reads them each
@@ -240,7 +255,7 @@ module RubyGBA
     # blit of whichever pose it's currently facing.
     def blit_op(x_node, y_node)
       if faceted?
-        Build.blit_pose(@poses, ref(@facing_var), x_node, y_node)
+        Build.blit_pose(@poses, pose_index_node, x_node, y_node)
       else
         Build.blit(@image, x_node, y_node)
       end

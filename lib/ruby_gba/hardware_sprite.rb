@@ -49,7 +49,7 @@ module RubyGBA
     # @param facing_var [Symbol, nil] the variable holding which pose is showing (faceted only)
     # @param facing_dirs [Hash{Symbol=>Integer}, nil] direction -> pose index (faceted only)
     def initialize(builder, object_name:, x:, y:, active:, hitbox:, poses:, pixel_perfect:,
-                   facing_var: nil, facing_dirs: nil)
+                   facing_var: nil, facing_dirs: nil, frame_var: nil, frames_per_dir: 1)
       @builder = builder
       @object_name = object_name
       @x_var = x
@@ -58,8 +58,10 @@ module RubyGBA
       @hit_x, @hit_y, @hit_w, @hit_h = hitbox # collision box, offset from the sprite's top-left
       @poses = poses             # the picture(s) the per-pixel collision test reads
       @pixel_perfect = pixel_perfect
-      @facing_var = facing_var   # the variable the object's pose selector reads
-      @facing_dirs = facing_dirs # direction -> pose index, for face / auto-facing move
+      @facing_var = facing_var   # the variable the object's pose selector reads (facing, or single pose)
+      @facing_dirs = facing_dirs # direction -> facing index, for face / auto-facing move
+      @frame_var = frame_var     # a directional animation's frame variable; nil otherwise
+      @frames_per_dir = frames_per_dir # frames per direction (1 unless a directional animation)
       @walls = nil               # solid-tile Boxes this sprite is blocked by (nil until blocked_by)
     end
 
@@ -69,7 +71,19 @@ module RubyGBA
     def pixel_perfect? = @pixel_perfect
     def collision_builder = @builder
     def collision_poses = @poses
-    def collision_pose = @facing_var ? Build.var_ref(@facing_var) : Build.int(0)
+    def collision_pose = pose_index_node
+
+    # Which pose is showing right now, as a value node — the same composition the object's
+    # pose selector uses, so per-pixel collision reads the frame the console is drawing. A
+    # plain sprite is pose 0, a facing/frames sprite is its selector, and a directional
+    # animation is facing * frames_per_direction + frame.
+    def pose_index_node
+      return Build.int(0) unless @facing_var
+      return Build.var_ref(@facing_var) unless @frame_var
+
+      Build.binop(:+, Build.binop(:*, Build.var_ref(@facing_var), Build.int(@frames_per_dir)),
+                  Build.var_ref(@frame_var))
+    end
 
     # The object this handle drives — Builder#wait_vblank lists it for the per-frame
     # draw.
