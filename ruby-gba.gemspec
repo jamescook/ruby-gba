@@ -18,8 +18,4 @@ Gem::Specification.new do |spec|
 
   spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "minitest", "~> 6.0"
-  # The emulator used by the Verifier and integration tests is gemba-core, a
-  # headless libmgba probe vendored in-repo under gemba-core/ (not a published
-  # gem, so not listed here). It builds against a system libmgba; tests skip
-  # gracefully when it isn't built. See gemba-core/README.md.
 end
