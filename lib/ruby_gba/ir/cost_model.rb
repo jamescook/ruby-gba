@@ -594,7 +594,7 @@ module RubyGBA
         printer.puts "  per frame ~ #{fmt(frame_total)} scanlines" # the roll-up; the verdict/red is at the bottom
         tree.each { |cat| category_line(cat, printer, frame_total) } # section subtotals, no detail
         glyph_footprint_lines(program, printer)
-        budget_summary_lines(program, printer, frame_total, drawing_total(tree))
+        budget_summary_lines(program, printer, frame_total)
       end
 
       # The drill-down: the verdict, then the (aggregated, depth-limited) cost tree,
@@ -614,7 +614,7 @@ module RubyGBA
         render_category_tree(tree, printer, frame_total, max_depth)
         render_hottest(tree, printer, top)
         glyph_footprint_lines(program, printer)
-        budget_summary_lines(program, printer, frame_total, drawing_total(tree)) unless focus
+        budget_summary_lines(program, printer, frame_total) unless focus
       end
 
       # One line per font whose text this program draws: how many of its glyphs are
@@ -749,28 +749,34 @@ module RubyGBA
       # ~228 scanlines) and, for a single-buffered game, tearing (drawing alone vs the
       # ~68-line vblank). A static program reports its one-time boot cost; a scene-
       # switching game reports each scene against its own mode's budget.
-      def budget_summary_lines(program, printer, frame_total, drawing)
+      def budget_summary_lines(program, printer, frame_total)
         unless looping?(program)
           printer.puts "  budget: boot cost #{fmt(frame_total)} scanlines, done once   ok", severity: :good
           return
         end
 
         printer.puts "  budget:"
+        # Judge the RECURRING per-frame load — what every frame really pays. A one-off
+        # spike (a transition repaint, an every() tick) is named separately below, not
+        # judged as if it ran every frame: 60fps against the whole recurring load,
+        # tearing against the recurring DRAWING alone (only drawing races the vblank).
+        recurring = steady_cost(program) + mixer_cost(program)
+        recurring_drawing = steady_drawing_cost(program)
         if mixed?(program)
           scene_verdict_lines(program, printer)
         else
-          frame_budget_line(program, printer, frame_total)
-          tear_budget_line(program, printer, drawing)
+          frame_budget_line(program, printer, recurring)
+          tear_budget_line(program, printer, recurring_drawing)
         end
 
         if (mv = mixer_verdict(program))
           printer.puts "    (sound is the worst case — all #{mv[:voices]} mixer voices at once; a typical frame sounds fewer)"
         end
 
-        recurring = steady_cost(program) + mixer_cost(program)
-        return unless recurring + 0.1 < frame_total
+        return unless frame_total > recurring + 0.1
 
-        printer.puts "    (~#{fmt(recurring)} recurs every frame; the rest is a one-off spike — a transition or an every() tick)"
+        printer.puts "    (a heavier frame reaches #{fmt(frame_total)} — a one-off spike, a transition or an every() tick, " \
+                     "not the every-frame cost)"
       end
 
       # The 60fps check: the whole frame's work against the ~228-scanline frame.
