@@ -1,15 +1,28 @@
 # frozen_string_literal: true
 
 require "rake/testtask"
+require "rbconfig"
 
-# Build gemba-core's C extension (the headless libmgba probe that the
-# emulator-backed tests run on) before the suite. gemba-core is required to run
-# the tests — the emulator path is not optional — so if it can't build, fail
-# loudly and stop, rather than letting the suite pass with its coverage gutted.
-desc "Build gemba-core's C extension (required for the emulator-backed tests)"
-task :compile_gemba_core do
+# gemba-core's built extension and the sources it comes from. The emulator-backed
+# tests run on gemba-core (the headless libmgba probe), which is required, not
+# optional — so a failed build stops the suite loudly rather than letting it pass
+# with its coverage gutted.
+#
+# The built binary is a cached artifact: as a Rake file task it's rebuilt only
+# when it's missing or a source is newer, so a plain `rake test` doesn't re-run
+# extconf + make every time (that compile takes longer than the suite itself).
+# It's gitignored, so it persists between runs locally and builds once on a fresh
+# checkout.
+GEMBA_CORE_EXT = "gemba-core/ext/gemba_core_ext"
+GEMBA_CORE_BINARY = "#{GEMBA_CORE_EXT}/gemba_core_ext.#{RbConfig::CONFIG['DLEXT']}"
+GEMBA_CORE_SOURCES = FileList["#{GEMBA_CORE_EXT}/*.{c,h}", "#{GEMBA_CORE_EXT}/extconf.rb"]
+
+file GEMBA_CORE_BINARY => GEMBA_CORE_SOURCES do
   Dir.chdir("gemba-core") { sh "rake", "compile" }
 end
+
+desc "Build gemba-core's C extension if its sources changed (required for the tests)"
+task compile_gemba_core: GEMBA_CORE_BINARY
 
 Rake::TestTask.new(test: :compile_gemba_core) do |t|
   t.libs << "test" << "lib"
