@@ -40,6 +40,11 @@ module RubyGBA
         # variable operations — read/modify a named variable
         set: :var, add: :var, sub: :var, copy: :var, negate: :var,
         abs: :var, negate_abs: :var, clamp: :var,
+        # persistence: a named variable whose value survives power-off, kept in the
+        # cartridge's battery-backed save memory. save_init loads them at boot (or
+        # writes their defaults on a fresh cartridge); save_store mirrors one back to
+        # save memory when it changes. Categorized as variable ops — that's what they are.
+        save_init: :var, save_store: :var,
 
         # drawing / screen operations
         screen: :draw, pixel: :draw, fill_rect: :draw, clear_screen: :draw,

@@ -46,6 +46,10 @@ module RubyGBA
         # variable operations
         set: :portable, add: :portable, sub: :portable, copy: :portable,
         negate: :portable, abs: :portable, negate_abs: :portable, clamp: :portable,
+        # persistence — remembering values across power-off. Portable intent: the
+        # interpreter models it against an in-memory save store, the GBA lowers it to
+        # battery-backed save memory, a web backend could use localStorage.
+        save_init: :portable, save_store: :portable,
 
         # drawing / screen — framebuffer draws and text are portable; `screen`
         # selects a rendering model a backend can honor (the raw-register form and

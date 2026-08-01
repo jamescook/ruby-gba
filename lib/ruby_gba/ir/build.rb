@@ -69,6 +69,29 @@ module RubyGBA
         Node.new(:clamp, var: var, min: min, max: max)
       end
 
+      # --- persistence (variables that survive power-off) ---
+      #
+      # Some variables are kept in the cartridge's save memory so their value is
+      # still there next time the console powers on — a high score, unlocks,
+      # settings. The two ops that realize that are portable intent: what to
+      # remember, not how a particular machine stores it.
+
+      # Load the persisted variables at boot. +vars+ is an ordered list of
+      # `{ name:, default:, slot: }` — the variable's name, the value to use on a
+      # brand-new cartridge with nothing saved yet, and its slot (0-based) in the
+      # save layout. +magic+ is a marker written alongside the data: when it's
+      # already there the saved values are loaded, otherwise the defaults are
+      # written (so a fresh cartridge starts clean instead of loading garbage).
+      def save_init(vars:, magic:)
+        Node.new(:save_init, vars: vars, magic: magic)
+      end
+
+      # Write one persisted variable's current value back to its save slot — done
+      # right after it changes, so what's saved always matches what's on screen.
+      def save_store(name, slot)
+        Node.new(:save_store, var: name, slot: slot)
+      end
+
       # --- drawing / screen operations ---
 
       # Pick a screen mode. +buffered+ opts a bitmap mode into double

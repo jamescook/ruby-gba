@@ -12,6 +12,7 @@ require_relative "gba/collision"
 require_relative "gba/timers"
 require_relative "gba/direct_sound"
 require_relative "gba/mixer"
+require_relative "gba/save"
 
 module RubyGBA
   module IR
@@ -65,6 +66,7 @@ module RubyGBA
         include Timers
         include DirectSound
         include Mixer
+        include Save
 
         class LoweringError < StandardError; end
 
@@ -201,6 +203,7 @@ module RubyGBA
           prepare_backgrounds(program) if @tiled
           @has_objects = program.walk.any? { |node| node.kind == :object }
           prepare_objects(program) if @has_objects
+          @uses_save = program.walk.any? { |node| node.kind == :save_init }
           prepare_palette(program) if @any_buffered
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
           emit_waitcnt_setup unless raw_escape_hatch?(program) # fast ROM + prefetch, first, unless it's all raw
@@ -222,6 +225,7 @@ module RubyGBA
           emit_functions
           emit_irq_handler if uses_irq? # the interrupt dispatcher itself, reached only via the vector
           emit_data_region
+          emit_save_signature if @uses_save # the marker that maps the save chip (past all code/data)
           resolve_fixups
           @code
         end

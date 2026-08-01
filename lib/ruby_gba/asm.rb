@@ -306,6 +306,14 @@ module RubyGBA
       [0xE5C00000 | (rn << 16) | (rd << 12)].pack("V")
     end
 
+    # STRB rd, [rn, #offset] — store the low byte of rd at an immediate offset from rn.
+    # The offset form of {strb}, symmetric with {ldrb_offset}: it walks the bytes of a
+    # word into consecutive addresses (a save slot in the 8-bit save memory) without
+    # recomputing the base each time.
+    def strb_offset(rd, rn, offset)
+      [0xE5C00000 | (rn << 16) | (rd << 12) | (offset & 0xFFF)].pack("V")
+    end
+
     # LDRSB rd, [rn] — load a byte and sign-extend it (so 0x80..0xFF read as -128..-1)
     # into the whole register, versus the zero-extending LDRB. The general way to read a
     # signed 8-bit value. (Signed loads use the extra load/store encoding, hence the

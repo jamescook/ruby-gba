@@ -21,6 +21,7 @@ module RubyGBA
       def set(name, value)
         record(Build.set(name, Value.node_for(value)))
         ensure_var(name)
+        mirror_save(name)
         Value.new(self, Build.var_ref(name), name: name)
       end
 
@@ -40,6 +41,34 @@ module RubyGBA
         Value.new(self, Build.var_ref(name), name: name)
       end
 
+      # Declare a variable whose value survives the console being turned off — a high
+      # score, an unlock, a setting. It works exactly like {#var}: you get the same
+      # handle and use it the same way. The difference is where its value lives. It's
+      # kept in the cartridge's save memory, so:
+      #
+      #   - at power-on it comes back with the value it had last time (or +default+ the
+      #     very first time the game is ever run, when nothing is saved yet), and
+      #   - every time you change it, the new value is saved for you automatically —
+      #     there is no separate "save" step to remember.
+      #
+      #   high = save_var :high_score, 0
+      #   (score > high).then { high.set score }   # a new record — saved on the spot
+      #
+      # @param name [Symbol] variable name
+      # @param default [Integer] the value on a brand-new cartridge (nothing saved yet)
+      # @return [Value] a handle to the variable
+      def save_var(name, default)
+        unless default.is_a?(Integer)
+          raise ArgumentError,
+                "save_var's default must be a whole number (the value on a fresh " \
+                "cartridge), got #{default.inspect}"
+        end
+
+        ensure_var(name)
+        @persisted << { name: name, default: default, slot: @persisted.length } unless persisted?(name)
+        Value.new(self, Build.var_ref(name), name: name)
+      end
+
       # Add to a variable: var += operand.
       # Operand can be an immediate (Integer) or another variable (Symbol).
       #
@@ -49,6 +78,7 @@ module RubyGBA
         record(Build.add(name, Value.node_for(operand)))
         ensure_var(name)
         ensure_var(operand)
+        mirror_save(name)
       end
       alias add_var add
 
@@ -61,6 +91,7 @@ module RubyGBA
         record(Build.sub(name, Value.node_for(operand)))
         ensure_var(name)
         ensure_var(operand)
+        mirror_save(name)
       end
       alias sub_var sub
 
@@ -69,6 +100,7 @@ module RubyGBA
       def negate(name)
         record(Build.negate(name))
         ensure_var(name)
+        mirror_save(name)
       end
       alias flip negate
 
@@ -80,6 +112,7 @@ module RubyGBA
         record(Build.copy(dest, src))
         ensure_var(dest)
         ensure_var(src)
+        mirror_save(dest)
       end
 
       # Absolute value: var = |var|
@@ -87,6 +120,7 @@ module RubyGBA
       def abs(name)
         record(Build.abs(name))
         ensure_var(name)
+        mirror_save(name)
       end
 
       # Make a variable negative: var = -|var|
@@ -94,6 +128,7 @@ module RubyGBA
       def negate_abs(name)
         record(Build.negate_abs(name))
         ensure_var(name)
+        mirror_save(name)
       end
 
       # Clamp a variable to [min, max] range.
@@ -104,6 +139,7 @@ module RubyGBA
       def clamp(name, min_val, max_val)
         record(Build.clamp(name, min_val, max_val))
         ensure_var(name)
+        mirror_save(name)
       end
 
       # Move a variable toward +target+ by at most +step+ each call, never
@@ -134,6 +170,7 @@ module RubyGBA
         record(Build.set(delta, Build.binop(:-, Value.node_for(target), Build.var_ref(name))))
         record(Build.clamp(delta, -step, step))
         record(Build.add(name, Build.var_ref(delta)))
+        mirror_save(name)
       end
 
       # Get the IWRAM address allocated for a variable.

@@ -76,6 +76,10 @@ module RubyGBA
         abs:        { var: :name },
         negate_abs: { var: :name },
         clamp:      { var: :name, min: :int, max: :int }, # bounds are author-time constants
+        # persistence: boot-load the saved variables (a list of {name, default, slot}
+        # hashes plus a marker), and mirror one back to its slot when it changes.
+        save_init:  { vars: :list, magic: :int },
+        save_store: { var: :name, slot: :int },
 
         # drawing / screen
         screen:        { mode: :mode, buffered: :flag }, # buffered: opt into double buffering

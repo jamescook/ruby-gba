@@ -101,6 +101,11 @@ module RubyGBA
       # func body) while its block runs.
       @program = Build.program
       @container_stack = [@program]
+
+      # Persisted variables (from `save_var`), in declaration order — each is
+      # { name:, default:, slot: }, the slot being its place in save memory. Drives
+      # the one boot-time save_init and the auto-save after each change.
+      @persisted = []
     end
 
     # The IR tree built so far (the whole program). Lets tests assert the DSL
@@ -175,6 +180,7 @@ module RubyGBA
       finalize_present_lists
       verify_targets_defined!
       initialize_rng_stream
+      register_save_init
       emit_boot_inits
     end
 
@@ -276,6 +282,34 @@ module RubyGBA
         @program.children.unshift(node)
         node.parent = @program
       end
+    end
+
+    # A fixed marker written alongside the saved variables so a fresh cartridge
+    # (whose save memory holds random power-on garbage) is told apart from one that
+    # already holds real saved data. Any stable, unlikely value does; this spells
+    # "SAV1" in bytes.
+    SAVE_MAGIC = 0x53415631
+
+    # If the program declared any `save_var`s, add the one boot step that loads them
+    # (or writes their defaults on a fresh cartridge). Registered at boot like the
+    # other hidden-state setup, so it runs once before the game starts.
+    def register_save_init
+      return if @persisted.empty?
+
+      at_boot(Build.save_init(vars: @persisted, magic: SAVE_MAGIC))
+    end
+
+    # Record a mirror-to-save-memory right after a persisted variable changed, so
+    # what's saved always matches what the game just did. A no-op for an ordinary
+    # variable, so every mutation verb can call it without checking first.
+    def mirror_save(name)
+      entry = @persisted.find { |v| v[:name] == name }
+      record(Build.save_store(name, entry[:slot])) if entry
+    end
+
+    # Whether +name+ is a persisted variable (declared with `save_var`).
+    def persisted?(name)
+      @persisted.any? { |v| v[:name] == name }
     end
 
     # Which scenes are shown for which state, read from the case_var dispatch(es):

@@ -44,7 +44,7 @@ module RubyGBA
         # model both backends treat "a frame" as, so their timer counts line up.
         FRAME_RATE = 60
 
-        attr_reader :vars, :screen, :log, :frame, :screen_mode, :buffered, :audio, :peak_voices
+        attr_reader :vars, :screen, :log, :frame, :screen_mode, :buffered, :audio, :peak_voices, :save
 
         # The names of the samples sounding right now — one entry per voice, so the same
         # sample played twice shows up twice. Lets a test see that several sounds really
@@ -59,7 +59,13 @@ module RubyGBA
           @voices.find { |v| v[:name] == name }&.fetch(:volume)
         end
 
-        def initialize
+        # +save+ is the cartridge's save memory — an external store that outlives the
+        # interpreter, so passing the SAME object to two Ruby.new(...).run calls models
+        # a power cycle (the second boot sees what the first one saved). Defaults to a
+        # fresh, empty store: a brand-new cartridge, and untouched by programs that
+        # persist nothing.
+        def initialize(save: {})
+          @save = save             # persisted variables, by slot; @save[:magic] marks it written
           @vars = Hash.new(0)      # variable store; an unwritten variable reads as 0
           @funcs = {}              # name -> :func node
           @screen = Framebuffer.new # the fake bitmap screen the draw ops write into
@@ -265,6 +271,10 @@ module RubyGBA
             @vars[node[:var]] = v.positive? ? Int32.neg(v) : v
           when :clamp
             @vars[node[:var]] = clamp_value(@vars[node[:var]], node[:min], node[:max])
+          when :save_init
+            exec_save_init(node)
+          when :save_store
+            exec_save_store(node)
           when :if
             if eval_value(node[:cond]).zero?
               node[:else]&.children&.each { |child| exec(child) }
@@ -869,6 +879,28 @@ module RubyGBA
         # Copy the buffer-sized screen patch at (x, y) into the named backing buffer.
         # An off-screen cell reads as nil (there's nothing out there to remember);
         # restore skips those, so a patch hanging off an edge round-trips cleanly.
+        # Boot-load the persisted variables from the save store. When the store
+        # already carries this program's marker, each variable takes its saved value;
+        # otherwise (a fresh cartridge) each takes its default, and the defaults plus
+        # the marker are written so the next boot loads them. Mirrors the GBA lowering.
+        def exec_save_init(node)
+          if @save[:magic] == node[:magic]
+            node[:vars].each { |v| @vars[v[:name]] = Int32.wrap(@save[v[:slot]]) }
+          else
+            node[:vars].each do |v|
+              value = Int32.wrap(v[:default])
+              @vars[v[:name]] = value
+              @save[v[:slot]] = value
+            end
+            @save[:magic] = node[:magic]
+          end
+        end
+
+        # Mirror one persisted variable's current value into its save slot.
+        def exec_save_store(node)
+          @save[node[:slot]] = @vars[node[:var]]
+        end
+
         def exec_save_region(node)
           buf = backing_for(node[:buffer])
           x = eval_value(node[:x])
