@@ -63,6 +63,26 @@ module RubyGBA
     SRAM_START  = 0x0E000000
 
     # ========================================================================
+    # Game Pak wait-state control (REG_WAITCNT at 0x04000204)
+    #
+    # The cartridge (ROM) is slow memory. Every time the CPU fetches an instruction
+    # or reads data from the .gba, it stalls a few cycles waiting for the ROM chip —
+    # "wait states". At power-on the console picks the SLOWEST, safest timing (so any
+    # cartridge works), which makes code that runs from ROM crawl.
+    #
+    # Real cartridges are faster than that worst case, so a game writes this register
+    # once at boot to choose quicker timing AND switch on the "prefetch buffer" — a
+    # small unit that reads upcoming instructions from ROM ahead of time, while the
+    # CPU is busy elsewhere, so they're already there when it needs them. Together
+    # this makes ROM-resident code run roughly 2–3x faster. The framework does it for
+    # every ROM (see the GBA backend's emit_waitcnt_setup).
+    # ========================================================================
+    REG_WAITCNT   = 0x04000204
+    # WS0 (the main ROM region) at 3/1 wait states, with the prefetch buffer on — the
+    # standard "fast but safe" setting every real cartridge handles.
+    WAITCNT_FAST  = 0x4317
+
+    # ========================================================================
     # Display Control (REG_DISPCNT at 0x04000000)
     #
     # This single register controls what the screen shows.

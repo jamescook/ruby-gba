@@ -7,13 +7,13 @@ module RubyGBA
   module IR
     class CostModel
       MEASURED_WEIGHTS = {
-        op_step: 0.0343,
-        op_mul: 0.0366,
-        op_div: 0.1171,
-        plot_pixel: 0.0262,
-        sound_write: 0.0262,
-        mix_voice_sample: 0.1334,
-        mix_overhead_sample: 0.0453,
+        op_step: 0.0193,
+        op_mul: 0.0193,
+        op_div: 0.0933,
+        plot_pixel: 0.0161,
+        sound_write: 0.0161,
+        mix_voice_sample: 0.0840,
+        mix_overhead_sample: 0.0283,
       }.freeze
     end
   end

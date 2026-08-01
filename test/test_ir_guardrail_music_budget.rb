@@ -24,11 +24,11 @@ class TestMusicBudgetGuardrail < Minitest::Test
 
   # A long tune warns, names the song, and explains the per-frame re-check.
   def test_a_long_song_warns_about_per_frame_note_checks
-    findings = Check.new.detect(game_playing(300))
+    findings = Check.new.detect(game_playing(400))
     assert_equal 1, findings.length
     assert findings.first.warning?, "the music budget is advisory, not a hard error"
     assert_match(/theme/, findings.first.message)   # names the offending song
-    assert_match(/300 notes/, findings.first.message)
+    assert_match(/400 notes/, findings.first.message)
     assert_match(/every.*frame/, findings.first.message)
   end
 
@@ -58,7 +58,7 @@ class TestMusicBudgetGuardrail < Minitest::Test
   # It's a builtin: it fires in the default validation pass, not just when called
   # directly.
   def test_it_runs_in_the_default_validation_pass
-    report = RubyGBA::IR::Guardrails::Validator.new.run(game_playing(300), autofix: false)
+    report = RubyGBA::IR::Guardrails::Validator.new.run(game_playing(400), autofix: false)
     assert(report.warnings.any? { |w| w.check == :music_budget },
            "the music guardrail should be registered as a builtin")
   end

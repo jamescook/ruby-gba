@@ -37,8 +37,10 @@ class TestRomBuilder < Minitest::Test
     # Branch offset: (0xC0 - 8) / 4 = 0x2E
     assert_equal [0xEA00002E].pack("V"), buf[0, 4], "entry branch"
 
-    # Code at 0xC0: branch to self (infinite loop)
-    assert_equal [0xEAFFFFFE].pack("V"), buf[0xC0, 4], "loop_forever"
+    # Code at 0xC0: the framework's WAITCNT boot setup runs first (fast ROM
+    # wait-states + prefetch, 6 instructions = 24 bytes), then the program — so the
+    # user's halt (branch-to-self) lands just past the prologue.
+    assert_equal [0xEAFFFFFE].pack("V"), buf[0xC0 + 24, 4], "loop_forever, after the WAITCNT prologue"
 
     # Title
     assert_equal "TEEKTEST\x00\x00\x00\x00", buf[0xA0, 12], "title"

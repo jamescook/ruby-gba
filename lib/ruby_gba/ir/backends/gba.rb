@@ -203,6 +203,7 @@ module RubyGBA
           prepare_objects(program) if @has_objects
           prepare_palette(program) if @any_buffered
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
+          emit_waitcnt_setup unless raw_escape_hatch?(program) # fast ROM + prefetch, first, unless it's all raw
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
           emit_mixer_boot if @plays_samples # start the sound DMA + clock; voices added by `play`
@@ -288,6 +289,28 @@ module RubyGBA
         # VBlank, tell the display to raise it each frame via DISPSTAT), then switch
         # interrupts on. IME goes off first so nothing fires mid-setup and on last once
         # everything's in place — the order boot code uses.
+        # Speed the cartridge up before running any code. The console powers on with
+        # the slowest, safest ROM wait-states (so any cartridge works), which makes
+        # code fetched from the .gba crawl. We write REG_WAITCNT once, as the very
+        # first instruction, to pick fast timing (WS0 3/1) and switch on the prefetch
+        # buffer — the unit that reads upcoming instructions from ROM ahead of the CPU.
+        # Together that runs ROM-resident code roughly 2–3x faster, and everything
+        # after it (the rest of boot, and the whole game) benefits. It's safe on all
+        # real hardware, so every managed ROM gets it. (This is a hardware-timing
+        # concern, so it lives only in this backend — the Ruby interpreter models
+        # behaviour, not cycles, and the cost model prices timing separately.)
+        def emit_waitcnt_setup
+          write_io_halfword(REG_WAITCNT, WAITCNT_FAST)
+        end
+
+        # A program made only of `raw`/`entry` blocks is the escape hatch: the user is
+        # writing the ROM's instructions themselves, so the framework injects nothing
+        # (not even the wait-state setup) — their first instruction is the entry point,
+        # and they can set REG_WAITCNT themselves if they want it.
+        def raw_escape_hatch?(program)
+          !program.children.empty? && program.children.all? { |node| node.kind == :raw }
+        end
+
         def emit_irq_setup
           enabled = 0
           enabled |= IRQ_VBLANK if @uses_vblank
