@@ -17,9 +17,12 @@ module RubyGBA
     # safe window to draw before the picture tears) is about 68 scanlines. So "this
     # frame costs 45 scanlines" means "it eats 45 of your ~68 safe scanlines." Weights
     # are calibrated with the timing probe (gemba-core), which counts the CPU cycles a
-    # known workload actually burns in a frame — the mixer's is measured that way; the
-    # drawing and logic tiers are still hand estimates in the same unit (marked below).
-    # A game dev can override any of them.
+    # known workload actually burns in a frame — see tools/calibrate_cost_model.rb,
+    # which measures each one and is re-run whenever the lowering of a priced op
+    # changes. The logic steps, plot_pixel, sound_write, and the mixer are measured
+    # that way; note_check and the DMA weights (dma_setup/dma_pixel) are still
+    # estimates — the DMA pair fits dma_fill_rect but under-prices the CPU-plotted
+    # fill_rect (a known gap). A game dev can override any of them.
     #
     # Two things drive the cost. Drawing is dominated by DMA *operations*: a fill, a
     # blit, a save/restore is one DMA per row, and the per-row setup dwarfs the
@@ -89,12 +92,6 @@ module RubyGBA
       # the model prices the heaviest a frame can reach.
       MIXER_VOICES = 8          # voices the mixer sums at once (mirrors the backend's capacity)
       MIXER_FPS = 60            # it refills one frame's worth of samples per frame
-      # Fixed per-output-sample overhead the mixer pays regardless of voice count —
-      # clearing the accumulator, copying the mixed buffer, and the DMA/FIFO refill.
-      # Measured via the timing probe: a sounding program's per-frame cost has a
-      # ~6-scanline floor at 8192Hz that doesn't move with voices; expressed here in
-      # op_step units per sample (~22) so it scales with the buffer size like the rest.
-      MIXER_OVERHEAD_OPS = 22
       DEFAULT_MIXER_RATE = 8192 # fallback output rate when no sample declares one
 
       # Per-op costs in scanlines, measured on hardware by the timing probe (see the
@@ -102,21 +99,23 @@ module RubyGBA
       DEFAULT_WEIGHTS = {
         dma_setup:   0.102,   # the fixed per-row setup of a DMA transfer (a fill/blit/save row)
         dma_pixel:   0.00124, # one pixel filled or copied by DMA (the transfer, on top of setup)
-        plot_pixel:  0.0267,  # one pixel written by hand — a lone pixel, a transparent blit, a font pixel
-        sound_write: 0.0286,  # one write to a sound register (a beep, powering sound on)
+        plot_pixel:  0.0263,  # one pixel written by hand — a lone pixel, a transparent blit, a font pixel (measured)
+        sound_write: 0.0262,  # one write to a sound register (a beep, powering sound on) (measured)
         note_check:  0.003,   # per song note, the frame-counter check that runs every frame (estimated)
         mix_voice_sample: 0.133, # mixing one source sample into one voice for one output slot — the inner mix loop (measured via the timing probe: ~18 scanlines per added voice at 8192Hz)
-        # Logic / compute steps, in the same scanline unit (all estimated, not
-        # measured — like note_check). A step is a plain data op (add, subtract,
-        # compare, copy, move a value); it's the cheap baseline. Multiply is a few
-        # cycles more. Divide is the outlier: this CPU has no divide instruction, so
-        # a division traps into the BIOS Div routine — a bounded but real detour
-        # (the trap in and out plus the division), on the order of tens of cycles,
-        # roughly twenty steps' worth. That's exactly the hidden cost a per-frame
-        # loop can bury. Keyed by op so the tiers stay tunable data, not code.
-        op_step:     0.0022,  # add / sub / compare / copy / set — a single data-processing step
-        op_mul:      0.0044,  # a multiply (multi-cycle)
-        op_div:      0.0500,  # a divide — trap into the BIOS Div routine (SWI 0x06)
+        mix_overhead_sample: 0.046, # the mixer's per-output-sample fixed overhead (clear + copy + FIFO/DMA refill), voice-independent — a measured ~6-scanline floor at 8192Hz, its own weight so it doesn't ride op_step
+        # Logic / compute steps, in the same scanline unit — measured on hardware
+        # via the calibration tool (tools/calibrate_cost_model.rb). A step is a plain
+        # data op (add, subtract, compare, copy, set); it's the baseline. These cost
+        # far more than they look: the emitted code runs from ROM with wait states on
+        # every fetch, so a single add is ~40 cycles, not a handful — a per-frame
+        # logic loop is real recurring work, not free. A multiply is only a touch
+        # dearer; a divide is the outlier (this CPU has no divide instruction, so it
+        # traps into the BIOS Div routine). Keyed by op so the tiers stay tunable
+        # data; re-run the tool if the lowering of these ops changes.
+        op_step:     0.0343,  # add / sub / compare / copy / set — a single data-processing step
+        op_mul:      0.0366,  # a multiply (a touch dearer than an add)
+        op_div:      0.1171,  # a divide — trap into the BIOS Div routine (SWI 0x06)
         # Tiled-mode per-frame upkeep. The display hardware composites the picture —
         # a background and its sprites — for free every scanline; what costs the CPU
         # is MOVING it each frame: rewriting each sprite's position and nudging the
@@ -388,16 +387,29 @@ module RubyGBA
         analyze(program).sum { |node| node[:cost] }
       end
 
-      # The cost that actually recurs *every* frame — the tear risk. Cost hints on
-      # the IR scale work down: an every(k) body counts 1/k, a transition-guarded
-      # body counts 0, and so on (see #tag_multiplier). Untagged work weighs 1, so
-      # a program with no hints has steady_cost == frame_cost.
+      # The whole per-frame cost that actually recurs *every* frame (drawing, logic,
+      # and sound) — the 60fps load. Cost hints scale work down: an every(k) body
+      # counts 1/k, a transition-guarded body counts 0, and so on. Untagged work
+      # weighs 1, so a program with no hints has steady_cost == frame_cost. For the
+      # tear risk (drawing only) use #steady_drawing_cost.
       def steady_cost(program)
+        steady_statements(program).sum { |node| steady(node) }
+      end
+
+      # The recurring drawing cost alone — the tear risk. Only drawing races the
+      # brief vblank window; logic and sound run through the visible frame and can't
+      # tear, so they're excluded here (they still count in #steady_cost's 60fps load).
+      def steady_drawing_cost(program)
+        steady_statements(program).sum { |node| steady(node, true) }
+      end
+
+      # The statements that make up a frame — a game loop's body, or a static
+      # program's top-level draws (funcs excluded; they're counted where called).
+      def steady_statements(program)
         index(program)
         @stack = []
         loop_node = program.children.find { |node| node.kind == :loop }
-        statements = loop_node ? loop_node.children : program.children.reject { |node| node.kind == :func }
-        statements.sum { |node| steady(node) }
+        loop_node ? loop_node.children : program.children.reject { |node| node.kind == :func }
       end
 
       # Whether a program has a game loop (its cost recurs every frame) or is a
@@ -446,14 +458,17 @@ module RubyGBA
         return [] unless looping?(program)
 
         budget = budget_for(program)
-        steady = steady_cost(program)
+        # A list drawn item by item is a DRAWING cost, so measure it against the tear
+        # risk (recurring drawing), not the whole per-frame load — the same reason the
+        # draw-budget guardrail counts drawing alone.
+        steady = steady_drawing_cost(program)
         return [] if steady <= budget # fits even at full capacity — nothing tips it over
 
         @stack = []
-        capacity_bounded_loops(program).filter_map do |loop_node|
+        thresholds = capacity_bounded_loops(program).filter_map do |loop_node|
           name = loop_node[:count][:name]
           cap = @capacities[name]
-          body = loop_node.children.sum { |child| steady(child) } # one iteration's cost
+          body = loop_node.children.sum { |child| steady(child, true) } # one iteration's drawing
           next unless body.positive?
 
           # cost(N) = (steady - cap*body) + N*body, so it crosses the budget at:
@@ -463,6 +478,9 @@ module RubyGBA
           { list: name, break_even: break_even, cap: cap, budget: budget, steady: steady,
             source: loop_node.source }
         end
+        # One warning per list — a list drawn in several loops would otherwise repeat
+        # the same advice; keep the tightest (lowest tip-over count).
+        thresholds.group_by { |t| t[:list] }.map { |_name, ts| ts.min_by { |t| t[:break_even] } }
       end
 
       # The reachable repeat loops whose trip count is a list's length — so their
@@ -530,7 +548,7 @@ module RubyGBA
         rate = mixer_rate(program)
         spf = [(rate + MIXER_FPS - 1) / MIXER_FPS, 1].max # samples the mixer fills each frame (ceil)
         mixing = MIXER_VOICES * spf * @weights[:mix_voice_sample]
-        overhead = spf * MIXER_OVERHEAD_OPS * @weights[:op_step]
+        overhead = spf * @weights[:mix_overhead_sample]
         cost = mixing + overhead
         { voices: MIXER_VOICES, samples_per_frame: spf, rate: rate,
           cost: cost, budget: FRAME_BUDGET, over: cost > FRAME_BUDGET }
@@ -632,35 +650,42 @@ module RubyGBA
       # The selectivity-weighted cost of a subtree: how often the node's body
       # actually runs scales its cost, so what's left is the work that runs every
       # frame. A node that always runs weighs 1 (see #selectivity).
-      def steady(node)
-        selectivity(node) * raw_steady(node)
+      # `drawing_only` restricts the sum to drawing ops — the tear risk, since only
+      # drawing competes with the brief vblank window. Logic and sound run through the
+      # visible frame and can't tear, so they're excluded from the tear measure (but
+      # counted in the whole-frame 60fps measure). Default false = the full load.
+      def steady(node, drawing_only = false)
+        selectivity(node) * raw_steady(node, drawing_only)
       end
 
-      def raw_steady(node)
+      def raw_steady(node, drawing_only)
         case node.kind
-        when :program, :loop, :else then node.children.sum { |child| steady(child) }
+        when :program, :loop, :else then node.children.sum { |child| steady(child, drawing_only) }
         # The condition is tested every frame, whichever way it goes — that's where a
         # collision test's comparison chain lives — so it's priced in full here; only
-        # the branch bodies are scaled by how often they run.
-        when :if then expr_cost(node[:cond]) + node.children.sum { |child| steady(child) } + (node[:else] ? steady(node[:else]) : 0)
-        when :repeat then repeat_factor(node).first * node.children.sum { |child| steady(child) }
+        # the branch bodies are scaled by how often they run. (Its cost is logic, so
+        # the drawing-only measure skips it.)
+        when :if
+          cond = drawing_only ? 0 : expr_cost(node[:cond])
+          cond + node.children.sum { |child| steady(child, drawing_only) } + (node[:else] ? steady(node[:else], drawing_only) : 0)
+        when :repeat then repeat_factor(node).first * node.children.sum { |child| steady(child, drawing_only) }
         # A timed trigger's steady per-frame cost follows from its kind: every(k)
         # runs one frame in k, so its body counts 1/k; after(n) fires once ever, so
         # it adds nothing to the every-frame load.
-        when :every then Rational(1, node[:period]) * node.children.sum { |child| steady(child) }
+        when :every then Rational(1, node[:period]) * node.children.sum { |child| steady(child, drawing_only) }
         when :after then 0
-        when :case then node[:clauses].map { |_value, target| steady_func(target) }.max || 0
-        when :call then steady_func(node[:target])
+        when :case then node[:clauses].map { |_value, target| steady_func(target, drawing_only) }.max || 0
+        when :call then steady_func(node[:target], drawing_only)
         when :func then 0
-        else op_cost(node)
+        else drawing_only && category_of(node.kind) != :drawing ? 0 : op_cost(node)
         end
       end
 
-      def steady_func(name)
+      def steady_func(name, drawing_only = false)
         return 0 if @stack.include?(name)
         func = @funcs[name] or return 0
         @stack.push(name)
-        total = func.children.sum { |child| steady(child) }
+        total = func.children.sum { |child| steady(child, drawing_only) }
         @stack.pop
         total
       end
