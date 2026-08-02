@@ -107,7 +107,7 @@ module RubyGBA
         pixels = data.map { |c| c == transparent ? transparent : Color.resolve(c) }.pack("v*")
         record(Build.bitmap(name, width: width, height: height, pixels: pixels, transparent: transparent))
         @images[name] = [width, height] # remember the shape, so a sprite can size itself from it
-        record_visible_bounds(name, width, height, data, transparent)
+        record_visible_bounds(name: name, width: width, height: height, cells: data, transparent: transparent)
       end
 
       # ASCII-art form of #image: split the block's art into rows, infer the size
@@ -139,7 +139,7 @@ module RubyGBA
                                   pixels: colors.pack("v*"),
                                   transparent: transparent ? TRANSPARENT_PIXEL : nil))
         @images[name] = [widths.first, rows.size] # remember the shape, so a sprite can size itself from it
-        record_visible_bounds(name, widths.first, rows.size, colors, transparent ? TRANSPARENT_PIXEL : nil)
+        record_visible_bounds(name: name, width: widths.first, height: rows.size, cells: colors, transparent: transparent ? TRANSPARENT_PIXEL : nil)
       end
 
       # Remember the box around an image's visible (non-transparent) pixels, so a
@@ -148,7 +148,7 @@ module RubyGBA
       # see-through one (nil if the image is fully opaque — then the box is the whole
       # image). A blank image (nothing but transparent) also falls back to the whole
       # image, so its collision box is never empty.
-      def record_visible_bounds(name, width, height, cells, transparent)
+      def record_visible_bounds(name:, width:, height:, cells:, transparent:)
         if transparent.nil?
           @image_bounds[name] = [0, 0, width, height]
           return

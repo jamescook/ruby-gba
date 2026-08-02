@@ -11,7 +11,7 @@ module RubyGBA
       # given size and define each as an image, in row-major order. Returns the list
       # of frame image names, ready for the flipbook path — so `frames_from:` needs no
       # naming or numbering, just "cut it up and cycle the pieces."
-      def import_frames(name, path, tile, transparent)
+      def import_frames(name:, path:, tile:, transparent:)
         tile_w, tile_h = sheet_tile_size("sprite :#{name}", tile)
         sheet = Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
         (0...(sheet.cols * sheet.rows)).map do |i|
@@ -29,7 +29,7 @@ module RubyGBA
       # (a plain facing: sprite), and a several-column sheet gives a per-direction
       # animation (a walk cycle each way it faces). Returns the facing: hash the normal
       # sprite path then handles — a single image per direction, or a list of frames.
-      def import_facing(name, path, tile, dirs, transparent)
+      def import_facing(name:, path:, tile:, dirs:, transparent:)
         unless dirs.is_a?(Array) && dirs.any? && dirs.all? { |d| d.is_a?(Symbol) }
           raise ArgumentError,
                 "sprite :#{name} facing_from: needs dirs: — the direction of each row of the sheet, " \
@@ -96,7 +96,7 @@ module RubyGBA
         end
         sheet = Image.load_sheet(File.expand_path(doc.image, File.dirname(path)), transparent: transparent)
         frames = doc.frames.map do |f|
-          bmp = sheet.region(f.x, f.y, f.w, f.h)
+          bmp = sheet.region(x: f.x, y: f.y, w: f.w, h: f.h)
           Aseprite::FrameImage.new(bmp.width, bmp.height, bmp.data, bmp.transparent, f.duration)
         end
         [frames, doc.tags]

@@ -125,7 +125,7 @@ module RubyGBA
                 "pool :#{name} draws image :#{image}, but no `image :#{image}` is defined yet. Define the " \
                 "image before the pool."
 
-        collision_box(image, [image], *size, nil)
+        collision_box(name: image, images: [image], width: size[0], height: size[1], hitbox: nil)
       end
 
       # Declare one hardware-sprite object per slot, each bound to the field lists at its

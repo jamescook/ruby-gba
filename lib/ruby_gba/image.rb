@@ -88,7 +88,7 @@ module RubyGBA
       # An arbitrary rectangle of the sheet — top-left (+x+, +y+), size +w+ x +h+ — as a
       # {Bitmap}. Like {#cell}, but for a sheet whose frames are packed at explicit
       # positions (an Aseprite export gives each frame's rectangle) rather than on a grid.
-      def region(x, y, w, h)
+      def region(x:, y:, w:, h:)
         data = Array.new(w * h) do |i|
           base = (((y + (i / w)) * @stride) + x + (i % w)) * @per
           pixel_color(base)
@@ -184,7 +184,7 @@ module RubyGBA
     # @return [Bitmap]
     def load(path, width:, height:, transparent: false, alpha_threshold: DEFAULT_ALPHA_THRESHOLD,
              adapter: default_adapter)
-      return load_transparent(path, width, height, alpha_threshold, adapter) if transparent
+      return load_transparent(path: path, width: width, height: height, alpha_threshold: alpha_threshold, adapter: adapter) if transparent
 
       rgb = adapter.rgb_pixels(path, width: width, height: height)
       verify_size!(rgb, width, height, 3)
@@ -201,7 +201,7 @@ module RubyGBA
 
     # The see-through variant: read RGBA, and turn each pixel's alpha into either
     # its color (opaque enough) or the transparent marker (too see-through).
-    def load_transparent(path, width, height, alpha_threshold, adapter)
+    def load_transparent(path:, width:, height:, alpha_threshold:, adapter:)
       rgba = adapter.rgba_pixels(path, width: width, height: height)
       verify_size!(rgba, width, height, 4)
 
