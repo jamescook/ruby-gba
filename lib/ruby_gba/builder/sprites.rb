@@ -98,12 +98,12 @@ module RubyGBA
           raise ArgumentError, "sprite :#{name} has both facing_from: and frames:. They both set the sprite's pose. Use only one." if frames
           raise ArgumentError, "sprite :#{name} has both facing_from: and frames_from:. They both slice a sheet for the pose. Use only one." if frames_from
 
-          facing = import_facing(name, facing_from, tile, dirs, transparent)
+          facing = import_facing(name: name, path: facing_from, tile: tile, dirs: dirs, transparent: transparent)
         end
         if frames_from
           raise ArgumentError, "sprite :#{name} has both frames: and frames_from:. They both supply the frames. Use only one." if frames
 
-          frames = import_frames(name, frames_from, tile, transparent)
+          frames = import_frames(name: name, path: frames_from, tile: tile, transparent: transparent)
         end
         validate_animation!(name, facing, frames, rate, frames_from: frames_from)
         return hardware_sprite(name, at: at, facing: facing, frames: frames, rate: rate, shown: shown, hitbox: hitbox) \
@@ -112,7 +112,7 @@ module RubyGBA
         poses, facing_dirs, width, height, frames_per_dir = resolve_sprite_art(name, facing, frames)
         has_poses = !poses.nil?
         animated_facing = frames_per_dir > 1 # a facing: with a list of frames per direction
-        box = collision_box(name, poses || [name], width, height, hitbox)
+        box = collision_box(name: name, images: poses || [name], width: width, height: height, hitbox: hitbox)
         start_x, start_y = at
 
         id = (@sprite_seq += 1)
@@ -172,7 +172,7 @@ module RubyGBA
         poses, facing_dirs, width, height, frames_per_dir = resolve_sprite_art(name, facing, frames)
         poses ||= [name] # a plain sprite is a single-pose object
         animated_facing = frames_per_dir > 1 # a facing: with a list of frames per direction
-        box = collision_box(name, poses, width, height, hitbox)
+        box = collision_box(name: name, images: poses, width: width, height: height, hitbox: hitbox)
         posed = facing || frames # does it choose a pose at run time (a facing or a frame)?
         start_x, start_y = at
 
@@ -231,11 +231,11 @@ module RubyGBA
       # follow a round or concave outline. `hitbox:` overrides it: `:full` for the whole
       # image (the old behaviour), an Integer to shrink the whole image by that many
       # pixels on every side, or an explicit `[x, y, w, h]`.
-      def collision_box(name, images, width, height, hitbox)
+      def collision_box(name:, images:, width:, height:, hitbox:)
         case hitbox
         when nil then visible_bounds_union(images)
         when :full then [0, 0, width, height]
-        when Integer then inset_box(name, width, height, hitbox)
+        when Integer then inset_box(name: name, width: width, height: height, by: hitbox)
         when Array then explicit_hitbox(name, hitbox)
         else
           raise ArgumentError,
@@ -256,7 +256,7 @@ module RubyGBA
         [left, top, right - left, bottom - top]
       end
 
-      def inset_box(name, width, height, by)
+      def inset_box(name:, width:, height:, by:)
         if by.negative? || (2 * by) >= width || (2 * by) >= height
           raise ArgumentError,
                 "sprite :#{name} hitbox: #{by} is too large. It shrinks a #{width}x#{height} sprite to nothing. " \
@@ -417,7 +417,7 @@ module RubyGBA
       # #import_* adapter and reuse this). Its pose is the current clip's offset plus the
       # frame within it, and play() switches clips.
       def clip_sprite(name, at:, poses:, clips:, width:, height:, shown:, hitbox:)
-        box = collision_box(name, poses, width, height, hitbox)
+        box = collision_box(name: name, images: poses, width: width, height: height, hitbox: hitbox)
         start_x, start_y = at
         id = (@sprite_seq += 1)
         pos_x = :"__spr#{id}_x"
@@ -447,7 +447,7 @@ module RubyGBA
       # it. Tool-agnostic, the same clip model as #clip_sprite; the object's pose is the
       # current clip's offset plus the frame within it.
       def clip_hardware_sprite(name, at:, poses:, clips:, width:, height:, shown:, hitbox:)
-        box = collision_box(name, poses, width, height, hitbox)
+        box = collision_box(name: name, images: poses, width: width, height: height, hitbox: hitbox)
         start_x, start_y = at
         id = (@sprite_seq += 1)
         object_name = :"__obj#{id}"
