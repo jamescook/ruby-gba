@@ -8,6 +8,8 @@ require_relative "builder/sound"
 require_relative "builder/music"
 require_relative "builder/text"
 require_relative "builder/images"
+require_relative "builder/sprites"
+require_relative "builder/sprite_import"
 require_relative "builder/input"
 require_relative "builder/drawing"
 require_relative "builder/variables"
@@ -48,6 +50,8 @@ module RubyGBA
     include Music      # song, play_song, stop_music
     include Text       # draw_text, draw_number
     include Images     # image, blit, rgb, rgb8, color
+    include Sprites    # sprite (software + hardware, facing/frames/clip animation, hitboxes)
+    include SpriteImport # sprite art adapters (sheets, Aseprite) feeding the sprite builder
     include Input      # if_held, if_pressed, held, pressed
     include Drawing    # screen, pixel, fill_rect, clear_screen, dma_fill_rect, draw_rect_at
     include Variables  # set/var, add, sub, negate/flip, copy, abs, negate_abs, clamp, var_address, variables
