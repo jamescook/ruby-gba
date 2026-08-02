@@ -82,6 +82,7 @@ module RubyGBA
     FRAME_MAGIC = 0xF1FA
     NEW_PALETTE = 0x2019
     TAGS = 0x2018
+    LAYER = 0x2004
     CEL = 0x2005
 
     # Decode the bytes of an .aseprite file into a {Sprite}: every frame composited to a
@@ -98,6 +99,7 @@ module RubyGBA
       transparent_index = bytes.getbyte(28)
       palette = []                # index -> [r, g, b, a], filled by a palette chunk
       tags = []
+      layers = []                 # index -> { visible, opacity, blend, type }, from the layer chunks
       cels = {}                   # [frame, layer] -> a decoded cel, so a linked cel can copy it
       frames = []
 
@@ -115,7 +117,8 @@ module RubyGBA
           case u16(bytes, chunk + 4)
           when NEW_PALETTE then palette = read_palette(bytes, data)
           when TAGS then tags = read_binary_tags(bytes, data)
-          when CEL then paint_cel(bytes, data, size - 6, canvas, width, height, depth, palette, transparent_index, cels, frame_index)
+          when LAYER then layers << read_layer(bytes, data)
+          when CEL then paint_cel(bytes, data, size - 6, canvas, width, height, depth, palette, transparent_index, cels, layers, frame_index)
           end
           chunk += size
         end
@@ -131,12 +134,28 @@ module RubyGBA
     # Paint one cel onto the frame's canvas. A cel is one layer's picture for this frame,
     # placed at (x, y). Later layers (higher index) come after and draw on top. A compressed
     # cel (type 2) is zlib-deflated; a linked cel (type 1) reuses an earlier frame's cel.
-    def paint_cel(bytes, data, data_len, canvas, width, height, depth, palette, transparent_index, cels, frame_index)
+    # A hidden layer draws nothing; a partly-transparent layer or cel is blended over what is
+    # already there. A blend mode other than Normal, or a tilemap cel, is a friendly error —
+    # flatten those in Aseprite first.
+    def paint_cel(bytes, data, data_len, canvas, width, height, depth, palette, transparent_index, cels, layers, frame_index)
       layer = u16(bytes, data)
+      info = layers[layer]
+      return if info && !info[:visible] # a hidden layer contributes nothing
+
+      if info && info[:blend].positive?
+        raise ArgumentError, "This sprite has a layer with a blend mode other than Normal, which is not " \
+                             "supported yet. Set the layer to Normal, or flatten it, in Aseprite."
+      end
+
+      cel_opacity = bytes.getbyte(data + 6)
+      cel_type = u16(bytes, data + 7)
+      if cel_type == 3
+        raise ArgumentError, "This sprite has a tilemap layer, which is not supported yet. " \
+                             "Flatten it in Aseprite (Layer, then Flatten)."
+      end
+
       x = s16(bytes, data + 2)
       y = s16(bytes, data + 4)
-      cel_type = u16(bytes, data + 7)
-
       cel =
         case cel_type
         when 0 then { x: x, y: y, w: u16(bytes, data + 16), h: u16(bytes, data + 18), pixels: bytes[data + 20, data_len - 20] }
@@ -146,12 +165,15 @@ module RubyGBA
       return unless cel
 
       cels[[frame_index, layer]] = cel
-      blit_cel(cel, canvas, width, height, depth, palette, transparent_index)
+      opacity = info ? (info[:opacity] * cel_opacity) / 255 : cel_opacity
+      blit_cel(cel, canvas, width, height, depth, palette, transparent_index, opacity)
     end
 
     # Copy a cel's non-transparent pixels onto the canvas at its position, clipping anything
-    # off the edges.
-    def blit_cel(cel, canvas, width, height, depth, palette, transparent_index)
+    # off the edges. At full opacity a pixel replaces what is below; below full it is blended
+    # over the pixel already there (or, over nothing, drawn as-is — the console has no partial
+    # transparency in the flattened frame).
+    def blit_cel(cel, canvas, width, height, depth, palette, transparent_index, opacity)
       per = depth / 8
       cel[:h].times do |row|
         cel[:w].times do |col|
@@ -160,9 +182,29 @@ module RubyGBA
 
           px = cel[:x] + col
           py = cel[:y] + row
-          canvas[(py * width) + px] = color if px.between?(0, width - 1) && py.between?(0, height - 1)
+          next unless px.between?(0, width - 1) && py.between?(0, height - 1)
+
+          at = (py * width) + px
+          below = canvas[at]
+          canvas[at] = opacity >= 255 || below.nil? ? color : blend15(color, below, opacity)
         end
       end
+    end
+
+    # A layer's drawing properties from a layer chunk: whether it is visible, its blend mode
+    # (0 = Normal), and its opacity (0-255).
+    def read_layer(bytes, data)
+      { visible: u16(bytes, data).anybits?(1), type: u16(bytes, data + 2),
+        blend: u16(bytes, data + 10), opacity: bytes.getbyte(data + 12) }
+    end
+
+    # Blend +src+ over +dst+ (both 15-bit BGR555) by +opacity+ (0-255), channel by channel.
+    def blend15(src, dst, opacity)
+      inv = 255 - opacity
+      r = (((src & 0x1F) * opacity) + ((dst & 0x1F) * inv)) / 255
+      g = ((((src >> 5) & 0x1F) * opacity) + (((dst >> 5) & 0x1F) * inv)) / 255
+      b = ((((src >> 10) & 0x1F) * opacity) + (((dst >> 10) & 0x1F) * inv)) / 255
+      (b << 10) | (g << 5) | r
     end
 
     # One pixel's console color, or nil when it is see-through. Indexed pixels look up the
