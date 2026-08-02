@@ -85,6 +85,17 @@ module RubyGBA
         Bitmap.new(@tile_w, @tile_h, data, @transparent ? TRANSPARENT : nil)
       end
 
+      # An arbitrary rectangle of the sheet — top-left (+x+, +y+), size +w+ x +h+ — as a
+      # {Bitmap}. Like {#cell}, but for a sheet whose frames are packed at explicit
+      # positions (an Aseprite export gives each frame's rectangle) rather than on a grid.
+      def region(x, y, w, h)
+        data = Array.new(w * h) do |i|
+          base = (((y + (i / w)) * @stride) + x + (i % w)) * @per
+          pixel_color(base)
+        end
+        Bitmap.new(w, h, data, @transparent ? TRANSPARENT : nil)
+      end
+
       private
 
       # One pixel's console color at byte offset +base+: for an opaque sheet just
@@ -132,6 +143,16 @@ module RubyGBA
       Sheet.new(pixels: pixels, stride: native_w, tile_w: tile_w, tile_h: tile_h,
                 cols: native_w / tile_w, rows: native_h / tile_h,
                 per: per, transparent: transparent, alpha_threshold: alpha_threshold)
+    end
+
+    # Load a whole sheet image and hand back a {Sheet} you pull arbitrary rectangles from
+    # with {Sheet#region} — for a packed sheet whose frame positions come from a data file
+    # (an Aseprite export) rather than a fixed grid. Reads the picture at its own
+    # resolution, so frames come across pixel-exact.
+    def load_sheet(path, transparent: false, alpha_threshold: DEFAULT_ALPHA_THRESHOLD, adapter: default_adapter)
+      native_w, native_h = adapter.dimensions(path)
+      slice(path, tile_w: native_w, tile_h: native_h, transparent: transparent,
+                  alpha_threshold: alpha_threshold, adapter: adapter)
     end
 
     # A sheet must split into whole tiles — a size that doesn't divide evenly means

@@ -150,8 +150,16 @@ module RubyGBA
       # @param rate [Integer, nil] frames-per-step for +frames:+/+frames_from:+ (required with them)
       # @param shown [Boolean] draw it now (true, default), or start hidden until `show`
       # @return [Sprite, HardwareSprite] a handle: x / y / move / move_to (and, in bitmap mode, face / hide / show)
-      def sprite(name, at:, facing: nil, frames: nil, frames_from: nil, facing_from: nil, dirs: nil,
-                 tile: nil, transparent: false, rate: nil, shown: true, hitbox: nil)
+      def sprite(name, at:, facing: nil, frames: nil, frames_from: nil, facing_from: nil,
+                 from_aseprite: nil, dirs: nil, tile: nil, transparent: false, rate: nil, shown: true, hitbox: nil)
+        if from_aseprite
+          reject_other_pose_sources!(name, facing: facing, frames: frames, frames_from: frames_from, facing_from: facing_from)
+          poses, clips, width, height = import_aseprite(name, from_aseprite, transparent)
+          return clip_hardware_sprite(name, at: at, poses: poses, clips: clips, width: width, height: height, shown: shown, hitbox: hitbox) \
+            if @screen_mode == :tiled
+
+          return clip_sprite(name, at: at, poses: poses, clips: clips, width: width, height: height, shown: shown, hitbox: hitbox)
+        end
         if facing_from
           raise ArgumentError, "sprite :#{name} has both facing: and facing_from:. They both set the facing poses. Use only one." if facing
           raise ArgumentError, "sprite :#{name} has both facing_from: and frames:. They both set the sprite's pose. Use only one." if frames
@@ -493,6 +501,141 @@ module RubyGBA
           # One column: a still pose per direction. Several: this direction's frame list.
           [dir, sheet.cols == 1 ? frames.first : frames]
         end
+      end
+
+      # Refuse a second pose source alongside from_aseprite: (they all set the sprite's
+      # pictures, so only one makes sense).
+      def reject_other_pose_sources!(name, facing:, frames:, frames_from:, facing_from:)
+        other = { "facing:" => facing, "frames:" => frames,
+                  "frames_from:" => frames_from, "facing_from:" => facing_from }.find { |_, value| value }
+        return unless other
+
+        raise ArgumentError,
+              "sprite :#{name} has both from_aseprite: and #{other.first}. They both set the sprite's pose. Use only one."
+      end
+
+      # Import an Aseprite sprite-sheet export (a PNG plus its JSON) into sprite frames and
+      # named animations. The JSON gives each frame's exact rectangle and each named
+      # animation (frameTag); this slices those rectangles out of the PNG (found from the
+      # JSON's own meta.image, beside the JSON) and defines one image per frame. Returns
+      # [frame image names, clips, width, height], where clips maps each animation name to
+      # { off:, len:, rate: } — its first frame, its length, and a frame rate from the
+      # frames' durations. A sheet with no tags becomes one clip named :all.
+      def import_aseprite(name, json_path, transparent)
+        path = resolve_asset_path(json_path)
+        doc = Aseprite.parse(File.read(path))
+        unless doc.image
+          raise ArgumentError,
+                "sprite :#{name} from_aseprite: #{json_path.inspect} does not name its image. " \
+                "Re-export from Aseprite with the JSON data option, which records the PNG name."
+        end
+
+        sheet = Image.load_sheet(File.expand_path(doc.image, File.dirname(path)), transparent: transparent)
+        poses = doc.frames.each_with_index.map do |frame, i|
+          bmp = sheet.region(frame.x, frame.y, frame.w, frame.h)
+          img = :"__ase_#{name}_#{i}"
+          define_pixel_image(img, width: bmp.width, height: bmp.height, data: bmp.data, transparent: bmp.transparent)
+          img
+        end
+        _poses, width, height = same_size_images!(name, "Aseprite frame", poses)
+
+        tags = doc.tags.empty? ? [Aseprite::Tag.new(:all, 0, doc.frames.length - 1)] : doc.tags
+        clips = tags.to_h do |tag|
+          [tag.name, { off: tag.from, len: (tag.to - tag.from) + 1, rate: clip_rate(doc.frames[tag.from..tag.to]) }]
+        end
+        [poses, clips, width, height]
+      end
+
+      # A named clip's frame rate: turn the frames' duration (milliseconds) into a whole
+      # number of game frames (the console runs at about 60 a second). One uniform rate
+      # per clip — the common case, where a cycle's frames share a duration. At least 1,
+      # so a very fast clip still advances.
+      def clip_rate(frames)
+        ms = frames.map(&:duration).max
+        [((ms * 60.0) / 1000).round, 1].max
+      end
+
+      # Set up the runtime state a named-clip sprite needs and boot it playing the first
+      # clip. The frame timer cycles the frame within the CURRENT clip's length, at the
+      # current clip's rate — both held in variables, so `play` switches clips by just
+      # rewriting them. Returns the variable names the sprite draws and play() rewrite:
+      # [offset, length, rate, frame].
+      def setup_clip_animation(id, clips)
+        off = :"__clip#{id}_off"
+        len = :"__clip#{id}_len"
+        rate = :"__clip#{id}_rate"
+        frame = :"__clip#{id}_frame"
+        tick = :"__clip#{id}_tick"
+        first = clips.values.first
+        { off => first[:off], len => first[:len], rate => first[:rate], frame => 0, tick => 0 }.each do |var, value|
+          at_boot(Build.set(var, Build.int(value)))
+          ensure_var(var)
+        end
+        # rate and frames are variable names, so the timer reads the current clip's values.
+        @animations << { pose: frame, tick: tick, rate: rate, frames: len }
+        [off, len, rate, frame]
+      end
+
+      # A software (bitmap) sprite driven by named animation clips: +poses+ is every frame
+      # and +clips+ maps a name to { off:, len:, rate: }. Tool-agnostic — it takes the
+      # clips an importer produced (Aseprite today; another tool would add its own
+      # #import_* adapter and reuse this). Its pose is the current clip's offset plus the
+      # frame within it, and play() switches clips.
+      def clip_sprite(name, at:, poses:, clips:, width:, height:, shown:, hitbox:)
+        box = collision_box(name, poses, width, height, hitbox)
+        start_x, start_y = at
+        id = (@sprite_seq += 1)
+        pos_x = :"__spr#{id}_x"
+        pos_y = :"__spr#{id}_y"
+        old_x = :"__spr#{id}_ox"
+        old_y = :"__spr#{id}_oy"
+        active = :"__spr#{id}_on"
+        buffer = :"__spr#{id}_under"
+
+        { pos_x => start_x, pos_y => start_y, old_x => start_x, old_y => start_y, active => (shown ? 1 : 0) }.each do |var, value|
+          at_boot(Build.set(var, Value.node_for(value)))
+          ensure_var(var)
+        end
+        off, len, rate, frame = setup_clip_animation(id, clips)
+
+        record(Build.backing_buffer(buffer, width: width, height: height))
+        handle = Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
+                                  active: active, buffer: buffer, hitbox: box, pixel_perfect: hitbox.nil?,
+                                  image: nil, poses: poses, facing_dirs: {},
+                                  clips: clips, clip_off_var: off, clip_len_var: len, clip_rate_var: rate, frame_var: frame)
+        @sprites << handle
+        handle.draw_initial if shown
+        handle
+      end
+
+      # A hardware (tiled) sprite driven by named animation clips — the console composites
+      # it. Tool-agnostic, the same clip model as #clip_sprite; the object's pose is the
+      # current clip's offset plus the frame within it.
+      def clip_hardware_sprite(name, at:, poses:, clips:, width:, height:, shown:, hitbox:)
+        box = collision_box(name, poses, width, height, hitbox)
+        start_x, start_y = at
+        id = (@sprite_seq += 1)
+        object_name = :"__obj#{id}"
+        pos_x = :"__obj#{id}_x"
+        pos_y = :"__obj#{id}_y"
+        active = :"__obj#{id}_on"
+
+        { pos_x => start_x, pos_y => start_y, active => (shown ? 1 : 0) }.each do |var, value|
+          at_boot(Build.set(var, Value.node_for(value)))
+          ensure_var(var)
+        end
+        off, len, rate, frame = setup_clip_animation(id, clips)
+
+        pose = Build.binop(:+, Build.var_ref(off), Build.var_ref(frame)) # clip start + frame within it
+        record(Build.object(object_name, poses: poses, pose: pose,
+                                         x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
+                                         active: scene_gate(Build.var_ref(active))))
+        handle = HardwareSprite.new(self, object_name: object_name, x: pos_x, y: pos_y,
+                                          active: active, hitbox: box, poses: poses, pixel_perfect: hitbox.nil?,
+                                          facing_dirs: {},
+                                          clips: clips, clip_off_var: off, clip_len_var: len, clip_rate_var: rate, frame_var: frame)
+        @hw_sprites << handle
+        handle
       end
 
       # Register a flipbook so Builder#wait_vblank advances it every frame: a hidden
