@@ -60,9 +60,10 @@ module RubyGBA
       # named animations. The JSON gives each frame's exact rectangle and each named
       # animation (frameTag); this slices those rectangles out of the PNG (found from the
       # JSON's own meta.image, beside the JSON) and defines one image per frame. Returns
-      # [frame image names, clips, width, height], where clips maps each animation name to
-      # { off:, len:, rate: } — its first frame, its length, and a frame rate from the
-      # frames' durations. A sheet with no tags becomes one clip named :all.
+      # [frame image names, clips, width, height, durations], where clips maps each
+      # animation name to { off:, len: } (its first frame and its length) and durations is
+      # each frame's own hold, in game frames — so a frame can be held longer than another.
+      # A sheet with no tags becomes one clip named :all.
       def import_aseprite(name, file_path, transparent)
         frames, tags = load_aseprite(name, resolve_asset_path(file_path), transparent)
         poses = frames.each_with_index.map do |frame, i|
@@ -73,10 +74,9 @@ module RubyGBA
         _poses, width, height = same_size_images!(name, "Aseprite frame", poses)
 
         tags = [Aseprite::Tag.new(:all, 0, frames.length - 1)] if tags.empty?
-        clips = tags.to_h do |tag|
-          [tag.name, { off: tag.from, len: (tag.to - tag.from) + 1, rate: clip_rate(frames[tag.from..tag.to]) }]
-        end
-        [poses, clips, width, height]
+        clips = tags.to_h { |tag| [tag.name, { off: tag.from, len: (tag.to - tag.from) + 1 }] }
+        durations = frames.map { |frame| duration_frames(frame.duration) }
+        [poses, clips, width, height, durations]
       end
 
       # Load an Aseprite sprite as [frames, tags], where each frame carries its pixels and

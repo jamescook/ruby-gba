@@ -87,11 +87,11 @@ module RubyGBA
                  from_aseprite: nil, dirs: nil, tile: nil, transparent: false, rate: nil, shown: true, hitbox: nil)
         if from_aseprite
           reject_other_pose_sources!(name, facing: facing, frames: frames, frames_from: frames_from, facing_from: facing_from)
-          poses, clips, width, height = import_aseprite(name, from_aseprite, transparent)
-          return clip_hardware_sprite(name, at: at, poses: poses, clips: clips, width: width, height: height, shown: shown, hitbox: hitbox) \
+          poses, clips, width, height, durations = import_aseprite(name, from_aseprite, transparent)
+          return clip_hardware_sprite(name, at: at, poses: poses, clips: clips, durations: durations, width: width, height: height, shown: shown, hitbox: hitbox) \
             if @screen_mode == :tiled
 
-          return clip_sprite(name, at: at, poses: poses, clips: clips, width: width, height: height, shown: shown, hitbox: hitbox)
+          return clip_sprite(name, at: at, poses: poses, clips: clips, durations: durations, width: width, height: height, shown: shown, hitbox: hitbox)
         end
         if facing_from
           raise ArgumentError, "sprite :#{name} has both facing: and facing_from:. They both set the facing poses. Use only one." if facing
@@ -381,42 +381,44 @@ module RubyGBA
               "sprite :#{name} has both from_aseprite: and #{other.first}. They both set the sprite's pose. Use only one."
       end
 
-      # A named clip's frame rate: turn the frames' duration (milliseconds) into a whole
-      # number of game frames (the console runs at about 60 a second). One uniform rate
-      # per clip — the common case, where a cycle's frames share a duration. At least 1,
-      # so a very fast clip still advances.
-      def clip_rate(frames)
-        ms = frames.map(&:duration).max
+      # Turn a frame's duration (milliseconds) into a whole number of game frames (the
+      # console runs at about 60 a second), at least 1 so a very fast frame still advances.
+      def duration_frames(ms)
         [((ms * 60.0) / 1000).round, 1].max
       end
 
       # Set up the runtime state a named-clip sprite needs and boot it playing the first
-      # clip. The frame timer cycles the frame within the CURRENT clip's length, at the
-      # current clip's rate — both held in variables, so `play` switches clips by just
-      # rewriting them. Returns the variable names the sprite draws and play() rewrite:
-      # [offset, length, rate, frame].
-      def setup_clip_animation(id, clips)
+      # clip. The frame timer cycles the frame within the current clip's length — a variable
+      # play() rewrites to switch clips — and holds each frame for its OWN duration, read at
+      # run time from a hidden list of per-frame holds indexed by the pose showing now. So a
+      # frame the artist held longer plays longer. Returns the variables the sprite draws and
+      # play() rewrites: [offset, length, frame].
+      def setup_clip_animation(id, clips, durations)
         off = :"__clip#{id}_off"
         len = :"__clip#{id}_len"
-        rate = :"__clip#{id}_rate"
         frame = :"__clip#{id}_frame"
         tick = :"__clip#{id}_tick"
+        holds = :"__clip#{id}_holds" # a list of each pose's hold, in game frames
         first = clips.values.first
-        { off => first[:off], len => first[:len], rate => first[:rate], frame => 0, tick => 0 }.each do |var, value|
+        { off => first[:off], len => first[:len], frame => 0, tick => 0 }.each do |var, value|
           at_boot(Build.set(var, Build.int(value)))
           ensure_var(var)
         end
-        # rate and frames are variable names, so the timer reads the current clip's values.
+        at_boot(Build.list_new(holds, durations.length))
+        durations.each { |hold| at_boot(Build.list_push(holds, hold)) }
+        # The rate is the current pose's own hold: the pose (offset + frame) looked up in the
+        # holds list. `frames` (the wrap) is the clip's length variable.
+        rate = Build.list_get(holds, Build.binop(:+, Build.var_ref(off), Build.var_ref(frame)))
         @animations << { pose: frame, tick: tick, rate: rate, frames: len }
-        [off, len, rate, frame]
+        [off, len, frame]
       end
 
-      # A software (bitmap) sprite driven by named animation clips: +poses+ is every frame
-      # and +clips+ maps a name to { off:, len:, rate: }. Tool-agnostic — it takes the
-      # clips an importer produced (Aseprite today; another tool would add its own
-      # #import_* adapter and reuse this). Its pose is the current clip's offset plus the
-      # frame within it, and play() switches clips.
-      def clip_sprite(name, at:, poses:, clips:, width:, height:, shown:, hitbox:)
+      # A software (bitmap) sprite driven by named animation clips: +poses+ is every frame,
+      # +clips+ maps a name to { off:, len: }, and +durations+ is each frame's hold. Tool-
+      # agnostic — it takes what an importer produced (Aseprite today; another tool would add
+      # its own #import_* adapter and reuse this). Its pose is the current clip's offset plus
+      # the frame within it, and play() switches clips.
+      def clip_sprite(name, at:, poses:, clips:, durations:, width:, height:, shown:, hitbox:)
         box = collision_box(name: name, images: poses, width: width, height: height, hitbox: hitbox)
         start_x, start_y = at
         id = (@sprite_seq += 1)
@@ -431,13 +433,13 @@ module RubyGBA
           at_boot(Build.set(var, Value.node_for(value)))
           ensure_var(var)
         end
-        off, len, rate, frame = setup_clip_animation(id, clips)
+        off, len, frame = setup_clip_animation(id, clips, durations)
 
         record(Build.backing_buffer(buffer, width: width, height: height))
         handle = Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
                                   active: active, buffer: buffer, hitbox: box, pixel_perfect: hitbox.nil?,
                                   image: nil, poses: poses, facing_dirs: {},
-                                  clips: clips, clip_off_var: off, clip_len_var: len, clip_rate_var: rate, frame_var: frame)
+                                  clips: clips, clip_off_var: off, clip_len_var: len, frame_var: frame)
         @sprites << handle
         handle.draw_initial if shown
         handle
@@ -446,7 +448,7 @@ module RubyGBA
       # A hardware (tiled) sprite driven by named animation clips — the console composites
       # it. Tool-agnostic, the same clip model as #clip_sprite; the object's pose is the
       # current clip's offset plus the frame within it.
-      def clip_hardware_sprite(name, at:, poses:, clips:, width:, height:, shown:, hitbox:)
+      def clip_hardware_sprite(name, at:, poses:, clips:, durations:, width:, height:, shown:, hitbox:)
         box = collision_box(name: name, images: poses, width: width, height: height, hitbox: hitbox)
         start_x, start_y = at
         id = (@sprite_seq += 1)
@@ -459,7 +461,7 @@ module RubyGBA
           at_boot(Build.set(var, Value.node_for(value)))
           ensure_var(var)
         end
-        off, len, rate, frame = setup_clip_animation(id, clips)
+        off, len, frame = setup_clip_animation(id, clips, durations)
 
         pose = Build.binop(:+, Build.var_ref(off), Build.var_ref(frame)) # clip start + frame within it
         record(Build.object(object_name, poses: poses, pose: pose,
@@ -468,7 +470,7 @@ module RubyGBA
         handle = HardwareSprite.new(self, object_name: object_name, x: pos_x, y: pos_y,
                                           active: active, hitbox: box, poses: poses, pixel_perfect: hitbox.nil?,
                                           facing_dirs: {},
-                                          clips: clips, clip_off_var: off, clip_len_var: len, clip_rate_var: rate, frame_var: frame)
+                                          clips: clips, clip_off_var: off, clip_len_var: len, frame_var: frame)
         @hw_sprites << handle
         handle
       end

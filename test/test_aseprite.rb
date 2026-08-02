@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "tempfile"
 require_relative "../lib/ruby_gba"
 require_relative "test_helper"
 
@@ -161,6 +162,59 @@ class TestAseprite < Minitest::Test
     v = assert_gemba_loads_rom(rom, frames: 3)
     assert v.pixel_is?(44, 44, c(0, 0, 255)),
            "a native .aseprite file: play(:idle)'s blue should composite on the console, got #{v.pixel_gba(44, 44).to_s(16)}"
+  end
+
+  # --- per-frame timing: a frame held longer plays longer ---
+
+  # Build a tiny 8x8 RGBA .aseprite (one layer, no tags — a single clip) with one solid-color
+  # frame per [duration_ms, [r, g, b]] entry, write it to a temp file, and return the path so
+  # from_aseprite: can read it. The Tempfile is held on @tmp so it outlives the test body.
+  def timed_aseprite(specs)
+    frames = specs.each_with_index.map do |(duration_ms, rgb), i|
+      chunks = (i.zero? ? [ase_layer] : []) + [ase_cel(rgb + [255])]
+      ase_frame(chunks, duration_ms)
+    end
+    header = ("\x00" * 128).b
+    header[4, 2] = [0xA5E0].pack("v")
+    header[6, 2] = [specs.length].pack("v")
+    header[8, 2] = [8].pack("v")   # width
+    header[10, 2] = [8].pack("v")  # height
+    header[12, 2] = [32].pack("v") # RGBA
+    header[14, 4] = [1].pack("V")  # flags: opacity valid
+    bytes = (header + frames.join).b
+    bytes[0, 4] = [bytes.bytesize].pack("V")
+
+    file = Tempfile.new(["timed", ".aseprite"])
+    file.binmode
+    file.write(bytes)
+    file.flush
+    (@tmp ||= []) << file
+    file.path
+  end
+
+  def ase_chunk(type, data) = [6 + data.bytesize].pack("V") + [type].pack("v") + data
+  def ase_layer = ase_chunk(0x2004, [1, 0, 0, 0, 0, 0].pack("v6") + [255].pack("C") + ("\x00" * 3) + [1].pack("v") + "L")
+
+  def ase_cel(rgba)
+    head = [0].pack("v") + [0, 0].pack("s<2") + [255].pack("C") + [0].pack("v") + [0].pack("s<") + ("\x00" * 5) + [8, 8].pack("v2")
+    ase_chunk(0x2005, head + (rgba.pack("C4") * 64))
+  end
+
+  def ase_frame(chunks, duration_ms)
+    body = chunks.join
+    [16 + body.bytesize].pack("V") + [0xF1FA].pack("v") + [0].pack("v") + [duration_ms].pack("v") + ("\x00" * 2) + [chunks.length].pack("V") + body
+  end
+
+  # Frame 0 (red) is held 200ms = 12 game frames; frame 1 (green) 100ms = 6. So the clip
+  # runs red for 12, green for 6, then loops. A uniform rate would take the SLOWEST frame
+  # (12) for both, keeping green up through frame 23 — so green gone by frame 20 proves each
+  # frame keeps its own hold.
+  def test_a_frame_held_longer_plays_longer
+    path = timed_aseprite([[200, [255, 0, 0]], [100, [0, 255, 0]]])
+    assert_equal c(255, 0, 0), spot(game(mode: :bitmap, run: 6, file: path)), "red holds through frame 6"
+    assert_equal c(0, 255, 0), spot(game(mode: :bitmap, run: 15, file: path)), "green is up mid-way through its own hold"
+    assert_equal c(255, 0, 0), spot(game(mode: :bitmap, run: 20, file: path)),
+                 "green's own 6-frame hold ended and the clip looped back to red (a uniform rate would still show green)"
   end
 
   # --- friendly errors ---

@@ -208,11 +208,15 @@ module RubyGBA
         [Build.add(tick, Build.int(1)), step]
       end
 
-      # An animation's frame-count or rate as a value node: a Symbol names a variable —
-      # a named clip's runtime length or rate, which `play` switches — and anything else
-      # is a fixed number.
+      # An animation's frame-count or rate as a value node: a Symbol names a variable (a
+      # named clip's runtime length, which `play` switches); an IR node is used as-is (a
+      # per-frame duration looked up at run time); anything else is a fixed number.
       def anim_operand(value)
-        value.is_a?(Symbol) ? Build.var_ref(value) : Build.int(value)
+        case value
+        when IR::Node then value
+        when Symbol then Build.var_ref(value)
+        else Build.int(value)
+        end
       end
 
       # Record an `if` node comparing a variable against an operand, and gather the
