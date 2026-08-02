@@ -54,7 +54,9 @@ module Pacman
   # Pac-Man facing +dir+, as ASCII art: 'Y' is a lit (yellow) body pixel, '.' is
   # transparent. He's the disc of radius R. With his mouth open, a triangular wedge —
   # the mouth — is bitten out on the side he faces, so the field shows through it; with
-  # his mouth shut he is a full disc. Alternating the two frames is the chomp.
+  # his mouth shut he is a full disc. Alternating the two frames is the chomp. The game
+  # does not call this at run time; assets/gen_pacman_sheet.rb bakes it into
+  # pacman_sheet.png, which the game imports with `facing_from:` (see below).
   def self.pacman_art(dir, open: true)
     (0...SIZE).map do |y|
       (0...SIZE).map do |x|
@@ -146,21 +148,16 @@ module Pacman
     tiles :dungeon, "#" => :wall, "." => :floor
     background :room, tiles: :dungeon, map: ROOM
 
-    # --- Pac-Man: a two-frame chomp per direction (mouth open, then shut) ---
-    # `facing:` given a LIST of frames per direction runs a per-direction animation, so
-    # Pac chomps in whichever way he faces. The framework composes the two selectors for
-    # us (pose = direction * frames + frame); we just name the frames. The open mouth
-    # faces a direction, but the shut mouth is a full disc — the same whichever way he
-    # looks — so a single shut frame is shared.
-    image(:pac_shut, "." => :transparent, "Y" => :yellow) { Pacman.pacman_art(:right, open: false) }
-    DIRS.each do |dir|
-      image(:"pac_#{dir}_open", "." => :transparent, "Y" => :yellow) { Pacman.pacman_art(dir, open: true) }
-    end
+    # --- Pac-Man: a two-frame chomp per direction, imported from a sprite sheet ---
+    # pacman_sheet.png is a grid — one row per direction (in DIRS order), two columns
+    # (mouth open, then a shut full disc) — baked from the pacman_art formula below by
+    # assets/gen_pacman_sheet.rb. `facing_from:` slices it back into per-direction frames,
+    # so Pac chomps whichever way he faces: this is the way a real game brings in art,
+    # from a file rather than typed inline. (Re-run the generator if you change the
+    # formula.)
     pac = sprite :pac, at: START, rate: 6,
-                       facing: { right: %i[pac_right_open pac_shut],
-                                 left:  %i[pac_left_open  pac_shut],
-                                 up:    %i[pac_up_open    pac_shut],
-                                 down:  %i[pac_down_open  pac_shut] }
+                       facing_from: "assets/pacman_sheet.png", tile: SIZE,
+                       dirs: DIRS, transparent: true
 
     # --- the pellets: a sprite each, scattered on the floor ---
     image(:pellet, "." => :transparent, "o" => :white) { PELLET_ART }
