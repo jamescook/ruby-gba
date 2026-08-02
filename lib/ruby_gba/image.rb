@@ -41,7 +41,7 @@ module RubyGBA
     # transparency) the marker color used for see-through pixels. #data is a flat,
     # row-major list of colors, one per pixel — exactly what `image`'s array form
     # wants. It's plain data and knows nothing about ROMs or hardware.
-    Bitmap = Struct.new(:width, :height, :data, :transparent)
+    Bitmap = Data.define(:width, :height, :data, :transparent)
 
     # A single picture holding a grid of equal-size cells — a tile sheet or a
     # sprite sheet. It keeps the whole picture's pixels once, and hands back any

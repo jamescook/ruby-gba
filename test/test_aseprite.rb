@@ -22,9 +22,12 @@ class TestAseprite < Minitest::Test
   Color = RubyGBA::Color
 
   SOLID8 = (["########"] * 8).join("\n")
-  # The committed fixture: a 4-frame sheet (red, green, blue, white) with two tags —
-  # walk = frames 0..1 (red, green), blink = frames 2..3 (blue, white).
+  # The committed fixtures. A JSON+PNG export and a native .aseprite binary, both a 4-frame
+  # sheet of red, green, blue, white. The JSON one is tagged walk = 0..1 / blink = 2..3;
+  # the binary one is tagged walk = 0..1 / idle = 2..3. And a real Aseprite file (the bird).
   FIXTURE = File.expand_path("fixtures/aseprite/hero.json", __dir__)
+  BINARY = File.expand_path("fixtures/aseprite/hero_rgba.aseprite", __dir__)
+  BIRD = File.expand_path("../examples/assets/bird.aseprite", __dir__)
 
   # --- the parser, on inline JSON (both export layouts) ---
 
@@ -47,14 +50,14 @@ class TestAseprite < Minitest::Test
     doc = Aseprite.parse(HASH_JSON)
     assert_equal "a.png", doc.image
     assert_equal 2, doc.frames.length
-    assert_equal [0, 0, 8, 8, 120], doc.frames[0].to_a
+    assert_equal [0, 0, 8, 8, 120], doc.frames[0].deconstruct
     assert_equal [%i[idle], [0], [1]].flatten, [doc.tags.map(&:name), doc.tags.map(&:from), doc.tags.map(&:to)].flatten
   end
 
   def test_the_parser_reads_the_array_layout
     doc = Aseprite.parse(ARRAY_JSON)
     assert_equal 2, doc.frames.length
-    assert_equal [4, 2, 8, 8, 80], doc.frames[0].to_a, "an array-layout frame keeps its rect and duration"
+    assert_equal [4, 2, 8, 8, 80], doc.frames[0].deconstruct, "an array-layout frame keeps its rect and duration"
     assert_equal :run, doc.tags.first.name
   end
 
@@ -65,7 +68,7 @@ class TestAseprite < Minitest::Test
 
   # --- the sprite: import the fixture, play named animations (both backends) ---
 
-  def game(mode:, run:, play: nil)
+  def game(mode:, run:, play: nil, file: FIXTURE)
     builder = Builder.new
     builder.instance_eval do
       screen mode
@@ -76,7 +79,7 @@ class TestAseprite < Minitest::Test
       else
         clear_screen :black
       end
-      hero = sprite :hero, at: [40, 40], from_aseprite: FIXTURE
+      hero = sprite :hero, at: [40, 40], from_aseprite: file
       hero.play(play) if play # switch clip at setup; it holds while the loop animates it
       f = var :f, 0
       game_loop do
@@ -116,6 +119,48 @@ class TestAseprite < Minitest::Test
     v = assert_gemba_loads_rom(rom, frames: 3)
     assert v.pixel_is?(44, 44, c(0, 0, 255)),
            "blink's first frame (blue) should composite on the console, got #{v.pixel_gba(44, 44).to_s(16)}"
+  end
+
+  # --- the native binary .aseprite, read directly (no export step) ---
+
+  def test_the_binary_parser_reads_frames_tags_and_colors
+    sprite = Aseprite.load_binary(File.binread(BINARY))
+    assert_equal 4, sprite.frames.length
+    assert_equal %i[walk idle], sprite.tags.map(&:name)
+    assert_equal [0, 1], [sprite.tags[0].from, sprite.tags[0].to]
+    assert_includes sprite.frames[0].data.uniq, c(255, 0, 0), "frame 0 decodes to red"
+  end
+
+  def test_the_binary_parser_composites_the_real_bird
+    sprite = Aseprite.load_binary(File.binread(BIRD))
+    assert_equal 6, sprite.frames.length, "the bird has six frames"
+    assert_equal [64, 64], [sprite.frames[0].width, sprite.frames[0].height]
+    marker = RubyGBA::Image::TRANSPARENT
+    lit = sprite.frames[0].data.count { |px| px != marker }
+    assert_operator lit, :>, 100, "the seven layers composite into a bird's worth of lit pixels"
+  end
+
+  def test_rejecting_bytes_that_are_not_an_aseprite_file
+    err = assert_raises(ArgumentError) { Aseprite.load_binary(("nope" * 40).b) }
+    assert_match(/not an .aseprite/, err.message)
+  end
+
+  def test_a_native_aseprite_file_imports_and_plays
+    assert_equal c(255, 0, 0), spot(game(mode: :bitmap, run: 3, file: BINARY)), "native: walk's first frame (red)"
+    assert_equal c(0, 255, 0), spot(game(mode: :bitmap, run: 9, file: BINARY)), "native: walk animates (green)"
+    assert_equal c(0, 0, 255), spot(game(mode: :bitmap, run: 3, file: BINARY, play: :idle)), "native: play(:idle) (blue)"
+  end
+
+  def test_a_native_aseprite_file_on_a_hardware_sprite
+    assert_equal c(255, 255, 255), spot(game(mode: :tiled, run: 9, file: BINARY, play: :idle)), "tiled native: idle's second frame (white)"
+  end
+
+  def test_on_console_a_native_aseprite_file_composites
+    rom = ROM.assemble(GBA.new.lower(game(mode: :tiled, run: 3, file: BINARY, play: :idle)),
+                       title: "ASEBIN", code: "BABN", maker: "01")
+    v = assert_gemba_loads_rom(rom, frames: 3)
+    assert v.pixel_is?(44, 44, c(0, 0, 255)),
+           "a native .aseprite file: play(:idle)'s blue should composite on the console, got #{v.pixel_gba(44, 44).to_s(16)}"
   end
 
   # --- friendly errors ---

@@ -521,29 +521,43 @@ module RubyGBA
       # [frame image names, clips, width, height], where clips maps each animation name to
       # { off:, len:, rate: } — its first frame, its length, and a frame rate from the
       # frames' durations. A sheet with no tags becomes one clip named :all.
-      def import_aseprite(name, json_path, transparent)
-        path = resolve_asset_path(json_path)
-        doc = Aseprite.parse(File.read(path))
-        unless doc.image
-          raise ArgumentError,
-                "sprite :#{name} from_aseprite: #{json_path.inspect} does not name its image. " \
-                "Re-export from Aseprite with the JSON data option, which records the PNG name."
-        end
-
-        sheet = Image.load_sheet(File.expand_path(doc.image, File.dirname(path)), transparent: transparent)
-        poses = doc.frames.each_with_index.map do |frame, i|
-          bmp = sheet.region(frame.x, frame.y, frame.w, frame.h)
+      def import_aseprite(name, file_path, transparent)
+        frames, tags = load_aseprite(name, resolve_asset_path(file_path), transparent)
+        poses = frames.each_with_index.map do |frame, i|
           img = :"__ase_#{name}_#{i}"
-          define_pixel_image(img, width: bmp.width, height: bmp.height, data: bmp.data, transparent: bmp.transparent)
+          define_pixel_image(img, width: frame.width, height: frame.height, data: frame.data, transparent: frame.transparent)
           img
         end
         _poses, width, height = same_size_images!(name, "Aseprite frame", poses)
 
-        tags = doc.tags.empty? ? [Aseprite::Tag.new(:all, 0, doc.frames.length - 1)] : doc.tags
+        tags = [Aseprite::Tag.new(:all, 0, frames.length - 1)] if tags.empty?
         clips = tags.to_h do |tag|
-          [tag.name, { off: tag.from, len: (tag.to - tag.from) + 1, rate: clip_rate(doc.frames[tag.from..tag.to]) }]
+          [tag.name, { off: tag.from, len: (tag.to - tag.from) + 1, rate: clip_rate(frames[tag.from..tag.to]) }]
         end
         [poses, clips, width, height]
+      end
+
+      # Load an Aseprite sprite as [frames, tags], where each frame carries its pixels and
+      # its duration. Reads either the native binary (.aseprite / .ase) straight — no export
+      # step — or a JSON + PNG export (the JSON names its PNG, found beside it).
+      def load_aseprite(name, path, transparent)
+        if path.downcase.end_with?(".aseprite", ".ase")
+          sprite = Aseprite.load_binary(File.binread(path))
+          return [sprite.frames, sprite.tags]
+        end
+
+        doc = Aseprite.parse(File.read(path))
+        unless doc.image
+          raise ArgumentError,
+                "sprite :#{name} from_aseprite: #{path.inspect} does not name its image. " \
+                "Re-export from Aseprite with the JSON data option, which records the PNG name."
+        end
+        sheet = Image.load_sheet(File.expand_path(doc.image, File.dirname(path)), transparent: transparent)
+        frames = doc.frames.map do |f|
+          bmp = sheet.region(f.x, f.y, f.w, f.h)
+          Aseprite::FrameImage.new(bmp.width, bmp.height, bmp.data, bmp.transparent, f.duration)
+        end
+        [frames, doc.tags]
       end
 
       # A named clip's frame rate: turn the frames' duration (milliseconds) into a whole
