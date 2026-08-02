@@ -17,7 +17,7 @@ module RubyGBA
   class ROMValidator
     include Constants
 
-    Result = Struct.new(:errors, :warnings) do
+    Result = Data.define(:errors, :warnings) do
       def ok?
         errors.empty?
       end
