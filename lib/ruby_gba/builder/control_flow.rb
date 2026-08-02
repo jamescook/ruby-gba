@@ -197,13 +197,22 @@ module RubyGBA
       def advance_animation(anim)
         pose = anim[:pose]
         tick = anim[:tick]
-        wrap = Build.if_(Build.binop(:>=, Build.var_ref(pose), Build.int(anim[:frames])),
+        frames = anim_operand(anim[:frames]) # a fixed frame count, or a var (a named clip's length)
+        rate = anim_operand(anim[:rate])     # a fixed rate, or a var (a named clip's rate)
+        wrap = Build.if_(Build.binop(:>=, Build.var_ref(pose), frames),
                          Build.set(pose, Build.int(0)))
-        step = Build.if_(Build.binop(:>=, Build.var_ref(tick), Build.int(anim[:rate])),
+        step = Build.if_(Build.binop(:>=, Build.var_ref(tick), rate),
                          Build.set(tick, Build.int(0)),
                          Build.add(pose, Build.int(1)),
                          wrap)
         [Build.add(tick, Build.int(1)), step]
+      end
+
+      # An animation's frame-count or rate as a value node: a Symbol names a variable —
+      # a named clip's runtime length or rate, which `play` switches — and anything else
+      # is a fixed number.
+      def anim_operand(value)
+        value.is_a?(Symbol) ? Build.var_ref(value) : Build.int(value)
       end
 
       # Record an `if` node comparing a variable against an operand, and gather the

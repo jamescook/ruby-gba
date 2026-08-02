@@ -49,7 +49,8 @@ module RubyGBA
     # @param facing_var [Symbol, nil] the variable holding which pose is showing (faceted only)
     # @param facing_dirs [Hash{Symbol=>Integer}, nil] direction -> pose index (faceted only)
     def initialize(builder, object_name:, x:, y:, active:, hitbox:, poses:, pixel_perfect:,
-                   facing_var: nil, facing_dirs: nil, frame_var: nil, frames_per_dir: 1)
+                   facing_var: nil, facing_dirs: nil, frame_var: nil, frames_per_dir: 1,
+                   clips: nil, clip_off_var: nil, clip_len_var: nil, clip_rate_var: nil)
       @builder = builder
       @object_name = object_name
       @x_var = x
@@ -60,8 +61,12 @@ module RubyGBA
       @pixel_perfect = pixel_perfect
       @facing_var = facing_var   # the variable the object's pose selector reads (facing, or single pose)
       @facing_dirs = facing_dirs # direction -> facing index, for face / auto-facing move
-      @frame_var = frame_var     # a directional animation's frame variable; nil otherwise
+      @frame_var = frame_var     # a directional-animation OR named-clip frame variable; nil otherwise
       @frames_per_dir = frames_per_dir # frames per direction (1 unless a directional animation)
+      @clips = clips             # named animations from an Aseprite sheet (name -> {off,len,rate}); nil otherwise
+      @clip_off_var = clip_off_var # the current clip's start offset (a named-clip sprite)
+      @clip_len_var = clip_len_var # the current clip's length
+      @clip_rate_var = clip_rate_var # the current clip's frame rate
       @walls = nil               # solid-tile Boxes this sprite is blocked by (nil until blocked_by)
     end
 
@@ -78,6 +83,7 @@ module RubyGBA
     # plain sprite is pose 0, a facing/frames sprite is its selector, and a directional
     # animation is facing * frames_per_direction + frame.
     def pose_index_node
+      return Build.binop(:+, Build.var_ref(@clip_off_var), Build.var_ref(@frame_var)) if @clip_off_var
       return Build.int(0) unless @facing_var
       return Build.var_ref(@facing_var) unless @frame_var
 
@@ -208,6 +214,23 @@ module RubyGBA
         raise ArgumentError, "this sprite cannot face #{direction.inspect} — it faces #{@facing_dirs.keys.join(', ')}"
 
       record(Build.set(@facing_var, Build.int(index)))
+      self
+    end
+
+    # Play a named animation from the sprite's Aseprite sheet (a frameTag). It runs from
+    # its first frame and loops until you play another one. Only for a sprite made with
+    # `from_aseprite:`, and only a name the sheet defines — anything else is a friendly
+    # error. Switching is instant; the console shows the new animation next frame.
+    def play(clip)
+      raise ArgumentError, "this sprite has no named animations to play — make it with `sprite ..., from_aseprite: \"file.json\"`" unless @clips
+
+      info = @clips[clip] or
+        raise ArgumentError, "this sprite has no animation #{clip.inspect} — it has #{@clips.keys.join(', ')}"
+
+      record(Build.set(@clip_off_var, Build.int(info[:off])))
+      record(Build.set(@clip_len_var, Build.int(info[:len])))
+      record(Build.set(@clip_rate_var, Build.int(info[:rate])))
+      record(Build.set(@frame_var, Build.int(0)))
       self
     end
 
