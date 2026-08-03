@@ -32,6 +32,8 @@ module RubyGBA
                    desc: "Print how far asset packing shrank the cartridge"
     option :analyze, type: :boolean, default: false,
                      desc: "Run the ROM on the emulator and report the measured per-frame cost"
+    option :scene, type: :array, banner: "NAME", default: [],
+                   desc: "With --analyze, profile only these scenes (default: all scenes)"
     def build(game_file)
       game = load_game(game_file)
       rom = game.build_rom
@@ -40,7 +42,7 @@ module RubyGBA
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
       say rom.compression.summary_line if options[:stats] && rom.compression&.any?
       rom.explain if options[:explain]
-      analyze_rom(path) if options[:analyze]
+      analyze_game(game) if options[:analyze] || options[:scene].any?
     end
 
     desc "inspect ROM_FILE", "Show a built .gba's header and a disassembly"
@@ -64,12 +66,18 @@ module RubyGBA
 
     private
 
-    # Run the built ROM on the emulator and print its measured per-frame cost. Needs the
-    # emulator built; a missing build is a friendly error, not a backtrace.
-    def analyze_rom(rom_path)
-      say analyze_line(RubyGBA::Analyzer.measure(rom_path))
+    # Profile the game on the emulator and print the measured per-frame cost per scene
+    # (or once for a game with no scenes). Needs the emulator built; a missing build, or
+    # an unknown scene name, is a friendly error, not a backtrace.
+    def analyze_game(game)
+      only = options[:scene].any? ? options[:scene] : nil
+      RubyGBA::Analyzer.profile(game, only: only).each do |scene, result|
+        say "#{scene ? "scene :#{scene} — " : ''}#{analyze_line(result)}"
+      end
     rescue LoadError => e
       raise Thor::Error, "--analyze needs the emulator. #{e.message}"
+    rescue ArgumentError => e
+      raise Thor::Error, e.message
     end
 
     # The measured-cost line. Below the frame ceiling it reports the real scanline count
