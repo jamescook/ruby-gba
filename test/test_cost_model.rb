@@ -17,6 +17,7 @@ module CostArith
   WEIGHTS = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
 
   def dma_rows(w, h) = (h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:dma_pixel])
+  def plot_rect(w, h) = w * h * WEIGHTS[:plot_pixel] # fill_rect: a CPU per-pixel loop
   def dma_blob(pixels) = WEIGHTS[:dma_setup] + (pixels * WEIGHTS[:dma_pixel])
   # A glyph/text costs the pixels it plots, in the given font.
   def text_cost(text, font = :default) = RubyGBA::Fonts.get(font).text_pixels(text) * WEIGHTS[:plot_pixel]
@@ -70,6 +71,24 @@ class TestCostModel < Minitest::Test
   def test_per_pixel_collision_is_priced_by_overlap_area
     delta = Cost.new.frame_cost(overlap_game(8)) - Cost.new.frame_cost(overlap_game(4))
     near(((8 * 8) - (4 * 4)) * WEIGHTS[:overlap_pixel], delta)
+  end
+
+  # fill_rect is a CPU per-pixel loop; dma_fill_rect is a per-row DMA. The split prices
+  # them apart — the same rectangle costs far more filled by the CPU than by DMA.
+  def test_fill_rect_is_priced_as_cpu_plotting_apart_from_dma
+    w = 40
+    h = 20
+    cpu = program do
+      screen :bitmap
+      game_loop { wait_vblank; fill_rect 0, 0, w, h, :red }
+    end
+    dma = program do
+      screen :bitmap
+      game_loop { wait_vblank; dma_fill_rect 0, 0, w, h, :red }
+    end
+    near(w * h * WEIGHTS[:plot_pixel], Cost.new.frame_cost(cpu))
+    near((h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:dma_pixel]), Cost.new.frame_cost(dma))
+    assert_operator Cost.new.frame_cost(cpu), :>, Cost.new.frame_cost(dma), "CPU plotting is dearer than a DMA fill"
   end
 
   # Self-audit: the conformance fixture exercises every IR kind, so the model must have
@@ -129,8 +148,8 @@ class TestCostModel < Minitest::Test
   # A DMA fill costs per ROW (each row is a DMA), so a tall-thin rectangle costs more
   # than a wide-flat one of the SAME pixel area.
   def test_a_tall_rect_costs_more_than_a_wide_one_of_equal_area
-    tall = program { screen(:bitmap); fill_rect(0, 0, 4, 40, :red); halt }   # 40 rows
-    wide = program { screen(:bitmap); fill_rect(0, 0, 40, 4, :red); halt }   # 4 rows, same 160px
+    tall = program { screen(:bitmap); dma_fill_rect(0, 0, 4, 40, :red); halt }   # 40 rows
+    wide = program { screen(:bitmap); dma_fill_rect(0, 0, 40, 4, :red); halt }   # 4 rows, same 160px
     assert_operator Cost.new.frame_cost(tall), :>, Cost.new.frame_cost(wide),
                     "more rows = more DMA setups = more cost, even at equal area"
   end
@@ -157,7 +176,7 @@ class TestCostModel < Minitest::Test
       fill_rect 0, 0, 4, 4, :blue    #  4*4  =  16
       halt
     end
-    near dma_rows(10, 10) + dma_rows(4, 4), Cost.new.frame_cost(prog)
+    near plot_rect(10, 10) + plot_rect(4, 4), Cost.new.frame_cost(prog)
   end
 
   # A repeat runs its body a fixed number of times, so its cost multiplies.
@@ -227,7 +246,7 @@ class TestCostModel < Minitest::Test
       halt
     end
     base = Cost.new.frame_cost(prog)
-    doubled = Cost.new(dma_setup: WEIGHTS[:dma_setup] * 2, dma_pixel: WEIGHTS[:dma_pixel] * 2).frame_cost(prog)
+    doubled = Cost.new(plot_pixel: WEIGHTS[:plot_pixel] * 2).frame_cost(prog) # fill_rect plots per pixel
     near 2 * base, doubled
   end
 
@@ -282,7 +301,7 @@ class TestCostModel < Minitest::Test
     end
     tree = Cost.new.analyze(prog)
     assert_equal %i[fill_rect draw_rect_at], tree.map { |n| n[:op] }
-    near dma_rows(10, 10), tree[0][:cost]
+    near plot_rect(10, 10), tree[0][:cost]
     near dma_rows(8, 8), tree[1][:cost]
   end
 
@@ -329,7 +348,7 @@ class TestCostModel < Minitest::Test
     io = StringIO.new
     rom.explain(format: :json, out: io)
     data = JSON.parse(io.string)
-    near dma_rows(10, 10), data["frame_cost"]
+    near plot_rect(10, 10), data["frame_cost"]
     assert_equal false, data["looping"]
     # The tree is now organized into drawing / sound / logic sections; the fill_rect
     # sits inside the drawing section.
