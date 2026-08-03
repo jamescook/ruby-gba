@@ -122,6 +122,12 @@ class TestCostPrinter < Minitest::Test
     program(screen(:bitmap), loop_(wait_vblank, fill_rect(0, 0, 40, 40, :red), halt))
   end
 
+  # A frame whose only work is inside a loop counted at run time (a plain variable, no
+  # provable bound) — so the static estimate prices it at zero and can't vouch for it.
+  def blind_program
+    program(screen(:bitmap), loop_(wait_vblank, repeat(var_ref(:n), :i, fill_rect(0, 0, 40, 40, :red)), halt))
+  end
+
   def rendered(prog, **opts)
     io = StringIO.new
     Cost.new.render(prog, out: io, **opts)
@@ -148,13 +154,36 @@ class TestCostPrinter < Minitest::Test
   # The heart of the DX decision: a game that FITS shows no red anywhere — red is the
   # "you're over budget" alarm, never a hotspot label. So a fitting program's drill-down
   # stays green→orange, and the reader isn't told to fix a game that's fine.
-  # The verdict is a static estimate, so it reads as within/over budget and points the
-  # dev at the analyzer for a measured frame rate.
-  def test_the_verdict_reads_as_an_estimate_and_points_to_analyze
+  # With nothing measured, the verdict is a static estimate: it reads as within/over
+  # budget, promises no frame rate, and says plainly that it did not run the game.
+  def test_the_verdict_reads_as_an_estimate_when_nothing_measured_it
     output = rendered(cheap_program)
     refute_includes output, "holds 60fps", "no frame rate is promised — the cost model only estimates"
     assert_includes output, "estimate within budget"
-    assert_includes output, "--analyze", "hint the dev toward a measured frame rate"
+    assert_includes output, "estimate only", "says it is an estimate, not a measurement"
+    refute_includes output, "--analyze", "the analyze flag is gone; explain measures on its own"
+  end
+
+  # The honesty fix: a measurement, when present, IS the verdict — the estimate's own
+  # within/over verdict is suppressed, so the two can never disagree in the report.
+  def test_a_measurement_becomes_the_verdict_and_suppresses_the_estimate
+    fits = rendered(cheap_program, measured: { nil => { scanlines: 30.0, fps: nil, saturated: false } })
+    assert_includes fits, "measured ~30", "the measured cost is the verdict"
+    refute_includes fits, "estimate within budget", "the estimate verdict is suppressed once measured"
+    refute_includes fits, "estimate only", "no estimate-only hint when a measurement is in hand"
+
+    over = rendered(cheap_program, measured: { nil => { scanlines: 220.0, fps: 18.0, saturated: true } })
+    assert_includes over, "measured over budget", "a saturated frame reads over budget"
+    assert_includes over, "18.0 fps", "with the measured frame rate"
+  end
+
+  # Estimate-only, and the frame has an unbounded loop the model can't size: it must NOT
+  # claim "within budget" — the estimate says it can't tell.
+  def test_a_blind_spot_stops_the_estimate_claiming_within_budget
+    output = rendered(blind_program)
+    refute_includes output, "estimate within budget", "an unbounded loop can hide real cost"
+    assert_includes output, "estimate can't tell", "the estimate admits it can't size the loop"
+    assert_includes output, "unbounded loop"
   end
 
   def test_a_fitting_program_has_no_red_anywhere

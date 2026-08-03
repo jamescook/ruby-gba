@@ -64,12 +64,12 @@ class TestCLI < Minitest::Test
     end
   end
 
-  def test_analyze_reports_a_measured_per_frame_cost
+  def test_explain_folds_in_a_measured_per_frame_cost
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)
-      out, status = cli("build", "demo.rb", "--analyze", dir: dir)
+      out, status = cli("build", "demo.rb", "--explain", dir: dir)
       assert status.success?, out
-      assert_match(/measured on emulator: .*scanlines per frame/, out)
+      assert_match(/measured ~.*of 228 scanlines/, out)
     end
   end
 
@@ -91,13 +91,13 @@ class TestCLI < Minitest::Test
     end
   RUBY
 
-  def test_analyze_profiles_each_scene_by_booting_into_it
+  def test_explain_measures_each_scene_by_booting_into_it
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "scened.rb"), SCENED)
-      out, status = cli("build", "scened.rb", "--analyze", dir: dir)
+      out, status = cli("build", "scened.rb", "--explain", dir: dir)
       assert status.success?, out
-      assert_match(/scene :title — measured on emulator/, out)
-      assert_match(/scene :play — measured on emulator/, out)
+      assert_match(/scene :title\s+measured/, out)
+      assert_match(/scene :play\s+measured/, out)
     end
   end
 
@@ -106,8 +106,8 @@ class TestCLI < Minitest::Test
       File.write(File.join(dir, "scened.rb"), SCENED)
       out, status = cli("build", "scened.rb", "--scene", "play", dir: dir)
       assert status.success?, out
-      assert_match(/scene :play —/, out)
-      refute_match(/scene :title —/, out)
+      assert_match(/scene :play\s+measured/, out)
+      refute_match(/scene :title\s+measured/, out)
 
       bad, bad_status = cli("build", "scened.rb", "--scene", "nope", dir: dir)
       refute bad_status.success?, bad

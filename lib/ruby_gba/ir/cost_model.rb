@@ -557,27 +557,27 @@ module RubyGBA
       # Print a short, human draw-cost estimate to +out+: the per-frame cost against
       # the frame budget for a game loop, or the one-time boot cost otherwise. (The
       # full drill-down tree comes later; this is the at-a-glance summary.)
-      def report(program, out: $stdout, color: :auto)
+      def report(program, out: $stdout, color: :auto, measured: nil)
         printer = Printer.for(out, color: color)
         tree = category_tree(program) # also populates the unpriced set before the header prints
         frame_total = tree.sum { |node| node[:cost] }
         emit_unpriced_banner(printer)
-        printer.puts "per-frame cost estimate (scanlines, measured on hardware):"
+        printer.puts header_line(measured)
         printer.puts "  per frame ~ #{fmt(frame_total)} scanlines" # the roll-up; the verdict/red is at the bottom
         tree.each { |cat| category_line(cat, printer, frame_total) } # section subtotals, no detail
         glyph_footprint_lines(program, printer)
-        budget_summary_lines(program, printer, frame_total)
+        budget_summary_lines(program, printer, frame_total, measured: measured)
       end
 
       # The drill-down: the verdict, then the (aggregated, depth-limited) cost tree,
       # then the hottest ops. +focus+ roots the tree at a named func; +max_depth+
       # bounds how deep it prints (deeper subtrees collapse to a rollup line).
-      def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5, color: :auto)
+      def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5, color: :auto, measured: nil)
         printer = Printer.for(out, color: color)
         tree = category_tree(program, focus: focus)
         frame_total = tree.sum { |node| node[:cost] } # the reference for a node's share-of-frame heat
         emit_unpriced_banner(printer) # loud, at the very top, before the estimate itself
-        printer.puts "per-frame cost estimate (scanlines, measured on hardware):"
+        printer.puts header_line(measured)
         if focus
           printer.puts "  func :#{focus} ~ #{fmt(frame_total)} scanlines"
         else
@@ -586,7 +586,19 @@ module RubyGBA
         render_category_tree(tree, printer, frame_total, max_depth)
         render_hottest(tree, printer, top)
         glyph_footprint_lines(program, printer)
-        budget_summary_lines(program, printer, frame_total) unless focus
+        budget_summary_lines(program, printer, frame_total, measured: measured) unless focus
+      end
+
+      # The report header. The cost TREE below is always the static estimate (the per-op
+      # breakdown of where a frame's work goes — the emulator can't attribute per-op). The
+      # VERDICT is measured on the emulator when a measurement is present, and an estimate
+      # otherwise, so the header says which the reader is looking at.
+      def header_line(measured)
+        if measured
+          "per-frame cost (breakdown is the static estimate; verdict measured on the emulator):"
+        else
+          "per-frame cost estimate (scanlines):"
+        end
       end
 
       # One line per font whose text this program draws: how many of its glyphs are
@@ -721,7 +733,7 @@ module RubyGBA
       # ~228 scanlines) and, for a single-buffered game, tearing (drawing alone vs the
       # ~68-line vblank). A static program reports its one-time boot cost; a scene-
       # switching game reports each scene against its own mode's budget.
-      def budget_summary_lines(program, printer, frame_total)
+      def budget_summary_lines(program, printer, frame_total, measured: nil)
         unless looping?(program)
           printer.puts "  budget: boot cost #{fmt(frame_total)} scanlines, done once   ok", severity: :good
           return
@@ -734,7 +746,15 @@ module RubyGBA
         # tearing against the recurring DRAWING alone (only drawing races the vblank).
         recurring = steady_cost(program) + mixer_cost(program)
         recurring_drawing = steady_drawing_cost(program)
-        if mixed?(program)
+        if measured
+          # A measurement is the verdict: the real per-frame cost / frame rate, per scene
+          # (or once for a single-loop game). The estimate's own within/over verdict is
+          # suppressed — it's the one that can't see an unbounded loop or the DMA-stall.
+          # Tearing stays an estimate: the emulator reads a settled framebuffer, so it
+          # can't see a mid-frame tear.
+          measured_verdict_lines(printer, measured)
+          tear_budget_line(program, printer, recurring_drawing) unless mixed?(program)
+        elsif mixed?(program)
           scene_verdict_lines(program, printer)
         else
           frame_budget_line(program, printer, recurring)
@@ -750,36 +770,97 @@ module RubyGBA
                        "not the every-frame cost)"
         end
 
-        # A static estimate can't size a loop whose length is only known at run time, and
-        # a frame rate can only be measured by running the game. Point the dev at the
-        # analyzer, which does both, and name the scenes they can zero in on.
-        names = scene_names(program)
-        scenes = names.any? ? " (scenes: #{scene_hint(names)})" : ""
-        printer.puts "  estimate only — run with --analyze for a measured frame rate on hardware#{scenes}"
+        if measured
+          blind_spot_note(program, printer)
+        else
+          estimate_only_hint(program, printer)
+        end
       end
 
-      # The scene names a game declares (via case_var), for the analyze hint. Empty for a
-      # single-loop game. Read straight from the case dispatch in the IR.
-      def scene_names(program)
-        node = program.walk.find { |n| n.kind == :case }
-        return [] unless node
-
-        node[:clauses].map { |_value, func| func.to_s.delete_prefix("_scene_") }
+      # The measured verdict, one line per measured entry: a whole-frame reading for a
+      # single-loop game (the nil key), or one per scene the profiler booted into. Each
+      # result is plain data — { scanlines:, fps:, saturated: } — so this stays free of
+      # the analyzer's own types.
+      def measured_verdict_lines(printer, measured)
+        width = measured.keys.map { |scene| (scene ? "scene :#{scene}" : "frame").length }.max
+        measured.each do |scene, result|
+          label = (scene ? "scene :#{scene}" : "frame").ljust(width)
+          printer.puts "    #{label}  #{measured_verdict_text(result)}", severity: measured_severity(result)
+        end
       end
 
-      # The first few scene names, with an ellipsis when there are more, so the hint
-      # stays short on a game with many scenes.
-      def scene_hint(names)
-        names.first(5).join(", ") + (names.size > 5 ? ", ..." : "")
+      # A measured reading in words. A frame that fits reads its real cost and share of
+      # the ~228-line frame; one that saturates reads over budget, with its real frame
+      # rate when the counter run could recover it.
+      def measured_verdict_text(result)
+        unless result[:saturated]
+          return "measured ~#{fmt(result[:scanlines])} of #{FRAME_BUDGET} scanlines (#{pct(result[:scanlines], FRAME_BUDGET)})"
+        end
+
+        if result[:fps]
+          "measured over budget — running at ~#{result[:fps]} fps (a frame's work won't fit 60fps)"
+        else
+          "measured over budget — the frame saturates (drops frames)"
+        end
+      end
+
+      def measured_severity(result)
+        return :hot if result[:saturated]
+
+        severity_for(result[:scanlines], FRAME_BUDGET)
+      end
+
+      # The reasons the static estimate cannot vouch for the budget: a loop whose trip
+      # count is only known at run time (its body counts as zero), or an op kind the model
+      # can't price. Empty when the estimate accounts for the whole frame.
+      def estimate_blind_spots(program)
+        reasons = []
+        reasons << "an unbounded loop" if unbounded_loop?(program)
+        reasons << "an unpriced op" unless unpriced_kinds(program).empty?
+        reasons
+      end
+
+      # Whether the program has a repeat whose trip count has no provable bound — not a
+      # literal, not a capacity-bounded list — so the estimate counts its body as zero.
+      def unbounded_loop?(program)
+        index(program)
+        program.walk.any? { |node| node.kind == :repeat && repeat_factor(node).last.include?("unbounded") }
+      end
+
+      # No measurement ran (the emulator was not available), so the frame rate is an
+      # estimate. If the estimate is also blind to part of the frame, say a real reading
+      # is the only way to be sure. There is no flag to name — a build measures on its own
+      # when it can.
+      def estimate_only_hint(program, printer)
+        blind = estimate_blind_spots(program)
+        reason = blind.any? ? " — #{blind.join(' and ')} here can't be priced, so run it to be sure" : ""
+        printer.puts "  estimate only — the emulator did not run, so the frame rate is not measured#{reason}"
+      end
+
+      # With a measurement in hand, note that the estimate's blind spots (an unbounded
+      # loop, an unpriced op) ARE counted in the measured verdict — so the tree's zero for
+      # them is not the whole story.
+      def blind_spot_note(program, printer)
+        blind = estimate_blind_spots(program)
+        return if blind.empty?
+
+        printer.puts "    (#{blind.join(' and ')} the tree can't price is included in the measured verdict above)"
       end
 
       # The per-frame budget check: the frame's estimated work against the ~228-scanline
-      # frame, shown as within or over the budget.
+      # frame. Over budget reads as over (blind spots only add cost, so that verdict is
+      # safe). A frame that looks to fit but has a blind spot — an unbounded loop, an
+      # unpriced op — can't be called "within budget": the estimate says it can't tell.
       def frame_budget_line(program, printer, frame_total)
         over = frame_total > FRAME_BUDGET
-        printer.puts "    frame    ~#{fmt(frame_total)} of #{FRAME_BUDGET} scanlines (#{pct(frame_total, FRAME_BUDGET)})   " \
-                     "#{over ? '! estimate over budget' : 'estimate within budget'}",
-                     severity: severity_for(frame_total, FRAME_BUDGET)
+        blind = over ? [] : estimate_blind_spots(program)
+        verdict =
+          if over then "! estimate over budget"
+          elsif blind.any? then "estimate can't tell — #{blind.join(' and ')} here isn't counted"
+          else "estimate within budget"
+          end
+        printer.puts "    frame    ~#{fmt(frame_total)} of #{FRAME_BUDGET} scanlines (#{pct(frame_total, FRAME_BUDGET)})   #{verdict}",
+                     severity: blind.any? ? :warm : severity_for(frame_total, FRAME_BUDGET)
       end
 
       # The tear check: drawing alone must land in the ~68-line vblank window, unless the
@@ -799,16 +880,21 @@ module RubyGBA
       # One verdict line per scene, each against its own mode's budget — the report
       # for a game that runs some scenes direct-color and others tear-free.
       def scene_verdict_lines(program, printer)
+        blind = estimate_blind_spots(program)
         scene_verdicts(program).each do |s|
           mode_label = s[:mode] == Modes::BUFFERED ? "tear-free" : "direct"
           note =
             if s[:over]
               s[:mode] == Modes::BUFFERED ? "! estimate over budget" : "! over budget — the screen tears"
+            elsif blind.any?
+              "estimate can't tell — #{blind.join(' and ')} here isn't counted"
             else
               s[:mode] == Modes::BUFFERED ? "estimate within budget" : "ok — fits the safe window"
             end
+          hedged = !s[:over] && blind.any?
           printer.puts "  scene :#{s[:name]} (#{mode_label}) ~ #{fmt(s[:steady_cost])} of ~#{s[:budget]} scanlines " \
-                       "(#{pct(s[:steady_cost], s[:budget])})   #{note}", severity: severity_for(s[:steady_cost], s[:budget])
+                       "(#{pct(s[:steady_cost], s[:budget])})   #{note}",
+                       severity: hedged ? :warm : severity_for(s[:steady_cost], s[:budget])
         end
       end
 

@@ -27,13 +27,11 @@ module RubyGBA
     option :output, aliases: "-o", banner: "PATH",
                     desc: "Where to write the .gba (default: <name>.gba beside the game file)"
     option :explain, type: :boolean, default: false,
-                     desc: "Print the per-frame draw and sound cost breakdown"
+                     desc: "Print the per-frame cost report (verdict measured on the emulator when available)"
     option :stats, type: :boolean, default: false,
                    desc: "Print how far asset packing shrank the cartridge"
-    option :analyze, type: :boolean, default: false,
-                     desc: "Run the ROM on the emulator and report the measured per-frame cost"
     option :scene, type: :array, banner: "NAME", default: [],
-                   desc: "With --analyze, profile only these scenes (default: all scenes)"
+                   desc: "Measure only these scenes in the report (default: all scenes)"
     def build(game_file)
       game = load_game(game_file)
       rom = game.build_rom
@@ -41,8 +39,7 @@ module RubyGBA
       rom.write(path)
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
       say rom.compression.summary_line if options[:stats] && rom.compression&.any?
-      rom.explain if options[:explain]
-      analyze_game(game) if options[:analyze] || options[:scene].any?
+      rom.explain(measured: measured_verdicts(game)) if options[:explain] || options[:scene].any?
     end
 
     desc "inspect ROM_FILE", "Show a built .gba's header and a disassembly"
@@ -66,35 +63,20 @@ module RubyGBA
 
     private
 
-    # Profile the game on the emulator and print the measured per-frame cost per scene
-    # (or once for a game with no scenes). Needs the emulator built; a missing build, or
-    # an unknown scene name, is a friendly error, not a backtrace.
-    def analyze_game(game)
+    # Measure the game's scenes on the emulator and return the plain verdict hash the
+    # explain report folds in: { scene_or_nil => { scanlines:, fps:, saturated: } } — a
+    # whole-frame reading for a single-loop game (nil key), or one per scene. Returns nil
+    # when the emulator is not built, so the report shows the hedged estimate instead of
+    # failing. An unknown scene name is a friendly error, not a backtrace.
+    def measured_verdicts(game)
       only = options[:scene].any? ? options[:scene] : nil
-      RubyGBA::Analyzer.profile(game, only: only).each do |scene, result|
-        say "#{scene ? "scene :#{scene} — " : ''}#{analyze_line(result)}"
+      RubyGBA::Analyzer.profile(game, only: only).transform_values do |result|
+        { scanlines: result.scanlines, fps: result.fps, saturated: result.saturated? }
       end
-    rescue LoadError => e
-      raise Thor::Error, "--analyze needs the emulator. #{e.message}"
+    rescue LoadError
+      nil
     rescue ArgumentError => e
       raise Thor::Error, e.message
-    end
-
-    # The measured-cost line. Below the frame ceiling it reports the real scanline count
-    # and that it fits; near the ceiling the measurement saturates, so it reads as over
-    # budget instead of a precise number.
-    def analyze_line(result)
-      frame = RubyGBA::Analyzer::FRAME_SCANLINES
-      unless result.saturated?
-        return "measured on emulator: ~#{result.scanlines.round(1)} of #{frame} scanlines per frame " \
-               "(#{result.percent}%) — fits 60fps"
-      end
-
-      if result.fps
-        "measured on emulator: over budget — running at ~#{result.fps} fps (a frame's work won't fit 60fps)"
-      else
-        "measured on emulator: over budget — the CPU saturates the frame (drops frames)"
-      end
     end
 
     # The file only declares its game (RubyGBA.game records without building), so clear
