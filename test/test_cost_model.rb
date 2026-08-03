@@ -255,7 +255,7 @@ class TestCostModel < Minitest::Test
     end
     io = StringIO.new
     Cost.new.report(prog, out: io)
-    assert_match(/over — the frame drops below 60fps/, io.string)
+    assert_match(/estimate over budget/, io.string)
   end
 
   # A ROM built through RubyGBA.build can report on itself.
@@ -585,7 +585,7 @@ class TestCostModel < Minitest::Test
 
     io = StringIO.new
     Cost.new.report(loop_of_clears(3, buffered: true), out: io)
-    assert_match(/ok — holds 60fps/, io.string)
+    assert_match(/estimate within budget/, io.string)
     assert_match(/double-buffered — drawing can't tear/, io.string)
   end
 
@@ -594,7 +594,7 @@ class TestCostModel < Minitest::Test
   def test_buffered_over_a_whole_frame_reads_as_a_dropped_frame_not_tearing
     io = StringIO.new
     Cost.new.report(loop_of_clears(7, buffered: true), out: io) # 268,800 > 240,000
-    assert_match(/over — the frame drops below 60fps/, io.string)
+    assert_match(/estimate over budget/, io.string)
     refute_match(/tears/, io.string)
   end
 
@@ -661,7 +661,7 @@ class TestCostModel < Minitest::Test
     io = StringIO.new
     Cost.new.render(sample_game, out: io)
     assert_match(/software mixer/, io.string)
-    assert_match(/ok — holds 60fps/, io.string)
+    assert_match(/estimate within budget/, io.string)
     refute Cost.new.mixer_verdict(sample_game)[:over], "the mixer's worst case still fits the frame"
   end
 
@@ -806,7 +806,7 @@ class TestPerSceneCost < Minitest::Test
     io = StringIO.new
     Cost.new.report(mixed(direct_clears: 3, buffered_clears: 3), out: io)
     assert_match(/scene :still \(direct\).*tears/, io.string)
-    assert_match(/scene :action \(tear-free\).*fits the frame/, io.string)
+    assert_match(/scene :action \(tear-free\).*estimate within budget/, io.string)
   end
 
   # The JSON carries the per-scene breakdown for tools, in dispatch order.

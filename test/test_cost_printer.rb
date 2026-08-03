@@ -128,29 +128,38 @@ class TestCostPrinter < Minitest::Test
     io.string
   end
 
-  # The 60fps line in the bottom budget summary — where the frame verdict now lives.
+  # The frame budget line in the bottom budget summary — where the frame verdict lives.
   def verdict_line(text)
-    text.lines.find { |line| line.include?("60fps") }
+    text.lines.find { |line| line =~ /estimate (within|over) budget/ }
   end
 
   def test_an_over_budget_frame_paints_the_verdict_red
     line = verdict_line(rendered(over_budget_program, color: true))
     assert_includes line, Color::COLORS[:hot]
-    assert_includes line, "over —", "colour and verdict agree: both say over"
+    assert_includes line, "over budget", "colour and verdict agree: both say over"
   end
 
   def test_a_cheap_frame_paints_the_verdict_green
     line = verdict_line(rendered(cheap_program, color: true))
     assert_includes line, Color::COLORS[:good]
-    assert_includes line, "ok — holds 60fps"
+    assert_includes line, "estimate within budget"
   end
 
   # The heart of the DX decision: a game that FITS shows no red anywhere — red is the
   # "you're over budget" alarm, never a hotspot label. So a fitting program's drill-down
   # stays green→orange, and the reader isn't told to fix a game that's fine.
+  # The verdict is a static estimate, so it reads as within/over budget and points the
+  # dev at the analyzer for a measured frame rate.
+  def test_the_verdict_reads_as_an_estimate_and_points_to_analyze
+    output = rendered(cheap_program)
+    refute_includes output, "holds 60fps", "no frame rate is promised — the cost model only estimates"
+    assert_includes output, "estimate within budget"
+    assert_includes output, "--analyze", "hint the dev toward a measured frame rate"
+  end
+
   def test_a_fitting_program_has_no_red_anywhere
     output = rendered(cheap_program, color: true)
-    assert_includes verdict_line(output), "ok — holds 60fps"
+    assert_includes verdict_line(output), "estimate within budget"
     refute_includes output, Color::COLORS[:hot], "nothing is red when the frame fits"
   end
 
@@ -162,7 +171,7 @@ class TestCostPrinter < Minitest::Test
     red_lines = output.lines.select { |line| line.include?(Color::COLORS[:hot]) }
     refute_empty red_lines, "an over-budget program does raise the alarm somewhere"
     red_lines.each do |line|
-      assert line.include?("over —") || line.include?("can't estimate"),
+      assert line.include?("over budget") || line.include?("tears") || line.include?("can't estimate"),
              "red only on an alarm line, got a tree row: #{line.inspect}"
     end
   end
