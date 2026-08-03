@@ -1,0 +1,10 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Add lib to the load path so this runs from a checkout, not only the installed gem.
+lib = File.expand_path("../lib", __dir__)
+$LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
+
+require "ruby_gba/cli"
+
+RubyGBA::CLI.start(ARGV)
