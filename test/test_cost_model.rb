@@ -608,9 +608,9 @@ class TestCostModel < Minitest::Test
     assert_match(/double-buffered — drawing can't tear/, io.string)
   end
 
-  # The estimate points at the analyzer for a measured number, and names the scenes the
-  # dev can zero in on with --analyze --scene.
-  def test_the_analyze_hint_lists_the_scenes
+  # With no measurement, the report is an estimate and says so plainly — it does not
+  # pretend to have run the game or promise a frame rate.
+  def test_estimate_only_says_the_emulator_did_not_run
     prog = program do
       screen :bitmap
       var :state, 0
@@ -626,8 +626,18 @@ class TestCostModel < Minitest::Test
     end
     io = StringIO.new
     Cost.new.report(prog, out: io)
-    assert_match(/run with --analyze/, io.string)
-    assert_match(/scenes: title, play/, io.string)
+    assert_match(/estimate only/, io.string)
+    assert_match(/the emulator did not run/, io.string)
+  end
+
+  # A measurement folds in as the verdict: the report reads the real per-frame number and
+  # drops the estimate's own within/over verdict.
+  def test_a_measured_verdict_replaces_the_estimate_verdict
+    io = StringIO.new
+    Cost.new.report(loop_of_clears(1, buffered: false), out: io, measured: { nil => { scanlines: 40.0, fps: nil, saturated: false } })
+    assert_match(/measured ~40\.0 of #{Cost::FRAME_BUDGET} scanlines/, io.string)
+    refute_match(/estimate within budget/, io.string)
+    refute_match(/estimate only/, io.string)
   end
 
   # Even double buffering has a ceiling: draw more than fits in a whole frame and
