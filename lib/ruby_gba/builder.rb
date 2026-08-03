@@ -141,6 +141,33 @@ module RubyGBA
       List.new(self, name)
     end
 
+    # Ship a build-time array as a read-only ROM table, read at run time by a Value
+    # index. The array is plain Ruby, evaluated as the program is built, so work the
+    # console can't do cheaply every frame — sine, division — is precomputed once and
+    # then just looked up:
+    #
+    #   sin = table :sin, (0...256).map { |a| (Math.sin(a * Math::PI / 128) * 256).round }, width: :half
+    #   y.set sin[angle]   # y = sin[angle], a plain lookup
+    #
+    # `width` is the element size: :byte (8-bit), :half (16-bit), or :word (32-bit).
+    # `signed` is inferred from the values (any negative makes it signed) unless you
+    # set it. An out-of-range index is made safe by the read — a power-of-two table
+    # wraps it (what an angle wants), any other size clamps it — so a lookup never
+    # reads past the table.
+    #
+    # @param name [Symbol] the table's name
+    # @param values [Array<Integer>] the whole numbers to store, computed at build time
+    # @param width [Symbol] :byte, :half, or :word
+    # @param signed [Boolean, nil] force signedness; nil infers it from the values
+    # @return [Table] a handle to index with []
+    def table(name, values, width: :half, signed: nil)
+      values = validate_table_values!(name, values)
+      signed = values.any?(&:negative?) if signed.nil?
+      check_table_values_fit!(name, values, width, signed)
+      record(Build.table(name, values, width: width, signed: signed))
+      Table.new(self, name, values.length)
+    end
+
     # Define an entry point of raw ARM instructions — the escape hatch for
     # patterns the DSL can't express. The block runs in an {EntryContext} that
     # collects the emitted bytes into a raw IR node, which the backend appends to
@@ -437,6 +464,38 @@ module RubyGBA
       when Integer then [where % cols, where / cols]
       else raise ArgumentError, "#{label} must be a cell number or [column, row]. You gave #{where.inspect}."
       end
+    end
+
+    # Element size in bytes for each table width.
+    TABLE_WIDTHS = { byte: 1, half: 2, word: 4 }.freeze
+
+    # A table's values must be a non-empty array of whole numbers.
+    def validate_table_values!(name, values)
+      unless values.is_a?(Array) && !values.empty?
+        raise ArgumentError, "table #{name.inspect} needs a non-empty array of whole numbers."
+      end
+      unless values.all?(Integer)
+        raise ArgumentError,
+              "table #{name.inspect} can hold whole numbers only. Round or scale the values to integers first."
+      end
+      values
+    end
+
+    # Every value must fit the element width. A value that does not fit would be
+    # cut down silently on the console, so stop the build and name the fix.
+    def check_table_values_fit!(name, values, width, signed)
+      bytes = TABLE_WIDTHS.fetch(width) do
+        raise ArgumentError, "table #{name.inspect} width must be :byte, :half, or :word. You gave #{width.inspect}."
+      end
+      bits = bytes * 8
+      low, high = signed ? [-(1 << (bits - 1)), (1 << (bits - 1)) - 1] : [0, (1 << bits) - 1]
+      bad = values.find { |value| value < low || value > high }
+      return unless bad
+
+      kind = signed ? "signed" : "unsigned"
+      raise ArgumentError,
+            "table #{name.inspect} has the value #{bad}. It does not fit a #{kind} :#{width} element " \
+            "(range #{low} to #{high}). Use a wider width, or make the values smaller."
     end
 
     # --- IR tree construction ---

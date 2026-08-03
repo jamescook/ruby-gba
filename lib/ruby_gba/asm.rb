@@ -337,6 +337,13 @@ module RubyGBA
       [0xE1D000B0 | (rn << 16) | (rd << 12)].pack("V")
     end
 
+    # LDRSH rd, [rn] — load signed 16-bit halfword, sign-extended into the whole
+    # register (the halfword counterpart of LDRSB; same encoding as LDRH but the
+    # signed-halfword selector). The general way to read a signed 16-bit value.
+    def ldrsh(rd, rn)
+      [0xE1D000F0 | (rn << 16) | (rd << 12)].pack("V")
+    end
+
     # Store a 16-bit value from a register to a memory address held in
     # another register: STRH src, [addr_reg]
     # @param src [Integer] source register

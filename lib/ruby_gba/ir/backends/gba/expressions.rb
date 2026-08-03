@@ -24,6 +24,7 @@ module RubyGBA
             when :chance then eval_value(Build.binop(:<, node[:draw], Build.int(node[:percent])))
             when :pixels_overlap then eval_pixels_overlap(node)
             when :data_byte then eval_data_byte(node)
+            when :table_get then eval_table_get(node)
             when :list_get then eval_list_get(node)
             when :list_len then eval_list_len(node)
             when :read_scanline then eval_read_scanline
@@ -45,6 +46,58 @@ module RubyGBA
           def eval_data_byte(node)
             emit_load_data_address(ADDR, node[:name])
             emit(ASM.ldrb_offset(ACC, ADDR, node[:index]))
+          end
+
+          # Read table[index] into the accumulator: evaluate the index, make it safe
+          # (wrap a power-of-two table with a mask, clamp any other size), scale it to a
+          # byte offset, add the table's base address, and load the element — with a
+          # signed load when the table is signed, so the sign is restored.
+          def eval_table_get(node)
+            info = @tables.fetch(node[:name]) do
+              raise LoweringError, "read of undefined table #{node[:name].inspect}"
+            end
+            eval_value(node[:index])                               # r0 = index
+            if info[:pow2]
+              emit_and_const(ACC, ACC, info[:count] - 1, TMP)      # wrap: index & (count - 1)
+            else
+              emit_clamp_acc(0, info[:count] - 1)                  # clamp: 0..count-1
+            end
+            shift = { 1 => 0, 2 => 1, 4 => 2 }.fetch(info[:elem_bytes])
+            emit(ASM.lsl_imm(ACC, ACC, shift)) unless shift.zero?  # r0 = index * elem_bytes
+            emit_load_data_address(TMP, node[:name])               # r1 = table base
+            emit(ASM.add_reg(ADDR, TMP, ACC))                      # r12 = &table[index]
+            emit_table_load(info)                                  # r0 = element
+          end
+
+          # Load the element at ADDR into the accumulator, picking the load that matches
+          # the element width and signedness. The signed loads (ldrsb/ldrsh) sign-extend
+          # into the whole register; a word already fills it.
+          def emit_table_load(info)
+            case [info[:elem_bytes], info[:signed]]
+            when [1, false] then emit(ASM.ldrb_offset(ACC, ADDR, 0))
+            when [1, true]  then emit(ASM.ldrsb(ACC, ADDR))
+            when [2, false] then emit(ASM.load_halfword(ACC, ADDR))
+            when [2, true]  then emit(ASM.ldrsh(ACC, ADDR))
+            else emit(ASM.ldr(ACC, ADDR))
+            end
+          end
+
+          # Clamp the accumulator into [low, high] in place — the branch-per-bound way
+          # emit_clamp uses for a variable, but on r0.
+          def emit_clamp_acc(low, high)
+            keep_low = gensym
+            emit(ASM.load_immediate(TMP, low))
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit_branch(:bcond, keep_low, cond: :ge)
+            emit(ASM.mov_reg(ACC, TMP))
+            place_label(keep_low)
+
+            keep_high = gensym
+            emit(ASM.load_immediate(TMP, high))
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit_branch(:bcond, keep_high, cond: :le)
+            emit(ASM.mov_reg(ACC, TMP))
+            place_label(keep_high)
           end
 
           # Evaluate lhs and rhs, holding lhs on the stack while rhs is computed, then

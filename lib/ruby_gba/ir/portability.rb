@@ -92,6 +92,7 @@ module RubyGBA
         # embedded data
         data: :portable, bitmap: :portable, backing_buffer: :portable,
         sample: :portable, # embedded 8-bit PCM sound data
+        table: :portable,  # a build-time array of numbers, read at a run-time index
 
         # lists
         list_new: :portable, list_push: :portable, list_drop: :portable, list_set: :portable,
@@ -99,6 +100,7 @@ module RubyGBA
         # expression values
         int: :portable, var_ref: :portable, binop: :portable, neg: :portable,
         data_byte: :portable, list_get: :portable, list_len: :portable,
+        table_get: :portable, # read a ROM table at a run-time index — any backend can
         timer_ticks: :portable, # elapsed timer overflows — a plain counter any backend can model
         held: :portable, pressed: :portable,
         chance: :portable, # a random draw compared to a threshold — plain arithmetic

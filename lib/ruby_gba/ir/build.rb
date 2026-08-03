@@ -537,6 +537,23 @@ module RubyGBA
         Node.new(:list_len, name: name)
       end
 
+      # Embed a build-time array as a read-only ROM table. +values+ is a Ruby array
+      # of whole numbers computed at build time (a trig curve, a level row, ...).
+      # +width+ is the element size (:byte / :half / :word) and +signed+ says whether
+      # the values are signed (a read sign-extends). A definition — it emits nothing on
+      # its own; table_get reads it.
+      def table(name, values, width:, signed:)
+        Node.new(:table, name: name, values: values, width: width, signed: signed)
+      end
+
+      # Read table[index] at run time — a value, so it can drive an operand or a
+      # coordinate. +index+ is itself a value operand. An out-of-range index is made
+      # safe by the read: a power-of-two table wraps it (a free mask), any other size
+      # clamps it, so a read never reaches outside the table.
+      def table_get(name, index)
+        Node.new(:table_get, name: name, index: wrap(index))
+      end
+
       # --- expression values (the AST an assignment or condition is built from) ---
 
       def int(number)

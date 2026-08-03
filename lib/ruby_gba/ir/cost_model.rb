@@ -130,11 +130,11 @@ module RubyGBA
       # if, case, call, and so on — never reach here; they're handled in #build.)
       FREE_STATEMENT_KINDS = %i[
         screen wait_vblank halt raw object
-        define_sound song data bitmap backing_buffer list_new
+        define_sound song data bitmap backing_buffer list_new table
         timer_start timer_stop on_timer
         sample play_sample stop_sample
       ].freeze
-      FREE_VALUE_KINDS = %i[int var_ref data_byte list_get list_len held pressed read_scanline timer_ticks].freeze
+      FREE_VALUE_KINDS = %i[int var_ref data_byte list_get list_len table_get held pressed read_scanline timer_ticks].freeze
 
       # Every costed op falls into one of three buckets, so a frame's work reads as
       # drawing vs sound vs logic — the sections the estimate rolls up into. DRAWING is

@@ -1,0 +1,34 @@
+# frozen_string_literal: true
+
+module RubyGBA
+  # A read-only ROM table declared with `table`. Index it with `[]` to read an
+  # element at run time as a {Value}; its size is fixed at build time. Reads compose
+  # with the expression DSL, so `sin[angle]` drops straight into `y.set sin[angle]`.
+  class Table
+    Build = IR::Build
+
+    # @param builder [Builder] the build reads record into
+    # @param name [Symbol] the table's name
+    # @param count [Integer] how many elements it holds
+    def initialize(builder, name, count)
+      @builder = builder
+      @name = name
+      @count = count
+    end
+
+    attr_reader :name
+
+    # The element at +index+, as a {Value}. +index+ may be a Value, an Integer, or a
+    # :symbol naming a variable. An out-of-range index is made safe by the read: a
+    # power-of-two table wraps it, any other size clamps it to the ends.
+    def [](index)
+      Value.new(@builder, Build.table_get(@name, Value.node_for(index)))
+    end
+
+    # How many elements the table holds — a build-time constant (a plain Integer,
+    # since the size is fixed when the program is built).
+    def length
+      @count
+    end
+  end
+end
