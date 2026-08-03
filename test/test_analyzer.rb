@@ -62,6 +62,36 @@ class TestAnalyzer < Minitest::Test
     assert_equal({ title: 0, play: 1 }, dispatch[:scenes])
   end
 
+  # Boot-into overrides the LAST boot set of the selector, so a game that sets its state
+  # more than once at start still ends up in the chosen scene.
+  def test_boot_into_overrides_the_last_selector_set
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      var :state, 0
+      set :state, 3 # a second boot-time set — must not undo the override
+      scene(:a) { clear_screen :red }
+      scene(:b) { clear_screen :blue }
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    program = Analyzer.boot_into(b.program, :state, 1)
+    last = program.children.select { |n| n.kind == :set && n[:var] == :state }.last
+    assert_equal 1, last[:value][:value], "the last boot set of the selector wins, at the target scene"
+  end
+
+  def test_boot_into_without_a_selector_init_is_a_friendly_error
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      scene(:a) { clear_screen :red }
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    err = assert_raises(ArgumentError) { Analyzer.boot_into(b.program, :state, 0) }
+    assert_match(/never sets its scene variable/, err.message)
+  end
+
   def test_scenes_is_nil_for_a_single_loop_game
     b = Builder.new
     b.instance_eval do

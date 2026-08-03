@@ -85,9 +85,24 @@ module RubyGBA
     # selector variable's boot value. The scene dispatch reads that variable each frame,
     # so the game starts in the chosen scene. Not the shipped ROM — a throwaway for
     # measuring.
+    #
+    # The whole game is present and every variable starts at its declared default, but
+    # state a scene would normally get from the transition INTO it (a level loaded, a
+    # score set, enemies spawned by another scene) is NOT set — the scene runs on its
+    # boot defaults. So this measures a scene's baseline cost; a scene whose cost depends
+    # on that state needs a setup step (a future feature). Top-level boot setup, done
+    # before the game loop rather than inside a scene, does run.
+    #
+    # Overrides the LAST boot-time set of the selector, so a game that sets it more than
+    # once at start still ends up in the chosen scene.
     def boot_into(program, selector, value)
-      init = program.children.find { |n| n.kind == :set && n[:var] == selector }
-      init[:value] = IR::Build.int(value) if init
+      init = program.children.select { |node| node.kind == :set && node[:var] == selector }.last
+      unless init
+        raise ArgumentError,
+              "cannot boot into a scene: this game never sets its scene variable #{selector.inspect} at " \
+              "start. Declare it with `var #{selector.inspect}, 0` before the game loop."
+      end
+      init[:value] = IR::Build.int(value)
       program
     end
 
