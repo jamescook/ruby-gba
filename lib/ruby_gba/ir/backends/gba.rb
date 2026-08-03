@@ -241,6 +241,7 @@ module RubyGBA
           @lower_mode = @default_mode
           program.children.each { |stmt| emit_statement(stmt) }
           emit_functions
+          emit_mix_routine # the mixer's inner loop, placed in ROM and copied to IWRAM at boot
           emit_irq_handler if uses_irq? # the interrupt dispatcher itself, reached only via the vector
           emit_data_region
           emit_save_signature if @uses_save # the marker that maps the save chip (past all code/data)
