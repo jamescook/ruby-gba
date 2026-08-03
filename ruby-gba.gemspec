@@ -13,8 +13,12 @@ Gem::Specification.new do |spec|
 
   spec.files         = Dir.glob("{lib,test,bin}/**/*").select { |f| File.file?(f) } +
                        %w[ruby-gba.gemspec Rakefile]
+  spec.bindir        = "bin"
+  spec.executables   = ["ruby-gba"]
   spec.require_paths = ["lib"]
   spec.required_ruby_version = ">= 3.2"
+
+  spec.add_dependency "thor", "~> 1.3"
 
   spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "minitest", "~> 6.0"
