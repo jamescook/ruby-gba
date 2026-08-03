@@ -13,6 +13,7 @@ require_relative "gba/timers"
 require_relative "gba/direct_sound"
 require_relative "gba/mixer"
 require_relative "gba/save"
+require_relative "gba/bios_compress"
 
 module RubyGBA
   module IR
@@ -160,6 +161,7 @@ module RubyGBA
           @songs = {}            # name -> :song node (from song)
           @data_blobs = {}       # name -> bytes (embedded data, appended after code)
           @data_positions = {}   # name -> byte offset of its blob within @code
+          @blob_codecs = {}      # name -> :lz77/:rle/:none (how a VRAM blob was packed, if at all)
           @bitmaps = {}          # name -> { width:, height: } (a blob that has a shape)
           @backing = {}          # name -> { width:, height:, base: } (a sprite's save-under RAM)
           @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)

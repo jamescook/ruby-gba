@@ -36,7 +36,10 @@ class TestBirdExample < Minitest::Test
   end
 
   def test_the_bird_renders_on_the_console
-    v = assert_gemba_loads_rom(Bird.build_rom(out: StringIO.new, err: StringIO.new), frames: 3)
+    # The bird's tiles are stored packed in the ROM and expanded into video memory by
+    # the BIOS at boot. That one-time expansion costs the first frame, so the sprite
+    # first appears a frame later than an uncompressed one would — give it headroom.
+    v = assert_gemba_loads_rom(Bird.build_rom(out: StringIO.new, err: StringIO.new), frames: 6)
     assert bird_over_sky?(->(x, y) { v.pixel_gba(x, y) }), "the bird should composite over the sky on hardware"
   end
 end
