@@ -1054,23 +1054,41 @@ mgba_core_cpu_halted_p(VALUE self)
     return gba->cpu->halted ? Qtrue : Qfalse;
 }
 
-/* Core#measure_frame_busy_cycles — step through one frame's worth of emulated
- * time and return the cycles the CPU spent executing (not halted). Call it on a
- * ROM that's already reached steady state (run a few frames first) to read the
- * real per-frame CPU cost of whatever its game loop does. GBA-only. */
-static VALUE
-mgba_core_measure_frame_busy_cycles(VALUE self)
+/* Step through one frame of emulated time and split it into two costs:
+ *   busy   — cycles the CPU spent EXECUTING instructions (not halted).
+ *   active — the frame's wall-clock work: everything that is not the
+ *            end-of-frame halt (executing PLUS the DMA-stall).
+ *
+ * Why two numbers. A GBA frame is exactly frameCycles of global time. In that
+ * frame the CPU is either halted (asleep in the vblank wait) or not halted
+ * (doing something). "Not halted" covers real instruction work AND the stall
+ * while a DMA engine copies — during an immediate DMA the CPU is frozen but it
+ * is NOT the halt sleep, so those cycles never land in cpu->cycles and the busy
+ * count cannot see them. So we measure the halt directly and take the rest:
+ *   active = frameCycles - (global time spent halted).
+ * That captures the DMA-stall the busy count misses, without depending on how
+ * mGBA books DMA cycles internally.
+ *
+ * Global time (timing.globalCycles) only jumps forward on the halted
+ * "fast-forward to the next event" step and at event boundaries; while the CPU
+ * executes, its cycles accumulate in cpu->cycles and global time stays frozen.
+ * So busy is the sum of cpu->cycles gained on non-halted steps, and the halted
+ * time is the sum of global jumps taken while the CPU is asleep.
+ *
+ * Both numbers are meaningful only for a per-frame workload that FITS in a
+ * frame. A ROM that cannot finish its work in one frame has no single per-frame
+ * cost — the numbers cap out near a full frame and wobble as work bleeds across
+ * frames. That is the honest answer for an over-budget game. */
+static void
+measure_frame_split(struct mgba_core *mc, int64_t *out_busy, int64_t *out_active)
 {
-    struct mgba_core *mc = get_mgba_core(self);
-    if (mc->core->platform(mc->core) != mPLATFORM_GBA)
-        rb_raise(rb_eRuntimeError, "measure_frame_busy_cycles is GBA-only");
-
     struct mCore *core = mc->core;
     struct GBA *gba = (struct GBA *)core->board;
 
     int32_t frame_c = core->frameCycles(core);
     uint64_t start_gc = gba->timing.globalCycles;
     int64_t busy = 0;
+    uint64_t halted = 0;
 
     /* Safety cap: at worst one single-cycle step per cycle, so a frame can't
      * take more than frameCycles iterations. A generous multiple guards against
@@ -1078,27 +1096,64 @@ mgba_core_measure_frame_busy_cycles(VALUE self)
     long guard = 0;
     long max_iters = (long)frame_c * 4;
 
-    /* Global time (timing.globalCycles) only jumps forward on the halted
-     * "fast-forward to the next event" step; while the CPU is actually
-     * executing, its instruction cycles accumulate in cpu->cycles and global
-     * time stays frozen. So the real CPU work is the sum of cpu->cycles gained
-     * during non-halted steps. We run until one frame of global time has
-     * elapsed (the halt jump that ends the frame) and add up that work.
-     *
-     * This is meaningful for a per-frame workload that FITS in a frame (the
-     * only thing worth calibrating against). A ROM that can't finish its work
-     * in one frame has no single per-frame cost — its number caps out near a
-     * full frame and wobbles as the work bleeds across frames. */
     while ((gba->timing.globalCycles - start_gc) < (uint64_t)frame_c
            && ++guard < max_iters) {
         int was_halted = gba->cpu->halted;
         int32_t before = gba->cpu->cycles;
+        uint64_t g_before = gba->timing.globalCycles;
         core->step(core);
         int32_t delta = gba->cpu->cycles - before;
         if (!was_halted && delta > 0)
             busy += delta;
+        if (was_halted) {
+            /* Global jump this step, clamped to the frame boundary so the final
+             * halt step's fast-forward past the frame end isn't counted. */
+            uint64_t g_delta = gba->timing.globalCycles - g_before;
+            uint64_t elapsed = gba->timing.globalCycles - start_gc;
+            if (elapsed > (uint64_t)frame_c) {
+                uint64_t over = elapsed - (uint64_t)frame_c;
+                g_delta = over < g_delta ? g_delta - over : 0;
+            }
+            halted += g_delta;
+        }
     }
+    *out_busy = busy;
+    *out_active = (int64_t)frame_c - (int64_t)halted;
+}
+
+/* Core#measure_frame_busy_cycles — one frame's CPU-executing cycles (not
+ * halted, and not counting DMA-stall). Call it on a ROM already at steady state
+ * (run a few frames first) to read the per-frame CPU cost of its game loop.
+ * GBA-only. */
+static VALUE
+mgba_core_measure_frame_busy_cycles(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA)
+        rb_raise(rb_eRuntimeError, "measure_frame_busy_cycles is GBA-only");
+
+    int64_t busy, active;
+    measure_frame_split(mc, &busy, &active);
     return LL2NUM(busy);
+}
+
+/* Core#measure_frame_work — one frame's cost as [busy, active]: the
+ * CPU-executing cycles and the wall-clock work (executing plus DMA-stall).
+ * Their difference is the DMA-stall time the busy count alone misses. One pass,
+ * so both numbers describe the same measured frame. GBA-only. */
+static VALUE
+mgba_core_measure_frame_work(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA)
+        rb_raise(rb_eRuntimeError, "measure_frame_work is GBA-only");
+
+    int64_t busy, active;
+    measure_frame_split(mc, &busy, &active);
+    VALUE out = rb_ary_new_capa(2);
+    rb_ary_push(out, LL2NUM(busy));
+    rb_ary_push(out, LL2NUM(active));
+    return out;
 }
 
 #ifdef GEMBA_CORE_RCHEEVOS
@@ -1444,6 +1499,7 @@ Init_gemba_core_ext(void)
     rb_define_method(cCore, "cpu_cycles",    mgba_core_cpu_cycles, 0);
     rb_define_method(cCore, "cpu_halted?",   mgba_core_cpu_halted_p, 0);
     rb_define_method(cCore, "measure_frame_busy_cycles", mgba_core_measure_frame_busy_cycles, 0);
+    rb_define_method(cCore, "measure_frame_work", mgba_core_measure_frame_work, 0);
 
     /* BIOS checksum utility */
     rb_define_module_function(mGembaCore, "gba_bios_checksum", mgba_gba_bios_checksum, 1);
