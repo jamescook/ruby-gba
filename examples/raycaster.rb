@@ -21,10 +21,10 @@
 #   ruby examples/raycaster.rb
 #
 # A note on speed: this casts a ray per screen column and paints each wall column a row
-# at a time, so it does a lot of work per frame and runs at only a few frames a second.
-# Real GBA raycasters lean on tricks this framework does not expose yet — bit shifts in
-# place of the divides, and a single variable-height column fill instead of a row loop.
-# The point of the example is the `table` lookups that make the ray math possible at all.
+# at a time, because draw_rect_at is a fixed size. That row loop is the bottleneck, so it
+# runs at around 20 frames a second rather than the full 60. A single variable-height
+# column fill would remove the loop; bit shifts in place of the per-step divides would
+# help too. The point of the example is the `table` lookups that make the ray math work.
 
 require_relative "../lib/ruby_gba"
 
