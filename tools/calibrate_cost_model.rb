@@ -94,6 +94,57 @@ def music_busy(n)
   measure("mus#{n}", rom)
 end
 
+# One DMA fill of 2 x h, `per_frame` times a frame. Each row is a DMA whose fixed CPU
+# setup (the register writes that kick it off) is dma_setup; adding rows isolates it.
+# (The DMA transfer itself is done by the DMA engine while the CPU is stalled, so the
+# busy probe can't see it — dma_pixel stays an estimate. See gba-qzzi's follow-on.)
+def dma_fill_busy(w, h, per_frame)
+  stable_busy("dma#{w}x#{h}", per_frame) { |b, _xv| b.dma_fill_rect 0, 0, w, h, :red }
+end
+
+# Per-frame cost of a per-pixel collision test that walks the WHOLE overlap. The test
+# stops at the first pixel solid in both sprites, so two identical sprites hit at pixel
+# one and never scale. Two opposite checkerboards (A on even cells, B on odd) overlap
+# fully but never coincide, forcing the full size x size walk. Tiled sprites are 8-mult.
+def overlap_busy(size, per_frame)
+  a_art = (0...size).map { |r| (0...size).map { |c| (r + c).even? ? "#" : "." }.join }.join("\n")
+  b_art = (0...size).map { |r| (0...size).map { |c| (r + c).odd? ? "#" : "." }.join }.join("\n")
+  rom = RubyGBA.build("ov#{size}", code: "OV#{size.to_s.rjust(2, '0')}", maker: "01", err: StringIO.new) do
+    screen :tiled
+    image(:blka, "#" => :red, "." => :transparent) { a_art }
+    image(:blkb, "#" => :blue, "." => :transparent) { b_art }
+    a = sprite :blka, at: [16, 16]
+    b = sprite :blkb, at: [16, 16]
+    game_loop { wait_vblank; repeat(per_frame) { a.overlaps?(b).then { set :touch, 1 } } }
+  end
+  measure("ov#{size}", rom)
+end
+
+# Per-frame cost of presenting `n` hardware sprites — each frame rewrites every sprite's
+# OAM position, so more sprites is more of those writes. One shared 8x8 image.
+def sprites_busy(n)
+  rom = RubyGBA.build("obj#{n}", code: "OB#{n.to_s.rjust(2, '0')}", maker: "01", err: StringIO.new) do
+    screen :tiled
+    image(:dot, "#" => :red) { (["#" * 8] * 8).join("\n") }
+    n.times { |i| sprite :dot, at: [(i % 28) * 8, (i / 28) * 8] }
+    game_loop { wait_vblank }
+  end
+  measure("obj#{n}", rom)
+end
+
+# Per-frame cost of scrolling a background `per_frame` times — each scroll is a couple
+# of register writes.
+def scroll_busy(per_frame)
+  rom = RubyGBA.build("scr#{per_frame}", code: "SC#{per_frame.to_s.rjust(2, '0')}", maker: "01", err: StringIO.new) do
+    screen :tiled
+    image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
+    tiles :ts, "#" => :t
+    bg = background :bg, tiles: :ts, map: Array.new(20, "#" * 30)
+    game_loop { wait_vblank; repeat(per_frame) { bg.scroll_by 1, 0 } }
+  end
+  measure("scr#{per_frame}", rom)
+end
+
 measured = {}
 
 # --- logic (op_* tiers) ---
@@ -123,6 +174,20 @@ measured[:mix_overhead_sample] = base / MIXER_SPF
 # --- music: cost per active voice per frame (a 2-voice tune minus a 1-voice one
 # isolates one voice; the per-song counter overhead cancels).
 measured[:music_voice] = music_busy(2) - music_busy(1)
+
+# --- DMA fill per-row setup: the CPU register writes that start each row's DMA (a thin
+# 2-wide fill, so the transfer itself is negligible). dma_pixel — the DMA transfer — is
+# invisible to the busy probe (the CPU is stalled during it), so it stays an estimate.
+measured[:dma_setup] = (dma_fill_busy(2, 40, 15) - dma_fill_busy(2, 8, 15)) / ((40 - 8) * 15.0)
+
+# --- tiled per-frame upkeep: one OAM rewrite per presented sprite, a couple of register
+# writes per background scroll.
+measured[:obj_write] = (sprites_busy(64) - sprites_busy(8)) / (64 - 8).to_f
+measured[:scroll_write] = (scroll_busy(40) - scroll_busy(8)) / (40 - 8).to_f
+
+# --- per-pixel collision: a bigger overlap walks more pixels (size^2, fully overlapped
+# opposite checkerboards force the full walk).
+measured[:overlap_pixel] = (overlap_busy(16, 2) - overlap_busy(8, 2)) / (((16 * 16) - (8 * 8)) * 2.0)
 
 # --- report + write the fixture ---
 current = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
