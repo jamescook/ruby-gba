@@ -164,6 +164,7 @@ module RubyGBA
           @blob_codecs = {}      # name -> :lz77/:rle/:none (how a VRAM blob was packed, if at all)
           @blob_raw_bytes = {}   # name -> its size before packing (for the build's savings line)
           @bitmaps = {}          # name -> { width:, height: } (a blob that has a shape)
+          @tables = {}           # name -> { count:, elem_bytes:, signed:, pow2: } (a ROM lookup table)
           @backing = {}          # name -> { width:, height:, base: } (a sprite's save-under RAM)
           @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)
           @samples = {}          # name -> { rate:, length: } (a Direct Sound PCM sample)
@@ -428,6 +429,8 @@ module RubyGBA
               }
             when :song
               @songs[node[:name]] = node
+            when :table
+              register_table(node)
             when :data
               @data_blobs[node[:name]] = node[:bytes]
             when :bitmap
@@ -451,6 +454,24 @@ module RubyGBA
               register_backing(node[:name], node[:width], node[:height])
             end
           end
+        end
+
+        # Element size in bytes for each table width, and the Array#pack directive that
+        # writes that many bytes little-endian. Packing signed keeps negatives as two's
+        # complement; pack takes the low bytes, so the same directive serves an unsigned
+        # table too (the read, ldrb/ldrh vs ldrsb/ldrsh, is what restores the sign).
+        TABLE_ELEM = { byte: [1, "c*"], half: [2, "s<*"], word: [4, "l<*"] }.freeze
+
+        # Embed a table's values as a ROM blob and remember its shape, so a table_get
+        # can index it. A power-of-two length lets the read wrap with a cheap mask.
+        def register_table(node)
+          elem_bytes, directive = TABLE_ELEM.fetch(node[:width])
+          @data_blobs[node[:name]] = node[:values].pack(directive)
+          count = node[:values].length
+          @tables[node[:name]] = {
+            count: count, elem_bytes: elem_bytes, signed: node[:signed],
+            pow2: count.positive? && (count & (count - 1)).zero?
+          }
         end
 
         # Build the double-buffer color table and stash it as a ROM blob to be

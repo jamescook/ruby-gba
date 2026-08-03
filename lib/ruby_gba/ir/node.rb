@@ -104,6 +104,7 @@ module RubyGBA
         # writable RAM a moving object saves the pixels under itself into.
         data: :data, bitmap: :data, backing_buffer: :data,
         sample: :data, # named 8-bit PCM sound data, embedded and played by play_sample
+        table: :data,  # a build-time array of numbers, embedded and read by table_get
 
         # list operations — a bounded, ordered collection whose size is decided at
         # run time: create one (list_new), grow it (list_push), shrink it from
@@ -114,6 +115,7 @@ module RubyGBA
         # expression values — operands, live inside another node's #attrs
         int: :value, var_ref: :value, binop: :value, neg: :value,
         data_byte: :value, list_get: :value, list_len: :value,
+        table_get: :value, # read table[index] from a ROM table at a runtime index
         timer_ticks: :value, # how many times a timer has overflowed since it started
 
         # input reads — an operand whose value comes from the gamepad

@@ -147,6 +147,7 @@ module RubyGBA
         bitmap:    { name: :name, width: :int, height: :int, pixels: :text, transparent: :int },
         backing_buffer: { name: :name, width: :int, height: :int }, # a RAM patch a sprite saves under itself
         sample:    { name: :name, bytes: :text, rate: :int, note: :option }, # PCM data + rate + recorded pitch
+        table:     { name: :name, values: :list, width: :option, signed: :flag }, # a build-time array of numbers
 
         # lists
         list_new:  { name: :name, capacity: :int },
@@ -155,6 +156,7 @@ module RubyGBA
         list_set:  { name: :name, index: :value, value: :value },
         list_get:  { name: :name, index: :value },
         list_len:  { name: :name },
+        table_get: { name: :name, index: :value }, # read a ROM table at a run-time index
 
         # expression values
         int:     { value: :int },

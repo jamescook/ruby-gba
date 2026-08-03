@@ -56,6 +56,7 @@ module ConformanceFixture
                        pixels: Array.new(64, 0x03E0).pack("v*"), transparent: nil),
       B.sample(:clip, [0, 60, 120, 60, 0, -60, -120, -60].pack("c*"), 8000), # a tiny PCM clip
       B.backing_buffer(:under, width: 4, height: 4), # a save-under patch for a moving object
+      B.table(:lut, [10, 20, 30, 40], width: :byte, signed: false), # a ROM lookup table (read by table_get below)
       B.func(:helper, B.set(:h, 1), B.add(:h, 2), B.wait_vblank),
       B.func(:scene_a, B.set(:picked, 10)),
       B.func(:scene_b, B.set(:picked, 20)),
@@ -78,6 +79,7 @@ module ConformanceFixture
       *OPERATORS.map { |op| B.set(:acc, B.binop(op, B.var_ref(:x), B.int(2))) },
       B.set(:acc, B.neg(B.var_ref(:x))),      # neg
       B.set(:acc, B.data_byte(:blob, 0)),     # data_byte reads embedded data
+      B.set(:acc, B.table_get(:lut, B.var_ref(:x))), # table_get reads a ROM table at a run-time index
       B.set(:acc, B.held(:a)),                # held (button read)
       B.set(:acc, B.pressed(:b)),             # pressed (edge read)
       B.set(:acc, B.chance(B.var_ref(:x), 50)), # chance (draw-below-threshold read)

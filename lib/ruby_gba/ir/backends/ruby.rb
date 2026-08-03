@@ -90,6 +90,7 @@ module RubyGBA
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
+          @tables = {}             # name -> { values:, signed: } (a read-only ROM table)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @samples = {}           # name -> { rate:, length: } (a defined PCM sample)
           @voices = []            # the samples sounding right now, mixed together: [{ name:, loop:, frames_left:, frames_total: }, ...]
@@ -188,6 +189,8 @@ module RubyGBA
               @songs[n[:name]] = n
             when :sample
               @samples[n[:name]] = { rate: n[:rate], length: n[:bytes].bytesize, note: n[:note] }
+            when :table
+              @tables[n[:name]] = { values: n[:values], signed: n[:signed] }
             when :data
               @data[n[:name]] = n[:bytes]
             when :bitmap
@@ -387,7 +390,7 @@ module RubyGBA
             exec_present_objects(node)
           when :enable_sound
             @audio << [:enabled]
-          when :define_sound, :song, :sample, :data, :bitmap, :backing_buffer, :object
+          when :define_sound, :song, :sample, :data, :bitmap, :backing_buffer, :object, :table
             # Definitions: gathered up front, so reaching one inline does nothing
             # (just like a func body).
             nil
@@ -993,6 +996,28 @@ module RubyGBA
           list.get(index)
         end
 
+        # Read table[index] from a ROM table. An out-of-range index is made safe the
+        # same way the GBA lowering does it, so the two backends agree: a power-of-two
+        # table wraps the index, any other size clamps it to the ends — the read always
+        # lands on a real element. The value comes back exactly as authored (the table's
+        # signedness only decides how the console stores/sign-extends it).
+        def eval_table_get(node)
+          table = @tables.fetch(node[:name]) do
+            raise ProgramError, "reference to undefined table #{node[:name].inspect}"
+          end
+          values = table[:values]
+          Int32.wrap(values[safe_table_index(eval_value(node[:index]), values.length)])
+        end
+
+        # Clamp/wrap an index into a table's bounds (the shared out-of-range rule).
+        def safe_table_index(index, count)
+          if count.positive? && (count & (count - 1)).zero?
+            index & (count - 1) # power of two: wrap, like an angle
+          else
+            index.clamp(0, count - 1)
+          end
+        end
+
         def check_list_index!(list, name, index)
           return if list.index?(index)
 
@@ -1038,6 +1063,7 @@ module RubyGBA
           when :chance then bool(eval_value(node[:draw]) < node[:percent])
           when :pixels_overlap then bool(pixels_overlap?(node))
           when :data_byte then data_byte(node[:name], node[:index])
+          when :table_get then eval_table_get(node)
           when :list_get then eval_list_get(node)
           when :list_len then list_for(node[:name]).length
           when :timer_ticks then timer_ticks(node[:name])
