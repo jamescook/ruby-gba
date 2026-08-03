@@ -16,8 +16,12 @@ module RubyGBA
     FRAME_SCANLINES = 228
     SATURATED = 200       # at or above this, the CPU is effectively maxed for the frame
     SETTLE = 8            # frames to run before reading, so the game reaches steady state
+    FPS_WINDOW = 90       # emulated frames to count game frames over, for a saturated scene's real fps
 
-    Result = Data.define(:scanlines) do
+    # +scanlines+ is the measured per-frame CPU cost; +fps+ is the real game framerate,
+    # only measured (and only meaningful) when the scene saturates the frame — a fitting
+    # scene runs at the full 60.
+    Result = Data.define(:scanlines, :fps) do
       def saturated?
         scanlines >= SATURATED
       end
@@ -33,11 +37,11 @@ module RubyGBA
 
     # Measure +rom_path+ on the emulator. Runs the ROM to a settled frame and reads the
     # busy scanlines a frame burns, taking the smallest of a few reads (the quietest,
-    # least-noisy sample). Returns a {Result}.
+    # least-noisy sample). Returns a {Result} with no fps (that needs the counter run).
     def measure(rom_path)
       probe = Emulator.probe(rom_path)
       scanlines = 3.times.map { probe.busy_scanlines(settle: SETTLE) }.min
-      Result.new(scanlines: scanlines)
+      Result.new(scanlines: scanlines, fps: nil)
     ensure
       probe&.close
     end
@@ -106,13 +110,58 @@ module RubyGBA
       program
     end
 
-    # Lower a program to a ROM, write it to a temp file, and measure it.
+    # Measure a program's per-frame cost. A scene that fits is one busy-scanline read; a
+    # scene that saturates the CPU is also run with a hidden per-frame counter to recover
+    # its real, sub-60 framerate (busy scanlines alone only say "over the ceiling").
     def measure_program(program)
-      rom = ROM.assemble(IR::Backends::GBA.new.lower(program), title: "PROFILE", code: "BPRF", maker: "01")
+      busy = in_temp_rom(assemble(program)) { |path| measure(path) }
+      return busy unless busy.saturated?
+
+      Result.new(scanlines: busy.scanlines, fps: measure_fps(program))
+    end
+
+    # The real framerate of an over-budget program. A hidden counter ticks once per
+    # game-loop iteration; run a window of emulated frames and the counter's rise is how
+    # many game frames elapsed, so fps = game frames * 60 / window. nil when there is no
+    # game loop to count.
+    def measure_fps(program)
+      counter = :__profile_frames
+      return nil unless instrument_frame_counter(program, counter)
+
+      backend = IR::Backends::GBA.new
+      rom = ROM.assemble(backend.lower(program), title: "PROFILE", code: "BPRF", maker: "01")
+      address = backend.instance_variable_get(:@vars)[counter]
+      in_temp_rom(rom) do |path|
+        probe = Emulator.probe(path)
+        probe.step(SETTLE)
+        before = probe.read32(address)
+        probe.step(FPS_WINDOW)
+        elapsed = probe.read32(address) - before
+        probe.close
+        elapsed.positive? ? (elapsed * 60.0 / FPS_WINDOW).round(1) : nil
+      end
+    end
+
+    # Add a hidden counter that ticks once per game-loop iteration. Returns true if a
+    # game loop was there to instrument.
+    def instrument_frame_counter(program, counter)
+      loop_node = program.walk.find { |node| node.kind == :loop }
+      return false unless loop_node
+
+      program.children.unshift(IR::Build.set(counter, IR::Build.int(0)))
+      loop_node.children << IR::Build.add(counter, IR::Build.int(1))
+      true
+    end
+
+    def assemble(program)
+      ROM.assemble(IR::Backends::GBA.new.lower(program), title: "PROFILE", code: "BPRF", maker: "01")
+    end
+
+    def in_temp_rom(rom)
       Dir.mktmpdir do |dir|
         path = File.join(dir, "profile.gba")
         rom.write(path)
-        return measure(path)
+        return yield(path)
       end
     end
   end

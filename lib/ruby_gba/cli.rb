@@ -85,12 +85,15 @@ module RubyGBA
     # budget instead of a precise number.
     def analyze_line(result)
       frame = RubyGBA::Analyzer::FRAME_SCANLINES
-      if result.saturated?
-        "measured on emulator: the frame saturates the CPU " \
-          "(~#{result.scanlines.round} of #{frame} scanlines) — over budget, drops frames"
+      unless result.saturated?
+        return "measured on emulator: ~#{result.scanlines.round(1)} of #{frame} scanlines per frame " \
+               "(#{result.percent}%) — fits 60fps"
+      end
+
+      if result.fps
+        "measured on emulator: over budget — running at ~#{result.fps} fps (a frame's work won't fit 60fps)"
       else
-        "measured on emulator: ~#{result.scanlines.round(1)} of #{frame} scanlines per frame " \
-          "(#{result.percent}%) — fits 60fps"
+        "measured on emulator: over budget — the CPU saturates the frame (drops frames)"
       end
     end
 

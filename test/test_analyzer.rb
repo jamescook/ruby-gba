@@ -39,6 +39,19 @@ class TestAnalyzer < Minitest::Test
     assert_operator result.percent, :<, 100
   end
 
+  # The framerate measurement counts game-loop iterations. A loop that just waits each
+  # frame runs at the full 60, which is what the injected counter should report.
+  def test_measure_fps_counts_game_loop_iterations
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    fps = Analyzer.measure_fps(b.program)
+    assert_in_delta 60, fps, 6, "a loop that waits each frame runs at ~60fps"
+  end
+
   # Scene discovery reads the case dispatch straight from the IR — the selector variable
   # and each scene's value — so the profiler can boot into any one. No emulator needed.
   def test_scenes_discovers_the_dispatch
@@ -105,8 +118,8 @@ class TestAnalyzer < Minitest::Test
   # The Result's read of its own number: near the frame ceiling is "saturated" (the
   # measurement can't count past a frame's worth of work), below it is a plain percent.
   def test_result_reads_saturation_and_percent
-    refute Analyzer::Result.new(scanlines: 50.0).saturated?
-    assert Analyzer::Result.new(scanlines: 220.0).saturated?
-    assert_equal 50, Analyzer::Result.new(scanlines: 114.0).percent
+    refute Analyzer::Result.new(scanlines: 50.0, fps: nil).saturated?
+    assert Analyzer::Result.new(scanlines: 220.0, fps: 20.0).saturated?
+    assert_equal 50, Analyzer::Result.new(scanlines: 114.0, fps: nil).percent
   end
 end
