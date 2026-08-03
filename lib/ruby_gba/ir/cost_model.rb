@@ -766,17 +766,23 @@ module RubyGBA
           printer.puts "    (sound is the worst case — all #{mv[:voices]} mixer voices at once; a typical frame sounds fewer)"
         end
 
-        return unless frame_total > recurring + 0.1
+        if frame_total > recurring + 0.1
+          printer.puts "    (a heavier frame reaches #{fmt(frame_total)} — a one-off spike, a transition or an every() tick, " \
+                       "not the every-frame cost)"
+        end
 
-        printer.puts "    (a heavier frame reaches #{fmt(frame_total)} — a one-off spike, a transition or an every() tick, " \
-                     "not the every-frame cost)"
+        # A static estimate can't size a loop whose length is only known at run time, and
+        # a frame rate can only be measured by running the game. Point the dev at the
+        # analyzer, which does both.
+        printer.puts "  estimate only — run with --analyze for a measured frame rate on hardware"
       end
 
-      # The 60fps check: the whole frame's work against the ~228-scanline frame.
+      # The per-frame budget check: the frame's estimated work against the ~228-scanline
+      # frame, shown as within or over the budget.
       def frame_budget_line(program, printer, frame_total)
         over = frame_total > FRAME_BUDGET
-        printer.puts "    60fps    #{fmt(frame_total)} of #{FRAME_BUDGET} frame scanlines (#{pct(frame_total, FRAME_BUDGET)})   " \
-                     "#{over ? '! over — the frame drops below 60fps' : 'ok — holds 60fps'}",
+        printer.puts "    frame    ~#{fmt(frame_total)} of #{FRAME_BUDGET} scanlines (#{pct(frame_total, FRAME_BUDGET)})   " \
+                     "#{over ? '! estimate over budget' : 'estimate within budget'}",
                      severity: severity_for(frame_total, FRAME_BUDGET)
       end
 
@@ -801,9 +807,9 @@ module RubyGBA
           mode_label = s[:mode] == Modes::BUFFERED ? "tear-free" : "direct"
           note =
             if s[:over]
-              s[:mode] == Modes::BUFFERED ? "! over budget — the frame rate drops" : "! over budget — the screen tears"
+              s[:mode] == Modes::BUFFERED ? "! estimate over budget" : "! over budget — the screen tears"
             else
-              s[:mode] == Modes::BUFFERED ? "ok — fits the frame" : "ok — fits the safe window"
+              s[:mode] == Modes::BUFFERED ? "estimate within budget" : "ok — fits the safe window"
             end
           printer.puts "  scene :#{s[:name]} (#{mode_label}) ~ #{fmt(s[:steady_cost])} of ~#{s[:budget]} scanlines " \
                        "(#{pct(s[:steady_cost], s[:budget])})   #{note}", severity: severity_for(s[:steady_cost], s[:budget])
