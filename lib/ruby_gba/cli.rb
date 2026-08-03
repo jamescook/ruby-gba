@@ -30,6 +30,8 @@ module RubyGBA
                      desc: "Print the per-frame draw and sound cost breakdown"
     option :stats, type: :boolean, default: false,
                    desc: "Print how far asset packing shrank the cartridge"
+    option :analyze, type: :boolean, default: false,
+                     desc: "Run the ROM on the emulator and report the measured per-frame cost"
     def build(game_file)
       game = load_game(game_file)
       rom = game.build_rom
@@ -38,6 +40,7 @@ module RubyGBA
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
       say rom.compression.summary_line if options[:stats] && rom.compression&.any?
       rom.explain if options[:explain]
+      analyze_rom(path) if options[:analyze]
     end
 
     desc "inspect ROM_FILE", "Show a built .gba's header and a disassembly"
@@ -60,6 +63,28 @@ module RubyGBA
     end
 
     private
+
+    # Run the built ROM on the emulator and print its measured per-frame cost. Needs the
+    # emulator built; a missing build is a friendly error, not a backtrace.
+    def analyze_rom(rom_path)
+      say analyze_line(RubyGBA::Analyzer.measure(rom_path))
+    rescue LoadError => e
+      raise Thor::Error, "--analyze needs the emulator. #{e.message}"
+    end
+
+    # The measured-cost line. Below the frame ceiling it reports the real scanline count
+    # and that it fits; near the ceiling the measurement saturates, so it reads as over
+    # budget instead of a precise number.
+    def analyze_line(result)
+      frame = RubyGBA::Analyzer::FRAME_SCANLINES
+      if result.saturated?
+        "measured on emulator: the frame saturates the CPU " \
+          "(~#{result.scanlines.round} of #{frame} scanlines) — over budget, drops frames"
+      else
+        "measured on emulator: ~#{result.scanlines.round(1)} of #{frame} scanlines per frame " \
+          "(#{result.percent}%) — fits 60fps"
+      end
+    end
 
     # The file only declares its game (RubyGBA.game records without building), so clear
     # the registry, load the file, and take what it added.
