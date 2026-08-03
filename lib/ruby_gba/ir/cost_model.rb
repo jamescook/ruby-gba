@@ -773,8 +773,25 @@ module RubyGBA
 
         # A static estimate can't size a loop whose length is only known at run time, and
         # a frame rate can only be measured by running the game. Point the dev at the
-        # analyzer, which does both.
-        printer.puts "  estimate only — run with --analyze for a measured frame rate on hardware"
+        # analyzer, which does both, and name the scenes they can zero in on.
+        names = scene_names(program)
+        scenes = names.any? ? " (scenes: #{scene_hint(names)})" : ""
+        printer.puts "  estimate only — run with --analyze for a measured frame rate on hardware#{scenes}"
+      end
+
+      # The scene names a game declares (via case_var), for the analyze hint. Empty for a
+      # single-loop game. Read straight from the case dispatch in the IR.
+      def scene_names(program)
+        node = program.walk.find { |n| n.kind == :case }
+        return [] unless node
+
+        node[:clauses].map { |_value, func| func.to_s.delete_prefix("_scene_") }
+      end
+
+      # The first few scene names, with an ellipsis when there are more, so the hint
+      # stays short on a game with many scenes.
+      def scene_hint(names)
+        names.first(5).join(", ") + (names.size > 5 ? ", ..." : "")
       end
 
       # The per-frame budget check: the frame's estimated work against the ~228-scanline

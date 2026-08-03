@@ -589,6 +589,28 @@ class TestCostModel < Minitest::Test
     assert_match(/double-buffered — drawing can't tear/, io.string)
   end
 
+  # The estimate points at the analyzer for a measured number, and names the scenes the
+  # dev can zero in on with --analyze --scene.
+  def test_the_analyze_hint_lists_the_scenes
+    prog = program do
+      screen :bitmap
+      var :state, 0
+      scene(:title) { clear_screen :blue }
+      scene(:play)  { clear_screen :red }
+      game_loop do
+        wait_vblank
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+    io = StringIO.new
+    Cost.new.report(prog, out: io)
+    assert_match(/run with --analyze/, io.string)
+    assert_match(/scenes: title, play/, io.string)
+  end
+
   # Even double buffering has a ceiling: draw more than fits in a whole frame and
   # the frame rate drops (it still never tears).
   def test_buffered_over_a_whole_frame_reads_as_a_dropped_frame_not_tearing
