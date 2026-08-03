@@ -15,7 +15,7 @@ require_relative "lib/ruby_gba"
 
 # A trimmed slice of examples/snake.rb — see that file for the full, commented game.
 # (Grid constants like CELL, MIN_COL, BODY_CAP and the STEP beat are defined there.)
-rom = RubyGBA.build("SNAKE", code: "BSNK", maker: "01") do
+Snake = RubyGBA.game("SNAKE", code: "BSNK", maker: "01") do
   screen :bitmap
   enable_sound
   define_sound :eat, frequency: 880, duty: :quarter, decay: :fast
@@ -70,14 +70,15 @@ rom = RubyGBA.build("SNAKE", code: "BSNK", maker: "01") do
   end
 end
 
-rom.write("snake.gba")   # guardrails run during build; rom.explain shows the cost tree
+Snake.write_if_main   # `ruby snake.rb` writes snake.gba; guardrails run at build time
 ```
 
 Build it and run it in any GBA emulator:
 
 ```bash
-ruby examples/snake.rb     # => writes snake.gba
-rake test                  # unit + (optional) emulator integration tests
+ruby examples/snake.rb             # => writes snake.gba
+ruby-gba build examples/snake.rb   # the same, via the CLI (adds -o / --explain / --stats)
+rake test                          # unit + (optional) emulator integration tests
 ```
 
 ---
@@ -165,6 +166,7 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Guardrails (extensible registry) + build-time validation, findings traced to the DSL line
 - [x] Cost estimator + `rom.explain`
 - [x] IR + two backends (GBA lowering, Ruby interpreter) with a conformance fixture + portability tagging
+- [x] CLI — `ruby-gba build / inspect / new` (Thor): per-command help, typed options, friendly errors
 
 **Planned**
 
@@ -178,7 +180,7 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [ ] Plugin registries — register your own effect verbs
 - [ ] Target-neutral draw layer (decouple draw intent from the framebuffer)
 - [ ] Save / load persistence (SRAM / flash)
-- [ ] CLI — `ruby-gba build` / `preview` / `doctor`
+- [ ] CLI `preview` — run a game in the browser (JS backend)
 - [ ] JS / `<canvas>` backend (web target + live preview)
 - [ ] Terminal (TTY) and Game Boy Color backends
 
@@ -189,7 +191,8 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 Every example under [`examples/`](examples/) is a complete, runnable game or demo
 that teaches **one pattern** — the code *is* the documentation. Each file's header
 comment explains the hardware it touches and, where there's a choice, *why it took
-its approach over the alternatives*. Build any of them with `ruby examples/<name>.rb`.
+its approach over the alternatives*. Build any of them with `ruby examples/<name>.rb`
+(or `ruby-gba build examples/<name>.rb`).
 
 | Example | Teaches | How it draws |
 |---|---|---|
