@@ -21,9 +21,10 @@ module RubyGBA
     # known workload actually burns in a frame — see tools/calibrate_cost_model.rb,
     # which measures each one and is re-run whenever the lowering of a priced op
     # changes. The logic steps, plot_pixel, sound_write, the mixer, and music (per
-    # voice) are measured that way; only the DMA weights (dma_setup/dma_pixel) are
-    # still estimates — the DMA pair fits dma_fill_rect but under-prices the CPU-plotted
-    # fill_rect (a known gap). A game dev can override any of them.
+    # voice) are measured that way; the DMA weights (dma_setup/dma_pixel) are still
+    # estimates, and price the DMA fills only (dma_fill_rect, draw_rect_at, opaque blits,
+    # save/restore) — the CPU-plotted fill_rect uses plot_pixel. A game dev can override
+    # any of them.
     #
     # Two things drive the cost. Drawing is dominated by DMA *operations*: a fill, a
     # blit, a save/restore is one DMA per row, and the per-row setup dwarfs the
@@ -95,12 +96,11 @@ module RubyGBA
       DEFAULT_MIXER_RATE = 8192 # fallback output rate when no sample declares one
 
       # Hand estimates, in scanlines per op — the weights the calibration tool doesn't
-      # measure *yet*. None of these are unmeasurable (they're all CPU work the probe
-      # sees); each is still an estimate for a specific reason. The DMA pair fits
-      # dma_fill_rect (real, width-independent DMA) but under-prices the CPU-plotted
-      # fill_rect (a known gap) — the model must split them first. The tiled/collision
-      # tiers just have no microbench yet. The MEASURED_WEIGHTS below override any of
-      # these they name.
+      # measure yet. None of these are unmeasurable (they're all CPU work the probe
+      # sees). The DMA pair (dma_setup/dma_pixel) prices the real per-row DMA fills only
+      # (dma_fill_rect, draw_rect_at, opaque blits, save/restore), so a DMA-fill microbench
+      # can now measure it cleanly; the tiled/collision tiers just have no microbench yet.
+      # The MEASURED_WEIGHTS below override any of these they name.
       ESTIMATED_WEIGHTS = {
         dma_setup:   0.102,   # the fixed per-row setup of a DMA transfer (a fill/blit/save row)
         dma_pixel:   0.00124, # one pixel filled or copied by DMA (the transfer, on top of setup)
@@ -1030,7 +1030,8 @@ module RubyGBA
       def op_cost(node)
         case node.kind
         when :pixel then @weights[:plot_pixel]                     # one hand-plotted pixel
-        when :fill_rect, :dma_fill_rect, :draw_rect_at then dma_rows_cost(node[:w], node[:h])
+        when :fill_rect then plot_rect_cost(node[:w], node[:h])    # a CPU per-pixel loop
+        when :dma_fill_rect, :draw_rect_at then dma_rows_cost(node[:w], node[:h]) # per-row DMA
         when :clear_screen then dma_blob_cost(SCREEN_W * SCREEN_H) # the whole screen in one DMA
         when :draw_text then Fonts.get(node[:font]).text_pixels(node[:text]) * @weights[:plot_pixel]
         when :draw_digit then Fonts.get(node[:font]).max_glyph_pixels(DIGITS) * @weights[:plot_pixel]
@@ -1123,7 +1124,15 @@ module RubyGBA
         node[:map].to_a.sum { |row| row.respond_to?(:length) ? row.length : 1 }
       end
 
-      # A rectangle filled/copied by DMA one row at a time (a fill, an opaque blit, a
+      # A rectangle filled the slow way: a CPU loop writing each pixel, which is what
+      # fill_rect does in direct color. No per-row DMA setup, just the per-pixel plot, so
+      # the cost is the area times one plotted pixel — far dearer than the DMA fill
+      # (dma_fill_rect) for the same rectangle.
+      def plot_rect_cost(w, h)
+        w * h * @weights[:plot_pixel]
+      end
+
+      # A rectangle filled/copied by DMA one row at a time (a DMA fill, an opaque blit, a
       # save/restore): each row is a DMA, so the fixed per-row setup is paid h times,
       # and the pixels are transferred on top. This is why a tall rectangle costs more
       # than a wide one of the same area.
