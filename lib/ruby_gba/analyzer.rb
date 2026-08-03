@@ -5,8 +5,10 @@ require "tmpdir"
 module RubyGBA
   # Measures a built ROM's real per-frame cost on the emulator — the "analyze" half of
   # the cost tooling, opposite the static estimate in {IR::CostModel}. It runs the ROM
-  # and reads how many of a frame's ~228 scanlines the CPU actually burns, which is the
-  # measured number the static estimate can only guess at.
+  # and reads how many of a frame's ~228 scanlines a frame actually burns, which is the
+  # measured number the static estimate can only guess at. The reading is the frame's
+  # wall-clock work — the CPU executing PLUS the stall while a DMA engine copies — so a
+  # DMA-heavy frame reads its true cost, not just the CPU part.
   module Analyzer
     module_function
 
@@ -18,9 +20,9 @@ module RubyGBA
     SETTLE = 8            # frames to run before reading, so the game reaches steady state
     FPS_WINDOW = 90       # emulated frames to count game frames over, for a saturated scene's real fps
 
-    # +scanlines+ is the measured per-frame CPU cost; +fps+ is the real game framerate,
-    # only measured (and only meaningful) when the scene saturates the frame — a fitting
-    # scene runs at the full 60.
+    # +scanlines+ is the measured per-frame wall-clock cost (CPU plus DMA-stall); +fps+
+    # is the real game framerate, only measured (and only meaningful) when the scene
+    # saturates the frame — a fitting scene runs at the full 60.
     Result = Data.define(:scanlines, :fps) do
       def saturated?
         scanlines >= SATURATED
@@ -36,11 +38,15 @@ module RubyGBA
     SCENE_CAP = 10
 
     # Measure +rom_path+ on the emulator. Runs the ROM to a settled frame and reads the
-    # busy scanlines a frame burns, taking the smallest of a few reads (the quietest,
-    # least-noisy sample). Returns a {Result} with no fps (that needs the counter run).
+    # wall-clock scanlines a frame burns — the CPU work plus the DMA-stall — taking the
+    # largest of a few reads. A frame that fits reads the same each time, so the largest
+    # is its steady cost; a frame that overruns the budget wobbles as work bleeds into
+    # the next frame, and the peak is the honest "this is over budget" signal (the min
+    # can dip below the saturation line and read as fitting when it is not). Returns a
+    # {Result} with no fps (that needs the counter run).
     def measure(rom_path)
       probe = Emulator.probe(rom_path)
-      scanlines = 3.times.map { probe.busy_scanlines(settle: SETTLE) }.min
+      scanlines = 3.times.map { probe.frame_cost(settle: SETTLE).active_scanlines }.max
       Result.new(scanlines: scanlines, fps: nil)
     ensure
       probe&.close

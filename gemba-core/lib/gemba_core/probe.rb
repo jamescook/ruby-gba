@@ -176,6 +176,37 @@ module GembaCore
       busy_cycles(settle: settle) / cycles_per_scanline
     end
 
+    # One frame's cost split into the CPU-executing part and the wall-clock
+    # work. The GBA stalls the CPU while a DMA engine copies, so a DMA-heavy
+    # frame burns real frame budget the busy count alone cannot see. +active+
+    # is everything but the end-of-frame halt (executing plus DMA-stall);
+    # +dma+ is the difference — the stall time.
+    FrameCost = Data.define(:busy_cycles, :active_cycles, :cycles_per_scanline) do
+      def busy_scanlines = busy_cycles / cycles_per_scanline
+      def active_scanlines = active_cycles / cycles_per_scanline
+
+      # The DMA-stall cycles: active minus busy. Floored at 0 — a tiny negative
+      # can appear when a few executing cycles have not yet folded into global
+      # time at the frame boundary.
+      def dma_cycles = [active_cycles - busy_cycles, 0].max
+      def dma_scanlines = dma_cycles / cycles_per_scanline
+    end
+
+    # Measure one frame and return its {FrameCost} — busy and active (wall-clock)
+    # cycles from the same pass, so their DMA-stall difference is exact. Pass
+    # +settle:+ to reach steady state first, like {#busy_cycles}.
+    #
+    # @return [FrameCost]
+    def frame_cost(settle: 0)
+      ensure_open!
+      step(settle) if settle.positive?
+      busy, active = @core.measure_frame_work
+      @frames_run += 1
+      @prev_pixels = @pixels
+      @pixels = @core.video_buffer
+      FrameCost.new(busy_cycles: busy, active_cycles: active, cycles_per_scanline: cycles_per_scanline)
+    end
+
     # Number of pixels lit (non-black) on the current frame — a cheap
     # "is anything on screen?" measure.
     #
