@@ -48,4 +48,20 @@ task :preview do
   sh(*cmd)
 end
 
+# The codebase map in .ua/ is committed, so browsing it costs nothing: the viewer is
+# a self-contained local page — no analysis run, no LLM, no API key, no account. It's
+# fetched straight from the upstream project's latest release rather than vendored
+# here, so there's nothing to install and nothing to keep in sync. It prints a URL
+# with a token on it; that token is required, so open the whole line it gives you.
+UA_VIEWER = "https://github.com/Egonex-AI/Understand-Anything/releases/latest/download/" \
+            "understand-anything-viewer.tgz"
+
+desc "Browse the codebase map in .ua/ in a local dashboard (needs Node 18 or newer)"
+task :ua do
+  unless File.exist?(".ua/knowledge-graph.json")
+    abort "There is no codebase map at .ua/knowledge-graph.json. To make one, run /understand in Claude Code."
+  end
+  sh "npx", "--yes", UA_VIEWER, "."
+end
+
 task default: :test

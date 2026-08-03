@@ -1,0 +1,4785 @@
+{
+  "version": "1.0.0",
+  "gitCommitHash": "7323f5849acdf0766304bbb4c934561c06054cbf",
+  "generatedAt": "2026-08-03T14:37:21.618Z",
+  "files": {
+    ".githooks/commit-msg": {
+      "filePath": ".githooks/commit-msg",
+      "contentHash": "f43d68f27f4d6cbc64aad62e93716398d092751fa1fe5da9e213c031ca08a5e7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 27,
+      "hasStructuralAnalysis": false
+    },
+    ".github/workflows/ci.yml": {
+      "filePath": ".github/workflows/ci.yml",
+      "contentHash": "6315be52a56e8df44a2525de16c9c266e199a35af39a569b3b7e07d6453b6f2d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 68,
+      "hasStructuralAnalysis": true
+    },
+    "AGENTS.md": {
+      "filePath": "AGENTS.md",
+      "contentHash": "745f183e77a3a207da64f7cb58e456d20f35e3ce255af9b48535d45c5bdb0e17",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 97,
+      "hasStructuralAnalysis": true
+    },
+    "Gemfile": {
+      "filePath": "Gemfile",
+      "contentHash": "bbf84bea967ac012444426fb7d35999ebb3e2fc9ceb7d76ba129e6466f1d8d2b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 6,
+      "hasStructuralAnalysis": false
+    },
+    "LICENSE.md": {
+      "filePath": "LICENSE.md",
+      "contentHash": "51cbd1a7279eccd079e2a8171e9c625677844738a63448e93ef26b98f0e63df3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 48,
+      "hasStructuralAnalysis": true
+    },
+    "README.md": {
+      "filePath": "README.md",
+      "contentHash": "d802ecf2e370196ff4fe6a2b7d69298757d4e32de6114461bf7d34a381921915",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 303,
+      "hasStructuralAnalysis": true
+    },
+    "Rakefile": {
+      "filePath": "Rakefile",
+      "contentHash": "0fd7794d9c1db9d1629b15ffdcc3482b5a2776c904eade214b0736a610a9cfde",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 52,
+      "hasStructuralAnalysis": false
+    },
+    "bin/ruby-gba": {
+      "filePath": "bin/ruby-gba",
+      "contentHash": "ebdeb3d15ec464ee66908dc0a22ed217fe6a03d0d4bb62bc522891eb4df7e7ac",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 11,
+      "hasStructuralAnalysis": false
+    },
+    "examples/animate.rb": {
+      "filePath": "examples/animate.rb",
+      "contentHash": "1d7785da4d6436473225b1baba717f13c79899327fde1f0b7549242062255c26",
+      "functions": [
+        {
+          "name": "self.coin_art",
+          "params": [
+            "k"
+          ],
+          "exported": false,
+          "lineCount": 11
+        },
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Animate",
+          "methods": [
+            "self.coin_art",
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 49
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Animate"
+      ],
+      "totalLines": 76,
+      "hasStructuralAnalysis": true
+    },
+    "examples/assets/gen_pacman_sheet.rb": {
+      "filePath": "examples/assets/gen_pacman_sheet.rb",
+      "contentHash": "8fbb560e9892a90da7cd5211b66b2b6a4c67bd9a14e0f30e3a024f5963b0feb3",
+      "functions": [
+        {
+          "name": "yellow_rgb",
+          "params": [],
+          "exported": true,
+          "lineCount": 7
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "../../lib/ruby_gba",
+          "specifiers": [
+            "../../lib/ruby_gba"
+          ]
+        },
+        {
+          "source": "../pacman",
+          "specifiers": [
+            "../pacman"
+          ]
+        }
+      ],
+      "exports": [
+        "yellow_rgb"
+      ],
+      "totalLines": 65,
+      "hasStructuralAnalysis": true
+    },
+    "examples/assets/level.csv": {
+      "filePath": "examples/assets/level.csv",
+      "contentHash": "dd941c66550c21591f847eb1b233b85b5735ee70cb341f4da1908a18c1915fcf",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 21,
+      "hasStructuralAnalysis": false
+    },
+    "examples/bird.rb": {
+      "filePath": "examples/bird.rb",
+      "contentHash": "0523ea9027b0aa6cf22701cf777b0f7b879ffbb11d9ad4d5d77518e290f2db74",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Bird",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 27
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Bird"
+      ],
+      "totalLines": 49,
+      "hasStructuralAnalysis": true
+    },
+    "examples/breakout.rb": {
+      "filePath": "examples/breakout.rb",
+      "contentHash": "d24b982f51a501d65ada80d329e179074539aa65ad394ff1d2c7ee875afc8ddb",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Breakout",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 257
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Breakout"
+      ],
+      "totalLines": 303,
+      "hasStructuralAnalysis": true
+    },
+    "examples/buffered_bounce.rb": {
+      "filePath": "examples/buffered_bounce.rb",
+      "contentHash": "a79058dcec5262235d5e2949153fb06531f0db4abf3c781ff32dc343901ac574",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "BufferedBounce",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 41
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "BufferedBounce"
+      ],
+      "totalLines": 66,
+      "hasStructuralAnalysis": true
+    },
+    "examples/floating_digits.rb": {
+      "filePath": "examples/floating_digits.rb",
+      "contentHash": "b804fa0e01e71968a4d430c8bbeb692a48a7b27e678dff6a85af80362635847d",
+      "functions": [
+        {
+          "name": "self.glyph_art",
+          "params": [
+            "d"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "FloatingDigits",
+          "methods": [
+            "self.glyph_art",
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 76
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "FloatingDigits"
+      ],
+      "totalLines": 100,
+      "hasStructuralAnalysis": true
+    },
+    "examples/font_styles.rb": {
+      "filePath": "examples/font_styles.rb",
+      "contentHash": "e11fa618eac849417efb4e5160ee03f65d8d361da43ad37f08f026b7c6ef8a54",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "FontStyles",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 77
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "FontStyles"
+      ],
+      "totalLines": 96,
+      "hasStructuralAnalysis": true
+    },
+    "examples/fonts.rb": {
+      "filePath": "examples/fonts.rb",
+      "contentHash": "899c9bf2e0872cf7430b86bf5fed9f8874debc16d69aae5c2d5ff10c553cb0df",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "FontsDemo",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 21
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "FontsDemo"
+      ],
+      "totalLines": 40,
+      "hasStructuralAnalysis": true
+    },
+    "examples/grid_cursor.rb": {
+      "filePath": "examples/grid_cursor.rb",
+      "contentHash": "4cf37d46faa47eecad4c5daebabd640ebcbd98700aacc86cd6060eaa066cd6a5",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "GridCursor",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 44
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "GridCursor"
+      ],
+      "totalLines": 65,
+      "hasStructuralAnalysis": true
+    },
+    "examples/hero.rb": {
+      "filePath": "examples/hero.rb",
+      "contentHash": "1fd540ff39b0121cd7473b18704de101919edd6403c8db5b9f063e5b2b6b3486",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Hero",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 111
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Hero"
+      ],
+      "totalLines": 145,
+      "hasStructuralAnalysis": true
+    },
+    "examples/jukebox.rb": {
+      "filePath": "examples/jukebox.rb",
+      "contentHash": "6e4826b6bc92e21c2aec7fab5ac2dee6a8ec5db52f56bf072b7d78b1794dc787",
+      "functions": [
+        {
+          "name": "self.at_center",
+          "params": [
+            "str"
+          ],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Jukebox",
+          "methods": [
+            "self.at_center",
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 134
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Jukebox"
+      ],
+      "totalLines": 156,
+      "hasStructuralAnalysis": true
+    },
+    "examples/level.rb": {
+      "filePath": "examples/level.rb",
+      "contentHash": "6c549394793fe4529fc6493f4a2a82213859cc5e22fbf3573dd288ba8454af50",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Level",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 32
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Level"
+      ],
+      "totalLines": 60,
+      "hasStructuralAnalysis": true
+    },
+    "examples/maze.rb": {
+      "filePath": "examples/maze.rb",
+      "contentHash": "2f57d18b98c90f886d7a6248f540814443beeedc5775163f858f6eef51bfe455",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Maze",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 94
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Maze"
+      ],
+      "totalLines": 121,
+      "hasStructuralAnalysis": true
+    },
+    "examples/pacman.rb": {
+      "filePath": "examples/pacman.rb",
+      "contentHash": "41e67f0a93b4f90fcad6f1b86522e3846e756e38c690aa764d3e0cae50fa03b0",
+      "functions": [
+        {
+          "name": "self.pacman_art",
+          "params": [
+            "dir"
+          ],
+          "exported": false,
+          "lineCount": 11
+        },
+        {
+          "name": "self.in_mouth?",
+          "params": [
+            "dx",
+            "dy",
+            "dir"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Pacman",
+          "methods": [
+            "self.pacman_art",
+            "self.in_mouth?",
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 185
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Pacman"
+      ],
+      "totalLines": 224,
+      "hasStructuralAnalysis": true
+    },
+    "examples/parallax.rb": {
+      "filePath": "examples/parallax.rb",
+      "contentHash": "3dc810d2d2368ff3f5eee0f29304307112cb6d02af2d2089e247797d5c49dd9c",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Parallax",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 116
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Parallax"
+      ],
+      "totalLines": 146,
+      "hasStructuralAnalysis": true
+    },
+    "examples/piano.rb": {
+      "filePath": "examples/piano.rb",
+      "contentHash": "40adbab1ac7087d5c51732872ad696e6e4fbef3fe0e58e5159125e43ab64a6d1",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Piano",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 153
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Piano"
+      ],
+      "totalLines": 184,
+      "hasStructuralAnalysis": true
+    },
+    "examples/pixels.rb": {
+      "filePath": "examples/pixels.rb",
+      "contentHash": "9e495410d4ab08aa0b68cc6ed3df13fbaa58c34571fd60bd260e529e5e114b8b",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 52,
+      "hasStructuralAnalysis": true
+    },
+    "examples/pong.rb": {
+      "filePath": "examples/pong.rb",
+      "contentHash": "5319bf5001ffa2d44de810df7b0fc169c6d50a22af4d4156b6c5f7211b7a50cf",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 247,
+      "hasStructuralAnalysis": true
+    },
+    "examples/raycaster.rb": {
+      "filePath": "examples/raycaster.rb",
+      "contentHash": "47ceb6900cff012d0fb140f2699a5ca34aae81ef49223401684d771148b968c6",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Raycaster",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 99
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Raycaster"
+      ],
+      "totalLines": 132,
+      "hasStructuralAnalysis": true
+    },
+    "examples/scroll.rb": {
+      "filePath": "examples/scroll.rb",
+      "contentHash": "3584845a86f943f0353a384c8496ae91b96c3d84991177d784c5e91714b0eb71",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Scroll",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 71
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Scroll"
+      ],
+      "totalLines": 97,
+      "hasStructuralAnalysis": true
+    },
+    "examples/sheet.rb": {
+      "filePath": "examples/sheet.rb",
+      "contentHash": "6b2f6c8d0e015d92768eaf4526819b2ea3a9d7ad33cb931413753f91838da3b5",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Sheet",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 59
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Sheet"
+      ],
+      "totalLines": 86,
+      "hasStructuralAnalysis": true
+    },
+    "examples/shmup.rb": {
+      "filePath": "examples/shmup.rb",
+      "contentHash": "a56a4882efb3f991ce6abfc929a55c0c992d506ad415a6eb6b1e395cfbfe2886",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Shmup",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 56
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        },
+        {
+          "source": "shmup/player",
+          "specifiers": [
+            "shmup/player"
+          ]
+        },
+        {
+          "source": "shmup/enemies",
+          "specifiers": [
+            "shmup/enemies"
+          ]
+        },
+        {
+          "source": "shmup/hud",
+          "specifiers": [
+            "shmup/hud"
+          ]
+        }
+      ],
+      "exports": [
+        "Shmup"
+      ],
+      "totalLines": 86,
+      "hasStructuralAnalysis": true
+    },
+    "examples/shmup/enemies.rb": {
+      "filePath": "examples/shmup/enemies.rb",
+      "contentHash": "7260b76c2b7f0460989188da0b66ab0bd7f0c485186fd54a5151041cdb3fc74d",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Shmup",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 66
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "Shmup"
+      ],
+      "totalLines": 78,
+      "hasStructuralAnalysis": true
+    },
+    "examples/shmup/hud.rb": {
+      "filePath": "examples/shmup/hud.rb",
+      "contentHash": "15ef3f897e625d20daca46f3a7d05108b19ef03620fda4f5bb56b70a9cf372b5",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Shmup",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 33
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "Shmup"
+      ],
+      "totalLines": 42,
+      "hasStructuralAnalysis": true
+    },
+    "examples/shmup/player.rb": {
+      "filePath": "examples/shmup/player.rb",
+      "contentHash": "0592e784276eb3b842263518c8e1be51864de693082c4399d435998cc7782967",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Shmup",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 90
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "Shmup"
+      ],
+      "totalLines": 100,
+      "hasStructuralAnalysis": true
+    },
+    "examples/snake.rb": {
+      "filePath": "examples/snake.rb",
+      "contentHash": "0a872768a3db92692a5e458fa1a6b40d4088faffa3ab53b76812d528ce1f33a1",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Snake",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 270
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Snake"
+      ],
+      "totalLines": 308,
+      "hasStructuralAnalysis": true
+    },
+    "examples/snake_buffered.rb": {
+      "filePath": "examples/snake_buffered.rb",
+      "contentHash": "ea8658c2d728f8a78bb7453ac434aec10b58a101140dba25852849f498ef0136",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "BufferedSnake",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 184
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "BufferedSnake"
+      ],
+      "totalLines": 218,
+      "hasStructuralAnalysis": true
+    },
+    "examples/sprite_mover.rb": {
+      "filePath": "examples/sprite_mover.rb",
+      "contentHash": "7f3ee6cfb4d0f402d833449d9a038822bbf7d8febf3970c354d1fa2343f3c22c",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "SpriteMover",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 53
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "SpriteMover"
+      ],
+      "totalLines": 75,
+      "hasStructuralAnalysis": true
+    },
+    "examples/tiles.rb": {
+      "filePath": "examples/tiles.rb",
+      "contentHash": "5f016777b4e60e6ec1d9c0cd9052c51e263f78c8d11673e26719c7c89179ed32",
+      "functions": [
+        {
+          "name": "self.program",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "self.build_rom",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [
+        {
+          "name": "Tiles",
+          "methods": [
+            "self.program",
+            "self.build_rom"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 89
+        }
+      ],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Tiles"
+      ],
+      "totalLines": 116,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba.rb": {
+      "filePath": "lib/ruby_gba.rb",
+      "contentHash": "2235c8dc0da72d1b89b45d94bf369027597003e27be73a5f90c58ce434380b51",
+      "functions": [
+        {
+          "name": "self.build",
+          "params": [
+            "title",
+            "&block"
+          ],
+          "exported": false,
+          "lineCount": 59
+        }
+      ],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [
+            "self.build"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 71
+        }
+      ],
+      "imports": [
+        {
+          "source": "ruby_gba/version",
+          "specifiers": [
+            "ruby_gba/version"
+          ]
+        },
+        {
+          "source": "ruby_gba/constants",
+          "specifiers": [
+            "ruby_gba/constants"
+          ]
+        },
+        {
+          "source": "ruby_gba/color",
+          "specifiers": [
+            "ruby_gba/color"
+          ]
+        },
+        {
+          "source": "ruby_gba/sound",
+          "specifiers": [
+            "ruby_gba/sound"
+          ]
+        },
+        {
+          "source": "ruby_gba/asm",
+          "specifiers": [
+            "ruby_gba/asm"
+          ]
+        },
+        {
+          "source": "ruby_gba/ir",
+          "specifiers": [
+            "ruby_gba/ir"
+          ]
+        },
+        {
+          "source": "ruby_gba/rom_validator",
+          "specifiers": [
+            "ruby_gba/rom_validator"
+          ]
+        },
+        {
+          "source": "ruby_gba/rom",
+          "specifiers": [
+            "ruby_gba/rom"
+          ]
+        },
+        {
+          "source": "ruby_gba/font",
+          "specifiers": [
+            "ruby_gba/font"
+          ]
+        },
+        {
+          "source": "ruby_gba/fonts",
+          "specifiers": [
+            "ruby_gba/fonts"
+          ]
+        },
+        {
+          "source": "ruby_gba/music",
+          "specifiers": [
+            "ruby_gba/music"
+          ]
+        },
+        {
+          "source": "ruby_gba/builder",
+          "specifiers": [
+            "ruby_gba/builder"
+          ]
+        },
+        {
+          "source": "ruby_gba/game",
+          "specifiers": [
+            "ruby_gba/game"
+          ]
+        },
+        {
+          "source": "ruby_gba/value",
+          "specifiers": [
+            "ruby_gba/value"
+          ]
+        },
+        {
+          "source": "ruby_gba/condition",
+          "specifiers": [
+            "ruby_gba/condition"
+          ]
+        },
+        {
+          "source": "ruby_gba/branch",
+          "specifiers": [
+            "ruby_gba/branch"
+          ]
+        },
+        {
+          "source": "ruby_gba/bounds",
+          "specifiers": [
+            "ruby_gba/bounds"
+          ]
+        },
+        {
+          "source": "ruby_gba/pixel_bounds",
+          "specifiers": [
+            "ruby_gba/pixel_bounds"
+          ]
+        },
+        {
+          "source": "ruby_gba/box",
+          "specifiers": [
+            "ruby_gba/box"
+          ]
+        },
+        {
+          "source": "ruby_gba/builder/debug",
+          "specifiers": [
+            "ruby_gba/builder/debug"
+          ]
+        },
+        {
+          "source": "ruby_gba/list",
+          "specifiers": [
+            "ruby_gba/list"
+          ]
+        },
+        {
+          "source": "ruby_gba/table",
+          "specifiers": [
+            "ruby_gba/table"
+          ]
+        },
+        {
+          "source": "ruby_gba/field_ref",
+          "specifiers": [
+            "ruby_gba/field_ref"
+          ]
+        },
+        {
+          "source": "ruby_gba/pool",
+          "specifiers": [
+            "ruby_gba/pool"
+          ]
+        },
+        {
+          "source": "ruby_gba/direction",
+          "specifiers": [
+            "ruby_gba/direction"
+          ]
+        },
+        {
+          "source": "ruby_gba/grid",
+          "specifiers": [
+            "ruby_gba/grid"
+          ]
+        },
+        {
+          "source": "ruby_gba/sprite",
+          "specifiers": [
+            "ruby_gba/sprite"
+          ]
+        },
+        {
+          "source": "ruby_gba/hardware_sprite",
+          "specifiers": [
+            "ruby_gba/hardware_sprite"
+          ]
+        },
+        {
+          "source": "ruby_gba/timer",
+          "specifiers": [
+            "ruby_gba/timer"
+          ]
+        },
+        {
+          "source": "ruby_gba/sample",
+          "specifiers": [
+            "ruby_gba/sample"
+          ]
+        },
+        {
+          "source": "ruby_gba/instrument",
+          "specifiers": [
+            "ruby_gba/instrument"
+          ]
+        },
+        {
+          "source": "ruby_gba/wav",
+          "specifiers": [
+            "ruby_gba/wav"
+          ]
+        },
+        {
+          "source": "ruby_gba/background",
+          "specifiers": [
+            "ruby_gba/background"
+          ]
+        },
+        {
+          "source": "ruby_gba/image",
+          "specifiers": [
+            "ruby_gba/image"
+          ]
+        },
+        {
+          "source": "ruby_gba/aseprite",
+          "specifiers": [
+            "ruby_gba/aseprite"
+          ]
+        },
+        {
+          "source": "ruby_gba/inspector",
+          "specifiers": [
+            "ruby_gba/inspector"
+          ]
+        },
+        {
+          "source": "ruby_gba/func_dumper",
+          "specifiers": [
+            "ruby_gba/func_dumper"
+          ]
+        },
+        {
+          "source": "ruby_gba/test_patterns",
+          "specifiers": [
+            "ruby_gba/test_patterns"
+          ]
+        },
+        {
+          "source": "ruby_gba/emulator",
+          "specifiers": [
+            "ruby_gba/emulator"
+          ]
+        },
+        {
+          "source": "ruby_gba/verifier",
+          "specifiers": [
+            "ruby_gba/verifier"
+          ]
+        },
+        {
+          "source": "ruby_gba/analyzer",
+          "specifiers": [
+            "ruby_gba/analyzer"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 116,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/analyzer.rb": {
+      "filePath": "lib/ruby_gba/analyzer.rb",
+      "contentHash": "7441f28e296e81b07b894628f5e399c756964f3470bfd08d6b2b45a735e2ab39",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 115
+        }
+      ],
+      "imports": [
+        {
+          "source": "tmpdir",
+          "specifiers": [
+            "tmpdir"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 120,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/aseprite.rb": {
+      "filePath": "lib/ruby_gba/aseprite.rb",
+      "contentHash": "8823bed557d92aff59b320c58a2067ce1b54fb28364759b7ee73dd65960c25e1",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 268
+        }
+      ],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "zlib",
+          "specifiers": [
+            "zlib"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 274,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/asm.rb": {
+      "filePath": "lib/ruby_gba/asm.rb",
+      "contentHash": "557481193aca9addcc83e527ee05e7dc427b4e68b01566a394b8d5b43ba02831",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 433
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 436,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/background.rb": {
+      "filePath": "lib/ruby_gba/background.rb",
+      "contentHash": "b480a4f0e8a0d32ce2dd97cc43c5701a6db5ccb42c3005061fdf683d5a332d0c",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 75
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 78,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/bounds.rb": {
+      "filePath": "lib/ruby_gba/bounds.rb",
+      "contentHash": "8cd359974a6cca59d62e98fef21c205df7c3afd1c23cf5862eefefb05375901e",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 62
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 65,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/box.rb": {
+      "filePath": "lib/ruby_gba/box.rb",
+      "contentHash": "f8b0a8da68566077772984f5a92ab4cbc2bbe1f29ed9d9c112bbbfeb7c404d07",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 47
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 50,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/branch.rb": {
+      "filePath": "lib/ruby_gba/branch.rb",
+      "contentHash": "9cfce94f8b2e3638501bcb3fcb2eaf970124b9f9e9a01988c1308fbb4395c70e",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 21
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 24,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder.rb": {
+      "filePath": "lib/ruby_gba/builder.rb",
+      "contentHash": "660d2d94b25cf30fdce515dbfb32b2877b14dffd797519f791642b3a5c151597",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 541
+        }
+      ],
+      "imports": [
+        {
+          "source": "builder/randomness",
+          "specifiers": [
+            "builder/randomness"
+          ]
+        },
+        {
+          "source": "builder/sound",
+          "specifiers": [
+            "builder/sound"
+          ]
+        },
+        {
+          "source": "builder/music",
+          "specifiers": [
+            "builder/music"
+          ]
+        },
+        {
+          "source": "builder/text",
+          "specifiers": [
+            "builder/text"
+          ]
+        },
+        {
+          "source": "builder/images",
+          "specifiers": [
+            "builder/images"
+          ]
+        },
+        {
+          "source": "builder/sprites",
+          "specifiers": [
+            "builder/sprites"
+          ]
+        },
+        {
+          "source": "builder/sprite_import",
+          "specifiers": [
+            "builder/sprite_import"
+          ]
+        },
+        {
+          "source": "builder/input",
+          "specifiers": [
+            "builder/input"
+          ]
+        },
+        {
+          "source": "builder/drawing",
+          "specifiers": [
+            "builder/drawing"
+          ]
+        },
+        {
+          "source": "builder/variables",
+          "specifiers": [
+            "builder/variables"
+          ]
+        },
+        {
+          "source": "builder/control_flow",
+          "specifiers": [
+            "builder/control_flow"
+          ]
+        },
+        {
+          "source": "builder/scenes",
+          "specifiers": [
+            "builder/scenes"
+          ]
+        },
+        {
+          "source": "builder/collision",
+          "specifiers": [
+            "builder/collision"
+          ]
+        },
+        {
+          "source": "builder/tiled",
+          "specifiers": [
+            "builder/tiled"
+          ]
+        },
+        {
+          "source": "builder/composition",
+          "specifiers": [
+            "builder/composition"
+          ]
+        },
+        {
+          "source": "builder/timers",
+          "specifiers": [
+            "builder/timers"
+          ]
+        },
+        {
+          "source": "builder/sampled_audio",
+          "specifiers": [
+            "builder/sampled_audio"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 565,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/collision.rb": {
+      "filePath": "lib/ruby_gba/builder/collision.rb",
+      "contentHash": "89c1e1f6a1a2a481b61e6263482df194a34d84375c2ba66b2d311a449a055678",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 24
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 27,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/composition.rb": {
+      "filePath": "lib/ruby_gba/builder/composition.rb",
+      "contentHash": "dbb36cb837254f5e2b94aa186c64095619b75ee47aeab18783f726fd4753bbb5",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 175
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 178,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/control_flow.rb": {
+      "filePath": "lib/ruby_gba/builder/control_flow.rb",
+      "contentHash": "8882dc0d192e50dcd40c55c97eac2a666daf3763bc55d51850675a73cc18ddc0",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 265
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 268,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/debug.rb": {
+      "filePath": "lib/ruby_gba/builder/debug.rb",
+      "contentHash": "07e20190f8f390c564da14eb71ee042e13ef373e7d7ff186ad554819b736e9e7",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 26
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 29,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/drawing.rb": {
+      "filePath": "lib/ruby_gba/builder/drawing.rb",
+      "contentHash": "554648bfa7c772d32124f8e883dae032a8325fc297998a0190453d602189d3dc",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 153
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 156,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/images.rb": {
+      "filePath": "lib/ruby_gba/builder/images.rb",
+      "contentHash": "0642e6a2ad1cb054642335bc85a3b4c6e40e5d52ad3c4f714e6be52d6c2a7764",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 180
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 183,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/input.rb": {
+      "filePath": "lib/ruby_gba/builder/input.rb",
+      "contentHash": "fd33bbf1a676d316cb2cff47fe6e93eee41f55cea557e37d8a96230d5a0e6c06",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 68
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 71,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/music.rb": {
+      "filePath": "lib/ruby_gba/builder/music.rb",
+      "contentHash": "983b6c06af704cbabfd48dd82e3e066ff4668d961f7f339c2a691645b5d122b2",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 64
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 67,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/randomness.rb": {
+      "filePath": "lib/ruby_gba/builder/randomness.rb",
+      "contentHash": "978dde8c236fe11601c8d0360f7d2b3f24285bd68100a4a7350a835a43904c1f",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 214
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 217,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/sampled_audio.rb": {
+      "filePath": "lib/ruby_gba/builder/sampled_audio.rb",
+      "contentHash": "0171dafc7a04fbd27db2a1aa1a1896150e44bca20f36b493be8a94ab5379ed67",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 87
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 90,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/scenes.rb": {
+      "filePath": "lib/ruby_gba/builder/scenes.rb",
+      "contentHash": "08ef243b077b269f47ccdf9d9f81c7ecb56a1681aa8f26ca847a6699880575be",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 112
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 115,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/sound.rb": {
+      "filePath": "lib/ruby_gba/builder/sound.rb",
+      "contentHash": "3102f1e518e9a20a09d34b282462f9db78d894b233db1d552a39bc88b112a610",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 117
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 120,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/sprite_import.rb": {
+      "filePath": "lib/ruby_gba/builder/sprite_import.rb",
+      "contentHash": "3bd9b48480897ed8987f015396de04a0db4668d762613c78d951122c4adba23f",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 104
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 107,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/sprites.rb": {
+      "filePath": "lib/ruby_gba/builder/sprites.rb",
+      "contentHash": "9e53bc2c188c4ac6509ea4233793240f2b385fefeb6223f7e480ff64d1820ace",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 487
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 490,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/text.rb": {
+      "filePath": "lib/ruby_gba/builder/text.rb",
+      "contentHash": "398b7bc929d1459ec8bb69512ab153275adfa1d6b8ed559968db2f85c20b14e9",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 332
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 335,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/tiled.rb": {
+      "filePath": "lib/ruby_gba/builder/tiled.rb",
+      "contentHash": "87951c0c783b503d354f2d96b8f0d04286eb10a3516c3f1827a74efe56dcdd3c",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 373
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 376,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/timers.rb": {
+      "filePath": "lib/ruby_gba/builder/timers.rb",
+      "contentHash": "3d2d607a6c245009fcd6f72f3617c015e3979290a30836fab5c205cde637890e",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 35
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 38,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/builder/variables.rb": {
+      "filePath": "lib/ruby_gba/builder/variables.rb",
+      "contentHash": "1875064a84831cc25d857697a903ceab36f1a0ada5a753f0e6d67e5dc612316d",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 200
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 203,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/cli.rb": {
+      "filePath": "lib/ruby_gba/cli.rb",
+      "contentHash": "38301cb5be8b4980d386aa50f17e6a7f6865e6e45d3f3ca41edcad9f2068bbde",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 141
+        }
+      ],
+      "imports": [
+        {
+          "source": "thor",
+          "specifiers": [
+            "thor"
+          ]
+        },
+        {
+          "source": "../ruby_gba",
+          "specifiers": [
+            "../ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 147,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/color.rb": {
+      "filePath": "lib/ruby_gba/color.rb",
+      "contentHash": "f9f276b7e565b7e9a6e938a43f55212be6039a8df39113d647c98859f6672cc8",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 103
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 106,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/condition.rb": {
+      "filePath": "lib/ruby_gba/condition.rb",
+      "contentHash": "b491264295ce102b2f2c6d613524709522e178ef2d48b7755380e7761d334a2b",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 83
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 86,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/constants.rb": {
+      "filePath": "lib/ruby_gba/constants.rb",
+      "contentHash": "14ad1f03e22d538767191722450f7a350258b2e9620b138ad4b59f26cd0af02d",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 364
+        }
+      ],
+      "imports": [
+        {
+          "source": "ir/screen",
+          "specifiers": [
+            "ir/screen"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 369,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/direction.rb": {
+      "filePath": "lib/ruby_gba/direction.rb",
+      "contentHash": "14882064f3c82507fc95ae0c296c598eced08fc7857abaf983496a97d318608c",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 32
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 35,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/emulator.rb": {
+      "filePath": "lib/ruby_gba/emulator.rb",
+      "contentHash": "c35adac7900759f62561c315f1c2a138b095c19e7fd220cb6728e850a4577efe",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 58
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 61,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/field_ref.rb": {
+      "filePath": "lib/ruby_gba/field_ref.rb",
+      "contentHash": "8f934f1f68dffef546c70822773d78a937913302b7b1698fd61d1363cf7da461",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 86
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 89,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/font.rb": {
+      "filePath": "lib/ruby_gba/font.rb",
+      "contentHash": "eddd6592234807a754da31f2bd2b8f7576eebc80a691b0aa33538cbca22ffd30",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 259
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 262,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/fonts.rb": {
+      "filePath": "lib/ruby_gba/fonts.rb",
+      "contentHash": "04a159874710b54563017eb537e5475ddf37c02abd09aa64c8d2fa577c74b94b",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 48
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 51,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/func_dumper.rb": {
+      "filePath": "lib/ruby_gba/func_dumper.rb",
+      "contentHash": "32790f51d52651ddda9cc61551da5d33479cf00e6c664724131953ee12e75184",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 55
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 58,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/game.rb": {
+      "filePath": "lib/ruby_gba/game.rb",
+      "contentHash": "155fdc85eb7c1d311d85f3fcfb174fa6caf3ba8d69bd90ba2d4b4bbebaaeb1dc",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 89
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 92,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/grid.rb": {
+      "filePath": "lib/ruby_gba/grid.rb",
+      "contentHash": "5f4ae8b0a61296eeefdf388fd69e44867cd19d29450e0667cb1e9e5211a47d51",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 118
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 121,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/hardware_sprite.rb": {
+      "filePath": "lib/ruby_gba/hardware_sprite.rb",
+      "contentHash": "79561d2fc7e62d217a26aa3a13f63f4e23d6462a1e412723b9c08e483dad9095",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 284
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 287,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/image.rb": {
+      "filePath": "lib/ruby_gba/image.rb",
+      "contentHash": "0ac993e6af1d049459d45ec5c487a77f2d4241b84c38fd6c9e2d6bece95346a2",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 234
+        }
+      ],
+      "imports": [
+        {
+          "source": "image/adapters/image_magick",
+          "specifiers": [
+            "image/adapters/image_magick"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 239,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/image/adapters/image_magick.rb": {
+      "filePath": "lib/ruby_gba/image/adapters/image_magick.rb",
+      "contentHash": "a2d5074b1f4267364335cadee9bdf579200efbb3b9d7efca17dc4fe0a2a2050a",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 105
+        }
+      ],
+      "imports": [
+        {
+          "source": "open3",
+          "specifiers": [
+            "open3"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 110,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/inspector.rb": {
+      "filePath": "lib/ruby_gba/inspector.rb",
+      "contentHash": "c8191479f1005da2d00f5ee6be64a31e2f0429b6cf4b989563e6822f2747e80b",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 290
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 293,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/instrument.rb": {
+      "filePath": "lib/ruby_gba/instrument.rb",
+      "contentHash": "61f6e2738b7552ab1a4c071d885be828b2c02941e02244197140be531aa092f6",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 44
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 47,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir.rb": {
+      "filePath": "lib/ruby_gba/ir.rb",
+      "contentHash": "0ebe4d6814cff1e8e58b38b64678d51f19c35dd3ad380a7d42f90f3d6098c6a6",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 17
+        }
+      ],
+      "imports": [
+        {
+          "source": "ir/int32",
+          "specifiers": [
+            "ir/int32"
+          ]
+        },
+        {
+          "source": "ir/buttons",
+          "specifiers": [
+            "ir/buttons"
+          ]
+        },
+        {
+          "source": "ir/screen",
+          "specifiers": [
+            "ir/screen"
+          ]
+        },
+        {
+          "source": "ir/node",
+          "specifiers": [
+            "ir/node"
+          ]
+        },
+        {
+          "source": "ir/build",
+          "specifiers": [
+            "ir/build"
+          ]
+        },
+        {
+          "source": "ir/modes",
+          "specifiers": [
+            "ir/modes"
+          ]
+        },
+        {
+          "source": "ir/verifier",
+          "specifiers": [
+            "ir/verifier"
+          ]
+        },
+        {
+          "source": "ir/portability",
+          "specifiers": [
+            "ir/portability"
+          ]
+        },
+        {
+          "source": "ir/backends",
+          "specifiers": [
+            "ir/backends"
+          ]
+        },
+        {
+          "source": "ir/guardrails",
+          "specifiers": [
+            "ir/guardrails"
+          ]
+        },
+        {
+          "source": "ir/cost_model",
+          "specifiers": [
+            "ir/cost_model"
+          ]
+        },
+        {
+          "source": "ir/glyph_usage",
+          "specifiers": [
+            "ir/glyph_usage"
+          ]
+        },
+        {
+          "source": "ir/palette",
+          "specifiers": [
+            "ir/palette"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 34,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends.rb": {
+      "filePath": "lib/ruby_gba/ir/backends.rb",
+      "contentHash": "20fca2b7d661dc6b7a39b6382bd20b2480721e59caa3eea3259c2205c49cef63",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 16
+        }
+      ],
+      "imports": [
+        {
+          "source": "backends/ruby",
+          "specifiers": [
+            "backends/ruby"
+          ]
+        },
+        {
+          "source": "backends/gba",
+          "specifiers": [
+            "backends/gba"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 22,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba.rb",
+      "contentHash": "c26b7f78c24608c7f5d98ae4758b378d58144065c6c4471e77791fa0ec6ac0a8",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 765
+        }
+      ],
+      "imports": [
+        {
+          "source": "gba/emit",
+          "specifiers": [
+            "gba/emit"
+          ]
+        },
+        {
+          "source": "gba/statements",
+          "specifiers": [
+            "gba/statements"
+          ]
+        },
+        {
+          "source": "gba/lists",
+          "specifiers": [
+            "gba/lists"
+          ]
+        },
+        {
+          "source": "gba/drawing",
+          "specifiers": [
+            "gba/drawing"
+          ]
+        },
+        {
+          "source": "gba/buffered",
+          "specifiers": [
+            "gba/buffered"
+          ]
+        },
+        {
+          "source": "gba/audio",
+          "specifiers": [
+            "gba/audio"
+          ]
+        },
+        {
+          "source": "gba/expressions",
+          "specifiers": [
+            "gba/expressions"
+          ]
+        },
+        {
+          "source": "gba/primitives",
+          "specifiers": [
+            "gba/primitives"
+          ]
+        },
+        {
+          "source": "gba/collision",
+          "specifiers": [
+            "gba/collision"
+          ]
+        },
+        {
+          "source": "gba/timers",
+          "specifiers": [
+            "gba/timers"
+          ]
+        },
+        {
+          "source": "gba/direct_sound",
+          "specifiers": [
+            "gba/direct_sound"
+          ]
+        },
+        {
+          "source": "gba/mixer",
+          "specifiers": [
+            "gba/mixer"
+          ]
+        },
+        {
+          "source": "gba/save",
+          "specifiers": [
+            "gba/save"
+          ]
+        },
+        {
+          "source": "gba/bios_compress",
+          "specifiers": [
+            "gba/bios_compress"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 783,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/audio.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/audio.rb",
+      "contentHash": "eb163c07042949966d844161b053235e8ad3194078dbdd2e4fff9eb06e66f526",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 207
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 210,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/bios_compress.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/bios_compress.rb",
+      "contentHash": "64cabf4b371545253d698fdc34339691c8fcebec4271c2fc402e3f90d0610748",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 293
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 296,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/buffered.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/buffered.rb",
+      "contentHash": "bf864c2a326818e135f365e8f26bea0217f25c3c8610fea8adba5f8eb51cf42e",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 270
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 273,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/collision.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/collision.rb",
+      "contentHash": "79aa3f47c1c374d41c8f3d2926f82167888b9c5ce910bad2046872318119eb48",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 249
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 252,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/direct_sound.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/direct_sound.rb",
+      "contentHash": "dc970c3a26bd541b3ea4d97483ee04925094fabfc938dc0c87f7270e01802593",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 67
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 70,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/drawing.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/drawing.rb",
+      "contentHash": "7d20d7d9b5cc52ff38dcce1b2134f91f28069aacd53f0ec8738a910c8eb0f9a5",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 973
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 976,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/emit.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/emit.rb",
+      "contentHash": "7a2f04e78d9f98db38672871c340ad09e0c3fd86e8ddcff78f0723b3b80c245f",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 126
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 129,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/expressions.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/expressions.rb",
+      "contentHash": "2a1832003f78b0f1a5e8c8057fafbed7455408ee6f994c34de7cc833a4e580ea",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 212
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 215,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/lists.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/lists.rb",
+      "contentHash": "be4afd47fe3d83b115991b3a9a732b0a02f66d0bf9006d1b7b99d87e269943a6",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 232
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 235,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/mixer.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/mixer.rb",
+      "contentHash": "0af754a0692863c9087ee3438422a648e0e5ebf80eaedc765894f9e0138c64f2",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 360
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 363,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/primitives.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/primitives.rb",
+      "contentHash": "78767c6c599b7aba6f5f4ec446f0b4a43933cdd0165e9293aa3e35090b3de942",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 66
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 69,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/save.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/save.rb",
+      "contentHash": "ef5d93bdfe74c536694f5082e29fd967c1d1a1e5d6040ebd8166c228531abc1b",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 115
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 118,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/statements.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/statements.rb",
+      "contentHash": "5f14738137cbca4697609b89c2e13bdb91b453260bd87f0ae29ea228d8aa98f9",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 223
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 226,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/gba/timers.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/gba/timers.rb",
+      "contentHash": "d327a86257783eb79ee7439488c7ac2b6ed12699cadf966c13525294f259619c",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 127
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 130,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/ruby.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/ruby.rb",
+      "contentHash": "6241f21a765732cd3a8525643e98ec5764a5988d0e336cded99d80dc9acc6b00",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 1150
+        }
+      ],
+      "imports": [
+        {
+          "source": "set",
+          "specifiers": [
+            "set"
+          ]
+        },
+        {
+          "source": "ruby/framebuffer",
+          "specifiers": [
+            "ruby/framebuffer"
+          ]
+        },
+        {
+          "source": "ruby/list_value",
+          "specifiers": [
+            "ruby/list_value"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 1158,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/ruby/framebuffer.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/ruby/framebuffer.rb",
+      "contentHash": "96b81f2b20a5fc2b61bfe3b0711dc32acec4d41cec45d901d9d4abc3d27d1cfb",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 76
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 79,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/backends/ruby/list_value.rb": {
+      "filePath": "lib/ruby_gba/ir/backends/ruby/list_value.rb",
+      "contentHash": "639062cb09f5eb6ab20306d1f63ef4600fa97413cdf75b4aa7a4668a1c8412c1",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 73
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 76,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/build.rb": {
+      "filePath": "lib/ruby_gba/ir/build.rb",
+      "contentHash": "74f9607cada222d1008b79113891d8daa64d95f75ee2418a81032a4e954d0fab",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 634
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 637,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/buttons.rb": {
+      "filePath": "lib/ruby_gba/ir/buttons.rb",
+      "contentHash": "e09848e9a632abde63f4d5841b5c31a0a8c238814c583ca6d2b08bef89f0d372",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 26
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 29,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/cost_model.rb": {
+      "filePath": "lib/ruby_gba/ir/cost_model.rb",
+      "contentHash": "90b2bb963d1a8f759ada7fd1ac5aa56b6adf77a3a4729b24fdcec47ef013f8ca",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 1193
+        }
+      ],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "printer",
+          "specifiers": [
+            "printer"
+          ]
+        },
+        {
+          "source": "measured_weights",
+          "specifiers": [
+            "measured_weights"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 1200,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/glyph_usage.rb": {
+      "filePath": "lib/ruby_gba/ir/glyph_usage.rb",
+      "contentHash": "50a40c0c74dd3c58d51ebad9f79aa7c64d4aab7e3f27cc36e811ed73f9c2aa26",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 42
+        }
+      ],
+      "imports": [
+        {
+          "source": "set",
+          "specifiers": [
+            "set"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 47,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails.rb",
+      "contentHash": "4279d6da988dce0e6dc7f3a7f07018a6f83e0c3e963b2c5cd7a79da1d4b1bbea",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 173
+        },
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 25
+        }
+      ],
+      "imports": [
+        {
+          "source": "guardrails/frame_reach",
+          "specifiers": [
+            "guardrails/frame_reach"
+          ]
+        },
+        {
+          "source": "guardrails/screen_mode_set",
+          "specifiers": [
+            "guardrails/screen_mode_set"
+          ]
+        },
+        {
+          "source": "guardrails/vblank_sync",
+          "specifiers": [
+            "guardrails/vblank_sync"
+          ]
+        },
+        {
+          "source": "guardrails/termination",
+          "specifiers": [
+            "guardrails/termination"
+          ]
+        },
+        {
+          "source": "guardrails/off_screen_draw",
+          "specifiers": [
+            "guardrails/off_screen_draw"
+          ]
+        },
+        {
+          "source": "guardrails/orphaned_condition",
+          "specifiers": [
+            "guardrails/orphaned_condition"
+          ]
+        },
+        {
+          "source": "guardrails/draw_budget",
+          "specifiers": [
+            "guardrails/draw_budget"
+          ]
+        },
+        {
+          "source": "guardrails/budget_threshold",
+          "specifiers": [
+            "guardrails/budget_threshold"
+          ]
+        },
+        {
+          "source": "guardrails/channel_conflict",
+          "specifiers": [
+            "guardrails/channel_conflict"
+          ]
+        },
+        {
+          "source": "guardrails/redraw_everything",
+          "specifiers": [
+            "guardrails/redraw_everything"
+          ]
+        },
+        {
+          "source": "guardrails/sprite_cleared_each_frame",
+          "specifiers": [
+            "guardrails/sprite_cleared_each_frame"
+          ]
+        },
+        {
+          "source": "guardrails/manual_sprite_blit",
+          "specifiers": [
+            "guardrails/manual_sprite_blit"
+          ]
+        },
+        {
+          "source": "guardrails/per_frame_scope",
+          "specifiers": [
+            "guardrails/per_frame_scope"
+          ]
+        },
+        {
+          "source": "guardrails/seed_in_loop",
+          "specifiers": [
+            "guardrails/seed_in_loop"
+          ]
+        },
+        {
+          "source": "guardrails/list_in_loop",
+          "specifiers": [
+            "guardrails/list_in_loop"
+          ]
+        },
+        {
+          "source": "guardrails/iwram_budget",
+          "specifiers": [
+            "guardrails/iwram_budget"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA",
+        "RubyGBA"
+      ],
+      "totalLines": 219,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/budget_threshold.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/budget_threshold.rb",
+      "contentHash": "b38f5417ec267051e02072fc71e62086b7879f78ac1d29db4d96f7f52faafbc5",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 40
+        }
+      ],
+      "imports": [
+        {
+          "source": "../cost_model",
+          "specifiers": [
+            "../cost_model"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 45,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/channel_conflict.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/channel_conflict.rb",
+      "contentHash": "33d749410224a115f7f3db72ca9dbfbb664c8505f709cecee06d6eca8d7d56ac",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 44
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 47,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/draw_budget.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/draw_budget.rb",
+      "contentHash": "4da21bceb5f29eeaf02d81650f5db70451e02adf84a3ca9bc64dd6c6c87c99a5",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 82
+        }
+      ],
+      "imports": [
+        {
+          "source": "../cost_model",
+          "specifiers": [
+            "../cost_model"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 87,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/frame_reach.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/frame_reach.rb",
+      "contentHash": "fc42713191ef752fc512b84ffee70d6a5d492223c9894c24f7c4b00ca648b529",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 55
+        }
+      ],
+      "imports": [
+        {
+          "source": "set",
+          "specifiers": [
+            "set"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 60,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/iwram_budget.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/iwram_budget.rb",
+      "contentHash": "d8ef3bf6375e82123b2dd55080feca9426a672c8c97864163d9c198ad9755a51",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 145
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 148,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/list_in_loop.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/list_in_loop.rb",
+      "contentHash": "308da00d077205bef4c2589d1afbdacba2750063e9e5ad9affb232e0a5da8a2f",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 49
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 52,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/manual_sprite_blit.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/manual_sprite_blit.rb",
+      "contentHash": "2130118d2f7767f8cf3fb7d6c137c5a4d13e36286506849ba7d0e955cb80cef0",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 69
+        }
+      ],
+      "imports": [
+        {
+          "source": "set",
+          "specifiers": [
+            "set"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 74,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/off_screen_draw.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/off_screen_draw.rb",
+      "contentHash": "7d2c87037142da1cef18443b7d79c6c65b9ea95156ed88ec77fd696f8268a752",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 124
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 127,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/orphaned_condition.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/orphaned_condition.rb",
+      "contentHash": "1ad7869283e60bbdcc04de20645aacce5918fcbd55198aafe27596178a21e43f",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 53
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 56,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/per_frame_scope.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/per_frame_scope.rb",
+      "contentHash": "28297b5cd671acfc30a579ef80a6c372383e0ac3da3ec60d6bc3851e00a88ec2",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 85
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 88,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/redraw_everything.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/redraw_everything.rb",
+      "contentHash": "b0981cf30f0e191f48ca3b4b7d451d96c72c9f4f6bf73bdef16d81b5dcb07bdb",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 72
+        }
+      ],
+      "imports": [
+        {
+          "source": "frame_reach",
+          "specifiers": [
+            "frame_reach"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 77,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/screen_mode_set.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/screen_mode_set.rb",
+      "contentHash": "a2508970b3fbaf08edbfdbc2c64f5e9506a0e4cc457ae318c99ef4521c7d8a28",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 66
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 69,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/seed_in_loop.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/seed_in_loop.rb",
+      "contentHash": "4a9cd9a853aae1d45df24c9ede1c49ef992aa2397653d9e155ea197e7b9ce7ee",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 77
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 80,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/sprite_cleared_each_frame.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/sprite_cleared_each_frame.rb",
+      "contentHash": "45f03d1b0e78360044ccf15bdf3e000f68357bcc26a78fea1f10d59ebe2dcf60",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 60
+        }
+      ],
+      "imports": [
+        {
+          "source": "frame_reach",
+          "specifiers": [
+            "frame_reach"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 65,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/termination.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/termination.rb",
+      "contentHash": "9fc5278e70c1b5c2070ac92d03a8d55f7fc44711512f77be4eb9bcebe28dbbb0",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 74
+        }
+      ],
+      "imports": [
+        {
+          "source": "set",
+          "specifiers": [
+            "set"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 79,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/guardrails/vblank_sync.rb": {
+      "filePath": "lib/ruby_gba/ir/guardrails/vblank_sync.rb",
+      "contentHash": "a8d08bcf127b5f80f265b494dabb84e3e244ca234703cb8f7a07da0a351dbc33",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 76
+        }
+      ],
+      "imports": [
+        {
+          "source": "set",
+          "specifiers": [
+            "set"
+          ]
+        }
+      ],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 81,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/int32.rb": {
+      "filePath": "lib/ruby_gba/ir/int32.rb",
+      "contentHash": "241c271ab322f31247d69bb4c07e9f45c07ebb3e285a27419c9126c7beb4e38b",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 76
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 79,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/measured_weights.rb": {
+      "filePath": "lib/ruby_gba/ir/measured_weights.rb",
+      "contentHash": "4e6b18271f8c3aa3792ea1a43d4fb95a9a8c821474ac4ab49fe71d705754996c",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 16
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 22,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/modes.rb": {
+      "filePath": "lib/ruby_gba/ir/modes.rb",
+      "contentHash": "c07eeabe58ebc09f533e79485018a45f13a8b8454c37a5f779fba6a5eea9dbd0",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 173
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 176,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/node.rb": {
+      "filePath": "lib/ruby_gba/ir/node.rb",
+      "contentHash": "91e79662b2d66ac6d7af9752ceb1507c8c0cf1f00c78a0ccef339a791cd097a6",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 274
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 277,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/palette.rb": {
+      "filePath": "lib/ruby_gba/ir/palette.rb",
+      "contentHash": "ab6e8a2a62f86b5838caaba2c30c2c1b9b6605c122f291b02525a4e225f1eb0a",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 131
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 134,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/portability.rb": {
+      "filePath": "lib/ruby_gba/ir/portability.rb",
+      "contentHash": "a55de6181cf2a5630d724daf87e68f8f87e051bb7c37641dabb590eb7c0f0068",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 147
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 150,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/printer.rb": {
+      "filePath": "lib/ruby_gba/ir/printer.rb",
+      "contentHash": "b4b5dc25da02fcf3cf34a2ad7981f4cd0f23306e63058eec19b2bc5bb333f6fa",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 104
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 107,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/screen.rb": {
+      "filePath": "lib/ruby_gba/ir/screen.rb",
+      "contentHash": "96e32930f2346ba3a1e125a0d550e07d54f243d947b156a13777fa1ec29c93f6",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 17
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 20,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/ir/verifier.rb": {
+      "filePath": "lib/ruby_gba/ir/verifier.rb",
+      "contentHash": "8395a752c4564bc4548c9d166aa3607732b96fe45039447c567219a16231fa60",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 273
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 276,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/list.rb": {
+      "filePath": "lib/ruby_gba/list.rb",
+      "contentHash": "bf516d6ab6a7ce3007e7a059201971f5606e460dcfe42ff682ebc58495066d28",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 114
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 117,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/music.rb": {
+      "filePath": "lib/ruby_gba/music.rb",
+      "contentHash": "973e922597a0b04638bdbc84e3493c87f844ea7d9840474426979d047e7afeab",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 225
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 228,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/pixel_bounds.rb": {
+      "filePath": "lib/ruby_gba/pixel_bounds.rb",
+      "contentHash": "2159de18ebc91272a6a5a980a4065824a358f3a73c823dd814f4876531e45043",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 33
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 36,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/pool.rb": {
+      "filePath": "lib/ruby_gba/pool.rb",
+      "contentHash": "912c3334d858dc33fac54802ccb620242bebbbe18a9d59fedee81b36b8b47e4b",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 260
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 263,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/rom.rb": {
+      "filePath": "lib/ruby_gba/rom.rb",
+      "contentHash": "1e7d17a81c23e4b27cb288a4133f8f5e94bf9fddc555cddab91b340c1c0daf97",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 178
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 181,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/rom_validator.rb": {
+      "filePath": "lib/ruby_gba/rom_validator.rb",
+      "contentHash": "54128a59cf1e643b9529f40a7c6094c1e540256820c5721ac75978cbdf2b7e72",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 143
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 146,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/sample.rb": {
+      "filePath": "lib/ruby_gba/sample.rb",
+      "contentHash": "20590317df1a78c0c3e14f84cfecff30a9560b51fd386d277259678ccc5cd336",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 64
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 67,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/sound.rb": {
+      "filePath": "lib/ruby_gba/sound.rb",
+      "contentHash": "47747d423e19f6c713dc71e854a4ea17a96da960ccc42460fd9ad01b2e4b7a07",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 286
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 289,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/sprite.rb": {
+      "filePath": "lib/ruby_gba/sprite.rb",
+      "contentHash": "360e8300343a6b78414bf6a9eb89db0d7df5ac6d2c4d675ec54de55fbcc8a329",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 296
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 299,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/table.rb": {
+      "filePath": "lib/ruby_gba/table.rb",
+      "contentHash": "afa1f63abb6fcede4d9725466c53f6a4dc6a84d7b0bbe2f005e750b6b83497ca",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 32
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 35,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/test_patterns.rb": {
+      "filePath": "lib/ruby_gba/test_patterns.rb",
+      "contentHash": "f8ab983c2837caa13046639c26870783932008ec03daa585fe3f50d9d273e193",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 80
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 83,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/timer.rb": {
+      "filePath": "lib/ruby_gba/timer.rb",
+      "contentHash": "4886500755e864e3ba506c31017b7673b40fd0463e00bff2c464d976b70af45d",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 53
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 56,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/value.rb": {
+      "filePath": "lib/ruby_gba/value.rb",
+      "contentHash": "50ac29d04a2e0d64a5b9827aac11b63caf04c001893656a70a7de1eb584dc888",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 161
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 164,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/verifier.rb": {
+      "filePath": "lib/ruby_gba/verifier.rb",
+      "contentHash": "51957623de5dd3b64a2720b16a8a7878e1a192730aa75a993eaaeb0e8b8e2035",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 302
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 305,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/version.rb": {
+      "filePath": "lib/ruby_gba/version.rb",
+      "contentHash": "c401267a1de665ab9962a8f83e82275831b04b05b14ddb4cc25b09e1acbc5819",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 3
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 6,
+      "hasStructuralAnalysis": true
+    },
+    "lib/ruby_gba/wav.rb": {
+      "filePath": "lib/ruby_gba/wav.rb",
+      "contentHash": "bdd631e54073627d6c8201e3d19ed76a6e4c0392747731dde8bcf5842b1a5937",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RubyGBA",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 66
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "RubyGBA"
+      ],
+      "totalLines": 69,
+      "hasStructuralAnalysis": true
+    },
+    "ruby-gba.gemspec": {
+      "filePath": "ruby-gba.gemspec",
+      "contentHash": "fbd1725857547f1b69224ee6e219d23761a1b64d011bf9d0993f09d454d1c1d2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 26,
+      "hasStructuralAnalysis": false
+    },
+    "tools/calibrate_cost_model.rb": {
+      "filePath": "tools/calibrate_cost_model.rb",
+      "contentHash": "1ab44c6edab3db6f5c6fc612589483ee380fbd2e0400592bb14d97db4ffb45b4",
+      "functions": [
+        {
+          "name": "stable_busy",
+          "params": [
+            "name",
+            "repeat_n",
+            "&body"
+          ],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "measure",
+          "params": [
+            "name",
+            "rom"
+          ],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "per_op",
+          "params": [
+            "name",
+            "repeat_n",
+            "lo",
+            "hi",
+            "&one"
+          ],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "mixer_busy",
+          "params": [
+            "n"
+          ],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "music_busy",
+          "params": [
+            "n"
+          ],
+          "exported": true,
+          "lineCount": 10
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        },
+        {
+          "source": "../gemba-core/lib/gemba_core",
+          "specifiers": [
+            "../gemba-core/lib/gemba_core"
+          ]
+        },
+        {
+          "source": "tempfile",
+          "specifiers": [
+            "tempfile"
+          ]
+        },
+        {
+          "source": "stringio",
+          "specifiers": [
+            "stringio"
+          ]
+        }
+      ],
+      "exports": [
+        "stable_busy",
+        "measure",
+        "per_op",
+        "mixer_busy",
+        "music_busy"
+      ],
+      "totalLines": 157,
+      "hasStructuralAnalysis": true
+    },
+    "tools/make_example_assets.rb": {
+      "filePath": "tools/make_example_assets.rb",
+      "contentHash": "6a96a82cbf80fef4d4698084871a93e23ccc79f37a30712426ad3e2f89454019",
+      "functions": [
+        {
+          "name": "run",
+          "params": [],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "level_csv",
+          "params": [],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "tiles_png",
+          "params": [],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "brick_pixel",
+          "params": [
+            "x",
+            "y"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "floor_pixel",
+          "params": [
+            "x",
+            "y"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "hero_png",
+          "params": [],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "draw_hero_frame",
+          "params": [
+            "rgb",
+            "alpha",
+            "ox",
+            "width",
+            "frame"
+          ],
+          "exported": false,
+          "lineCount": 16
+        },
+        {
+          "name": "rgba_png",
+          "params": [
+            "width",
+            "height",
+            "rgb",
+            "alpha"
+          ],
+          "exported": false,
+          "lineCount": 13
+        }
+      ],
+      "classes": [
+        {
+          "name": "MakeExampleAssets",
+          "methods": [
+            "run",
+            "level_csv",
+            "tiles_png",
+            "brick_pixel",
+            "floor_pixel",
+            "hero_png",
+            "draw_hero_frame",
+            "rgba_png"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 140
+        }
+      ],
+      "imports": [
+        {
+          "source": "zlib",
+          "specifiers": [
+            "zlib"
+          ]
+        },
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        },
+        {
+          "source": "preview",
+          "specifiers": [
+            "preview"
+          ]
+        }
+      ],
+      "exports": [
+        "MakeExampleAssets"
+      ],
+      "totalLines": 167,
+      "hasStructuralAnalysis": true
+    },
+    "tools/make_piano_assets.rb": {
+      "filePath": "tools/make_piano_assets.rb",
+      "contentHash": "db25937b556f1467dcfd3f3447ab7074b6f6e2d6b8ed866998eef51b6f0a54fb",
+      "functions": [
+        {
+          "name": "run",
+          "params": [],
+          "exported": false,
+          "lineCount": 12
+        },
+        {
+          "name": "hand_png",
+          "params": [
+            "pressed",
+            "rest_tips"
+          ],
+          "exported": false,
+          "lineCount": 18
+        },
+        {
+          "name": "draw_palm",
+          "params": [
+            "put"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "draw_finger",
+          "params": [
+            "put",
+            "cx",
+            "tip"
+          ],
+          "exported": false,
+          "lineCount": 15
+        },
+        {
+          "name": "piano_wav",
+          "params": [],
+          "exported": false,
+          "lineCount": 12
+        },
+        {
+          "name": "wav_bytes",
+          "params": [
+            "samples",
+            "rate"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "rgba_png",
+          "params": [
+            "width",
+            "height",
+            "rgb",
+            "alpha"
+          ],
+          "exported": false,
+          "lineCount": 13
+        }
+      ],
+      "classes": [
+        {
+          "name": "MakePianoAssets",
+          "methods": [
+            "run",
+            "hand_png",
+            "draw_palm",
+            "draw_finger",
+            "piano_wav",
+            "wav_bytes",
+            "rgba_png"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 154
+        }
+      ],
+      "imports": [
+        {
+          "source": "zlib",
+          "specifiers": [
+            "zlib"
+          ]
+        },
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        },
+        {
+          "source": "preview",
+          "specifiers": [
+            "preview"
+          ]
+        }
+      ],
+      "exports": [
+        "MakePianoAssets"
+      ],
+      "totalLines": 181,
+      "hasStructuralAnalysis": true
+    },
+    "tools/preview.rb": {
+      "filePath": "tools/preview.rb",
+      "contentHash": "a8608d50d23178dd8edf189a0d87e42ac79180e6e2a74db3dc6603452013a77e",
+      "functions": [
+        {
+          "name": "self.capture",
+          "params": [
+            "program",
+            "&input"
+          ],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "self.write",
+          "params": [
+            "path",
+            "frames"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "self.html",
+          "params": [
+            "frames"
+          ],
+          "exported": false,
+          "lineCount": 44
+        },
+        {
+          "name": "self.png_data_uri",
+          "params": [
+            "frame"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "self.png",
+          "params": [
+            "frame"
+          ],
+          "exported": false,
+          "lineCount": 16
+        },
+        {
+          "name": "self.chunk",
+          "params": [
+            "type",
+            "data"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "self.rgb",
+          "params": [
+            "color"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "self.uris_json",
+          "params": [
+            "uris"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "self.escape",
+          "params": [
+            "text"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "self.load_example",
+          "params": [
+            "name"
+          ],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "self.run_cli",
+          "params": [
+            "name"
+          ],
+          "exported": false,
+          "lineCount": 8
+        }
+      ],
+      "classes": [
+        {
+          "name": "Preview",
+          "methods": [
+            "self.capture",
+            "self.write",
+            "self.html",
+            "self.png_data_uri",
+            "self.png",
+            "self.chunk",
+            "self.rgb",
+            "self.uris_json",
+            "self.escape",
+            "self.load_example",
+            "self.run_cli"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 162
+        }
+      ],
+      "imports": [
+        {
+          "source": "zlib",
+          "specifiers": [
+            "zlib"
+          ]
+        },
+        {
+          "source": "base64",
+          "specifiers": [
+            "base64"
+          ]
+        },
+        {
+          "source": "../lib/ruby_gba",
+          "specifiers": [
+            "../lib/ruby_gba"
+          ]
+        }
+      ],
+      "exports": [
+        "Preview"
+      ],
+      "totalLines": 208,
+      "hasStructuralAnalysis": true
+    }
+  }
+}

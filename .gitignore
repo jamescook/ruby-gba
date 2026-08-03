@@ -4,3 +4,8 @@
 
 # Not committed — this is used as an app but the lock stays out of git (fresh resolve in CI)
 Gemfile.lock
+
+# The codebase map in .ua/ is committed; these are local scratch from a build of it
+.ua/intermediate/
+.ua/.trash-*/
+.ua/diff-overlay.json
