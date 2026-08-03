@@ -137,6 +137,7 @@ This entire tool is AI-written, and the workflow is designed so an agent can ite
 
 - **Tight, mechanical feedback loops.** The Ruby interpreter renders the IR headlessly (no emulator needed), a pixel Verifier reads back actual frames, guardrails give plain-language pass/fail at build time, and `rom.explain` emits a machine-readable cost tree an agent can reason over. An agent can build → validate → run → diff → explain without leaving Ruby.
 - **Mechanical safety rails.** An IR verifier enforces the value model on every build (a malformed tree is a *library* bug, raised loudly); the conformance fixture diffs backends so a change can't silently break one target.
+- **A checked-in codebase map.** This project uses [understand-anything](https://github.com/Egonex-AI/Understand-Anything) to generate a map of the codebase, kept in `.ua/`.
 
 ---
 

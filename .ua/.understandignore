@@ -1,0 +1,30 @@
+# .understandignore — patterns for files/dirs to exclude from analysis
+# Syntax: same as .gitignore (globs, # comments, ! negation, trailing / for dirs)
+#
+# Built-in defaults (always excluded unless negated):
+#   node_modules/, .git/, dist/, build/, obj/, *.lock, *.min.js, etc.
+
+# --- Scope: framework + examples, not the test suite ---
+
+test/
+gemba-core/
+
+# --- Build artifacts (gitignored) ---
+
+*.gba
+Gemfile.lock
+.DS_Store
+.claude/
+
+# --- Binary assets (art, audio, sprite sheets) — nothing to read ---
+
+*.png
+*.gif
+*.jpg
+*.jpeg
+*.bmp
+*.wav
+*.aseprite
+*.mid
+*.midi
+*.sav
