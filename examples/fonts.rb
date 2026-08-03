@@ -17,7 +17,7 @@ require_relative "../lib/ruby_gba"
 module FontsDemo
   SCORE = 12_345
 
-  GAME = proc do
+  GAME = RubyGBA.game("FONTS", code: "BFON", maker: "01") do
     screen :bitmap
     clear_screen :black
 
@@ -32,25 +32,8 @@ module FontsDemo
     halt
   end
 
-  def self.build_rom
-    RubyGBA.build("FONTS", code: "BFON", maker: "01", &GAME)
-  end
-
-  # The IR program on its own — what the headless interpreter runs in tests.
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = FontsDemo.build_rom
-  output = File.join(__dir__, "fonts.gba")
-  rom.write(output)
-  puts "Built fonts.gba (#{rom.size} bytes)"
-
-  # Set EXPLAIN=1 to see the per-frame draw cost — the tiny number plots fewer pixels.
-  rom.explain if ENV["EXPLAIN"]
-end
+FontsDemo::GAME.write_if_main

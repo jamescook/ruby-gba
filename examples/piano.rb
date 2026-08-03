@@ -58,7 +58,7 @@ module Piano
   CHORD_HOLD  = 60             # frames the chord stays down before lifting
   RELEASE     = 4             # lift a melody finger this many frames before its note ends
 
-  GAME = proc do
+  GAME = RubyGBA.game("PIANO", code: "BPNO", maker: "01") do
     # Tiled mode: the console composites the hands and the key-lights as hardware
     # sprites over the keyboard background — no framebuffer, no redraw by hand.
     screen :tiled
@@ -176,26 +176,8 @@ module Piano
     end
   end
 
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("PIANO", code: "BPNO", maker: "01", out: out, err: err, &GAME)
-  end
-
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = Piano.build_rom
-  output = File.join(__dir__, "piano.gba")
-  rom.write(output)
-  puts "Built piano.gba (#{rom.size} bytes)"
-
-  # Set EXPLAIN=1 to print the per-frame draw/sound-cost breakdown — where the
-  # frame's work goes (the two hands and key-light sprites, the software mixer
-  # refilling the sound buffer), and whether it fits the console's update budget.
-  rom.explain if ENV["EXPLAIN"]
-end
+Piano::GAME.write_if_main

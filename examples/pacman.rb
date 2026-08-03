@@ -113,7 +113,7 @@ module Pacman
 
   # The game as a block the builder runs, so a test can drive the exact program that
   # ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = proc do
+  GAME = RubyGBA.game("PACMAN", code: "BPAC", maker: "01") do
     screen :tiled # tile mode: a background layer for the room + hardware sprites on top
     enable_sound
     define_sound :waka,   frequency: 660, duty: :half, decay: :fast
@@ -216,24 +216,8 @@ module Pacman
     end
   end
 
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("PACMAN", code: "BPAC", maker: "01", out: out, err: err, &GAME)
-  end
-
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = Pacman.build_rom
-  output = File.join(__dir__, "pacman.gba")
-  rom.write(output)
-  puts "Built pacman.gba (#{rom.size} bytes)"
-
-  # Set EXPLAIN=1 to print the per-frame draw/sound-cost breakdown for the ROM.
-  rom.explain if ENV["EXPLAIN"]
-end
+Pacman::GAME.write_if_main

@@ -23,7 +23,7 @@ module GridCursor
 
   # The game as a block the builder runs, so a test can drive the exact program
   # that ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = proc do
+  GAME = RubyGBA.game("GRIDCURS", code: "BGRC", maker: "01") do
     screen :bitmap
     clear_screen :black
 
@@ -57,27 +57,8 @@ module GridCursor
     end
   end
 
-  def self.build_rom
-    RubyGBA.build("GRIDCURS", code: "BGRC", maker: "01", &GAME)
-  end
-
-  # The IR program on its own — what the headless interpreter runs in tests.
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = GridCursor.build_rom
-  output = File.join(__dir__, "grid_cursor.gba")
-  rom.write(output)
-  puts "Built grid_cursor.gba (#{rom.size} bytes)"
-
-  # Set EXPLAIN=1 to print the per-frame draw/sound-cost breakdown for the ROM —
-  # where the frame's work goes, and whether it fits the budget the console has to
-  # change the screen without tearing.
-  rom.explain if ENV["EXPLAIN"]
-end
+GridCursor::GAME.write_if_main

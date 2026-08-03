@@ -97,7 +97,7 @@ module Breakout
     end
   end.freeze
 
-  GAME = proc do
+  GAME = RubyGBA.game("BREAKOUT", code: "BBRK", maker: "01") do
     screen :bitmap, tear_free: true # draw to a hidden page, flip when done — no tearing
     enable_sound
 
@@ -295,29 +295,8 @@ module Breakout
     end
   end
 
-  # RubyGBA.build returns a finished ROM (running the guardrails and Doctor along
-  # the way). The out:/err: streams are injectable so tests can read any warnings.
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("BREAKOUT", code: "BBRK", maker: "01", out: out, err: err, &GAME)
-  end
-
-  # The IR program (no ROM, no emulator) — the headless form the reference
-  # interpreter runs in tests.
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = Breakout.build_rom
-  output = File.join(__dir__, "breakout.gba")
-  rom.write(output)
-  puts "Built breakout.gba (#{rom.size} bytes)"
-
-  # Set EXPLAIN=1 to print the per-frame draw/sound-cost breakdown — where the
-  # frame's work goes, and whether it fits the console's screen-update budget.
-  rom.explain if ENV["EXPLAIN"]
-end
+Breakout::GAME.write_if_main

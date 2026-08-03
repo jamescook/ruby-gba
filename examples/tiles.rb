@@ -23,7 +23,7 @@
 require_relative "../lib/ruby_gba"
 
 module Tiles
-  GAME = proc do
+  GAME = RubyGBA.game("TILES", code: "BTIL", maker: "01") do
     screen :tiled # tile mode: the console draws the background layer from tiles + a map
 
   # Four 8x8 tiles, hand-drawn like any other image. A second character in each
@@ -108,22 +108,8 @@ module Tiles
     halt # a static scene — nothing moves, so stop here
   end
 
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("TILES", code: "BTIL", maker: "01", out: out, err: err, &GAME)
-  end
-
-  # The IR program (no ROM, no emulator) — the headless form tests read pixels from.
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = Tiles.build_rom
-  output = File.join(__dir__, "tiles.gba")
-  rom.write(output)
-  puts "Built tiles.gba (#{rom.size} bytes)"
-end
+Tiles::GAME.write_if_main

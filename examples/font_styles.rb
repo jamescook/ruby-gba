@@ -15,7 +15,7 @@
 require_relative "../lib/ruby_gba"
 
 module FontStyles
-  GAME = proc do
+  GAME = RubyGBA.game("FONTSTY", code: "BFSY", maker: "01") do
     screen :bitmap
     clear_screen :black
 
@@ -88,22 +88,8 @@ module FontStyles
     draw_text "hello", 8, 64, :cyan,  font: :script # our slanted font
   end
 
-  def self.build_rom
-    RubyGBA.build("FONTSTY", code: "BFSY", maker: "01", &GAME)
-  end
-
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = FontStyles.build_rom
-  output = File.join(__dir__, "font_styles.gba")
-  rom.write(output)
-  puts "Built font_styles.gba (#{rom.size} bytes)"
-  rom.explain if ENV["EXPLAIN"]
-end
+FontStyles::GAME.write_if_main

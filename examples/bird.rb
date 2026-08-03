@@ -20,7 +20,7 @@ require_relative "../lib/ruby_gba"
 module Bird
   SPEED = 2 # pixels per frame the D-pad moves the bird
 
-  GAME = proc do
+  GAME = RubyGBA.game("BIRD", code: "BBRD", maker: "01") do
     screen :tiled # tile mode: a background layer for the sky + a hardware sprite for the bird
 
     # A plain sky the bird flies over (one repeated tile).
@@ -41,24 +41,8 @@ module Bird
     end
   end
 
-  # Build and return the finished ROM. The out:/err: streams are injectable so tests can
-  # read any warnings.
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("BIRD", code: "BBRD", maker: "01", out: out, err: err, &GAME)
-  end
-
-  # The IR program on its own — what the headless interpreter runs in tests.
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = Bird.build_rom
-  output = File.join(__dir__, "bird.gba")
-  rom.write(output)
-  puts "Built bird.gba (#{rom.size} bytes)"
-end
+Bird::GAME.write_if_main

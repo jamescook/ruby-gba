@@ -61,7 +61,7 @@ module BufferedSnake
   START_CELLS = [[5, START_ROW], [6, START_ROW], [7, START_ROW], [8, START_ROW]].freeze
   FOOD_TRIES = 8
 
-  GAME = proc do
+  GAME = RubyGBA.game("SNAKEBUF", code: "BSNB", maker: "01") do
     screen :bitmap, tear_free: true # <-- the whole difference. Remove it and it tears.
     enable_sound
 
@@ -210,22 +210,8 @@ module BufferedSnake
     end
   end
 
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("SNAKEBUF", code: "BSNB", maker: "01", out: out, err: err, &GAME)
-  end
-
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = BufferedSnake.build_rom
-  output = File.join(__dir__, "snake_buffered.gba")
-  rom.write(output)
-  puts "Built snake_buffered.gba (#{rom.size} bytes)"
-  rom.explain
-end
+BufferedSnake::GAME.write_if_main

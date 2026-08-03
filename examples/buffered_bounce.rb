@@ -27,7 +27,7 @@ module BufferedBounce
   SPEED = 2 # an even step keeps every ball on an even column (buffered fills move
             # two pixels at a time; see the note in the backend's draw_rect_at)
 
-  GAME = proc do
+  GAME = RubyGBA.game("BOUNCE", code: "BBNC", maker: "01") do
     screen :bitmap, tear_free: true # the tear-proof screen — try flipping this to false
 
     # Each ball is a position (x, y) and a velocity (dx, dy). Even starts and even
@@ -58,29 +58,8 @@ module BufferedBounce
     end
   end
 
-  # Build and return the finished ROM. RubyGBA.build runs the guardrails and the
-  # ROM-image checks, so calling it is itself the "builds clean" test.
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("BOUNCE", code: "BBNC", maker: "01", out: out, err: err, &GAME)
-  end
-
-  # The IR program, for running headless on the reference interpreter in tests.
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = BufferedBounce.build_rom
-  out = File.join(__dir__, "buffered_bounce.gba")
-  rom.write(out)
-  puts "Wrote #{rom.size} bytes to #{out}"
-
-  # The cost estimate. Because it's buffered, the per-frame drawing is judged
-  # against the whole-frame budget — and going over would only slow the frame rate,
-  # never tear.
-  rom.explain
-end
+BufferedBounce::GAME.write_if_main

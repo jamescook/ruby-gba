@@ -82,7 +82,7 @@ module Snake
   # The whole game, as a block the builder runs. Keeping it in one place means the
   # test drives the exact program that ships: the headless interpreter runs THIS to
   # check the game plays without crashing, and the console runs the ROM built from it.
-  GAME = proc do
+  GAME = RubyGBA.game("SNAKE", code: "BSNK", maker: "01") do
     screen :bitmap
     enable_sound
 
@@ -300,29 +300,8 @@ module Snake
     end
   end
 
-  # Build and return the finished ROM. RubyGBA.build runs the guardrails and the
-  # ROM-image checks as it goes, so simply calling this exercises them.
-  def self.build_rom
-    RubyGBA.build("SNAKE", code: "BSNK", maker: "01", &GAME)
-  end
-
-  # The IR program on its own — what the headless interpreter runs in tests.
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = Snake.build_rom
-  output = File.join(__dir__, "snake.gba")
-  rom.write(output)
-  puts "Built snake.gba (#{rom.size} bytes)"
-
-  # Set EXPLAIN=1 to print the per-frame draw/sound-cost breakdown for the ROM —
-  # where the frame's work goes, and whether it fits the budget the console has to
-  # change the screen without tearing.
-  rom.explain if ENV["EXPLAIN"]
-end
+Snake::GAME.write_if_main

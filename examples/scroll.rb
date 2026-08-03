@@ -35,7 +35,7 @@ module Scroll
     end.join
   end.freeze
 
-  GAME = proc do
+  GAME = RubyGBA.game("SCROLL", code: "BSCR", maker: "01") do
     screen :tiled # tile mode: one big background layer we slide the window over
 
     image :grass, "." => rgb(3, 18, 5), "'" => rgb(5, 24, 7) do
@@ -89,21 +89,8 @@ module Scroll
     end
   end
 
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("SCROLL", code: "BSCR", maker: "01", out: out, err: err, &GAME)
-  end
-
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = Scroll.build_rom
-  output = File.join(__dir__, "scroll.gba")
-  rom.write(output)
-  puts "Built scroll.gba (#{rom.size} bytes)"
-end
+Scroll::GAME.write_if_main

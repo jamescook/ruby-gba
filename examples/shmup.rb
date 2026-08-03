@@ -3,9 +3,9 @@
 
 # Shmup — a whole game split across files, with real scenes.
 #
-# A game outgrows a single `RubyGBA.build` block. The way out is plain Ruby: each part of
+# A game outgrows a single `RubyGBA.game` block. The way out is plain Ruby: each part of
 # the game is an ordinary object in its own file that takes the build (the object
-# `RubyGBA.build` hands your block as `self`) and calls the DSL verbs on it — build.sprite,
+# `RubyGBA.game` hands your block as `self`) and calls the DSL verbs on it — build.sprite,
 # build.held, build.var — the same verbs you'd write inline. There's no base class and no
 # magic: pass the build in, call verbs on it.
 #
@@ -29,7 +29,7 @@ module Shmup
   PLAYING = 0
   GAME_OVER = 1
 
-  GAME = proc do
+  GAME = RubyGBA.game("SHMUP", code: "BSMP", maker: "01") do
     screen :tiled
     seed 0xC0DE # a fixed stream once at boot, so enemy respawns are reproducible
     var :state, PLAYING
@@ -78,24 +78,8 @@ module Shmup
     end
   end
 
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("SHMUP", code: "BSMP", maker: "01", out: out, err: err, &GAME)
-  end
-
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = Shmup.build_rom
-  output = File.join(__dir__, "shmup.gba")
-  rom.write(output)
-  puts "Built shmup.gba (#{rom.size} bytes)"
-  # Set EXPLAIN=1 to print the per-frame draw/sound-cost breakdown — grouped by the
-  # collaborator file each bit of work came from (player.rb, enemies.rb, hud.rb).
-  rom.explain if ENV["EXPLAIN"]
-end
+Shmup::GAME.write_if_main
