@@ -39,6 +39,39 @@ class TestAnalyzer < Minitest::Test
     assert_operator result.percent, :<, 100
   end
 
+  # Scene discovery reads the case dispatch straight from the IR — the selector variable
+  # and each scene's value — so the profiler can boot into any one. No emulator needed.
+  def test_scenes_discovers_the_dispatch
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      var :state, 0
+      scene(:title) { clear_screen :blue }
+      scene(:play) { clear_screen :red }
+      game_loop do
+        wait_vblank
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+    b.emit_pending_functions
+    dispatch = Analyzer.scenes(b.program)
+    assert_equal :state, dispatch[:selector]
+    assert_equal({ title: 0, play: 1 }, dispatch[:scenes])
+  end
+
+  def test_scenes_is_nil_for_a_single_loop_game
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    assert_nil Analyzer.scenes(b.program)
+  end
+
   # The Result's read of its own number: near the frame ceiling is "saturated" (the
   # measurement can't count past a frame's worth of work), below it is a plain percent.
   def test_result_reads_saturation_and_percent

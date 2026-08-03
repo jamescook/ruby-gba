@@ -73,6 +73,48 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # A scened game with SCENE, so `build`'s content is the same across the scene tests.
+  SCENED = <<~RUBY
+    require "ruby_gba"
+    Scened = RubyGBA.game "SCENED", code: "BSCN", maker: "01" do
+      screen :bitmap
+      var :state, 0
+      scene(:title) { clear_screen :blue }
+      scene(:play)  { clear_screen :red }
+      game_loop do
+        wait_vblank
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+  RUBY
+
+  def test_analyze_profiles_each_scene_by_booting_into_it
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "scened.rb"), SCENED)
+      out, status = cli("build", "scened.rb", "--analyze", dir: dir)
+      assert status.success?, out
+      assert_match(/scene :title — measured on emulator/, out)
+      assert_match(/scene :play — measured on emulator/, out)
+    end
+  end
+
+  def test_scene_narrows_to_one_and_an_unknown_scene_is_friendly
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "scened.rb"), SCENED)
+      out, status = cli("build", "scened.rb", "--scene", "play", dir: dir)
+      assert status.success?, out
+      assert_match(/scene :play —/, out)
+      refute_match(/scene :title —/, out)
+
+      bad, bad_status = cli("build", "scened.rb", "--scene", "nope", dir: dir)
+      refute bad_status.success?, bad
+      assert_match(/no scene named nope/, bad)
+    end
+  end
+
   def test_stats_reports_asset_packing_for_a_tiled_game
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "packy.rb"), <<~RUBY)
