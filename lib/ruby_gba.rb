@@ -40,6 +40,7 @@ require_relative "ruby_gba/func_dumper"
 require_relative "ruby_gba/test_patterns"
 require_relative "ruby_gba/emulator"
 require_relative "ruby_gba/verifier"
+require_relative "ruby_gba/analyzer"
 
 module RubyGBA
   class ROMError < StandardError; end

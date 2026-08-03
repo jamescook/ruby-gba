@@ -64,6 +64,15 @@ class TestCLI < Minitest::Test
     end
   end
 
+  def test_analyze_reports_a_measured_per_frame_cost
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = cli("build", "demo.rb", "--analyze", dir: dir)
+      assert status.success?, out
+      assert_match(/measured on emulator: .*scanlines per frame/, out)
+    end
+  end
+
   def test_stats_reports_asset_packing_for_a_tiled_game
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "packy.rb"), <<~RUBY)

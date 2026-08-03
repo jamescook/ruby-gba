@@ -38,6 +38,14 @@ module RubyGBA
       core_class.new(rom_path)
     end
 
+    # Open a high-level probe on a ROM file path — the API that runs frames, reads
+    # memory, and measures how many of a frame's scanlines the CPU burns. The analyzer
+    # profiles through this.
+    def probe(rom_path)
+      load!
+      GembaCore.open(rom_path)
+    end
+
     # Whether the backend can be loaded. For the rare caller that legitimately
     # degrades rather than fails — the standalone debug scripts. Emulator-backed
     # tests must NOT use this to skip: gemba-core is required, so a load failure
