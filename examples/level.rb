@@ -30,7 +30,7 @@ module Level
   HERO  = "assets/hero.png"  # a 4-frame walk-cycle sprite sheet
   MAP   = "assets/level.csv" # a 30x20 tilemap exported as CSV (1 = brick, 2 = floor)
 
-  GAME = proc do
+  GAME = RubyGBA.game("LEVEL", code: "BLVL", maker: "01") do
     screen :tiled # tile mode: a background room + a hardware sprite over it
 
     # Import the whole tile sheet as numbered tiles, then read the CSV level straight
@@ -52,21 +52,8 @@ module Level
     end
   end
 
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("LEVEL", code: "BLVL", maker: "01", out: out, err: err, &GAME)
-  end
-
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = Level.build_rom
-  output = File.join(__dir__, "level.gba")
-  rom.write(output)
-  puts "Built level.gba (#{rom.size} bytes)"
-end
+Level::GAME.write_if_main

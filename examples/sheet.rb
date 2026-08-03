@@ -54,7 +54,7 @@ module Sheet
     "##############################",
   ].freeze
 
-  GAME = proc do
+  GAME = RubyGBA.game("SHEET", code: "BSHT", maker: "01") do
     screen :tiled # tile mode: a background room + a hardware sprite over it
 
     # Import the tile sheet straight into the tileset: "#" is its first tile (the
@@ -78,21 +78,8 @@ module Sheet
     end
   end
 
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("SHEET", code: "BSHT", maker: "01", out: out, err: err, &GAME)
-  end
-
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = Sheet.build_rom
-  output = File.join(__dir__, "sheet.gba")
-  rom.write(output)
-  puts "Built sheet.gba (#{rom.size} bytes)"
-end
+Sheet::GAME.write_if_main

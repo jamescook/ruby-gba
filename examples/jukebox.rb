@@ -42,7 +42,7 @@ module Jukebox
   # Center a string using the default font's ~8px advance per character.
   def self.at_center(str) = CENTER_X - str.length * 4
 
-  GAME = proc do
+  GAME = RubyGBA.game("JUKEBOX", code: "BJKB", maker: "01") do
     # Double-buffered so the full repaint each frame can't tear: we draw the whole
     # menu to a hidden screen and show it all at once.
     screen :bitmap, tear_free: true
@@ -148,21 +148,8 @@ module Jukebox
     end
   end
 
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("JUKEBOX", code: "BJKB", maker: "01", out: out, err: err, &GAME)
-  end
-
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = Jukebox.build_rom
-  output = File.join(__dir__, "jukebox.gba")
-  rom.write(output)
-  puts "Built jukebox.gba (#{rom.size} bytes)"
-end
+Jukebox::GAME.write_if_main

@@ -12,7 +12,7 @@
 
 require_relative "../lib/ruby_gba"
 
-rom = RubyGBA.build("RUBYGBA", code: "BRBY", maker: "01") do
+Pixels = RubyGBA.game("RUBYGBA", code: "BRBY", maker: "01") do
   screen :bitmap
 
   # Draw an Italian flag in the center of the screen
@@ -48,11 +48,4 @@ rom = RubyGBA.build("RUBYGBA", code: "BRBY", maker: "01") do
   halt
 end
 
-out = File.join(__dir__, "pixels.gba")
-rom.write(out)
-puts "Wrote #{rom.size} bytes to #{out}"
-
-# Report how much drawing this ROM does — a heads-up on whether it fits the
-# console's per-frame drawing window. (Not every example prints this; it's shown
-# here to demonstrate the estimator.)
-rom.explain
+Pixels.write_if_main

@@ -52,7 +52,7 @@ module Hero
     end.join
   end.freeze
 
-  GAME = proc do
+  GAME = RubyGBA.game("HERO", code: "BHRO", maker: "01") do
     screen :tiled # tile mode: a scrolling background for the world + a hardware sprite on top
 
     image :grass, "." => rgb(3, 18, 5), "'" => rgb(5, 24, 7) do
@@ -137,22 +137,8 @@ module Hero
     end
   end
 
-  def self.build_rom(out: $stdout, err: $stderr)
-    RubyGBA.build("HERO", code: "BHRO", maker: "01", out: out, err: err, &GAME)
-  end
-
-  # The IR program (no ROM, no emulator) — the headless form tests read pixels from.
-  def self.program
-    builder = RubyGBA::Builder.new
-    builder.instance_eval(&GAME)
-    builder.emit_pending_functions
-    builder.program
-  end
+  def self.program = GAME.program
+  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
 end
 
-if __FILE__ == $PROGRAM_NAME
-  rom = Hero.build_rom
-  output = File.join(__dir__, "hero.gba")
-  rom.write(output)
-  puts "Built hero.gba (#{rom.size} bytes)"
-end
+Hero::GAME.write_if_main
