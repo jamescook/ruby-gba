@@ -40,7 +40,48 @@ module RubyGBA
         # hundred KB per second. It lands at boot or on a scene change, under the blank
         # screen, exactly where real cartridges decompress their level data.)
         module BiosCompress
+          # Display names for the schemes, and a summary of one build's packing that the
+          # build can print and a caller can read off the ROM. The numbers are exact —
+          # measured at build time from the raw and packed byte counts, not estimated.
+          SCHEME_NAMES = { lz77: "LZ77", rle: "RLE" }.freeze
+
+          Report = Data.define(:count, :raw_bytes, :packed_bytes, :schemes) do
+            # True when the build packed at least one asset (so there is a line to show).
+            def any?
+              count.positive?
+            end
+
+            def saved_bytes
+              raw_bytes - packed_bytes
+            end
+
+            # How much smaller the packed assets are, as a whole-number percent.
+            def percent
+              raw_bytes.zero? ? 0 : ((saved_bytes * 100.0) / raw_bytes).round
+            end
+
+            # One concise, scannable build line: how many assets, the schemes used, and
+            # the measured saving. For example:
+            #   "Packed 3 assets with LZ77 and RLE: 14.0 KB to 6.0 KB, saved 8.0 KB (57%)"
+            def summary_line
+              "Packed #{count} #{count == 1 ? 'asset' : 'assets'} with #{scheme_list}: " \
+                "#{BiosCompress.human_bytes(raw_bytes)} to #{BiosCompress.human_bytes(packed_bytes)}, " \
+                "saved #{BiosCompress.human_bytes(saved_bytes)} (#{percent}%)"
+            end
+
+            # The schemes as words: "LZ77", or "LZ77 and RLE".
+            def scheme_list
+              schemes.map { |s| SCHEME_NAMES.fetch(s, s.to_s) }.join(" and ")
+            end
+          end
+
           module_function
+
+          # A byte count for people: kilobytes with one decimal once it reaches 1 KB,
+          # plain bytes below that. (1 KB = 1024 bytes, as memory is measured.)
+          def human_bytes(n)
+            n >= 1024 ? format("%.1f KB", n / 1024.0) : "#{n} #{n == 1 ? 'byte' : 'bytes'}"
+          end
 
           # LZ77 back-references: 3..18 bytes long (a 4-bit length field, plus 3), from
           # a window up to 4096 bytes back (a 12-bit distance). The nibble/bit layout
@@ -58,7 +99,11 @@ module RubyGBA
           # which the BIOS wants). For :none nothing shrank it, so the blob is the
           # original bytes unchanged and the caller keeps its plain copy.
           def best(bytes)
-            return [:none, bytes] if bytes.nil? || bytes.empty?
+            # The packed form is a 4-byte BIOS header plus the payload, padded to a
+            # 4-byte multiple — an 8-byte floor. So a blob of 8 bytes or fewer can never
+            # come out smaller; skip the work and keep it raw. (Bigger blobs still fall
+            # back to raw at the end when packing does not actually shrink them.)
+            return [:none, bytes] if bytes.nil? || bytes.bytesize <= 8
 
             candidates = [
               [:lz77, framed(lz77(bytes), TYPE_LZ77, bytes.bytesize)],

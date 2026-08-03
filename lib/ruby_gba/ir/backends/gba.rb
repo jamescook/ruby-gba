@@ -162,6 +162,7 @@ module RubyGBA
           @data_blobs = {}       # name -> bytes (embedded data, appended after code)
           @data_positions = {}   # name -> byte offset of its blob within @code
           @blob_codecs = {}      # name -> :lz77/:rle/:none (how a VRAM blob was packed, if at all)
+          @blob_raw_bytes = {}   # name -> its size before packing (for the build's savings line)
           @bitmaps = {}          # name -> { width:, height: } (a blob that has a shape)
           @backing = {}          # name -> { width:, height:, base: } (a sprite's save-under RAM)
           @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)
@@ -185,6 +186,20 @@ module RubyGBA
           @bg_shared = nil       # the one palette + character block every background layer shares
           @has_objects = false   # does the program declare any composited objects (sprites)?
           @objects = {}          # name -> resolved sprite layout (OAM slot, tile/palette blobs)
+        end
+
+        # A summary of the asset packing this build did (see BiosCompress::Report),
+        # tallied from the blobs that packed and how small they got. Valid after
+        # #lower. When nothing packed, the report's `any?` is false and there is no
+        # savings line to show.
+        def compression_report
+          packed = @blob_codecs.select { |_name, codec| codec != :none }
+          BiosCompress::Report.new(
+            count: packed.size,
+            raw_bytes: packed.sum { |name, _codec| @blob_raw_bytes[name] },
+            packed_bytes: packed.sum { |name, _codec| @data_blobs[name].bytesize },
+            schemes: packed.values.uniq.sort,
+          )
         end
 
         # Lower a program to finished GBA machine code: run the emit pass and
