@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "stringio"
 require_relative "../lib/ruby_gba"
 require_relative "test_helper"
 
@@ -71,6 +72,77 @@ class TestBiosCompress < Minitest::Test
 
   def test_empty_input_stays_raw
     assert_equal [:none, ""], Pack.best("")
+  end
+
+  # The 4-byte header plus 4-byte padding is an 8-byte floor, so nothing 8 bytes or
+  # smaller can pack smaller — even an 8-byte run of one value.
+  def test_eight_bytes_or_fewer_stay_raw
+    codec, = Pack.best("\x00".b * 8)
+    assert_equal :none, codec
+  end
+
+  def test_nine_identical_bytes_pack
+    codec, blob = Pack.best("\x00".b * 9)
+    refute_equal :none, codec, "9 identical bytes should pack below 9"
+    assert_operator blob.bytesize, :<, 9
+  end
+
+  # --- The savings report: numbers and the one-line summary ---
+
+  def test_human_bytes_formats_kb_and_bytes
+    assert_equal "512 bytes", Pack.human_bytes(512)
+    assert_equal "1 byte", Pack.human_bytes(1)
+    assert_equal "1.0 KB", Pack.human_bytes(1024)
+    assert_equal "2.5 KB", Pack.human_bytes(2560)
+  end
+
+  def test_report_summary_line_for_two_schemes
+    r = Pack::Report.new(count: 2, raw_bytes: 20_480, packed_bytes: 5120, schemes: %i[lz77 rle])
+    assert r.any?
+    assert_equal 15_360, r.saved_bytes
+    assert_equal 75, r.percent
+    assert_equal "Packed 2 assets with LZ77 and RLE: 20.0 KB to 5.0 KB, saved 15.0 KB (75%)", r.summary_line
+  end
+
+  def test_report_summary_line_singular_one_scheme
+    r = Pack::Report.new(count: 1, raw_bytes: 1024, packed_bytes: 512, schemes: %i[rle])
+    assert_equal "Packed 1 asset with RLE: 1.0 KB to 512 bytes, saved 512 bytes (50%)", r.summary_line
+  end
+
+  def test_empty_report_shows_nothing
+    r = Pack::Report.new(count: 0, raw_bytes: 0, packed_bytes: 0, schemes: [])
+    refute r.any?
+  end
+
+  # --- The build records the packing report on the ROM (display is the CLI's job) ---
+
+  def compressible_tiled
+    RubyGBA.build("PACK", code: "BPAK", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :tiled
+      image(:red_t, "#" => :red) { (["########"] * 8).join("\n") }
+      tiles :set, "R" => :red_t
+      background :bg, tiles: :set, map: Array.new(32) { "R" * 32 } # one tile everywhere: very packable
+      game_loop do
+        wait_vblank
+        halt
+      end
+    end
+  end
+
+  def test_a_build_that_packs_keeps_the_numbers_on_the_rom
+    rom = compressible_tiled
+    assert rom.compression.any?, "the ROM should carry a non-empty compression report"
+    assert_operator rom.compression.saved_bytes, :>, 0
+    assert_match(/Packed \d+ assets? with (LZ77|RLE)/, rom.compression.summary_line)
+  end
+
+  def test_a_build_with_nothing_to_pack_has_an_empty_report
+    rom = RubyGBA.build("PLAIN", code: "BPLN", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      clear_screen :black
+      halt
+    end
+    refute rom.compression.any?
   end
 
   # --- Safe for the video-memory expander: no reference reaches back only one byte ---

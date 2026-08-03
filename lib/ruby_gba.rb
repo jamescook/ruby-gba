@@ -98,6 +98,12 @@ module RubyGBA
                                      validate: builder.debug_halted? ? false : validate)
     rom.source_program = builder.program # so the ROM can report on itself (rom.explain)
 
+    # Record how far asset packing shrank the cart (tile pictures, palettes, maps) so
+    # a caller can read it back or a verbose build can show it. Building it into the
+    # library's output is a presentation choice that belongs to the CLI, not here — a
+    # plain build stays quiet.
+    rom.compression = backend.compression_report
+
     unless builder.dump_requests.empty?
       FuncDumper.new(rom, backend.func_ranges, out: out, err: err).dump(builder.dump_requests)
     end

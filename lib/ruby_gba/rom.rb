@@ -26,6 +26,12 @@ module RubyGBA
     # machine code has none.
     attr_accessor :source_program
 
+    # A summary of the asset packing this ROM used, when known (see the GBA backend's
+    # BiosCompress::Report). RubyGBA.build attaches it so a caller can read the raw vs
+    # packed sizes and which schemes ran. Nil when nothing was packed or the ROM was
+    # assembled straight from machine code.
+    attr_accessor :compression
+
     # Package finished machine code into a cartridge: write the header, drop the
     # code in after it, and finalize (entry branch, checksum, power-of-two
     # padding, and the ROM-image validation). This is the counterpart to a

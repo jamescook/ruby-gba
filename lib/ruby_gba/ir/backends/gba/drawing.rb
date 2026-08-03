@@ -420,8 +420,12 @@ module RubyGBA
           def pack_blob(blob_name)
             return @blob_codecs[blob_name] if @blob_codecs.key?(blob_name)
 
-            codec, blob = BiosCompress.best(@data_blobs[blob_name])
-            @data_blobs[blob_name] = blob unless codec == :none
+            raw = @data_blobs[blob_name]
+            codec, blob = BiosCompress.best(raw)
+            unless codec == :none
+              @blob_raw_bytes[blob_name] = raw.bytesize # remember the before size for the savings line
+              @data_blobs[blob_name] = blob
+            end
             @blob_codecs[blob_name] = codec
           end
 
