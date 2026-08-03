@@ -15,6 +15,10 @@ module RubyGBA
         mix_voice_sample: 0.0840,
         mix_overhead_sample: 0.0283,
         music_voice: 0.0544,
+        dma_setup: 0.0482,
+        obj_write: 0.1173,
+        scroll_write: 0.1395,
+        overlap_pixel: 0.2249,
       }.freeze
     end
   end

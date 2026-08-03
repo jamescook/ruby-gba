@@ -20,11 +20,11 @@ module RubyGBA
     # are calibrated with the timing probe (gemba-core), which counts the CPU cycles a
     # known workload actually burns in a frame — see tools/calibrate_cost_model.rb,
     # which measures each one and is re-run whenever the lowering of a priced op
-    # changes. The logic steps, plot_pixel, sound_write, the mixer, and music (per
-    # voice) are measured that way; the DMA weights (dma_setup/dma_pixel) are still
-    # estimates, and price the DMA fills only (dma_fill_rect, draw_rect_at, opaque blits,
-    # save/restore) — the CPU-plotted fill_rect uses plot_pixel. A game dev can override
-    # any of them.
+    # changes. Almost everything is measured that way — the logic steps, plot_pixel,
+    # sound_write, the mixer, music, a DMA fill's per-row setup, sprite/scroll upkeep, and
+    # per-pixel collision. The one estimate left is dma_pixel: the DMA engine's per-pixel
+    # transfer, which the busy probe can't see (the CPU is stalled during it). A game dev
+    # can override any of them.
     #
     # Two things drive the cost. Drawing is dominated by DMA *operations*: a fill, a
     # blit, a save/restore is one DMA per row, and the per-row setup dwarfs the
@@ -95,25 +95,13 @@ module RubyGBA
       MIXER_FPS = 60            # it refills one frame's worth of samples per frame
       DEFAULT_MIXER_RATE = 8192 # fallback output rate when no sample declares one
 
-      # Hand estimates, in scanlines per op — the weights the calibration tool doesn't
-      # measure yet. None of these are unmeasurable (they're all CPU work the probe
-      # sees). The DMA pair (dma_setup/dma_pixel) prices the real per-row DMA fills only
-      # (dma_fill_rect, draw_rect_at, opaque blits, save/restore), so a DMA-fill microbench
-      # can now measure it cleanly; the tiled/collision tiers just have no microbench yet.
-      # The MEASURED_WEIGHTS below override any of these they name.
+      # The one hand estimate left, in scanlines per op. A DMA fill's per-pixel transfer
+      # is done by the DMA engine while the CPU is stalled, so the busy-cycle probe can't
+      # see it (it measures CPU-executing time). Its per-row CPU setup (dma_setup) IS
+      # measured; only this transfer stays a guess, until the probe can measure DMA/wall-
+      # clock time. The MEASURED_WEIGHTS below override any of these they name.
       ESTIMATED_WEIGHTS = {
-        dma_setup:   0.102,   # the fixed per-row setup of a DMA transfer (a fill/blit/save row)
-        dma_pixel:   0.00124, # one pixel filled or copied by DMA (the transfer, on top of setup)
-        # Tiled-mode per-frame upkeep. The display hardware composites the picture —
-        # a background and its sprites — for free every scanline; what costs the CPU
-        # is MOVING it each frame: rewriting each sprite's position and nudging the
-        # scroll.
-        obj_write:   0.086,   # rewrite one hardware sprite's position each frame (a few IO writes)
-        scroll_write: 0.057,  # move a background: its two scroll-register writes
-        # Per-pixel collision: one cell of the overlap rectangle — the index math plus
-        # the two mask loads-and-compares, roughly twenty data steps. Priced per pixel,
-        # times the worst-case overlap area, so a big shape-accurate hit shows its cost.
-        overlap_pixel: 0.044,
+        dma_pixel: 0.00124, # one pixel copied by a DMA fill/blit — the DMA engine's transfer
       }.freeze
 
       # The measured weights (from the generated fixture, measured on hardware by the
