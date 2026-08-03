@@ -28,6 +28,13 @@ module RubyGBA
           # quiet) rather than stealing one already sounding. Matches the interpreter.
           MAX_VOICES = 8
 
+          # The mix routine's inner loop runs once per output sample per voice — thousands
+          # of times a frame. From ROM it would stall on a wait state at every instruction
+          # fetch, so at boot the routine is copied into IWRAM (zero-wait-state internal RAM)
+          # and called there. This is the IWRAM budget reserved for the copy; the build
+          # fails if the emitted routine ever outgrows it.
+          MIX_ROUTINE_IWRAM_MAX = 1024
+
           # Timer 0 clocks the mixer's output rate (how fast the DMA hands bytes to the sound
           # FIFO). It's the only hardware timer the mixer needs.
           CLOCK_TIMER = 0
@@ -79,6 +86,8 @@ module RubyGBA
             @mix_buf1 = ewram_alloc(@mixer_spf)
             @voice_base = @next_var
             @next_var += MAX_VOICES * SLOT_BYTES
+            @mix_routine_iwram = @next_var # the mix routine is copied here from ROM at boot
+            @next_var += MIX_ROUTINE_IWRAM_MAX
             @next_hw_timer = CLOCK_TIMER + 1 # reserve timer 0 only
           end
 
@@ -102,6 +111,27 @@ module RubyGBA
             prescaler, reload = timer_config(@mixer_rate)          # timer 0 = the mixer's sample rate
             write_reg16(timer_reg_l(CLOCK_TIMER), reload)
             write_reg16(timer_reg_h(CLOCK_TIMER), TIMER_ENABLE | prescaler)
+
+            emit_copy_mix_routine_to_iwram
+          end
+
+          # Copy the mix routine from ROM into IWRAM once, at boot, so its per-sample inner
+          # loop runs with no ROM wait states. The routine is position-independent — relative
+          # branches, immediates built with MOV/ORR (no PC-relative literal pool) — so it runs
+          # correctly from either place, and the ARM7 has no instruction cache, so the copy
+          # needs no flush. Copies whole words from the routine's start label up to its end.
+          def emit_copy_mix_routine_to_iwram
+            emit_load_label_address(0, :__mix_routine)      # r0 = routine start in ROM
+            emit_load_label_address(1, :__mix_routine_end)  # r1 = routine end in ROM
+            emit(ASM.load_immediate(2, @mix_routine_iwram)) # r2 = IWRAM destination
+            copy = gensym
+            place_label(copy)
+            emit(ASM.ldr(3, 0))                             # r3 = [r0]
+            emit(ASM.str(3, 2))                             # [r2] = r3
+            emit(ASM.add_imm(0, 0, 4))
+            emit(ASM.add_imm(2, 2, 4))
+            emit(ASM.cmp_reg(0, 1))
+            emit_branch(:bcond, copy, cond: :lt)            # while r0 < r1
           end
 
           # play_sample: start a sample sounding by filling a free voice slot with it — its
@@ -183,18 +213,30 @@ module RubyGBA
             done = gensym
             emit_branch(:bcond, play_buf1, cond: :ne)
             # front == 0 -> mix into buffer 1, then play buffer 1
-            emit_mix_into(@mix_buf1)
+            emit_call_mix(@mix_buf1)
             emit(ASM.load_immediate(ACC, 1))
             store_var(ACC, MIX_FRONT)
             emit_rearm_dma(@mix_buf1)
             emit_branch(:b, done)
             place_label(play_buf1)
             # front == 1 -> mix into buffer 0, then play buffer 0
-            emit_mix_into(@mix_buf0)
+            emit_call_mix(@mix_buf0)
             emit(ASM.load_immediate(ACC, 0))
             store_var(ACC, MIX_FRONT)
             emit_rearm_dma(@mix_buf0)
             place_label(done)
+          end
+
+          # Call the IWRAM mix routine to fill +dest+ (one of the two output buffers) with the
+          # next slice of mixed sound. The routine takes the destination buffer in r0. ARMv4
+          # has no BLX-to-register, so set the return address by hand (`mov lr, pc` reads the
+          # address just past the branch) and BX to the routine's IWRAM address; it returns
+          # with BX LR.
+          def emit_call_mix(dest)
+            emit(ASM.load_immediate(0, dest))               # r0 = destination buffer (the one param)
+            emit(ASM.load_immediate(ADDR, @mix_routine_iwram)) # r12 = routine's address in IWRAM
+            emit(ASM.mov_reg(14, 15))                       # mov lr, pc  -> lr = the instruction after BX
+            emit(ASM.bx(ADDR))                              # jump into IWRAM; the routine returns via BX LR
           end
 
           private
@@ -208,19 +250,43 @@ module RubyGBA
             store_word_immediate(dma_fifo_control, REG_DMA1CNT) # on
           end
 
-          # Fill +dest+ (one frame of bytes) with the sum of every sounding voice, clamped to
-          # the 8-bit range so loud moments don't wrap around. Clears to silence, then for
-          # each active voice adds its next run of samples — scaled by the voice's volume,
-          # and stepped through the clip by the voice's fixed-point STEP so a pitched voice
-          # reads faster or slower — advancing it and looping or retiring it at its end.
-          # Runs on the main thread with every register free.
+          # The mix routine, emitted once and copied into IWRAM at boot (see
+          # #emit_copy_mix_routine_to_iwram). It fills the destination buffer — one frame of
+          # bytes, passed in r0 — with the sum of every sounding voice, clamped to the 8-bit
+          # range so loud moments don't wrap. Clears to silence, then for each active voice
+          # adds its next run of samples, scaled by the voice's volume and stepped through the
+          # clip by the voice's fixed-point STEP so a pitched voice reads faster or slower,
+          # advancing it and looping or retiring it at its end.
+          #
+          # The routine is self-contained and position-independent (relative branches, no
+          # PC-relative literal loads), so it runs the same from IWRAM as from ROM. The one
+          # input, the destination buffer, arrives in r0 and is stashed on the stack so each
+          # voice can reset its write pointer to it. It returns with BX LR.
           #
           # Registers held across voices: r3 = clamp floor (-128), r4 = slot pointer,
           # r5 = voices left. Per voice: r2 = output samples left, r6 = read pointer,
           # r7 = write pointer, r8 = play position (whole samples), r9 = length, r10 = step,
           # r11 = fraction accumulator, r12 = volume; r0/r1 scratch (127 is the clamp ceiling).
-          def emit_mix_into(dest)
-            emit_zero_region(dest, @mixer_spf)            # start from silence
+          def emit_mix_routine
+            return unless @plays_samples
+
+            emit(ASM.loop_forever) # fall-through guard: the routine is only entered via the call
+            place_label(:__mix_routine)
+            start = pos
+            emit(ASM.push(0))                            # push {r0}: stash the destination buffer at [sp]
+
+            # start from silence: zero the destination (r0 reloaded from the stashed pointer)
+            emit(ASM.ldr(0, 13))                         # r0 = dest (from [sp])
+            emit(ASM.load_immediate(1, 0))               # fill byte
+            emit(ASM.load_immediate(2, @mixer_spf))      # bytes to clear
+            zero = gensym
+            place_label(zero)
+            emit(ASM.strb(1, 0))
+            emit(ASM.add_imm(0, 0, 1))
+            emit(ASM.sub_imm(2, 2, 1))
+            emit(ASM.cmp_imm(2, 0))
+            emit_branch(:bcond, zero, cond: :ne)
+
             emit(ASM.mvn_imm(3, 127))                    # clamp floor = -128
             emit(ASM.load_immediate(4, @voice_base))     # first slot
             emit(ASM.load_immediate(5, MAX_VOICES))      # voices to visit
@@ -238,7 +304,7 @@ module RubyGBA
             emit(ASM.ldr_offset(10, 4, SLOT_STEP))       # r10 = step (16.16)
             emit(ASM.ldr_offset(11, 4, SLOT_FRAC))       # r11 = fraction carried in
             emit(ASM.ldr_offset(12, 4, SLOT_VOL))        # r12 = volume gain (0..64)
-            emit(ASM.load_immediate(7, dest))            # r7 = write pointer = start of dest
+            emit(ASM.ldr(7, 13))                         # r7 = write pointer = dest (from [sp])
             emit(ASM.load_immediate(2, @mixer_spf))      # r2 = output samples to fill
 
             sample = gensym
@@ -300,6 +366,17 @@ module RubyGBA
             emit(ASM.sub_imm(5, 5, 1))
             emit(ASM.cmp_imm(5, 0))
             emit_branch(:bcond, voice, cond: :ne)
+
+            emit(ASM.add_imm(13, 13, 4))                 # pop the stashed dest (balance the stack)
+            emit(ASM.return)                             # bx lr -> back to the caller
+            place_label(:__mix_routine_end)
+
+            size = pos - start
+            return unless size > MIX_ROUTINE_IWRAM_MAX
+
+            raise LoweringError,
+                  "the mix routine is #{size} bytes but only #{MIX_ROUTINE_IWRAM_MAX} are reserved in IWRAM " \
+                  "(raise MIX_ROUTINE_IWRAM_MAX)"
           end
 
           # Leave r0 = the address of a free voice slot, or 0 if all MAX_VOICES are busy.

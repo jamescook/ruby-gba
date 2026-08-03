@@ -69,6 +69,14 @@ module RubyGBA
       [0xE12FFF1E].pack("V")
     end
 
+    # BX rn — branch to the address in +rn+ (bit 0 selects ARM/Thumb; our code is
+    # all ARM, so rn holds a word-aligned address). Used to call a routine at an
+    # absolute address (e.g. one copied into IWRAM) on ARMv4, which has no BLX reg:
+    # the caller sets lr with `mov lr, pc` first, and the routine returns via BX LR.
+    def bx(rn)
+      [0xE12FFF10 | rn].pack("V")
+    end
+
     # --- Data processing: immediate ---
 
     # Load a 32-bit immediate into a register using MOV + ORR sequence.
