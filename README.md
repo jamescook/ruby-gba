@@ -293,11 +293,13 @@ lib/ruby_gba/
     backends/gba.rb          # lower IR -> ARM7 ROM
     backends/ruby/           # interpret IR -> framebuffer (headless reference)
   asm.rb, rom.rb             # ARM encoding + cartridge assembly
-  verifier.rb                # read back real pixels from mGBA (optional, via gemba)
+  verifier.rb                # read back real pixels from an emulator (via gemba-core, the libmgba binding)
 examples/                    # runnable games + demos (see the Examples section above)
 assets/                      # captured GIFs / screenshots
 ```
 
 ## Status
 
-Pre-1.0 and moving fast. Full games work end-to-end on both bitmap and tiled screens — sprites, scrolling backgrounds, four-channel sound, and the asset pipeline are all in (see `examples/`); sampled audio, affine transforms, and the alternate backends are the next frontier. Building ROMs is **pure Ruby, no C extensions** — the optional pixel-level Verifier uses the `gemba` (mGBA) gem for emulator-backed tests, and integration tests skip gracefully without it.
+Pre-1.0 and moving fast. Full games work end-to-end on both bitmap and tiled screens — sprites, scrolling backgrounds, four-channel sound, and the asset pipeline are all in (see `examples/`); sampled audio, affine transforms, and the alternate backends are the next frontier.
+
+Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. The debugging tooling is where C comes in: reading back the pixels a ROM actually drew, and the measured frame-rate verdict in `rom.explain`, run the ROM in an emulator through **`gemba-core`** — a small in-repo C extension that binds libmgba, so it needs a C compiler and libmgba installed to build. You never need it to *make* a ROM, but you will want it to *debug* one — that fast, real feedback is the point of the tool. (How you install libmgba varies by platform, and most dev setups have a C compiler already.)
