@@ -159,9 +159,12 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Hardware sprites / OAM — poses (`facing:`), flipbook animation (`frames:` / `rate:`), stacking, sprite/tile collision
 - [x] Tiled backgrounds (Mode 0) — text or CSV maps, scrolling, stacked parallax layers
 - [x] Sound — four PSG channels (music, SFX, noise, wave) + multi-voice songs (`song`/`voice`, `beep`, `noise`, `wave`)
+- [x] Sampled PCM audio (Direct Sound / DMA sound) — `sample` / `instrument`, WAV import, mixer refilled once per frame
 - [x] Deterministic randomness — `seed` / `roll` / `rand` / `chance` / `randomize`
 - [x] Timing + motion — `every` / `after`, `approach`
+- [x] VBlank-IRQ frame timing — `wait_vblank` sleeps the CPU on the BIOS interrupt wait, not a busy-wait
 - [x] Runtime collection — `list`
+- [x] Save / load persistence — `save_var` over battery-backed SRAM, loaded at boot and re-saved on change
 - [x] Asset pipeline — PNG → tiles / sprites / animation frames, and CSV tilemaps → backgrounds
 - [x] Fonts — built-in + register your own (`font` from glyph art)
 - [x] Guardrails (extensible registry) + build-time validation, findings traced to the DSL line
@@ -171,8 +174,6 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 
 **Planned**
 
-- [ ] VBlank-IRQ frame timing (retire the busy-wait)
-- [ ] Sampled PCM audio (Direct Sound / DMA sound)
 - [ ] Affine transforms — rotation & scaling for sprites and backgrounds (Mode 7-style)
 - [ ] Tiled TMX import + larger streamed maps (beyond one 32×32 screenblock)
 - [ ] Opt-in guardrail auto-fix (`--auto-fix`)
@@ -180,7 +181,7 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [ ] More motion verbs — lerp / wrap / bounce / snap
 - [ ] Plugin registries — register your own effect verbs
 - [ ] Target-neutral draw layer (decouple draw intent from the framebuffer)
-- [ ] Save / load persistence (SRAM / flash)
+- [ ] Flash save memory (beyond SRAM)
 - [ ] CLI `preview` — run a game in the browser (JS backend)
 - [ ] JS / `<canvas>` backend (web target + live preview)
 - [ ] Terminal (TTY) and Game Boy Color backends
