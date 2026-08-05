@@ -201,7 +201,6 @@ module BufferedSnake
     end
 
     game_loop do
-      wait_vblank
       case_var :state do
         when_val 0, :title
         when_val 1, :playing

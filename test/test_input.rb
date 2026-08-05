@@ -34,7 +34,6 @@ class TestInput < Minitest::Test
       screen :bitmap
       set :player_y, 80
       game_loop do
-        wait_vblank
         if_held :up do
           sub_var :player_y, 2
         end
@@ -112,7 +111,6 @@ class TestInput < Minitest::Test
     rom = build do
       screen :bitmap
       game_loop do
-        wait_vblank
         if_pressed :start do
           set :state, 1
         end
@@ -145,7 +143,6 @@ class TestInput < Minitest::Test
       screen :bitmap
       set :player_y, 80
       game_loop do
-        wait_vblank
         if_held :up do
           sub_var :player_y, 2
         end

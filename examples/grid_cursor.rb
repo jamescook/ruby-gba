@@ -38,8 +38,6 @@ module GridCursor
     board.set_cell cx, cy, :cyan
 
     game_loop do
-      wait_vblank
-
       # Move one cell per tap. Each step is the incremental dance: rub out the cell
       # we're on, step the coordinate, keep it on the board, then light the cell we
       # land on. Two cells change and the picture never tears.

@@ -95,9 +95,13 @@ class TestIRGuardrailVblankSync < Minitest::Test
 
   # ---- the warning reaches RubyGBA.build's err stream ---------------------
 
+  # Built with manual frame timing, where the developer places the sync, so a loop
+  # can be missing one. Automatic timing paces every game loop itself and never
+  # leaves one missing — that side is asserted in test_frame_sync.rb.
   def build_err(&block)
     err = StringIO.new
-    RubyGBA.build("GUARD", code: "BGRD", maker: "01", out: StringIO.new, err: err, &block)
+    RubyGBA.build("GUARD", code: "BGRD", maker: "01",
+                  out: StringIO.new, err: err, frame_sync: :manual, &block)
     err.string
   end
 

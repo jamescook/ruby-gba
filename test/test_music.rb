@@ -236,7 +236,6 @@ class TestMusic < Minitest::Test
       end
 
       game_loop do
-        wait_vblank
         play_song :bgm
       end
     end
@@ -279,7 +278,6 @@ class TestMusic < Minitest::Test
       end
 
       game_loop do
-        wait_vblank
         play_song :bgm
       end
     end
@@ -353,7 +351,6 @@ class TestMusic < Minitest::Test
       end
 
       game_loop do
-        wait_vblank
         play_song :bgm
         beep :hit
       end
@@ -382,7 +379,6 @@ class TestMusic < Minitest::Test
       draw_text "MUSIC TEST", 80, 70, :white
 
       game_loop do
-        wait_vblank
         play_song :test_melody
       end
     end

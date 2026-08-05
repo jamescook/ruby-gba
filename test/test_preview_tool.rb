@@ -20,7 +20,6 @@ class TestPreviewTool < Minitest::Test
       screen :bitmap
       game_loop do
         clear_screen :red
-        wait_vblank
       end
     end
     b.emit_pending_functions
@@ -33,7 +32,10 @@ class TestPreviewTool < Minitest::Test
     first = shots.first
     assert_equal 240, first[:width]
     assert_equal 160, first[:height]
-    assert_equal Color.resolve(:red), first[:pixels][0], "the captured frame shows what the program drew"
+    # A frame is presented at the top of each pass, so the very first one is shown
+    # before the program has drawn anything. The red arrives from the pass after it.
+    assert_equal Color.resolve(:red), shots.last[:pixels][0],
+                 "the captured frame shows what the program drew"
   end
 
   def test_capture_can_be_driven_by_held_buttons

@@ -102,8 +102,6 @@ module Maze
     hero.blocked_by room            # <- walls now stop it, automatically
 
     game_loop do
-      wait_vblank # the safe moment to move the hero
-
       # Hold a direction to walk. Each `move` is checked against the walls for you, so
       # the hero stops at bricks and slides along them instead of passing through.
       held(:left).then  { hero.move :left,  by: SPEED }

@@ -39,8 +39,6 @@ module BufferedBounce
     ]
 
     game_loop do
-      wait_vblank
-
       clear_screen :blue                                   # wipe the whole screen...
       balls.each do |b|                                    # ...then repaint every ball
         draw_rect_at b[:x], b[:y], BALL, BALL, b[:color]

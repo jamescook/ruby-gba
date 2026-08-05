@@ -14,16 +14,19 @@ module RubyGBA
   class Game
     attr_reader :title, :code, :maker
 
-    def initialize(title, code:, maker:, block:)
+    def initialize(title, code:, maker:, block:, frame_sync: :auto)
       @title = title
       @code = code
       @maker = maker
       @block = block
+      @frame_sync = frame_sync
     end
 
     # The op-tree the DSL block builds — what the headless interpreter runs in tests.
+    # Built with the same frame timing #build_rom uses, so the tree a test runs is
+    # the tree that ships.
     def program
-      builder = Builder.new
+      builder = Builder.new(frame_sync: @frame_sync)
       builder.instance_eval(&@block)
       builder.emit_pending_functions
       builder.program
@@ -32,7 +35,8 @@ module RubyGBA
     # The finished ROM. The out:/err: streams are injectable so a test (or the CLI)
     # captures anything the build prints.
     def build_rom(out: $stdout, err: $stderr, validate: true)
-      RubyGBA.build(@title, code: @code, maker: @maker, validate: validate, out: out, err: err, &@block)
+      RubyGBA.build(@title, code: @code, maker: @maker, validate: validate,
+                    frame_sync: @frame_sync, out: out, err: err, &@block)
     end
 
     # A friendly output filename from the title: "BIRD" -> "bird.gba".
@@ -78,12 +82,12 @@ module RubyGBA
     # Declare a game: record its DSL block for later building and return a Game
     # handle. Building and writing are left to the caller — see Game — except for the
     # `ruby game.rb` convenience above.
-    def game(title, code:, maker:, &block)
+    def game(title, code:, maker:, frame_sync: :auto, &block)
       unless block
         raise ArgumentError, %(RubyGBA.game needs a block: RubyGBA.game("NAME", code: "CODE", maker: "01") { ... })
       end
 
-      handle = Game.new(title, code: code, maker: maker, block: block)
+      handle = Game.new(title, code: code, maker: maker, block: block, frame_sync: frame_sync)
       registered_games << handle
       handle
     end

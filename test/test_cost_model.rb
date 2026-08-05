@@ -62,7 +62,6 @@ class TestCostModel < Minitest::Test
       a = sprite :blk, at: [10, 10]
       b = sprite :blk, at: [40, 40]
       game_loop do
-        wait_vblank
         a.overlaps?(b).then { set :touch, 1 }
       end
     end
@@ -80,11 +79,11 @@ class TestCostModel < Minitest::Test
     h = 20
     cpu = program do
       screen :bitmap
-      game_loop { wait_vblank; fill_rect 0, 0, w, h, :red }
+      game_loop { fill_rect 0, 0, w, h, :red }
     end
     dma = program do
       screen :bitmap
-      game_loop { wait_vblank; dma_fill_rect 0, 0, w, h, :red }
+      game_loop { dma_fill_rect 0, 0, w, h, :red }
     end
     near(w * h * WEIGHTS[:plot_pixel], Cost.new.frame_cost(cpu))
     near((h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:dma_pixel]), Cost.new.frame_cost(dma))
@@ -116,7 +115,7 @@ class TestCostModel < Minitest::Test
   def test_a_fully_priced_program_has_no_warning
     prog = program do
       screen :bitmap
-      game_loop { wait_vblank; clear_screen :black }
+      game_loop { clear_screen :black }
     end
     io = StringIO.new
     Cost.new.render(prog, out: io)
@@ -213,7 +212,6 @@ class TestCostModel < Minitest::Test
       scene(:light) { draw_rect_at 0, 0, 2, 2, :red }    #  2*2  =   4
       scene(:heavy) { draw_rect_at 0, 0, 10, 10, :red }  # 10*10 = 100
       game_loop do
-        wait_vblank
         case_var(:state) do
           when_val 0, :light
           when_val 1, :heavy
@@ -230,7 +228,6 @@ class TestCostModel < Minitest::Test
       screen :bitmap
       fill_rect 0, 0, 20, 20, :white  # boot draw (400) — NOT per frame
       game_loop do
-        wait_vblank
         draw_rect_at 0, 0, 8, 8, :green # per-frame
       end
     end
@@ -268,7 +265,6 @@ class TestCostModel < Minitest::Test
     prog = program do
       screen :bitmap
       game_loop do
-        wait_vblank
         repeat(100) { |_i| clear_screen :black } # 100 * 38,400 ≫ budget
       end
     end
@@ -325,7 +321,6 @@ class TestCostModel < Minitest::Test
       scene(:light) { draw_rect_at 0, 0, 2, 2, :red }   # 4
       scene(:heavy) { draw_rect_at 0, 0, 10, 10, :red } # 100
       game_loop do
-        wait_vblank
         case_var(:state) do
           when_val 0, :light
           when_val 1, :heavy
@@ -445,7 +440,6 @@ class TestCostModel < Minitest::Test
     prog = program do
       screen :bitmap
       game_loop do
-        wait_vblank
         every(4) { draw_rect_at 0, 0, 8, 8, :green } # 64 when it fires
       end
     end
@@ -460,7 +454,6 @@ class TestCostModel < Minitest::Test
     prog = program do
       screen :bitmap
       game_loop do
-        wait_vblank
         after(30) { draw_rect_at 0, 0, 8, 8, :green } # once, on the frame it fires
       end
     end
@@ -474,7 +467,6 @@ class TestCostModel < Minitest::Test
     prog = program do
       screen :bitmap
       game_loop do
-        wait_vblank
         every(30) { draw_rect_at 0, 0, 8, 8, :green }
       end
     end
@@ -488,7 +480,6 @@ class TestCostModel < Minitest::Test
     prog = program do
       screen :bitmap
       game_loop do
-        wait_vblank
         draw_rect_at 0, 0, 8, 8, :green # runs every frame
       end
     end
@@ -501,7 +492,6 @@ class TestCostModel < Minitest::Test
     prog = program do
       screen :bitmap
       game_loop do
-        wait_vblank
         pressed(:start).then { draw_rect_at 0, 0, 8, 8, :green } # 64 on a press frame only
       end
     end
@@ -515,7 +505,6 @@ class TestCostModel < Minitest::Test
     prog = program do
       screen :bitmap
       game_loop do
-        wait_vblank
         held(:right).then { draw_rect_at 0, 0, 8, 8, :green }
       end
     end
@@ -540,7 +529,6 @@ class TestCostModel < Minitest::Test
       screen :bitmap
       var :score, 0
       game_loop do
-        wait_vblank
         draw_number :score, 8, 8, :white, digits: 1 # one column -> one draw_digit
       end
     end
@@ -558,7 +546,6 @@ class TestCostModel < Minitest::Test
     gated = program do
       screen :bitmap
       game_loop do
-        wait_vblank
         chance(25).then { draw_rect_at 0, 0, 8, 8, :green } # one 8x8 rect, 25% of frames
       end
     end
@@ -567,7 +554,6 @@ class TestCostModel < Minitest::Test
     roll_only = program do
       screen :bitmap
       game_loop do
-        wait_vblank
         chance(25).then { nil }
       end
     end
@@ -617,7 +603,6 @@ class TestCostModel < Minitest::Test
       scene(:title) { clear_screen :blue }
       scene(:play)  { clear_screen :red }
       game_loop do
-        wait_vblank
         case_var(:state) do
           when_val 0, :title
           when_val 1, :play
@@ -664,14 +649,13 @@ class TestCostModel < Minitest::Test
       screen :bitmap
       clip = sample :blip, pcm: [10, -10] * 100, rate: rate
       game_loop do
-        wait_vblank
         clip.play
       end
     end
   end
 
   def silent_game
-    program { screen :bitmap; game_loop { wait_vblank; fill_rect 0, 0, 10, 10, :red } }
+    program { screen :bitmap; game_loop { fill_rect 0, 0, 10, 10, :red } }
   end
 
   # The mixer's per-frame cost shows up as a leaf in the SOUND section — rolled up
@@ -725,12 +709,12 @@ class TestCostModel < Minitest::Test
     one = program do
       screen :bitmap
       var :x, 0
-      game_loop { wait_vblank; repeat(1) { add :x, 1 } }
+      game_loop { repeat(1) { add :x, 1 } }
     end
     ten = program do
       screen :bitmap
       var :x, 0
-      game_loop { wait_vblank; repeat(10) { add :x, 1 } }
+      game_loop { repeat(10) { add :x, 1 } }
     end
     c_one = Cost.new.steady_cost(one)
     c_ten = Cost.new.steady_cost(ten)
@@ -745,12 +729,12 @@ class TestCostModel < Minitest::Test
     adder = program do
       screen :bitmap
       x = var :x, 100
-      game_loop { wait_vblank; x.set(x + 1) }
+      game_loop { x.set(x + 1) }
     end
     divider = program do
       screen :bitmap
       x = var :x, 100
-      game_loop { wait_vblank; x.set(x / 2) }
+      game_loop { x.set(x / 2) }
     end
 
     assert_operator Cost.new.steady_cost(divider), :>, Cost.new.steady_cost(adder),
@@ -765,7 +749,7 @@ class TestCostModel < Minitest::Test
       x = var :x, 0
       hero = box x, 0, 8, 8
       wall = box 100, 0, 8, 8
-      game_loop { wait_vblank; hero.overlaps?(wall).then { nil } }
+      game_loop { hero.overlaps?(wall).then { nil } }
     end
 
     assert_operator Cost.new.steady_cost(prog), :>, 0,

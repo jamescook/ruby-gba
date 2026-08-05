@@ -145,7 +145,6 @@ class TestSubroutines < Minitest::Test
 
       set :ball_x, 120
       game_loop do
-        wait_vblank
         call :update_ball
       end
     end
@@ -189,7 +188,6 @@ class TestSubroutines < Minitest::Test
       end
 
       game_loop do
-        wait_vblank
         call :clear
         call :draw_pixel
       end

@@ -56,8 +56,6 @@ module Animate
     coin = sprite :coin, at: [(240 - SIZE) / 2, (160 - SIZE) / 2], frames: FRAMES, rate: 6
 
     game_loop do
-      wait_vblank # the framework repaints the coin and advances its spin here
-
       # Steer it while it spins — animation and movement are independent.
       held(:left).then  { coin.move :left,  by: SPEED }
       held(:right).then { coin.move :right, by: SPEED }

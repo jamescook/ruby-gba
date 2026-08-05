@@ -79,8 +79,6 @@ module Scroll
     world = background :world, tiles: :terrain, map: MAP
 
     game_loop do
-      wait_vblank # scroll here, in the safe window, so the whole view moves together
-
       # Hold a direction to pan the camera that way; the world slides under it.
       held(:left).then  { world.scroll_by(-SPEED, 0) }
       held(:right).then { world.scroll_by(SPEED, 0) }

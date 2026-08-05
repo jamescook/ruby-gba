@@ -77,7 +77,9 @@ class TestOverlaps < Minitest::Test
       end
     end
     b.emit_pending_functions
-    i = Ruby.new.run(b.program)
+    # The loop is frame-paced (one pass per frame), so give it enough frames for the
+    # ball to travel all the way through the wall and reach its halt at x 40.
+    i = Ruby.new.run(b.program, frames: 50)
     # The 4-wide ball overlaps the wall (x 20..24) while its left edge is in 16..24,
     # i.e. ball_x from 16 through 24 — nine frames.
     assert_equal 9, i[:hits], "overlaps? fires exactly on the overlapping frames"

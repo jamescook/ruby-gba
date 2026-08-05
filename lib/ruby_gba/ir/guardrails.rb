@@ -177,6 +177,7 @@ end
 require_relative "guardrails/frame_reach"
 require_relative "guardrails/screen_mode_set"
 require_relative "guardrails/empty_tiled_screen"
+require_relative "guardrails/dropped_frame_sync"
 require_relative "guardrails/vblank_sync"
 require_relative "guardrails/termination"
 require_relative "guardrails/off_screen_draw"

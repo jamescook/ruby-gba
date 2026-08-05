@@ -120,8 +120,6 @@ module Hero
     hero_y = var :hero_y, 80
 
     game_loop do
-      wait_vblank # the safe moment to move the camera, so the whole view shifts together
-
       # Hold a direction to walk. We move the hero's world position; the world is a
       # torus, so there's no edge to bump into — keep going and it wraps.
       held(:left).then  { hero_x.sub SPEED }
