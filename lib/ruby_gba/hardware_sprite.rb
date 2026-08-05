@@ -49,10 +49,12 @@ module RubyGBA
     # @param facing_var [Symbol, nil] the variable holding which pose is showing (faceted only)
     # @param facing_dirs [Hash{Symbol=>Integer}, nil] direction -> pose index (faceted only)
     def initialize(builder, object_name:, x:, y:, active:, hitbox:, poses:, pixel_perfect:,
-                   facing_var: nil, facing_dirs: nil, frame_var: nil, frames_per_dir: 1,
+                   object_node: nil, facing_var: nil, facing_dirs: nil, frame_var: nil, frames_per_dir: 1,
                    clips: nil, clip_off_var: nil, clip_len_var: nil)
       @builder = builder
       @object_name = object_name
+      @object_node = object_node # the IR object node; turning it swaps in a variable angle
+      @angle_var = nil           # allocated the first time the sprite is told to turn
       @x_var = x
       @y_var = y
       @active = active
@@ -216,6 +218,49 @@ module RubyGBA
       self
     end
 
+    # Turn the sprite to point at an exact angle: +degrees+ clockwise from upright,
+    # pivoting on its own center. Where `face` swaps between a few fixed poses, this
+    # rotates the picture itself to any angle — a ship that points wherever it aims, a
+    # key that turns. +degrees+ can be a whole number or a {Value} (an aim you work out
+    # at run time).
+    #
+    #   ship.face_angle 90        # point to the right
+    #   ship.face_angle aim       # point the way `aim` says
+    #
+    # The first turn makes this a rotating sprite; one that never turns draws upright and
+    # costs nothing extra. The angle wraps, so 370 is the same as 10, and -90 the same as
+    # 270. Only a `screen :tiled` sprite can turn (the console rotates it in hardware).
+    def face_angle(degrees)
+      ensure_rotatable
+      if degrees.is_a?(Integer)
+        record(Build.set(@angle_var, Build.int(degrees % 360)))
+      else
+        angle.set(degrees)
+        wrap_angle
+      end
+      self
+    end
+
+    # Turn the sprite by +degrees+ from the way it points now: a positive number turns it
+    # clockwise, a negative one counter-clockwise. Call it each frame to spin steadily or
+    # to steer — `held(:left).then { ship.turn(-3) }`. The angle wraps, so it can keep
+    # turning either way. Makes this a rotating sprite (see #face_angle).
+    def turn(degrees)
+      ensure_rotatable
+      angle.add(degrees)
+      wrap_angle
+      self
+    end
+
+    # The sprite's heading as a {Value} you can read and compare — degrees clockwise from
+    # upright, always 0..359. Reading it makes this a rotating sprite.
+    #
+    #   (ship.angle == 0).then { ... }   # pointing straight up?
+    def angle
+      ensure_rotatable
+      Value.new(@builder, Build.var_ref(@angle_var), name: @angle_var)
+    end
+
     # Play a named animation from the sprite's Aseprite sheet (a frameTag). It runs from
     # its first frame and loops until you play another one. Only for a sprite made with
     # `from_aseprite:`, and only a name the sheet defines — anything else is a friendly
@@ -277,6 +322,24 @@ module RubyGBA
 
     def faceted?
       !@facing_var.nil?
+    end
+
+    # Allocate this sprite's rotation-angle variable and attach it to the object the
+    # first time the sprite is told to turn — so an object that never turns keeps its
+    # constant-0 angle and stays upright for free. Idempotent: later turns reuse it.
+    def ensure_rotatable
+      @angle_var ||= :"#{@object_name}_angle"
+      @builder.make_object_rotatable(@object_node, @angle_var)
+    end
+
+    # Fold the angle variable back into 0..359 after a set or turn. One truncated-
+    # division modulo (a - (a / 360) * 360, the BIOS Div on hardware) lands it in
+    # (-360, 360); a single conditional add of 360 then lifts a negative result into
+    # range. Cheap, and it runs at most once per turn.
+    def wrap_angle
+      a = angle
+      a.set(a - (a / 360 * 360))
+      (angle < 0).then { angle.add(360) }
     end
 
     def record(node)

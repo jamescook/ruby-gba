@@ -692,7 +692,13 @@ module RubyGBA
         def composite_scrolled_frame
           @screen.clear(0) # the backdrop the layers' transparent pixels reveal
           @bg_nodes.each { |bg| paint_background_window(bg) }
-          @obj_layer.each { |obj| blit_image(obj[:image], obj[:x], obj[:y]) }
+          @obj_layer.each do |obj|
+            if obj[:angle]
+              blit_image_rotated(obj[:image], obj[:x], obj[:y], obj[:angle])
+            else
+              blit_image(obj[:image], obj[:x], obj[:y])
+            end
+          end
         end
 
         # The color of a background cell's pixel: the tile's pixel there, or the black
@@ -742,9 +748,26 @@ module RubyGBA
 
             x = eval_value(obj[:x])
             y = eval_value(obj[:y])
-            blit_image(image, x, y)
+            draw_object(obj, image, x, y)
             @obj_prev[name] = [x, y]
           end
+        end
+
+        # Draw one object's picture at (x, y): straight when it never turns, rotated to
+        # its current heading when it does. Shared by the still-scene present path and
+        # the scrolling-scene recomposite.
+        def draw_object(obj, image, x, y)
+          return blit_image(image, x, y) unless object_rotates?(obj)
+
+          blit_image_rotated(image, x, y, eval_value(obj[:angle]))
+        end
+
+        # Does this object turn? It does unless its angle is the constant 0 it defaults
+        # to — an object that never calls turn/face_angle keeps that constant and draws
+        # upright, so we take the cheaper straight-blit path for it.
+        def object_rotates?(obj)
+          angle = obj[:angle]
+          !(angle.kind == :int && angle[:value].zero?)
         end
 
         # Capture the objects that are on screen this frame — their current pose picture
@@ -759,7 +782,9 @@ module RubyGBA
             image = object_pose_image(obj)
             next if image.nil?
 
-            { image: image, x: eval_value(obj[:x]), y: eval_value(obj[:y]) }
+            snap = { image: image, x: eval_value(obj[:x]), y: eval_value(obj[:y]) }
+            snap[:angle] = eval_value(obj[:angle]) if object_rotates?(obj)
+            snap
           end
         end
 
@@ -783,17 +808,79 @@ module RubyGBA
           end
         end
 
-        # Put the clean scene back where an object was last drawn (its image-sized
-        # patch), erasing it before it's redrawn at its new spot. All of an object's
-        # poses are the same size, so the first pose gives the patch to restore.
+        # Put the clean scene back where an object was last drawn, erasing it before it's
+        # redrawn at its new spot. All of an object's poses are the same size, so the
+        # first pose gives the patch to restore — its own size for an upright object, or
+        # the bigger square a turning object can cover at any angle.
         def restore_scene_rect(scene, name, (x, y))
-          bmp = @bitmaps.fetch(@objects.fetch(name)[:poses].first)
-          bmp[:height].times do |row|
-            bmp[:width].times do |col|
+          obj = @objects.fetch(name)
+          bmp = @bitmaps.fetch(obj[:poses].first)
+          if object_rotates?(obj)
+            rx, ry, side = rotated_footprint(x, y, bmp[:width], bmp[:height])
+            restore_patch(scene, rx, ry, side, side)
+          else
+            restore_patch(scene, x, y, bmp[:width], bmp[:height])
+          end
+        end
+
+        # Copy a width×height patch of the settled scene back onto the screen (skipping
+        # any cell that falls off it), erasing whatever an object had drawn there.
+        def restore_patch(scene, x, y, width, height)
+          height.times do |row|
+            width.times do |col|
               color = scene.pixel(x + col, y + row)
               @screen.set_pixel(x + col, y + row, color) unless color.nil?
             end
           end
+        end
+
+        # Draw an image rotated +degrees+ clockwise about its own center, its upright
+        # top-left at (x, y) — the reference interpreter's stand-in for the console's
+        # sprite rotate/scale. For each screen pixel in the rotated footprint we map back
+        # through the rotation to a source pixel and copy it (nearest-neighbor), the same
+        # inverse-texture sampling the hardware does, so the two agree. A source pixel
+        # that is transparent, or a mapped point that lands outside the picture, is
+        # skipped — so the picture keeps its shape as it turns and leaves the rest alone.
+        def blit_image_rotated(name, x, y, degrees)
+          bmp = @bitmaps.fetch(name) { raise ProgramError, "blit of undefined image #{name.inspect}" }
+          pixels = @data.fetch(name)
+          transparent = bmp[:transparent]
+          w = bmp[:width]
+          h = bmp[:height]
+          cx = x + (w / 2.0) # the pivot: the picture's center, in screen space
+          cy = y + (h / 2.0)
+          radians = degrees * Math::PI / 180.0
+          cos = Math.cos(radians)
+          sin = Math.sin(radians)
+          rx, ry, side = rotated_footprint(x, y, w, h)
+          side.times do |row|
+            py = ry + row
+            side.times do |col|
+              px = rx + col
+              ddx = (px + 0.5) - cx # offset from the pivot, sampled at the pixel's center
+              ddy = (py + 0.5) - cy
+              sx = ((cos * ddx) + (sin * ddy) + (w / 2.0)).floor # inverse-rotate to source
+              sy = ((-sin * ddx) + (cos * ddy) + (h / 2.0)).floor
+              next unless sx >= 0 && sx < w && sy >= 0 && sy < h
+
+              i = ((sy * w) + sx) * 2
+              color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
+              next if transparent && color == transparent
+
+              @screen.set_pixel(px, py, color)
+            end
+          end
+        end
+
+        # The square of screen a width×height picture can cover at any rotation about its
+        # center: the side is the picture's diagonal (rounded up, plus a small margin so
+        # a corner never clips), centered on the picture. Bounds both the rotated draw
+        # and the erase under a turning object, so neither depends on the current angle.
+        def rotated_footprint(x, y, w, h)
+          side = Integer.sqrt((w * w) + (h * h)) + 2
+          cx = x + (w / 2)
+          cy = y + (h / 2)
+          [cx - (side / 2), cy - (side / 2), side]
         end
 
         # Run a block with the draw ops pointed at +target+ instead of the visible

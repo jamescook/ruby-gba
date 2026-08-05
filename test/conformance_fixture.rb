@@ -101,7 +101,9 @@ module ConformanceFixture
                           map: [[0, 1], [1, nil]], tile_w: 2, tile_h: 2),
       B.scroll_background(:grid, x: B.var_ref(:x), y: B.var_ref(:y)), # move the window over it
       B.object(:hero_obj, poses: [:obj8], pose: B.int(0), # a composited object (one pose, held at index 0)
-                          x: B.var_ref(:x), y: B.var_ref(:y), active: B.int(1)),
+                          x: B.var_ref(:x), y: B.var_ref(:y), active: B.int(1),
+                          angle: B.int(45)), # turned 45 degrees — exercises the affine/rotation path
+
       B.present_objects([:hero_obj]),   # draw the declared objects for this frame
       B.save_region(:under, :x, :y),    # remember the pixels under a moving object
       B.restore_region(:under, :x, :y), # then paint them back

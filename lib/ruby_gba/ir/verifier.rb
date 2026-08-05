@@ -101,7 +101,7 @@ module RubyGBA
         # a composited moving object: its same-size poses, a run-time index picking
         # which to show (facing/animation), and its run-time position/visibility.
         # present_objects names which to draw this frame.
-        object:          { name: :name, poses: :list, pose: :value, x: :value, y: :value, active: :value },
+        object:          { name: :name, poses: :list, pose: :value, x: :value, y: :value, active: :value, angle: :value },
         present_objects: { names: :list },
         # save/restore the pixels under a moving object; the patch size comes from
         # the named backing buffer, so these carry only where (x/y, run-time).
