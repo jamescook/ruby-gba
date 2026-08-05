@@ -79,7 +79,6 @@ module Raycaster
     top  = var :_top, 0
 
     game_loop do
-      wait_vblank
       clear_screen :black
       held(:left).then  { view.sub 2 }
       held(:right).then { view.add 2 }

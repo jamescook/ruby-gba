@@ -66,7 +66,6 @@ module FloatingDigits
     max_y = SCREEN_H - H
 
     game_loop do
-      wait_vblank
       # The simple, unclever way: wipe the screen and redraw every digit. It's a
       # touch wasteful (a real game would erase only where each digit was), but at
       # this scale it fits the frame comfortably and keeps the example plain.

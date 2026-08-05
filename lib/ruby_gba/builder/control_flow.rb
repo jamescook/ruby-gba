@@ -41,10 +41,25 @@ module RubyGBA
 
       # Wait for the vertical blank — the safe moment to change what's on screen.
       #
-      # This is also where the framework repaints your sprites. The vertical blank is
-      # the one window each frame where changing the screen is safe, so right after
-      # it we repaint. That's why a sprite needs no draw call and why moving one is
-      # just changing its position — see {Sprite} and Builder#sprite.
+      # A `game_loop` opens every pass with this already, so a wait written inside one
+      # records nothing: two waits in a pass would run the game at half speed. It is
+      # counted instead, and Checks::DroppedFrameSync reports the count once.
+      #
+      # Outside a game loop nothing is pacing the program, so the wait is emitted as
+      # written — that is how a program presents a frame on its own.
+      def wait_vblank
+        return @dropped_syncs += 1 if @frame_sync == :auto && @has_paced_loop
+
+        emit_frame_boundary
+      end
+
+      # The frame boundary: wait for the vertical blank, then put this frame's picture
+      # on screen. `game_loop` calls this at the top of every pass.
+      #
+      # The vertical blank is the one window each frame where changing the screen is
+      # safe, so the repaint happens right after it. That's why a sprite needs no draw
+      # call and why moving one is just changing its position — see {Sprite} and
+      # Builder#sprite.
       #
       # The repaint is two passes over ALL sprites: erase every one from where it was,
       # THEN draw every one where it is now. If instead each sprite erased-and-drew
@@ -52,7 +67,7 @@ module RubyGBA
       # hadn't been erased yet — and smear a copy of it across the screen when it
       # later moved. Erasing everyone first means each captures clean background, so
       # sprites can overlap (a hero touching a coin) without leaving trails.
-      def wait_vblank
+      def emit_frame_boundary
         record(Build.wait_vblank)
         @sprites.each { |sprite| record(sprite.erase_node) }
         @sprites.each { |sprite| record(sprite.draw_node) }
@@ -74,17 +89,29 @@ module RubyGBA
         # shows the next picture.
         @animations.each { |anim| advance_animation(anim).each { |node| record(node) } }
       end
+      # Internal machinery, not something a game writes: `game_loop` calls it.
+      private :emit_frame_boundary
 
       # Wrap a block of code in an infinite loop. The block's statements become the
       # loop body in the IR tree; the backend adds the jump back to the top.
       #
+      # A game loop runs once per frame. Keeping in step with the display is hardware
+      # machinery, so the framework puts the frame boundary at the top of the body
+      # for you — the wait, and the repaint of every sprite and HUD glyph that goes
+      # with it. Build with `frame_sync: :manual` to place `wait_vblank` yourself.
+      #
       # @example
       #   game_loop do
-      #     wait_vblank
       #     # ... game logic ...
       #   end
       def game_loop(&block)
+        # Remembered for the whole build, not just this block: a scene body is built
+        # later (at finalize) and is still part of a paced program, so a wait written
+        # inside a scene is redundant in the same way one written here is.
+        @has_paced_loop = true if @frame_sync == :auto
+
         push_container(Build.loop_) do
+          emit_frame_boundary if @frame_sync == :auto
           run_block(&block)
         end
       end

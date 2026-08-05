@@ -154,10 +154,12 @@ class TestBuilderIR < Minitest::Test
     end
 
     # A scene is a func named _scene_<name>; case_var is one case node whose
-    # clauses point at those scene funcs.
+    # clauses point at those scene funcs. The loop opens with the frame boundary the
+    # framework puts there, since a game loop runs once per frame.
     assert_equal program(
       set(:state, 0),
       loop_(
+        wait_vblank,
         case_(:state, 0 => :_scene_title, 1 => :_scene_playing),
       ),
       func(:_scene_title, clear_screen(:black)),

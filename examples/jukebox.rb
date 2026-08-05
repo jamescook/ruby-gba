@@ -111,8 +111,6 @@ module Jukebox
     BARS.each_index { |i| var :"bar_v#{i}", BARS[i][2] }
 
     game_loop do
-      wait_vblank
-
       # --- Move the cursor. Silence the channel on a move so the new tune starts
       # cleanly instead of bleeding a note from the old one. ---
       pressed(:up).then   { (selected > 0).then { selected.sub 1; stop_music } }

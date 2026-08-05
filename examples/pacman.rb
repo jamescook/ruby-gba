@@ -178,8 +178,6 @@ module Pacman
     draw_number :eaten, 46, 4, :white, digits: 3
 
     game_loop do
-      wait_vblank # the framework draws the sprites here, in the safe window
-
       # Hold a direction: Pac moves that way AND turns to face it — one call each.
       held(:left).then  { pac.move :left,  by: SPEED }
       held(:right).then { pac.move :right, by: SPEED }

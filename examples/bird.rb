@@ -34,7 +34,6 @@ module Bird
     bird = sprite :bird, at: [88, 48], from_aseprite: "assets/bird.aseprite"
 
     game_loop do
-      wait_vblank
       bird.face_angle(0) # level unless it's climbing or diving this frame
       held(:left).then  { bird.move(-SPEED, 0) }
       held(:right).then { bird.move(SPEED, 0) }

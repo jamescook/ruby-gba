@@ -123,8 +123,6 @@ module Parallax
     near = background :ground, tiles: :scenery, map: GROUND # declared second -> in front
 
     game_loop do
-      wait_vblank # scroll here, in the safe window, so both layers shift together
-
       # Hold a direction; the near layer moves twice as far as the far one, so the
       # trees streak past while the clouds only inch along — that speed gap is the depth.
       held(:right).then do

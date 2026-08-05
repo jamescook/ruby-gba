@@ -63,7 +63,6 @@ Snake = RubyGBA.game("SNAKE", code: "BSNK", maker: "01") do
   end
 
   game_loop do
-    wait_vblank
     case_var :state do
       when_val 1, :playing              # title (0) + game_over (2) omitted — see full file
     end
@@ -162,7 +161,7 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Sampled PCM audio (Direct Sound / DMA sound) — `sample` / `instrument`, WAV import, mixer refilled once per frame
 - [x] Deterministic randomness — `seed` / `roll` / `rand` / `chance` / `randomize`
 - [x] Timing + motion — `every` / `after`, `approach`
-- [x] VBlank-IRQ frame timing — `wait_vblank` sleeps the CPU on the BIOS interrupt wait, not a busy-wait
+- [x] VBlank-IRQ frame timing — `game_loop` paces itself at one pass per frame, sleeping the CPU on the BIOS interrupt wait rather than busy-waiting
 - [x] Runtime collection — `list`
 - [x] Save / load persistence — `save_var` over battery-backed SRAM, loaded at boot and re-saved on change
 - [x] Asset pipeline — PNG → tiles / sprites / animation frames, and CSV tilemaps → backgrounds
@@ -242,7 +241,6 @@ scene :game_over do
 end
 
 game_loop do
-  wait_vblank
   case_var(:state) { when_val PLAYING, :playing; when_val GAME_OVER, :game_over }
 end
 ```

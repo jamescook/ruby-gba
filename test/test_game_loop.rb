@@ -101,7 +101,7 @@ class TestGameLoop < Minitest::Test
   # ========================================================================
 
   def test_game_loop_branches_back_to_the_wait
-    rom = build { game_loop { wait_vblank } }
+    rom = build { game_loop {} }
     insts = instructions(rom)
 
     top = insts.index(VBLANK_INTR_WAIT) # the loop body starts at the wait
@@ -119,7 +119,6 @@ class TestGameLoop < Minitest::Test
       screen :bitmap
       set :counter, 0
       game_loop do
-        wait_vblank
         add_var :counter, 1
       end
     end
@@ -140,7 +139,6 @@ class TestGameLoop < Minitest::Test
       screen :bitmap
       frames = var :frames, 0
       game_loop do
-        wait_vblank
         (frames < count).then { add :frames, 1 }
       end
     end
@@ -168,7 +166,6 @@ class TestGameLoop < Minitest::Test
       screen :bitmap
       set :counter, 0
       game_loop do
-        wait_vblank
         add_var :counter, 1
       end
     end

@@ -50,8 +50,6 @@ module SpriteMover
     hero = sprite :heart, at: [(SCREEN_W - SPRITE_W) / 2, (SCREEN_H - SPRITE_H) / 2]
 
     game_loop do
-      wait_vblank # the framework repaints the heart right here, in the safe window
-
       # Hold a direction to move — say it the way you'd think it: press left, move
       # left. `by:` is the speed; no x/y arithmetic in sight.
       held(:left).then  { hero.move :left,  by: SPEED }

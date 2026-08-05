@@ -135,8 +135,6 @@ module Piano
     seq = var :seq, 0
 
     game_loop do
-      wait_vblank
-
       # --- Right hand: the melody. At each note's start, sound it, press the right
       # finger, light the right key; lift shortly before the note ends so the next
       # (or a repeated) note re-strikes. ---

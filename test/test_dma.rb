@@ -139,7 +139,6 @@ class TestDMA < Minitest::Test
     rom = build do
       screen :bitmap
       game_loop do
-        wait_vblank
         clear_screen :black
         dma_fill_rect 100, 60, 40, 40, :white
       end

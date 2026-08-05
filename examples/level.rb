@@ -43,8 +43,6 @@ module Level
     hero.blocked_by room
 
     game_loop do
-      wait_vblank # the safe moment to move the hero
-
       held(:left).then  { hero.move :left,  by: SPEED }
       held(:right).then { hero.move :right, by: SPEED }
       held(:up).then    { hero.move :up,    by: SPEED }

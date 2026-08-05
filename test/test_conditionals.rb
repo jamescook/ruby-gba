@@ -246,7 +246,6 @@ class TestConditionals < Minitest::Test
       set :ball_x, 120
       set :ball_y, 80
       game_loop do
-        wait_vblank
         clear_screen :black
         add_var :ball_x, 1
         if_ge :ball_x, 240 do

@@ -67,7 +67,16 @@ module RubyGBA
     # nodes as terse Build.set(...) calls.
     Build = IR::Build
 
-    def initialize
+    # @param frame_sync [Symbol] :auto (the framework paces each game_loop) or
+    #   :manual (the developer places `wait_vblank` themselves)
+    def initialize(frame_sync: :auto)
+      unless %i[auto manual].include?(frame_sync)
+        raise ArgumentError, "frame_sync must be :auto or :manual, got #{frame_sync.inspect}"
+      end
+
+      @frame_sync = frame_sync
+      @has_paced_loop = false  # set once a game_loop is pacing the program
+      @dropped_syncs = 0       # `wait_vblank` calls the game loop already covers
       @variables = {}          # name → { address:, initial: } — introspection metadata
       @next_var_addr = IWRAM_START
       @functions = {}          # name → deferred body block (evaluated at emit time)
@@ -214,6 +223,10 @@ module RubyGBA
       register_save_init
       emit_boot_inits
     end
+
+    # How many `wait_vblank` calls the game loop already covered. Read by
+    # RubyGBA.build so Checks::DroppedFrameSync can report them.
+    attr_reader :dropped_syncs
 
     # --- Handle hooks ---
     # The Value / Condition / Branch / List classes call these back into the

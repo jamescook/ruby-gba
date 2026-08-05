@@ -70,7 +70,6 @@ module Shmup
     end
 
     game_loop do
-      wait_vblank
       case_var :state do
         when_val PLAYING,   :playing
         when_val GAME_OVER, :game_over

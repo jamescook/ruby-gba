@@ -290,8 +290,6 @@ module Snake
 
     # --- Main loop: pick the scene for the current state, every frame ---
     game_loop do
-      wait_vblank
-
       case_var :state do
         when_val 0, :title
         when_val 1, :playing

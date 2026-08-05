@@ -261,7 +261,6 @@ class TestSound < Minitest::Test
       beep :chirp
 
       game_loop do
-        wait_vblank
       end
     end
 
