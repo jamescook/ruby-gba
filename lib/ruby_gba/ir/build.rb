@@ -447,10 +447,17 @@ module RubyGBA
       # now (0-based) — that's how an object faces a direction or animates: a plain
       # object has one pose and holds `pose` at 0, a facing/animated one drives it with
       # a variable. x/y/active/pose are value operands (variables the game steers).
+      #
+      # +angle+ is a value operand: the object's rotation in degrees (clockwise,
+      # pivoting on its own center). It defaults to a constant 0 — upright — which is
+      # how an object that never turns draws, and a backend can see that constant and
+      # pay nothing for rotation. An object that turns holds a variable here instead,
+      # and a backend rotates the picture to that angle each frame (the display's own
+      # rotate/scale on hardware, a rotated sample in the reference interpreter).
       # Reserves the object; #present_objects is what actually draws it for a frame.
-      def object(name, poses:, pose:, x:, y:, active:)
+      def object(name, poses:, pose:, x:, y:, active:, angle: 0)
         Node.new(:object, name: name, poses: poses, pose: wrap(pose),
-                          x: wrap(x), y: wrap(y), active: wrap(active))
+                          x: wrap(x), y: wrap(y), active: wrap(active), angle: wrap(angle))
       end
 
       # Draw the named objects for this frame, on top of the background, in order

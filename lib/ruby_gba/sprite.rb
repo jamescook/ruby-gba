@@ -197,6 +197,22 @@ module RubyGBA
       self
     end
 
+    # Turning to an arbitrary angle needs the console's sprite rotate/scale, which only
+    # a `screen :tiled` sprite has. A `screen :bitmap` sprite is drawn pixel by pixel and
+    # can't turn to any angle, so this is a friendly error that points the way. (For a
+    # few fixed directions in bitmap mode, use `facing:` poses and `face`.)
+    def face_angle(_degrees)
+      raise ArgumentError, TURN_NEEDS_TILED
+    end
+
+    def turn(_degrees)
+      raise ArgumentError, TURN_NEEDS_TILED
+    end
+
+    TURN_NEEDS_TILED =
+      "this sprite can't turn to an angle — turning needs `screen :tiled`. " \
+      "On `screen :bitmap`, face a few fixed ways with `facing:` poses and `face` instead."
+
     # Play a named animation from the sprite's Aseprite sheet (a frameTag). It runs from
     # its first frame and loops until you play another one. Only for a sprite made with
     # `from_aseprite:`, and only a name the sheet defines — anything else is a friendly

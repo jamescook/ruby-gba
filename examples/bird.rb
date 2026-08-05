@@ -8,6 +8,8 @@
 # directly — it composites the layers, decompresses the frames, resolves the palette, and
 # reads the frame timing — so the game just points at the file the artist saved. The bird
 # flaps on its own; steer it around the sky with the D-pad and it keeps flapping as it flies.
+# Climb or dive and it tilts to match — `face_angle` turns the whole sprite in hardware, the
+# way a bird pitches its nose up and down.
 #
 # This is the modern art workflow: draw in your tool, point the game at the file. (An
 # Aseprite sheet exported to a PNG + JSON works the same way — pass that .json instead.)
@@ -33,10 +35,11 @@ module Bird
 
     game_loop do
       wait_vblank
+      bird.face_angle(0) # level unless it's climbing or diving this frame
       held(:left).then  { bird.move(-SPEED, 0) }
       held(:right).then { bird.move(SPEED, 0) }
-      held(:up).then    { bird.move(0, -SPEED) }
-      held(:down).then  { bird.move(0, SPEED) }
+      held(:up).then    { bird.move(0, -SPEED); bird.face_angle(335) } # climb: tip the nose up
+      held(:down).then  { bird.move(0, SPEED);  bird.face_angle(25) }  # dive: tip the nose down
       bird.clamp_to_screen # keep the whole bird on screen, using its own size
     end
   end

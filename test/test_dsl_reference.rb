@@ -21,7 +21,10 @@ class TestDslReference < Minitest::Test
   # Public concern methods that are introspection/debug, not verbs to look up — the
   # cheat-sheet needn't spell each out. Move a verb here only if it's genuinely not
   # part of the authoring surface.
-  SKIP = %i[variables var_address debug_halted?].freeze
+  # make_object_rotatable is not an authoring verb — it's an internal hook a
+  # HardwareSprite handle calls to wire up its rotation (see #face_angle / #turn),
+  # which the cheat-sheet documents on the sprite verb, not on its own line.
+  SKIP = %i[variables var_address debug_halted? make_object_rotatable].freeze
 
   def dsl_verbs
     (CONCERNS.flat_map { |m| m.public_instance_methods(false) } + BUILDER_VERBS - SKIP).uniq.sort

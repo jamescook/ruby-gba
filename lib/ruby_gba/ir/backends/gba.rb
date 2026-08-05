@@ -634,6 +634,19 @@ module RubyGBA
         # Sprite tile memory: 32KB, holding all the sprites' tile pictures at once.
         OBJ_TILE_CAPACITY = 0x8000
 
+        # Turning sprites (see #prepare_affine). The console applies a rotation to a
+        # sprite through one of 32 shared "affine" parameter groups, so at most 32
+        # sprites can turn at once. To rotate, a sprite points at a group; each frame we
+        # fill that group with a rotation matrix built from the angle.
+        MAX_AFFINE_GROUPS = 32
+
+        # A sine lookup table baked into ROM, so the matrix math costs a memory read
+        # rather than a per-frame sine. Entry d is sin(d°) in 8.8 fixed point (256 =
+        # 1.0). It runs to 449°, not 359°, so cosine — sin(angle + 90) — is a straight
+        # read at angle + 90 with no wrap, for any angle the DSL keeps in 0..359.
+        OBJ_SINE_BLOB = :__obj_sine
+        OBJ_SINE_ENTRIES = 450
+
         # Lay all the declared sprites out: one shared color table every sprite indexes
         # into, then each sprite's picture as tiles and its place in the sprite table.
         # Done up front so the addresses exist before the per-frame draw refers to them;
@@ -659,11 +672,44 @@ module RubyGBA
             prepare_one_object(node, nodes.size - 1 - index, tile_unit)
             tile_unit += @objects[node[:name]][:tile_units]
           end
+          prepare_affine(nodes)
           return unless tile_unit * 32 > OBJ_TILE_CAPACITY
 
           raise LoweringError,
                 "the sprites' tiles need #{tile_unit * 32} bytes — sprite tile memory holds #{OBJ_TILE_CAPACITY}. " \
                 "Use fewer or smaller sprites."
+        end
+
+        # Set up the sprites that turn. Each is given one of the console's 32 rotation
+        # parameter groups (its "affine slot"), and the shared sine table is baked into
+        # ROM once. A sprite that never turns keeps its default upright angle and gets
+        # no slot, so it costs nothing. More than 32 turning sprites is a friendly error
+        # — the hardware simply has no more groups.
+        def prepare_affine(nodes)
+          turning = nodes.select { |node| object_rotates?(node) }
+          return if turning.empty?
+
+          if turning.size > MAX_AFFINE_GROUPS
+            raise LoweringError,
+                  "#{turning.size} sprites turn, but the console can turn at most #{MAX_AFFINE_GROUPS} at once. " \
+                  "Turn fewer sprites at the same time."
+          end
+          turning.each_with_index { |node, group| @objects[node[:name]][:affine_slot] = group }
+          @data_blobs[OBJ_SINE_BLOB] = build_sine_table
+        end
+
+        # Does this object turn? It does unless its angle is the constant 0 it defaults
+        # to. A variable angle (or any non-zero constant) means it rotates and needs an
+        # affine slot; the plain constant 0 draws upright.
+        def object_rotates?(node)
+          value = const_int(node[:angle])
+          value.nil? || !value.zero?
+        end
+
+        # The sine lookup table as ROM bytes: sin(d°) in 8.8 fixed point for d in
+        # 0..449, each a signed 16-bit little-endian value (256 = 1.0, -256 = -1.0).
+        def build_sine_table
+          (0...OBJ_SINE_ENTRIES).map { |degrees| (Math.sin(degrees * Math::PI / 180.0) * 256).round }.pack("s<*")
         end
 
         # Build the one color table every sprite shares (8-bit color has a single
@@ -733,6 +779,8 @@ module RubyGBA
             pose: node[:pose],     # the run-time pose selector (which pose to show)
             width: width, height: height,
             x: node[:x], y: node[:y], active: node[:active], # the live position/visibility operands
+            angle: node[:angle],   # the rotation operand (a constant 0 unless the sprite turns)
+            rotates: object_rotates?(node), # draw it turned (affine) rather than upright?
             attr0_base: OBJ_256_COLOR | (shape << 14),
             attr1_base: size << 14,
           }

@@ -160,6 +160,21 @@ module RubyGBA
         handle
       end
 
+      # Make a hardware sprite able to turn (see HardwareSprite#face_angle / #turn):
+      # allocate its rotation-angle variable, boot it to 0 (upright), and swap the
+      # object's angle operand from its default constant 0 to that variable, so the
+      # backends rotate the picture each frame. Idempotent — the first turn request
+      # wires it up (the operand is still the constant 0), later ones find a variable
+      # already there and return. An object that never turns keeps the constant 0 and
+      # pays nothing for rotation. Called by the HardwareSprite handle, so it's public.
+      def make_object_rotatable(object_node, angle_var)
+        return unless object_node[:angle].kind == :int # already turning (a variable angle)
+
+        at_boot(Build.set(angle_var, Build.int(0)))
+        ensure_var(angle_var)
+        object_node[:angle] = Build.var_ref(angle_var)
+      end
+
       private
 
       # A `screen :tiled` sprite: the console draws it in hardware. Reserve a name for
@@ -212,10 +227,11 @@ module RubyGBA
                else
                  Build.int(0)
                end
-        record(Build.object(object_name, poses: poses, pose: pose,
-                                         x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
-                                         active: scene_gate(Build.var_ref(active))))
-        handle = HardwareSprite.new(self, object_name: object_name, x: pos_x, y: pos_y,
+        object_node = Build.object(object_name, poses: poses, pose: pose,
+                                                x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
+                                                active: scene_gate(Build.var_ref(active)))
+        record(object_node)
+        handle = HardwareSprite.new(self, object_name: object_name, object_node: object_node, x: pos_x, y: pos_y,
                                           active: active, hitbox: box, poses: poses, pixel_perfect: hitbox.nil?,
                                           facing_var: pose_var, facing_dirs: facing_dirs,
                                           frame_var: frame_var, frames_per_dir: frames_per_dir)
@@ -464,10 +480,11 @@ module RubyGBA
         off, len, frame = setup_clip_animation(id, clips, durations)
 
         pose = Build.binop(:+, Build.var_ref(off), Build.var_ref(frame)) # clip start + frame within it
-        record(Build.object(object_name, poses: poses, pose: pose,
-                                         x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
-                                         active: scene_gate(Build.var_ref(active))))
-        handle = HardwareSprite.new(self, object_name: object_name, x: pos_x, y: pos_y,
+        object_node = Build.object(object_name, poses: poses, pose: pose,
+                                                x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
+                                                active: scene_gate(Build.var_ref(active)))
+        record(object_node)
+        handle = HardwareSprite.new(self, object_name: object_name, object_node: object_node, x: pos_x, y: pos_y,
                                           active: active, hitbox: box, poses: poses, pixel_perfect: hitbox.nil?,
                                           facing_dirs: {},
                                           clips: clips, clip_off_var: off, clip_len_var: len, frame_var: frame)

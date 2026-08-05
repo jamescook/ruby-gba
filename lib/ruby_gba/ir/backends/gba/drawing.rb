@@ -438,6 +438,15 @@ module RubyGBA
           OBJ_HIDDEN_ATTR0 = 0x0200            # attr0 marking a sprite-table slot unused
           OBJ_HIDDEN_WORD  = 0x02000200        # two hidden attr0s, for a fast table clear
 
+          # A turning sprite sets two more attr0 bits. Rotate/scale (bit 8) tells the
+          # console to draw this sprite through an affine parameter group instead of
+          # straight. Double-size (bit 9) draws it in a box twice as wide and tall so a
+          # rotated corner has room and never clips — we place the box so the sprite
+          # stays centered where an upright one would sit. (With rotate/scale off, this
+          # same bit 9 is the "hidden" marker above, which is why hiding still works.)
+          OBJ_ROTSCALE     = 0x0100
+          OBJ_DOUBLE_SIZE  = 0x0200
+
           # One-time sprite setup at boot: blank the whole sprite table (its memory is
           # garbage at power-on, so an untouched slot would show a stray sprite), upload
           # the one shared color table every sprite indexes into, then each sprite's
@@ -470,9 +479,10 @@ module RubyGBA
             node[:names].each { |name| emit_present_object(@objects.fetch(name)) }
           end
 
-          # Write one sprite's three table entries from its live x/y/active variables.
-          # A hidden sprite (active == 0) gets the "unused slot" marker instead, so it
-          # vanishes; a shown one gets its position, size, and tiles.
+          # Write one sprite's table entries from its live x/y/active variables. A hidden
+          # sprite (active == 0) gets the "unused slot" marker instead, so it vanishes; a
+          # shown one gets its position, size, and tiles — drawn upright, or turned to its
+          # current angle when the sprite rotates.
           def emit_present_object(obj)
             base = OAM_START + (obj[:slot] * 8)
 
@@ -485,6 +495,16 @@ module RubyGBA
             emit_branch(:b, done)
 
             place_label(draw)
+            if obj[:rotates]
+              emit_draw_object_turned(obj, base)
+            else
+              emit_draw_object_upright(obj, base)
+            end
+            place_label(done)
+          end
+
+          # An upright sprite: position and size straight into its slot.
+          def emit_draw_object_upright(obj, base)
             # attr0 = (y & 0xFF) | shape + 256-color flag
             eval_value(obj[:y])
             mask_into_acc(0xFF)
@@ -498,7 +518,61 @@ module RubyGBA
             # attr2 = which tiles to draw = this sprite's base tile + pose * stride
             # (palette bank/priority left at 0). A fixed pose folds to a constant.
             emit_object_tile_number(obj, base + 4)
-            place_label(done)
+          end
+
+          # A turning sprite: the console draws it through its affine group in a double-
+          # size box. We offset the box top-left by half the sprite so the picture stays
+          # centered where an upright one would sit and pivots on its own center, turn on
+          # the rotate/scale and double-size bits, point attr1 at the affine group, then
+          # fill that group with this frame's rotation matrix.
+          def emit_draw_object_turned(obj, base)
+            half_w = obj[:width] / 2
+            half_h = obj[:height] / 2
+            # attr0 = ((y - half_h) & 0xFF) | rotate/scale + double-size + shape/color
+            eval_value(obj[:y])
+            emit(ASM.sub_imm(ACC, ACC, half_h)) unless half_h.zero?
+            mask_into_acc(0xFF)
+            orr_acc(obj[:attr0_base] | OBJ_ROTSCALE | OBJ_DOUBLE_SIZE)
+            store_halfword_acc(base)
+            # attr1 = ((x - half_w) & 0x1FF) | size | affine-group index (bits 9..13)
+            eval_value(obj[:x])
+            emit(ASM.sub_imm(ACC, ACC, half_w)) unless half_w.zero?
+            mask_into_acc(0x1FF)
+            orr_acc(obj[:attr1_base] | (obj[:affine_slot] << 9))
+            store_halfword_acc(base + 2)
+            emit_object_tile_number(obj, base + 4)
+            emit_object_affine_matrix(obj)
+          end
+
+          # Fill this sprite's affine group with a rotation matrix for its current angle.
+          # The group's four parameters (PA, PB, PC, PD) live in the fourth halfword of
+          # four sprite slots, 8 bytes apart, starting 6 bytes into the group. For a
+          # clockwise turn of the drawn picture the matrix is [PA PB; PC PD] =
+          # [cos sin; -sin cos] (the console reads it as screen -> texture, so the same
+          # matrix the reference interpreter samples through — the two agree by design).
+          def emit_object_affine_matrix(obj)
+            group = OAM_START + (obj[:affine_slot] * 32)
+            eval_value(obj[:angle])                      # r0 = angle in degrees (0..359)
+            emit_load_data_address(TMP, OBJ_SINE_BLOB)   # r1 = sine table base
+            emit(ASM.lsl_imm(2, ACC, 1))                 # r2 = angle * 2 (halfword offset)
+            emit(ASM.add_reg(ADDR, TMP, 2))
+            emit(ASM.ldrsh(2, ADDR))                     # r2 = sin(angle)
+            emit(ASM.add_imm(3, ACC, 90))                # r3 = angle + 90
+            emit(ASM.lsl_imm(3, 3, 1))
+            emit(ASM.add_reg(ADDR, TMP, 3))
+            emit(ASM.ldrsh(3, ADDR))                     # r3 = sin(angle + 90) = cos(angle)
+            emit(ASM.rsb_imm(ACC, 2, 0))                 # r0 = -sin(angle)
+            store_halfword_reg(3, group + 6)             # PA =  cos
+            store_halfword_reg(2, group + 14)            # PB =  sin
+            store_halfword_reg(ACC, group + 22)          # PC = -sin
+            store_halfword_reg(3, group + 30)            # PD =  cos
+          end
+
+          # Store the low halfword of +reg+ to a fixed address (a sibling of
+          # store_halfword_acc for when the value isn't in the accumulator).
+          def store_halfword_reg(reg, address)
+            emit(ASM.load_immediate(TMP, address))
+            emit(ASM.store_halfword(reg, TMP))
           end
 
           # Write a sprite's tile number (attr2) for this frame. The sprite's poses sit
