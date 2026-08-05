@@ -68,7 +68,7 @@ module RubyGBA
       # later moved. Erasing everyone first means each captures clean background, so
       # sprites can overlap (a hero touching a coin) without leaving trails.
       def emit_frame_boundary
-        record(Build.wait_vblank)
+        wait_node = record(Build.wait_vblank)
         @sprites.each { |sprite| record(sprite.erase_node) }
         @sprites.each { |sprite| record(sprite.draw_node) }
         # Hardware sprites need no erase pass — the console recomposites the whole
@@ -88,6 +88,10 @@ module RubyGBA
         # Then step every flipbook sprite's pose along its beat, so the next frame
         # shows the next picture.
         @animations.each { |anim| advance_animation(anim).each { |node| record(node) } }
+        # The scroll position of every background the game moves is written here too,
+        # right after the wait. Which backgrounds those are isn't known yet, so this
+        # only marks the spot (see Builder#finalize_background_scrolls).
+        mark_frame_boundary(wait_node)
       end
       # Internal machinery, not something a game writes: `game_loop` calls it.
       private :emit_frame_boundary
