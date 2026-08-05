@@ -104,6 +104,9 @@ module RubyGBA
       @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
       @pending_conditions = [] # Conditions built but not yet used; leftovers are orphans
       @present_nodes = []      # every frame's present-objects node, filled with the full object list at finalize
+      @frame_boundaries = []   # each frame's wait node, the anchor the scroll writes are inserted after at finalize
+      @scrolled_backgrounds = {} # name → [x var, y var] for every background the game scrolls
+      @inline_scroll_nodes = []  # scroll nodes recorded at their call site, dropped once a frame boundary exists
       @scene_gates = {}        # scene func name → [state_var, value] it's dispatched on (from case_var), for gating its presentation
       @current_scene_gate = nil # while a scene func's body is being built: the [state_var, value] its declarations belong to
       @building_scene = nil    # the scene func name currently being built (lets its presentation be declared inside it)
@@ -218,6 +221,7 @@ module RubyGBA
       end
 
       finalize_present_lists
+      finalize_background_scrolls
       verify_targets_defined!
       initialize_rng_stream
       register_save_init
@@ -227,6 +231,28 @@ module RubyGBA
     # How many `wait_vblank` calls the game loop already covered. Read by
     # RubyGBA.build so Checks::DroppedFrameSync can report them.
     attr_reader :dropped_syncs
+
+    # Remember that +name+ is scrolled, so its position is written once a frame in
+    # the gap between frames rather than wherever the game happened to compute it.
+    # +node+ is the write recorded at the call site, which finalize drops once it
+    # knows there is a frame boundary to move it to. A {Background} calls this.
+    def scroll_each_frame(name, x_var, y_var, node)
+      @scrolled_backgrounds[name] = [x_var, y_var]
+      @inline_scroll_nodes << node
+    end
+
+    # Remember this frame boundary, so the per-frame scroll writes can be inserted
+    # just after it at finalize. Which backgrounds scroll isn't known yet — one may
+    # be scrolled further down the loop body, or inside a scene built later — so the
+    # spot is marked now and filled at the end.
+    #
+    # The wait itself is the anchor, not a position: other statements around it come
+    # and go before finalize is done (a program with no sprites has its present-
+    # objects statement removed), and an index recorded now would no longer point
+    # where it was meant to.
+    def mark_frame_boundary(wait_node)
+      @frame_boundaries << wait_node
+    end
 
     # --- Handle hooks ---
     # The Value / Condition / Branch / List classes call these back into the
@@ -392,6 +418,39 @@ module RubyGBA
           node.parent&.children&.delete(node)
         else
           node[:names] = names
+        end
+      end
+    end
+
+    # Move every background's scroll write to the frame boundary.
+    #
+    # The display re-reads a background's scroll position for every line it draws, so
+    # writing it while the picture is being drawn shifts only the lines below that
+    # point and the screen tears in half. Writing it in the gap between frames
+    # instead means a game can work out where its camera goes anywhere in the frame,
+    # take as long as it likes, and never tear.
+    #
+    # The writes are placed here rather than where scroll was called because which
+    # backgrounds scroll is only known now: a scene's body is built after the loop
+    # that dispatches to it. Each boundary gets fresh nodes, so no node is shared
+    # between two places in the tree.
+    #
+    # A program with no frame boundary (no game loop) keeps the writes where they
+    # were called — nothing is pacing it, so there is no gap to move them to.
+    def finalize_background_scrolls
+      return if @scrolled_backgrounds.empty? || @frame_boundaries.empty?
+
+      @inline_scroll_nodes.each { |node| node.parent&.children&.delete(node) }
+
+      @frame_boundaries.each do |wait_node|
+        container = wait_node.parent
+        at = container&.children&.index(wait_node)
+        next unless at
+
+        @scrolled_backgrounds.reverse_each do |name, (x_var, y_var)|
+          node = Build.scroll_background(name, x: Build.var_ref(x_var), y: Build.var_ref(y_var))
+          container.children.insert(at + 1, node)
+          node.parent = container
         end
       end
     end

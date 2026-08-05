@@ -63,10 +63,21 @@ module RubyGBA
 
     private
 
-    # Show the background at its current offset. Recorded where scroll is called (right
-    # after wait_vblank, in the safe window), so the view moves this frame.
+    # Show the background at its current offset.
+    #
+    # Moving the view means writing the display's scroll position, and the display
+    # reads that position again for every line it draws — so writing it while the
+    # picture is being drawn moves only the lines below that point, and the screen
+    # tears in half. The safe moment is the gap between frames.
+    #
+    # Rather than ask a game to know that, the write is made once a frame, in the
+    # gap, together with the sprites (see Builder#emit_frame_boundary). Scrolling
+    # can then be computed anywhere in a frame, however long the frame's work runs,
+    # and it can never tear. The node is still recorded here as well; the builder
+    # drops these once it knows the program has a frame boundary to move them to.
     def apply
-      record(Build.scroll_background(@name, x: Build.var_ref(@scroll_x), y: Build.var_ref(@scroll_y)))
+      node = record(Build.scroll_background(@name, x: Build.var_ref(@scroll_x), y: Build.var_ref(@scroll_y)))
+      @builder.scroll_each_frame(@name, @scroll_x, @scroll_y, node)
       self
     end
 
