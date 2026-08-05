@@ -530,10 +530,6 @@ module RubyGBA
                   "the tiled backgrounds use #{tiles_total} tiles together, past the #{CHAR_BLOCK_TILES}-tile " \
                   "limit of one character block — use fewer or shared tiles"
           end
-          if palette.size > 256
-            raise LoweringError,
-                  "the tiled backgrounds use #{palette.size} colors together — the shared background palette holds 256"
-          end
 
           colors = palette.sort_by { |_color, index| index }.map { |color, _index| color }
           @data_blobs[BG_SHARED_PAL] = colors.pack("v*")
@@ -559,7 +555,7 @@ module RubyGBA
             pixels = @bitmaps.fetch(tile)[:pixels]
             (TILE_PX * TILE_PX).times do |i|
               color = (pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
-              char << (palette[color] ||= palette.size).chr
+              char << shared_palette_index(palette, color).chr
             end
           end
 
@@ -586,6 +582,29 @@ module RubyGBA
             screen_block: FIRST_MAP_SCREENBLOCK + layer,
             priority: count - 1 - layer,         # first declared is backmost (higher priority number = drawn behind)
           }
+        end
+
+        # This color's slot in the shared background palette, adding it if it's new.
+        #
+        # Every tiled layer draws from one 256-color palette, and a tile pixel is a
+        # single byte holding an index into it. So the 257th distinct color has no
+        # index that fits in a pixel. The check belongs here, at the moment a color is
+        # added, because the very next thing the caller does is pack the index into a
+        # byte — past 255 that is a raw range error from deep inside the packing, which
+        # tells the developer nothing.
+        SHARED_PALETTE_COLORS = 256
+        def shared_palette_index(palette, color)
+          index = palette[color]
+          return index if index
+
+          if palette.size >= SHARED_PALETTE_COLORS
+            raise LoweringError,
+                  "the tiled backgrounds use more than #{SHARED_PALETTE_COLORS} colors together. " \
+                  "All tiled layers share one palette of #{SHARED_PALETTE_COLORS} colors. " \
+                  "To fix this, use fewer different colors in your tile images."
+          end
+
+          palette[color] = palette.size
         end
 
         # A tiled background fits one screen block: up to 32x32 tiles (256x256 pixels,
