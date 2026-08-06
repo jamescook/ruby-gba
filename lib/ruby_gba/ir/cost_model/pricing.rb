@@ -1,0 +1,217 @@
+# frozen_string_literal: true
+
+module RubyGBA
+  module IR
+    class CostModel
+      # What ONE op costs, in scanlines. Nothing here knows about frames, loops or
+      # budgets — it answers "how dear is this single thing", and {Rollup} decides how
+      # many times a frame pays for it.
+      #
+      # Two questions get asked of every node: what the op itself costs, and what the
+      # operands it was handed cost. Keeping those apart is what lets the operand half be
+      # found from a node's attributes instead of named one kind at a time — see
+      # #operand_cost.
+      module Pricing
+        private
+
+        # What one statement costs: the op itself, plus the arithmetic in whatever operands
+        # it was given. The split is the same one #expr_cost makes, and for the same reason —
+        # `blit :ship, (col * W), (top + row)` does the multiply and the add before it draws
+        # a single pixel, and a `clamp` whose bounds are worked out at run time evaluates
+        # them every time. Operands are found from the node's attributes, so an op added
+        # later can't hold unpriced work.
+        def op_cost(node, worst: true)
+          own_op_cost(node) + operand_cost(node, worst)
+        end
+
+        def own_op_cost(node)
+          case node.kind
+          when :pixel then @weights[:plot_pixel]                     # one hand-plotted pixel
+          when :fill_rect then plot_rect_cost(node[:w], node[:h])    # a CPU per-pixel loop
+          when :dma_fill_rect, :draw_rect_at then dma_rows_cost(node[:w], node[:h]) # per-row DMA
+          when :clear_screen then dma_blob_cost(SCREEN_W * SCREEN_H) # the whole screen in one DMA
+          when :draw_text then Fonts.get(node[:font]).text_pixels(node[:text]) * @weights[:plot_pixel]
+          when :draw_digit then Fonts.get(node[:font]).max_glyph_pixels(DIGITS) * @weights[:plot_pixel]
+          when :blit then blit_cost(node[:name])
+          when :blit_pose then blit_cost(node[:poses].first)         # one pose draws; all are the same size
+          when :save_region, :restore_region then region_cost(node[:buffer])
+          # Tiled-mode per-frame upkeep: one position rewrite per presented sprite, and
+          # the two scroll-register writes when a background moves.
+          when :present_objects then node[:names].to_a.length * @weights[:obj_write]
+          when :scroll_background then @weights[:scroll_write]
+          when :background then dma_blob_cost(background_cells(node)) # one-time map stamp (boot, not per frame)
+          when :play_song then song_cost(node[:name])
+          when :beep then BEEP_WRITES * @weights[:sound_write]
+          when :noise then NOISE_WRITES * @weights[:sound_write]
+          when :wave then WAVE_WRITES * @weights[:sound_write]
+          when :stop_wave then STOP_WAVE_WRITES * @weights[:sound_write]
+          when :enable_sound then ENABLE_WRITES * @weights[:sound_write]
+          when :stop_music then STOP_WRITES * @weights[:sound_write]
+          # Logic / compute statements. Each is at least one step; the expression it
+          # evaluates is added by #op_cost, so a divide buried in a value shows up. This
+          # is what stops a compute loop — enemy AI, physics, a list walk — from reading
+          # as free: run it N times and its per-op cost scales with N.
+          when :set, :add, :sub then @weights[:op_step]
+          when :copy, :negate, :abs, :negate_abs then @weights[:op_step]
+          when :clamp then 2 * @weights[:op_step] # a low compare and a high compare
+          when :list_push, :list_set, :list_drop then @weights[:op_step]
+          else note_unpriced(node.kind, FREE_STATEMENT_KINDS)
+          end
+        end
+
+        # A kind that fell through to the zero-cost fallback: 0 if it's a declared-free
+        # kind, otherwise 0 too — but remembered, so the estimate can announce that it
+        # couldn't account for it (rather than silently treating real work as free).
+        def note_unpriced(kind, free_kinds)
+          @unpriced << kind unless free_kinds.include?(kind) || @unpriced.include?(kind)
+          0
+        end
+
+        # The cost of evaluating a value expression: every operator it's built from,
+        # summed. A bare variable or literal is a load — effectively free — so the cost
+        # is in the operators, and a divide weighs far more than an add (see the op_*
+        # weights). This is why `(a * b) / c` in a per-frame loop isn't free, and why
+        # the chain of comparisons behind a collision test (overlaps?) has a real cost.
+        #
+        # Two parts, and the split is what keeps it honest: what this node's own operator
+        # costs, plus what every operand hanging off it costs. Operands are found from the
+        # node's attributes rather than named one kind at a time, so a value kind added
+        # later cannot go unpriced inside.
+        # +worst+ chooses which question is being asked: true for "everything this frame
+        # could cost", false for "what every frame really pays". They differ only where an
+        # op has a worst case it seldom reaches — see #pixels_overlap_cost.
+        def expr_cost(value, worst: true)
+          return 0 unless value.is_a?(Node)
+
+          own_cost(value, worst) + operand_cost(value, worst)
+        end
+
+        # What a value's own operator costs, ignoring what it is applied to.
+        def own_cost(value, worst)
+          case value.kind
+          when :binop then op_weight(value[:op])
+          when :neg then @weights[:op_step]
+          when :chance then @weights[:op_step] # a random draw and a compare
+          when :pixels_overlap then worst ? pixels_overlap_cost(value) : 0
+          else note_unpriced(value.kind, FREE_VALUE_KINDS) # int/var_ref/held/… are free loads; anything else is unknown
+          end
+        end
+
+        # Every value operand a node holds, priced too. A read like `t[i]` is a single
+        # load and costs nothing, but whatever computes `i` is arithmetic like any other:
+        # charging an index nothing would hide a third of the raycaster's frame, whose hot
+        # divides all sit inside `world[…]`. Attributes that aren't nodes — a name, a
+        # width, a list of image names — aren't operands and add nothing.
+        def operand_cost(value, worst)
+          value.attrs.each_value.sum do |slot|
+            slot.is_a?(Array) ? slot.sum { |item| expr_cost(item, worst: worst) } : expr_cost(slot, worst: worst)
+          end
+        end
+
+        # The worst-case cost of a per-pixel collision test: walking the whole overlap
+        # rectangle. That rectangle can be no wider than the narrower sprite and no taller
+        # than the shorter one, so its worst case is min(widths) x min(heights) cells,
+        # each priced at one overlap_pixel. (The cheap box gate around it is priced as the
+        # ordinary comparisons it lowers to.)
+        #
+        # This is a real cost — two 16x16 sprites lying on top of each other genuinely walk
+        # 256 cells, about a quarter of a frame — but it is a cost the frame seldom pays.
+        # The walk covers the OVERLAP rectangle, so two sprites that miss walk nothing at
+        # all, and that is what almost every pair does on almost every frame. So it counts
+        # in the worst case and not in the recurring load, the same call #selectivity makes
+        # for a `pressed` body. Charging it every frame made a shmup whose busiest measured
+        # frame is 54 scanlines report 101% of budget.
+        def pixels_overlap_cost(node)
+          aw, ah = mask_dims(node[:a_poses])
+          bw, bh = mask_dims(node[:b_poses])
+          [aw, bw].min * [ah, bh].min * @weights[:overlap_pixel]
+        end
+
+        # A sprite's pixel dimensions from its (same-size) poses, or [0, 0] if unknown.
+        def mask_dims(poses)
+          dims = @bitmaps && @bitmaps[poses.first]
+          dims ? [dims[0], dims[1]] : [0, 0]
+        end
+
+        # An operator's weight: multiply and divide are their own (pricier) tiers;
+        # everything else — add, subtract, the comparisons, the and/or that combine
+        # conditions — is one plain step.
+        def op_weight(op)
+          case op
+          when :* then @weights[:op_mul]
+          when :/ then @weights[:op_div]
+          else @weights[:op_step]
+          end
+        end
+
+        # How many map cells a background stamps — the map is rows of tile cells, so
+        # this is their total, the size of the one-time upload to tile memory.
+        def background_cells(node)
+          node[:map].to_a.sum { |row| row.respond_to?(:length) ? row.length : 1 }
+        end
+
+        # A rectangle filled the slow way: a CPU loop writing each pixel, which is what
+        # fill_rect does in direct color. No per-row DMA setup, just the per-pixel plot, so
+        # the cost is the area times one plotted pixel — far dearer than the DMA fill
+        # (dma_fill_rect) for the same rectangle.
+        def plot_rect_cost(w, h)
+          w * h * @weights[:plot_pixel]
+        end
+
+        # A rectangle filled/copied by DMA one row at a time (a DMA fill, an opaque blit, a
+        # save/restore): each row is a DMA, so the fixed per-row setup is paid h times,
+        # and the pixels are transferred on top. This is why a tall rectangle costs more
+        # than a wide one of the same area.
+        def dma_rows_cost(w, h)
+          h * @weights[:dma_setup] + w * h * @weights[:dma_pixel]
+        end
+
+        # A single DMA transfer of +pixels+ pixels in one shot (a whole-screen clear):
+        # one setup, then the transfer. For a big blob the transfer dominates.
+        def dma_blob_cost(pixels)
+          @weights[:dma_setup] + pixels * @weights[:dma_pixel]
+        end
+
+        # The per-frame cost of playing +name+. The sequencer keeps a cursor per voice
+        # and writes only the note currently due each frame (see the GBA backend's
+        # pointer-based emit_play_song), so the cost is per active VOICE, not per note —
+        # a long tune costs the same as a short one, the same way a real GBA sound
+        # driver works. An unknown name costs nothing (the backend reports it).
+        def song_cost(name)
+          song = @songs && @songs[name]
+          return 0 unless song
+
+          song[:voices].length * @weights[:music_voice]
+        end
+
+        # How many notes a song holds — summed across its parts. Informational (shown in
+        # the music-budget message); the per-frame cost no longer depends on it.
+        def song_notes(name)
+          song = @songs && @songs[name]
+          return 0 unless song
+
+          song[:voices].sum { |voice| voice[:events].to_a.length }
+        end
+
+        # A blit costs by how it's drawn: an opaque image streams by per-row DMA, but a
+        # transparent one is plotted pixel by pixel (so its see-through pixels can be
+        # skipped), which is far dearer. The size and transparency live on the bitmap
+        # definition, catalogued in #index. An unknown image costs nothing.
+        def blit_cost(name)
+          w, h, transparent = @bitmaps && @bitmaps[name]
+          return 0 unless w
+
+          transparent ? w * h * @weights[:plot_pixel] : dma_rows_cost(w, h)
+        end
+
+        # Saving or restoring a patch copies its footprint by per-row DMA — the same
+        # cost as an opaque blit of that size. The size lives on the backing_buffer
+        # declaration, catalogued in #index. An unknown buffer costs nothing.
+        def region_cost(name)
+          w, h = @backing && @backing[name]
+          w ? dma_rows_cost(w, h) : 0
+        end
+      end
+    end
+  end
+end
