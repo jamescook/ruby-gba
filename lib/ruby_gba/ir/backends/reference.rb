@@ -901,48 +901,71 @@ module RubyGBA
           end
         end
 
-        # Draw an image rotated +degrees+ clockwise about its own center, its upright
+        # Draw an image turned +degrees+ clockwise about its own center, its upright
         # top-left at (x, y) — the reference interpreter's stand-in for the console's
-        # sprite rotate/scale. For each screen pixel in the rotated footprint we map back
-        # through the rotation to a source pixel and copy it (nearest-neighbor), the same
-        # inverse-texture sampling the hardware does, so the two agree. A source pixel
-        # that is transparent, or a mapped point that lands outside the picture, is
-        # skipped — so the picture keeps its shape as it turns and leaves the rest alone.
+        # sprite rotate/scale.
+        #
+        # The hardware does not turn the picture and stamp it down. It walks the patch
+        # of screen the sprite covers and, for each screen pixel, turns the OTHER way to
+        # ask "which pixel of the picture lands here?" — a pixel whose answer falls
+        # outside the picture simply isn't drawn. That is what gives a turned sprite its
+        # stepped edge, and it's why this reads as an inverse rotation.
+        #
+        # Three details have to match the hardware exactly, or the two backends disagree
+        # along that edge:
+        #
+        #   * The patch is twice the picture's width and height, centered on it, so a
+        #     corner swung out by the turn still has room (the console's "double size").
+        #   * The turn uses whole numbers in 256ths, from the same table of sines the
+        #     ROM carries — not exact trigonometry.
+        #   * A screen pixel is taken at its whole coordinate, NOT at its center, and
+        #     the answer is rounded down. Sampling at pixel centers instead moves the
+        #     whole shape half a pixel, which shows up as a one-pixel-thick disagreement
+        #     all along one side.
         def blit_image_rotated(name, x, y, degrees)
           bmp = @bitmaps.fetch(name) { raise ProgramError, "blit of undefined image #{name.inspect}" }
           pixels = @data.fetch(name)
           transparent = bmp[:transparent]
           w = bmp[:width]
           h = bmp[:height]
-          cx = x + (w / 2.0) # the pivot: the picture's center, in screen space
-          cy = y + (h / 2.0)
-          radians = degrees * Math::PI / 180.0
-          cos = Math.cos(radians)
-          sin = Math.sin(radians)
-          rx, ry, side = rotated_footprint(x, y, w, h)
-          side.times do |row|
-            py = ry + row
-            side.times do |col|
-              px = rx + col
-              ddx = (px + 0.5) - cx # offset from the pivot, sampled at the pixel's center
-              ddy = (py + 0.5) - cy
-              sx = ((cos * ddx) + (sin * ddy) + (w / 2.0)).floor # inverse-rotate to source
-              sy = ((-sin * ddx) + (cos * ddy) + (h / 2.0)).floor
+          cos = fixed_sine(degrees + 90) # cos d is sin(d + 90) — one table serves both
+          sin = fixed_sine(degrees)
+          left = x - (w / 2) # the double-size patch: half a picture out on every side
+          top = y - (h / 2)
+
+          (h * 2).times do |iy|
+            ddy = iy - h # offset from the patch's center, in whole pixels
+            (w * 2).times do |ix|
+              ddx = ix - w
+              # Turn back to the picture. The matrix is in 256ths, so shifting down by
+              # 8 both scales it back and rounds down, exactly as the console does.
+              sx = (((cos * ddx) + (sin * ddy)) >> 8) + (w / 2)
+              sy = (((-sin * ddx) + (cos * ddy)) >> 8) + (h / 2)
               next unless sx >= 0 && sx < w && sy >= 0 && sy < h
 
               i = ((sy * w) + sx) * 2
               color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
               next if transparent && color == transparent
 
-              @screen.set_pixel(px, py, color)
+              @screen.set_pixel(left + ix, top + iy, color)
             end
           end
         end
 
-        # The square of screen a width×height picture can cover at any rotation about its
-        # center: the side is the picture's diagonal (rounded up, plus a small margin so
-        # a corner never clips), centered on the picture. Bounds both the rotated draw
-        # and the erase under a turning object, so neither depends on the current angle.
+        # sin(+degrees+) in 256ths, as a whole number — the same table the ROM carries,
+        # so both backends turn a sprite through exactly the same matrix.
+        def fixed_sine(degrees)
+          (Math.sin((degrees % 360) * Math::PI / 180.0) * 256).round
+        end
+
+        # The square of screen a width×height picture can cover at any rotation about
+        # its center: the side is the picture's diagonal (rounded up, plus a small
+        # margin so a corner never clips), centered on the picture. This is the patch
+        # put back under a turning object before it's redrawn — one square that holds
+        # the picture at every angle, so the erase doesn't depend on the angle it was
+        # last drawn at. A turned draw can never paint outside it: a source pixel is at
+        # most half the picture's diagonal from the center, and turning doesn't change
+        # that distance.
         def rotated_footprint(x, y, w, h)
           side = Integer.sqrt((w * w) + (h * h)) + 2
           cx = x + (w / 2)
