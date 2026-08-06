@@ -61,6 +61,15 @@ module RubyGBA
         # model both backends treat "a frame" as, so their timer counts line up.
         FRAME_RATE = 60
 
+        # A background's map is a fixed 32x32 grid of cells on the console, however
+        # few the author actually filled in. That matters as soon as the background
+        # scrolls: the visible window moves over the WHOLE 32x32 grid, so past the
+        # filled-in part you see empty cells (the backdrop), and the picture only
+        # comes round again after a full 32 cells. Wrapping at the author's own map
+        # size instead would repeat a small map across the screen forever, which the
+        # console never does.
+        MAP_CELLS = 32
+
         attr_reader :vars, :screen, :log, :frame, :screen_mode, :buffered, :audio, :peak_voices, :save
 
         # The names of the samples sounding right now — one entry per voice, so the same
@@ -684,8 +693,11 @@ module RubyGBA
           map = bg[:map]
           tile_w = bg[:tile_w]
           tile_h = bg[:tile_h]
-          map_w = map.map(&:length).max * tile_w
-          map_h = map.length * tile_h
+          # Wrap over the console's whole 32x32 cell grid, not over the rows the
+          # author wrote (see MAP_CELLS). Sampling a cell past those rows finds no
+          # tile there, and an absent tile reads as the backdrop.
+          map_w = MAP_CELLS * tile_w
+          map_h = MAP_CELLS * tile_h
           off_x, off_y = @bg_scroll[bg[:name]] || [0, 0]
           off_x %= map_w # Ruby % wraps negatives into 0..map_w-1
           off_y %= map_h
