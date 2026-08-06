@@ -51,8 +51,14 @@ module Emitted
 
   # What one example emitted when built against one version of the library.
   # +error+ is set instead of the numbers when it would not build at all — being
-  # unbuildable on one side is a result, not a crash.
-  Measurement = Data.define(:name, :title, :code, :data, :frame, :error) do
+  # unbuildable on one side is a result, not a crash. +shape+ is a count of each
+  # kind of operation in the program that was built, or nil when the library could
+  # not say.
+  Measurement = Data.define(:name, :title, :code, :data, :frame, :shape, :error) do
+    def initialize(name:, title: nil, code: nil, data: nil, frame: nil, shape: nil, error: nil)
+      super
+    end
+
     def ok? = error.nil?
   end
 
@@ -69,10 +75,23 @@ module Emitted
       after.frame - before.frame
     end
 
+    # Did the two sides build the SAME program? The example file is the same on
+    # both, so a difference here means the library builds something different from
+    # it — and then a delta measures that, not just the lowering. Unknown (nil on
+    # either side) is not a difference: say nothing rather than guess.
+    def same_program?
+      return true unless paired? && before.shape && after.shape
+
+      before.shape == after.shape
+    end
+
     def state
       return :broken if before&.ok? && !after&.ok?
       return :new if after&.ok? && !before&.ok?
       return :failing unless paired?
+      # A program that was built differently is worth a row even when the bytes
+      # landed in the same place — the comparison itself is not what it looks like.
+      return :changed unless same_program?
       return :same if code_delta.zero? && data_delta.zero? && frame_delta.abs < 1e-9
 
       moved? ? :changed : :quiet
@@ -136,10 +155,10 @@ module Emitted
     raise JSON::ParserError, "no report" unless report.is_a?(Hash)
 
     Measurement.new(name: name, title: report[:title], code: report[:code],
-                    data: report[:data], frame: report[:frame], error: report[:error])
+                    data: report[:data], frame: report[:frame], shape: report[:shape],
+                    error: report[:error])
   rescue JSON::ParserError, TypeError
-    Measurement.new(name: name, title: nil, code: nil, data: nil, frame: nil,
-                    error: last_words(stderr, status))
+    Measurement.new(name: name, error: last_words(stderr, status))
   end
 
   # A probe that died before it could report says nothing on stdout, so whatever
@@ -211,10 +230,24 @@ module Emitted
       end
       out.puts if broken.any?
 
+      caveat(out)
       table(out)
       tally(out)
       out.puts
       out.puts summary
+    end
+
+    # Said before the numbers, because it changes what they mean. When the library
+    # builds a different program from the same example, the delta below is that
+    # difference plus whatever the lowering did, and there is no way to separate
+    # them here.
+    def caveat(out)
+      return if rebuilt.empty?
+
+      out.puts "  #{rebuilt.size} of #{@rows.size} built a DIFFERENT PROGRAM at #{@ref}. Marked * below:"
+      out.puts "    #{name_list(rebuilt)}"
+      out.puts "  Their deltas include that change, not only a change in the lowering."
+      out.puts
     end
 
     # The pasteable line — the one that ends up in a commit message.
@@ -225,7 +258,14 @@ module Emitted
         if quiet_run? then "identical — no change in code, data or frame work"
         else [code_summary, data_summary, frame_summary].compact.join(", ")
         end
-      "#{count} vs #{@ref}: #{[regression, body].compact.join('; ')}."
+      "#{count} vs #{@ref}: #{[regression, rebuilt_summary, body].compact.join('; ')}."
+    end
+
+    # Qualifies every number after it, so it goes before them.
+    def rebuilt_summary
+      return nil if rebuilt.empty?
+
+      "#{rebuilt.size} built a DIFFERENT PROGRAM at that ref, so these deltas are not only lowering"
     end
 
     # A program that used to build and now does not outranks any measurement, so
@@ -241,6 +281,16 @@ module Emitted
     def broken = @rows.select { |row| row.state == :broken }
     def notable = @rows.select { |row| %i[changed new failing].include?(row.state) }
     def paired = @rows.select(&:paired?)
+    def rebuilt = paired.reject(&:same_program?)
+
+    # Names, kept to a readable handful — the count above is the headline, and the
+    # rest are visible in the table.
+    def name_list(rows, limit: 8)
+      names = rows.map(&:name)
+      return names.join(", ") if names.size <= limit
+
+      "#{names.first(limit).join(', ')} and #{names.size - limit} more"
+    end
 
     def quiet_run?
       broken.empty? && notable.empty? && @rows.none? { |row| row.state == :quiet }
@@ -251,18 +301,21 @@ module Emitted
     def table(out)
       return if notable.empty?
 
-      width = notable.map { |row| row.name.length }.max
+      width = notable.map { |row| label(row).length }.max
       out.puts format("  %-#{width}s  %14s  %12s  %12s", "example", "code (instr)", "data", "frame")
       notable.sort_by(&:rank).each do |row|
         if row.state == :changed
-          out.puts format("  %-#{width}s  %14s  %12s  %12s", row.name,
+          out.puts format("  %-#{width}s  %14s  %12s  %12s", label(row),
                           code_cell(row), data_cell(row), frame_cell(row))
         else
-          out.puts format("  %-#{width}s  %s", row.name, LABEL.fetch(row.state))
+          out.puts format("  %-#{width}s  %s", label(row), LABEL.fetch(row.state))
         end
       end
       out.puts
     end
+
+    # A starred name is one whose two sides are not the same program — see #caveat.
+    def label(row) = row.same_program? ? row.name : "#{row.name} *"
 
     # Everything the table left out, so a quiet run still accounts for every
     # example rather than just showing less.
