@@ -638,38 +638,44 @@ module RubyGBA
       # drawing competes with the brief vblank window. Logic and sound run through the
       # visible frame and can't tear, so they're excluded from the tear measure (but
       # counted in the whole-frame 60fps measure). Default false = the full load.
-      def steady(node, drawing_only = false)
-        selectivity(node) * raw_steady(node, drawing_only)
+      # +worst+ runs the same walk asking for everything a frame could cost rather than
+      # what it usually does — see #expr_cost. Differencing the two is how the estimate
+      # names what the recurring load leaves out.
+      def steady(node, drawing_only = false, worst: false)
+        selectivity(node) * raw_steady(node, drawing_only, worst)
       end
 
-      def raw_steady(node, drawing_only)
+      def raw_steady(node, drawing_only, worst)
         case node.kind
-        when :program, :loop, :else then node.children.sum { |child| steady(child, drawing_only) }
+        when :program, :loop, :else then node.children.sum { |child| steady(child, drawing_only, worst: worst) }
         # The condition is tested every frame, whichever way it goes — that's where a
-        # collision test's comparison chain lives — so it's priced in full here; only
-        # the branch bodies are scaled by how often they run. (Its cost is logic, so
-        # the drawing-only measure skips it.)
+        # collision test's comparison chain lives — so it's priced here; only the branch
+        # bodies are scaled by how often they run. (Its cost is logic, so the
+        # drawing-only measure skips it.)
         when :if
-          cond = drawing_only ? 0 : expr_cost(node[:cond])
-          cond + node.children.sum { |child| steady(child, drawing_only) } + (node[:else] ? steady(node[:else], drawing_only) : 0)
-        when :repeat then repeat_factor(node).first * node.children.sum { |child| steady(child, drawing_only) }
+          cond = drawing_only ? 0 : expr_cost(node[:cond], worst: worst)
+          cond + node.children.sum { |child| steady(child, drawing_only, worst: worst) } +
+            (node[:else] ? steady(node[:else], drawing_only, worst: worst) : 0)
+        when :repeat
+          repeat_factor(node).first * node.children.sum { |child| steady(child, drawing_only, worst: worst) }
         # A timed trigger's steady per-frame cost follows from its kind: every(k)
         # runs one frame in k, so its body counts 1/k; after(n) fires once ever, so
         # it adds nothing to the every-frame load.
-        when :every then Rational(1, node[:period]) * node.children.sum { |child| steady(child, drawing_only) }
+        when :every
+          Rational(1, node[:period]) * node.children.sum { |child| steady(child, drawing_only, worst: worst) }
         when :after then 0
-        when :case then node[:clauses].map { |_value, target| steady_func(target, drawing_only) }.max || 0
-        when :call then steady_func(node[:target], drawing_only)
+        when :case then node[:clauses].map { |_value, target| steady_func(target, drawing_only, worst: worst) }.max || 0
+        when :call then steady_func(node[:target], drawing_only, worst: worst)
         when :func then 0
-        else drawing_only && category_of(node.kind) != :drawing ? 0 : op_cost(node)
+        else drawing_only && category_of(node.kind) != :drawing ? 0 : op_cost(node, worst: worst)
         end
       end
 
-      def steady_func(name, drawing_only = false)
+      def steady_func(name, drawing_only = false, worst: false)
         return 0 if @stack.include?(name)
         func = @funcs[name] or return 0
         @stack.push(name)
-        total = func.children.sum { |child| steady(child, drawing_only) }
+        total = func.children.sum { |child| steady(child, drawing_only, worst: worst) }
         @stack.pop
         total
       end
@@ -765,8 +771,13 @@ module RubyGBA
           printer.puts "    (sound is the worst case — all #{mv[:voices]} mixer voices at once; a typical frame sounds fewer)"
         end
 
+        if (cw = collision_worst_case(program)).positive?
+          printer.puts "    (collision is the worst case — ~#{fmt(cw)} if every per-pixel test lands on one frame. " \
+                       "Most frames the sprites miss and stop at the cheap box test.)"
+        end
+
         if frame_total > recurring + 0.1
-          printer.puts "    (a heavier frame reaches #{fmt(frame_total)} — a one-off spike, a transition or an every() tick, " \
+          printer.puts "    (a heavier frame reaches #{fmt(frame_total)} — the worst case for everything on it, " \
                        "not the every-frame cost)"
         end
 
@@ -1098,8 +1109,8 @@ module RubyGBA
       # a single pixel, and a `clamp` whose bounds are worked out at run time evaluates
       # them every time. Operands are found from the node's attributes, so an op added
       # later can't hold unpriced work.
-      def op_cost(node)
-        own_op_cost(node) + operand_cost(node)
+      def op_cost(node, worst: true)
+        own_op_cost(node) + operand_cost(node, worst)
       end
 
       def own_op_cost(node)
@@ -1155,19 +1166,22 @@ module RubyGBA
       # costs, plus what every operand hanging off it costs. Operands are found from the
       # node's attributes rather than named one kind at a time, so a value kind added
       # later cannot go unpriced inside.
-      def expr_cost(value)
+      # +worst+ chooses which question is being asked: true for "everything this frame
+      # could cost", false for "what every frame really pays". They differ only where an
+      # op has a worst case it seldom reaches — see #pixels_overlap_cost.
+      def expr_cost(value, worst: true)
         return 0 unless value.is_a?(Node)
 
-        own_cost(value) + operand_cost(value)
+        own_cost(value, worst) + operand_cost(value, worst)
       end
 
       # What a value's own operator costs, ignoring what it is applied to.
-      def own_cost(value)
+      def own_cost(value, worst)
         case value.kind
         when :binop then op_weight(value[:op])
         when :neg then @weights[:op_step]
         when :chance then @weights[:op_step] # a random draw and a compare
-        when :pixels_overlap then pixels_overlap_cost(value)
+        when :pixels_overlap then worst ? pixels_overlap_cost(value) : 0
         else note_unpriced(value.kind, FREE_VALUE_KINDS) # int/var_ref/held/… are free loads; anything else is unknown
         end
       end
@@ -1177,9 +1191,9 @@ module RubyGBA
       # charging an index nothing would hide a third of the raycaster's frame, whose hot
       # divides all sit inside `world[…]`. Attributes that aren't nodes — a name, a
       # width, a list of image names — aren't operands and add nothing.
-      def operand_cost(value)
+      def operand_cost(value, worst)
         value.attrs.each_value.sum do |slot|
-          slot.is_a?(Array) ? slot.sum { |item| expr_cost(item) } : expr_cost(slot)
+          slot.is_a?(Array) ? slot.sum { |item| expr_cost(item, worst: worst) } : expr_cost(slot, worst: worst)
         end
       end
 
@@ -1188,10 +1202,27 @@ module RubyGBA
       # than the shorter one, so its worst case is min(widths) x min(heights) cells,
       # each priced at one overlap_pixel. (The cheap box gate around it is priced as the
       # ordinary comparisons it lowers to.)
+      #
+      # This is a real cost — two 16x16 sprites lying on top of each other genuinely walk
+      # 256 cells, about a quarter of a frame — but it is a cost the frame seldom pays.
+      # The walk covers the OVERLAP rectangle, so two sprites that miss walk nothing at
+      # all, and that is what almost every pair does on almost every frame. So it counts
+      # in the worst case and not in the recurring load, the same call #selectivity makes
+      # for a `pressed` body. Charging it every frame made a shmup whose busiest measured
+      # frame is 54 scanlines report 101% of budget.
       def pixels_overlap_cost(node)
         aw, ah = mask_dims(node[:a_poses])
         bw, bh = mask_dims(node[:b_poses])
         [aw, bw].min * [ah, bh].min * @weights[:overlap_pixel]
+      end
+
+      # What every per-pixel collision test in a frame costs if they all land at once —
+      # the part of the worst case the recurring load leaves out, so the estimate can say
+      # so out loud rather than just showing a bigger number further down.
+      def collision_worst_case(program)
+        statements = steady_statements(program)
+        everything = statements.sum { |node| steady(node, false, worst: true) }
+        everything - statements.sum { |node| steady(node, false) }
       end
 
       # A sprite's pixel dimensions from its (same-size) poses, or [0, 0] if unknown.
