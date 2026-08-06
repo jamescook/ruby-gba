@@ -20,8 +20,8 @@ require "rbconfig"
 # `ruby-gba` command a game author runs.
 #
 # Every example, by default, because the question has never really been "what does
-# this one game cost". It is "did anything move anywhere", and twenty-five real
-# programs answer that far better than one.
+# this one game cost". It is "did anything move anywhere", and a corpus of real
+# programs answers that far better than one does.
 #
 # WHAT IT REPORTS, and why it is three numbers and not one:
 #
