@@ -124,8 +124,12 @@ class TestIRGuardrails < Minitest::Test
   # full_message deliberately prints none. Read the checks for the literal rather
   # than arranging fourteen programs to trip them: this covers the whole set,
   # including a check written tomorrow.
+  #
+  # Both homes a check can have: the builtins, and an effect pack's own checks (which
+  # register through the hook and produce findings the same way).
   def test_no_check_writes_a_location_into_its_own_message
-    checks = Dir[File.expand_path("../lib/ruby_gba/ir/guardrails/*.rb", __dir__)]
+    checks = Dir[File.expand_path("../lib/ruby_gba/ir/guardrails/*.rb", __dir__)] +
+             Dir[File.expand_path("../lib/ruby_gba/effects/packs/*.rb", __dir__)]
     refute_empty checks, "the check files should be where this test looks for them"
 
     offenders = checks.select { |path| File.read(path).include?("(at ") }

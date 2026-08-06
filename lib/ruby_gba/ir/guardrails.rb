@@ -150,9 +150,19 @@ module RubyGBA
           BUILTIN_CHECKS + @registered_checks
         end
 
+        # Stop running a registered check — what unloading a pack does with the
+        # checks it brought. Returns true if the check was registered.
+        def unregister(check)
+          !@registered_checks.delete(check).nil?
+        end
+
         # Drop every registered check, back to builtins only. For tests, so one
         # test's registration can't leak into the next, and for any caller that
         # wants a clean slate.
+        #
+        # This drops a loaded pack's checks too, since they register through the
+        # same hook. Restore them by re-registering the pack, or snapshot
+        # registered_checks first and put them back.
         def clear_registered!
           @registered_checks = []
         end
@@ -200,7 +210,6 @@ require_relative "guardrails/tiled_display" # shared by the two tiled-screen che
 require_relative "guardrails/screen_mode_set"
 require_relative "guardrails/empty_tiled_screen"
 require_relative "guardrails/bitmap_draw_on_tiled"
-require_relative "guardrails/shake_needs_game_loop"
 require_relative "guardrails/dropped_frame_sync"
 require_relative "guardrails/vblank_sync"
 require_relative "guardrails/termination"
@@ -228,7 +237,6 @@ module RubyGBA
         Checks::ScreenModeSet.new,
         Checks::EmptyTiledScreen.new,
         Checks::BitmapDrawOnTiled.new,
-        Checks::ShakeNeedsGameLoop.new,
         Checks::VblankSync.new,
         Checks::Termination.new,
         Checks::OffScreenDraw.new,

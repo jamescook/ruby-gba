@@ -26,8 +26,11 @@ class TestDslReference < Minitest::Test
   # which the cheat-sheet documents on the sprite verb, not on its own line.
   SKIP = %i[variables var_address debug_halted? make_object_rotatable].freeze
 
+  # …plus the verbs the loaded effect packs contribute. A pack's verb is an ordinary
+  # DSL verb at the call site, so it has to be looked up in the same place.
   def dsl_verbs
-    (CONCERNS.flat_map { |m| m.public_instance_methods(false) } + BUILDER_VERBS - SKIP).uniq.sort
+    (CONCERNS.flat_map { |m| m.public_instance_methods(false) } +
+     BUILDER_VERBS + RubyGBA::Effects.verbs.keys - SKIP).uniq.sort
   end
 
   def test_every_dsl_verb_is_in_the_cheat_sheet
