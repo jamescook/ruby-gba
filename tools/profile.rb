@@ -126,19 +126,30 @@ module Profile
   end
 
   def probe(lib_root, path)
-    name = File.basename(path, ".rb")
     stdout, stderr, status = Open3.capture3(RbConfig.ruby, PROBE, lib_root, ROOT, path, chdir: ROOT)
-    report = JSON.parse(stdout.lines.last.to_s, symbolize_names: true)
+    measurement(File.basename(path, ".rb"), stdout, stderr, status)
+  end
+
+  # What the child process said, as a Measurement.
+  def measurement(name, stdout, stderr = nil, status = nil)
+    report = JSON.parse(stdout.to_s.lines.last.to_s, symbolize_names: true)
     raise JSON::ParserError, "no report" unless report.is_a?(Hash)
 
     Measurement.new(name: name, title: report[:title], code: report[:code],
                     data: report[:data], frame: report[:frame], error: report[:error])
   rescue JSON::ParserError, TypeError
-    # The probe died before it could report — a library that won't even load, or a
-    # example that took the process with it. Its last words are the diagnosis.
-    reason = stderr.to_s.lines.last&.strip
-    reason = "the build died (#{status ? "exit #{status.exitstatus}" : 'no output'})" if reason.nil? || reason.empty?
-    Measurement.new(name: name, title: nil, code: nil, data: nil, frame: nil, error: reason)
+    Measurement.new(name: name, title: nil, code: nil, data: nil, frame: nil,
+                    error: last_words(stderr, status))
+  end
+
+  # A probe that died before it could report says nothing on stdout, so whatever
+  # it managed to say on the way out is the diagnosis. Being unbuildable is a
+  # result to report, not a reason to stop the run.
+  def last_words(stderr, status)
+    said = stderr.to_s.lines.last&.strip
+    return said unless said.nil? || said.empty?
+
+    status ? "the build died (exit #{status.exitstatus})" : "the build said nothing"
   end
 
   def rows(paths, before, after)
@@ -291,7 +302,8 @@ module Profile
       return "code unchanged" if delta.zero?
 
       percent = base.positive? ? format(" (%+.2f%%)", (delta * 100.0) / base) : ""
-      "code #{instructions(delta)} instructions#{percent}"
+      unit = delta.abs == BYTES_PER_INSTRUCTION ? "instruction" : "instructions"
+      "code #{instructions(delta)} #{unit}#{percent}"
     end
 
     def data_summary
