@@ -49,6 +49,12 @@ namespace :test do
   end
 end
 
+desc "Did a compiler change cost anything? Build every example twice (rake profile REF=HEAD~3 ONLY=pong)"
+task :profile do
+  require_relative "tools/profile"
+  Profile.run(ref: ENV["REF"] || "HEAD", only: ENV["ONLY"])
+end
+
 desc "Render examples/EXAMPLE.rb to a watchable HTML page (rake preview EXAMPLE=parallax KEYS=right FRAMES=64)"
 task :preview do
   example = ENV["EXAMPLE"] || abort("set EXAMPLE, e.g. rake preview EXAMPLE=parallax KEYS=right")
