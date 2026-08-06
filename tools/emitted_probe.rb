@@ -65,6 +65,24 @@ begin
   report[:code] = code_bytes
   report[:data] = emitted.bytesize - code_bytes
 
+  # The SHAPE of the program that was built, as a count of each kind of operation
+  # in the tree. The example file is the same on both sides, so this can only
+  # differ when the library builds a different program from it — a verb that now
+  # declares something it did not, a frame sync the game loop now writes for you.
+  # When it differs the two sides are not the same program compiled two ways, and
+  # a delta between them is not only a change in the lowering.
+  #
+  # Counts by kind, not a hash of the whole tree: renaming a hidden variable would
+  # change a tree hash while building exactly the same program, and reporting that
+  # as a different program would be noise.
+  begin
+    shape = Hash.new(0)
+    program.walk { |node| shape[node.kind] += 1 }
+    report[:shape] = shape.sort.to_h
+  rescue StandardError, ScriptError
+    report[:shape] = nil # an older library that cannot answer; claim nothing either way
+  end
+
   # Size and speed move independently — an op can cost thirty instructions of ROM
   # and nothing per frame — so carry the frame estimate alongside. It is a
   # separate question, so a library that can't answer it still gets measured.

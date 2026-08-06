@@ -26,15 +26,20 @@ class TestEmittedTool < Minitest::Test
 
   INSTRUCTION = Emitted::BYTES_PER_INSTRUCTION
 
+  # The shape of a program that built the same way on both sides: the tests that
+  # care about deltas share it, so nothing is flagged as a different program by
+  # accident.
+  SAME_SHAPE = { program: 1, loop: 1, fill_rect: 4 }.freeze
+
   # An example that built, sized in instructions so the tests read in the unit the
   # report speaks.
-  def built(name, instructions:, data: 0, frame: 0.0)
+  def built(name, instructions:, data: 0, frame: 0.0, shape: SAME_SHAPE)
     Measurement.new(name: name, title: name.upcase, code: instructions * INSTRUCTION,
-                    data: data, frame: frame, error: nil)
+                    data: data, frame: frame, shape: shape)
   end
 
   def failed(name, error: "NoMethodError: undefined method 'fade'")
-    Measurement.new(name: name, title: nil, code: nil, data: nil, frame: nil, error: error)
+    Measurement.new(name: name, error: error)
   end
 
   def row(name, before, after) = Row.new(name: name, before: before, after: after)
@@ -52,6 +57,14 @@ class TestEmittedTool < Minitest::Test
   end
 
   def summary(rows) = Report.new(Array(rows), ref: "HEAD (abc1234)").summary
+
+  # One example the library built differently on the two sides — the same source
+  # file, a different tree out of it.
+  def rebuilt(name, instructions: 0, from: 1000)
+    row(name, built(name, instructions: from, shape: { program: 1, loop: 1, fill_rect: 4 }),
+        built(name, instructions: from + instructions,
+                    shape: { program: 1, loop: 1, fill_rect: 4, wait_vblank: 1 }))
+  end
 
   # ---- the answer you get when nothing moved ----
 
@@ -160,14 +173,65 @@ class TestEmittedTool < Minitest::Test
     assert_match(/\+6 B/, render(rows), "six bytes is not an instruction count, so it says bytes")
   end
 
+  # ---- when the two sides are not the same program ----
+  #
+  # The example file is the same on both sides, so the tree can only differ when
+  # the library builds something different from it. Then a delta is that difference
+  # plus whatever the lowering did, and there is no way to separate them — so the
+  # report has to say so rather than present the number as a lowering change.
+
+  def test_a_program_built_differently_is_called_out_before_the_numbers
+    report = render([rebuilt("animate", instructions: 6506, from: 5975)])
+
+    assert_match(/DIFFERENT PROGRAM/, report)
+    assert_match(/animate/, report)
+    assert_match(/not only.*lowering/i, report)
+  end
+
+  def test_the_caveat_leads_the_summary_line
+    line = summary([rebuilt("animate", instructions: 6506, from: 5975)])
+
+    assert_match(/DIFFERENT PROGRAM.*code \+6506/m, line,
+                 "it qualifies the numbers, so it comes before them")
+  end
+
+  # The trap this exists for: same bytes, different program. Reported as "identical"
+  # that reads as "my change did nothing", when in fact the two sides were never
+  # comparable.
+  def test_the_same_bytes_from_a_different_program_is_not_reported_as_identical
+    line = summary([rebuilt("animate", instructions: 0)])
+
+    refute_match(/identical/, line)
+    assert_match(/DIFFERENT PROGRAM/, line)
+  end
+
+  def test_a_run_where_both_sides_built_the_same_program_says_nothing_extra
+    report = render([grew_by("pong", 18, from: 4000), grew_by("snake", 0)])
+
+    refute_match(/DIFFERENT PROGRAM/, report, "the common case stays quiet")
+    refute_match(/\*/, report, "and nothing is starred")
+  end
+
+  # An older library that cannot report its shape must not be guessed at either way.
+  def test_an_unknown_shape_is_not_treated_as_a_difference
+    unknown = built("pong", instructions: 1000, shape: nil)
+    line = summary([row("pong", unknown, built("pong", instructions: 1000))])
+
+    refute_match(/DIFFERENT PROGRAM/, line)
+    assert_match(/identical/, line)
+  end
+
   # ---- what came back from the child process ----
 
   def test_a_probe_that_reported_becomes_a_measurement
-    m = Emitted.measurement("pong", %({"name":"pong","title":"PONG","code":400,"data":16,"frame":12.5}\n))
+    m = Emitted.measurement(
+      "pong", %({"name":"pong","code":400,"data":16,"frame":12.5,"shape":{"loop":1}}\n)
+    )
 
     assert_predicate m, :ok?
     assert_equal 400, m.code
     assert_in_delta 12.5, m.frame
+    assert_equal({ loop: 1 }, m.shape)
   end
 
   def test_a_probe_that_died_reports_its_last_words_instead_of_crashing
@@ -222,6 +286,7 @@ class TestEmittedTool < Minitest::Test
 
     plain = Emitted.probe(File.join(Emitted::ROOT, "lib"), example)
     assert_predicate plain, :ok?, "the working tree builds it: #{plain.error}"
+    refute_empty plain.shape.to_h, "a real build reports the shape of the program it built"
 
     Dir.mktmpdir("emitted-isolation") do |dir|
       FileUtils.cp_r File.join(Emitted::ROOT, "lib"), dir
