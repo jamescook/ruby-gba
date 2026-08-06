@@ -246,7 +246,7 @@ module RubyGBA
             x, y, w, h = constant_ints!(node, :x, :y, :w, :h)
             even_width!(w, :dma_fill_rect)
             scratch = hold_fill_word(node[:color])
-            control = dma_fill_control(w / 2)
+            control = fill_control_for_column(x, w)
 
             h.times do |dy|
               row = y + dy
@@ -269,7 +269,9 @@ module RubyGBA
             w, h = constant_ints!(node, :w, :h)
             even_width!(w, :draw_rect_at)
             scratch = hold_fill_word(node[:color])
-            control = dma_fill_control(w / 2)
+            # x is computed at run time, so it can be an odd column on any given
+            # frame — fill a pixel at a time so the rect lands where it was asked to.
+            control = fill_control_for_column(nil, w)
 
             x_reg = 2
             y_reg = 3
@@ -1094,6 +1096,32 @@ module RubyGBA
           # The DMA3 control word for a source-fixed 32-bit fill of +count+ words.
           def dma_fill_control(count)
             count | DMA_ENABLE | DMA_32BIT | DMA_SRC_FIXED
+          end
+
+          # The same fill, one pixel per transfer instead of two.
+          #
+          # DMA moves whole units and quietly rounds the destination address DOWN to
+          # that unit's size. A 32-bit transfer therefore needs a 4-byte-aligned
+          # destination — and at 2 bytes per pixel, only EVEN screen columns are.
+          # Aim a 32-bit fill at an odd column and the hardware silently shifts it a
+          # pixel to the left, with nothing to say it did. A 16-bit transfer needs
+          # only 2-byte alignment, which every pixel address has, so it lands where
+          # it was asked to whatever the column.
+          #
+          # The cost is twice as many transfers, so it is used only where an odd
+          # column is possible: see #fill_control_for_column.
+          def dma_fill_control_halfwords(count)
+            count | DMA_ENABLE | DMA_SRC_FIXED # 16-bit is the default (DMA_16BIT == 0)
+          end
+
+          # Pick the widest fill unit that lands on +x+. Pass the column when it is
+          # known at build time (an even one keeps the fast two-pixel transfer), or
+          # nil when the program computes it at run time and either parity is
+          # possible — then correctness decides and we fill a pixel at a time.
+          def fill_control_for_column(x, w)
+            return dma_fill_control(w / 2) if x&.even?
+
+            dma_fill_control_halfwords(w)
           end
 
           # Point DMA3 at (source, destination), then kick it off — one filled row.
