@@ -81,7 +81,7 @@ module ConformanceFixture
       B.set(:acc, B.neg(B.var_ref(:x))),      # neg
       # mul_fix — a multiply whose product is formed at full width. The operands are
       # chosen so a plain 32-bit multiply gets a DIFFERENT answer: 1.5 * 1.5 with 16
-      # fraction bits needs 6,442,450,944 on the way, which wraps. A backend that
+      # fraction bits needs 9,663,676,416 on the way, which wraps. A backend that
       # lowered this as an ordinary multiply would pass a coverage check and still be
       # wrong, so the differential comparison has something real to disagree about.
       B.set(:acc, B.mul_fix(B.int(98_304), B.int(98_304), 16)),
@@ -101,6 +101,10 @@ module ConformanceFixture
       B.fill_rect(2, 2, 4, 4, :green),
       B.dma_fill_rect(8, 8, 4, 4, :blue),
       B.draw_rect_at(:x, :y, 4, 4, :white),
+      # ...and one whose height the program works out, which a backend fills with a
+      # counted loop rather than unrolled rows. :x is 7 here, so it draws seven rows —
+      # a backend that mishandled the count would draw a different number of them.
+      B.draw_rect_at(B.int(30), B.int(30), 4, B.var_ref(:x), :white),
       B.draw_text("HI", 10, 10, :white),
       B.draw_digit(B.var_ref(:x), 20, 10, :white), # one run-time digit glyph
       B.blit(:sprite, :x, :y),

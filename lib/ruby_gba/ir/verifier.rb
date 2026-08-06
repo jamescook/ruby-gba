@@ -88,7 +88,7 @@ module RubyGBA
         clear_screen:  { color: :color },
         draw_text:     { text: :text, x: :int, y: :int, color: :color, font: :name },   # fixed origin
         draw_digit:    { value: :value, x: :int, y: :int, color: :color, font: :name }, # run-time digit
-        draw_rect_at:  { x: :value, y: :value, w: :int, h: :int, color: :color }, # runtime position
+        draw_rect_at:  { x: :value, y: :value, w: :int, h: :value, color: :color }, # runtime position and height
         dma_fill_rect: { x: :int, y: :int, w: :int, h: :int, color: :color },
         blit:          { name: :name, x: :value, y: :value },
         blit_pose:     { poses: :list, index: :value, x: :value, y: :value }, # one image of a same-size set

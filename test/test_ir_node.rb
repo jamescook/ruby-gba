@@ -146,14 +146,16 @@ class TestIRNode < Minitest::Test
     assert_equal :draw, dma_fill_rect(0, 0, 4, 4, :white).category
   end
 
-  def test_draw_rect_at_wraps_its_runtime_position
-    # position flows through value nodes (so a variable coord works), while the
-    # size stays a plain compile-time constant.
-    n = draw_rect_at(:ball_x, 40, 4, 6, :white)
+  def test_draw_rect_at_wraps_its_runtime_position_and_height
+    # position and height flow through value nodes (so a variable coord, or a height
+    # the game works out, both work), while the width stays a plain compile-time
+    # constant.
+    n = draw_rect_at(:ball_x, 40, 4, :health, :white)
     assert_equal var_ref(:ball_x), n[:x]
     assert_equal int(40), n[:y]
     assert_equal 4, n[:w]
-    assert_equal 6, n[:h]
+    assert_equal var_ref(:health), n[:h]
+    assert_equal int(6), draw_rect_at(:ball_x, 40, 4, 6, :white)[:h]
   end
 
   def test_abs_and_negate_abs_are_var_ops

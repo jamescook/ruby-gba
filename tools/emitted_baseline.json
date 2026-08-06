@@ -10,11 +10,11 @@
       "data": 5252
     },
     "breakout": {
-      "code": 88236,
+      "code": 88252,
       "data": 100
     },
     "buffered_bounce": {
-      "code": 7440,
+      "code": 7464,
       "data": 10
     },
     "floating_digits": {
@@ -30,7 +30,7 @@
       "data": 0
     },
     "grid_cursor": {
-      "code": 7548,
+      "code": 7620,
       "data": 0
     },
     "hero": {
@@ -38,7 +38,7 @@
       "data": 772
     },
     "jukebox": {
-      "code": 48096,
+      "code": 48216,
       "data": 724
     },
     "level": {
@@ -66,12 +66,12 @@
       "data": 0
     },
     "pong": {
-      "code": 27240,
+      "code": 27264,
       "data": 216
     },
     "raycaster": {
-      "code": 4544,
-      "data": 2152
+      "code": 4352,
+      "data": 2168
     },
     "scroll": {
       "code": 876,
@@ -86,11 +86,11 @@
       "data": 2328
     },
     "snake": {
-      "code": 59144,
+      "code": 59192,
       "data": 84
     },
     "snake_buffered": {
-      "code": 62832,
+      "code": 62856,
       "data": 82
     },
     "sprite_mover": {

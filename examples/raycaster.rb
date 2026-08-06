@@ -26,10 +26,10 @@
 # is. Multiplying two of them does not, and that is what times_fraction is for: read the
 # comment at the fisheye correction, which is the multiply that needs it.
 #
-# A note on speed: this casts a ray per screen column and paints each wall column a row
-# at a time, because draw_rect_at is a fixed size. That row loop is the bottleneck, so it
-# runs at around 20 frames a second rather than the full 60. A single variable-height
-# column fill would remove the loop.
+# A note on speed: this casts a ray per screen column, and each column is one fill as
+# tall as the ray says — draw_rect_at takes a height the game works out. It runs at 30
+# frames a second. What is left is the ray march itself: two divisions per step to find
+# which cell the ray is in, sixty times a column.
 
 require_relative "../lib/ruby_gba"
 
@@ -55,7 +55,7 @@ module Raycaster
   NUM_COLS = 30    # screen strips: 30 columns x 8px = 240px wide
   COL_W = 8
   STEP = FIXED / 4 # a ray advances a quarter of a cell at a time
-  STEPS = 12       # ...12 times, so it sees three cells before it gives up
+  STEPS = 20       # ...20 times, so it sees five cells before it gives up
   HORIZON = 80     # the eye line: wall columns are centered here
   WALK = fixed(0.09) # how far a step of walking moves, in cells
 
@@ -191,14 +191,15 @@ module Raycaster
 
         # Shade the column by how far away it is, which is what reads as depth: near walls
         # catch the light, far ones fall into the gloom. draw_rect_at takes a fixed color,
-        # so each band is its own strip loop and exactly one of them runs.
-        (dist < (5 * STEP)).then do
-          repeat(col_h) { |row| draw_rect_at((col * COL_W), top + row, COL_W, 1, NEAR) }
+        # so each band is its own fill and exactly one of them runs. The HEIGHT is the
+        # number the ray just worked out, which is the whole wall column in one fill.
+        (dist < (6 * STEP)).then do
+          draw_rect_at((col * COL_W), top, COL_W, col_h, NEAR)
         end.else do
-          (dist < (9 * STEP)).then do
-            repeat(col_h) { |row| draw_rect_at((col * COL_W), top + row, COL_W, 1, MID) }
+          (dist < (12 * STEP)).then do
+            draw_rect_at((col * COL_W), top, COL_W, col_h, MID)
           end.else do
-            repeat(col_h) { |row| draw_rect_at((col * COL_W), top + row, COL_W, 1, FAR) }
+            draw_rect_at((col * COL_W), top, COL_W, col_h, FAR)
           end
         end
       end

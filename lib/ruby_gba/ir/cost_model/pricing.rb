@@ -164,7 +164,31 @@ module RubyGBA
         # and the pixels are transferred on top. This is why a tall rectangle costs more
         # than a wide one of the same area.
         def dma_rows_cost(w, h)
-          h * @weights[:dma_setup] + w * h * @weights[:dma_pixel]
+          w = const_side(w)
+          h = const_side(h)
+          # A side the game works out as it runs has no provable size, so — like a loop
+          # whose trip count is unknown — it contributes nothing rather than a guess, and
+          # the estimate says out loud that it could not account for it.
+          return 0 unless w && h
+
+          (h * @weights[:dma_setup]) + (w * h * @weights[:dma_pixel])
+        end
+
+        # A rect side as a build-time number, or nil when the game works it out as it
+        # runs (a variable, an expression).
+        def const_side(side)
+          case side
+          when Integer then side
+          when Node then side[:value] if side.kind == :int
+          end
+        end
+
+        # Whether a rect's size is only known at run time, so #dma_rows_cost had to
+        # leave it out of the estimate.
+        def runtime_sized_rect?(node)
+          return false unless %i[fill_rect dma_fill_rect draw_rect_at].include?(node.kind)
+
+          const_side(node[:w]).nil? || const_side(node[:h]).nil?
         end
 
         # A single DMA transfer of +pixels+ pixels in one shot (a whole-screen clear):
