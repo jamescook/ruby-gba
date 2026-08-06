@@ -34,6 +34,12 @@ module RubyGBA
             emit(ASM.store_halfword(ACC, TMP))
           end
 
+          # Store the full 32-bit word in r0 to a fixed address.
+          def store_word_acc(address)
+            emit(ASM.load_immediate(TMP, address))
+            emit(ASM.str(ACC, TMP))
+          end
+
           # Write a full 32-bit word to an address (used for the DMA registers).
           def store_word_immediate(value, address)
             emit(ASM.load_immediate(ACC, value))

@@ -19,7 +19,7 @@ module RubyGBA
           WIDTH = Screen::WIDTH
           HEIGHT = Screen::HEIGHT
 
-          attr_reader :width, :height
+          attr_reader :width, :height, :camera_x, :camera_y
 
           # @param fill [Integer] the color every cell starts as (0 reads as black)
           def initialize(width: WIDTH, height: HEIGHT, fill: 0)
@@ -27,11 +27,32 @@ module RubyGBA
             @height = height
             @fill = fill
             @pixels = Array.new(width * height, fill)
+            @camera_x = 0
+            @camera_y = 0
           end
 
-          # The color at (x, y). An off-screen coordinate reads as nil — a clear
-          # "there is no such pixel" rather than a color that isn't really there.
+          # Move the visible window over the stored picture: after this, screen (0, 0)
+          # shows what was drawn at (x, y). Nothing stored moves — a camera changes what
+          # you LOOK at, not what is there — which is why a shake costs no redrawing.
+          def camera_to(x, y)
+            @camera_x = x
+            @camera_y = y
+          end
+
+          # The color shown at screen (x, y) — the stored cell the window currently puts
+          # there. An off-screen coordinate reads as nil ("there is no such pixel"). A
+          # window pushed off the drawn picture shows the backdrop along that edge, the
+          # same as a display with nothing left to fetch there.
           def pixel(x, y)
+            return nil unless in_bounds?(x, y)
+
+            stored_pixel(x + @camera_x, y + @camera_y) || @fill
+          end
+
+          # The color stored at (x, y), ignoring where the window sits. This is what the
+          # drawing engine reads — saving the pixels under a sprite has to see what is
+          # really in the picture, not what happens to be on screen right now.
+          def stored_pixel(x, y)
             return nil unless in_bounds?(x, y)
 
             @pixels[(y * @width) + x]

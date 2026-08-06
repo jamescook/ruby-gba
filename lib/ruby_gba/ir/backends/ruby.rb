@@ -386,6 +386,8 @@ module RubyGBA
             exec_background(node)
           when :scroll_background
             exec_scroll_background(node)
+          when :camera
+            @screen.camera_to(eval_value(node[:x]), eval_value(node[:y]))
           when :present_objects
             exec_present_objects(node)
           when :enable_sound
@@ -828,7 +830,7 @@ module RubyGBA
         def restore_patch(scene, x, y, width, height)
           height.times do |row|
             width.times do |col|
-              color = scene.pixel(x + col, y + row)
+              color = scene.stored_pixel(x + col, y + row)
               @screen.set_pixel(x + col, y + row, color) unless color.nil?
             end
           end
@@ -999,7 +1001,7 @@ module RubyGBA
           h = buf[:height]
           cells = Array.new(w * h)
           h.times do |row|
-            w.times { |col| cells[(row * w) + col] = @screen.pixel(x + col, y + row) }
+            w.times { |col| cells[(row * w) + col] = @screen.stored_pixel(x + col, y + row) }
           end
           buf[:pixels] = cells
         end
