@@ -29,22 +29,6 @@ module RubyGBA
         class EmptyTiledScreen
           NAME = :empty_tiled_screen
 
-          # What the tile hardware can actually put on screen. A `background` is a
-          # map of tiles; an `object` is a sprite the display composites on top.
-          # Either one means the screen is not blank.
-          PAINTS = %i[background object].freeze
-
-          # Draw ops that only exist on the bitmap screen — they write pixels into
-          # the framebuffer, which a tiled screen never shows. Their presence is
-          # how we know the developer meant to draw the bitmap way.
-          BITMAP_DRAWS = %i[pixel fill_rect dma_fill_rect clear_screen draw_rect_at
-                            blit blit_pose draw_text draw_digit].freeze
-
-          # The DSL verb behind a node kind, for kinds whose internal name isn't
-          # what the developer typed. Naming their own verb back to them is what
-          # makes the message land.
-          VERB_FOR = { blit_pose: "sprite", draw_digit: "draw_number" }.freeze
-
           def detect(program)
             return [] unless only_tiled?(program)
             return [] if paints?(program)
@@ -100,14 +84,14 @@ module RubyGBA
           end
 
           def paints?(program)
-            program.each.any? { |node| PAINTS.include?(node.kind) }
+            TiledDisplay.paints?(program)
           end
 
           # The verb the developer typed for the first bitmap-only draw, or nil if
           # the game draws nothing at all.
           def bitmap_verb(program)
-            kind = program.each.find { |node| BITMAP_DRAWS.include?(node.kind) }&.kind
-            kind && (VERB_FOR[kind] || kind.to_s)
+            kind = program.each.find { |node| TiledDisplay::BITMAP_DRAWS.include?(node.kind) }&.kind
+            kind && TiledDisplay.verb_for(kind)
           end
 
           def tiled_screen_node(program)
