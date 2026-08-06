@@ -54,8 +54,9 @@ module Emitted
   # unbuildable on one side is a result, not a crash. +shape+ is a count of each
   # kind of operation in the program that was built, or nil when the library could
   # not say.
-  Measurement = Data.define(:name, :title, :code, :data, :frame, :shape, :error) do
-    def initialize(name:, title: nil, code: nil, data: nil, frame: nil, shape: nil, error: nil)
+  Measurement = Data.define(:name, :title, :code, :data, :frame, :shape, :detail, :error) do
+    def initialize(name:, title: nil, code: nil, data: nil, frame: nil, shape: nil,
+                   detail: nil, error: nil)
       super
     end
 
@@ -122,8 +123,13 @@ module Emitted
              "against the working tree and against #{ref}, #{subject(commit)}."
     out.puts
 
-    after = measure(File.join(ROOT, "lib"), paths)
-    before = with_lib_at(commit) { |lib_root| measure(lib_root, paths) }
+    # The drill-down is for ONE program. Across a corpus a table of funcs and lines
+    # is a wall of text belonging to no particular game, and the summary already
+    # names which example to go and look at — so narrow to it (ONLY=pong) and the
+    # breakdown comes with it.
+    detail = paths.one?
+    after = measure(File.join(ROOT, "lib"), paths, detail: detail)
+    before = with_lib_at(commit) { |lib_root| measure(lib_root, paths, detail: detail) }
 
     Report.new(rows(paths, before, after), ref: "#{ref} (#{commit[0, 7]})").render(out)
   end
@@ -140,12 +146,14 @@ module Emitted
   end
 
   # Build every example against the library at +lib_root+, one process each.
-  def measure(lib_root, paths)
-    paths.to_h { |path| [File.basename(path, ".rb"), probe(lib_root, path)] }
+  def measure(lib_root, paths, detail: false)
+    paths.to_h { |path| [File.basename(path, ".rb"), probe(lib_root, path, detail: detail)] }
   end
 
-  def probe(lib_root, path)
-    stdout, stderr, status = Open3.capture3(RbConfig.ruby, PROBE, lib_root, ROOT, path, chdir: ROOT)
+  def probe(lib_root, path, detail: false)
+    args = [lib_root, ROOT, path]
+    args << "detail" if detail
+    stdout, stderr, status = Open3.capture3(RbConfig.ruby, PROBE, *args, chdir: ROOT)
     measurement(File.basename(path, ".rb"), stdout, stderr, status)
   end
 
@@ -156,7 +164,7 @@ module Emitted
 
     Measurement.new(name: name, title: report[:title], code: report[:code],
                     data: report[:data], frame: report[:frame], shape: report[:shape],
-                    error: report[:error])
+                    detail: report[:detail], error: report[:error])
   rescue JSON::ParserError, TypeError
     Measurement.new(name: name, error: last_words(stderr, status))
   end
@@ -211,6 +219,88 @@ module Emitted
   # Reporting
   # ------------------------------------------------------------------
 
+  # Where a single program's bytes moved: which kinds of operation, which funcs,
+  # which lines of the game. Shown when the run is narrowed to one example, since
+  # that is the only time these tables belong to something in particular.
+  class Drilldown
+    # Rows past this are collapsed into one line that says how many and how much,
+    # so a long tail is summarised rather than dropped.
+    TOP = 8
+
+    # Kinds first: it is the axis that explains. Funcs next, the structural unit.
+    # Lines last, exact but longest.
+    SECTIONS = [
+      [:kinds, "by operation", "what the lowering did differently"],
+      [:funcs, "by func", "where in the program's structure"],
+      [:lines, "by line", "where in the game's own source"],
+    ].freeze
+
+    def initialize(before:, after:)
+      @before = before || {}
+      @after = after || {}
+    end
+
+    def render(out)
+      SECTIONS.each { |key, title, gloss| section(out, key, title, gloss) }
+      unattributed(out)
+    end
+
+    private
+
+    def section(out, key, title, gloss)
+      moved = deltas(key)
+      return if moved.empty?
+
+      out.puts "  #{title} — #{gloss}"
+      shown = moved.first(TOP)
+      width = shown.map { |name, _| name.length }.max
+      shown.each do |name, delta|
+        out.puts format("    %-#{width}s  %10s   %d → %d bytes", name, instructions(delta),
+                        was(key, name), now(key, name))
+      end
+      tail(out, moved.drop(TOP))
+      out.puts
+    end
+
+    def tail(out, rest)
+      return if rest.empty?
+
+      total = rest.sum { |_, delta| delta }
+      out.puts format("    ... and %d more, %s between them", rest.size, instructions(total))
+    end
+
+    # Every key that moved, biggest move first. A key on only one side counts as
+    # having been zero on the other.
+    def deltas(key)
+      mine = @before[key] || {}
+      theirs = @after[key] || {}
+      (mine.keys | theirs.keys)
+        .map { |name| [name.to_s, theirs.fetch(name, 0) - mine.fetch(name, 0)] }
+        .reject { |_, delta| delta.zero? }
+        .sort_by { |name, delta| [-delta.abs, name] }
+    end
+
+    def was(key, name) = (@before[key] || {}).fetch(name.to_sym, (@before[key] || {}).fetch(name, 0))
+    def now(key, name) = (@after[key] || {}).fetch(name.to_sym, (@after[key] || {}).fetch(name, 0))
+
+    # Boot code, the data region, the interrupt handler — emitted around the program
+    # rather than by any statement in it. Said out loud so the tables above can be
+    # seen not to account for everything.
+    def unattributed(out)
+      delta = @after[:unattributed].to_i - @before[:unattributed].to_i
+      return if delta.zero?
+
+      out.puts "  #{instructions(delta)} outside any statement (boot, data, interrupt handler)."
+      out.puts
+    end
+
+    def instructions(bytes)
+      return format("%+d B", bytes) unless (bytes % BYTES_PER_INSTRUCTION).zero?
+
+      format("%+d instr", bytes / BYTES_PER_INSTRUCTION)
+    end
+  end
+
   # Turns the paired measurements into the table and the one line worth keeping.
   class Report
     LABEL = {
@@ -232,9 +322,19 @@ module Emitted
 
       caveat(out)
       table(out)
+      drilldown(out)
       tally(out)
       out.puts
       out.puts summary
+    end
+
+    # One example, and it moved: say where inside it.
+    def drilldown(out)
+      row = @rows.first
+      return unless @rows.one? && row.state == :changed && row.paired?
+      return unless row.before.detail && row.after.detail
+
+      Drilldown.new(before: row.before.detail, after: row.after.detail).render(out)
     end
 
     # Said before the numbers, because it changes what they mean. When the library

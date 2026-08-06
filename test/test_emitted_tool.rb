@@ -221,6 +221,82 @@ class TestEmittedTool < Minitest::Test
     assert_match(/identical/, line)
   end
 
+  # ---- where inside one program the bytes moved ----
+
+  Drilldown = Emitted::Drilldown
+
+  def detail(kinds: {}, funcs: {}, lines: {}, unattributed: 0)
+    { kinds: kinds, funcs: funcs, lines: lines, unattributed: unattributed }
+  end
+
+  def drilldown(before, after)
+    out = StringIO.new
+    Drilldown.new(before: before, after: after).render(out)
+    out.string
+  end
+
+  def test_the_drilldown_names_the_operation_that_moved
+    report = drilldown(detail(kinds: { clamp: 180, fill_rect: 900 }),
+                       detail(kinds: { clamp: 252, fill_rect: 900 }))
+
+    assert_match(/clamp/, report)
+    assert_match(/\+18 instr/, report)
+    assert_match(/180 → 252 bytes/, report)
+    refute_match(/fill_rect/, report, "what did not move is not worth a row")
+  end
+
+  def test_the_drilldown_shows_all_three_axes
+    report = drilldown(detail(kinds: { clamp: 180 }, funcs: { update_cpu: 236 }, lines: { "pong.rb:108" => 172 }),
+                       detail(kinds: { clamp: 252 }, funcs: { update_cpu: 284 }, lines: { "pong.rb:108" => 196 }))
+
+    assert_match(/by operation/, report)
+    assert_match(/by func/, report)
+    assert_match(/by line/, report)
+    assert_match(/update_cpu/, report)
+    assert_match(/pong\.rb:108/, report)
+  end
+
+  def test_an_axis_that_did_not_move_is_left_out
+    report = drilldown(detail(kinds: { clamp: 180 }, funcs: { update_cpu: 236 }),
+                       detail(kinds: { clamp: 252 }, funcs: { update_cpu: 236 }))
+
+    assert_match(/by operation/, report)
+    refute_match(/by func/, report, "a func table where nothing moved is noise")
+  end
+
+  # Something that appears on only one side counts as zero on the other, rather
+  # than being skipped for having nothing to compare against.
+  def test_an_operation_that_only_appears_on_one_side_still_shows
+    report = drilldown(detail(kinds: {}), detail(kinds: { dma_fill_rect: 96 }))
+
+    assert_match(/dma_fill_rect/, report)
+    assert_match(/\+24 instr/, report)
+  end
+
+  # A long tail is summarised, never silently cut: the count and the total it
+  # accounts for are both stated.
+  def test_a_long_tail_is_collapsed_to_a_stated_count
+    before = (1..14).to_h { |i| [:"op#{i}", 100] }
+    after = (1..14).to_h { |i| [:"op#{i}", 100 + (i * 4)] }
+    report = drilldown(detail(kinds: before), detail(kinds: after))
+
+    assert_match(/\.\.\. and 6 more/, report)
+    # op1..op6 are the smallest movers: 4+8+12+16+20+24 bytes = 84 = 21 instructions
+    assert_match(/\+21 instr between them/, report)
+  end
+
+  def test_bytes_outside_any_statement_are_named
+    report = drilldown(detail(kinds: { clamp: 100 }, unattributed: 200),
+                       detail(kinds: { clamp: 100 }, unattributed: 240))
+
+    assert_match(/outside any statement/, report)
+    assert_match(/\+10 instr/, report)
+  end
+
+  def test_a_drilldown_with_nothing_to_say_says_nothing
+    assert_empty drilldown(detail(kinds: { clamp: 100 }), detail(kinds: { clamp: 100 })).strip
+  end
+
   # ---- what came back from the child process ----
 
   def test_a_probe_that_reported_becomes_a_measurement
