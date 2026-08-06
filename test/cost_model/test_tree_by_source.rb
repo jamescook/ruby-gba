@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "fixtures/cost_parts/left_wall"
-require_relative "fixtures/cost_parts/right_wall"
+require_relative "../../lib/ruby_gba"
+require_relative "../fixtures/cost_parts/left_wall"
+require_relative "../fixtures/cost_parts/right_wall"
 
 # The cost tree (rom.explain) groups a frame's work by the source FILE it came from,
 # so a game split across collaborator files (player.rb, enemies.rb, hud.rb — plain
