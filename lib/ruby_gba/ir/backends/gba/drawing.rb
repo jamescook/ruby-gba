@@ -257,42 +257,63 @@ module RubyGBA
             end
           end
 
-          # A rectangle whose position and height are computed at run time (x/y/h may
-          # be variables), its width a constant. Same per-row DMA fill as
-          # dma_fill_rect, but each row's destination address is built from the
-          # live x/y instead of known up front. r2/r3 hold x/y across the loop, r6 the
-          # rows left to draw; r4/r5 are address scratch. (No run-time bounds clip yet —
-          # the caller is expected to keep it on-screen, as pong does by clamping.)
+          # A rectangle whose position and size are all computed at run time. Same
+          # per-row DMA fill as dma_fill_rect, but each row's destination address is
+          # built from the live x/y instead of known up front. r2/r3 hold x/y across the
+          # loop, r6 the rows left, r7 the fill's control word; r4/r5 are address
+          # scratch. (No run-time bounds clip yet — the caller is expected to keep it
+          # on-screen, as pong does by clamping.)
           #
-          # A constant height is unrolled, which is what it always did and what keeps a
-          # paddle or a ball costing exactly what it did before. Only a height the game
-          # works out becomes a counted loop.
+          # A size settled while building is unrolled with an immediate control word,
+          # exactly as it always was, so a paddle or a ball costs what it did before.
+          # Only a size the game works out pays for a counter and a computed word.
           def emit_draw_rect_at(node)
             return emit_draw_rect_at_buffered(node) if @lower_mode == :buffered
 
-            w = constant_ints!(node, :w).first
-            even_width!(w, :draw_rect_at)
+            width = const_int(node[:w])
+            return if width && width < 1 # a rect with no width draws nothing
+
             scratch = hold_fill_word(node[:color])
             # x is computed at run time, so it can be an odd column on any given
             # frame — fill a pixel at a time so the rect lands where it was asked to.
-            control = fill_control_for_column(nil, w)
+            control = width ? fill_control_for_column(nil, width) : CONTROL_REG
 
             x_reg = 2
             y_reg = 3
             rows_left = 6
-            eval_rect_position(node, x_reg: x_reg, y_reg: y_reg, rows_reg: rows_left)
+            eval_rect_position(node, x_reg: x_reg, y_reg: y_reg, rows_reg: rows_left,
+                                     width_reg: CONTROL_REG)
+
+            # A width of zero asks the hardware for 65536 transfers, not none, so a rect
+            # the game has shrunk to nothing must skip the fill outright. Checked before
+            # the count becomes a control word, while it is still a plain width.
+            skip = gensym
+            unless width
+              emit(ASM.cmp_imm(CONTROL_REG, 0))
+              emit_branch(:bcond, skip, cond: :le)
+              emit(ASM.load_immediate(TMP, dma_fill_control_halfwords(0)))
+              emit(ASM.orr_reg(CONTROL_REG, CONTROL_REG, TMP)) # ...now it is one
+            end
 
             height = const_int(node[:h])
-            return height.times { |dy| emit_mode3_rect_row(dy, x_reg, y_reg, scratch, control) } if height
-
-            emit_row_loop(rows_left) do
-              emit_mode3_rect_row(0, x_reg, y_reg, scratch, control)
-              emit(ASM.add_imm(y_reg, y_reg, 1)) # ...and on to the next row down
+            if height
+              height.times { |dy| emit_mode3_rect_row(dy, x_reg, y_reg, scratch, control) }
+            else
+              emit_row_loop(rows_left) do
+                emit_mode3_rect_row(0, x_reg, y_reg, scratch, control)
+                emit(ASM.add_imm(y_reg, y_reg, 1)) # ...and on to the next row down
+              end
             end
+            place_label(skip) unless width
           end
+
+          # The register a computed width, and then the fill's control word built from
+          # it, lives in for the whole rect.
+          CONTROL_REG = 7
 
           # One row of a run-time rect: work out where it lands in video memory, then
           # fire the fill at it. +dy+ is how far below the rect's y this row is.
+          # +control+ is either the word itself or CONTROL_REG, the register holding it.
           def emit_mode3_rect_row(dy, x_reg, y_reg, scratch, control)
             # r4 = VRAM_START + ((y + dy) * width + x) * 2
             if dy.zero?
@@ -310,16 +331,23 @@ module RubyGBA
             store_word_immediate(scratch, REG_DMA3SAD)
             emit(ASM.load_immediate(TMP, REG_DMA3DAD))
             emit(ASM.str(4, TMP))            # destination is the computed address
-            store_word_immediate(control, REG_DMA3CNT)
+            if control == CONTROL_REG
+              emit(ASM.load_immediate(TMP, REG_DMA3CNT))
+              emit(ASM.str(CONTROL_REG, TMP))
+            else
+              store_word_immediate(control, REG_DMA3CNT)
+            end
           end
 
-          # Work out a run-time rect's x, y and row count into their registers.
+          # Work out a run-time rect's x, y, row count and width into their registers.
           #
           # The two coordinates go via the stack rather than straight into their
           # registers, because working out the SECOND one can use the register the
           # first was just parked in — a multiply of two numbers holding a fraction
           # borrows exactly those. The stack is the one place nothing else touches.
-          def eval_rect_position(node, x_reg:, y_reg:, rows_reg:)
+          # The size registers are high enough that nothing evaluating an expression
+          # reaches them, so those can be filled in place.
+          def eval_rect_position(node, x_reg:, y_reg:, rows_reg:, width_reg: nil)
             eval_value(node[:x])
             emit(ASM.push(ACC))
             eval_value(node[:y])
@@ -327,6 +355,10 @@ module RubyGBA
             unless const_int(node[:h])
               eval_value(node[:h])
               emit(ASM.mov_reg(rows_reg, ACC))
+            end
+            if width_reg && !const_int(node[:w])
+              eval_value(node[:w])
+              emit(ASM.mov_reg(width_reg, ACC))
             end
             emit(ASM.pop(y_reg))
             emit(ASM.pop(x_reg))
