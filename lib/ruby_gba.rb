@@ -51,10 +51,13 @@ module RubyGBA
   # @param code [String] 4-char game code (e.g. "BTKE")
   # @param maker [String] 2-char maker code (e.g. "01")
   # @param validate [Boolean] run the ROM-image validation after build (default: true)
+  # @param fast_cartridge [Boolean] ask the console for quick cartridge timing at boot
+  #   (default: true). Pass false to leave the cautious power-on timing alone — the
+  #   escape hatch for a cartridge that can't keep up.
   # @return [RubyGBA::ROM] finalized ROM ready to write
   # +out+/+err+ are the streams dump_func writes its disassembly and warnings to;
   # they default to the process streams and can be pointed at a StringIO in tests.
-  def self.build(title, code:, maker:, validate: true, frame_sync: :auto,
+  def self.build(title, code:, maker:, validate: true, frame_sync: :auto, fast_cartridge: true,
                  out: $stdout, err: $stderr, &block)
     builder = Builder.new(frame_sync: frame_sync)
     catch(:debug_halt) do
@@ -101,7 +104,7 @@ module RubyGBA
     # The DSL built an IR tree as the block ran. Turn it into a ROM in two steps,
     # both behind this single call so building stays one operation: lower the tree
     # to machine code, then assemble that code into a cartridge.
-    backend = IR::Backends::GBA.new
+    backend = IR::Backends::GBA.new(fast_cartridge: fast_cartridge)
     machine_code = backend.lower(program)
     rom = ROM.assemble(machine_code, title: title, code: code, maker: maker,
                                      validate: builder.debug_halted? ? false : validate)

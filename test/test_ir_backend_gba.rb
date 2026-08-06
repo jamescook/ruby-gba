@@ -54,6 +54,29 @@ class TestIRBackendGBA < Minitest::Test
     assert_raises(GBA::LoweringError) { lower(program(call(:ghost), halt)) }
   end
 
+  # ---- cartridge timing at boot ----
+
+  # The console powers on reading the cartridge at its slowest, safest speed, so
+  # every ROM asks for the quicker timing before it runs anything. That is the whole
+  # of the difference between the two builds: the same program, with the timing write
+  # in front of it.
+  def test_boot_asks_the_console_for_quicker_cartridge_timing
+    quick = GBA.new.tap { |g| g.lower(program(halt)) }.code
+    cautious = GBA.new(fast_cartridge: false).tap { |g| g.lower(program(halt)) }.code
+
+    assert_operator quick.bytesize, :>, cautious.bytesize, "the quick build adds the timing write"
+    assert_equal cautious, quick[quick.bytesize - cautious.bytesize..], "and changes nothing else"
+  end
+
+  # The escape hatch, for a cartridge that can't keep up with the quicker timing:
+  # nothing is written, so the console keeps the speed it powered on with and the
+  # program's own first instruction is the ROM's first instruction.
+  def test_a_program_can_keep_the_power_on_cartridge_timing
+    gba = GBA.new(fast_cartridge: false)
+    gba.lower(program(halt))
+    assert_equal [0xEAFFFFFE].pack("V"), gba.code[0, 4], "halt (branch to self) is the first instruction"
+  end
+
   def test_raw_bytes_are_appended_verbatim
     # The escape hatch: a raw node's bytes land in the code exactly as given.
     bytes = "\x00\xF0\x20\xE3".b # an arbitrary 4-byte ARM word

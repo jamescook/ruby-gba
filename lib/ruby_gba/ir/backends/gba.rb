@@ -149,7 +149,12 @@ module RubyGBA
 
         attr_reader :code, :labels, :func_ranges
 
-        def initialize
+        # +fast_cartridge+ picks the cartridge timing this ROM asks for at boot. True
+        # (the default) is the quick timing every real cartridge handles; false leaves
+        # the console's cautious power-on timing alone, which is the escape hatch for a
+        # cartridge that can't keep up (see #emit_waitcnt_setup).
+        def initialize(fast_cartridge: true)
+          @fast_cartridge = fast_cartridge
           @code = +"".b          # emitted machine code; byte 0 is where execution starts
           @labels = {}           # label name -> byte offset within @code
           @fixups = []           # branch placeholders to resolve once labels are known
@@ -224,7 +229,9 @@ module RubyGBA
           @uses_save = program.walk.any? { |node| node.kind == :save_init }
           prepare_palette(program) if @any_buffered
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
-          emit_waitcnt_setup unless raw_escape_hatch?(program) # fast ROM + prefetch, first, unless it's all raw
+          # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
+          # the console's cautious power-on timing.
+          emit_waitcnt_setup if @fast_cartridge && !raw_escape_hatch?(program)
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
           emit_mixer_boot if @plays_samples # start the sound DMA + clock; voices added by `play`
@@ -317,11 +324,17 @@ module RubyGBA
         # code fetched from the .gba crawl. We write REG_WAITCNT once, as the very
         # first instruction, to pick fast timing (WS0 3/1) and switch on the prefetch
         # buffer — the unit that reads upcoming instructions from ROM ahead of the CPU.
-        # Together that runs ROM-resident code roughly 2–3x faster, and everything
-        # after it (the rest of boot, and the whole game) benefits. It's safe on all
-        # real hardware, so every managed ROM gets it. (This is a hardware-timing
-        # concern, so it lives only in this backend — the reference interpreter models
-        # behaviour, not cycles, and the cost model prices timing separately.)
+        # Everything after it — the rest of boot, and the whole game — benefits.
+        #
+        # Measured on the emulator's timing model, per frame of real game code: the
+        # raycaster's 224 scanlines of CPU become 133, breakout's 113 become 71, snake's
+        # 108 become 62. Call it a third off, and more on ROM-heavy code. That is why it
+        # is on by default. It's a timing SETTING, not a guarantee — it is what real
+        # cartridges and mainstream flash carts are specified for, but a cartridge that
+        # can't keep up would misbehave, so `fast_cartridge: false` leaves the cautious
+        # power-on timing alone. (This is a hardware-timing concern, so it lives only in
+        # this backend — the reference interpreter models behaviour, not cycles, and the
+        # cost model prices timing separately.)
         def emit_waitcnt_setup
           write_io_halfword(REG_WAITCNT, WAITCNT_FAST)
         end
