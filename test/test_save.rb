@@ -10,7 +10,7 @@ require_relative "test_helper"
 class TestSave < Minitest::Test
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA  = RubyGBA::IR::Backends::GBA
   SAVE_MAGIC = 0x53415631 # "SAV1", the marker written alongside the saved values
   SRAM = 0x0E000000       # where save memory is mapped
@@ -47,20 +47,20 @@ class TestSave < Minitest::Test
 
   def test_a_saved_value_comes_back_on_the_next_boot
     store = {}
-    Ruby.new(save: store).run(build(&KEEPER), frames: 3)
+    Reference.new(save: store).run(build(&KEEPER), frames: 3)
 
-    reborn = Ruby.new(save: store).run(build(&READER), frames: 1)
+    reborn = Reference.new(save: store).run(build(&READER), frames: 1)
     assert_equal 7, reborn[:high_score], "the saved high score should load at the next boot"
   end
 
   def test_a_fresh_cartridge_starts_from_the_default
-    fresh = Ruby.new(save: {}).run(build(&READER), frames: 1)
+    fresh = Reference.new(save: {}).run(build(&READER), frames: 1)
     assert_equal 0, fresh[:high_score], "with nothing saved, a save_var starts from its default"
   end
 
   def test_changing_a_saved_variable_writes_it_through_immediately
     store = {}
-    Ruby.new(save: store).run(build(&KEEPER), frames: 3)
+    Reference.new(save: store).run(build(&KEEPER), frames: 3)
     assert_equal 7, store[0], "the new high score is mirrored to its save slot"
     assert_equal SAVE_MAGIC, store[:magic], "the marker is stamped so the next boot trusts the data"
   end

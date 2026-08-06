@@ -16,7 +16,7 @@ require_relative "../examples/shmup"
 class TestShmupExample < Minitest::Test
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   CYAN = Color.resolve(:cyan)   # the ship (player.rb)
@@ -45,7 +45,7 @@ class TestShmupExample < Minitest::Test
 
   # Each file's part draws while playing: the ship, the HUD, and the enemies all appear.
   def test_every_part_renders_on_the_interpreter
-    s = Ruby.new.run(Shmup.program, max_steps: RENDER).screen
+    s = Reference.new.run(Shmup.program, max_steps: RENDER).screen
     assert_equal CYAN, s.pixel(119, 132), "the ship (player.rb) renders"
     assert_equal WHITE, s.pixel(9, 4), "the HUD SCORE text (hud.rb) renders"
     assert red_somewhere?(s), "an enemy (enemies.rb) renders"
@@ -54,8 +54,8 @@ class TestShmupExample < Minitest::Test
   # Player#update runs its input logic from its own file: holding right walks the ship
   # to the right edge, where at rest it never is.
   def test_holding_right_drives_the_ship_from_its_own_file
-    still = Ruby.new.run(Shmup.program, max_steps: MOVE).screen
-    right = Ruby.new.hold(:right).run(Shmup.program, max_steps: MOVE).screen
+    still = Reference.new.run(Shmup.program, max_steps: MOVE).screen
+    right = Reference.new.hold(:right).run(Shmup.program, max_steps: MOVE).screen
     refute_equal CYAN, still.pixel(231, 133), "at rest the ship isn't at the right edge"
     assert_equal CYAN, right.pixel(231, 133), "holding right, the ship moved there"
   end
@@ -63,7 +63,7 @@ class TestShmupExample < Minitest::Test
   # The parts collaborate across files: an enemy that drifts into the ship calls the
   # HUD's `hit`, so a life is lost. (Per-pixel collision, between two files' sprites.)
   def test_parts_collaborate_across_files
-    i = Ruby.new.run(Shmup.program, max_steps: MOVE)
+    i = Reference.new.run(Shmup.program, max_steps: MOVE)
     assert_operator i[:lives], :<, 3, "an enemy reached the ship — enemies.rb called hud.hit"
   end
 
@@ -71,7 +71,7 @@ class TestShmupExample < Minitest::Test
   # stop being presented (they belong to the playing scene) and the GAME OVER banner —
   # which belongs to the game-over scene — appears. No per-draw visibility flag anywhere.
   def test_losing_every_ship_shows_the_game_over_screen
-    i = Ruby.new.run(Shmup.program, max_steps: TO_GAME_OVER)
+    i = Reference.new.run(Shmup.program, max_steps: TO_GAME_OVER)
     assert_equal GAME_OVER, i[:state], "the last ship lost switched to the game-over scene"
     assert_equal 0, i[:lives]
 
@@ -86,7 +86,7 @@ class TestShmupExample < Minitest::Test
   def test_start_restarts_a_fresh_game_after_game_over
     saw_game_over = false
     restored = false
-    i = Ruby.new.input_each_frame { |f| (f % 40).zero? && !f.zero? ? [:start] : [] }
+    i = Reference.new.input_each_frame { |f| (f % 40).zero? && !f.zero? ? [:start] : [] }
     i.each_vblank do |_f|
       saw_game_over = true if i[:state] == GAME_OVER
       restored = true if saw_game_over && i[:lives] == 3 # ships back to full after game over

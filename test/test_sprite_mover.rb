@@ -12,7 +12,7 @@ class TestSpriteMover < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   # A heart that starts at (100, 60), slides right while :right is held, and halts
@@ -49,7 +49,7 @@ class TestSpriteMover < Minitest::Test
   end
 
   def test_interpreter_moves_the_sprite_and_keeps_transparency
-    screen = Ruby.new.input_each_frame { [:right] }.run(sprite_program(frames: 4)).screen
+    screen = Reference.new.input_each_frame { [:right] }.run(sprite_program(frames: 4)).screen
 
     # Ended at x = 108. The heart's top-left is a transparent ".", so the white
     # field shows through; the "#" next to it is red.
@@ -119,7 +119,7 @@ class TestSpriteMover < Minitest::Test
   ].freeze
 
   def test_interpreter_clips_the_heart_at_the_left_edge
-    screen = Ruby.new.input_each_frame { [:left] }.run(heart_at_left_edge(frames: 3)).screen
+    screen = Reference.new.input_each_frame { [:left] }.run(heart_at_left_edge(frames: 3)).screen
     EDGE_PIXELS.each do |x, y, color|
       assert_equal Color.resolve(color || :white), screen.pixel(x, y),
                    "interpreter: (#{x}, #{y}) should be #{color || 'background'}"

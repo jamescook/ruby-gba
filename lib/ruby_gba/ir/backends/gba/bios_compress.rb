@@ -33,8 +33,9 @@ module RubyGBA
         #
         # This is purely how the GBA backend STORES its assets — a lowering concern, not
         # a program behavior. The program does the same thing either way; only the cart
-        # gets smaller. So it lives here in the GBA lowering and nowhere else: the Ruby
-        # interpreter reads the raw asset data directly and never sees a packed blob, so
+        # gets smaller. So it lives here in the GBA lowering and nowhere else: the
+        # reference interpreter reads the raw asset data directly and never sees a
+        # packed blob, so
         # it needs no part of this. (The expansion does cost a little CPU time the first
         # time an asset loads — a fraction of a frame per blob at the BIOS rate of a few
         # hundred KB per second. It lands at boot or on a scene change, under the blank

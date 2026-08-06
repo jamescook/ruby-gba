@@ -15,14 +15,14 @@ require_relative "test_helper"
 #   * the expression DSL to compute the new head and test a self-collision
 #     (xs[i] == head_x) & (ys[i] == head_y).
 #
-# The collision logic is checked on the Ruby interpreter (the oracle — the whole
+# The collision logic is checked on the reference interpreter (the oracle — the whole
 # point is that game logic is testable headlessly), and the same drawing stack is
 # checked on real hardware via gemba, so the core is proven on both backends.
 class TestSnakeCore < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   Color = RubyGBA::Color
 
@@ -57,7 +57,7 @@ class TestSnakeCore < Minitest::Test
       halt
     end
     builder.emit_pending_functions
-    Ruby.new.run(builder.program)
+    Reference.new.run(builder.program)
   end
 
   def test_a_growing_snake_that_loops_back_bites_itself
@@ -118,7 +118,7 @@ class TestSnakeCore < Minitest::Test
       halt
     end
     builder.emit_pending_functions
-    result = Ruby.new.run(builder.program)
+    result = Reference.new.run(builder.program)
 
     assert_equal 3, result[:len], "length stays fixed while sliding"
     assert_equal 4, result[:tail_x], "the tail advanced to the old second cell"
@@ -153,7 +153,7 @@ class TestSnakeCore < Minitest::Test
     # cells (3,5),(4,5),(5,5) at grid 4 -> x = 12,16,20 ; y = 20. Vacated (2,5) -> x=8.
     marks = { 12 => :green, 16 => :green, 20 => :green, 8 => :black }
 
-    screen = Ruby.new.run(prog).screen
+    screen = Reference.new.run(prog).screen
     marks.each do |x, color|
       assert_equal Color.resolve(color), screen.pixel(x, 20),
                    "interpreter: (#{x}, 20) should be #{color}"

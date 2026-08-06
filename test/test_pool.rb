@@ -12,7 +12,7 @@ class TestPool < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -38,7 +38,7 @@ class TestPool < Minitest::Test
       end
     end
     b.emit_pending_functions
-    i = Ruby.new.run(b.program)
+    i = Reference.new.run(b.program)
 
     assert_equal GREEN, i.screen.pixel(10, 12), "first instance drawn at its own (x, y)"
     assert_equal GREEN, i.screen.pixel(40, 30)
@@ -66,7 +66,7 @@ class TestPool < Minitest::Test
       end
     end
     b.emit_pending_functions
-    i = Ruby.new.run(b.program, frames: 45) # the mover needs ~35 frames to reach its clamp
+    i = Reference.new.run(b.program, frames: 45) # the mover needs ~35 frames to reach its clamp
 
     assert_equal GREEN, i.screen.pixel(50, 80), "it moved down and settled at the clamp"
     assert_equal BLACK, i.screen.pixel(50, 10), "it left its start"
@@ -92,7 +92,7 @@ class TestPool < Minitest::Test
       end
     end
     b.emit_pending_functions
-    i = Ruby.new.run(b.program)
+    i = Reference.new.run(b.program)
 
     assert_equal GREEN, i.screen.pixel(10, 40), "the others remain"
     assert_equal GREEN, i.screen.pixel(30, 40)
@@ -111,7 +111,7 @@ class TestPool < Minitest::Test
       halt
     end
     b.emit_pending_functions
-    i = Ruby.new.run(b.program)
+    i = Reference.new.run(b.program)
 
     assert_equal 3, i[:__pool_p_count], "the pool filled to capacity and the extra spawns were dropped"
   end

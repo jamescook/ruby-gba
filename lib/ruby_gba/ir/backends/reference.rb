@@ -2,30 +2,47 @@
 
 require "set"
 
-require_relative "ruby/framebuffer"
-require_relative "ruby/list_value"
+require_relative "reference/framebuffer"
+require_relative "reference/list_value"
 
 module RubyGBA
   module IR
     module Backends
-      # The Ruby backend: runs an IR::Node program directly in Ruby, against
-      # simulated hardware. It executes control flow, variable ops, and arithmetic
-      # against an in-memory variable store, and it draws into a fake screen and
-      # reads a fake gamepad — so a program's logic *and* its visible behavior can
-      # be checked in-process. Being able to just *run* a program and read the
-      # result is what makes testing a game cheap and headless, and it pins the
-      # IR's meaning before a lowering backend (the console ROM backend) has to
-      # reproduce it.
+      # The reference backend: runs an IR::Node program directly, in Ruby, against
+      # simulated hardware:
+      # control flow, variable ops and arithmetic against an in-memory variable
+      # store, drawing into a fake screen, reading a fake gamepad. So a program's
+      # logic *and* its visible behavior can be checked in-process, with no ROM and
+      # no emulator.
       #
-      # The simulated hardware here is deliberately small: a bitmap #screen
-      # (see Framebuffer) that the draw ops write into, and a set of held buttons
-      # that the input ops read. Other hardware (sound, tiled backgrounds,
-      # sprites, the paged bitmap modes) is layered on in its own right; each is
-      # its own slice of work.
+      # WHY THIS EXISTS WHEN WE HAVE A REAL EMULATOR
       #
-      # It runs hand-built IR::Build trees today; it needs neither the DSL to
-      # emit IR nor an emulator.
-      class Ruby
+      # The emulator tells you what the ROM *does*. On its own it cannot tell you
+      # whether that is what the program *meant* — there is nothing to check the ROM
+      # against, so the ROM defines its own correctness. A bug where the lowering
+      # faithfully emits the wrong thing is then invisible: the emulator renders it,
+      # the pixel is whatever the ROM drew, and the test is green. Running the same
+      # program here gives a second, independent answer. Where the two disagree,
+      # something is wrong and a person has to look. That is a whole class of bug
+      # neither one can find alone, and it's what test/differential.rb is built on.
+      #
+      # It is also far cheaper: there is no ROM to assemble and no emulator to boot,
+      # so a run costs a fraction of the console path. That is what lets the suite
+      # check behavior in bulk instead of sparingly. And it is the only thing keeping
+      # the IR honest about being target-agnostic: with a single backend, "the IR
+      # doesn't assume ARM" is a hope, because nothing would notice if it did.
+      #
+      # One caveat worth knowing before you trust it. This is an oracle for what a
+      # program MEANS, not a model of every rounding decision real hardware makes.
+      # It can be the wrong one: where it and the console disagree, the bug is
+      # sometimes here. Read a disagreement as "these two disagree", not as "the
+      # console is wrong".
+      #
+      # The simulated hardware is deliberately small: a bitmap #screen (see
+      # Framebuffer) that the draw ops write into, and a set of held buttons that
+      # the input ops read. Other hardware (sound, tiled backgrounds, sprites, the
+      # paged bitmap modes) is layered on in its own right.
+      class Reference
         class ProgramError < StandardError; end
 
         # A generous cap so an accidental infinite loop can't hang a test forever.
@@ -60,7 +77,7 @@ module RubyGBA
         end
 
         # +save+ is the cartridge's save memory — an external store that outlives the
-        # interpreter, so passing the SAME object to two Ruby.new(...).run calls models
+        # interpreter, so passing the SAME object to two Reference.new(...).run calls models
         # a power cycle (the second boot sees what the first one saved). Defaults to a
         # fresh, empty store: a brand-new cartridge, and untouched by programs that
         # persist nothing.
@@ -244,7 +261,7 @@ module RubyGBA
           # with no new branch to add.
           if Portability.hardware_only?(node.kind)
             raise ProgramError,
-                  "the Ruby backend can't run #{node.kind.inspect} — it's a hardware-only op the " \
+                  "the reference backend can't run #{node.kind.inspect} — it's a hardware-only op the " \
                   "interpreter can't model; keep it out of code you run headlessly"
           end
 
@@ -427,7 +444,7 @@ module RubyGBA
             @timer_handlers[node[:timer]] = node
           else
             raise ProgramError,
-                  "the Ruby backend cannot execute #{node.kind.inspect} " \
+                  "the reference backend cannot execute #{node.kind.inspect} " \
                   "(#{node.category}) yet"
           end
         end
@@ -1140,7 +1157,7 @@ module RubyGBA
           # statements. Which value kinds are hardware-only comes from IR::Portability.
           if Portability.hardware_only?(node.kind)
             raise ProgramError,
-                  "the Ruby backend can't evaluate #{node.kind.inspect} — it's a hardware-only value the " \
+                  "the reference backend can't evaluate #{node.kind.inspect} — it's a hardware-only value the " \
                   "interpreter can't model; it only means something on real hardware"
           end
 

@@ -58,7 +58,7 @@ module Differential
   # @return [Array(Array<Integer>, Array<Integer>)] the interpreter's, the console's
   def backend_pictures(program, frames: 4, name: "DIFF", console_frames: nil)
     cf = console_frames || console_frames_for(program, frames)
-    oracle = RubyGBA::IR::Backends::Ruby.new.run(program, frames: frames).screen.to_a
+    oracle = RubyGBA::IR::Backends::Reference.new.run(program, frames: frames).screen.to_a
     rom = assemble_rom(program, name: name)
     [oracle, RubyGBA::Verifier.new(rom, frames: cf).frame_gba]
   end

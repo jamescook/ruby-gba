@@ -3,18 +3,18 @@
 require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 
-# The Ruby backend, logic core: run hand-built IR::Build programs in Ruby and
+# The reference backend, logic core: run hand-built IR::Build programs in Ruby and
 # assert the resulting variable state — control flow, arithmetic, calls. The
 # simulated hardware (framebuffer, input) is exercised separately in
 # test_ir_backend_ruby_hardware.rb; here there's no screen and no gamepad.
-class TestIRBackendRuby < Minitest::Test
+class TestIRBackendReference < Minitest::Test
   include RubyGBA::IR::Build
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Int32 = RubyGBA::IR::Int32
 
   def run_ir(node, **opts)
-    Ruby.new.run(node, **opts)
+    Reference.new.run(node, **opts)
   end
 
   def test_set_and_read
@@ -184,13 +184,13 @@ class TestIRBackendRuby < Minitest::Test
   end
 
   def test_call_to_undefined_func_raises
-    assert_raises(Ruby::ProgramError) { run_ir(program(call(:ghost))) }
+    assert_raises(Reference::ProgramError) { run_ir(program(call(:ghost))) }
   end
 
   def test_raw_bytes_cannot_run_in_the_interpreter
     # raw is tagged hardware-only (IR::Portability); the headless interpreter is a
     # portable-only backend, so it refuses to run it rather than model machine bytes.
-    err = assert_raises(Ruby::ProgramError) { run_ir(program(raw("\x00\x00\x00\x00".b))) }
+    err = assert_raises(Reference::ProgramError) { run_ir(program(raw("\x00\x00\x00\x00".b))) }
     assert_match(/hardware-only|can't run :raw/i, err.message)
   end
 

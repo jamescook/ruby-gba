@@ -18,13 +18,13 @@ class TestTimers < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   Build = RubyGBA::IR::Build
   Color = RubyGBA::Color
 
   def interpret(**opts, &block)
-    Ruby.new.run(tree(&block), **opts)
+    Reference.new.run(tree(&block), **opts)
   end
 
   def tree(&block)
@@ -253,7 +253,7 @@ class TestTimers < Minitest::Test
 
   def test_after_drives_a_marker_on_both_backends
     program = blink_program(frames: 4)
-    i = Ruby.new.run(program)
+    i = Reference.new.run(program)
     assert_equal Color.resolve(:red), i.screen.pixel(103, 83), "interpreter: marker on after 2 frames"
 
     rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),

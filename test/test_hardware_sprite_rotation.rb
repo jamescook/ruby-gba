@@ -16,7 +16,7 @@ class TestHardwareSpriteRotation < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -64,7 +64,7 @@ class TestHardwareSpriteRotation < Minitest::Test
 
   # Upright: left half red is to the LEFT of center, right half green to the RIGHT.
   def test_upright_the_left_half_is_on_the_left
-    screen = Ruby.new.run(turned_program(angle: 0)).screen
+    screen = Reference.new.run(turned_program(angle: 0)).screen
     assert_equal Color.resolve(:red),   screen.pixel(CX - 4, CY), "red left half is on the left"
     assert_equal Color.resolve(:green), screen.pixel(CX + 4, CY), "green right half is on the right"
   end
@@ -73,7 +73,7 @@ class TestHardwareSpriteRotation < Minitest::Test
   # green on the bottom. (Top goes to the right, right to the bottom, and so on — so
   # the left rises to the top.)
   def test_a_quarter_turn_clockwise_moves_the_left_half_to_the_top
-    screen = Ruby.new.run(turned_program(angle: 90)).screen
+    screen = Reference.new.run(turned_program(angle: 90)).screen
     assert_equal Color.resolve(:red),   screen.pixel(CX, CY - 4), "the red half turned up to the top"
     assert_equal Color.resolve(:green), screen.pixel(CX, CY + 4), "the green half turned down to the bottom"
   end
@@ -111,7 +111,7 @@ class TestHardwareSpriteRotation < Minitest::Test
       builder.emit_pending_functions
       builder.program
     end
-    i = Ruby.new.run(prog)
+    i = Reference.new.run(prog)
     assert_equal 140, i[:__obj1_angle], "the angle accumulated and wrapped to 140"
   end
 

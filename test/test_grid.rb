@@ -14,7 +14,7 @@ class TestGrid < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -23,7 +23,7 @@ class TestGrid < Minitest::Test
     builder = Builder.new
     builder.instance_eval(&block)
     builder.emit_pending_functions
-    Ruby.new.run(builder.program).screen
+    Reference.new.run(builder.program).screen
   end
 
   # Assert every pixel of a w-by-h region is one color.

@@ -3,7 +3,7 @@
 module RubyGBA
   module IR
     module Backends
-      class Ruby
+      class Reference
         # The interpreter's model of a `list`: a bounded, ordered collection the
         # program pushes onto, drops from either end, and reads back by index. It's
         # the headless stand-in for what a console keeps in memory as a ring buffer

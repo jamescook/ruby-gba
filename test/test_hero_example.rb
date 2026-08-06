@@ -17,7 +17,7 @@ class TestHeroExample < Minitest::Test
   include RubyGBA::Constants
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   CENTER = [120, 80].freeze # the middle of the screen, where the hero's body always sits
@@ -42,11 +42,11 @@ class TestHeroExample < Minitest::Test
     blue = Color.resolve(:blue)
     red  = Color.resolve(:red)
 
-    rest = Ruby.new.run(Hero.program, max_steps: 200).screen
+    rest = Reference.new.run(Hero.program, max_steps: 200).screen
     assert_equal red,  rest.pixel(*CENTER), "the hero sits centered on screen"
     assert_equal blue, rest.pixel(78, 78),  "at rest the pond landmark is just up-left of the hero"
 
-    walked = Ruby.new.input_each_frame { |f| f <= 30 ? [:right] : [] }.run(Hero.program, max_steps: 600).screen
+    walked = Reference.new.input_each_frame { |f| f <= 30 ? [:right] : [] }.run(Hero.program, max_steps: 600).screen
     assert_equal red,     walked.pixel(*CENTER), "the hero is STILL centered after walking — the world moved, not the hero"
     assert_equal blue,    walked.pixel(18, 78),  "the pond has slid left with the scrolling world"
     refute_equal blue,    walked.pixel(78, 78),  "and it left its old spot behind (no smear)"

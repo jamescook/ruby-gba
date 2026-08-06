@@ -12,7 +12,7 @@ require_relative "test_helper"
 class TestScrollExample < Minitest::Test
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
 
@@ -27,7 +27,7 @@ class TestScrollExample < Minitest::Test
   end
 
   def test_the_world_renders
-    s = Ruby.new.run(Scroll.program, max_steps: 200).screen
+    s = Reference.new.run(Scroll.program, max_steps: 200).screen
     blue = RubyGBA::Color.resolve(:blue)
     assert blue_in_lake?(->(x, y) { s.pixel(x, y) == blue }), "the lake renders in the middle of the world"
   end

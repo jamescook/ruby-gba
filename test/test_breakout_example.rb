@@ -19,7 +19,7 @@ class TestBreakoutExample < Minitest::Test
   include RubyGBA::Constants
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   NUM_BRICKS = Breakout::BRICKS.length
@@ -33,7 +33,7 @@ class TestBreakoutExample < Minitest::Test
     script = lambda do |frame|
       frame == 1 ? [:start] : then_hold
     end
-    Ruby.new.input_each_frame(&script).run(Breakout.program, frames: frames)
+    Reference.new.input_each_frame(&script).run(Breakout.program, frames: frames)
   end
 
   # RubyGBA.build runs the guardrails and Doctor, so a clean, non-empty build is

@@ -34,7 +34,7 @@ class TestIRContracts < Minitest::Test
   end
 
   def test_the_interpreter_framebuffer_sizes_itself_from_the_contract
-    fb = RubyGBA::IR::Backends::Ruby::Framebuffer.new
+    fb = RubyGBA::IR::Backends::Reference::Framebuffer.new
     assert_equal Screen::WIDTH, fb.width
     assert_equal Screen::HEIGHT, fb.height
   end

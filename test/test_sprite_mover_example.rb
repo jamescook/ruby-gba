@@ -14,7 +14,7 @@ class TestSpriteMoverExample < Minitest::Test
   include GembaSupport
   include RubyGBA::Constants
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -45,7 +45,7 @@ class TestSpriteMoverExample < Minitest::Test
 
   def test_the_heart_shows_up_and_moves_on_the_interpreter
     # Hold left for a while, then it settles against the left clamp.
-    i = Ruby.new.input_each_frame { |_f| [:left] }.run(SpriteMover.program, max_steps: 4000)
+    i = Reference.new.input_each_frame { |_f| [:left] }.run(SpriteMover.program, max_steps: 4000)
     assert_operator i[:__spr1_x], :<, START[0], "holding left didn't move the heart"
     assert color_on?(i.screen, Color.resolve(:red)), "the heart isn't on screen"
     assert color_on?(i.screen, FIELD), "the blue field isn't showing around the heart"

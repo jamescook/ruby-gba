@@ -3,11 +3,11 @@
 require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 
-# The simulated framebuffer in isolation — a plain 2D grid of colors the Ruby
+# The simulated framebuffer in isolation — a plain 2D grid of colors the reference
 # backend draws into. No IR, no interpreter here: just the screen model and its
 # edge-clipping promise.
 class TestIRFramebuffer < Minitest::Test
-  Framebuffer = RubyGBA::IR::Backends::Ruby::Framebuffer
+  Framebuffer = RubyGBA::IR::Backends::Reference::Framebuffer
 
   def test_defaults_to_gba_bitmap_dimensions
     fb = Framebuffer.new

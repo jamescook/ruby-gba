@@ -11,7 +11,7 @@ require_relative "conformance_fixture"
 # the backends AGREE on output; this one checks they all COVER every feature.
 class TestCrossBackendConformance < Minitest::Test
   Node = RubyGBA::IR::Node
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROMValidator = RubyGBA::ROMValidator
   ROM = RubyGBA::ROM
@@ -44,7 +44,7 @@ class TestCrossBackendConformance < Minitest::Test
     # Any feature the interpreter can't execute raises ProgramError from its
     # "cannot execute ..." branch and fails here. Reaching the terminal halt
     # (not the step budget) proves the whole top-to-bottom flow ran.
-    interp = Ruby.new.run(ConformanceFixture.program, max_steps: 10_000)
+    interp = Reference.new.run(ConformanceFixture.program, max_steps: 10_000)
 
     refute interp.stopped_at_budget?,
            "the fixture should sync-then-halt cleanly, not run out the step budget"
@@ -66,8 +66,8 @@ class TestCrossBackendConformance < Minitest::Test
     # `raw` is native bytes — the portable interpreter has no CPU to run them, so
     # reaching one must raise, not silently pass. (In the fixture it's kept in an
     # uncalled func, so it's never reached there.)
-    err = assert_raises(Ruby::ProgramError) do
-      Ruby.new.run(RubyGBA::IR::Build.program(RubyGBA::IR::Build.raw("\x00\x00\x00\x00".b)))
+    err = assert_raises(Reference::ProgramError) do
+      Reference.new.run(RubyGBA::IR::Build.program(RubyGBA::IR::Build.raw("\x00\x00\x00\x00".b)))
     end
     assert_match(/cannot execute|raw/i, err.message)
   end

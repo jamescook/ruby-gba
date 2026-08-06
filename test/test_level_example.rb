@@ -19,7 +19,7 @@ class TestLevelExample < Minitest::Test
   include RubyGBA::Constants
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Assets = MakeExampleAssets
 
   BRICK = Assets::BRICK # a wall-tile body pixel (CSV tile number 1)
@@ -43,7 +43,7 @@ class TestLevelExample < Minitest::Test
   # On the interpreter: the CSV's tile numbers render as the room (border brick, open
   # floor), with the imported transparent hero drawn over it.
   def test_the_csv_level_renders_on_the_interpreter
-    s = Ruby.new.run(Level.program, max_steps: 400).screen
+    s = Reference.new.run(Level.program, max_steps: 400).screen
 
     assert_equal BRICK, s.pixel(*BRICK_AT), "CSV tile 1 (brick) paints the wall border"
     assert_equal FLOOR, s.pixel(*FLOOR_AT), "CSV tile 2 (floor) paints the interior"

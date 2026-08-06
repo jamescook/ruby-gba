@@ -14,7 +14,7 @@ class TestBackingStore < Minitest::Test
   include GembaSupport
   include RubyGBA::IR::Build
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -37,7 +37,7 @@ class TestBackingStore < Minitest::Test
   # ---- interpreter: restore puts back exactly what was captured ----
 
   def test_restore_reinstates_the_pixels_under_a_covered_patch
-    s = Ruby.new.run(cover_and_restore([10, 10], [10, 10])).screen
+    s = Reference.new.run(cover_and_restore([10, 10], [10, 10])).screen
 
     # the red patch and its blue surround are back; no green survived the restore
     assert_equal Color.resolve(:red), s.pixel(12, 12), "the red patch wasn't restored"
@@ -51,7 +51,7 @@ class TestBackingStore < Minitest::Test
 
   def test_a_restore_before_any_save_does_nothing
     # No save_region ran, so there's nothing to put back — the green stays.
-    s = Ruby.new.run(program(
+    s = Reference.new.run(program(
       screen(:bitmap),
       clear_screen(:blue),
       backing_buffer(:under, width: 8, height: 8),
@@ -65,7 +65,7 @@ class TestBackingStore < Minitest::Test
   # A patch hanging off the left edge: the off-screen columns have nothing to
   # remember, and the on-screen part still round-trips without wrapping.
   def test_a_patch_off_the_edge_round_trips_the_visible_part
-    s = Ruby.new.run(program(
+    s = Reference.new.run(program(
       screen(:bitmap),
       clear_screen(:blue),
       fill_rect(0, 20, 4, 4, :red),      # visible detail near the left edge
@@ -86,7 +86,7 @@ class TestBackingStore < Minitest::Test
   def test_the_move_pattern_leaves_no_trail
     # Save under (10,10); cover it; then "move" one step right: restore the old
     # spot, save under the new spot, cover the new spot. The old spot must be clean.
-    s = Ruby.new.run(program(
+    s = Reference.new.run(program(
       screen(:bitmap),
       clear_screen(:blue),
       backing_buffer(:m, width: 8, height: 8),

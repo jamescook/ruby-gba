@@ -12,7 +12,7 @@ class TestDirectSound < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   LoweringError = RubyGBA::IR::Backends::GBA::LoweringError
@@ -32,7 +32,7 @@ class TestDirectSound < Minitest::Test
       boom.play
       game_loop { wait_vblank }
     end
-    i = Ruby.new.run(b.program, max_steps: 300)
+    i = Reference.new.run(b.program, max_steps: 300)
     assert_includes i.audio, [:sample, :boom], "play put the sample on the audio channel"
   end
 
@@ -45,7 +45,7 @@ class TestDirectSound < Minitest::Test
       s.stop
       halt
     end
-    log = Ruby.new.run(b.program).audio
+    log = Reference.new.run(b.program).audio
     assert_equal [[:sample, :s], [:stop_sample]], log
   end
 
@@ -61,7 +61,7 @@ class TestDirectSound < Minitest::Test
   def test_playing_an_undefined_sample_is_a_friendly_error
     b = Builder.new
     b.instance_eval { screen :bitmap; play_sample_via_handle = RubyGBA::Sample.new(self, :ghost).play; halt }
-    err = assert_raises(Ruby::ProgramError) { Ruby.new.run(b.program) }
+    err = assert_raises(Reference::ProgramError) { Reference.new.run(b.program) }
     assert_match(/ghost/, err.message)
   end
 

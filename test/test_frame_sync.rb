@@ -17,7 +17,7 @@ require_relative "../lib/ruby_gba"
 # runs its body exactly once per frame, and an unpaced loop spins until the step
 # budget cuts it off.
 class TestFrameSync < Minitest::Test
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
 
   FRAMES = 5
 
@@ -33,7 +33,7 @@ class TestFrameSync < Minitest::Test
 
   # How many times the loop body ran over FRAMES frames.
   def passes(program)
-    Ruby.new.run(program, frames: FRAMES)[:n]
+    Reference.new.run(program, frames: FRAMES)[:n]
   end
 
   # The whole point: no `wait_vblank` anywhere, and the loop still runs at exactly
@@ -90,7 +90,7 @@ class TestFrameSync < Minitest::Test
       game_loop { add :n, 1 }
     end
 
-    i = Ruby.new.run(program, frames: FRAMES)
+    i = Reference.new.run(program, frames: FRAMES)
     assert i.stopped_at_budget?, "an unpaced loop should spin until the step budget"
     assert_operator i[:n], :>, FRAMES, "and run its body far more than once per frame"
   end
@@ -119,7 +119,7 @@ class TestFrameSync < Minitest::Test
       halt
     end
 
-    assert_equal RubyGBA::Color.resolve(:red), Ruby.new.run(program).screen.pixel(110, 75),
+    assert_equal RubyGBA::Color.resolve(:red), Reference.new.run(program).screen.pixel(110, 75),
                  "the developer's own sync presented the page"
     refute_match(/frame_sync/, err, "nothing was dropped, so there is nothing to report")
   end

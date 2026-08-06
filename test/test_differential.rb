@@ -162,7 +162,7 @@ class TestDifferential < Minitest::Test
       halt
     end
 
-    oracle = RubyGBA::IR::Backends::Ruby.new.run(as_built, frames: 2).screen.to_a
+    oracle = RubyGBA::IR::Backends::Reference.new.run(as_built, frames: 2).screen.to_a
     _, console = backend_pictures(as_lowered_wrong, frames: 2, name: "WRONG")
     bad = mismatched_pixels(oracle, console)
 
@@ -252,7 +252,7 @@ class TestDifferential < Minitest::Test
   # no offset works at all, which would mean a real rendering disagreement.
   def measured_offset(program, name)
     counts = (2..8).to_a
-    oracle = counts.to_h { |f| [f, RubyGBA::IR::Backends::Ruby.new.run(program, frames: f).screen.to_a] }
+    oracle = counts.to_h { |f| [f, RubyGBA::IR::Backends::Reference.new.run(program, frames: f).screen.to_a] }
     refute_equal 1, oracle.values.uniq.length, "this program must actually animate for the sweep to mean anything"
 
     rom = assemble_rom(program, name: name)

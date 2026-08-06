@@ -18,7 +18,7 @@ class TestScenePresentation < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   RED = Color.resolve(:red)
@@ -65,7 +65,7 @@ class TestScenePresentation < Minitest::Test
   # The oracle: while :playing is active only its red block shows; the :over scene's blue
   # block is hidden even though it's declared, because :over isn't the active scene.
   def test_only_the_active_scenes_sprite_shows
-    playing = Ruby.new.run(two_scene_program) # no input: stays on :playing
+    playing = Reference.new.run(two_scene_program) # no input: stays on :playing
     assert_equal RED, playing.screen.pixel(43, 43), "the playing scene's block shows"
     refute_equal BLUE, playing.screen.pixel(103, 103), "the other scene's block is hidden"
   end
@@ -73,7 +73,7 @@ class TestScenePresentation < Minitest::Test
   # Switching scenes switches what's presented: START moves to :over, so the blue block
   # appears and the red one is gone — with no visibility flag in the program.
   def test_switching_scene_switches_the_presentation
-    over = Ruby.new.input_each_frame { |_f| [:start] }.run(two_scene_program)
+    over = Reference.new.input_each_frame { |_f| [:start] }.run(two_scene_program)
     assert_equal 1, over[:state], "START switched to the :over scene"
     assert_equal BLUE, over.screen.pixel(103, 103), "the over scene's block shows"
     refute_equal RED, over.screen.pixel(43, 43), "the playing scene's block is gone"
@@ -82,10 +82,10 @@ class TestScenePresentation < Minitest::Test
   # HUD text is scene-scoped too: the :over scene's banner is declared inside it (the
   # top-level-only rule is relaxed for a scene body) and only shows once :over is active.
   def test_scene_hud_text_shows_only_on_its_scene
-    playing = Ruby.new.run(two_scene_program)
+    playing = Reference.new.run(two_scene_program)
     refute white_in?(playing.screen, 58, 58, 24, 12), "the over banner is hidden while playing"
 
-    over = Ruby.new.input_each_frame { |_f| [:start] }.run(two_scene_program)
+    over = Reference.new.input_each_frame { |_f| [:start] }.run(two_scene_program)
     assert white_in?(over.screen, 58, 58, 24, 12), "the over banner shows once :over is active"
   end
 

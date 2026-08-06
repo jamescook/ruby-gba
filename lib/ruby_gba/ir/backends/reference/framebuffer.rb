@@ -3,8 +3,8 @@
 module RubyGBA
   module IR
     module Backends
-      class Ruby
-        # A simulated screen — the Ruby backend's stand-in for the display a real
+      class Reference
+        # A simulated screen — the reference backend's stand-in for the display a real
         # console would draw to. It's just a grid of colors: every cell holds one
         # color directly, and drawing means writing colors into cells. Tests read
         # cells back to assert what a program *would* put on screen, with no

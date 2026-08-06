@@ -18,7 +18,7 @@ class TestFacingSheet < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Image = RubyGBA::Image
@@ -100,7 +100,7 @@ class TestFacingSheet < Minitest::Test
   end
 
   def spot(program)
-    Ruby.new.run(program).screen.pixel(44, 44)
+    Reference.new.run(program).screen.pixel(44, 44)
   end
 
   def color(r, g, b) = Color.rgb8(r, g, b)

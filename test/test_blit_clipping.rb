@@ -8,7 +8,7 @@ require_relative "test_helper"
 # only its on-screen part — no pixels past the framebuffer, and (on the console)
 # no per-row DMA overrun that wraps garbage onto the neighbouring line.
 #
-# The Ruby interpreter is the reference: it already clips per pixel (set_pixel
+# The reference interpreter is the oracle: it already clips per pixel (set_pixel
 # drops off-screen writes). Every case runs on BOTH backends and asserts the
 # SAME visible pixels, so the console's clipped output has to match the oracle
 # exactly. The programs are built straight from IR::Build (no DSL sugar) so the
@@ -17,7 +17,7 @@ class TestBlitClipping < Minitest::Test
   include RubyGBA::IR::Build
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   Color = RubyGBA::Color
 
@@ -50,7 +50,7 @@ class TestBlitClipping < Minitest::Test
   def assert_same_pixels(defn, blit_stmt, expectations)
     prog = program(screen(:bitmap), clear_screen(BG), defn, blit_stmt, halt)
 
-    screen = Ruby.new.run(prog).screen
+    screen = Reference.new.run(prog).screen
     expectations.each do |x, y, color|
       want = Color.resolve(color || BG)
       assert_equal want, screen.pixel(x, y),

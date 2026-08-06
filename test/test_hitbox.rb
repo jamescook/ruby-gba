@@ -17,7 +17,7 @@ class TestHitbox < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -54,7 +54,7 @@ class TestHitbox < Minitest::Test
       end
     end
     b.emit_pending_functions
-    Ruby.new.run(b.program, max_steps: 2_000)[:hit] == 1
+    Reference.new.run(b.program, max_steps: 2_000)[:hit] == 1
   end
 
   # Full 8x8 boxes at x100 (100..107) and x105 (105..112) overlap, but the 4x4 visible
@@ -127,7 +127,7 @@ class TestHitbox < Minitest::Test
     b.emit_pending_functions
     # The union includes the wide pose (full 8 wide), so the box reaches x108 and touches
     # the bar even though the sprite currently shows the narrow pose.
-    assert_equal 1, Ruby.new.run(b.program, max_steps: 2_000)[:hit],
+    assert_equal 1, Reference.new.run(b.program, max_steps: 2_000)[:hit],
                  "the collision box covers the widest pose, not just the one on screen"
   end
 

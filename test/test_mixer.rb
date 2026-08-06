@@ -13,7 +13,7 @@ class TestMixer < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
 
@@ -35,7 +35,7 @@ class TestMixer < Minitest::Test
         (counter >= frames).then { halt }
       end
     end
-    Ruby.new.run(b.program, max_steps: 200_000)
+    Reference.new.run(b.program, max_steps: 200_000)
   end
 
   def test_two_looping_samples_sound_at_the_same_time
@@ -80,7 +80,7 @@ class TestMixer < Minitest::Test
         (counter >= 20).then { halt }
       end
     end
-    i = Ruby.new.run(b.program, max_steps: 200_000)
+    i = Reference.new.run(b.program, max_steps: 200_000)
     assert_includes i.active_samples, :music, "music keeps playing"
     refute_includes i.active_samples, :blip, "the stopped sample is gone from the mix"
   end
@@ -101,7 +101,7 @@ class TestMixer < Minitest::Test
       buzz = sample :buzz, pcm: [25, -25] * 2000, rate: 8000
       20.times { buzz.play } # far more than MAX_VOICES
     end
-    assert_equal Ruby::MAX_VOICES, i.peak_voices, "the mix is capped at MAX_VOICES, extra plays dropped"
+    assert_equal Reference::MAX_VOICES, i.peak_voices, "the mix is capped at MAX_VOICES, extra plays dropped"
   end
 
   # --- hardware: the console really sums the voices ---

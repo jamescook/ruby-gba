@@ -6,7 +6,7 @@ require_relative "test_helper"
 
 # The list feature on real hardware: lower a list program to a ROM, run it in
 # gemba, and read the pixels it draws. Each drawing test runs the SAME program on
-# the Ruby interpreter (the oracle) and on the console and asserts identical
+# the reference interpreter (the oracle) and on the console and asserts identical
 # pixels — the cross-backend agreement the list lowering has to hold. The list's
 # contents are made visible by drawing a marker at each stored x, so the ring
 # buffer's indexing (head + i, wrapped) shows up directly on screen.
@@ -18,7 +18,7 @@ class TestListHardware < Minitest::Test
   include RubyGBA::IR::Build
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   Color = RubyGBA::Color
 
@@ -33,7 +33,7 @@ class TestListHardware < Minitest::Test
   # Run +prog+ on both backends and assert every [x, colour] holds at row ROW on
   # each. A nil colour means "background here" (black) — nothing drawn.
   def assert_same_markers(prog, expectations)
-    screen = Ruby.new.run(prog).screen
+    screen = Reference.new.run(prog).screen
     expectations.each do |x, color|
       want = Color.resolve(color || :black)
       assert_equal want, screen.pixel(x, ROW),

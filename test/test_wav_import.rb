@@ -13,7 +13,7 @@ class TestWavImport < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Wav = RubyGBA::Wav
@@ -80,7 +80,7 @@ class TestWavImport < Minitest::Test
         clip.play
         game_loop { wait_vblank }
       end
-      i = Ruby.new.run(b.program, max_steps: 300)
+      i = Reference.new.run(b.program, max_steps: 300)
       assert_includes i.audio, [:sample, :clip], "the WAV-loaded sample plays"
     end
   end

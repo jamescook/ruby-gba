@@ -14,7 +14,7 @@ class TestMazeExample < Minitest::Test
   include RubyGBA::Constants
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   HERO = Color.rgb(31, 20, 0)  # the hero disc's body
@@ -28,7 +28,7 @@ class TestMazeExample < Minitest::Test
   # At rest the room is drawn (border bricks) and the hero sits on the floor near the
   # left wall.
   def test_the_room_and_hero_render
-    s = Ruby.new.run(Maze.program, max_steps: 300).screen
+    s = Reference.new.run(Maze.program, max_steps: 300).screen
     assert_equal HERO,  s.pixel(12, 20), "the hero starts on the floor by the left wall"
     assert_equal BRICK, s.pixel(100, 4), "the room's wall border is drawn along the top"
   end
@@ -36,7 +36,7 @@ class TestMazeExample < Minitest::Test
   # Hold right: the hero walks up to the first pillar (px 32) and stops flush at x24,
   # never entering the wall.
   def test_the_hero_stops_at_a_wall
-    s = Ruby.new.input_each_frame { [:right] }.run(Maze.program, max_steps: 3_000).screen
+    s = Reference.new.input_each_frame { [:right] }.run(Maze.program, max_steps: 3_000).screen
     assert_equal HERO,  s.pixel(28, 20), "the hero rests flush against the pillar (its body at x24..31)"
     assert_equal BRICK, s.pixel(48, 20), "the pillar is right there past it"
     refute_equal HERO,  s.pixel(48, 20), "the hero never walked into the pillar"

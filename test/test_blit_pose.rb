@@ -13,7 +13,7 @@ class TestBlitPose < Minitest::Test
   include GembaSupport
   include RubyGBA::IR::Build
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -32,19 +32,19 @@ class TestBlitPose < Minitest::Test
   end
 
   def test_index_zero_draws_the_first_pose
-    s = Ruby.new.run(pose_program(0)).screen
+    s = Reference.new.run(pose_program(0)).screen
     assert_equal Color.resolve(:red), s.pixel(10, 10), "index 0 should draw the red pose"
     assert_equal Color.resolve(:red), s.pixel(11, 11)
   end
 
   def test_index_one_draws_the_second_pose
-    s = Ruby.new.run(pose_program(1)).screen
+    s = Reference.new.run(pose_program(1)).screen
     assert_equal Color.resolve(:green), s.pixel(10, 10), "index 1 should draw the green pose"
     refute_equal Color.resolve(:red), s.pixel(11, 11), "the red pose should not be drawn"
   end
 
   def test_an_out_of_range_index_draws_nothing
-    s = Ruby.new.run(pose_program(5)).screen
+    s = Reference.new.run(pose_program(5)).screen
     assert_equal Color.resolve(:black), s.pixel(10, 10), "an out-of-range pose index draws nothing"
   end
 

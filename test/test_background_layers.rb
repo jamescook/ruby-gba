@@ -14,7 +14,7 @@ class TestBackgroundLayers < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -56,7 +56,7 @@ class TestBackgroundLayers < Minitest::Test
   # At rest the two landmarks sit apart (green at x44, red at x84), and where the near
   # layer is empty its blue backdrop layer shows through.
   def test_layers_compose_with_the_front_transparent_where_empty
-    s = Ruby.new.run(two_layers(0, 0)).screen
+    s = Reference.new.run(two_layers(0, 0)).screen
     assert_equal Color.resolve(:green), s.pixel(44, 44), "the far layer's green landmark shows through the empty near layer"
     assert_equal Color.resolve(:red),   s.pixel(84, 44), "the near layer's red landmark sits in front"
     assert_equal Color.resolve(:blue),  s.pixel(100, 100), "elsewhere the near layer is see-through, so the far layer shows"
@@ -66,7 +66,7 @@ class TestBackgroundLayers < Minitest::Test
   # x24 while the red slides to x44 — they were 40px apart, now 20px apart. That change
   # in relative spacing *is* parallax (the near layer moved more than the far one).
   def test_layers_scroll_at_independent_speeds_parallax
-    s = Ruby.new.run(two_layers(20, 40)).screen
+    s = Reference.new.run(two_layers(20, 40)).screen
     assert_equal Color.resolve(:green), s.pixel(24, 44), "the far layer slid 20px (its landmark to x24)"
     assert_equal Color.resolve(:red),   s.pixel(44, 44), "the near layer slid 40px (its landmark to x44) — twice as far"
   end

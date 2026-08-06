@@ -14,8 +14,9 @@ module RubyGBA
     #
     # So each kind is tagged +:portable+ or +:hardware_only+. A whole program's tier
     # is the *floor* over its nodes — one hardware-only node makes the program
-    # hardware-only — and a backend declares the tier it accepts (the GBA and Ruby
-    # backends take everything; a future web backend would take portable-only). That
+    # hardware-only — and a backend declares the tier it accepts (the GBA and
+    # reference backends take everything; a future web backend would take
+    # portable-only). That
     # lets a preflight say, once and up front, "this program uses `raw`, which only
     # runs on :gba," instead of exploding partway through lowering. This module is
     # the classification and the queries over it; the lint that reports a mismatch

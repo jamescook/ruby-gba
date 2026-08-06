@@ -13,7 +13,7 @@ class TestSampleLoop < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
 
@@ -33,7 +33,7 @@ class TestSampleLoop < Minitest::Test
       s.play
       game_loop { wait_vblank }
     end
-    i = Ruby.new.run(b.program, max_steps: 2000)
+    i = Reference.new.run(b.program, max_steps: 2000)
     plays = i.audio.count { |e| e == [:sample, :s] }
     assert_equal 1, plays, "a one-shot sample plays once and falls silent, no replays"
   end
@@ -47,7 +47,7 @@ class TestSampleLoop < Minitest::Test
       music.play(loop: true)
       game_loop { wait_vblank }
     end
-    i = Ruby.new.run(b.program, max_steps: 2000)
+    i = Reference.new.run(b.program, max_steps: 2000)
     plays = i.audio.count { |e| e == [:sample, :music] }
     assert_operator plays, :>, 1, "a looping sample keeps replaying itself (#{plays} plays)"
   end
@@ -62,7 +62,7 @@ class TestSampleLoop < Minitest::Test
       m.stop
       game_loop { wait_vblank }
     end
-    i = Ruby.new.run(b.program, max_steps: 2000)
+    i = Reference.new.run(b.program, max_steps: 2000)
     assert_equal 1, i.audio.count { |e| e == [:sample, :m] }, "a stopped loop does not replay"
     assert_includes i.audio, [:stop_sample]
   end

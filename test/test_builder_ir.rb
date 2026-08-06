@@ -11,7 +11,7 @@ class TestBuilderIR < Minitest::Test
   include RubyGBA::IR::Build # the expected-tree constructors
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
 
   # Build through the DSL and hand back the IR tree it constructed. Functions are
   # deferred in the DSL (so call/func order is free), so their bodies are only
@@ -60,13 +60,13 @@ class TestBuilderIR < Minitest::Test
 
   def test_the_built_tree_runs_in_the_interpreter
     # Structural equality proves the shape; running it proves the meaning. The
-    # same tree the DSL built executes on the Ruby backend and clamps as intended.
+    # same tree the DSL built executes on the reference backend and clamps as intended.
     got = tree do
       var :x, 10
       add :x, 100     # 110
       clamp :x, 0, 20 # -> 20
     end
-    assert_equal 20, Ruby.new.run(got)[:x]
+    assert_equal 20, Reference.new.run(got)[:x]
   end
 
   def test_draw_ops_build_a_matching_ir_tree
@@ -98,7 +98,7 @@ class TestBuilderIR < Minitest::Test
       pixel 10, 20, :red
       fill_rect 5, 5, 4, 3, :green
     end
-    screen = Ruby.new.run(got).screen
+    screen = Reference.new.run(got).screen
     assert_equal RubyGBA::Color.resolve(:red), screen.pixel(10, 20)
     assert_equal RubyGBA::Color.resolve(:green), screen.pixel(5, 5)
     assert_equal RubyGBA::Color.resolve(:black), screen.pixel(0, 0)
@@ -187,7 +187,7 @@ class TestBuilderIR < Minitest::Test
         end
       end
     end
-    assert_equal 3, Ruby.new.run(got)[:x]
+    assert_equal 3, Reference.new.run(got)[:x]
   end
 
   # ---- sound ----
@@ -222,7 +222,7 @@ class TestBuilderIR < Minitest::Test
       beep :high
       stop_music
     end
-    audio = Ruby.new.run(got).audio
+    audio = Reference.new.run(got).audio
     assert_equal [:enabled], audio[0]
     assert_equal 880, audio[1][1][:frequency] # :high resolves to 880 Hz
     assert_equal [:stop_music], audio.last
@@ -249,7 +249,7 @@ class TestBuilderIR < Minitest::Test
       end
     end
 
-    i = Ruby.new.run(got)
+    i = Reference.new.run(got)
     assert_equal 2, i[:score]
     assert_equal 2, i.audio.count { |e| e[0] == :beep } # awarded twice
   end
