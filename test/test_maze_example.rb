@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 require_relative "../examples/maze"
 
 # The Maze example (examples/maze.rb): a hero walks a tiled room and is stopped by the
@@ -12,10 +11,6 @@ require_relative "../examples/maze"
 # instead of passing through — on the interpreter oracle and on real hardware.
 class TestMazeExample < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   HERO = Color.rgb(31, 20, 0)  # the hero disc's body
   BRICK = Color.rgb(20, 10, 8) # a wall brick

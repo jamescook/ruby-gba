@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 require_relative "../examples/tiles"
 
 # The tiles example (examples/tiles.rb): a whole room drawn out of four 8x8 tiles
@@ -11,10 +10,6 @@ require_relative "../examples/tiles"
 # renders the room — the right tile in the right cell — on the interpreter oracle
 # and on real hardware.
 class TestTilesExample < Minitest::Test
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   # Points chosen from the map (examples/tiles.rb), one per tile kind:
   #   (3,3)    — inside the top-left wall tile (cell 0,0)

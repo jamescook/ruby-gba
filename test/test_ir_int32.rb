@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # Pins the IR's integer contract: signed 32-bit two's-complement with
 # wraparound, signed ordering. Every backend (register-based today, a float64

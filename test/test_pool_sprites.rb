@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # A spriteful pool: give a pool an image: and each live instance draws itself as a
 # hardware sprite at its x/y (spawn shows one, remove hides it), and gains a collision
@@ -10,13 +8,6 @@ require_relative "test_helper"
 # the scenes it's one hardware-sprite object per slot, bound to the field lists, drawn by
 # the console's sprite hardware. Pinned on the interpreter and on gemba.
 class TestPoolSprites < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   GREEN = Color.resolve(:green)
   BLACK = 0

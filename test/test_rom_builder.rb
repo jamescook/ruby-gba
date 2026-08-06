@@ -1,12 +1,10 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "tempfile"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 
 class TestRomBuilder < Minitest::Test
-  include GembaSupport
 
   def test_debug_halt_truncates_the_rom
     # Everything up to debug_halt lowers and runs; everything after is dropped,

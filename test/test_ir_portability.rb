@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # Portability tiers: every IR node kind is tagged portable or hardware-only, so a
 # preflight/lint can tell a program apart that runs anywhere from one pinned to

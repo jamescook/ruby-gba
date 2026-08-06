@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The budget-threshold guardrail: when a game draws a growing list item by item
 # every frame, warn with the count at which it tips over the frame budget — and the

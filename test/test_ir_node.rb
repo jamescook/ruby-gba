@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The IR node model is pure data: these tests build and inspect trees without
 # ever constructing a ROM or emitting a single ARM byte. That headlessness is

@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 require_relative "../examples/breakout"
 
 # The Breakout example (examples/breakout.rb): the second bitmap-engine POC. It
@@ -17,10 +16,6 @@ require_relative "../examples/breakout"
 # brick wall, and the paddle really render), read from settled frames on hardware.
 class TestBreakoutExample < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   NUM_BRICKS = Breakout::BRICKS.length
 

@@ -1,20 +1,12 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The `table` verb: a build-time Ruby array shipped as read-only ROM data, read at
 # run time by a Value index. These assert the observable value a lookup returns on
 # the reference interpreter — the fast oracle — including signedness and the
 # out-of-range safety rule. The hardware lowering is checked with gemba separately.
 class TestTable < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
 
   def interpret(&block)
     b = Builder.new

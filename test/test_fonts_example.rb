@@ -1,20 +1,14 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
+
 require_relative "../examples/fonts"
-require_relative "test_helper"
 
 # The fonts example: the same number drawn in :default and :tiny. Asserts both
 # render, that the tiny one is genuinely smaller (fewer pixels, shorter box), and
 # that the cost model charges the tiny draw less — on the interpreter and gemba.
 class TestFontsExample < Minitest::Test
-  include GembaSupport
 
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
   CostModel = RubyGBA::IR::CostModel
 
   GREEN = Color.resolve(:green)

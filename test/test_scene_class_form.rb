@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
+
 require_relative "fixtures/scene_classes/title_screen"
 require_relative "fixtures/scene_classes/play_screen"
 
@@ -12,9 +12,6 @@ require_relative "fixtures/scene_classes/play_screen"
 # scene) and dispatch with case_var. No base class, no registrar, no magic — this test
 # proves only the active screen's presentation shows and only its update runs.
 class TestSceneClassForm < Minitest::Test
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   GREEN = Color.resolve(:green) # TitleScreen's marker
   CYAN = Color.resolve(:cyan)   # PlayScreen's marker

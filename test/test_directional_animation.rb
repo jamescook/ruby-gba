@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Directional sprite animation: `facing:` given a LIST of frames per direction runs a
 # per-direction animation — a character with its own walk cycle each way it faces, or
@@ -12,13 +10,6 @@ require_relative "test_helper"
 # frame animates WITHIN it.
 class TestDirectionalAnimation < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   SOLID8 = (["########"] * 8).join("\n")
 

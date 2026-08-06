@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Frame timing lowers `wait_vblank` to the BIOS routine VBlankIntrWait (SWI 0x05):
 # the CPU sleeps until the next VBlank interrupt instead of busy-polling the scanline
@@ -12,10 +10,6 @@ require_relative "test_helper"
 # per frame on the interpreter AND on real hardware (a hang would miss the count).
 class TestGameLoop < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  GBA = RubyGBA::IR::Backends::GBA
-  Reference = RubyGBA::IR::Backends::Reference
 
   # ARM SWI with comment 0x05 in the top byte -> VBlankIntrWait.
   VBLANK_INTR_WAIT = 0xEF000000 | (0x05 << 16)

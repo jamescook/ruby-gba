@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Tiled backgrounds (`tiles` + `background`): draw a level out of a small set of
 # reusable tile images stamped onto a grid by a character map. This is the
@@ -14,13 +12,6 @@ require_relative "test_helper"
 # makes it efficient and scrollable is the next slice. The user code here does not
 # change when that lands.)
 class TestTiledBackground < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   # A 4x4 solid tile of one color, as ASCII art (small, so the grid math is easy
   # to read: cell (c, r) covers x 4c..4c+3, y 4r..4r+3).

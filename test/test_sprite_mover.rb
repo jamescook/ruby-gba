@@ -1,19 +1,12 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The sprite-mover example in miniature: a transparent ASCII heart steered by
 # holding a direction. Proves image (ASCII art + transparency) + blit +
 # held-input move a sprite, on both backends.
 class TestSpriteMover < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   # A heart that starts at (100, 60), slides right while :right is held, and halts
   # after +frames+ steps so its final resting place is deterministic. Holding

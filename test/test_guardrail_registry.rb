@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 # The guardrail extension hook: Guardrails.register lets something outside the
 # frozen builtins contribute a whole-program check (an effect pack's own footgun

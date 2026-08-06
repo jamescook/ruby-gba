@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 
 # RubyGBA.game declares a game (title + codes + DSL block) without building or
 # writing it, and hands back a handle. The handle is what the reference interpreter
@@ -11,8 +10,6 @@ require_relative "test_helper"
 # command loads. These assert the handle behaves, and that just declaring a game is
 # side-effect free (no cartridge written) so tests and the CLI stay in control.
 class TestGame < Minitest::Test
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   def test_it_returns_a_handle_carrying_the_title_and_codes
     g = RubyGBA.game("MYGAME", code: "BMYG", maker: "01") { screen :bitmap }

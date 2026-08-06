@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Looping a sample: `s.play(loop: true)` replays a clip seamlessly (background music),
 # where the default `s.play` plays it once (a one-shot effect). On the console the
@@ -10,12 +8,6 @@ require_relative "test_helper"
 # clip re-triggers when it plays out, so the loop shows up in the audio log. Pinned on
 # both backends.
 class TestSampleLoop < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
 
   # A one-frame-ish clip, so a few game frames cross its end several times.
   def short_clip

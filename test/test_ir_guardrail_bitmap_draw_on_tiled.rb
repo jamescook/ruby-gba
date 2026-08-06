@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 
 # A drawing call the tiled screen can never show, inside a game that is otherwise
 # a working tiled game.
@@ -19,12 +18,8 @@ require_relative "test_helper"
 # RubyGBA.build, so it bypasses the validation pass and keeps proving the hardware
 # behavior now that the guardrail stops such a program from being built.
 class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
   Check = RubyGBA::IR::Guardrails::Checks::BitmapDrawOnTiled
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
 
   SOLID8 = (["########"] * 8).join("\n")
   FIELD = (["##############################"] * 20).freeze

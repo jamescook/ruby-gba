@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The one value-coercion boundary (Value.node_for): every value operand — a
 # Value, an Integer, a Symbol, a raw value node — becomes a uniform IR value
@@ -12,7 +11,6 @@ class TestValueCoercion < Minitest::Test
   include RubyGBA::IR::Build
 
   Value = RubyGBA::Value
-  Builder = RubyGBA::Builder
 
   # ---- the coercer itself --------------------------------------------------
 

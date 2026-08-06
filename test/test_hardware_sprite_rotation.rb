@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Turning a hardware sprite to an arbitrary angle (affine rotation). On a
 # `screen :tiled`, `sprite.face_angle(d)` / `sprite.turn(d)` rotate the picture to
@@ -13,13 +11,6 @@ require_relative "test_helper"
 # touches the OAM affine matrix, a sine table, or fixed-point math.
 class TestHardwareSpriteRotation < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   # A 16x16 sprite whose LEFT half is red and RIGHT half is green — two big regions,
   # so a probe a few pixels off center reads one clear color and a pixel of sampling

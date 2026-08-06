@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The guardrail mechanism on its own: a registry of checks and a pass that runs
 # them over an IR tree, reporting findings and optionally applying safe fixes.

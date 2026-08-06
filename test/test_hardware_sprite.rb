@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Hardware sprites: on a `screen :tiled`, `sprite :hero, at:` gives a sprite the
 # console composites over the tiled background — the SAME handle you get in bitmap
@@ -12,13 +10,6 @@ require_relative "test_helper"
 # hardware. The dev never touches OAM, tile indices, or object memory.
 class TestHardwareSprite < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   EIGHT_BY_EIGHT = (["########"] * 8).join("\n") # a solid 8x8 tile of one color
 

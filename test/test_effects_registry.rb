@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 # The effect registry: how a verb gets into the DSL from outside the framework.
 #
@@ -14,7 +14,6 @@ require_relative "../lib/ruby_gba"
 class TestEffectsRegistry < Minitest::Test
   Effects = RubyGBA::Effects
   Guardrails = RubyGBA::IR::Guardrails
-  Reference = RubyGBA::IR::Backends::Reference
 
   RED = RubyGBA::Color.resolve(:red)
   BLUE = RubyGBA::Color.resolve(:blue)

@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The expression DSL: `var` hands back a Value handle you compare with ordinary
 # Ruby operators to get a Condition, branch on with .then / .else, compose with
@@ -16,11 +14,6 @@ require_relative "test_helper"
 # couple of gemba tests confirm the same programs on real hardware.
 class TestDSLExpression < Minitest::Test
   include RubyGBA::IR::Build # constructors, for the guardrail trees
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   # Build through the DSL and run it on the reference backend, returning the
   # interpreter — whose #screen holds the pixels the program drew. `held` pins a

@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The camera — moving the visible window over the whole picture — and the screen
 # shake built on top of it.
@@ -13,12 +11,6 @@ require_relative "test_helper"
 # the same drawing SHOWS somewhere else while the shake runs, and shows back in its
 # original place once it ends.
 class TestCameraShake < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
 
   RED = RubyGBA::Color.resolve(:red)
   BLUE = RubyGBA::Color.resolve(:blue)

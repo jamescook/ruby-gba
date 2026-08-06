@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # `list :name, capacity: N` — a bounded, ordered collection whose length changes
 # at run time. Assert its behavior through the reference interpreter (the oracle):
@@ -10,8 +8,6 @@ require_relative "test_helper"
 # variables it leaves behind. Overflow / underflow / out-of-range surface as
 # friendly ProgramErrors, checked headlessly.
 class TestList < Minitest::Test
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
   Build = RubyGBA::IR::Build
 
   # Run a DSL block through the interpreter and hand back the finished run, so a

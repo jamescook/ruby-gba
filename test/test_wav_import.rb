@@ -1,21 +1,15 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "tempfile"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 
 # Importing a .wav file into a playable sample: `sample :name, from: "clip.wav"` reads a
 # RIFF/PCM WAV and converts it — 8- or 16-bit, mono or stereo — down to the 8-bit signed
 # mono PCM the sampled-audio hardware plays, keeping the file's own rate. The decoder is
 # unit-tested; the DSL path is pinned on the interpreter and gemba.
 class TestWavImport < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   Wav = RubyGBA::Wav
 
   # Build a minimal valid WAV byte string. +samples+ are raw per-channel values (unsigned

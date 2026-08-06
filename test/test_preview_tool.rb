@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "zlib"
-require_relative "../lib/ruby_gba"
 require_relative "../tools/preview"
 
 # The preview tool (tools/preview.rb): runs a program on the interpreter, captures its
@@ -10,8 +10,6 @@ require_relative "../tools/preview"
 # pin the two things that could silently produce a broken page — the frame capture and
 # the PNG bytes — plus the CLI's example lookup.
 class TestPreviewTool < Minitest::Test
-  Builder = RubyGBA::Builder
-  Color = RubyGBA::Color
 
   # A tiny program that paints the screen red and loops, so a capture has real frames.
   def red_loop

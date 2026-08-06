@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Edge clipping for blit: a bitmap pushed partway off a screen edge must draw
 # only its on-screen part — no pixels past the framebuffer, and (on the console)
@@ -15,11 +13,6 @@ require_relative "test_helper"
 # clip math is what's under test, not the surface.
 class TestBlitClipping < Minitest::Test
   include RubyGBA::IR::Build
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  Color = RubyGBA::Color
 
   BG = :yellow # a background distinct from the bitmap's four colours
 

@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Scrolling cannot tear, however much work a frame does.
 #
@@ -20,13 +18,6 @@ require_relative "test_helper"
 # scrolling. Its column of pixels has to come out one flat color: two colors in a
 # column means the picture sheared, and where it changes is where the write landed.
 class TestScrollTearing < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  GBA = RubyGBA::IR::Backends::GBA
-  Reference = RubyGBA::IR::Backends::Reference
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   SOLID8 = (["########"] * 8).join("\n")
 

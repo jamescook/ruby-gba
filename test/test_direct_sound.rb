@@ -1,20 +1,13 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Direct Sound: `sample :name, pcm: […]` embeds a recorded 8-bit PCM clip and `s.play`
 # plays it back through the sampled-audio hardware (a DMA feeds the sound FIFO, a timer
 # clocks the rate, a second timer interrupts at the end to stop it). All hidden behind
 # sample/play/stop. Pinned on the interpreter (the audio log) and on gemba (real sound).
 class TestDirectSound < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   LoweringError = RubyGBA::IR::Backends::GBA::LoweringError
 
   # A short square-wave clip — a real, audible waveform to play.

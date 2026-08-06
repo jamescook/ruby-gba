@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Pitched voices: `sample.play(pitch: :E4)` plays one recorded sample at a different note by
 # reading through it faster (higher) or slower (lower) — so one recorded note covers a whole
@@ -10,12 +8,6 @@ require_relative "test_helper"
 # the piano is built on. Pinned on the interpreter (a higher note plays out faster) and on
 # gemba (the voice's play position and its fixed-point step, read off the console).
 class TestPitchedVoices < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
 
   # Play sample :s (recorded at :C4) once at the given pitch, then loop `frames` frames.
   def play_for(frames, pitch)

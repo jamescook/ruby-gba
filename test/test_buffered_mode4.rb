@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Double-buffered (Mode 4) bitmap display: the tear-proof screen. Drawing goes to
 # a hidden page shown all at once, and the framework builds a color palette from
@@ -17,11 +15,6 @@ require_relative "test_helper"
 # Programs are built straight from IR::Build so the lowering is what's under test.
 class TestBufferedMode4 < Minitest::Test
   include RubyGBA::IR::Build
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  Color = RubyGBA::Color
 
   # A blue field with three diagnostic squares in distinct colors at known spots —
   # a wrong palette index or a mis-computed page address lands the wrong color, so

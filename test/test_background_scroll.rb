@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Scrolling a tiled background (`background(...).scroll_to` / `scroll_by`): the
 # visible window slides over a map bigger than the screen, and wraps at the map's
@@ -10,13 +8,6 @@ require_relative "test_helper"
 # oracle and on real hardware. The dev never touches a scroll register.
 class TestBackgroundScroll < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   SOLID8 = (["########"] * 8).join("\n")
 

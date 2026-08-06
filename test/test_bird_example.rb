@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
+
 require_relative "../examples/bird"
 
 # The Bird example (examples/bird.rb): a sprite imported straight from a native .aseprite
@@ -10,9 +9,7 @@ require_relative "../examples/bird"
 # Proves it builds a clean ROM and the bird actually renders over the sky, on the
 # interpreter oracle and on the console.
 class TestBirdExample < Minitest::Test
-  include GembaSupport
 
-  Reference = RubyGBA::IR::Backends::Reference
   SKY = RubyGBA::Color.rgb(12, 18, 28) # the background tile color
 
   def test_it_builds_a_rom

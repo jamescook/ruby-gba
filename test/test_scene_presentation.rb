@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Scene-owned presentation: a sprite or HUD element declared inside a scene belongs to
 # that scene and is shown only while the scene is the active one — the console hides the
@@ -15,11 +13,6 @@ require_relative "test_helper"
 # shows, on the interpreter oracle and on the console.
 class TestScenePresentation < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   RED = Color.resolve(:red)
   BLUE = Color.resolve(:blue)

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "test_helper"
+
 require_relative "helper"
 
 # The headline outcome for the game developer: with selectivity, the estimator

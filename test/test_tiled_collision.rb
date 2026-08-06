@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Tiled collision: a tileset marks tiles `solid:`, and a sprite told it's `blocked_by`
 # that background stops at those tiles instead of walking through them. The check is
@@ -11,13 +9,6 @@ require_relative "test_helper"
 # `can_move?` exposes the same test for manual control.
 class TestTiledCollision < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   SOLID8 = (["########"] * 8).join("\n")
 

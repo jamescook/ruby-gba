@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The structural render-budget guardrail: warn when a game clears the whole screen
 # and repaints a GROWING collection every frame — the "rebuild the whole frame from
@@ -10,7 +8,6 @@ require_relative "test_helper"
 # cost weights); it only looks at the steady per-frame path, so a once-per-round
 # repaint behind a press is (correctly) left alone.
 class TestRedrawEverythingGuardrail < Minitest::Test
-  Builder = RubyGBA::Builder
   Check = RubyGBA::IR::Guardrails::Checks::RedrawEverything
   Build = RubyGBA::IR::Build
 

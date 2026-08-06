@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Tiled mode with nothing loaded into it — the black-screen footgun this guardrail
 # exists to catch.
@@ -20,11 +18,6 @@ require_relative "test_helper"
 # the guardrail stops such a program from being built.
 class TestIRGuardrailEmptyTiled < Minitest::Test
   include RubyGBA::IR::Build
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
 
   SOLID8 = (["########"] * 8).join("\n")
 

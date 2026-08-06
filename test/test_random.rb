@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The randomness DSL: `seed`, `roll`, `rand`, `chance`. A deterministic
 # pseudo-random stream — the same seed always replays the same sequence, and it's
@@ -15,13 +13,8 @@ require_relative "test_helper"
 # same IR) also proves the two backends produce an identical sequence.
 class TestRandom < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
   Build = RubyGBA::IR::Build
-  Color = RubyGBA::Color
 
   # Build through the DSL and run it on the reference backend, returning the
   # interpreter so a test can read the variables the draws wrote.

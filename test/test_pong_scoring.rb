@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The pong ball/paddle/scoring core — the focused integration test for the
 # collision fix. It isn't the whole game (that's examples/pong.rb); it's the part
@@ -16,8 +14,6 @@ require_relative "test_helper"
 # paddle that is either lined up with it (bounce) or out of the way (score), and
 # read the scores back from the interpreter oracle.
 class TestPongScoring < Minitest::Test
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
 
   # The example's field/paddle geometry (examples/pong.rb).
   SCREEN_W  = 240

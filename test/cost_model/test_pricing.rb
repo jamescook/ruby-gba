@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "test_helper"
+
 require_relative "helper"
 
 # What one op costs (lib/ruby_gba/ir/cost_model/pricing.rb): the per-op weights, and

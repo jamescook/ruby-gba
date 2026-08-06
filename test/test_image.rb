@@ -1,15 +1,12 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The `image` DSL verb (array form): define a bitmap from raw pixel data — the
 # shape the image importer produces — validate its dimensions, and pack the
 # pixels to the GBA's 15-bit BGR555 for embedding in the ROM. Drawing it is
 # blit's job (separate); here we cover the definition and its validation.
 class TestImage < Minitest::Test
-  Builder = RubyGBA::Builder
-  Color = RubyGBA::Color
 
   def build(&block)
     b = Builder.new

@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "tempfile"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 
 # `sprite ..., from_aseprite: "hero.json"` imports a sprite the way a pixel artist
 # authored it in Aseprite: it reads the JSON export for each frame's rectangle and each
@@ -13,14 +12,8 @@ require_relative "test_helper"
 # grid slice of frames_from: / facing_from:.
 class TestAseprite < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
 
   Aseprite = RubyGBA::Aseprite
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   SOLID8 = (["########"] * 8).join("\n")
   # The committed fixtures. A JSON+PNG export and a native .aseprite binary, both a 4-frame

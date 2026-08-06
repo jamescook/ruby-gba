@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The shared Sound module: the one source of truth both the DSL and the IR
 # backends resolve sounds through. These tests pin the two halves precisely —

@@ -1,20 +1,12 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # A hardware timer: `timer :beat, per_second: N` starts a counter that ticks N times a
 # second; `beat.ticks` reads how many ticks have elapsed (a Value), `beat.stop` freezes
 # it. The rate is a prescaler + reload on the GBA, and a frame-clock model on the
 # interpreter — both agree on the elapsed-tick count. Pinned on the interpreter and gemba.
 class TestTimer < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
 
   # Run a program that samples `beat.ticks` into :snap every frame and halts at
   # `stop_frame`; returns the interpreter so a test can read :snap. `per_second` sets the

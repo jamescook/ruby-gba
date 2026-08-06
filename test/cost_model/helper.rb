@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../../lib/ruby_gba"
-require_relative "../test_helper"
 
 # Shared scaffolding for the cost-model tests, which are split by the question each
 # part of the model answers — pricing one op, rolling a frame up, shaping the tree,
@@ -34,7 +33,6 @@ end
 class CostModelTest < Minitest::Test
   include CostArith
 
-  Builder = RubyGBA::Builder
   Cost = RubyGBA::IR::CostModel
   Build = RubyGBA::IR::Build
   Node = RubyGBA::IR::Node

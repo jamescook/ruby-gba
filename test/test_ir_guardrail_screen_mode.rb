@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 # The first real guardrail: a program that draws but never turns the display on.
 # This is the classic silent-black-screen footgun, caught on the IR before any

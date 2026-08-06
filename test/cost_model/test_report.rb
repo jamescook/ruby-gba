@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "test_helper"
+
 require_relative "helper"
 
 # The text and the JSON (lib/ruby_gba/ir/cost_model/report.rb): what a person reads

@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
+
 require_relative "../examples/grid_cursor"
-require_relative "test_helper"
 
 # The grid-cursor example: a single lit cell steered around a board with the d-pad,
 # leaving no trail. It's the worked demonstration of `grid` — the game moves in
@@ -11,13 +10,7 @@ require_relative "test_helper"
 # assert BEHAVIOR (the cursor lights the right cell and leaves nothing behind) on
 # the interpreter, plus a gemba check that it renders and steers on the console.
 class TestGridCursorExample < Minitest::Test
-  include GembaSupport
   include RubyGBA::Constants
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   CELL = GridCursor::CELL
   # The cursor starts in the middle cell; these are its top-left pixels.

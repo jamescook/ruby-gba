@@ -1,13 +1,11 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "tempfile"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 
 class TestMusic < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
 
   def build(validate: false, &block)
     RubyGBA.build("MUSTEST", code: "BMUS", maker: "01", validate: validate, &block)

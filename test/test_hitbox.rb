@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Sprite collision hugs the visible art. A sprite's `overlaps?` box is, by default, the
 # rectangle around its non-transparent pixels — not the whole image — so it collides on
@@ -14,13 +12,6 @@ require_relative "test_helper"
 # here, with one hardware check.
 class TestHitbox < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   # An 8x8 dot with a 4x4 visible block in the middle (columns/rows 2..5) and a 2px
   # transparent border. So its visible box is [2, 2, 4, 4]; its full image is [0,0,8,8].

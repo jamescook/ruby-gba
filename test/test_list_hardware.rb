@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The list feature on real hardware: lower a list program to a ROM, run it in
 # gemba, and read the pixels it draws. Each drawing test runs the SAME program on
@@ -16,11 +14,6 @@ require_relative "test_helper"
 # spell that loop out: repeat(list_len, :i) { draw at list_get(:i) }.
 class TestListHardware < Minitest::Test
   include RubyGBA::IR::Build
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  Color = RubyGBA::Color
 
   ROW = 40 # the row every marker is drawn on
 

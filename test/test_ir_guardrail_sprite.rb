@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The two sprite footgun guardrails, both advisory and both recognizing a sprite
 # purely by structure (its repaint uses save/restore-region ops, which nothing
@@ -14,7 +12,6 @@ require_relative "test_helper"
 # Each test asserts the friendly warning fires on the misuse and stays quiet on the
 # correct shipped example.
 class TestSpriteGuardrails < Minitest::Test
-  Builder = RubyGBA::Builder
   Cleared = RubyGBA::IR::Guardrails::Checks::SpriteClearedEachFrame
   Manual = RubyGBA::IR::Guardrails::Checks::ManualSpriteBlit
 

@@ -28,6 +28,9 @@ task compile_gemba_core: GEMBA_CORE_BINARY
 Rake::TestTask.new(test: :compile_gemba_core) do |t|
   t.libs << "test" << "lib"
   t.test_files = FileList["test/**/test_*.rb"]
+  # `test` on the load path is what lets every test file open with the one line
+  # `require "test_helper"` and get the library, minitest, and the shared names.
+  t.description = 'Run the suite (rake test TEST=test/test_foo.rb TESTOPTS="--name=/pattern/")'
 end
 
 namespace :test do

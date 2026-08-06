@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 require_relative "../examples/sheet"
 require_relative "../tools/make_example_assets" # the art's colors, so expectations track the source
 
@@ -17,9 +16,7 @@ require_relative "../tools/make_example_assets" # the art's colors, so expectati
 # importing is the whole point, so its absence is a real failure.
 class TestSheetExample < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
 
-  Reference = RubyGBA::IR::Backends::Reference
   Assets = MakeExampleAssets
 
   BRICK = Assets::BRICK # a wall-tile body pixel

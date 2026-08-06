@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # A pool's `on_full:` policy. By default a spawn onto a full pool is a safe no-op
 # (:drop). With `on_full: :recycle_oldest` a full spawn instead reuses the longest-lived
@@ -11,13 +9,6 @@ require_relative "test_helper"
 # slot with the oldest stamp — true age, not slot position, so it stays correct even
 # after removes shuffle the free slots. Pinned on the interpreter and on gemba.
 class TestPoolRecycle < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   GREEN = Color.resolve(:green)
   BLACK = 0

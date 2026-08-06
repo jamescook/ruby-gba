@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Reading run-time state back off real hardware. gemba reads the GBA bus directly,
 # so the Verifier can assert what a program actually COMPUTED (a variable in IWRAM)
@@ -11,11 +9,6 @@ require_relative "test_helper"
 # state on hardware. Needs the backend's variable-address map, since the backend —
 # not the builder — decides where each variable lives.
 class TestVerifierMemory < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
 
   ANSWER = 51_966 # 0xCAFE — a distinctive sentinel
 

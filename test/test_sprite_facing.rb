@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # A sprite that faces the way it moves: pass `facing:` a map of direction to image,
 # and the sprite draws whichever pose it faces. face(:dir) turns it in place, and
@@ -10,14 +8,7 @@ require_relative "test_helper"
 # right, red left) so "which pose is showing" is a pixel check — on the interpreter
 # and on gemba. (The poses are the same size so they share one save-under buffer.)
 class TestSpriteFacing < Minitest::Test
-  include GembaSupport
   include RubyGBA::Constants
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   POSE = 2 # a 2x2 pose
 

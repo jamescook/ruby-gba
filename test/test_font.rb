@@ -1,14 +1,11 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # A font is a named collection of glyphs plus metrics; the Fonts registry hands out
 # fonts by name and a draw picks one. These cover the default 5x7 font's glyph data
 # and layout, and the registry / a second font.
 class TestFont < Minitest::Test
-  include GembaSupport
 
   Fonts = RubyGBA::Fonts
   Font = RubyGBA::Font

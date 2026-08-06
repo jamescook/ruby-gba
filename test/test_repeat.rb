@@ -1,19 +1,12 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # repeat(n) { |i| } — the runtime counted loop. Assert its behavior: the body
 # runs n times with the index counting 0..n-1, on the reference interpreter (the
 # oracle) and on the console. The index is a Value, so it drives real positions.
 class TestRepeat < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   # One green 2px mark per iteration, spaced 4 apart (2 drawn, 2 gap) so the
   # marks stay discrete: column = i * 4. After repeat(n) there are marks at

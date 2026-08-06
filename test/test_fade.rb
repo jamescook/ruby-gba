@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Fading the whole screen toward black or white.
 #
@@ -12,12 +10,7 @@ require_relative "test_helper"
 # amounts. A fade that agreed only roughly between backends would make every
 # fade-related pixel test a guess.
 class TestFade < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   Guardrails = RubyGBA::IR::Guardrails
 
   RED = RubyGBA::Color.resolve(:red)

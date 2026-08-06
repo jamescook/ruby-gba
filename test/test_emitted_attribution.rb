@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
+
 require_relative "../tools/emitted_attribution"
 
 # Which emitted bytes came from which part of the program (tools/emitted_attribution.rb).
@@ -13,8 +13,6 @@ require_relative "../tools/emitted_attribution"
 # charged for what it contains. Everything else the drill-down does is arithmetic on
 # these numbers, and is tested without a backend in test_emitted_tool.rb.
 class TestEmittedAttribution < Minitest::Test
-  Builder = RubyGBA::Builder
-  GBA = RubyGBA::IR::Backends::GBA
   Attribution = EmittedAttribution
 
   def measure(&block)

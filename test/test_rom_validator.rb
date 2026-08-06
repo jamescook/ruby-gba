@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "tempfile"
-require_relative "../lib/ruby_gba"
 
 # The ROM-image validator: the structural checks on the finished cartridge bytes
 # (header, logo, checksum, entry branch, size, code, title). These only exist
@@ -10,7 +10,6 @@ require_relative "../lib/ruby_gba"
 # reason about the program before any ROM exists).
 class TestROMValidator < Minitest::Test
   ROMValidator = RubyGBA::ROMValidator
-  ROM = RubyGBA::ROM
 
   def test_a_valid_rom_passes
     rom = RubyGBA.build("GOOD", code: "BGOD", maker: "01") do

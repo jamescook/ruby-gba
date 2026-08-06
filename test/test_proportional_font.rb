@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Proportional fonts: a glyph carries its own width, so the pen advances by the
 # character in front of it — a narrow "I" leaves the next glyph closer than a wide
@@ -11,14 +9,8 @@ require_relative "test_helper"
 # would push M five pixels further right; asserting M's left edge lands at x+2 is
 # what distinguishes the two. Checked on the interpreter and on real hardware.
 class TestProportionalFont < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   Fonts = RubyGBA::Fonts
-  Color = RubyGBA::Color
 
   X = 40 # where the text's top-left sits
   Y = 40

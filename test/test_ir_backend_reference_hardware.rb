@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The reference backend's simulated hardware: run hand-built IR programs that draw and
 # read input, then assert what landed on the fake screen and which branch a
@@ -9,9 +8,6 @@ require_relative "../lib/ruby_gba"
 # game's *visible* behavior is assertable in-process.
 class TestIRBackendReferenceHardware < Minitest::Test
   include RubyGBA::IR::Build
-
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   def run_ir(node, **opts)
     Reference.new.run(node, **opts)

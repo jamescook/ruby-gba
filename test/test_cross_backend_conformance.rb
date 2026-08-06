@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
+
 require_relative "conformance_fixture"
 
 # The coverage guard (gba-8sq): run ONE kitchen-sink IR program through every
@@ -11,10 +11,7 @@ require_relative "conformance_fixture"
 # the backends AGREE on output; this one checks they all COVER every feature.
 class TestCrossBackendConformance < Minitest::Test
   Node = RubyGBA::IR::Node
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
   ROMValidator = RubyGBA::ROMValidator
-  ROM = RubyGBA::ROM
 
   # ---- the fixture actually covers everything (maintenance guard) ----
 

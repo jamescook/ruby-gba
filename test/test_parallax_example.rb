@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 require_relative "../examples/parallax"
 
 # The Parallax example (examples/parallax.rb): two tiled background layers — far sky
@@ -14,10 +13,6 @@ require_relative "../examples/parallax"
 # and scrolls, on the interpreter oracle and on real hardware.
 class TestParallaxExample < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   SKY   = Color.rgb(11, 17, 28) # the far layer's sky
   GRASS = Color.rgb(4, 18, 4)   # the near layer's grass line

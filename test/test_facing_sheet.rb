@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # `sprite ..., facing_from: "sheet.png", tile:, dirs: [...]` imports a directional
 # sprite sheet: each ROW of the sheet is a direction (in the order dirs: names, top to
@@ -15,14 +13,8 @@ require_relative "test_helper"
 # imported art is checked on the interpreter oracle AND on real hardware (gemba).
 class TestFacingSheet < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   Image = RubyGBA::Image
-  Color = RubyGBA::Color
 
   SOLID8 = (["########"] * 8).join("\n")
 

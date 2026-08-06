@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The reference backend, logic core: run hand-built IR::Build programs in Ruby and
 # assert the resulting variable state — control flow, arithmetic, calls. The
@@ -10,7 +9,6 @@ require_relative "../lib/ruby_gba"
 class TestIRBackendReference < Minitest::Test
   include RubyGBA::IR::Build
 
-  Reference = RubyGBA::IR::Backends::Reference
   Int32 = RubyGBA::IR::Int32
 
   def run_ir(node, **opts)

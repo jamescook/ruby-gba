@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "test_helper"
+
 require_relative "differential"
 
 # The differential test: the same program on both backends, compared over the
@@ -16,8 +18,6 @@ require_relative "differential"
 # frames longer than the interpreter for the same picture.
 class TestDifferential < Minitest::Test
   include Differential
-
-  Color = RubyGBA::Color
 
   # An 8x8 solid tile — the size the sprite and tile hardware wants.
   TILE = (("#" * 8) + "\n") * 8

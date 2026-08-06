@@ -1,20 +1,14 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 require_relative "../examples/scroll"
-require_relative "test_helper"
 
 # The Scroll example (examples/scroll.rb): pan a camera over a tiled world bigger
 # than the screen. This confirms the example is valid and the world renders; the
 # scrolling and wrapping themselves are pinned in test_background_scroll.rb.
 class TestScrollExample < Minitest::Test
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
 
   # The lake sits at map cols 12-19, rows 10-14 -> pixels x 96..159, y 80..119, all on
   # screen at the starting (0,0) offset.

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "test_helper"
+
 require_relative "helper"
 
 # Sound is per-frame work too: playing a song re-checks every note against a frame

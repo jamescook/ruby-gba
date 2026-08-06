@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The approach motion verb: nudge a variable toward a target by at most a fixed
 # step each call, never overshooting — the "chase, capped to a top speed" move
@@ -11,11 +9,6 @@ require_relative "test_helper"
 # it lands on, both in the interpreter and on real hardware.
 class TestApproach < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   # Build through the DSL and run on the reference backend, returning the
   # interpreter (read a variable's final value with i[:name]).

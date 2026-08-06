@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Stacked tiled backgrounds (declaring more than one `background`): they compose in
 # declaration order — the first is the backmost, each later one in front — and a
@@ -11,13 +9,6 @@ require_relative "test_helper"
 # the interpreter oracle and on real hardware; the dev only writes two `background`s.
 class TestBackgroundLayers < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   SOLID8 = (["########"] * 8).join("\n")
 

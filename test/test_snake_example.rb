@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
+
 require_relative "../examples/snake"
 
 # The Snake example as a whole (examples/snake.rb). This is the capstone POC game;
@@ -16,7 +15,6 @@ require_relative "../examples/snake"
 # window — a full redraw every frame overruns it and tears once the snake grows.
 class TestSnakeExample < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
 
   CELL = Snake::CELL
 

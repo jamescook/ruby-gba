@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
+
 require_relative "../examples/pong"
 require_relative "../examples/pacman"
 require_relative "../examples/snake_buffered"
@@ -38,7 +38,6 @@ require_relative "../examples/snake_buffered"
 class TestBuildReproducibility < Minitest::Test
   Effects = RubyGBA::Effects
   Guardrails = RubyGBA::IR::Guardrails
-  GBA = RubyGBA::IR::Backends::GBA
 
   # What each one is here to cover, so a future reader knows what would be lost by
   # dropping it.

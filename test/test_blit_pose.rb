@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # blit_pose: draw one of a set of same-size images, chosen by a run-time index —
 # the primitive under a sprite that faces the way it moves (and, later, animation
@@ -10,13 +8,7 @@ require_relative "test_helper"
 # different image at the same spot. Asserted on the interpreter and on gemba, and
 # the two backends must agree.
 class TestBlitPose < Minitest::Test
-  include GembaSupport
   include RubyGBA::IR::Build
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   # Two 2x2 poses: one solid red, one solid green. Index picks which one draws.
   def pose_program(index)

@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The `sprite` helper: a named image that moves around leaving no trail, repainted
 # by the framework each frame. These assert BEHAVIOR on both backends — the sprite
@@ -14,14 +12,7 @@ require_relative "test_helper"
 # A trail would leave more. Each program ends with `after(N) { halt }` so the run
 # stops on a settled frame (right after a completed repaint), making the count exact.
 class TestSprite < Minitest::Test
-  include GembaSupport
   include RubyGBA::Constants
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   BLOCK = 4           # a 4x4 solid-red sprite
   FIELD = :blue       # the field it moves over
