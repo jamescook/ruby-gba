@@ -62,6 +62,7 @@ module RubyGBA
         background: :portable, # stamp a grid of tiles — pixels or tile hardware, any backend can
         scroll_background: :portable, # move the window over a map — re-render or nudge scroll regs
         camera: :portable,            # offset the whole picture — a display offset anywhere
+        fade: :portable,              # blend the whole picture toward a color — any backend can
         # a composited moving picture — software compositing or sprite hardware, any backend can
         object: :portable, present_objects: :portable,
         # save/restore a screen patch — copying pixels to/from a buffer, any backend can

@@ -19,7 +19,12 @@ module RubyGBA
           WIDTH = Screen::WIDTH
           HEIGHT = Screen::HEIGHT
 
-          attr_reader :width, :height, :camera_x, :camera_y
+          attr_reader :width, :height, :camera_x, :camera_y, :fade_toward, :fade_amount
+
+          # A color channel runs 0..31, and a full fade is 16 steps. Both come from the
+          # display contract every backend blends against, so the two agree step for step.
+          CHANNEL_MAX = 31
+          FADE_STEPS = 16
 
           # @param fill [Integer] the color every cell starts as (0 reads as black)
           def initialize(width: WIDTH, height: HEIGHT, fill: 0)
@@ -29,6 +34,8 @@ module RubyGBA
             @pixels = Array.new(width * height, fill)
             @camera_x = 0
             @camera_y = 0
+            @fade_toward = :black
+            @fade_amount = 0
           end
 
           # Move the visible window over the stored picture: after this, screen (0, 0)
@@ -39,14 +46,23 @@ module RubyGBA
             @camera_y = y
           end
 
+          # Blend everything shown toward +toward+ (:black or :white) by +amount+, 0 to
+          # 100. Like the camera, this changes what you SEE and not what is stored, so a
+          # fade costs no redrawing and the picture is still all there underneath.
+          def fade_to(toward, amount)
+            @fade_toward = toward
+            @fade_amount = amount
+          end
+
           # The color shown at screen (x, y) — the stored cell the window currently puts
-          # there. An off-screen coordinate reads as nil ("there is no such pixel"). A
-          # window pushed off the drawn picture shows the backdrop along that edge, the
-          # same as a display with nothing left to fetch there.
+          # there, blended by whatever fade is on. An off-screen coordinate reads as nil
+          # ("there is no such pixel"). A window pushed off the drawn picture shows the
+          # backdrop along that edge, the same as a display with nothing left to fetch
+          # there.
           def pixel(x, y)
             return nil unless in_bounds?(x, y)
 
-            stored_pixel(x + @camera_x, y + @camera_y) || @fill
+            faded(stored_pixel(x + @camera_x, y + @camera_y) || @fill)
           end
 
           # The color stored at (x, y), ignoring where the window sits. This is what the
@@ -88,6 +104,38 @@ module RubyGBA
           end
 
           private
+
+          # One color with the current fade applied.
+          #
+          # A color is three 5-bit channels packed into a halfword, and the fade moves
+          # each channel a fraction of the way to its limit: toward black, take away
+          # that fraction of what the channel has; toward white, add that fraction of
+          # the headroom it has left. So a mid-fade picture keeps its shape and loses
+          # its color, rather than every pixel jumping at once.
+          #
+          # The fraction is in sixteenths, and the arithmetic is whole-number and
+          # truncating, because that is exactly what the blend hardware does. Matching
+          # it here is what lets a test assert one expected color for both backends.
+          def faded(color)
+            steps = fade_steps
+            return color if steps.zero?
+
+            channels = [color & 0x1F, (color >> 5) & 0x1F, (color >> 10) & 0x1F]
+            blended = channels.map do |c|
+              if @fade_toward == :white
+                c + (((CHANNEL_MAX - c) * steps) / FADE_STEPS)
+              else
+                c - ((c * steps) / FADE_STEPS)
+              end
+            end
+            blended[0] | (blended[1] << 5) | (blended[2] << 10)
+          end
+
+          # How far the fade goes, in sixteenths. Out-of-range amounts settle at the
+          # ends rather than wrapping or raising, the same as the hardware.
+          def fade_steps
+            ((@fade_amount * FADE_STEPS) / 100).clamp(0, FADE_STEPS)
+          end
 
           def in_bounds?(x, y)
             x >= 0 && x < @width && y >= 0 && y < @height

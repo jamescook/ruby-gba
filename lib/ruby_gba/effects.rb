@@ -29,12 +29,23 @@ module RubyGBA
   #   Yes -> it is KERNEL. Bake it into the library: a new IR node kind, its
   #          lowering in each backend, and a conformance fixture entry.
   #
-  # The screen shake is the worked example of the boundary. Moving the picture at
-  # all is kernel — `camera` is an IR node with a real lowering (the reference
-  # point on the hardware, a window offset in the interpreter). Shaking is not: it
-  # is `camera` called with a jittering offset, plus four variables and a routine
-  # that runs each frame. So `camera` is baked in and Packs::ScreenShake is a pack,
-  # written in the same verbs a game is written in.
+  # Said another way, and this is the quick version to carry around: a KERNEL
+  # primitive is a new thing the machine can DO. A pack is a new way to USE what it
+  # already does. New capability is kernel; new convenience is a pack. If writing it
+  # means opening a file under ir/backends/, it was never a pack.
+  #
+  # Effects come in PAIRS across that line, and that is the shape to expect — the
+  # primitive is one register or one blend, and everything that makes it feel like a
+  # game effect is a pack on top:
+  #
+  #   camera (move the picture)   -> shake_screen  (jitter it, then put it back)
+  #   fade   (blend the picture)  -> fade_in/out   (walk the amount over frames)
+  #
+  # Take the shake. Moving the picture at all is kernel — `camera` is an IR node with
+  # a real lowering (the reference point on the hardware, a window offset in the
+  # interpreter). Shaking is not: it is `camera` called with a jittering offset, plus
+  # four variables and a routine that runs each frame. Nothing there is new
+  # capability, so Packs::ScreenShake is written in the same verbs a game is.
   #
   # When a pack turns out to need one small thing the DSL cannot say, the answer is
   # to add that thing as a kernel primitive, not to let the pack reach past the
