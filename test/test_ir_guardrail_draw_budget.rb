@@ -41,6 +41,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
     assert_equal 1, findings.length
     assert findings.first.warning?, "the render budget is advisory, not a hard error"
     assert_match(/tear/, findings.first.message)
+    assert_equal :loop, findings.first.node.kind, "it blames the loop the per-frame drawing recurs in"
   end
 
   def test_quiet_when_a_frame_fits

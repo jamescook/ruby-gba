@@ -33,23 +33,28 @@ module RubyGBA
           # mode anywhere. A program that never draws isn't nagged, and one that
           # already sets a mode is left alone.
           def detect(program)
-            return [] unless draws?(program)
+            first_draw = first_draw(program)
+            return [] unless first_draw
             return [] if screen_set?(program)
 
+            # Blame the first draw: it's the line the missing `screen` has to go
+            # above, so it's where the author reads the message and puts the fix.
             [Finding.new(
               check: NAME,
               severity: :error,
               message: PROBLEM,
+              node: first_draw,
               fix: Fix.new(message: FIXED, apply: method(:switch_screen_on)),
             )]
           end
 
           private
 
-          # Any drawing op counts. `screen` itself is categorized as a draw op,
-          # so exclude it — it's the thing whose absence we're checking for.
-          def draws?(program)
-            program.each.any? { |node| node.category == :draw && node.kind != :screen }
+          # The program's first drawing op, or nil if it never draws. `screen` itself
+          # is categorized as a draw op, so exclude it — it's the thing whose absence
+          # we're checking for.
+          def first_draw(program)
+            program.each.find { |node| node.category == :draw && node.kind != :screen }
           end
 
           def screen_set?(program)

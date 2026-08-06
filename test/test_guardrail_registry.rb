@@ -19,10 +19,10 @@ class TestGuardrailRegistry < Minitest::Test
   # :boom — a stand-in for a pack check that inspects the built IR.
   class BoomCheck
     def detect(program)
-      hit = program.each.any? { |node| node.kind == :set && node[:var] == :boom }
+      hit = program.each.find { |node| node.kind == :set && node[:var] == :boom }
       return [] unless hit
 
-      [Guardrails::Finding.new(check: :boom, severity: :error, message: "boom found", fix: nil)]
+      [Guardrails::Finding.new(check: :boom, severity: :error, message: "boom found", node: hit)]
     end
   end
 
@@ -69,7 +69,7 @@ class TestGuardrailRegistry < Minitest::Test
     replacement = program(set(:fixed, 1))
     fix = Guardrails::Fix.new(message: "fixed it", apply: ->(_prog) { replacement })
     Guardrails.register(StubCheck.new([Guardrails::Finding.new(check: :stub, severity: :error,
-                                                               message: "boom", fix: fix)]))
+                                                               message: "boom", node: :program, fix: fix)]))
 
     # Run only the registered checks so builtin findings don't cloud the assertion.
     report = Guardrails::Validator.new(checks: Guardrails.registered_checks).run(program(set(:x, 1)))

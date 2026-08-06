@@ -20,10 +20,13 @@ class TestIRGuardrailTermination < Minitest::Test
   end
 
   def test_a_program_that_falls_off_the_end_warns
-    warnings = termination_warnings(program(screen(:bitmap), clear_screen(:black)))
+    prog = program(screen(:bitmap), clear_screen(:black))
+    warnings = termination_warnings(prog)
 
     assert_equal 1, warnings.size
     assert_match(/halt|game_loop/, warnings.first.message, "the message names the fix")
+    assert_same prog.children.last, warnings.first.node,
+                "it blames the last line that runs — where the missing `halt` goes"
   end
 
   def test_ending_in_halt_is_fine

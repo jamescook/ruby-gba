@@ -34,11 +34,12 @@ module RubyGBA
           end
 
           # One warning however many waits there were — what a developer needs to know
-          # is the rule, not each line.
+          # is the rule, not each line. So this blames the program rather than any one
+          # wait, which is also all it can do: a counted wait leaves no node behind.
           def detect(_program)
             return [] unless @dropped.positive?
 
-            [Finding.new(check: NAME, severity: :warning, message: MESSAGE, fix: nil)]
+            [Finding.new(check: NAME, severity: :warning, message: MESSAGE, node: :program)]
           end
         end
       end

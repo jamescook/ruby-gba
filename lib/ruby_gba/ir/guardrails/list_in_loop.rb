@@ -31,7 +31,7 @@ module RubyGBA
               next unless per_frame_container?(container, per_frame)
 
               findings << Finding.new(check: NAME, severity: :warning,
-                                      message: message_for(node, container), source: node.source)
+                                      message: message_for(node, container), node: node)
             end
             findings
           end

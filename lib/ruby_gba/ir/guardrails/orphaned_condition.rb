@@ -33,20 +33,22 @@ module RubyGBA
           # One Finding per leftover Condition. The program is irrelevant here — the
           # data is the pending set — so it's ignored.
           def detect(_program)
-            @pending.map { |condition| self.class.finding(condition.source) }
+            @pending.map { |condition| self.class.finding(condition) }
           end
 
-          # A Finding for a Condition built at +source+ ("file.rb:line", or nil) but
-          # never used to branch. Standalone so the message is easy to assert.
-          def self.finding(source)
-            where = source ? " (at #{source})" : ""
+          # A Finding for a Condition built but never used to branch. The Condition
+          # itself is what the finding blames: it carries the author's call site, and
+          # there is no node to point at (an orphan records none — that's the whole
+          # reason this check reads a pending set instead of the tree). Standalone so
+          # the message is easy to assert.
+          def self.finding(condition)
             message =
-              "You built a comparison like `x > 5` here. But nothing uses it to branch#{where}. " \
+              "You built a comparison like `x > 5` here. But nothing uses it to branch. " \
               "This almost always means it went into a native Ruby `if`. In this DSL, a " \
               "comparison is a Condition object. Ruby treats that object as always true. So " \
               "the `if` body runs every time, and the comparison has no effect. To fix this, " \
               "branch with `.then`. Write `(x > 5).then { ... }`, not `if x > 5`."
-            Finding.new(check: NAME, severity: :error, message: message, fix: nil)
+            Finding.new(check: NAME, severity: :error, message: message, node: condition)
           end
         end
       end

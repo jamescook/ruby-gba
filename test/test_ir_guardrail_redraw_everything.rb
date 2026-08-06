@@ -35,6 +35,7 @@ class TestRedrawEverythingGuardrail < Minitest::Test
     assert_equal 1, findings.length
     assert findings.first.warning?, "structural check is advisory, not an error"
     assert_match(/tear/, findings.first.message)
+    assert_equal :loop, findings.first.node.kind, "it blames the loop that rebuilds the frame"
   end
 
   # The headline false-positive guard: the shipped incremental Snake clears on its
