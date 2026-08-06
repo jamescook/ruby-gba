@@ -93,17 +93,17 @@ class TestIRVerifier < Minitest::Test
   # ---- structural slots must not hold value nodes / wrong types ----
 
   def test_a_value_node_in_a_structural_slot_is_caught
-    # clamp's bounds are author-time constants; a value node there is a leak.
-    bad = program(Node.new(:clamp, var: :x, min: int(0), max: 100))
+    # An `every`'s period is fixed as the program is written; a value node there is a leak.
+    bad = program(Node.new(:every, counter: :t, period: int(30)))
     err = assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
-    assert_match(/clamp\.min must be an author-time int/, err.message)
+    assert_match(/every\.period must be an author-time int/, err.message)
     assert_match(/value node/, err.message)
   end
 
   def test_a_wrong_literal_type_in_a_structural_slot_is_caught
-    bad = program(Node.new(:clamp, var: :x, min: :nope, max: 100)) # min must be an Integer
+    bad = program(Node.new(:every, counter: :t, period: :nope)) # period must be an Integer
     err = assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
-    assert_match(/clamp\.min must be an author-time int/, err.message)
+    assert_match(/every\.period must be an author-time int/, err.message)
   end
 
   # ---- optional structural fields may be nil ----

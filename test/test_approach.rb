@@ -149,6 +149,100 @@ class TestApproach < Minitest::Test
     assert_match(/only a variable/, err.message)
   end
 
+  # ---- a step the game works out as it runs ----
+
+  # What a pack needs: how fast to move is decided from an argument (fade_out over
+  # 30 frames), so the step cannot be a number written into the program.
+  def test_the_step_can_be_a_variable
+    i = interpret do
+      speed = var :speed, 10
+      x = var :x, 0
+      3.times { x.approach 100, speed }
+    end
+
+    assert_equal 30, i[:x]
+  end
+
+  def test_a_step_the_game_changes_changes_how_fast_it_moves
+    i = interpret do
+      speed = var :speed, 5
+      x = var :x, 0
+      x.approach 100, speed # +5
+      speed.set 20
+      x.approach 100, speed # +20
+    end
+
+    assert_equal 25, i[:x]
+  end
+
+  def test_a_computed_step_still_lands_exactly_on_the_target
+    i = interpret do
+      speed = var :speed, 30
+      x = var :x, 0
+      4.times { x.approach 100, speed }
+    end
+
+    assert_equal 100, i[:x], "it stops on the target rather than overshooting past it"
+  end
+
+  # A step is a distance, so its sign says nothing about direction — the target does
+  # that. Read the other way round, a step that went negative mid-game would drive the
+  # variable away from its target for ever, silently.
+  def test_a_negative_computed_step_still_moves_toward_the_target
+    i = interpret do
+      speed = var :speed, -10
+      x = var :x, 0
+      x.approach 100, speed
+    end
+
+    assert_equal 10, i[:x]
+  end
+
+  def test_a_computed_step_of_zero_holds_still
+    i = interpret do
+      speed = var :speed, 0
+      x = var :x, 50
+      x.approach 100, speed
+    end
+
+    assert_equal 50, i[:x]
+  end
+
+  # ---- a bound the game works out as it runs (what approach is built on) ----
+
+  def test_clamp_takes_a_variable_bound
+    i = interpret do
+      limit = var :limit, 40
+      x = var :x, 100
+      x.clamp 0, limit
+    end
+
+    assert_equal 40, i[:x]
+  end
+
+  def test_a_clamp_bound_can_be_an_expression
+    i = interpret do
+      width = var :width, 20
+      x = var :x, 100
+      x.clamp 0, width * 2
+    end
+
+    assert_equal 40, i[:x]
+  end
+
+  def test_a_variable_bound_that_moves_moves_the_limit
+    i = interpret do
+      limit = var :limit, 40
+      x = var :x, 100
+      x.clamp 0, limit
+      limit.set 90
+      x.set 100
+      x.clamp 0, limit
+    end
+
+    assert_equal 90, i[:x]
+  end
+
   # ---- both backends agree, on real hardware ----
 
   # A green marker whose x is the approached value: it starts at 0 and homes in
@@ -185,5 +279,66 @@ class TestApproach < Minitest::Test
     v = assert_gemba_loads_rom(rom, frames: 22)
     assert v.green?(100, 50), "the marker reached the target on hardware"
     assert v.black?(0, 50),   "and left the start column"
+  end
+
+  # The same marker, but the step and the limit are variables, so it runs the lowering
+  # that EVALUATES a bound instead of loading a fixed one.
+  #
+  # Read two moments, and pick them so no single wrong answer can pass both. Early, the
+  # marker is mid-journey at a spot that is neither the target nor the limit — only the
+  # right step arithmetic puts it there. Later it is pinned against the limit — so a
+  # lowering that ignored the bound would sail past. A lowering that dropped the value
+  # it was clamping and kept the bound would sit on the limit from the first frame, and
+  # fail the early reading.
+  def limited_marker_program(frames:)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      x = var :x, 0
+      speed = var :speed, 7
+      limit = var :limit, 60
+      f = var :f, 0
+      game_loop do
+        wait_vblank
+        clear_screen :black
+        x.approach 200, speed # a step the game holds in a variable
+        x.clamp 0, limit      # and a ceiling it holds in another
+        draw_rect_at :x, 50, 2, 2, :green
+        f.add 1
+        (f >= frames).then { halt }
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  # Five steps of 7, well short of both the target (200) and the limit (60).
+  MID_JOURNEY = 35
+
+  def test_a_run_time_step_and_bound_land_in_the_right_place
+    early = Ruby.new.run(limited_marker_program(frames: 5)).screen
+    late = Ruby.new.run(limited_marker_program(frames: 20)).screen
+
+    assert_equal Color.resolve(:green), early.pixel(MID_JOURNEY, 50),
+                 "mid-journey it is where the run-time step put it"
+    assert_equal Color.resolve(:black), early.pixel(60, 50), "not already pinned at the limit"
+    assert_equal Color.resolve(:green), late.pixel(60, 50), "later it is held at the run-time limit"
+  end
+
+  def test_a_run_time_step_and_bound_agree_on_hardware
+    early = rom_for(limited_marker_program(frames: 5))
+    late = rom_for(limited_marker_program(frames: 20))
+
+    v_early = assert_gemba_loads_rom(early, frames: 7)
+    v_late = assert_gemba_loads_rom(late, frames: 22)
+
+    assert v_early.green?(MID_JOURNEY, 50), "the console stepped by the same amount"
+    assert v_early.black?(60, 50), "and had not reached the limit yet"
+    assert v_late.green?(60, 50), "and it holds at the same limit"
+  end
+
+  def rom_for(program)
+    RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
+                          title: "APPROACH", code: "BAPP", maker: "01")
   end
 end

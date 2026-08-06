@@ -273,7 +273,8 @@ module RubyGBA
             v = @vars[node[:var]]
             @vars[node[:var]] = v.positive? ? Int32.neg(v) : v
           when :clamp
-            @vars[node[:var]] = clamp_value(@vars[node[:var]], node[:min], node[:max])
+            @vars[node[:var]] = clamp_value(@vars[node[:var]], eval_value(node[:min]),
+                                            eval_value(node[:max]))
           when :save_init
             exec_save_init(node)
           when :save_store

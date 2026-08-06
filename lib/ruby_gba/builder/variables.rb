@@ -131,14 +131,24 @@ module RubyGBA
         mirror_save(name)
       end
 
-      # Clamp a variable to [min, max] range.
+      # Hold a variable inside a range: below +min_val+ it becomes min_val, above
+      # +max_val+ it becomes max_val, and in between it is left alone.
+      #
+      # The bounds can be fixed numbers or things the game works out as it runs — a
+      # limit that depends on the level, a speed that changes — so a range does not
+      # have to be known as the program is written.
+      #
+      #   x.clamp 0, 239              # keep it on screen
+      #   speed.clamp 0, top_speed    # a limit the game changes
       #
       # @param name [Symbol] variable name
-      # @param min_val [Integer] minimum value
-      # @param max_val [Integer] maximum value
+      # @param min_val [Integer, Symbol, Value] the lowest it may be
+      # @param max_val [Integer, Symbol, Value] the highest it may be
       def clamp(name, min_val, max_val)
-        record(Build.clamp(name, min_val, max_val))
+        record(Build.clamp(name, Value.node_for(min_val), Value.node_for(max_val)))
         ensure_var(name)
+        ensure_var(min_val)
+        ensure_var(max_val)
         mirror_save(name)
       end
 
@@ -150,15 +160,22 @@ module RubyGBA
       #   cpu_y.approach ball_y - PADDLE_H / 2, CPU_SPEED
       #
       # +target+ is where it's heading — a number, another variable, or an
-      # expression Value. +step+ is the most it may move per call, a positive whole
-      # number fixed as you write the program (like a top speed).
+      # expression Value. +step+ is the most it may move per call, like a top speed.
+      # It can be fixed as you write the program, or something the game works out as
+      # it runs (an easing whose speed depends on how far there is to go, a fade paced
+      # by how many frames it was given). A step the game computes is read as a
+      # distance, so a negative one still moves toward the target, and a step of 0
+      # holds still.
+      #
+      #   cpu_y.approach ball_y - PADDLE_H / 2, CPU_SPEED
       #
       # @param name [Symbol] the variable to move
       # @param target [Integer, Symbol, Value] where it's heading
-      # @param step [Integer] the most it may move per call (a positive constant)
+      # @param step [Integer, Symbol, Value] the most it may move per call
       def approach(name, target, step)
-        raise ArgumentError, "approach's step must be a whole number. You gave #{step.inspect}." unless step.is_a?(Integer)
-        raise ArgumentError, "approach's step must be positive. You gave #{step}." unless step.positive?
+        if step.is_a?(Integer) && !step.positive?
+          raise ArgumentError, "approach's step must be positive. You gave #{step}."
+        end
 
         ensure_var(name)
         ensure_var(target)
@@ -168,7 +185,8 @@ module RubyGBA
         # applied — a branchless move that can't overshoot: when the target is
         # already within one step, the cap does nothing and it lands right on it.
         record(Build.set(delta, Build.binop(:-, Value.node_for(target), Build.var_ref(name))))
-        record(Build.clamp(delta, -step, step))
+        low, high = approach_bounds(step)
+        record(Build.clamp(delta, low, high))
         record(Build.add(name, Build.var_ref(delta)))
         mirror_save(name)
       end
@@ -196,6 +214,25 @@ module RubyGBA
       def next_approach_var
         @approach_seq += 1
         :"__approach_#{@approach_seq}"
+      end
+
+      # How far one approach call may move, in each direction — the pair of bounds its
+      # delta is held between.
+      #
+      # A fixed step is just the number and its negative. A step the game works out
+      # goes through a hidden variable first, so it can be read as a DISTANCE: a
+      # negative one would otherwise invert the range and drive the variable away from
+      # its target for ever, which is silent and looks like a physics bug. Taking the
+      # size of it means the step says how fast, and the target says which way.
+      def approach_bounds(step)
+        return [-step, step] if step.is_a?(Integer)
+
+        limit = next_approach_var
+        ensure_var(limit)
+        ensure_var(step)
+        record(Build.set(limit, Value.node_for(step)))
+        record(Build.abs(limit))
+        [Build.binop(:-, Build.int(0), Build.var_ref(limit)), Build.var_ref(limit)]
       end
     end
   end
