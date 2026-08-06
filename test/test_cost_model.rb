@@ -108,7 +108,7 @@ class TestCostModel < Minitest::Test
 
     io = StringIO.new
     cost.render(prog, out: io)
-    assert_match(/can't estimate: .*mystery_op/, io.string.lines.first, "the warning leads the output")
+    assert_match(/cannot estimate: .*mystery_op/, io.string.lines.first, "the warning leads the output")
   end
 
   # A program the model fully understands prints no such warning.

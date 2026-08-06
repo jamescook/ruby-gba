@@ -107,7 +107,9 @@ module RubyGBA
       def check_target_defined!(name)
         return if @functions.key?(name)
 
-        raise ArgumentError, "The function :#{name} is called but never defined. Define it with func :#{name} do ... end, or check the name."
+        raise ArgumentError,
+              "The function :#{name} is called but never defined. To fix this, define it with " \
+              "`func :#{name} do ... end`. Or correct the name in the call."
       end
     end
   end

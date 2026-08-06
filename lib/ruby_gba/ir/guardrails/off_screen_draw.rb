@@ -106,17 +106,20 @@ module RubyGBA
             "#{describe(node)} at (#{x}, #{y}), sized #{w}x#{h}, is fully off the " \
               "#{SCREEN_W}x#{SCREEN_H} screen, so nothing shows. The screen runs from " \
               "(0, 0) at the top-left to (#{SCREEN_W - 1}, #{SCREEN_H - 1}) at the " \
-              "bottom-right. Check the position. A swapped x and y is a common cause."
+              "bottom-right. To fix this, make sure that the position is on the screen. " \
+              "A swapped x and y is a common cause."
           end
 
+          # The subject of the message's first sentence, so it opens with a capital
+          # like every other finding does.
           def describe(node)
             case node.kind
-            when :pixel then "a pixel"
-            when :fill_rect, :dma_fill_rect then "a filled rectangle"
-            when :draw_rect_at then "a rectangle"
-            when :draw_text then "the text #{node[:text].inspect}"
-            when :draw_digit then "a digit"
-            when :blit then "the image #{node[:name].inspect}"
+            when :pixel then "A pixel"
+            when :fill_rect, :dma_fill_rect then "A filled rectangle"
+            when :draw_rect_at then "A rectangle"
+            when :draw_text then "The text #{node[:text].inspect}"
+            when :draw_digit then "A digit"
+            when :blit then "The image #{node[:name].inspect}"
             end
           end
         end

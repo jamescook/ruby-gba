@@ -124,10 +124,10 @@ module RubyGBA
           return if @func_mode[name] == mode
 
           raise Conflict,
-                "the drawing routine :#{self.class.friendly_name(name)} is reached from scenes " \
-                "of different screen modes — a drawing routine can't be shared across screen " \
-                "modes (they draw to different places). Give each mode its own routine, or move " \
-                "the shared drawing inline."
+                "The drawing routine :#{self.class.friendly_name(name)} is reached from scenes of " \
+                "different screen modes. A drawing routine cannot be shared across screen modes, " \
+                "because the modes draw to different places. To fix this, give each mode its own " \
+                "routine. Or move the shared drawing inline."
         end
 
         @func_mode[name] = mode

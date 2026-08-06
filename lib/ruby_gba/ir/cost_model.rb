@@ -550,8 +550,8 @@ module RubyGBA
       def emit_unpriced_banner(printer)
         return if @unpriced.nil? || @unpriced.empty?
 
-        printer.puts "!! can't estimate: #{@unpriced.sort.join(', ')} — counted as FREE, so the real per-frame " \
-                     "cost may be higher. Teach the cost model to price it.", emphasis: :banner
+        printer.puts "!! cannot estimate: #{@unpriced.sort.join(', ')} — counted as FREE, so the real " \
+                     "per-frame cost can be higher. Teach the cost model to price it.", emphasis: :banner
       end
 
       # Print a short, human draw-cost estimate to +out+: the per-frame cost against
