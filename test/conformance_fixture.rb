@@ -101,6 +101,7 @@ module ConformanceFixture
                           map: [[0, 1], [1, nil]], tile_w: 2, tile_h: 2),
       B.scroll_background(:grid, x: B.var_ref(:x), y: B.var_ref(:y)), # move the window over it
       B.camera(x: B.int(0), y: B.int(0)), # move the window over the whole picture
+      B.fade(toward: :black, amount: B.int(0)), # blend the picture toward a color (0 = as drawn)
       B.object(:hero_obj, poses: [:obj8], pose: B.int(0), # a composited object (one pose, held at index 0)
                           x: B.var_ref(:x), y: B.var_ref(:y), active: B.int(1),
                           angle: B.int(45)), # turned 45 degrees — exercises the affine/rotation path

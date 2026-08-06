@@ -168,6 +168,35 @@ module RubyGBA
     REG_WINOUT  = 0x0400004A  # Which layers show outside windows
 
     # ========================================================================
+    # Blend Registers — fading the whole screen toward black or white
+    #
+    # The console can blend every layer toward white ("brightness increase") or
+    # toward black ("brightness decrease") as it draws, which costs nothing and
+    # redraws nothing — a fade is two register writes, whatever is on screen.
+    #
+    # BLDCNT says WHICH layers the effect applies to (the low six bits) and WHICH
+    # effect (bits 6-7). BLDY says HOW FAR, from 0 (untouched) to 16 (fully white
+    # or fully black); values above 16 act as 16.
+    # ========================================================================
+
+    REG_BLDCNT   = 0x04000050 # what to blend, and how
+    REG_BLDALPHA = 0x04000052 # the two weights, for the alpha-blend effect only
+    REG_BLDY     = 0x04000054 # how far toward white/black (0-16)
+
+    # Which layers the blend applies to. All of them, plus the backdrop, so a fade
+    # covers the whole screen and doesn't leave the backdrop showing through at
+    # full strength.
+    BLD_ALL_LAYERS = 0x003F # BG0 | BG1 | BG2 | BG3 | OBJ | backdrop
+
+    # The effect, in bits 6-7 of BLDCNT.
+    BLD_OFF      = 0x0000
+    BLD_ALPHA    = 0x0040 # blend two layers together
+    BLD_BRIGHTEN = 0x0080 # toward white
+    BLD_DARKEN   = 0x00C0 # toward black
+
+    BLD_MAX = 16 # BLDY's full-strength value
+
+    # ========================================================================
     # Key Input — reading the buttons
     #
     # REG_KEYINPUT is active-low: bit=0 means pressed, bit=1 means released.

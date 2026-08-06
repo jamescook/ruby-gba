@@ -117,6 +117,46 @@ module RubyGBA
         ensure_var(y)
       end
 
+      # The colors a fade can go to. Black and white are what the display can blend
+      # the whole screen toward without redrawing anything.
+      FADE_COLORS = %i[black white].freeze
+
+      # Fade the whole screen toward black or white.
+      #
+      # `amount` is how far, from 0 (the picture as drawn) to 100 (nothing left but
+      # that color). Nothing is redrawn — the picture is all still there, and comes
+      # back untouched when the fade lifts — so this costs the same however much is on
+      # screen, and it works on either kind of screen.
+      #
+      #   fade :black             # black out
+      #   fade :black, 0          # back to normal
+      #   fade :white, 50         # halfway to white
+      #
+      # It sets the level at the moment you call it. To fade over time, move a
+      # variable and pass it: this is the primitive `fade_in` / `fade_out` sit on.
+      #
+      #   level = var :level, 0
+      #   game_loop do
+      #     level.approach 100, 4   # walk it up over a few frames
+      #     fade :black, level
+      #   end
+      #
+      # @param toward [Symbol] :black or :white
+      # @param amount [Symbol, Integer, Value] how far, 0 to 100
+      def fade(toward, amount = 100)
+        unless FADE_COLORS.include?(toward)
+          raise ArgumentError,
+                "fade goes to :black or :white. You gave #{toward.inspect}."
+        end
+        if amount.is_a?(Integer) && !(0..100).cover?(amount)
+          raise ArgumentError,
+                "fade's amount is how far to go, from 0 to 100. You gave #{amount}."
+        end
+
+        record(Build.fade(toward: toward, amount: Value.node_for(amount)))
+        ensure_var(amount)
+      end
+
       # Fill a rectangle at a fixed position and size.
       #
       # @param x [Integer] left edge

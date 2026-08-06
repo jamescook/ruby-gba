@@ -443,6 +443,19 @@ module RubyGBA
         Node.new(:camera, x: wrap(x), y: wrap(y))
       end
 
+      # Blend the whole displayed picture toward a color. +toward+ is :black or :white
+      # (fixed as the program is written); +amount+ is how far, from 0 (the picture as
+      # drawn) to 100 (nothing left but that color), as a run-time value — so a value
+      # walked from 0 to 100 over some frames is a fade, and one snapped to 100 and
+      # back is a flash.
+      #
+      # Like camera, this describes what the DISPLAY shows and needs no redrawing:
+      # nothing that was drawn is changed, so the cost is the same whatever is on
+      # screen. One backend leans on blend hardware, another blends as it reads.
+      def fade(toward:, amount:)
+        Node.new(:fade, toward: toward, amount: wrap(amount))
+      end
+
       # --- display objects (a moving picture the display composites over the scene) ---
       #
       # An object is an image the display draws on top of the background every frame,

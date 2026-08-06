@@ -101,6 +101,9 @@ module RubyGBA
         # move the window over the whole displayed picture: the run-time top-left
         # offset (x, y) in pixels. Nothing is named — it moves everything.
         camera:            { x: :value, y: :value },
+        # blend the whole picture toward a color: which color (author-time, :black or
+        # :white) and how far, 0-100, at run time.
+        fade:              { toward: :option, amount: :value },
         # a composited moving object: its same-size poses, a run-time index picking
         # which to show (facing/animation), and its run-time position/visibility.
         # present_objects names which to draw this frame.

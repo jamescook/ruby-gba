@@ -54,6 +54,7 @@ module RubyGBA
         background: :draw, # a whole grid of tiles, drawn from a tileset and a map
         scroll_background: :draw, # move the visible window over a background (scrolling)
         camera: :draw, # offset the whole displayed picture (a pan, or a shake)
+        fade: :draw,   # blend the whole displayed picture toward a color (a fade, a flash)
         # a moving picture the display composites over the scene each frame: `object`
         # declares one, `present_objects` draws the declared objects for a frame.
         object: :draw, present_objects: :draw,

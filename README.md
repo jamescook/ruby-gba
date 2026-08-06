@@ -127,7 +127,14 @@ RubyGBA.register_effects(Juice)
 RubyGBA::Effects.register(:wash) { |c| clear_screen c }   # or a single verb, inline
 ```
 
-The one rule at the seam: **a pack composes public verbs; it never builds IR or touches hardware.** That isn't taste. A verb built from public verbs bottoms out in things every backend already runs, so it works on the console *and* in the reference interpreter the day you write it — no per-backend lowering, no conformance fixture to extend. Anything lower is **kernel** and gets baked in properly. The test is: *does a backend have to know about it?*
+The one rule at the seam: **a pack composes public verbs; it never builds IR or touches hardware.** That isn't taste. A verb built from public verbs bottoms out in things every backend already runs, so it works on the console *and* in the reference interpreter the day you write it — no per-backend lowering, no conformance fixture to extend. Anything lower is **kernel** and gets baked in properly.
+
+**Rule of thumb:** a kernel primitive is a new thing the machine can *do*; a pack is a new way to *use* what it already does. New capability → kernel. New convenience → pack. If writing it means opening a file under `ir/backends/`, it was never a pack. Effects tend to come in **pairs** across that line:
+
+| kernel primitive | the pack on top of it |
+|---|---|
+| `camera` — move the whole picture | `shake_screen` — jitter it, then put it back |
+| `fade` — blend the picture toward a color | `fade_in` / `fade_out` — walk the amount over frames |
 
 Screen shake is the worked example, and it ships as a default pack. Moving the picture at all is kernel — `camera` is an IR node with a real lowering on each backend. *Shaking* is not: it's `camera` called with a jittering offset, four variables and a routine that runs each frame. So `shake_screen` lives in a pack written in the same verbs a game is, and neither backend knows the file exists — copy `lib/ruby_gba/effects/packs/screen_shake.rb` to write your own. The rule is enforced, not just documented: a test reads the pack sources and fails one that builds IR or names a hardware register.
 

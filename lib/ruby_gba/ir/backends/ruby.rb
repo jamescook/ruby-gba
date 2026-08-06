@@ -388,6 +388,8 @@ module RubyGBA
             exec_scroll_background(node)
           when :camera
             @screen.camera_to(eval_value(node[:x]), eval_value(node[:y]))
+          when :fade
+            @screen.fade_to(node[:toward], eval_value(node[:amount]))
           when :present_objects
             exec_present_objects(node)
           when :enable_sound

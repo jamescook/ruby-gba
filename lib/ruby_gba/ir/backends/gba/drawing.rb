@@ -401,6 +401,36 @@ module RubyGBA
             store_word_acc(reg)
           end
 
+          # Blend the whole picture toward black or white.
+          #
+          # The console can do this as it draws: one register says which layers to
+          # blend and which way, another says how far. Nothing is redrawn and no pixel
+          # in memory changes, so a fade costs the same whatever is on screen and the
+          # picture is still all there when it lifts. Every layer and the backdrop are
+          # blended, so this works the same on a bitmap screen and a tiled one.
+          #
+          # "How far" counts in sixteenths, while the DSL talks in percent, so the
+          # amount is scaled. A fixed amount is worked out here and written as a plain
+          # number; an amount the game computes is scaled at run time, which is a
+          # multiply and a divide once per call — nothing next to a frame.
+          def emit_fade(node)
+            mode = node[:toward] == :white ? BLD_BRIGHTEN : BLD_DARKEN
+            write_reg16(REG_BLDCNT, mode | BLD_ALL_LAYERS)
+
+            if (amount = const_int(node[:amount]))
+              write_reg16(REG_BLDY, fade_steps(amount))
+            else
+              eval_value(Build.binop(:/, Build.binop(:*, node[:amount], Build.int(BLD_MAX)),
+                                     Build.int(100)))
+              store_halfword_acc(REG_BLDY)
+            end
+          end
+
+          # A percentage of the way there, in the sixteenths the hardware counts in.
+          def fade_steps(percent)
+            ((percent * BLD_MAX) / 100).clamp(0, BLD_MAX)
+          end
+
           def emit_scroll_background(node)
             # In tile mode this names a real layer; outside it (a bitmap-mode program that
             # still declares a background) there's no tiled layer, so fall back to BG0 —
