@@ -46,6 +46,7 @@ class TestSpriteGuardrails < Minitest::Test
     assert_equal 1, findings.length
     assert findings.first.warning?, "the check is advisory"
     assert_match(/every frame/, findings.first.message)
+    assert_equal :clear_screen, findings.first.node.kind, "it blames the clear — the line to delete"
   end
 
   def test_flags_a_full_screen_fill_over_a_sprite

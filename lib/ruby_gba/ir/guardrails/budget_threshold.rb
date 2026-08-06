@@ -23,7 +23,7 @@ module RubyGBA
           def detect(program)
             CostModel.new.budget_thresholds(program).map do |threshold|
               Finding.new(check: NAME, severity: :warning, message: message(threshold),
-                          fix: nil, source: threshold[:source])
+                          node: threshold[:node])
             end
           end
 

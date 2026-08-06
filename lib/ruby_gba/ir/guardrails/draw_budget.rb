@@ -42,12 +42,15 @@ module RubyGBA
             return [] if steady <= budget
 
             message = buffered ? buffered_message(steady, budget) : message(steady, budget)
-            [Finding.new(check: NAME, severity: :warning, message: message, fix: nil)]
+            # Blame the game loop: the cost this warns about is the drawing that
+            # recurs inside it, so that's where the author starts reading.
+            [Finding.new(check: NAME, severity: :warning, message: message, node: game_loop(program))]
           end
 
           private
 
-          # One warning per over-budget scene, phrased for that scene's mode.
+          # One warning per over-budget scene, phrased for that scene's mode and
+          # blaming that scene, since only its own drawing is over.
           def per_scene(model, program)
             model.scene_verdicts(program).select { |scene| scene[:over] }.map do |scene|
               body = if scene[:mode] == IR::Modes::BUFFERED
@@ -55,8 +58,15 @@ module RubyGBA
                      else
                        message(scene[:steady_cost], scene[:budget])
                      end
-              Finding.new(check: NAME, severity: :warning, message: "Scene :#{scene[:name]}. #{body}", fix: nil)
+              Finding.new(check: NAME, severity: :warning,
+                          message: "Scene :#{scene[:name]}. #{body}", node: scene[:node])
             end
+          end
+
+          # The top-level game loop — the same one the cost model's #looping? asks
+          # about, so whenever this check speaks there is one to blame.
+          def game_loop(program)
+            program.children.find { |node| node.kind == :loop }
           end
 
           # Single-buffered: over budget means the drawing spills past the safe

@@ -42,9 +42,14 @@ module RubyGBA
             FrameReach.loops(program).filter_map do |loop_node|
               steady = FrameReach.steady_statements(loop_node, funcs)
               next unless steady.any? { |node| SPRITE_OPS.include?(node.kind) }
-              next unless steady.any? { |node| full_screen_clear?(node) }
 
-              Finding.new(check: NAME, severity: :warning, message: PROBLEM, fix: nil)
+              # Blame the clear rather than the loop. The fix is to delete this one
+              # line and paint the field before the loop instead — and the steady walk
+              # follows calls, so the clear may well sit in a scene some way from here.
+              clear = steady.find { |node| full_screen_clear?(node) }
+              next unless clear
+
+              Finding.new(check: NAME, severity: :warning, message: PROBLEM, node: clear)
             end
           end
 

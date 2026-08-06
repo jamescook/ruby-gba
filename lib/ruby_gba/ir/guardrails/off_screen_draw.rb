@@ -31,7 +31,7 @@ module RubyGBA
               next unless bounds && entirely_off_screen?(*bounds)
 
               Finding.new(check: NAME, severity: :warning, message: message(node, bounds),
-                          fix: nil, source: node.source)
+                          node: node)
             end
           end
 

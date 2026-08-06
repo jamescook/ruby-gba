@@ -448,7 +448,7 @@ module RubyGBA
           next unless break_even.between?(0, cap - 1)
 
           { list: name, break_even: break_even, cap: cap, budget: budget, steady: steady,
-            source: loop_node.source }
+            node: loop_node }
         end
         # One warning per list — a list drawn in several loops would otherwise repeat
         # the same advice; keep the tightest (lowest tip-over count).
@@ -471,7 +471,7 @@ module RubyGBA
       # against its own mode's budget — so a heavy direct-color scene is caught even
       # when another scene is buffered (which would otherwise widen the budget for
       # the whole program and hide it). Each entry:
-      #   { name:, mode:, steady_cost:, budget:, over: }
+      #   { name:, node:, mode:, steady_cost:, budget:, over: }
       def scene_verdicts(program)
         return [] unless looping?(program)
 
@@ -482,8 +482,8 @@ module RubyGBA
           mode = modes.mode_of(name)
           cost = steady_func(name)
           budget = mode_budget(mode)
-          { name: Modes.friendly_name(name), mode: mode, steady_cost: cost,
-            budget: budget, over: cost > budget }
+          { name: Modes.friendly_name(name), node: @funcs[name], mode: mode,
+            steady_cost: cost, budget: budget, over: cost > budget }
         end
       end
 

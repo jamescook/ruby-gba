@@ -31,8 +31,7 @@ module RubyGBA
               next unless managed.include?(node[:name])
               next if framework_blits.include?(node.object_id) # the sprite's own draw, not a hand one
 
-              Finding.new(check: NAME, severity: :warning, message: message(node[:name]),
-                          fix: nil, source: node.source)
+              Finding.new(check: NAME, severity: :warning, message: message(node[:name]), node: node)
             end
           end
 

@@ -50,11 +50,14 @@ module RubyGBA
             return [] if paints?(program)
 
             verb = bitmap_verb(program)
+            # Blame the `screen :tiled` line either way: it's the one line to change
+            # for a game that meant to draw the bitmap way, and the one line that made
+            # a promise the rest of the program never kept for a game with no content.
             [Finding.new(
               check: NAME,
               severity: :error,
               message: verb ? wrong_screen(verb) : nothing_to_show,
-              source: tiled_screen_node(program)&.source,
+              node: tiled_screen_node(program),
             )]
           end
 

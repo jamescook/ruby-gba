@@ -37,7 +37,9 @@ module RubyGBA
             return [] if flow.empty? # nothing runs — that's the "no code" check's job
             return [] if flow.any? { |stmt| never_returns?(stmt, funcs, Set.new) }
 
-            [Finding.new(check: NAME, severity: :warning, message: PROBLEM, fix: nil)]
+            # Blame the last statement that runs: that's the line control falls off
+            # the end of, and where the missing `halt` goes.
+            [Finding.new(check: NAME, severity: :warning, message: PROBLEM, node: flow.last)]
           end
 
           private

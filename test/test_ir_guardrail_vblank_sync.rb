@@ -26,6 +26,7 @@ class TestIRGuardrailVblankSync < Minitest::Test
 
     assert_equal 1, warnings.size
     assert_match(/wait_vblank/, warnings.first.message, "the warning names the fix")
+    assert_equal :loop, warnings.first.node.kind, "it blames the loop that never waits"
   end
 
   def test_a_loop_that_waits_directly_is_fine

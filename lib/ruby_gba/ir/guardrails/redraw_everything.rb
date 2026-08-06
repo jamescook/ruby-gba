@@ -50,7 +50,7 @@ module RubyGBA
               grows  = steady.any? { |node| growing_list_redraw?(node) }
               next unless clears && grows
 
-              Finding.new(check: NAME, severity: :warning, message: PROBLEM, fix: nil)
+              Finding.new(check: NAME, severity: :warning, message: PROBLEM, node: loop_node)
             end
           end
 

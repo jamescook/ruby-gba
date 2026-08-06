@@ -36,7 +36,7 @@ module RubyGBA
             loops(program).filter_map do |loop_node|
               next if reaches_sync?(loop_node, funcs, Set.new)
 
-              Finding.new(check: NAME, severity: :warning, message: PROBLEM, fix: nil)
+              Finding.new(check: NAME, severity: :warning, message: PROBLEM, node: loop_node)
             end
           end
 

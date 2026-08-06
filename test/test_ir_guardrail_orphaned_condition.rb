@@ -98,12 +98,19 @@ class TestIRGuardrailOrphanedCondition < Minitest::Test
   # ---- the explain half: it's an error, and it teaches --------------------
 
   def test_the_finding_is_an_error_that_names_the_source_and_the_fix
-    finding = Guardrails::Checks::OrphanedCondition.finding("game.rb:42")
+    orphan = orphans_for do
+      x = var :x, 5
+      x > 3
+    end.first
+    finding = Guardrails::Checks::OrphanedCondition.finding(orphan)
 
     assert finding.error?, "an unused Condition is a definite bug, not advisory"
     assert_equal :orphaned_condition, finding.check
-    assert_match(/game\.rb:42/, finding.message)
     assert_match(/\.then/, finding.message, "the message names the fix")
+    assert_match(/test_ir_guardrail_orphaned_condition\.rb:\d+/, finding.full_message,
+                 "it sends the reader to the line that built the comparison")
+    refute_includes finding.message, finding.source,
+                    "the location is appended by full_message, not written into the message"
   end
 
   # ---- build-finalize surfaces it -----------------------------------------

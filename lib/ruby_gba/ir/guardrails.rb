@@ -11,8 +11,9 @@ module RubyGBA
     # This file is only the *mechanism* — a registry of checks and a pass that
     # runs them. Each check is target knowledge (what's a footgun on this
     # hardware and how to phrase it); those live in Guardrails::Checks. A check
-    # does three things: detect a problem, explain it in plain language, and —
-    # where it's safe — offer a fix the pass can apply automatically.
+    # does four things: detect a problem, name what it blames so the author knows
+    # where to look, explain it in plain language, and — where it's safe — offer a
+    # fix the pass can apply automatically.
     module Guardrails
       # Raised by Report#raise_on_error! when validation found a real problem
       # that wasn't (or couldn't be) auto-fixed.
@@ -22,14 +23,32 @@ module RubyGBA
       #   severity — :error (would break the ROM) or :warning (advisory — a
       #              non-fatal footgun, or an error the pass auto-fixed for you)
       #   message  — plain language written for the person, not a log
+      #   node     — what the finding blames, and the answer to "where do I look?":
+      #              the IR node at fault, or the sentinel :program when the problem
+      #              really is the whole program and no single line. Required, and
+      #              that's the whole point — a check cannot report a black screen
+      #              without saying what to go read, so a finding with no line is a
+      #              deliberate claim someone wrote rather than a detail that got
+      #              dropped. Anything carrying a #source works, which is how the
+      #              one check with no node (an unused Condition never records one)
+      #              still names the author's line.
       #   fix      — an optional Fix the pass may apply; nil if there's no safe one
-      #   source   — the DSL call site of the offending node ("hero.rb:42"), or nil.
-      #              A check just hands over the node's source; the "(at …)" suffix is
-      #              appended in one place (#full_message), so no check formats it into
-      #              its own sentence and a new guardrail gets it for free.
-      Finding = Data.define(:check, :severity, :message, :fix, :source) do
-        def initialize(check:, severity:, message:, fix: nil, source: nil)
+      Finding = Data.define(:check, :severity, :message, :node, :fix) do
+        def initialize(check:, severity:, message:, node:, fix: nil)
+          unless node == :program || node.respond_to?(:source)
+            raise ArgumentError,
+                  "a finding blames an IR node, or :program when it blames the whole " \
+                  "program; got #{node.inspect}"
+          end
+
           super
+        end
+
+        # The DSL call site to send the person to ("hero.rb:42"). nil for a
+        # whole-program finding, and for a node the builder never stamped (one the
+        # framework synthesized rather than the author writing it).
+        def source
+          node == :program ? nil : node.source
         end
 
         def error?
@@ -41,7 +60,8 @@ module RubyGBA
         end
 
         # The message shown to the person: the plain message, plus the source
-        # location appended when the check knew which node was at fault.
+        # location. Appending it here — the one place — is why no check writes
+        # "(at …)" into its own sentence and why a new guardrail gets it for free.
         def full_message
           source ? "#{message} (at #{source})" : message
         end
@@ -160,8 +180,9 @@ module RubyGBA
             check.detect(program).each do |finding|
               if autofix && finding.fix
                 program = finding.fix.apply.call(program)
-                findings << Finding.new(check: finding.check, severity: :warning,
-                                        message: finding.fix.message, fix: nil, source: finding.source)
+                # The same finding, reported as "we corrected this for you" — it keeps
+                # blaming the same node, so the warning still points at the line.
+                findings << finding.with(severity: :warning, message: finding.fix.message, fix: nil)
               else
                 findings << finding
               end

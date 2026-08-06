@@ -39,45 +39,58 @@ module RubyGBA
             total = users.sum { |user| user[:bytes] }
             return [] if total <= BUDGET_BYTES
 
-            [Finding.new(check: NAME, severity: :error, message: message(total, users), fix: nil)]
+            # Blame the biggest user, which is the capacity to shrink. The plain
+            # variable count and the sprites' save-buffers are sums over the whole
+            # program with no one declaration behind them, so a program whose biggest
+            # user is one of those blames the program itself.
+            [Finding.new(check: NAME, severity: :error, message: message(total, users),
+                         node: users.first[:node] || :program)]
           end
 
           private
 
-          # Everything the program reserves IWRAM for, each as { label:, bytes: }, largest
-          # first — so the message can name the total and point at the biggest users.
+          # Everything the program reserves IWRAM for, each as { label:, bytes:, node: },
+          # largest first — so the message can name the total and point at the biggest
+          # users, and the finding can send the author to the biggest one's line.
           def contributors(program)
             items = list_and_pool_items(program)
 
             var_count = variable_names(program).size
-            items << { label: pluralize(var_count, "variable"), bytes: var_count * WORD } if var_count.positive?
+            if var_count.positive?
+              items << { label: pluralize(var_count, "variable"), bytes: var_count * WORD, node: nil }
+            end
 
             buffers = backing_bytes(program)
-            items << { label: "sprite save-buffers", bytes: buffers } if buffers.positive?
+            items << { label: "sprite save-buffers", bytes: buffers, node: nil } if buffers.positive?
 
             items.sort_by { |item| -item[:bytes] }
           end
 
           # Lists as contributors — but a pool's several backing lists collapse into one
           # "pool :name" (the author declared one pool, not five lists), while a standalone
-          # list stays "list :name".
+          # list stays "list :name". The node kept under a label is its first declaration,
+          # which is the line the author wrote.
           def list_and_pool_items(program)
-            grouped = Hash.new(0)
-            list_bytes(program).each { |name, bytes| grouped[label_for(name)] += bytes }
-            grouped.map { |label, bytes| { label: label, bytes: bytes } }
+            grouped = {}
+            list_declarations(program).each do |name, (bytes, node)|
+              item = (grouped[label_for(name)] ||= { label: label_for(name), bytes: 0, node: node })
+              item[:bytes] += bytes
+            end
+            grouped.values
           end
 
-          # name => bytes for every list the program creates (deduped by name — a list
-          # re-declared to reset it reserves its storage once). A list is its `capacity`
-          # slots plus two hidden bookkeeping words (where it starts and how full it is).
-          def list_bytes(program)
-            bytes = {}
+          # name => [bytes, node] for every list the program creates (deduped by name — a
+          # list re-declared to reset it reserves its storage once). A list is its
+          # `capacity` slots plus two hidden bookkeeping words (where it starts and how
+          # full it is).
+          def list_declarations(program)
+            declarations = {}
             program.walk do |node|
               next unless node.kind == :list_new
 
-              bytes[node[:name]] = (node[:capacity] + 2) * WORD
+              declarations[node[:name]] = [(node[:capacity] + 2) * WORD, node]
             end
-            bytes
+            declarations
           end
 
           # The contributor label for a list: a pool backing list (named __pool_<pool>_<field>)

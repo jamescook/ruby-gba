@@ -27,6 +27,8 @@ class TestIRGuardrailScreenMode < Minitest::Test
     message = report.errors.first.message
     assert_match(/black/i, message)
     assert_match(/screen/i, message)
+    assert_equal :pixel, report.errors.first.node.kind,
+                 "it blames the first draw — the line the missing `screen` goes above"
   end
 
   def test_autofix_switches_the_screen_on_and_warns
