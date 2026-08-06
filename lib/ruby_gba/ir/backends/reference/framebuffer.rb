@@ -82,6 +82,24 @@ module RubyGBA
             @pixels[(y * @width) + x] = color
           end
 
+          # Paint a horizontal run of cells: +count+ of them starting at (x, y), read
+          # from +colors+ beginning at +from+. A nil in +colors+ leaves that cell as it
+          # is, so a see-through pixel keeps whatever is behind it.
+          #
+          # The run has to be on the screen. This is the compositor's path — it walks
+          # the screen a tile at a time and knows its own coordinates are inside it —
+          # so it skips the per-cell edge check set_pixel does. That check is most of
+          # the cost when a whole scrolling scene is repainted every frame.
+          def paint_row(x, y, colors, from:, count:)
+            base = (y * @width) + x
+            i = 0
+            while i < count
+              color = colors[from + i]
+              @pixels[base + i] = color if color
+              i += 1
+            end
+          end
+
           # Paint a w-by-h rectangle whose top-left is (x, y). Any part hanging off
           # the screen is clipped, because each cell goes through set_pixel.
           def fill_rect(x, y, width, height, color)
