@@ -12,7 +12,7 @@ class TestTimer < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
 
@@ -34,7 +34,7 @@ class TestTimer < Minitest::Test
         (fc == stop_frame).then { halt }
       end
     end
-    Ruby.new.run(b.program)
+    Reference.new.run(b.program)
   end
 
   # At 60/sec on a 60fps model, the timer ticks once per frame — so after N frames it
@@ -67,7 +67,7 @@ class TestTimer < Minitest::Test
       set :snap, RubyGBA::Timer.new(self, :ghost).ticks
       halt
     end
-    assert_equal 0, Ruby.new.run(b.program)[:snap]
+    assert_equal 0, Reference.new.run(b.program)[:snap]
   end
 
   # --- validation ---
@@ -119,7 +119,7 @@ class TestTimer < Minitest::Test
         (fc == stop_frame).then { halt }
       end
     end
-    Ruby.new.run(b.program)
+    Reference.new.run(b.program)
   end
 
   # At 60/sec on a 60fps model the handler runs once per frame — so after N frames it has

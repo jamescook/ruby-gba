@@ -13,7 +13,7 @@ require_relative "test_helper"
 class TestAnimateExample < Minitest::Test
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -27,7 +27,7 @@ class TestAnimateExample < Minitest::Test
   end
 
   def test_the_coin_renders
-    s = Ruby.new.run(Animate.program, max_steps: 200).screen
+    s = Reference.new.run(Animate.program, max_steps: 200).screen
     assert_equal Color.resolve(:yellow), s.pixel(*CENTRE), "the coin renders in the middle"
   end
 

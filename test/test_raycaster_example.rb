@@ -14,7 +14,7 @@ require_relative "../examples/raycaster"
 class TestRaycasterExample < Minitest::Test
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   WHITE = RubyGBA::Color.resolve(:white)
 
   # How many screen columns show a wall pixel at the horizon (y = 80).
@@ -27,7 +27,7 @@ class TestRaycasterExample < Minitest::Test
   end
 
   def test_walls_render_on_the_interpreter
-    interp = Ruby.new.run(Raycaster.program, frames: 2)
+    interp = Reference.new.run(Raycaster.program, frames: 2)
     assert_operator wall_columns(->(x, y) { interp.screen.pixel(x, y) }), :>=, 20,
                     "the surrounding walls should draw a strip in most columns"
   end

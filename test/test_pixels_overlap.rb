@@ -13,7 +13,7 @@ class TestPixelsOverlap < Minitest::Test
   include RubyGBA::IR::Build
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -43,7 +43,7 @@ class TestPixelsOverlap < Minitest::Test
   def interpreter_hit(bx)
     prog = program(screen(:bitmap), *images, set(:hit, int(0)),
                    if_(touch_node(bx), set(:hit, int(1))), halt)
-    Ruby.new.run(prog)[:hit]
+    Reference.new.run(prog)[:hit]
   end
 
   def test_overlap_is_true_only_where_solid_pixels_meet

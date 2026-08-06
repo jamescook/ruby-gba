@@ -107,7 +107,7 @@ class TestImage < Minitest::Test
 
   def screen_after(&block)
     prog = build(&block)
-    RubyGBA::IR::Backends::Ruby.new.run(prog).screen
+    RubyGBA::IR::Backends::Reference.new.run(prog).screen
   end
 
   def test_blit_draws_each_pixel_of_the_image_at_the_position

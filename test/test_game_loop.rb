@@ -15,7 +15,7 @@ class TestGameLoop < Minitest::Test
   include GembaSupport
 
   GBA = RubyGBA::IR::Backends::GBA
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
 
   # ARM SWI with comment 0x05 in the top byte -> VBlankIntrWait.
   VBLANK_INTR_WAIT = 0xEF000000 | (0x05 << 16)
@@ -148,7 +148,7 @@ class TestGameLoop < Minitest::Test
 
   def test_the_loop_advances_once_per_frame_on_the_interpreter
     program = counting_loop(20)
-    i = Ruby.new.run(program, max_steps: 100_000)
+    i = Reference.new.run(program, max_steps: 100_000)
     assert_equal 20, i[:frames], "the loop bumps the counter once per frame up to the cap"
   end
 

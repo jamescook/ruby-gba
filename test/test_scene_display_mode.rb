@@ -17,7 +17,7 @@ class TestSceneDisplayMode < Minitest::Test
   include RubyGBA::Constants
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -59,7 +59,7 @@ class TestSceneDisplayMode < Minitest::Test
   # fill everywhere, and the tiled scene's hardware sprite is nowhere (it belongs to
   # the play scene, which is inactive).
   def test_the_bitmap_scene_renders_through_the_framebuffer
-    i = Ruby.new.run(bitmap_to_tiled_program)
+    i = Reference.new.run(bitmap_to_tiled_program)
     assert_equal RED, i.screen.pixel(0, 0), "the bitmap title fills the framebuffer red"
     assert_equal RED, i.screen.pixel(103, 79), "the tiled hardware sprite is hidden while the title is active"
   end
@@ -69,7 +69,7 @@ class TestSceneDisplayMode < Minitest::Test
   # displays reuse the same video memory, so crossing into tiled stops the bitmap
   # surface being shown; the corner reads as a wiped (black) tiled backdrop, not red.
   def test_switching_to_the_tiled_scene_flips_which_display_presents
-    i = Ruby.new.input_each_frame { |_f| [:start] }.run(bitmap_to_tiled_program)
+    i = Reference.new.input_each_frame { |_f| [:start] }.run(bitmap_to_tiled_program)
     assert_equal GREEN, i.screen.pixel(103, 79), "the tiled scene's hardware sprite renders"
     refute_equal RED, i.screen.pixel(0, 0), "the bitmap title's pixels don't bleed under the tiled scene"
     assert_equal BLACK, i.screen.pixel(0, 0), "crossing into tiled wipes the old bitmap surface"

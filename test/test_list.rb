@@ -5,13 +5,13 @@ require_relative "../lib/ruby_gba"
 require_relative "test_helper"
 
 # `list :name, capacity: N` — a bounded, ordered collection whose length changes
-# at run time. Assert its behavior through the Ruby interpreter (the oracle):
+# at run time. Assert its behavior through the reference interpreter (the oracle):
 # build a small program that pushes, drops, indexes, and iterates, then read the
 # variables it leaves behind. Overflow / underflow / out-of-range surface as
 # friendly ProgramErrors, checked headlessly.
 class TestList < Minitest::Test
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Build = RubyGBA::IR::Build
 
   # Run a DSL block through the interpreter and hand back the finished run, so a
@@ -21,7 +21,7 @@ class TestList < Minitest::Test
     builder = Builder.new
     builder.instance_eval(&block)
     builder.emit_pending_functions
-    Ruby.new.run(builder.program)
+    Reference.new.run(builder.program)
   end
 
   # --- reading back what was pushed ---
@@ -179,7 +179,7 @@ class TestList < Minitest::Test
   end
 
   def test_pushing_past_capacity_raises_a_friendly_error
-    err = assert_raises(Ruby::ProgramError) do
+    err = assert_raises(Reference::ProgramError) do
       interpret do
         body = list :body, capacity: 2
         body.push 1
@@ -194,7 +194,7 @@ class TestList < Minitest::Test
   # --- friendly errors on misuse ---
 
   def test_shifting_an_empty_list_raises
-    err = assert_raises(Ruby::ProgramError) do
+    err = assert_raises(Reference::ProgramError) do
       interpret do
         body = list :body, capacity: 4
         body.shift
@@ -205,7 +205,7 @@ class TestList < Minitest::Test
   end
 
   def test_popping_an_empty_list_raises
-    err = assert_raises(Ruby::ProgramError) do
+    err = assert_raises(Reference::ProgramError) do
       interpret do
         body = list :body, capacity: 4
         body.pop
@@ -216,7 +216,7 @@ class TestList < Minitest::Test
   end
 
   def test_indexing_out_of_range_raises
-    err = assert_raises(Ruby::ProgramError) do
+    err = assert_raises(Reference::ProgramError) do
       interpret do
         body = list :body, capacity: 8
         body.push 10
@@ -230,8 +230,8 @@ class TestList < Minitest::Test
   def test_using_a_list_before_it_is_created_raises
     # Built straight from the IR: the DSL can't express this (a handle only comes
     # from `list`), but a stray push must still fail loudly rather than silently.
-    err = assert_raises(Ruby::ProgramError) do
-      Ruby.new.run(Build.program(Build.list_push(:ghost, 1), Build.halt))
+    err = assert_raises(Reference::ProgramError) do
+      Reference.new.run(Build.program(Build.list_push(:ghost, 1), Build.halt))
     end
     assert_match(/before it was created/i, err.message)
   end

@@ -3,18 +3,18 @@
 require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 
-# The Ruby backend's simulated hardware: run hand-built IR programs that draw and
+# The reference backend's simulated hardware: run hand-built IR programs that draw and
 # read input, then assert what landed on the fake screen and which branch a
 # supplied button state took. Still no emulator and no ROM — the point is that a
 # game's *visible* behavior is assertable in-process.
-class TestIRBackendRubyHardware < Minitest::Test
+class TestIRBackendReferenceHardware < Minitest::Test
   include RubyGBA::IR::Build
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   def run_ir(node, **opts)
-    Ruby.new.run(node, **opts)
+    Reference.new.run(node, **opts)
   end
 
   # ---- drawing into the framebuffer ----
@@ -104,7 +104,7 @@ class TestIRBackendRubyHardware < Minitest::Test
   # ---- reading input ----
 
   def test_held_button_takes_the_branch
-    i = Ruby.new.hold(:a).run(program(
+    i = Reference.new.hold(:a).run(program(
       if_(held(:a), set(:jumped, 1)),
       if_(held(:b), set(:shot, 1)),
     ))
@@ -113,14 +113,14 @@ class TestIRBackendRubyHardware < Minitest::Test
   end
 
   def test_unheld_button_skips_the_branch
-    i = Ruby.new.run(program(if_(held(:up), set(:moved, 1))))
+    i = Reference.new.run(program(if_(held(:up), set(:moved, 1))))
     assert_equal 0, i[:moved]
   end
 
   def test_pressed_is_an_edge_only_the_first_frame_a_button_is_down
     # Button :a is held on every frame, but "pressed" should fire once — the
     # frame the button first goes down, not while it stays down.
-    i = Ruby.new.input_each_frame { |_frame| [:a] }.run(program(
+    i = Reference.new.input_each_frame { |_frame| [:a] }.run(program(
       set(:count, 0),
       set(:presses, 0),
       loop_(
@@ -135,8 +135,8 @@ class TestIRBackendRubyHardware < Minitest::Test
   end
 
   def test_unknown_button_is_a_friendly_error
-    err = assert_raises(Ruby::ProgramError) do
-      Ruby.new.run(program(if_(held(:triangle), set(:x, 1))))
+    err = assert_raises(Reference::ProgramError) do
+      Reference.new.run(program(if_(held(:triangle), set(:x, 1))))
     end
     assert_match(/triangle/, err.message)
   end

@@ -11,7 +11,7 @@ require_relative "../lib/ruby_gba"
 # on real hardware.
 class TestSpriteScreenEdges < Minitest::Test
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
 
   # Place an 8x8 sprite at (px, py) and record `predicate.then { flag = 1 }`; return
   # the flag (1 if the predicate held at that position, else 0). The sprite starts on
@@ -29,7 +29,7 @@ class TestSpriteScreenEdges < Minitest::Test
       halt
     end
     b.emit_pending_functions
-    Ruby.new.run(b.program)[:flag]
+    Reference.new.run(b.program)[:flag]
   end
 
   def test_below_bottom_is_true_only_when_fully_below_the_screen
@@ -76,7 +76,7 @@ class TestSpriteScreenEdges < Minitest::Test
       halt
     end
     b.emit_pending_functions
-    i = Ruby.new.run(b.program)
+    i = Reference.new.run(b.program)
     [i[sx], i[sy]]
   end
 
@@ -101,7 +101,7 @@ class TestSpriteScreenEdges < Minitest::Test
       halt
     end
     b.emit_pending_functions
-    i = Ruby.new.run(b.program)
+    i = Reference.new.run(b.program)
     assert_equal 0, i[:on_flag], "a box on screen is not off_screen?"
     assert_equal 1, i[:off_flag], "a box fully past the left edge is off_screen?"
   end

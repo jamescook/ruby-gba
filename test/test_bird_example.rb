@@ -12,7 +12,7 @@ require_relative "../examples/bird"
 class TestBirdExample < Minitest::Test
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   SKY = RubyGBA::Color.rgb(12, 18, 28) # the background tile color
 
   def test_it_builds_a_rom
@@ -31,7 +31,7 @@ class TestBirdExample < Minitest::Test
   end
 
   def test_the_bird_renders_on_the_interpreter
-    interp = Ruby.new.run(Bird.program, frames: 3)
+    interp = Reference.new.run(Bird.program, frames: 3)
     assert bird_over_sky?(->(x, y) { interp.screen.pixel(x, y) }), "the bird should be drawn over the sky"
   end
 

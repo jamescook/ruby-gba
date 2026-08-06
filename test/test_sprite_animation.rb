@@ -15,7 +15,7 @@ class TestSpriteAnimation < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -51,7 +51,7 @@ class TestSpriteAnimation < Minitest::Test
   end
 
   def spot(program)
-    Ruby.new.run(program).screen.pixel(44, 44)
+    Reference.new.run(program).screen.pixel(44, 44)
   end
 
   def test_a_software_sprite_flipbook_cycles

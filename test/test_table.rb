@@ -12,7 +12,7 @@ class TestTable < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
 
@@ -20,7 +20,7 @@ class TestTable < Minitest::Test
     b = Builder.new
     b.instance_eval(&block)
     b.emit_pending_functions
-    Ruby.new.run(b.program)
+    Reference.new.run(b.program)
   end
 
   def rom_for(title, code, &block)

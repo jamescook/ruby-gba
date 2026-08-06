@@ -15,7 +15,7 @@ class TestPacmanExample < Minitest::Test
   include GembaSupport
   include RubyGBA::Constants
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -35,7 +35,7 @@ class TestPacmanExample < Minitest::Test
   # Pac (yellow), a pellet (white), and the ghost (red) all render over the room —
   # three hardware sprites of different colors composited on the tiled background.
   def test_pac_the_pellets_and_the_ghost_all_render
-    s = Ruby.new.run(Pacman.program, max_steps: 400).screen
+    s = Reference.new.run(Pacman.program, max_steps: 400).screen
     assert any_pixel?(s, :yellow, START_X..(START_X + Pacman::SIZE), START_Y..(START_Y + Pacman::SIZE)),
            "Pac-Man renders in the middle"
     px, py = Pacman::PELLET_SPOTS.first
@@ -46,7 +46,7 @@ class TestPacmanExample < Minitest::Test
 
   # Holding left walks Pac left of where he started — he's found in yellow there.
   def test_steering_moves_pac
-    s = Ruby.new.input_each_frame { [:left] }.run(Pacman.program, max_steps: 400).screen
+    s = Reference.new.input_each_frame { [:left] }.run(Pacman.program, max_steps: 400).screen
     assert any_pixel?(s, :yellow, 64..104, START_Y..(START_Y + Pacman::SIZE)),
            "holding left should walk Pac left of centre"
   end
@@ -55,14 +55,14 @@ class TestPacmanExample < Minitest::Test
   # before the ghost (starting in a far corner) is any threat. overlaps? fires and
   # the eaten count climbs. Both are sprites, so there are no boxes.
   def test_eating_a_pellet
-    r = Ruby.new.input_each_frame { [:up] }.run(Pacman.program, max_steps: 1000)
+    r = Reference.new.input_each_frame { [:up] }.run(Pacman.program, max_steps: 1000)
     assert_operator r[:eaten], :>=, 1, "walking into a pellet should eat it"
   end
 
   # Leave Pac still and the ghost, creeping toward him each frame, eventually catches
   # him — collision across two moving hardware sprites, driving the whole loop.
   def test_the_ghost_catches_an_idle_pac
-    r = Ruby.new.run(Pacman.program, max_steps: 4000)
+    r = Reference.new.run(Pacman.program, max_steps: 4000)
     assert_operator r[:caught], :>=, 1, "the chasing ghost should catch a still Pac"
   end
 

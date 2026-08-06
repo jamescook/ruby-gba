@@ -129,7 +129,7 @@ class TestVariables < Minitest::Test
     end
     builder.emit_pending_functions
 
-    i = RubyGBA::IR::Backends::Ruby.new.run(builder.program, max_steps: 5_000)
+    i = RubyGBA::IR::Backends::Reference.new.run(builder.program, max_steps: 5_000)
     assert_operator i[:ticks], :>, 1,
                     "var's initializer runs once at boot, so the counter accumulates rather than resetting to 0 each frame"
   end

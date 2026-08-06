@@ -320,7 +320,7 @@ module RubyGBA
         # Together that runs ROM-resident code roughly 2–3x faster, and everything
         # after it (the rest of boot, and the whole game) benefits. It's safe on all
         # real hardware, so every managed ROM gets it. (This is a hardware-timing
-        # concern, so it lives only in this backend — the Ruby interpreter models
+        # concern, so it lives only in this backend — the reference interpreter models
         # behaviour, not cycles, and the cost model prices timing separately.)
         def emit_waitcnt_setup
           write_io_halfword(REG_WAITCNT, WAITCNT_FAST)

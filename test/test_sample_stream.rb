@@ -12,7 +12,7 @@ class TestSampleStream < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
 
@@ -27,7 +27,7 @@ class TestSampleStream < Minitest::Test
       music.play(loop: true)
       game_loop { wait_vblank }
     end
-    i = Ruby.new.run(b.program, max_steps: 20_000)
+    i = Reference.new.run(b.program, max_steps: 20_000)
     plays = i.audio.count { |e| e == [:sample, :music] }
     assert_operator plays, :>, 1, "a clip past the old limit loops just like a short one (#{plays} plays)"
   end

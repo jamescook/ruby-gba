@@ -15,7 +15,7 @@ class TestBufferedBounceExample < Minitest::Test
   include RubyGBA::Constants
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   BALL_COLORS = %i[yellow cyan magenta].freeze
@@ -30,7 +30,7 @@ class TestBufferedBounceExample < Minitest::Test
   # On the reference interpreter, a settled frame shows the blue field and all
   # three balls — the promise that buffered drawing lands the same pixels.
   def test_it_renders_the_balls_on_a_blue_field
-    i = Ruby.new.run(BufferedBounce.program)
+    i = Reference.new.run(BufferedBounce.program)
     assert i.buffered, "the demo opts into double buffering"
 
     pixels = i.screen.to_a

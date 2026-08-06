@@ -15,7 +15,7 @@ class TestFade < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Guardrails = RubyGBA::IR::Guardrails
@@ -50,21 +50,21 @@ class TestFade < Minitest::Test
   # --- the blend ---
 
   def test_no_fade_shows_the_picture_as_drawn
-    i = Ruby.new.run(faded(:black, 0))
+    i = Reference.new.run(faded(:black, 0))
 
     assert_equal RED, i.screen.pixel(120, 80)
     assert_equal BLUE, i.screen.pixel(10, 10)
   end
 
   def test_a_full_fade_to_black_covers_everything
-    i = Ruby.new.run(faded(:black, 100))
+    i = Reference.new.run(faded(:black, 100))
 
     assert_equal BLACK, i.screen.pixel(120, 80), "the block is gone"
     assert_equal BLACK, i.screen.pixel(10, 10), "and so is the background"
   end
 
   def test_a_full_fade_to_white_covers_everything
-    i = Ruby.new.run(faded(:white, 100))
+    i = Reference.new.run(faded(:white, 100))
 
     assert_equal WHITE, i.screen.pixel(120, 80)
     assert_equal WHITE, i.screen.pixel(10, 10)
@@ -73,8 +73,8 @@ class TestFade < Minitest::Test
   # Halfway is halfway on each channel: a full channel (31) keeps 16 of its 31 parts
   # going to black. Asserting the number, not just "darker", is what pins the blend.
   def test_a_half_fade_moves_each_channel_half_way
-    dark = Ruby.new.run(faded(:black, 50))
-    light = Ruby.new.run(faded(:white, 50))
+    dark = Reference.new.run(faded(:black, 50))
+    light = Reference.new.run(faded(:white, 50))
 
     assert_equal [16, 0, 0], channels(dark.screen.pixel(120, 80)), "red, half faded to black"
     assert_equal [0, 0, 16], channels(dark.screen.pixel(10, 10)), "blue, half faded to black"
@@ -84,7 +84,7 @@ class TestFade < Minitest::Test
   # The invariant that matters: a fade covers the picture, it does not destroy it.
   # If the drawing were really changed, a game that faded out could never fade in.
   def test_the_picture_comes_back_exactly_when_the_fade_lifts
-    i = Ruby.new.run(program do
+    i = Reference.new.run(program do
       screen :bitmap
       clear_screen :blue
       fill_rect 100, 70, 40, 20, :red
@@ -98,7 +98,7 @@ class TestFade < Minitest::Test
   end
 
   def test_an_amount_the_game_computes_fades_by_that_much
-    i = Ruby.new.run(program do
+    i = Reference.new.run(program do
       screen :bitmap
       clear_screen :blue
       level = var :level, 0
@@ -132,7 +132,7 @@ class TestFade < Minitest::Test
   end
 
   def test_a_fade_works_on_a_tiled_screen_too
-    assert_equal BLACK, Ruby.new.run(tiled_fade(100)).screen.pixel(60, 60)
+    assert_equal BLACK, Reference.new.run(tiled_fade(100)).screen.pixel(60, 60)
 
     lit = ROM.assemble(GBA.new.lower(tiled_fade(0)), title: "FADET", code: "BFDT", maker: "01")
     dark = ROM.assemble(GBA.new.lower(tiled_fade(100)), title: "FADET", code: "BFDT", maker: "01")
@@ -228,7 +228,7 @@ class TestFade < Minitest::Test
   # endpoints above are exact, and the blend itself is pinned on the interpreter.
   def test_a_half_fade_on_the_console_matches_the_interpreter_within_a_step
     console = assert_gemba_loads_rom(rom_for(:black, 50), frames: 4).pixel_gba(10, 10)
-    interpreted = Ruby.new.run(faded(:black, 50)).screen.pixel(10, 10)
+    interpreted = Reference.new.run(faded(:black, 50)).screen.pixel(10, 10)
 
     channels(console).zip(channels(interpreted)).each do |got, want|
       assert_in_delta want, got, 1, "console 0x#{format('%04X', console)} vs " \

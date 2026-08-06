@@ -14,7 +14,7 @@ class TestOverlaps < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Condition = RubyGBA::Condition
@@ -31,7 +31,7 @@ class TestOverlaps < Minitest::Test
       box(*a_dims).overlaps?(box(*b_dims)).then { pixel 0, 0, :white }
     end
     b.emit_pending_functions
-    Ruby.new.run(b.program).screen.pixel(0, 0)
+    Reference.new.run(b.program).screen.pixel(0, 0)
   end
 
   A = [10, 10, 8, 8].freeze # spans x 10..18, y 10..18
@@ -79,7 +79,7 @@ class TestOverlaps < Minitest::Test
     b.emit_pending_functions
     # The loop is frame-paced (one pass per frame), so give it enough frames for the
     # ball to travel all the way through the wall and reach its halt at x 40.
-    i = Ruby.new.run(b.program, frames: 50)
+    i = Reference.new.run(b.program, frames: 50)
     # The 4-wide ball overlaps the wall (x 20..24) while its left edge is in 16..24,
     # i.e. ball_x from 16 through 24 — nine frames.
     assert_equal 9, i[:hits], "overlaps? fires exactly on the overlapping frames"
@@ -106,7 +106,7 @@ class TestOverlaps < Minitest::Test
       end
     end
     b.emit_pending_functions
-    Ruby.new.run(b.program).screen.pixel(0, 0)
+    Reference.new.run(b.program).screen.pixel(0, 0)
   end
 
   def test_two_sprites_collide_by_their_own_bounds
@@ -167,7 +167,7 @@ class TestOverlaps < Minitest::Test
       end
     end
     b.emit_pending_functions
-    screen = Ruby.new.run(b.program).screen
+    screen = Reference.new.run(b.program).screen
 
     fragments = (0...RubyGBA::IR::Screen::HEIGHT).sum do |y|
       (0...RubyGBA::IR::Screen::WIDTH).count { |x| screen.pixel(x, y) == magenta }

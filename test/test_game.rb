@@ -11,7 +11,7 @@ require_relative "test_helper"
 # command loads. These assert the handle behaves, and that just declaring a game is
 # side-effect free (no cartridge written) so tests and the CLI stay in control.
 class TestGame < Minitest::Test
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   def test_it_returns_a_handle_carrying_the_title_and_codes
@@ -27,7 +27,7 @@ class TestGame < Minitest::Test
       clear_screen :red
       halt
     end
-    i = Ruby.new.run(g.program)
+    i = Reference.new.run(g.program)
     assert_equal Color.resolve(:red), i.screen.pixel(10, 10)
   end
 
@@ -42,7 +42,7 @@ class TestGame < Minitest::Test
       clear_screen fill
       halt
     end
-    i = Ruby.new.run(g.program)
+    i = Reference.new.run(g.program)
     assert_equal Color.resolve(:green), i.screen.pixel(0, 0)
   end
 

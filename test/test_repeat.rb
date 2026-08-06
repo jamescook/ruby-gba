@@ -5,14 +5,14 @@ require_relative "../lib/ruby_gba"
 require_relative "test_helper"
 
 # repeat(n) { |i| } — the runtime counted loop. Assert its behavior: the body
-# runs n times with the index counting 0..n-1, on the Ruby interpreter (the
+# runs n times with the index counting 0..n-1, on the reference interpreter (the
 # oracle) and on the console. The index is a Value, so it drives real positions.
 class TestRepeat < Minitest::Test
   include RubyGBA::Constants
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   # One green 2px mark per iteration, spaced 4 apart (2 drawn, 2 gap) so the
@@ -32,7 +32,7 @@ class TestRepeat < Minitest::Test
   end
 
   def test_interpreter_runs_the_body_once_per_index
-    screen = Ruby.new.run(marching_program(4)).screen
+    screen = Reference.new.run(marching_program(4)).screen
 
     # A mark at each of x = 0,4,8,12 (row 40)...
     [0, 4, 8, 12].each { |x| assert_equal Color.resolve(:green), screen.pixel(x, 40), "mark at x=#{x}" }
@@ -41,7 +41,7 @@ class TestRepeat < Minitest::Test
   end
 
   def test_zero_count_runs_the_body_no_times
-    screen = Ruby.new.run(marching_program(0)).screen
+    screen = Reference.new.run(marching_program(0)).screen
     assert_equal Color.resolve(:black), screen.pixel(0, 40), "count 0 draws nothing"
   end
 
@@ -55,7 +55,7 @@ class TestRepeat < Minitest::Test
       halt
     end
     builder.emit_pending_functions
-    screen = Ruby.new.run(builder.program).screen
+    screen = Reference.new.run(builder.program).screen
 
     [0, 8, 16].each { |x| assert_equal Color.resolve(:green), screen.pixel(x, 40), "mark at x=#{x}" }
     assert_equal Color.resolve(:black), screen.pixel(4, 40), "gap between the i*8 marks"

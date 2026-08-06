@@ -19,7 +19,7 @@ class TestSheetExample < Minitest::Test
   include RubyGBA::Constants
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Assets = MakeExampleAssets
 
   BRICK = Assets::BRICK # a wall-tile body pixel
@@ -43,7 +43,7 @@ class TestSheetExample < Minitest::Test
   # transparent hero draws its body while letting the floor show through its cut-out
   # corner.
   def test_imported_tiles_and_sprite_render_on_the_interpreter
-    s = Ruby.new.run(Sheet.program, max_steps: 400).screen
+    s = Reference.new.run(Sheet.program, max_steps: 400).screen
 
     assert_equal BRICK, s.pixel(*BRICK_AT), "the imported brick tile paints the wall"
     assert_equal FLOOR, s.pixel(*FLOOR_AT), "the imported floor tile paints the interior"

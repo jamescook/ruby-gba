@@ -14,7 +14,7 @@ class TestPoolRecycle < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -45,7 +45,7 @@ class TestPoolRecycle < Minitest::Test
       halt
     end
     b.emit_pending_functions
-    Ruby.new.run(b.program)
+    Reference.new.run(b.program)
   end
 
   # The default: a full pool drops the extra spawn — the two originals stay, the third
@@ -118,7 +118,7 @@ class TestPoolRecycle < Minitest::Test
   end
 
   def test_recycle_sprite_moves_to_the_new_spawn_on_the_interpreter
-    i = Ruby.new.run(recycle_sprite_program)
+    i = Reference.new.run(recycle_sprite_program)
     assert_equal GREEN, i.screen.pixel(62, 62), "the recycled instance draws at the new spawn"
     assert_equal BLACK, i.screen.pixel(22, 22), "and the old position is vacated"
   end

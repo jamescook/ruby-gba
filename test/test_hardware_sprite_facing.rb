@@ -16,7 +16,7 @@ class TestHardwareSpriteFacing < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -57,10 +57,10 @@ class TestHardwareSpriteFacing < Minitest::Test
   end
 
   def test_a_sprite_faces_the_way_it_moves
-    left = Ruby.new.input_each_frame { [:left] }.run(facing_program, frames: 45).screen
+    left = Reference.new.input_each_frame { [:left] }.run(facing_program, frames: 45).screen
     assert_equal Color.resolve(:blue), left.pixel(10, 43), "moving left shows the left-facing (blue) pose"
 
-    right = Ruby.new.input_each_frame { [:right] }.run(facing_program, frames: 45).screen
+    right = Reference.new.input_each_frame { [:right] }.run(facing_program, frames: 45).screen
     assert_equal Color.resolve(:red), right.pixel(226, 43), "moving right shows the right-facing (red) pose"
   end
 

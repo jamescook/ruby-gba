@@ -16,7 +16,7 @@ class TestCameraShake < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
 
@@ -56,7 +56,7 @@ class TestCameraShake < Minitest::Test
       camera 10, 0
       halt
     end
-    i = Ruby.new.run(prog)
+    i = Reference.new.run(prog)
 
     # The block was drawn across x 100..139.
     assert_equal RED, i.screen.stored_pixel(100, 70), "the drawing itself does not move"
@@ -72,7 +72,7 @@ class TestCameraShake < Minitest::Test
       camera 10, 0
       halt
     end
-    i = Ruby.new.run(prog)
+    i = Reference.new.run(prog)
 
     assert_equal 0, i.screen.pixel(235, 80), "past the drawn picture there is nothing to show"
     assert_equal BLUE, i.screen.pixel(0, 80), "inside it, the drawing still shows"
@@ -81,23 +81,23 @@ class TestCameraShake < Minitest::Test
   # --- the shake ---
 
   def test_the_picture_is_off_centre_while_the_shake_runs
-    i = Ruby.new.run(shaking_game(frames: 4))
+    i = Reference.new.run(shaking_game(frames: 4))
 
     refute_equal [0, 0], [i.screen.camera_x, i.screen.camera_y],
                  "the shake should have the camera off centre mid-shake"
   end
 
   def test_the_shake_alternates_direction_so_it_reads_as_a_jitter
-    a = Ruby.new.run(shaking_game(frames: 4)).screen.camera_x
-    b = Ruby.new.run(shaking_game(frames: 5)).screen.camera_x
+    a = Reference.new.run(shaking_game(frames: 4)).screen.camera_x
+    b = Reference.new.run(shaking_game(frames: 5)).screen.camera_x
 
     assert_equal(-a, b, "consecutive shake frames move opposite ways")
     refute_equal 0, a
   end
 
   def test_intensity_is_how_far_the_picture_moves
-    gentle = Ruby.new.run(shaking_game(frames: 4, intensity: 2)).screen.camera_x
-    hard = Ruby.new.run(shaking_game(frames: 4, intensity: 8)).screen.camera_x
+    gentle = Reference.new.run(shaking_game(frames: 4, intensity: 2)).screen.camera_x
+    hard = Reference.new.run(shaking_game(frames: 4, intensity: 8)).screen.camera_x
 
     assert_equal 2, gentle.abs
     assert_equal 8, hard.abs
@@ -106,7 +106,7 @@ class TestCameraShake < Minitest::Test
   # The one that matters most: a shake that does not put the picture back leaves the
   # whole game off centre with a stripe of backdrop down one edge, forever.
   def test_the_picture_goes_back_exactly_where_it_was
-    i = Ruby.new.run(shaking_game(frames: 12))
+    i = Reference.new.run(shaking_game(frames: 12))
 
     assert_equal 0, i.screen.camera_x
     assert_equal 0, i.screen.camera_y
@@ -114,8 +114,8 @@ class TestCameraShake < Minitest::Test
   end
 
   def test_the_shake_lasts_as_long_as_it_was_asked_to
-    settled = Ruby.new.run(shaking_game(frames: 8, length: 3))
-    still_going = Ruby.new.run(shaking_game(frames: 5, length: 20))
+    settled = Reference.new.run(shaking_game(frames: 8, length: 3))
+    still_going = Reference.new.run(shaking_game(frames: 5, length: 20))
 
     assert_equal 0, settled.screen.camera_x, "a 3-frame shake is over well before frame 8"
     refute_equal 0, still_going.screen.camera_x, "a 20-frame shake is not"

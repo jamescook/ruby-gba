@@ -11,7 +11,7 @@ class TestFontAuthoring < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Fonts = RubyGBA::Fonts
@@ -28,7 +28,7 @@ class TestFontAuthoring < Minitest::Test
     b = Builder.new
     b.instance_eval(&block)
     b.emit_pending_functions
-    Ruby.new.run(b.program).screen
+    Reference.new.run(b.program).screen
   end
 
   def test_a_font_defined_inline_renders_its_glyphs

@@ -21,7 +21,7 @@ class TestImageImport < Minitest::Test
 
   Image = RubyGBA::Image
   Color = RubyGBA::Color
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
 
   FIXTURES = File.expand_path("fixtures", __dir__)
   # The 2x2 fixture is red / green / blue / white, row-major (top-left first).
@@ -161,7 +161,7 @@ class TestImageImport < Minitest::Test
   end
 
   def test_imported_image_embeds_and_blits_on_the_interpreter
-    screen = Ruby.new.run(photo_program(10, 20)).screen
+    screen = Reference.new.run(photo_program(10, 20)).screen
 
     assert_equal EXPECTED[0], screen.pixel(10, 20), "top-left red"
     assert_equal EXPECTED[1], screen.pixel(11, 20), "top-right green"
@@ -201,7 +201,7 @@ class TestImageImport < Minitest::Test
   end
 
   def test_cutout_shows_background_through_transparent_pixels_on_the_interpreter
-    screen = Ruby.new.run(cutout_program(10, 20)).screen
+    screen = Reference.new.run(cutout_program(10, 20)).screen
 
     assert_equal Color.resolve(:red),   screen.pixel(10, 20), "opaque top-left"
     assert_equal Color.resolve(:green), screen.pixel(11, 20), "opaque top-right"

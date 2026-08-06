@@ -13,7 +13,7 @@ class TestPitchedVoices < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
 
@@ -31,7 +31,7 @@ class TestPitchedVoices < Minitest::Test
         (counter >= frames).then { halt }
       end
     end
-    Ruby.new.run(b.program, max_steps: 200_000)
+    Reference.new.run(b.program, max_steps: 200_000)
   end
 
   # --- the surface (interpreter): a higher note plays out faster ---

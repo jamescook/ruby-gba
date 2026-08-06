@@ -16,7 +16,7 @@ class TestTiledText < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -55,7 +55,7 @@ class TestTiledText < Minitest::Test
 
   def test_draw_text_paints_its_glyphs_as_sprites
     prog = hud_program { draw_text "AB", 100, 20, :white }
-    s = Ruby.new.run(prog, max_steps: 500).screen
+    s = Reference.new.run(prog, max_steps: 500).screen
     assert_glyph(s, "A", 100, 20, WHITE)
     assert_glyph(s, "B", 100 + Fonts.get(:default).cell_w, 20, WHITE) # one cell over
   end
@@ -65,7 +65,7 @@ class TestTiledText < Minitest::Test
       var :score, 7
       draw_number :score, 100, 20, :white, digits: 1
     end
-    s = Ruby.new.run(prog, max_steps: 500).screen
+    s = Reference.new.run(prog, max_steps: 500).screen
     assert_glyph(s, "7", 100, 20, WHITE)
   end
 
@@ -74,7 +74,7 @@ class TestTiledText < Minitest::Test
       var :score, 42
       draw_number :score, 100, 20, :white, digits: 2
     end
-    s = Ruby.new.run(prog, max_steps: 500).screen
+    s = Reference.new.run(prog, max_steps: 500).screen
     cell = Fonts.get(:default).cell_w
     assert_glyph(s, "4", 100, 20, WHITE)
     assert_glyph(s, "2", 100 + cell, 20, WHITE)
@@ -85,7 +85,7 @@ class TestTiledText < Minitest::Test
       var :score, 5
       draw_number :score, 100, 20, :white, digits: 3 # shows "  5"
     end
-    s = Ruby.new.run(prog, max_steps: 500).screen
+    s = Reference.new.run(prog, max_steps: 500).screen
     cell = Fonts.get(:default).cell_w
     # The ones column (third) shows 5; the two leading columns are blank — no white
     # pixel anywhere in their 8x8 boxes.
@@ -115,7 +115,7 @@ class TestTiledText < Minitest::Test
       end
     end
     b.emit_pending_functions
-    s = Ruby.new.run(b.program, max_steps: 2_000).screen
+    s = Reference.new.run(b.program, max_steps: 2_000).screen
     # Frame N presents score, then adds 1; it halts the frame it presents 5 then makes 6.
     assert_glyph(s, "5", 100, 20, WHITE)
   end

@@ -15,7 +15,7 @@ require_relative "../examples/piano"
 class TestExamplePiano < Minitest::Test
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
   YELLOW = Color.resolve(:yellow)
   WHITE  = Color.resolve(:white)
@@ -24,7 +24,7 @@ class TestExamplePiano < Minitest::Test
   # Run the example on the interpreter for +frames+ frames, calling the block at
   # each vblank with the interpreter (its #screen has the settled previous frame).
   def play(frames)
-    i = Ruby.new
+    i = Reference.new
     i.each_vblank { |f| yield(i, f) if block_given? && f <= frames }
     i.run(Piano.program, frames: frames)
     i

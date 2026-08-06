@@ -14,7 +14,7 @@ class TestHardwareSpritesMulti < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -50,7 +50,7 @@ class TestHardwareSpritesMulti < Minitest::Test
   end
 
   def test_later_declared_sprite_draws_in_front_and_colors_do_not_clobber
-    screen = Ruby.new.run(overlapping_pair).screen
+    screen = Reference.new.run(overlapping_pair).screen
     assert_equal Color.resolve(:red),  screen.pixel(41, 41), "the red sprite keeps its own color"
     assert_equal Color.resolve(:blue), screen.pixel(50, 50), "the blue sprite keeps its own color"
     assert_equal Color.resolve(:blue), screen.pixel(46, 46), "the later sprite sits in front in the overlap"
@@ -89,7 +89,7 @@ class TestHardwareSpritesMulti < Minitest::Test
   end
 
   def spot_color(program)
-    Ruby.new.run(program).screen.pixel(44, 44)
+    Reference.new.run(program).screen.pixel(44, 44)
   end
 
   def test_a_shown_sprite_can_be_hidden

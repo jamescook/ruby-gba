@@ -14,7 +14,7 @@ require_relative "test_helper"
 class TestSheetImport < Minitest::Test
   Image = RubyGBA::Image
   Color = RubyGBA::Color
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
 
   RED  = Color.rgb8(255, 0, 0) # 0x001F
   BLUE = Color.rgb8(0, 0, 255) # 0x7C00
@@ -114,7 +114,7 @@ class TestSheetImport < Minitest::Test
       builder.program
     end
 
-    s = Ruby.new.run(program, max_steps: 200).screen
+    s = Reference.new.run(program, max_steps: 200).screen
     assert_equal RED,  s.pixel(4, 4),  "cell 0 (#) painted the top-left tile red"
     assert_equal BLUE, s.pixel(12, 4), "cell 1 (.) painted the next tile blue"
   end
@@ -154,7 +154,7 @@ class TestSheetImport < Minitest::Test
       builder.program
     end
 
-    assert_equal RED, Ruby.new.run(program, max_steps: 200).screen.pixel(12, 12),
+    assert_equal RED, Reference.new.run(program, max_steps: 200).screen.pixel(12, 12),
                  "the first imported frame drew the sprite red"
   end
 

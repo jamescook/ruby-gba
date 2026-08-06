@@ -13,7 +13,7 @@ require_relative "../examples/tiles"
 class TestTilesExample < Minitest::Test
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   # Points chosen from the map (examples/tiles.rb), one per tile kind:
@@ -25,7 +25,7 @@ class TestTilesExample < Minitest::Test
   GRASS = [152, 24].freeze
 
   def test_each_tile_kind_lands_where_the_map_puts_it
-    i = Ruby.new.run(Tiles.program)
+    i = Reference.new.run(Tiles.program)
     assert_equal Color.resolve(:gray),  i.screen.pixel(*WALL),  "the wall border renders gray"
     assert_equal Color.resolve(:blue),  i.screen.pixel(*WATER), "the water pool renders blue"
     assert_equal Color.resolve(:green), i.screen.pixel(*GRASS), "the grass patch renders green"

@@ -16,19 +16,19 @@ require_relative "../lib/ruby_gba"
 #   frames = Preview.capture(MyGame.program, frames: 48) { |f| [:right] } # hold right
 #   Preview.write("out.html", frames, title: "My Game", scale: 3)
 #
-# It leans on the interpreter's frame-by-frame hook (Backends::Ruby#each_vblank) to
+# It leans on the interpreter's frame-by-frame hook (Backends::Reference#each_vblank) to
 # grab each settled frame, then encodes each as a PNG (via Ruby's built-in zlib) so the
 # page stays small and needs nothing but a browser.
 module Preview
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
 
   # Run +program+ and collect the first +frames+ frames as it plays. An optional block
   # supplies the buttons held on each frame (the same shape as
-  # Backends::Ruby#input_each_frame), so you can drive the run — hold right to scroll,
+  # Backends::Reference#input_each_frame), so you can drive the run — hold right to scroll,
   # tap a button, whatever the effect needs. Returns an array of frame hashes
   # ({ width:, height:, pixels: } — pixels are 15-bit colors, row-major).
   def self.capture(program, frames:, max_steps: 200_000, &input)
-    interp = Ruby.new
+    interp = Reference.new
     interp.input_each_frame(&input) if input
     shots = []
     interp.each_vblank do |frame|

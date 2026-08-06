@@ -15,7 +15,7 @@ require_relative "../tools/make_example_assets" # colors of the imported tile sh
 # the parsing and the number->tile mapping through the DSL surface.
 class TestCsvTilemap < Minitest::Test
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
   Assets = MakeExampleAssets
 
@@ -50,7 +50,7 @@ class TestCsvTilemap < Minitest::Test
     b = checker_builder
     with_csv(text) { |path| b.background(:board, tiles: :checker, from: path) }
     b.emit_pending_functions
-    Ruby.new.run(b.program).screen
+    Reference.new.run(b.program).screen
   end
 
   def test_numbers_pick_the_tile_by_the_order_the_tileset_lists_them
@@ -121,7 +121,7 @@ class TestCsvTilemap < Minitest::Test
     end
     with_csv("1,2\n") { |path| b.background(:room, tiles: :world, from: path) }
     b.emit_pending_functions
-    s = Ruby.new.run(b.program).screen
+    s = Reference.new.run(b.program).screen
     assert_equal Assets::BRICK, s.pixel(0, 3), "CSV tile 1 is the sheet's first cell (brick)"
     assert_equal Assets::FLOOR, s.pixel(8, 3), "CSV tile 2 is the sheet's second cell (floor)"
   end

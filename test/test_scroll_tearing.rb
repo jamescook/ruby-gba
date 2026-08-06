@@ -24,7 +24,7 @@ class TestScrollTearing < Minitest::Test
 
   Builder = RubyGBA::Builder
   GBA = RubyGBA::IR::Backends::GBA
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
 
@@ -98,8 +98,8 @@ class TestScrollTearing < Minitest::Test
     builder.emit_pending_functions
     program = builder.program
 
-    still = Ruby.new.run(program, frames: 6).screen
-    moved = Ruby.new.hold(:right).run(program, frames: 6).screen
+    still = Reference.new.run(program, frames: 6).screen
+    moved = Reference.new.hold(:right).run(program, frames: 6).screen
 
     assert_equal Color.resolve(:green), still.pixel(44, 44),
                  "left alone, the landmark stays where the map put it"

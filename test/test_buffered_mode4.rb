@@ -10,7 +10,7 @@ require_relative "test_helper"
 # promise is: the SAME draw code renders the SAME picture as direct-color mode —
 # only tearing is gone.
 #
-# The Ruby interpreter is the oracle (double buffering is invisible to it — it
+# The reference interpreter is the oracle (double buffering is invisible to it — it
 # reads the settled frame). Every render case runs on BOTH backends and asserts
 # the same visible pixels, so the console's Mode 4 output (indices resolved
 # through the auto-built palette, presented after a page flip) has to match.
@@ -19,7 +19,7 @@ class TestBufferedMode4 < Minitest::Test
   include RubyGBA::IR::Build
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   Color = RubyGBA::Color
 
@@ -49,7 +49,7 @@ class TestBufferedMode4 < Minitest::Test
   ].freeze
 
   def test_interpreter_renders_the_buffered_frame
-    i = Ruby.new.run(diagnostic_program)
+    i = Reference.new.run(diagnostic_program)
     assert i.buffered, "the interpreter should record the buffered flag"
     CHECKS.each do |x, y, color|
       assert_equal Color.resolve(color), i.screen.pixel(x, y),
@@ -123,7 +123,7 @@ class TestBufferedMode4 < Minitest::Test
     )
 
     # Interpreter oracle: the colors land where expected.
-    i = Ruby.new.run(prog)
+    i = Reference.new.run(prog)
     assert_equal Color.resolve(:red), i.screen.pixel(10, 10)
     assert_equal Color.resolve(:green), i.screen.pixel(11, 20)
     assert_equal Color.resolve(:yellow), i.screen.pixel(100, 100)

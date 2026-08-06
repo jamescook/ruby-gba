@@ -12,7 +12,7 @@ require_relative "test_helper"
 class TestFontStylesExample < Minitest::Test
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -26,7 +26,7 @@ class TestFontStylesExample < Minitest::Test
   end
 
   def screen
-    @screen ||= Ruby.new.run(FontStyles.program).screen
+    @screen ||= Reference.new.run(FontStyles.program).screen
   end
 
   def test_each_font_renders_in_its_own_colour

@@ -13,7 +13,7 @@ class TestDrawNumber < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   Build = RubyGBA::IR::Build
   ROM = RubyGBA::ROM
@@ -25,7 +25,7 @@ class TestDrawNumber < Minitest::Test
     builder = Builder.new
     builder.instance_eval(&block)
     builder.emit_pending_functions
-    Ruby.new.run(builder.program).screen
+    Reference.new.run(builder.program).screen
   end
 
   def tree(&block)

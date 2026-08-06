@@ -14,7 +14,7 @@ require_relative "../examples/jukebox"
 class TestJukeboxExample < Minitest::Test
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
 
   # The opening (downbeat) note of each tune, in Hz — distinct so each is a
   # diagnostic value. If the frame-0 fix regressed, these would never sound.
@@ -46,7 +46,7 @@ class TestJukeboxExample < Minitest::Test
   ODE_BASS_FIRST = 131 # C3, the bass note under the opening measure
 
   def test_the_first_song_plays_by_default_on_the_interpreter
-    i = Ruby.new.run(Jukebox.program, max_steps: 4000)
+    i = Reference.new.run(Jukebox.program, max_steps: 4000)
     assert_includes notes(i), [:note, :ode_to_joy, ODE_FIRST],
                     "the highlighted tune should sound its melody downbeat"
     assert_includes notes(i), [:note, :ode_to_joy, ODE_BASS_FIRST],
@@ -55,14 +55,14 @@ class TestJukeboxExample < Minitest::Test
 
   # Move the cursor down one row and the second tune takes over the channel.
   def test_selecting_the_second_song_plays_it_on_the_interpreter
-    i = Ruby.new.input_each_frame(&tap_down(1)).run(Jukebox.program, max_steps: 4000)
+    i = Reference.new.input_each_frame(&tap_down(1)).run(Jukebox.program, max_steps: 4000)
     assert_includes notes(i), [:note, :fur_elise, ELISE_FIRST],
                     "selecting row 1 should play Fur Elise"
   end
 
   # Two rows down lands on the third tune.
   def test_selecting_the_third_song_plays_it_on_the_interpreter
-    i = Ruby.new.input_each_frame(&tap_down(2)).run(Jukebox.program, max_steps: 4000)
+    i = Reference.new.input_each_frame(&tap_down(2)).run(Jukebox.program, max_steps: 4000)
     assert_includes notes(i), [:note, :minuet, MINUET_FIRST],
                     "selecting row 2 should play the Minuet"
   end

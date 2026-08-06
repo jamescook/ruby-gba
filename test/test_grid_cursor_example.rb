@@ -14,7 +14,7 @@ class TestGridCursorExample < Minitest::Test
   include GembaSupport
   include RubyGBA::Constants
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -38,13 +38,13 @@ class TestGridCursorExample < Minitest::Test
   end
 
   def test_the_cursor_starts_lit_in_the_middle
-    screen = Ruby.new.run(GridCursor.program, max_steps: 200).screen
+    screen = Reference.new.run(GridCursor.program, max_steps: 200).screen
     assert_cell_is screen, START_COL, START_ROW, :cyan
   end
 
   def test_a_tap_moves_the_cursor_one_cell_and_leaves_no_trail
     # Tap :left once (a single down-edge on frame 3), then let it settle.
-    screen = Ruby.new
+    screen = Reference.new
                  .input_each_frame { |f| f == 3 ? [:left] : [] }
                  .run(GridCursor.program, max_steps: 3000).screen
 
@@ -55,7 +55,7 @@ class TestGridCursorExample < Minitest::Test
   def test_the_cursor_stays_on_the_board_at_the_edge
     # Hold :left is one tap (pressed fires on the edge only), so a single press can
     # never walk it off the board — and neither can many, thanks to the clamp.
-    i = Ruby.new
+    i = Reference.new
             .input_each_frame { |f| f.even? ? [:left] : [] } # a tap every other frame
             .run(GridCursor.program, max_steps: 20_000)
     assert_operator i[:cx], :>=, 0, "cursor walked off the left edge"

@@ -16,7 +16,7 @@ class TestScanlineProbe < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Build = RubyGBA::IR::Build
@@ -57,8 +57,8 @@ class TestScanlineProbe < Minitest::Test
   # ---- the headless interpreter has no real timing, so it refuses it ----
 
   def test_the_interpreter_refuses_read_scanline
-    err = assert_raises(Ruby::ProgramError) do
-      Ruby.new.run(Build.program(Build.set(:x, Build.read_scanline)))
+    err = assert_raises(Reference::ProgramError) do
+      Reference.new.run(Build.program(Build.set(:x, Build.read_scanline)))
     end
     assert_match(/hardware-only/, err.message)
   end

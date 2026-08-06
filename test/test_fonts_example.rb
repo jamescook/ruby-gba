@@ -11,7 +11,7 @@ require_relative "test_helper"
 class TestFontsExample < Minitest::Test
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -27,7 +27,7 @@ class TestFontsExample < Minitest::Test
   end
 
   def test_both_numbers_render_and_tiny_is_smaller
-    screen = Ruby.new.run(FontsDemo.program).screen
+    screen = Reference.new.run(FontsDemo.program).screen
     default_px = green_in_band(screen, 18, 7) # the default number's 7-tall band
     tiny_px = green_in_band(screen, 54, 5)    # the tiny number's 5-tall band
 

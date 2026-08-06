@@ -18,7 +18,7 @@ class TestPerSceneMode < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   Color = RubyGBA::Color
   Build = RubyGBA::IR::Build
@@ -54,10 +54,10 @@ class TestPerSceneMode < Minitest::Test
   # Oracle: the interpreter draws the same pixels regardless of mode, so it pins
   # what each scene should show — red on the title, blue + green once playing.
   def test_the_interpreter_renders_each_scene
-    red = Ruby.new.run(mixed_program) # no input: stays on the title
+    red = Reference.new.run(mixed_program) # no input: stays on the title
     assert_equal Color.resolve(:red), red.screen.pixel(0, 0)
 
-    playing = Ruby.new.input_each_frame { |_f| [:start] }.run(mixed_program)
+    playing = Reference.new.input_each_frame { |_f| [:start] }.run(mixed_program)
     assert_equal Color.resolve(:blue), playing.screen.pixel(0, 0)
     assert_equal Color.resolve(:green), playing.screen.pixel(103, 79)
   end

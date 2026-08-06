@@ -17,7 +17,7 @@ class TestAseprite < Minitest::Test
 
   Aseprite = RubyGBA::Aseprite
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -93,7 +93,7 @@ class TestAseprite < Minitest::Test
     builder.program
   end
 
-  def spot(program) = Ruby.new.run(program).screen.pixel(44, 44)
+  def spot(program) = Reference.new.run(program).screen.pixel(44, 44)
   def c(r, g, b) = Color.rgb8(r, g, b)
 
   def test_the_default_animation_is_the_first_tag_and_it_loops

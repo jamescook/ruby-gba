@@ -14,7 +14,7 @@ class TestApproach < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   # Build through the DSL and run on the reference backend, returning the
@@ -23,7 +23,7 @@ class TestApproach < Minitest::Test
     builder = Builder.new
     builder.instance_eval(&block)
     builder.emit_pending_functions
-    Ruby.new.run(builder.program)
+    Reference.new.run(builder.program)
   end
 
   # Build the IR without running it — for the guardrail tests, which must raise
@@ -267,7 +267,7 @@ class TestApproach < Minitest::Test
   end
 
   def test_interpreter_marker_homes_in
-    screen = Ruby.new.run(marker_program(frames: 20)).screen
+    screen = Reference.new.run(marker_program(frames: 20)).screen
     assert_equal Color.resolve(:green), screen.pixel(100, 50), "marker arrived at the target"
     assert_equal Color.resolve(:black), screen.pixel(0, 50),   "and left the start column"
   end
@@ -316,8 +316,8 @@ class TestApproach < Minitest::Test
   MID_JOURNEY = 35
 
   def test_a_run_time_step_and_bound_land_in_the_right_place
-    early = Ruby.new.run(limited_marker_program(frames: 5)).screen
-    late = Ruby.new.run(limited_marker_program(frames: 20)).screen
+    early = Reference.new.run(limited_marker_program(frames: 5)).screen
+    late = Reference.new.run(limited_marker_program(frames: 20)).screen
 
     assert_equal Color.resolve(:green), early.pixel(MID_JOURNEY, 50),
                  "mid-journey it is where the run-time step put it"

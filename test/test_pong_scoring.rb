@@ -17,7 +17,7 @@ require_relative "test_helper"
 # read the scores back from the interpreter oracle.
 class TestPongScoring < Minitest::Test
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
 
   # The example's field/paddle geometry (examples/pong.rb).
   SCREEN_W  = 240
@@ -65,7 +65,7 @@ class TestPongScoring < Minitest::Test
       end
     end
     builder.emit_pending_functions
-    Ruby.new.run(builder.program)
+    Reference.new.run(builder.program)
   end
 
   def test_ball_past_a_mispositioned_player_paddle_scores_for_the_cpu

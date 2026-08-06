@@ -14,7 +14,7 @@ class TestTiledCollision < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -57,7 +57,7 @@ class TestTiledCollision < Minitest::Test
   end
 
   def test_blocked_by_stops_the_sprite_at_a_wall
-    s = Ruby.new.input_each_frame { [:right] }.run(walk_into_wall, max_steps: 3_000).screen
+    s = Reference.new.input_each_frame { [:right] }.run(walk_into_wall, max_steps: 3_000).screen
     assert_equal Color.resolve(:red),  s.pixel(28, 20), "the hero rests flush against the wall (its body at x24..31)"
     assert_equal Color.resolve(:blue), s.pixel(36, 20), "the wall is right there at x32.."
     refute_equal Color.resolve(:red),  s.pixel(36, 20), "the hero never entered the wall cell"
@@ -83,7 +83,7 @@ class TestTiledCollision < Minitest::Test
         halt
       end
     end
-    i = Ruby.new.run(prog)
+    i = Reference.new.run(prog)
     assert_equal 0, i[:went_right], "can_move?(:right) is false — a wall is directly ahead"
     assert_equal 1, i[:went_left],  "can_move?(:left) is true — that way is open floor"
   end
@@ -99,7 +99,7 @@ class TestTiledCollision < Minitest::Test
         after(3) { halt }    # after 3 steps the down component has carried it to y22
       end
     end
-    s = Ruby.new.run(prog, max_steps: 3_000).screen
+    s = Reference.new.run(prog, max_steps: 3_000).screen
     assert_equal Color.resolve(:red), s.pixel(28, 26),
                  "the right step is blocked by the wall, but the down step still slid the hero down"
   end

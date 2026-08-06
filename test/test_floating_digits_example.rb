@@ -13,7 +13,7 @@ require_relative "test_helper"
 class TestFloatingDigitsExample < Minitest::Test
   include GembaSupport
 
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -23,7 +23,7 @@ class TestFloatingDigitsExample < Minitest::Test
 
   # Run the program on the interpreter for a fixed budget (deterministic — there's
   # no input), enough for every digit to have been drawn a few frames in.
-  def run_to(steps) = Ruby.new.run(FloatingDigits.program, max_steps: steps)
+  def run_to(steps) = Reference.new.run(FloatingDigits.program, max_steps: steps)
 
   # Whether +color+ is painted anywhere on the screen.
   def color_on?(screen, color)

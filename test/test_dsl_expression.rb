@@ -19,7 +19,7 @@ class TestDSLExpression < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   Color = RubyGBA::Color
 
   # Build through the DSL and run it on the reference backend, returning the
@@ -30,7 +30,7 @@ class TestDSLExpression < Minitest::Test
     builder.instance_eval(&block)
     builder.emit_pending_functions
 
-    ruby = Ruby.new
+    ruby = Reference.new
     ruby = ruby.hold(held) if held
     ruby = ruby.input_each_frame(&each_frame) if each_frame
     ruby.run(builder.program, **opts)

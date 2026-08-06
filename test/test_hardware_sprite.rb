@@ -15,7 +15,7 @@ class TestHardwareSprite < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -57,7 +57,7 @@ class TestHardwareSprite < Minitest::Test
 
   def test_the_sprite_renders_over_the_tiled_background
     # No input held, so the hero stays at (40, 40): its 8x8 body covers 40..47.
-    screen = Ruby.new.run(hero_program(frames: 2)).screen
+    screen = Reference.new.run(hero_program(frames: 2)).screen
     assert_equal Color.resolve(:red),  screen.pixel(44, 44), "the hero renders over the background"
     assert_equal Color.resolve(:blue), screen.pixel(8, 8),   "the floor shows where the hero isn't"
   end
@@ -73,7 +73,7 @@ class TestHardwareSprite < Minitest::Test
   # Holding right for 3 frames (step 8): drawn at 40, 48, 56 on successive frames,
   # so it comes to rest with its body over 56..63 while the start column shows floor.
   def test_a_moving_sprite_leaves_no_trail
-    screen = Ruby.new.input_each_frame { [:right] }.run(hero_program(frames: 3)).screen
+    screen = Reference.new.input_each_frame { [:right] }.run(hero_program(frames: 3)).screen
     assert_equal Color.resolve(:red),  screen.pixel(60, 44), "the hero is at its new spot"
     assert_equal Color.resolve(:blue), screen.pixel(44, 44), "the start column shows floor again — no trail"
   end

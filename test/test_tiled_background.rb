@@ -17,7 +17,7 @@ class TestTiledBackground < Minitest::Test
   include GembaSupport
 
   Builder = RubyGBA::Builder
-  Ruby = RubyGBA::IR::Backends::Ruby
+  Reference = RubyGBA::IR::Backends::Reference
   GBA = RubyGBA::IR::Backends::GBA
   ROM = RubyGBA::ROM
   Color = RubyGBA::Color
@@ -49,7 +49,7 @@ class TestTiledBackground < Minitest::Test
   end
 
   def test_each_tile_lands_in_its_grid_cell
-    i = Ruby.new.run(checker_program)
+    i = Reference.new.run(checker_program)
     red = Color.resolve(:red)
     blue = Color.resolve(:blue)
     # 4x4 tiles: cell (0,0)=R, (1,0)=B, (0,1)=B, (1,1)=R.
@@ -71,7 +71,7 @@ class TestTiledBackground < Minitest::Test
       background :spots, tiles: :sparse, map: ["R ", " R"] # a space = empty cell
     end
     b.emit_pending_functions
-    i = Ruby.new.run(b.program)
+    i = Reference.new.run(b.program)
     assert_equal Color.resolve(:red),   i.screen.pixel(0, 0), "cell (0,0) has a tile"
     assert_equal Color.resolve(:green), i.screen.pixel(4, 0), "cell (1,0) is blank — the field shows"
   end
