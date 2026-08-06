@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "zlib"
-require "base64"
 
 require_relative "../lib/ruby_gba"
 
@@ -102,8 +101,10 @@ module Preview
   # --- encoding a frame to a PNG data URI (truecolor, via zlib) ---
 
   # A frame ({ width:, height:, pixels: [15-bit colors] }) as a "data:image/png..." URI.
+  # pack("m0") is base64 with no line breaks — the same bytes the base64 library would
+  # give, without depending on it (Ruby 4 dropped it from the default gems).
   def self.png_data_uri(frame)
-    "data:image/png;base64,#{Base64.strict_encode64(png(frame))}"
+    "data:image/png;base64,#{[png(frame)].pack('m0')}"
   end
 
   PNG_SIGNATURE = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A].pack("C*")
