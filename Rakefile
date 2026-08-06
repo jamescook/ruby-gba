@@ -55,6 +55,20 @@ task :emitted do
   Emitted.run(ref: ENV["REF"] || "HEAD", only: ENV["ONLY"])
 end
 
+namespace :emitted do
+  desc "Record what every example emits, as the baseline nothing may grow past"
+  task :record do
+    require_relative "tools/emitted_baseline"
+    abort "Nothing recorded." unless Emitted::Baseline.record
+  end
+
+  desc "Fail if any example emits more than the recorded baseline"
+  task :check do
+    require_relative "tools/emitted_baseline"
+    abort unless Emitted::Baseline.check
+  end
+end
+
 desc "Render examples/EXAMPLE.rb to a watchable HTML page (rake preview EXAMPLE=parallax KEYS=right FRAMES=64)"
 task :preview do
   example = ENV["EXAMPLE"] || abort("set EXAMPLE, e.g. rake preview EXAMPLE=parallax KEYS=right")

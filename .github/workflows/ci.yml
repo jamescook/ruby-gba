@@ -56,6 +56,17 @@ jobs:
         env:
           CI: '1'
 
+      # Build every example and compare what it emits against the recorded baseline
+      # in tools/emitted_baseline.json. Catches code that grows a little at a time —
+      # invisible in any one commit, obvious against a recorded number. Deliberate
+      # growth is accepted by running `rake emitted:record` and committing the diff.
+      # Its own step rather than part of `rake test`, so the inner-loop suite stays
+      # quick and this gets its own log.
+      - name: Check emitted code against the baseline
+        run: bundle exec rake emitted:check 2>&1 | tee emitted-check.log
+        env:
+          CI: '1'
+
       - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -64,4 +75,5 @@ jobs:
           path: |
             test-output.log
             gemba-core-test.log
+            emitted-check.log
           retention-days: 7
