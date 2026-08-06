@@ -102,6 +102,9 @@ module RubyGBA
 
         # expression values
         int: :portable, var_ref: :portable, binop: :portable, neg: :portable,
+        # a multiply whose product is formed at full width — the answer is defined by
+        # Int32.mul_fix, which any backend can compute; only HOW differs
+        mul_fix: :portable,
         data_byte: :portable, list_get: :portable, list_len: :portable,
         table_get: :portable, # read a ROM table at a run-time index — any backend can
         timer_ticks: :portable, # elapsed timer overflows — a plain counter any backend can model

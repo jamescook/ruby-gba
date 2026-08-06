@@ -79,6 +79,13 @@ module ConformanceFixture
       # --- every value-operand kind and every operator ---
       *OPERATORS.map { |op| B.set(:acc, B.binop(op, B.var_ref(:x), B.int(2))) },
       B.set(:acc, B.neg(B.var_ref(:x))),      # neg
+      # mul_fix — a multiply whose product is formed at full width. The operands are
+      # chosen so a plain 32-bit multiply gets a DIFFERENT answer: 1.5 * 1.5 with 16
+      # fraction bits needs 6,442,450,944 on the way, which wraps. A backend that
+      # lowered this as an ordinary multiply would pass a coverage check and still be
+      # wrong, so the differential comparison has something real to disagree about.
+      B.set(:acc, B.mul_fix(B.int(98_304), B.int(98_304), 16)),
+      B.set(:acc, B.mul_fix(B.var_ref(:x), B.int(-98_304), 16)), # and one that goes negative
       B.set(:acc, B.data_byte(:blob, 0)),     # data_byte reads embedded data
       B.set(:acc, B.table_get(:lut, B.var_ref(:x))), # table_get reads a ROM table at a run-time index
       B.set(:acc, B.held(:a)),                # held (button read)

@@ -116,6 +116,11 @@ module RubyGBA
 
         # expression values — operands, live inside another node's #attrs
         int: :value, var_ref: :value, binop: :value, neg: :value,
+        # multiply two numbers that each carry the same number of fraction bits,
+        # forming the product at full width so it can't overflow on the way (see
+        # Int32.mul_fix). Its own kind rather than a binop operator because it takes
+        # a third thing a binop has no room for: how many fraction bits they carry.
+        mul_fix: :value,
         data_byte: :value, list_get: :value, list_len: :value,
         table_get: :value, # read table[index] from a ROM table at a runtime index
         timer_ticks: :value, # how many times a timer has overflowed since it started

@@ -17,6 +17,7 @@ module RubyGBA
               eval_value(node[:operand])
               emit(ASM.rsb_imm(ACC, ACC, 0))
             when :binop then eval_binop(node)
+            when :mul_fix then eval_mul_fix(node)
             when :held then eval_held(node[:button])
             when :pressed then eval_pressed(node[:button])
             # A chance is "the random draw is below the threshold" — evaluate it as
@@ -120,6 +121,37 @@ module RubyGBA
             when :or then emit(ASM.orr_reg(ACC, TMP, ACC))
             when :/ then emit_division
             else emit_comparison(op)
+            end
+          end
+
+          # Multiply two numbers carrying the same fraction bits, forming the product
+          # at full width so it can't overflow on the way (see IR::Int32.mul_fix).
+          #
+          # The chip has the instruction for this: SMULL gives the whole 64-bit answer
+          # across a pair of registers, where plain MUL keeps only the low half. What's
+          # left is to shift that 64-bit value right by the fraction bits and keep the
+          # low 32 — which is two more instructions, because ARM can fold a shift into
+          # an ORR for free: take the low word shifted down, then OR in the bits that
+          # fall out of the bottom of the high word. No software helper, no loop.
+          #
+          # r2/r3 take the product (they're scratch inside an expression), leaving the
+          # answer in the accumulator like every other value.
+          def eval_mul_fix(node)
+            eval_value(node[:lhs])
+            emit(ASM.push(ACC))
+            eval_value(node[:rhs])
+            emit(ASM.pop(TMP))                       # r1 = lhs, r0 = rhs
+            low = 2
+            high = 3
+            emit(ASM.smull(low, high, ACC, TMP))     # r3:r2 = lhs * rhs, all 64 bits of it
+
+            case node[:fraction_bits]
+            when 0 then emit(ASM.mov_reg(ACC, low))  # nothing to shift off — the low word is the answer
+            when 32 then emit(ASM.mov_reg(ACC, high)) # shifted right by a whole word — the high one is
+            else
+              bits = node[:fraction_bits]
+              emit(ASM.lsr_imm(ACC, low, bits))                    # r0 = the low word, shifted down
+              emit(ASM.orr_reg_lsl(ACC, ACC, high, 32 - bits))     # + the high word's bits sliding in
             end
           end
 

@@ -11,6 +11,7 @@ module RubyGBA
         op_step: 0.01928,
         op_mul: 0.01928,
         op_div: 0.09325,
+        op_mul_fix: 0.02573,
         plot_pixel: 0.01606,
         sound_write: 0.01606,
         mix_voice_sample: 0.03000,
@@ -19,7 +20,7 @@ module RubyGBA
         dma_setup: 0.04822,
         dma_pixel: 0.00122,
         obj_write: 0.11726,
-        scroll_write: 0.13953,
+        scroll_write: 0.10425,
         overlap_pixel: 0.22491,
       }.freeze
     end
