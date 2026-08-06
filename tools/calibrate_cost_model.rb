@@ -179,6 +179,11 @@ measured[:op_mul] = measured[:op_step] +
 measured[:op_div] = measured[:op_step] +
                     (per_op("div", 80, 2, 4) { |b, xv| b.set :y, (xv / 2) } -
                      per_op("addd", 80, 2, 4) { |b, xv| b.set :y, (xv + 2) })
+# A fraction multiply is SMULL plus two instructions to shift the 64-bit product
+# back down — dearer than a plain multiply, nowhere near a divide. Same differencing.
+measured[:op_mul_fix] = measured[:op_step] +
+                        (per_op("mulfix", 300, 2, 6) { |b, xv| b.set :y, xv.times_fraction(2, fraction_bits: 16) } -
+                         per_op("addf", 300, 2, 6) { |b, xv| b.set :y, (xv + 2) })
 
 # --- per-pixel drawing / sound ---
 measured[:plot_pixel] = per_op("plot", 150, 4, 8) { |b, _xv| b.pixel 10, 10, :red }

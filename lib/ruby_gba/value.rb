@@ -68,6 +68,37 @@ module RubyGBA
       Value.new(@builder, Build.binop(:/, @node, node_of(other)))
     end
 
+    # Multiply two numbers that both hold a fraction, and get back a number holding
+    # a fraction — where plain `*` would overflow and give a wrong answer.
+    #
+    # A variable holds whole numbers only, so a program that needs halves and
+    # quarters keeps its numbers multiplied up by a fixed amount and remembers to
+    # divide back at the end. `fraction_bits: 16` means "multiplied up by 2**16", so
+    # 1.5 is stored as 98304. Adding and subtracting those works as it is. Times
+    # does not: two multiplied-up numbers multiply out to a number multiplied up
+    # twice, and that intermediate is usually far too big for a variable to hold —
+    # 1.5 times 1.5 needs 6,442,450,944 on the way. Plain `*` loses the top of it
+    # and the answer is nonsense.
+    #
+    #   speed = var :speed, (3 * 65536) / 2     # 1.5, with 16 fraction bits
+    #   step  = speed.times_fraction(speed, fraction_bits: 16)   # 2.25, kept the same way
+    #
+    # Both sides must carry the SAME number of fraction bits, and so does the answer.
+    #
+    # Nothing checks that for you: you say the number of bits at each multiply, and
+    # the framework has no idea which of your variables hold fractions. That is a
+    # deliberate stopping point rather than an oversight. The alternative is for the
+    # scale to travel WITH the value, so `a * b` does the right thing because the
+    # compiler knows what a and b are and mixing scales is a build error — much
+    # closer to what this framework promises, and much more machinery (a type on
+    # every Value, inference through every operation, conversions at every boundary
+    # where a fraction meets a pixel coordinate). It is worth designing from real
+    # call sites that turned out annoying, not from first principles, and there are
+    # none yet — this is the first thing that can even express the arithmetic.
+    def times_fraction(other, fraction_bits:)
+      Value.new(@builder, Build.mul_fix(@node, node_of(other), fraction_bits))
+    end
+
     # --- comparisons: build a Condition ---
 
     def >(other)

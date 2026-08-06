@@ -49,6 +49,46 @@ class TestIRInt32 < Minitest::Test
     assert_equal(-5, Int32.neg(5))
   end
 
+  # --- mul_fix: the multiply whose product is formed at full width ---
+
+  # The case the operation exists for. 1.5 with 16 fraction bits is 98304; the two
+  # multiplied together make 9,663,676,416, which a 32-bit number cannot hold, so a
+  # plain multiply wraps and the answer that comes out is not 2.25.
+  def test_mul_fix_survives_a_product_too_big_for_32_bits
+    one_and_a_half = 3 * 65_536 / 2
+
+    assert_equal 2.25 * 65_536, Int32.mul_fix(one_and_a_half, one_and_a_half, 16)
+    refute_equal Int32.mul_fix(one_and_a_half, one_and_a_half, 16),
+                 Int32.mul(one_and_a_half, one_and_a_half) >> 16
+  end
+
+  def test_mul_fix_keeps_the_scale_it_was_given
+    assert_equal 65_536, Int32.mul_fix(65_536, 65_536, 16) # 1.0 * 1.0 = 1.0
+    assert_equal 256, Int32.mul_fix(256, 256, 8)           # the same in 8 fraction bits
+    assert_equal 12, Int32.mul_fix(3, 4, 0)                # no fraction bits: a plain multiply
+  end
+
+  def test_mul_fix_carries_the_sign_through
+    one_and_a_half = 3 * 65_536 / 2
+
+    assert_equal(-2.25 * 65_536, Int32.mul_fix(-one_and_a_half, one_and_a_half, 16))
+    assert_equal 2.25 * 65_536, Int32.mul_fix(-one_and_a_half, -one_and_a_half, 16)
+  end
+
+  # Rounding is DOWN, not toward zero — the arithmetic shift every backend uses.
+  # So a small negative product lands at -1 rather than 0, and the interpreter has
+  # to agree with the console about that.
+  def test_mul_fix_rounds_down_rather_than_toward_zero
+    assert_equal(-1, Int32.mul_fix(-1, 65_536, 16))
+    assert_equal 0, Int32.mul_fix(1, 1, 16) # the smallest fraction squared vanishes
+  end
+
+  # The result is still a 32-bit value. What mul_fix removes is the overflow on the
+  # WAY to the answer, not the wrap of an answer that genuinely doesn't fit.
+  def test_mul_fix_still_wraps_a_result_that_does_not_fit
+    assert_equal 0, Int32.mul_fix(1 << 20, 1 << 20, 8) # 2**40 >> 8 is 2**32, which wraps to 0
+  end
+
   # --- the acceptance criterion: a signed compare near the boundary ---
   def test_cmp_is_signed_not_unsigned
     # 0xFFFF_FFFF is -1, so it is LESS than 1 — the opposite of an unsigned

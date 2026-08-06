@@ -49,6 +49,25 @@ module RubyGBA
         wrap(wrap(a) * wrap(b))
       end
 
+      # Multiply two numbers that each carry +bits+ fraction bits, and give back a
+      # number carrying the same +bits+ — the operation `mul` cannot do.
+      #
+      # A whole number can't hold a fraction, so a program that needs one stores the
+      # value multiplied up by a fixed amount: with 16 fraction bits, 1.5 is kept as
+      # 1.5 * 65536. Adding two of those works unchanged. MULTIPLYING two of them
+      # does not: the answer comes out multiplied up TWICE, so it has to be divided
+      # back down once. That would be fine, except the doubled-up product needs more
+      # than 32 bits to exist before it can be divided down — 1.5 * 1.5 in 16 fraction
+      # bits multiplies 98304 by 98304, which is 9,663,676,416, twice over the wrap
+      # point. Plain `mul` wraps there and returns nonsense.
+      #
+      # So the product is formed at full width FIRST and only then brought back down.
+      # The final result is still a 32-bit value and still wraps if it doesn't fit —
+      # what changes is that the intermediate no longer has to.
+      def mul_fix(a, b, bits)
+        wrap((wrap(a) * wrap(b)) >> bits) # Ruby's >> on a negative floors, as ASR does
+      end
+
       def neg(a)
         wrap(-wrap(a))
       end

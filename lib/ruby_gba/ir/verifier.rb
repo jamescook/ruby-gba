@@ -169,6 +169,8 @@ module RubyGBA
         var_ref: { name: :name },
         binop:   { op: :option, lhs: :value, rhs: :value },
         neg:     { operand: :value },
+        # a full-width multiply of two numbers carrying the same fraction bits
+        mul_fix: { lhs: :value, rhs: :value, fraction_bits: :int },
         held:    { button: :option },
         pressed: { button: :option },
         chance:  { draw: :value, percent: :int }, # draw is the 0..99 value; percent an author-time bound

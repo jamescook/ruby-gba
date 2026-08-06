@@ -250,6 +250,35 @@ class TestASM < Minitest::Test
     assert_equal 0x9, (inst >> 4) & 0xF  # MUL signature: 1001
   end
 
+  def test_smull
+    inst = unpack(A.smull(2, 3, 0, 1)) # r3:r2 = r0 * r1
+    assert_equal 3, (inst >> 16) & 0xF   # RdHi is bits 19:16
+    assert_equal 2, (inst >> 12) & 0xF   # RdLo is bits 15:12
+    assert_equal 1, (inst >> 8) & 0xF    # Rs is bits 11:8
+    assert_equal 0, inst & 0xF           # Rm is bits 3:0
+    assert_equal 0x9, (inst >> 4) & 0xF  # multiply signature: 1001
+    assert_equal 0xC, (inst >> 20) & 0xF # signed long, S clear
+  end
+
+  # The chip gives no useful answer when the two result registers and the operand
+  # register aren't all different, so that's rejected here rather than assembled
+  # into a ROM that misbehaves.
+  def test_smull_rejects_registers_that_overlap
+    assert_raises(ArgumentError) { A.smull(2, 2, 0, 1) } # rd_lo == rd_hi
+    assert_raises(ArgumentError) { A.smull(0, 3, 0, 1) } # rd_lo == rm
+    assert_raises(ArgumentError) { A.smull(2, 0, 0, 1) } # rd_hi == rm
+  end
+
+  def test_orr_reg_lsl_folds_the_shift_in
+    inst = unpack(A.orr_reg_lsl(0, 1, 2, 16))
+    assert_equal 1, (inst >> 16) & 0xF   # Rn
+    assert_equal 0, (inst >> 12) & 0xF   # Rd
+    assert_equal 2, inst & 0xF           # Rm
+    assert_equal 16, (inst >> 7) & 0x1F  # shift amount
+    assert_equal 0, (inst >> 5) & 0x3    # LSL
+    assert_equal A.orr_reg(0, 1, 2), A.orr_reg_lsl(0, 1, 2, 0), "no shift is a plain ORR"
+  end
+
   # ========================================================================
   # Shifts
   # ========================================================================

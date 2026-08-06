@@ -90,6 +90,7 @@ module RubyGBA
         def own_cost(value, worst)
           case value.kind
           when :binop then op_weight(value[:op])
+          when :mul_fix then @weights[:op_mul_fix]
           when :neg then @weights[:op_step]
           when :chance then @weights[:op_step] # a random draw and a compare
           when :pixels_overlap then worst ? pixels_overlap_cost(value) : 0

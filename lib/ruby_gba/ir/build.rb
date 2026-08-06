@@ -603,6 +603,21 @@ module RubyGBA
         Node.new(:binop, op: op, lhs: wrap(lhs), rhs: wrap(rhs))
       end
 
+      # Multiply two numbers that each carry +fraction_bits+ fraction bits, giving a
+      # number carrying the same. The product is formed at full width before it is
+      # brought back down, so an intermediate too big for 32 bits — which a plain
+      # multiply would wrap and get wrong — comes out right. See Int32.mul_fix for
+      # what fraction bits are and why the plain multiply can't do this.
+      #
+      # +fraction_bits+ is settled while building (0..32); the two operands are values.
+      def mul_fix(lhs, rhs, fraction_bits)
+        unless fraction_bits.is_a?(Integer) && (0..32).cover?(fraction_bits)
+          raise ArgumentError, "fraction_bits must be a whole number from 0 to 32, got #{fraction_bits.inspect}"
+        end
+
+        Node.new(:mul_fix, lhs: wrap(lhs), rhs: wrap(rhs), fraction_bits: fraction_bits)
+      end
+
       # Arithmetic negation of a value operand: -operand. This is the value-node
       # form (it produces a new value inside an expression), as opposed to the
       # `negate` statement, which flips a stored variable in place.

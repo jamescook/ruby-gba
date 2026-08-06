@@ -214,6 +214,16 @@ module RubyGBA
       [0xE1800000 | (rn << 16) | (rd << 12) | rm].pack("V")
     end
 
+    # ORR rd, rn, rm, LSL #shift — OR in a register shifted left on the way. ARM
+    # folds the shift into the instruction for free, which is what lets a 64-bit
+    # value held across two registers be shifted in two instructions instead of a
+    # loop. A shift of 0 is a plain ORR.
+    def orr_reg_lsl(rd, rn, rm, shift)
+      raise ArgumentError, "shift must be 0-31" unless (0..31).cover?(shift)
+
+      [0xE1800000 | (rn << 16) | (rd << 12) | (shift << 7) | rm].pack("V")
+    end
+
     # EOR rd, rn, rm — exclusive OR
     def eor_reg(rd, rn, rm)
       [0xE0200000 | (rn << 16) | (rd << 12) | rm].pack("V")
@@ -253,6 +263,23 @@ module RubyGBA
     def mul(rd, rm, rs)
       # MUL encoding: cond=AL, 0000000S, Rd, 0000, Rs, 1001, Rm
       [0xE0000090 | (rd << 16) | (rs << 8) | rm].pack("V")
+    end
+
+    # SMULL rd_lo, rd_hi, rm, rs — the SIGNED LONG multiply: rm * rs as a full
+    # 64-bit answer, low half in rd_lo and high half in rd_hi. Plain MUL keeps only
+    # the low half, so a product that needs more than 32 bits comes out wrong there;
+    # this is the instruction that gives the whole thing.
+    #
+    # The three registers rd_lo, rd_hi and rm must all be different — the chip gives
+    # no useful answer otherwise, so it's checked here rather than left to produce a
+    # ROM that misbehaves.
+    def smull(rd_lo, rd_hi, rm, rs)
+      if [rd_lo, rd_hi, rm].uniq.length < 3
+        raise ArgumentError, "SMULL needs three different registers for rd_lo, rd_hi and rm"
+      end
+
+      # SMULL encoding: cond=AL, 0000110S, RdHi, RdLo, Rs, 1001, Rm
+      [0xE0C00090 | (rd_hi << 16) | (rd_lo << 12) | (rs << 8) | rm].pack("V")
     end
 
     # --- Shifts (encoded as MOV with shifted register) ---
