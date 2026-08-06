@@ -70,6 +70,7 @@ module ConformanceFixture
       # --- variable ops ---
       B.set(:x, 5), B.add(:x, 3), B.sub(:x, 1), B.copy(:y, :x),
       B.negate(:y), B.abs(:y), B.negate_abs(:y), B.clamp(:y, 0, 100),
+      B.clamp(:y, B.int(0), B.var_ref(:x)), # bounds worked out as the program runs
 
       # --- persistence: load a saved variable at boot, mirror it back on change ---
       B.save_init(vars: [{ name: :hi_score, default: 0, slot: 0 }], magic: 0x53415631),

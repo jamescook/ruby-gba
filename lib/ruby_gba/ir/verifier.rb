@@ -75,7 +75,7 @@ module RubyGBA
         negate:     { var: :name },
         abs:        { var: :name },
         negate_abs: { var: :name },
-        clamp:      { var: :name, min: :int, max: :int }, # bounds are author-time constants
+        clamp:      { var: :name, min: :value, max: :value }, # bounds may be run-time values
         # persistence: boot-load the saved variables (a list of {name, default, slot}
         # hashes plus a marker), and mirror one back to its slot when it changes.
         save_init:  { vars: :list, magic: :int },

@@ -65,8 +65,11 @@ module RubyGBA
         Node.new(:negate_abs, var: var)
       end
 
+      # Hold a variable inside a range. The bounds are value operands, so they may be
+      # fixed as the program is written or worked out while it runs (a limit that
+      # depends on the level, a speed the game changes).
       def clamp(var, min, max)
-        Node.new(:clamp, var: var, min: min, max: max)
+        Node.new(:clamp, var: var, min: wrap(min), max: wrap(max))
       end
 
       # --- persistence (variables that survive power-off) ---
@@ -648,7 +651,7 @@ module RubyGBA
         when Symbol then var_ref(operand)
         else
           raise ArgumentError,
-                "can't use #{operand.inspect} as a value — expected a number, a " \
+                "can't use #{operand.inspect} as a value — expected a whole number, a " \
                 "variable name (a Symbol), or a value expression"
         end
       end

@@ -111,24 +111,35 @@ module RubyGBA
           end
 
           # Clamp a variable into [min, max] with two compare-and-maybe-replace steps.
+          #
+          # A bound the program works out as it runs is evaluated first and the value
+          # being clamped waits on the stack, the same way a binary operation holds one
+          # side while it computes the other. A bound that is a plain number skips all
+          # that and loads straight into a register, so a program with fixed bounds
+          # emits exactly what it always did.
           def emit_clamp(node)
             load_var(ACC, node[:var])
-
-            below = gensym
-            emit(ASM.load_immediate(TMP, node[:min]))
-            emit(ASM.cmp_reg(ACC, TMP))                 # var - min
-            emit_branch(:bcond, below, cond: :ge)       # var >= min? leave it
-            emit(ASM.mov_reg(ACC, TMP))                 # else clamp up to min
-            place_label(below)
-
-            above = gensym
-            emit(ASM.load_immediate(TMP, node[:max]))
-            emit(ASM.cmp_reg(ACC, TMP))                 # var - max
-            emit_branch(:bcond, above, cond: :le)       # var <= max? leave it
-            emit(ASM.mov_reg(ACC, TMP))                 # else clamp down to max
-            place_label(above)
-
+            clamp_acc_to(node[:min], cond: :ge) # below the floor? take the floor
+            clamp_acc_to(node[:max], cond: :le) # above the ceiling? take the ceiling
             store_var(ACC, node[:var])
+          end
+
+          # Replace r0 with +bound+ unless the comparison against it already holds.
+          def clamp_acc_to(bound, cond:)
+            if (fixed = const_int(bound))
+              emit(ASM.load_immediate(TMP, fixed))
+            else
+              emit(ASM.push(ACC))         # hold the value being clamped
+              eval_value(bound)           # r0 = the bound
+              emit(ASM.mov_reg(TMP, ACC)) # r1 = the bound
+              emit(ASM.pop(ACC))          # r0 = the value again
+            end
+
+            keep = gensym
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit_branch(:bcond, keep, cond: cond)
+            emit(ASM.mov_reg(ACC, TMP))
+            place_label(keep)
           end
 
           # if: run the then-body when the condition is non-zero. With no else, a
