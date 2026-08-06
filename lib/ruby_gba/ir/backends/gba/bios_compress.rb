@@ -119,6 +119,7 @@ module RubyGBA
           def lz77(bytes)
             data = bytes.bytes
             n = data.length
+            previous = match_chains(data, n)
             out = []
             pos = 0
             while pos < n
@@ -127,7 +128,7 @@ module RubyGBA
               flags = 0
               count = 0
               while count < 8 && pos < n
-                length, distance = longest_match(data, pos, n)
+                length, distance = longest_match(data, pos, n, previous)
                 flags <<= 1
                 if length >= MIN_MATCH
                   flags |= 1
@@ -201,21 +202,60 @@ module RubyGBA
           # reference to the single byte just written is unsafe. Keeping the nearest
           # distance at 2 makes every blob safe for that routine. length is 0 when no
           # run of at least MIN_MATCH is found.
-          def longest_match(data, pos, n)
+          def longest_match(data, pos, n, previous)
+            # The longest a match here could possibly be: the format's cap, or what is
+            # left of the data, whichever comes first. Too little left to reach
+            # MIN_MATCH and no back-reference can qualify at all.
+            limit = MAX_MATCH
+            limit = n - pos if (n - pos) < limit
+            return [0, 0] if limit < MIN_MATCH
+
             best_len = 0
             best_dist = 0
-            earliest = [0, pos - MAX_WINDOW].max
-            start = pos - 2
-            while start >= earliest
-              length = 0
-              length += 1 while length < MAX_MATCH && (pos + length) < n && data[start + length] == data[pos + length]
-              if length > best_len
-                best_len = length
-                best_dist = pos - start
+            earliest = pos - MAX_WINDOW
+            earliest = 0 if earliest < 0
+
+            # Walk only the places that begin with the same MIN_MATCH bytes, nearest
+            # first. Any match long enough to be worth encoding starts with those
+            # bytes, so nothing is missed by skipping the rest of the window.
+            start = previous[pos]
+            while start && start >= earliest
+              if (pos - start) >= 2 # distance 1 is unsafe — see above
+                length = 0
+                length += 1 while length < limit && data[start + length] == data[pos + length]
+                if length > best_len
+                  best_len = length
+                  best_dist = pos - start
+                  # Nothing further back can beat this, and ties go to the nearest
+                  # match, which we already have — so the rest of the chain cannot
+                  # change the answer.
+                  break if best_len == limit
+                end
               end
-              start -= 1
+              start = previous[start]
             end
             [best_len, best_dist]
+          end
+
+          # For every position, the nearest earlier position that starts with the same
+          # MIN_MATCH bytes — or nil when there is none. Following the links from a
+          # position walks its candidate matches nearest-first, which is the order that
+          # decides ties, so the packed bytes come out the same as a full scan of the
+          # window would give. Building it is one pass; it replaces a search that
+          # re-read up to 4096 earlier positions for EVERY byte of every asset.
+          def match_chains(data, n)
+            previous = Array.new(n)
+            latest = {}
+            last = n - MIN_MATCH
+            i = 0
+            while i <= last
+              key = 0
+              MIN_MATCH.times { |k| key = (key << 8) | data[i + k] }
+              previous[i] = latest[key]
+              latest[key] = i
+              i += 1
+            end
+            previous
           end
 
           # Write a back-reference as the two bytes the BIOS reads: the high nibble of

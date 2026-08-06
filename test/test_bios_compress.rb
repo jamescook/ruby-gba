@@ -223,4 +223,152 @@ class TestBiosCompress < Minitest::Test
     assert v.blue?(9, 1), "cell (1,0) is blue, got 0x#{format('%04X', v.pixel_gba(9, 1))}"
     assert v.blue?(1, 9), "cell (0,1) is blue, got 0x#{format('%04X', v.pixel_gba(1, 9))}"
   end
+
+  # --- Finding the longest match: chains must agree with a full scan ---
+  #
+  # LZ77 packs a blob by asking, for every byte, "has this run of bytes appeared
+  # already?" The honest way to answer is to try every earlier position in the
+  # 4096-byte window, which costs the size of the window for every byte of every
+  # asset. Instead each position is linked to the previous one starting with the
+  # same MIN_MATCH bytes, and only that chain is walked — any run worth encoding
+  # begins with those bytes, so nothing is missed.
+  #
+  # "Nothing is missed" is the whole claim, and these prove it the only way worth
+  # trusting: run the exhaustive search alongside and require the same answer.
+
+  # The exhaustive search, written out plainly as the thing to agree with.
+  def full_scan_match(data, pos, n)
+    best_len = 0
+    best_dist = 0
+    earliest = [0, pos - Pack::MAX_WINDOW].max
+    start = pos - 2 # distance 1 is unsafe for the video-memory expander
+    while start >= earliest
+      length = 0
+      length += 1 while length < Pack::MAX_MATCH && (pos + length) < n &&
+                        data[start + length] == data[pos + length]
+      if length > best_len
+        best_len = length
+        best_dist = pos - start
+      end
+      start -= 1
+    end
+    [best_len, best_dist]
+  end
+
+  # Compare the two searches at every position. Report the first disagreement
+  # rather than asserting per byte — one assertion for the claim, and a message
+  # that names the byte to go and look at.
+  def assert_finds_the_same_matches(blob, what)
+    data = blob.bytes
+    n = data.length
+    chains = Pack.match_chains(data, n)
+
+    disagreement = nil
+    (0...n).each do |pos|
+      chained = Pack.longest_match(data, pos, n, chains)
+      exhaustive = full_scan_match(data, pos, n)
+      # Below MIN_MATCH nothing is written as a back-reference, so the two only
+      # have to agree on runs long enough to be encoded.
+      next if chained.first < Pack::MIN_MATCH && exhaustive.first < Pack::MIN_MATCH
+      next if chained == exhaustive
+
+      disagreement = "at byte #{pos} of #{n} the chain found [length, distance] " \
+                     "#{chained.inspect} where a full scan of the window finds #{exhaustive.inspect}"
+      break
+    end
+
+    assert_nil disagreement, "#{what}: #{disagreement}"
+  end
+
+  # A byte string from a fixed seed — random-looking but the same on every run, so
+  # a failure is always reproducible.
+  def seeded(size, seed, &pick)
+    rng = Random.new(seed)
+    (0...size).map { pick.call(rng) }.pack("C*")
+  end
+
+  def test_the_chain_matches_a_full_scan_on_incompressible_data
+    # Nothing repeats, so almost every position must come back empty-handed — the
+    # case where a chain could wrongly stop early.
+    assert_finds_the_same_matches(seeded(800, 99) { |r| r.rand(256) }, "incompressible")
+  end
+
+  def test_the_chain_matches_a_full_scan_on_tile_art
+    # Mostly transparent with flecks of colour: long runs, and many positions
+    # sharing the same opening bytes. The shape real sprite art has.
+    assert_finds_the_same_matches(
+      seeded(800, 1234) { |r| r.rand(10).zero? ? r.rand(1..15) : 0 }, "tile art"
+    )
+  end
+
+  def test_the_chain_matches_a_full_scan_on_one_repeated_byte
+    # Every position opens with the same bytes, so the chain holds every earlier
+    # position — the longest chain there can be.
+    assert_finds_the_same_matches(("\x00".b * 400), "one repeated byte")
+  end
+
+  def test_the_chain_matches_a_full_scan_on_a_short_repeating_pattern
+    assert_finds_the_same_matches(("abcabd".b * 100), "a repeating pattern")
+  end
+
+  # A back-reference carries its distance in 12 bits, so it can only reach
+  # MAX_WINDOW bytes back. A match further away than that must be ignored, however
+  # good it looks: encoding it would write a distance the field cannot hold, and the
+  # console would expand the asset into garbage.
+  #
+  # This needs data built for the purpose. In ordinary art some match is nearly
+  # always available nearby, so the search never looks far enough for the limit to
+  # matter, and a test on realistic bytes passes whether the limit is applied or
+  # not. So: one distinctive run at the very start, filler past the window's width
+  # that shares none of its bytes, then the same run again — the only match for the
+  # second run is the first, and it is out of reach.
+  def test_a_match_beyond_the_window_is_not_used
+    marker = "ZYXWVUTSRQPONMLKJI".b # MAX_MATCH bytes, none of which appear in the filler
+    filler = seeded(Pack::MAX_WINDOW + 200, 7) { |r| r.rand(1..15) }
+    blob = marker + filler + marker
+    second = marker.bytesize + filler.bytesize
+    data = blob.bytes
+    assert_operator second, :>, Pack::MAX_WINDOW, "the repeat has to be out of reach to test anything"
+
+    length, distance = Pack.longest_match(data, second, data.length, Pack.match_chains(data, data.length))
+    assert_operator length, :<, Pack::MIN_MATCH,
+                    "the only match is #{second} bytes back, past the #{Pack::MAX_WINDOW}-byte " \
+                    "reach of a back-reference, so nothing can be encoded here"
+  end
+
+  # And the rule that makes the one above matter: whatever the packer chooses, the
+  # distance always fits the field it is written into.
+  def test_every_match_it_finds_is_within_reach
+    blob = seeded(Pack::MAX_WINDOW + 800, 11) { |r| r.rand(6).zero? ? r.rand(1..15) : 0 }
+    data = blob.bytes
+    n = data.length
+    chains = Pack.match_chains(data, n)
+
+    out_of_reach = nil
+    (0...n).each do |pos|
+      length, distance = Pack.longest_match(data, pos, n, chains)
+      next if length < Pack::MIN_MATCH
+      next if (2..Pack::MAX_WINDOW).cover?(distance)
+
+      out_of_reach = "at byte #{pos} the match is #{distance} back, which does not fit a back-reference"
+      break
+    end
+
+    assert_nil out_of_reach, out_of_reach
+  end
+
+  # Not a benchmark — a guard against the chains being replaced by the exhaustive
+  # search again. Packing this blob takes a few tens of milliseconds; a full scan of
+  # the window for every byte takes several SECONDS, so the bound below is roughly a
+  # hundred times the real cost and still catches that decisively.
+  def test_packing_a_large_asset_does_not_scan_the_whole_window_per_byte
+    blob = seeded(16_000, 99) { |r| r.rand(256) }
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    Pack.best(blob)
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+    assert_operator elapsed, :<, 1.0,
+                    "packing #{blob.bytesize} bytes took #{elapsed.round(2)}s — that is the cost of " \
+                    "searching the whole window for every byte, so the match chains are not being used"
+  end
 end
