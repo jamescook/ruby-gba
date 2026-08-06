@@ -29,10 +29,33 @@ require "rbconfig"
 module ParallelTest
   CONTROL_FD = 3
   SHARD_SCRIPT = File.expand_path(__FILE__)
+  ROOT = File.expand_path("..", __dir__)
   COUNTERS = %w[runs assertions failures errors skips].freeze
   CODE_COUNTER = { "F" => "failures", "E" => "errors", "S" => "skips" }.freeze
 
+  # Where the previous run's per-file timings live. Gitignored: it changes every
+  # run, so committing it would mean a conflicting diff on every merge, and the
+  # only thing a fresh clone loses is one poorly-balanced run.
+  TIMINGS_FILE = File.join(ROOT, ".test_timings.json")
+  TIMINGS_VERSION = 1
+
+  # How much of a new observation to believe. One run where you had a build going
+  # in another terminal shouldn't dictate the split for the next week.
+  SMOOTHING = 0.6
+
   module_function
+
+  def relative(path)
+    path.to_s.delete_prefix("#{ROOT}/")
+  end
+
+  def median(values)
+    return 0.0 if values.empty?
+
+    sorted = values.sort
+    mid = sorted.size / 2
+    sorted.size.odd? ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2.0
+  end
 
   # ------------------------------------------------------------------
   # Parent
@@ -43,29 +66,53 @@ module ParallelTest
     # One seed for the whole run, so anything that fails in parallel is
     # reproducible with a plain serial rake test.
     seed = Integer(seed || ENV["SEED"] || rand(0xFFFF))
-    shards = shard(files, [workers, files.size].min)
+    timings = load_timings
+    shards = shard(files, [workers, files.size].min, timings)
 
-    puts "Running #{files.size} test files in #{shards.size} processes (seed #{seed})\n\n"
+    puts "Running #{files.size} test files in #{shards.size} processes " \
+         "(seed #{seed}, #{timings ? 'balanced by recorded timings' : 'no timings yet'})\n\n"
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
     children = shards.each_with_index.map { |shard, i| spawn_shard(shard, i + 1, seed, libs) }
     pump children
     puts # close off the dot stream
-    report children, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, seed
+
+    observed = save_timings(children, files, timings)
+    report children, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, seed, observed
   end
 
-  # Greedy longest-first bin packing, weighted by file size. File size is a crude
-  # stand-in for runtime, but it costs six lines and avoids round-robin's worst
-  # case, where the four slowest files all land in the same worker.
-  def shard(files, count)
+  # Greedy longest-processing-time-first bin packing: walk the files heaviest to
+  # lightest, always dropping the next one into the shard with the least work so
+  # far. It's the classic approximation for makespan on identical machines —
+  # provably within 4/3 of optimal, and much closer than that in practice once no
+  # single file dominates.
+  #
+  # Only the weight changes between a cold run and a warm one. Cold, it's file
+  # size: a weak correlate of runtime, but weakly-informed beats uninformed, and
+  # it only governs the single run before timings exist.
+  def shard(files, count, timings = nil)
+    weight = weigher(files, timings)
     shards  = Array.new(count) { [] }
-    weights = Array.new(count, 0)
-    files.sort_by { |file| -File.size(file) }.each do |file|
+    weights = Array.new(count, 0.0)
+    files.sort_by { |file| -weight.call(file) }.each do |file|
       lightest = weights.index(weights.min)
       shards[lightest] << file
-      weights[lightest] += File.size(file)
+      weights[lightest] += weight.call(file)
     end
     shards.reject(&:empty?)
+  end
+
+  # A file we've never timed gets the median of the ones we have — not zero,
+  # which would pile every new test file into one shard, and not the max, which
+  # would strand a shard idle. The overhead constant covers process boot and the
+  # require of the file itself, which no sum of test times can see.
+  def weigher(files, timings)
+    return ->(file) { File.size(file).to_f } unless timings
+
+    known = timings["files"]
+    fallback = median(known.values)
+    overhead = timings["overhead"].to_f
+    ->(file) { (known[relative(file)] || fallback) + overhead }
   end
 
   # fd 3 carries the structured record stream; stdout and stderr carry whatever
@@ -82,7 +129,8 @@ module ParallelTest
     [control_w, output_w].each(&:close)
 
     { pid: pid, index: index, files: files.size, control: control_r, output: output_r,
-      buffer: +"", stray: +"", results: [], totals: nil }
+      buffer: +"", stray: +"", results: [], totals: nil, times: nil,
+      spawned_at: Process.clock_gettime(Process::CLOCK_MONOTONIC) }
   end
 
   # One select loop over every child's two pipes. Progress characters are echoed
@@ -104,6 +152,12 @@ module ParallelTest
         rescue EOFError
           io.close
           open.delete io
+          # The control pipe hitting EOF means the child is gone, which is the
+          # only moment we can measure its wall time — measuring after the loop
+          # would give every child the whole run's duration.
+          if kind == :control
+            child[:wall] = Process.clock_gettime(Process::CLOCK_MONOTONIC) - child[:spawned_at]
+          end
           next
         end
 
@@ -127,12 +181,13 @@ module ParallelTest
       case line[0]
       when "P" then print line[1..]; $stdout.flush
       when "R" then child[:results] << JSON.parse(line[1..])
+      when "T" then child[:times] = JSON.parse(line[1..])
       when "Z" then child[:totals] = JSON.parse(line[1..])
       end
     end
   end
 
-  def report(children, elapsed, seed)
+  def report(children, elapsed, seed, observed)
     totals = Hash.new(0)
     children.each { |child| (child[:totals] || {}).each { |key, n| totals[key] += n } }
 
@@ -147,6 +202,7 @@ module ParallelTest
     puts "\nYou have skipped tests. Run with SHOW_SKIPS=1 for details." if
       totals["skips"] > 0 && !show_skips
 
+    report_slowest observed, children.size
     report_stray children
     $stdout.flush # abort writes to stderr; don't let it outrun the buffered report
     return if children.all? { |child| child[:status].success? }
@@ -154,6 +210,24 @@ module ParallelTest
     failed = children.reject { |child| child[:status].success? }.map { |child| child[:index] }
     abort "\nFailing shards: #{failed.join(', ')} — reproduce serially with " \
           "`rake test TESTOPTS=\"--seed #{seed}\"`"
+  end
+
+  # Always show where the time went. Once the packing is driven by real numbers,
+  # the thing that decides how long a run takes stops being the split and starts
+  # being the single slowest file — and that's invisible unless it's printed.
+  def report_slowest(observed, workers)
+    return if observed.empty?
+
+    ranked = observed.sort_by { |_, time| -time }
+    puts "\nSlowest files: " +
+         ranked.first(3).map { |file, time| format("%s %.1fs", File.basename(file), time) }.join(", ")
+
+    slowest_file, slowest_time = ranked.first
+    ideal = observed.values.sum / workers
+    return unless slowest_time > ideal
+
+    puts format("  %s alone sets a %.1fs floor — past that, more workers can't help; " \
+                "splitting it would.", slowest_file, slowest_time)
   end
 
   # A shard that never sent its tallies didn't finish — a load error, or the
@@ -175,6 +249,91 @@ module ParallelTest
 
     puts "\n--- output printed by the tests themselves ---"
     noisy.each { |child| print child[:stray] }
+  end
+
+  # ------------------------------------------------------------------
+  # Timings artifact
+  # ------------------------------------------------------------------
+
+  # A timings cache must never be able to break a test run, so anything
+  # unreadable, malformed, or from a future format is treated as simply absent.
+  def load_timings
+    return nil if ENV["NO_TIMINGS"] == "1"
+
+    data = JSON.parse(File.read(TIMINGS_FILE))
+    return nil unless data["version"] == TIMINGS_VERSION
+
+    files = data["files"]
+    return nil unless files.is_a?(Hash) && !files.empty?
+
+    { "files" => files.transform_values(&:to_f), "overhead" => data["overhead"].to_f }
+  rescue Errno::ENOENT, JSON::ParserError, TypeError, NoMethodError
+    nil
+  end
+
+  # Returns the timings observed this run, whether or not they got persisted —
+  # the report needs them either way.
+  def save_timings(children, files, previous)
+    observed = {}
+    children.each { |child| (child[:times] || {}).each { |file, time| observed[file] = time } }
+    return observed if ENV["NO_TIMINGS"] == "1" || observed.empty?
+
+    merged = merge_timings(observed, previous, files)
+    write_timings merged, observed_overhead(children, previous)
+    observed
+  end
+
+  # Keep only files that still exist in the suite, so renames and deletions age
+  # out. A file the run didn't reach — because its shard died — keeps whatever
+  # we knew about it before rather than being dropped.
+  def merge_timings(observed, previous, files)
+    known = previous ? previous["files"] : {}
+    files.each_with_object({}) do |path, merged|
+      file = relative(path)
+      fresh = observed[file]
+      stored = known[file]
+      merged[file] =
+        if fresh && stored then (SMOOTHING * fresh) + ((1 - SMOOTHING) * stored)
+        else fresh || stored
+        end
+      merged.delete file if merged[file].nil?
+    end
+  end
+
+  # Summed test times always undercount: they miss process boot and the require
+  # of the test files. The gap between a shard's wall time and the work it
+  # reported is that cost, and dividing by its file count turns it into a
+  # per-file constant the packer can add. Shards that died are excluded — their
+  # wall time measures when they crashed, not how long their work takes.
+  def observed_overhead(children, previous)
+    per_file = children.filter_map do |child|
+      next unless child[:times] && child[:wall] && child[:files] > 0
+
+      gap = child[:wall] - child[:times].values.sum
+      next if gap <= 0
+
+      gap / child[:files]
+    end
+    return previous ? previous["overhead"] : 0.0 if per_file.empty?
+
+    fresh = median(per_file)
+    previous ? (SMOOTHING * fresh) + ((1 - SMOOTHING) * previous["overhead"]) : fresh
+  end
+
+  # Written via a temp file and renamed into place, so an interrupted run can't
+  # leave a half-written artifact behind for the next one to choke on.
+  def write_timings(files, overhead)
+    payload = {
+      "version" => TIMINGS_VERSION,
+      "overhead" => overhead.round(4),
+      "files" => files.sort.to_h { |file, time| [file, time.round(4)] }
+    }
+    tmp = "#{TIMINGS_FILE}.#{Process.pid}.tmp"
+    File.write tmp, "#{JSON.pretty_generate(payload)}\n"
+    File.rename tmp, TIMINGS_FILE
+  rescue SystemCallError
+    # A read-only checkout or a full disk is not a reason to fail the suite.
+    File.unlink tmp if tmp && File.exist?(tmp)
   end
 
   # ------------------------------------------------------------------
@@ -213,6 +372,7 @@ if $PROGRAM_NAME == ParallelTest::SHARD_SCRIPT
       super()
       @control = control
       @totals = Hash.new(0)
+      @times = Hash.new(0.0)
       @unfinished = []
     end
 
@@ -222,6 +382,7 @@ if $PROGRAM_NAME == ParallelTest::SHARD_SCRIPT
         @totals["assertions"] += result.assertions
         code = result.result_code
         @totals[ParallelTest::CODE_COUNTER[code]] += 1 if ParallelTest::CODE_COUNTER.key?(code)
+        charge result
 
         emit "P", code
         next if result.passed? && !result.skipped?
@@ -233,6 +394,7 @@ if $PROGRAM_NAME == ParallelTest::SHARD_SCRIPT
 
     def report
       ParallelTest::COUNTERS.each { |key| @totals[key] += 0 } # ensure every key exists
+      emit "T", JSON.generate(@times)
       emit "Z", JSON.generate(@totals)
     end
 
@@ -242,6 +404,17 @@ if $PROGRAM_NAME == ParallelTest::SHARD_SCRIPT
     end
 
     private
+
+    # Bill this test's time to the file that defined it. source_location points
+    # at the method definition, so a test generated by a helper is charged to
+    # the helper — which is wrong but harmless: the parent only looks up keys it
+    # recognises as test files and treats the rest as unknown.
+    def charge(result)
+      file, = result.source_location
+      return unless file && File.absolute_path?(file)
+
+      @times[ParallelTest.relative(file)] += result.time
+    end
 
     def emit(tag, payload)
       @control.write "#{tag}#{payload}\n"
