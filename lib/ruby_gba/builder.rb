@@ -78,6 +78,7 @@ module RubyGBA
       @has_paced_loop = false  # set once a game_loop is pacing the program
       @dropped_syncs = 0       # `wait_vblank` calls the game loop already covers
       @variables = {}          # name → { address:, initial: } — introspection metadata
+      @fraction_vars = {}      # name → fraction bits, for variables that hold a fraction (see Fraction)
       @next_var_addr = IWRAM_START
       @functions = {}          # name → deferred body block (evaluated at emit time)
       @dump_requests = []      # function names to disassemble from the lowered ROM
@@ -176,10 +177,16 @@ module RubyGBA
     # @return [Table] a handle to index with []
     def table(name, values, width: :half, signed: nil)
       values = validate_table_values!(name, values)
+      bits = table_fraction_bits(values)
+      # A table of numbers with a fraction is stored multiplied up, and a whole cell of
+      # it no longer fits in a half — so it takes a word unless the program says
+      # otherwise. Reads from it carry the fraction, so nothing downstream repeats it.
+      width = :word if bits && width == :half
+      values = values.map { |v| bits ? Fraction.scale(v, bits) : v }
       signed = values.any?(&:negative?) if signed.nil?
       check_table_values_fit!(name, values, width, signed)
       record(Build.table(name, values, width: width, signed: signed))
-      Table.new(self, name, values.length)
+      Table.new(self, name, values.length, fraction_bits: bits)
     end
 
     # Define an entry point of raw ARM instructions — the escape hatch for
@@ -584,13 +591,21 @@ module RubyGBA
     # A table's values must be a non-empty array of whole numbers.
     def validate_table_values!(name, values)
       unless values.is_a?(Array) && !values.empty?
-        raise ArgumentError, "table #{name.inspect} needs a non-empty array of whole numbers."
+        raise ArgumentError, "table #{name.inspect} needs a non-empty array of numbers."
       end
-      unless values.all?(Integer)
+      unless values.all?(Numeric)
         raise ArgumentError,
-              "table #{name.inspect} can hold whole numbers only. Round or scale the values to integers first."
+              "table #{name.inspect} can hold numbers only. You gave #{values.find { |v| !v.is_a?(Numeric) }.inspect}."
       end
       values
+    end
+
+    # How many fraction bits a table's values carry: a table with a Float anywhere in
+    # it holds numbers with a fraction, and every read from it hands back a value that
+    # says so. This is what lets a sine table be written as plain trigonometry — the
+    # scaling that used to be spelled out in the table's own definition is done here.
+    def table_fraction_bits(values)
+      Fraction::DEFAULT_BITS if values.any?(Float)
     end
 
     # Every value must fit the element width. A value that does not fit would be

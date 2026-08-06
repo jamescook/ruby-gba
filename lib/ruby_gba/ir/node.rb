@@ -121,6 +121,12 @@ module RubyGBA
         # Int32.mul_fix). Its own kind rather than a binop operator because it takes
         # a third thing a binop has no room for: how many fraction bits they carry.
         mul_fix: :value,
+        # divide by a power of two, rounding DOWN (toward minus infinity) rather than
+        # toward zero the way `/` does. Its own kind because that rounding is a
+        # different operation, not a special case of division — and because dropping
+        # the low bits of a number is one instruction on most machines where a divide
+        # is a called routine.
+        shift_right: :value,
         data_byte: :value, list_get: :value, list_len: :value,
         table_get: :value, # read table[index] from a ROM table at a runtime index
         timer_ticks: :value, # how many times a timer has overflowed since it started

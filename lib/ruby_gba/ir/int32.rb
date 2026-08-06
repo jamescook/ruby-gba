@@ -68,6 +68,21 @@ module RubyGBA
         wrap((wrap(a) * wrap(b)) >> bits) # Ruby's >> on a negative floors, as ASR does
       end
 
+      # Divide by 2**bits, rounding DOWN — toward minus infinity, not toward zero.
+      #
+      # That last part is the whole reason this is not just `div(a, 2**bits)`. Ordinary
+      # division here truncates toward zero, so -1 / 2 is 0. Rounding down gives -1. For
+      # a number carrying a fraction the rounding-down answer is the one that stays
+      # consistent: it is exactly what dropping the low +bits+ of the number does, so a
+      # value converted to a whole number and a value multiplied by another both round
+      # the same way, and the two agree at the boundary.
+      #
+      # A machine spells this as a shift, which is why the name says shift. The meaning
+      # is the division above.
+      def shift_right(a, bits)
+        wrap(wrap(a) >> bits) # Ruby's >> on a negative rounds down, which is the point
+      end
+
       def neg(a)
         wrap(-wrap(a))
       end

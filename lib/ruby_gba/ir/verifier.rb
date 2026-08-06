@@ -171,6 +171,7 @@ module RubyGBA
         neg:     { operand: :value },
         # a full-width multiply of two numbers carrying the same fraction bits
         mul_fix: { lhs: :value, rhs: :value, fraction_bits: :int },
+        shift_right: { operand: :value, bits: :int },
         held:    { button: :option },
         pressed: { button: :option },
         chance:  { draw: :value, percent: :int }, # draw is the 0..99 value; percent an author-time bound

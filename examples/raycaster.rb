@@ -46,24 +46,19 @@ module Raycaster
     1, 1, 1, 1, 1, 1, 1, 1
   ].freeze
 
-  # A variable holds whole numbers only, so a player standing three and a half cells
-  # along the corridor keeps that as 3.5 multiplied up by a fixed amount. FIXED is that
-  # amount: one whole maze cell. Everything positional below is in these units.
-  FIXED = 1 << 16 # a cell, in fixed-point units — 16 fraction bits
-  def self.fixed(n) = (n * FIXED).round
-
-  NUM_COLS = 30    # screen strips: 30 columns x 8px = 240px wide
+  NUM_COLS = 30 # screen strips: 30 columns x 8px = 240px wide
   COL_W = 8
-  STEP = FIXED / 4 # a ray advances a quarter of a cell at a time
-  STEPS = 20       # ...20 times, so it sees five cells before it gives up
-  HORIZON = 80     # the eye line: wall columns are centered here
-  WALK = fixed(0.09) # how far a step of walking moves, in cells
+  STEPS_PER_CELL = 4          # a ray advances a quarter of a cell at a time...
+  STEP = 1.0 / STEPS_PER_CELL
+  STEPS = 20                  # ...20 times, so it sees five cells before it gives up
+  HORIZON = 80                # the eye line: wall columns are centered here
+  WALK = 0.09                 # how far a step of walking moves, in cells
 
-  # The direction tables. A full turn is 512 angle units; sine is scaled by FIXED so the
-  # math stays in whole numbers. Cosine is the same curve read a quarter turn (128) later.
+  # The direction tables. A full turn is 512 angle units. Cosine is the same curve read
+  # a quarter turn (128) later.
   TURN = 512
   QUARTER = TURN / 4
-  SIN = (0...TURN).map { |a| (Math.sin(a * 2 * Math::PI / TURN) * FIXED).round }
+  SIN = (0...TURN).map { |a| Math.sin(a * 2 * Math::PI / TURN) }
 
   # Wall-column height for a hit distance, in quarter-cell steps: a reciprocal, so a near
   # wall (small distance) is tall and a far one is short, clamped to a sensible band.
@@ -82,54 +77,61 @@ module Raycaster
   GAME = RubyGBA.game("RAYCAST", code: "BRAY", maker: "01") do
     screen :bitmap, tear_free: true # double-buffered: the whole view is repainted each frame
 
-    sin     = table :sin, SIN, width: :word # signed, and a whole cell won't fit in a half
+    # A table written with Floats holds numbers with a fraction, and every read from it
+    # hands one back — so nothing below has to mention a scale.
+    sin     = table :sin, SIN
     heights = table :heights, HEIGHT, width: :half
     world   = table :world, MAP, width: :byte
 
-    view = var :view, 0                      # the way the player faces (0..255, wraps freely)
-    px = var :px, (3 * FIXED) + (FIXED / 2)  # standing in the middle of cell (3, 3)
-    py = var :py, (3 * FIXED) + (FIXED / 2)
+    view = var :view, 0    # the way the player faces (0..511, wraps freely)
+    px = var :px, 3.5      # standing in the middle of cell (3, 3)
+    py = var :py, 3.5
 
-    step_x = var :_step_x, 0 # this frame's walking step
-    step_y = var :_step_y, 0
-    nx   = var :_nx, 0    # where a step would put the player
-    ny   = var :_ny, 0
+    step_x = var :_step_x, 0.0 # this frame's walking step
+    step_y = var :_step_y, 0.0
+    nx   = var :_nx, 0.0  # where a step would put the player
+    ny   = var :_ny, 0.0
     ang  = var :_ang, 0   # this column's ray angle
-    dx   = var :_dx, 0    # the ray's step in x and y
-    dy   = var :_dy, 0
-    rx   = var :_rx, 0    # the ray's current position
-    ry   = var :_ry, 0
+    dx   = var :_dx, 0.0  # the ray's step in x and y
+    dy   = var :_dy, 0.0
+    rx   = var :_rx, 0.0  # the ray's current position
+    ry   = var :_ry, 0.0
     hit  = var :_hit, 0   # has this ray met a wall yet?
-    dist = var :_dist, 0  # how far it got
-    seen = var :_seen, 0  # ...and how far that is once the fan is corrected for
+    dist = var :_dist, 0.0 # how far it got, in cells
+    seen = var :_seen, 0.0 # ...and how far that is once the fan is corrected for
     col_h = var :_col_h, 0
     top  = var :_top, 0
 
     game_loop do
       # The room: sky down to the eye line, boards below it. Two block fills, so the
       # backdrop costs the same however much of it a wall ends up covering.
+      #
+      # Painting only the sky and floor each column actually leaves uncovered — three
+      # fills a column instead of two for the whole screen — touches a third fewer
+      # pixels and is SLOWER. Measured: 20 frames a second against 30. Setting up a
+      # transfer costs about what a short one moves, so ninety small fills lose to two
+      # big ones.
       dma_fill_rect 0, 0, 240, HORIZON, SKY
       dma_fill_rect 0, HORIZON, 240, 160 - HORIZON, FLOOR
 
       held(:left).then  { view.sub 4 }
       held(:right).then { view.add 4 }
 
-      # Walking. The step is WALK cells in the direction the player faces, which is
-      # WALK times a cosine and a sine — the first of the multiplies that needs a
-      # fraction on both sides.
-      step_x.set(sin[view + QUARTER].times_fraction(WALK, fraction_bits: 16))
-      step_y.set(sin[view].times_fraction(WALK, fraction_bits: 16))
+      # Walking. The step is WALK cells in the direction the player faces — a cosine and
+      # a sine, each times the walking speed.
+      step_x.set(sin[view + QUARTER] * WALK)
+      step_y.set(sin[view] * WALK)
       held(:down).then { step_x.flip }
       held(:down).then { step_y.flip }
 
       (held(:up) | held(:down)).then do
         # Try the step, and take it only if the cell it lands in is empty — otherwise
-        # you walk through walls.
+        # you walk through walls. `.to_i` is which cell a position is in.
         nx.set px
         nx.add step_x
         ny.set py
         ny.add step_y
-        (world[((ny / FIXED) * MAP_W) + (nx / FIXED)] == 0).then do
+        (world[(ny.to_i * MAP_W) + nx.to_i] == 0).then do
           px.set nx
           py.set ny
         end
@@ -148,8 +150,8 @@ module Raycaster
         ang.sub(NUM_COLS - 1)
 
         # Step vector for this ray. cos(ang) = sin[ang + QUARTER]; a quarter cell per step.
-        dx.set(sin[ang + QUARTER] / 4)
-        dy.set(sin[ang] / 4)
+        dx.set(sin[ang + QUARTER] * STEP)
+        dy.set(sin[ang] * STEP)
 
         rx.set px
         ry.set py
@@ -162,7 +164,7 @@ module Raycaster
             ry.add dy
             # The cell the ray is in now. The border ring is solid, so a ray leaving the
             # room meets the border wall first; the table read is bounds-safe regardless.
-            (world[((ry / FIXED) * MAP_W) + (rx / FIXED)] == 1).then do
+            (world[(ry.to_i * MAP_W) + rx.to_i] == 1).then do
               hit.set 1
               dist.set(step * STEP)
             end
@@ -174,29 +176,28 @@ module Raycaster
         # view — the "fisheye" look. Multiplying the distance by the cosine of the angle
         # off center takes that back out.
         #
-        # THIS is the multiply that needs times_fraction. Both numbers hold a fraction, so
-        # the product comes out multiplied up twice and has to come back down once — and
-        # the doubled-up value has to exist on the way. Three cells times one is three, but
-        # scaled up twice that is nearly 13 thousand million, six times past where a
-        # variable wraps. Plain `*` wraps there and the wall lands at a nonsense height.
-        seen.set(dist.times_fraction(sin[(col * 2) + (QUARTER - (NUM_COLS - 1))], fraction_bits: 16))
+        # Both of these hold a fraction, and a distance times a cosine is the multiply
+        # that would overflow if it were done the plain way — five cells times one is
+        # five, but scaled up twice that is past where a variable wraps. Nothing here
+        # says so, because nothing here has to: the framework knows both sides hold a
+        # fraction and works the product out at full width.
+        seen.set(dist * sin[(col * 2) + (QUARTER - (NUM_COLS - 1))])
 
-        # Round to the nearest step rather than letting the division truncate. A ray only
-        # ever stops on a whole step, and the correction always shaves a little off, so
-        # truncating would drop nearly every column a whole step further out than it
-        # really is. Adding half a step first rounds instead.
-        col_h.set heights[(seen + (STEP / 2)) / STEP]
+        # Round to the nearest step rather than letting `.to_i` drop the remainder. A ray
+        # only ever stops on a whole step, and the correction always shaves a little off,
+        # so dropping the remainder would put nearly every column a whole step further
+        # out than it really is. Adding half a step first rounds instead.
+        col_h.set heights[((seen + (STEP / 2)) * STEPS_PER_CELL).to_i]
         top.set HORIZON
         top.sub(col_h / 2)
-
-        # Shade the column by how far away it is, which is what reads as depth: near walls
+        # Shade the wall by how far away it is, which is what reads as depth: near walls
         # catch the light, far ones fall into the gloom. draw_rect_at takes a fixed color,
         # so each band is its own fill and exactly one of them runs. The HEIGHT is the
         # number the ray just worked out, which is the whole wall column in one fill.
-        (dist < (6 * STEP)).then do
+        (dist < 1.5).then do
           draw_rect_at((col * COL_W), top, COL_W, col_h, NEAR)
         end.else do
-          (dist < (12 * STEP)).then do
+          (dist < 3.0).then do
             draw_rect_at((col * COL_W), top, COL_W, col_h, MID)
           end.else do
             draw_rect_at((col * COL_W), top, COL_W, col_h, FAR)
