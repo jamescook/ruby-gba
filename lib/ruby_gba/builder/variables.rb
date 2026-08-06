@@ -19,10 +19,10 @@ module RubyGBA
       # @param value [Integer] value to store
       # @return [Value] a handle to the variable
       def set(name, value)
-        record(Build.set(name, Value.node_for(value)))
+        record(Build.set(name, fraction_node_for(name, value)))
         ensure_var(name)
         mirror_save(name)
-        Value.new(self, Build.var_ref(name), name: name)
+        handle_for(name)
       end
 
       # Declare a variable and give it a starting value. Unlike {#set} (a runtime
@@ -37,8 +37,8 @@ module RubyGBA
       # @return [Value] a handle to the variable
       def var(name, value)
         ensure_var(name)
-        at_boot(Build.set(name, Value.node_for(value)))
-        Value.new(self, Build.var_ref(name), name: name)
+        at_boot(Build.set(name, fraction_node_for(name, value)))
+        handle_for(name)
       end
 
       # Declare a variable whose value survives the console being turned off — a high
@@ -66,8 +66,9 @@ module RubyGBA
 
         ensure_var(name)
         @persisted << { name: name, default: default, slot: @persisted.length } unless persisted?(name)
-        Value.new(self, Build.var_ref(name), name: name)
+        handle_for(name)
       end
+
 
       # Add to a variable: var += operand.
       # Operand can be an immediate (Integer) or another variable (Symbol).
@@ -207,6 +208,24 @@ module RubyGBA
       end
 
       private
+
+      # A handle for a variable, carrying a fraction if that is what it holds. Every
+      # route to a variable goes through here, so `var :px, 3.5` and a later
+      # `set :px, ...` hand back handles that agree about what the variable is.
+      def handle_for(name)
+        Value.new(self, Build.var_ref(name), name: name, fraction_bits: @fraction_vars[name])
+      end
+
+      # The node to store in +name+, remembering whether that variable holds a
+      # fraction. Writing a Float — `var :px, 3.5` — is how a program says it does; the
+      # scale is then carried by every handle for that variable and never written again.
+      def fraction_node_for(name, value)
+        bits = Fraction.bits_of(value)
+        @fraction_vars[name] = bits if bits
+        return Build.int(Fraction.scale(value, bits)) if value.is_a?(Float)
+
+        Value.node_for(value)
+      end
 
       # A fresh hidden variable to hold one approach call's capped delta. Named per
       # call site at build time, so an approach inside a loop reuses the one

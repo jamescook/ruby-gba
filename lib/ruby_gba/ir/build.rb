@@ -622,6 +622,16 @@ module RubyGBA
         Node.new(:mul_fix, lhs: wrap(lhs), rhs: wrap(rhs), fraction_bits: fraction_bits)
       end
 
+      # Divide +operand+ by 2**bits, rounding down (see Int32.shift_right for why down
+      # and not toward zero). +bits+ is settled while building, 0..31.
+      def shift_right(operand, bits)
+        unless bits.is_a?(Integer) && (0..31).cover?(bits)
+          raise ArgumentError, "shift_right's bits must be a whole number from 0 to 31, got #{bits.inspect}"
+        end
+
+        Node.new(:shift_right, operand: wrap(operand), bits: bits)
+      end
+
       # Arithmetic negation of a value operand: -operand. This is the value-node
       # form (it produces a new value inside an expression), as opposed to the
       # `negate` statement, which flips a stored variable in place.

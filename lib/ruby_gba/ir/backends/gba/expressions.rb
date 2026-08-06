@@ -18,6 +18,7 @@ module RubyGBA
               emit(ASM.rsb_imm(ACC, ACC, 0))
             when :binop then eval_binop(node)
             when :mul_fix then eval_mul_fix(node)
+            when :shift_right then eval_shift_right(node)
             when :held then eval_held(node[:button])
             when :pressed then eval_pressed(node[:button])
             # A chance is "the random draw is below the threshold" — evaluate it as
@@ -153,6 +154,19 @@ module RubyGBA
               emit(ASM.lsr_imm(ACC, low, bits))                    # r0 = the low word, shifted down
               emit(ASM.orr_reg_lsl(ACC, ACC, high, 32 - bits))     # + the high word's bits sliding in
             end
+          end
+
+          # Divide by a power of two, rounding down (see IR::Int32.shift_right).
+          #
+          # This is where that operation earns its own node. The chip has no divide
+          # instruction at all — an ordinary `/` traps into a BIOS routine — but
+          # dropping the low bits of a register is a shift, and ARM does a shift as part
+          # of moving the register. So the whole thing is ONE instruction, against a
+          # call for the division that would otherwise be written here.
+          def eval_shift_right(node)
+            eval_value(node[:operand])
+            bits = node[:bits]
+            emit(ASM.asr_imm(ACC, ACC, bits)) if bits.positive? # shifting by none is nothing to do
           end
 
           # Divide through the BIOS Div routine — the ARM7TDMI has no divide

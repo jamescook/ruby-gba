@@ -76,16 +76,21 @@ class TestRaycasterExample < Minitest::Test
   end
 
   # Walking is what makes it a room you are inside rather than a picture you spin in.
+  # A cell, in the units a position is kept in. Positions hold a fraction, so the value
+  # in the variable is the number of cells multiplied up by this.
+  CELL = 1 << 16
+
   # Facing east at the start, six frames of walking move exactly six steps along x and not
   # at all along y — which also says the step really is the facing direction and not some
   # fixed vector.
   def test_holding_up_walks_the_player_forward
-    start = (3 * Raycaster::FIXED) + (Raycaster::FIXED / 2)
+    start = (3.5 * CELL).round
+    step = (Raycaster::WALK * CELL).round
     walked = Reference.new.hold(:up).run(Raycaster.program, frames: 6)
 
     assert_equal start, Reference.new.run(Raycaster.program, frames: 6)[:px],
                  "the player should stand still with nothing held"
-    assert_equal start + (6 * Raycaster::WALK), walked[:px]
+    assert_equal start + (6 * step), walked[:px]
     assert_equal start, walked[:py], "walking east should not drift north or south"
   end
 
@@ -97,7 +102,7 @@ class TestRaycasterExample < Minitest::Test
     interp.input_each_frame { |frame| frame <= 64 ? [:up] : [] }
     walked = interp.run(Raycaster.program, frames: 70)
 
-    assert_equal 4, walked[:px] / Raycaster::FIXED,
+    assert_equal 4, walked[:px] / CELL,
                  "the player should come to rest in the cell before the wall"
   end
 end

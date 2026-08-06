@@ -106,12 +106,27 @@ class TestTable < Minitest::Test
     assert_match(/:byte, :half, or :word/, err.message)
   end
 
-  def test_non_integer_values_are_a_friendly_error
+  def test_values_that_are_not_numbers_are_a_friendly_error
     b = Builder.new
     err = assert_raises(ArgumentError) do
-      b.instance_eval { table :t, [1, 2.5], width: :half }
+      b.instance_eval { table :t, [1, "two"], width: :half }
     end
-    assert_match(/whole numbers/, err.message)
+    assert_match(/numbers only/, err.message)
+  end
+
+  # A Float in the table is not an error — it says the table holds numbers with a
+  # fraction. They are stored multiplied up, and every read carries the fraction, so a
+  # sine table can be written as plain trigonometry.
+  def test_a_table_of_floats_holds_numbers_with_a_fraction
+    b = Builder.new
+    t = b.instance_eval { table :halves, [0.5, -1.25] }
+
+    assert_predicate t[0], :fraction?
+    assert_equal 16, t[0].fraction_bits
+
+    stored = b.program.walk.find { |n| n.kind == :table }
+    assert_equal [0.5 * (1 << 16), -1.25 * (1 << 16)], stored[:values]
+    assert_equal :word, stored[:width], "a whole number plus 16 bits of fraction needs a word"
   end
 
   # --- Hardware (gemba): the lookup drives real pixels ---

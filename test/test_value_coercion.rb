@@ -90,7 +90,18 @@ class TestValueCoercion < Minitest::Test
 
   def test_passing_an_unrepresentable_value_to_a_verb_errors_at_the_boundary
     b = Builder.new
-    err = assert_raises(ArgumentError) { b.set(:x, 1.5) }
+    err = assert_raises(ArgumentError) { b.set(:x, "half") }
     assert_match(/value/i, err.message)
+  end
+
+  # A Float is not unrepresentable — it is how a program says a variable holds a
+  # fraction. It is stored multiplied up, and the handle remembers by how much.
+  def test_a_float_declares_a_variable_that_holds_a_fraction
+    b = Builder.new
+    handle = b.set(:x, 1.5)
+
+    assert_predicate handle, :fraction?
+    assert_equal 16, handle.fraction_bits
+    assert_equal 1.5 * (1 << 16), b.program.walk.find { |n| n.kind == :set }[:value][:value]
   end
 end

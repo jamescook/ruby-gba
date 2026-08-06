@@ -86,6 +86,12 @@ module ConformanceFixture
       # wrong, so the differential comparison has something real to disagree about.
       B.set(:acc, B.mul_fix(B.int(98_304), B.int(98_304), 16)),
       B.set(:acc, B.mul_fix(B.var_ref(:x), B.int(-98_304), 16)), # and one that goes negative
+      # shift_right — divide by a power of two, rounding DOWN. The negative operand is
+      # the one that matters: rounding down gives -3 where an ordinary divide, which
+      # truncates toward zero, gives -2. A backend that lowered this as `/` would differ
+      # here and nowhere else.
+      B.set(:acc, B.shift_right(B.int(-5), 1)),
+      B.set(:acc, B.shift_right(B.var_ref(:x), 0)), # shifting by none changes nothing
       B.set(:acc, B.data_byte(:blob, 0)),     # data_byte reads embedded data
       B.set(:acc, B.table_get(:lut, B.var_ref(:x))), # table_get reads a ROM table at a run-time index
       B.set(:acc, B.held(:a)),                # held (button read)
