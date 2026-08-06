@@ -14,8 +14,10 @@ module RubyGBA
           # not two, so addresses and counts are in bytes; and video memory can't be
           # written a single byte at a time (a lone byte write hits both halves of its
           # 16-bit slot), so fills move whole 16-bit units — two pixels — at once, and
-          # a fill must start on an even column. The destination is the hidden page,
-          # whose address lives in a run-time variable (BACKBUF) and swaps every flip.
+          # a block fill must start on an even column (a rect asked for an odd one
+          # gets its two edge pixels written singly instead). The destination is the
+          # hidden page, whose address lives in a run-time variable (BACKBUF) and
+          # swaps every flip.
 
           # Clear the hidden page to a solid color: one DMA that repeats the packed
           # index word across the whole page.
@@ -30,68 +32,141 @@ module RubyGBA
           # A rectangle at a constant position/size, filled per row into the hidden
           # page. fill_rect and dma_fill_rect share this — in Mode 4 both are the same
           # packed block fill.
+          #
+          # A fill moves whole 16-bit units, so it can only START on an even column.
+          # Asked for an odd one, the rect's first and last pixel each share a unit
+          # with a pixel that is NOT part of the rect — so those two are written one
+          # at a time (read the unit, change that pixel's half, write it back) and the
+          # DMA fills the even middle between them. The column is known while
+          # building, so which of the two shapes a row takes is settled here.
           def emit_fill_rect_buffered(node)
             x, y, w, h = constant_ints!(node, :x, :y, :w, :h)
             even_width!(w, node.kind)
-            x &= ~1 # the tear-free screen fills two pixels at a time, so start on an even
-                    # column — snap x down to keep it aligned, matching draw_rect_at
             scratch = hold_index_word(node[:color])
-            control = dma_fill_control_16(w / 2)
+            index = @palette.index_of(node[:color])
+            edges = x.odd?
+            middle_x = edges ? x + 1 : x
+            middle_w = edges ? w - 2 : w # a two-pixel rect at an odd column is all edge
+
+            base = 6
+            load_var(base, BACKBUF) # the hidden page base, held for the whole rect
 
             h.times do |dy|
               row = y + dy
               next unless (0...SCREEN_HEIGHT).cover?(row)
 
-              store_word_immediate(scratch, REG_DMA3SAD)
-              load_var(ACC, BACKBUF)                             # r0 = hidden page base
-              emit(ASM.load_immediate(TMP, (row * SCREEN_WIDTH) + x)) # + byte offset (1 byte/pixel)
-              emit(ASM.add_reg(ACC, ACC, TMP))
-              emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-              emit(ASM.str(ACC, TMP))                            # destination = that row
-              store_word_immediate(control, REG_DMA3CNT)
+              emit_write_index_pixel_const(base, x, row, index) if edges && in_bounds?(x, row)
+              emit_buffered_row_fill(base: base, x: middle_x, row: row, w: middle_w, scratch: scratch) if middle_w.positive?
+              emit_write_index_pixel_const(base, x + w - 1, row, index) if edges && in_bounds?(x + w - 1, row)
             end
           end
 
-          # A rectangle whose position is computed at run time, filled per row into the
-          # hidden page. Its size is constant; its x should be even (the caller keeps
-          # it so — grid games move on an even step). r2/r3 hold x/y across the loop.
+          # DMA one row of a rect into the hidden page: +w+ pixels from the even column
+          # +x+ of +row+. +base+ is the register holding the hidden page base.
+          def emit_buffered_row_fill(base:, x:, row:, w:, scratch:)
+            store_word_immediate(scratch, REG_DMA3SAD)
+            emit_add_const(ACC, base, (row * SCREEN_WIDTH) + x, TMP) # + byte offset (1 byte/pixel)
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(ACC, TMP))                                  # destination = that row
+            store_word_immediate(dma_fill_control_16(w / 2), REG_DMA3CNT)
+          end
+
+          # A rectangle at a run-time position, filled per row into the hidden page.
+          # Only its row moves in the general case — but an odd column fills
+          # differently from an even one (see emit_fill_rect_buffered), so the shape of
+          # a row depends on a number the game works out as it runs.
+          #
+          # A rect whose column is a plain number still settles it while building, and
+          # only that one shape is emitted. Otherwise the low bit of x is tested ONCE
+          # here and each case gets its own copy of the rows: every row of a rect starts
+          # on the same column, so a test inside the loop would ask the same question
+          # over and over, and the common even column keeps costing exactly what it did.
+          # r2/r3 hold x/y across both copies.
           def emit_draw_rect_at_buffered(node)
             w, h = constant_ints!(node, :w, :h)
             even_width!(w, :draw_rect_at)
             scratch = hold_index_word(node[:color])
-            control = dma_fill_control_16(w / 2)
+            index = @palette.index_of(node[:color])
+            rows = { w: w, h: h, scratch: scratch, index: index }
 
-            x_reg = 2
-            y_reg = 3
             eval_value(node[:x])
-            emit(ASM.mov_reg(x_reg, ACC))
-            # The tear-free screen is written two pixels at a time, so a fill must start
-            # on an even column. x is decided at run time, so we snap it down to the
-            # nearest even column (clear its low bit) — a stray odd x just nudges the
-            # rectangle one pixel left rather than landing misaligned.
-            emit(ASM.lsr_imm(x_reg, x_reg, 1))
-            emit(ASM.lsl_imm(x_reg, x_reg, 1))
+            emit(ASM.mov_reg(RECT_X, ACC))
             eval_value(node[:y])
-            emit(ASM.mov_reg(y_reg, ACC))
+            emit(ASM.mov_reg(RECT_Y, ACC))
+
+            column = const_int(node[:x])
+            return emit_buffered_rect_rows(**rows, edges: column.odd?) if column
+
+            odd_column = gensym
+            done = gensym
+            emit(ASM.and_imm(ACC, RECT_X, 1))
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, odd_column, cond: :ne)
+            emit_buffered_rect_rows(**rows, edges: false)
+            emit_branch(:b, done)
+            place_label(odd_column)
+            emit_buffered_rect_rows(**rows, edges: true)
+            place_label(done)
+          end
+
+          # The unrolled rows of a run-time-positioned rect. +edges+ says the column is
+          # odd, so each row's first and last pixel are spliced in one at a time and the
+          # DMA covers only the even middle. Registers through the whole run: r2 the
+          # rect's x, r3 its y, r4 the address of the row's first column, r5 scratch.
+          RECT_X = 2
+          RECT_Y = 3
+          RECT_ROW = 4
+          RECT_ADDR = 5
+
+          def emit_buffered_rect_rows(w:, h:, scratch:, index:, edges:)
+            middle_w = edges ? w - 2 : w
 
             h.times do |dy|
-              # r4 = (y + dy) * SCREEN_WIDTH + x  — the byte offset into the page
+              # r4 = the hidden page's address of column 0 on row (y + dy)
               if dy.zero?
-                emit(ASM.mov_reg(4, y_reg))
+                emit(ASM.mov_reg(RECT_ROW, RECT_Y))
               else
-                emit(ASM.add_imm(4, y_reg, dy))
+                emit(ASM.add_imm(RECT_ROW, RECT_Y, dy))
               end
-              emit(ASM.load_immediate(5, SCREEN_WIDTH))
-              emit(ASM.mul(4, 5, 4))            # r4 = SCREEN_WIDTH * (y + dy)
-              emit(ASM.add_reg(4, 4, x_reg))    # + x
-              load_var(5, BACKBUF)              # r5 = hidden page base
-              emit(ASM.add_reg(4, 4, 5))        # r4 = destination
+              emit(ASM.load_immediate(RECT_ADDR, SCREEN_WIDTH))
+              emit(ASM.mul(RECT_ROW, RECT_ADDR, RECT_ROW)) # r4 = SCREEN_WIDTH * (y + dy), 1 byte/pixel
+              load_var(RECT_ADDR, BACKBUF)                 # r5 = hidden page base
+              emit(ASM.add_reg(RECT_ROW, RECT_ROW, RECT_ADDR))
 
-              store_word_immediate(scratch, REG_DMA3SAD)
-              emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-              emit(ASM.str(4, TMP))
-              store_word_immediate(control, REG_DMA3CNT)
+              emit_splice_rect_edge(index: index, offset: 0, high: true) if edges
+              emit_buffered_rect_row_dma(offset: edges ? 1 : 0, w: middle_w, scratch: scratch) if middle_w.positive?
+              emit_splice_rect_edge(index: index, offset: w - 1, high: false) if edges
             end
+          end
+
+          # DMA one row of a run-time-positioned rect: +w+ pixels starting +offset+
+          # columns right of the rect's x, on the row whose address r4 holds.
+          def emit_buffered_rect_row_dma(offset:, w:, scratch:)
+            emit(ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
+            emit_add_const(RECT_ADDR, RECT_ADDR, offset, ACC)
+            store_word_immediate(scratch, REG_DMA3SAD)
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(RECT_ADDR, TMP))
+            store_word_immediate(dma_fill_control_16(w / 2), REG_DMA3CNT)
+          end
+
+          # Splice one edge pixel of a run-time-positioned rect into the hidden page:
+          # the pixel +offset+ columns right of the rect's x, on the row whose address
+          # r4 holds. Its 16-bit unit also holds a pixel outside the rect, so read the
+          # unit, replace only this pixel's half, and write it back. The rect's x is
+          # odd here, which makes the left edge the high half of its unit and the right
+          # edge (x + w - 1, an even column, since the width is even) the low half of
+          # its own — so only the left edge's address needs its low bit cleared.
+          def emit_splice_rect_edge(index:, offset:, high:)
+            emit(ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
+            emit_add_const(RECT_ADDR, RECT_ADDR, offset, ACC)
+            if high
+              emit(ASM.lsr_imm(RECT_ADDR, RECT_ADDR, 1)) # clear the low bit ->
+              emit(ASM.lsl_imm(RECT_ADDR, RECT_ADDR, 1)) # r5 = the containing unit's address
+            end
+            emit(ASM.load_halfword(ACC, RECT_ADDR))      # r0 = the current pixel pair
+            splice_index_byte(ACC, index, high)
+            emit(ASM.store_halfword(ACC, RECT_ADDR))
           end
 
           # Stash a solid fill color as a word of four packed indices in IWRAM and

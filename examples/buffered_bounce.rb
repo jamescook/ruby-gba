@@ -24,14 +24,12 @@ module BufferedBounce
   SCREEN_W = 240
   SCREEN_H = 160
   BALL = 8
-  SPEED = 2 # an even step keeps every ball on an even column (buffered fills move
-            # two pixels at a time; see the note in the backend's draw_rect_at)
+  SPEED = 2
 
   GAME = RubyGBA.game("BOUNCE", code: "BBNC", maker: "01") do
     screen :bitmap, tear_free: true # the tear-proof screen — try flipping this to false
 
-    # Each ball is a position (x, y) and a velocity (dx, dy). Even starts and even
-    # speeds keep the motion exact.
+    # Each ball is a position (x, y) and a velocity (dx, dy).
     balls = [
       { x: var(:ax, 20),  y: var(:ay, 20),  dx: var(:adx, SPEED),  dy: var(:ady, SPEED),  color: :yellow },
       { x: var(:bx, 120), y: var(:by, 40),  dx: var(:bdx, SPEED),  dy: var(:bdy, -SPEED), color: :cyan },

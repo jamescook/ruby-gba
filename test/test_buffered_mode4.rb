@@ -172,23 +172,44 @@ class TestBufferedMode4 < Minitest::Test
     assert_match(/draw_text|pixel|rectangle fills/, err.message) # names what does work
   end
 
-  # --- tear-free fills move two pixels at a time: an odd start column snaps ---
+  # --- tear-free fills move two pixels at a time, odd start column included ---
 
-  # A fill at an odd x is snapped down to the nearest even column (not an error),
-  # matching draw_rect_at. dma_fill_rect(3, ...) lands at x=2, spanning 2..9.
-  def test_an_odd_start_column_snaps_to_even
+  # A fill moves two side-by-side pixels at once here, so an odd start column is
+  # the hard case: the rect's first and last pixel each share a two-pixel unit with
+  # a pixel outside the rect, which has to survive. dma_fill_rect(3, ...) must span
+  # 3..10 exactly, leaving 2 and 11 as they were.
+  def test_a_fill_at_an_odd_start_column_lands_on_that_column
     prog = program(
       screen(:bitmap, buffered: true),
       clear_screen(:blue),
-      dma_fill_rect(3, 0, 8, 8, :red), # x=3 snaps to 2
-      wait_vblank,                     # present the drawn page
+      dma_fill_rect(3, 0, 8, 8, :red),
+      wait_vblank, # present the drawn page
       halt,
     )
-    rom = assemble_rom(prog, name: "SNAP")
+    rom = assemble_rom(prog, name: "ODDCOL")
     v = assert_gemba_loads_rom(rom, frames: 4)
-    assert v.pixel_is?(2, 0, :red), "x=3 snaps down to the even column 2"
-    assert v.pixel_is?(9, 0, :red), "the 8px fill spans 2..9 from the snapped start"
-    assert v.pixel_is?(10, 0, :blue), "and stops there — column 10 is untouched background"
+    assert v.pixel_is?(2, 0, :blue), "the pixel left of the rect keeps its color"
+    assert v.pixel_is?(3, 0, :red), "the fill starts on the column it was given"
+    assert v.pixel_is?(10, 0, :red), "the 8px fill spans 3..10"
+    assert v.pixel_is?(11, 0, :blue), "and stops there — column 11 is untouched background"
+  end
+
+  # The narrowest rect at an odd column is all edge and no middle: both its pixels
+  # are spliced in one at a time, and there is no block fill between them.
+  def test_a_two_pixel_fill_at_an_odd_column_paints_only_its_two_pixels
+    prog = program(
+      screen(:bitmap, buffered: true),
+      clear_screen(:blue),
+      dma_fill_rect(5, 0, 2, 4, :red),
+      wait_vblank,
+      halt,
+    )
+    rom = assemble_rom(prog, name: "ODD2PX")
+    v = assert_gemba_loads_rom(rom, frames: 4)
+    assert v.pixel_is?(4, 0, :blue)
+    assert v.pixel_is?(5, 0, :red)
+    assert v.pixel_is?(6, 0, :red)
+    assert v.pixel_is?(7, 0, :blue)
   end
 
   # --- the DSL surface: tear_free: is only for :bitmap ---

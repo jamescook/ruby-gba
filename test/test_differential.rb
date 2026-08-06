@@ -109,27 +109,41 @@ class TestDifferential < Minitest::Test
 
   # The tear-free screen draws to a hidden page and shows it whole. Different
   # machinery, same picture — and it's the mode where a page-flip bug would show
-  # the wrong page.
-  #
-  # The rect steps by an EVEN number on purpose. On the tear-free screen a pixel is
-  # a single byte, and video memory refuses a lone byte write — the smallest write
-  # covers two side-by-side pixels — so the lowering snaps an odd column down to the
-  # even one below it. Step by 3 instead and this goes red. (That is a different
-  # cause from the direct-color screen's odd-column bug, which was a DMA unit too
-  # wide and is fixed and covered above; honoring an odd column here needs
-  # read-modify-write on the rect's two edge pixels, which is filed and not done.)
+  # the wrong page. The rect steps by an ODD number, so it visits both parities:
+  # on this screen a pixel is one byte and video memory refuses a lone byte write,
+  # so landing on an odd column takes read-modify-write at the rect's two edges.
   def test_the_tear_free_screen_paints_the_same_picture
     prog = build do
       screen :bitmap, tear_free: true
       x = var :x, 10
       game_loop do
         clear_screen :black
-        x.add 2
+        x.add 3
         draw_rect_at x, 40, 8, 8, Color.resolve(:white)
         draw_text "BUF", 10, 100, Color.resolve(:cyan)
       end
     end
     (2..5).each { |f| assert_backends_agree(prog, frames: f, name: "BUFFER") }
+  end
+
+  # The same odd/even column check as above, on the tear-free screen. Here one
+  # pixel is one byte, so an odd column is not a DMA-alignment mistake but a real
+  # limit of the hardware: the smallest write covers two side-by-side pixels. A
+  # rect at an odd column must still land on that column, edges included. The
+  # narrowest rect (two pixels wide) is checked too — it is all edge and no middle.
+  def test_a_rect_lands_on_the_column_it_was_given_on_the_tear_free_screen
+    [16, 17].each do |x|
+      [2, 8].each do |w|
+        assert_backends_agree(build do
+          screen :bitmap, tear_free: true
+          game_loop do
+            clear_screen :black
+            fill_rect x, 40, w, 8, Color.resolve(:white)
+            draw_rect_at x, 60, w, 8, Color.resolve(:red)
+          end
+        end, name: "BUFCOL")
+      end
+    end
   end
 
   # --- tiled mode: the console composites tiles and sprites itself ---
