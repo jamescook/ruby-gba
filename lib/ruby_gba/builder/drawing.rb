@@ -187,9 +187,11 @@ module RubyGBA
       # @param h [Symbol, Integer, Value] height in pixels
       # @param c [Symbol, String, Integer] fill color
       def draw_rect_at(x_pos, y_pos, w, h, c)
-        record(Build.draw_rect_at(Value.node_for(x_pos), Value.node_for(y_pos), w, Value.node_for(h), c))
+        record(Build.draw_rect_at(Value.node_for(x_pos), Value.node_for(y_pos),
+                                  Value.node_for(w), Value.node_for(h), c))
         ensure_var(x_pos)
         ensure_var(y_pos)
+        ensure_var(w)
         ensure_var(h)
       end
 

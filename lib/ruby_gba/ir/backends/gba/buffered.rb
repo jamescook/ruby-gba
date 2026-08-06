@@ -99,8 +99,10 @@ module RubyGBA
           # over and over, and the common even column keeps costing exactly what it did.
           # r2/r3 hold x/y across both copies.
           def emit_draw_rect_at_buffered(node)
-            w = constant_ints!(node, :w).first
-            even_width!(w, :draw_rect_at)
+            w = const_int(node[:w])
+            return emit_buffered_rect_computed_width(node) unless w
+            return if w < 1 # a rect with no width draws nothing
+
             scratch = hold_index_word(node[:color])
             index = @palette.index_of(node[:color])
             rows = { w: w, h: const_int(node[:h]), scratch: scratch, index: index }
@@ -108,17 +110,17 @@ module RubyGBA
             eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y, rows_reg: RECT_ROWS_LEFT)
 
             column = const_int(node[:x])
-            return emit_buffered_rect_rows(**rows, edges: column.odd?) if column
+            return emit_buffered_rect_rows(**rows, starts_odd: column.odd?) if column
 
             odd_column = gensym
             done = gensym
             emit(ASM.and_imm(ACC, RECT_X, 1))
             emit(ASM.cmp_imm(ACC, 0))
             emit_branch(:bcond, odd_column, cond: :ne)
-            emit_buffered_rect_rows(**rows, edges: false)
+            emit_buffered_rect_rows(**rows, starts_odd: false)
             emit_branch(:b, done)
             place_label(odd_column)
-            emit_buffered_rect_rows(**rows, edges: true)
+            emit_buffered_rect_rows(**rows, starts_odd: true)
             place_label(done)
           end
 
@@ -137,8 +139,8 @@ module RubyGBA
           # unrolled, exactly as they always were, so a paddle or a ball costs what it
           # did before. It is nil when the game works the height out, and then the same
           # row is emitted once inside a counted loop that walks y down the screen.
-          def emit_buffered_rect_rows(w:, h:, scratch:, index:, edges:)
-            row = { w: w, scratch: scratch, index: index, edges: edges }
+          def emit_buffered_rect_rows(w:, h:, scratch:, index:, starts_odd:)
+            row = { w: w, scratch: scratch, index: index, starts_odd: starts_odd }
             return h.times { |dy| emit_buffered_rect_row(dy: dy, **row) } if h
 
             emit_row_loop(RECT_ROWS_LEFT) do
@@ -147,8 +149,17 @@ module RubyGBA
             end
           end
 
-          def emit_buffered_rect_row(dy:, w:, scratch:, index:, edges:)
-            middle_w = edges ? w - 2 : w
+          # +starts_odd+ says the rect begins on an odd column, which is settled by here
+          # (either the column is a plain number, or the caller branched on its low bit).
+          # The width is a plain number too, so which pixels need splicing in one at a
+          # time follows from the same rule the computed-width path works out as it runs:
+          # the first pixel when the rect starts on an odd column, the last when it ends
+          # on an even one. Both parities of width are covered — an odd width is not an
+          # error here, just a rect with a different pair of ends.
+          def emit_buffered_rect_row(dy:, w:, scratch:, index:, starts_odd:)
+            left = starts_odd ? 1 : 0
+            right = (starts_odd ? w + 1 : w).odd? ? 1 : 0
+            middle_w = w - left - right
 
             # r4 = the hidden page's address of column 0 on row (y + dy)
             if dy.zero?
@@ -161,9 +172,130 @@ module RubyGBA
             load_var(RECT_ADDR, BACKBUF)                 # r5 = hidden page base
             emit(ASM.add_reg(RECT_ROW, RECT_ROW, RECT_ADDR))
 
-            emit_splice_rect_edge(index: index, offset: 0, high: true) if edges
-            emit_buffered_rect_row_dma(offset: edges ? 1 : 0, w: middle_w, scratch: scratch) if middle_w.positive?
-            emit_splice_rect_edge(index: index, offset: w - 1, high: false) if edges
+            emit_splice_rect_edge(index: index, offset: 0, high: true) if left.positive?
+            emit_buffered_rect_row_dma(offset: left, w: middle_w, scratch: scratch) if middle_w.positive?
+            emit_splice_rect_edge(index: index, offset: w - 1, high: false) if right.positive?
+          end
+
+          # Held for the whole of a computed-width rect: r7 the middle's transfer count
+          # (0 when there is no middle), r8 whether the rect starts on an odd column
+          # (which is also how far right of x its middle begins), r9 the column its last
+          # pixel is in.
+          RECT_MIDDLE = 7
+          RECT_LEFT = 8
+          RECT_RIGHT = 9
+
+          # A rect on the tear-free screen whose WIDTH the game works out as it runs.
+          #
+          # Here a pixel is one byte, but video memory refuses to write a lone byte — the
+          # smallest write covers two side-by-side pixels, one unit. So a rect that
+          # starts or ends halfway through a unit has to have that pixel spliced in on
+          # its own: read the unit, change only this pixel's half, write it back. The
+          # rest, an even number of pixels starting on an even column, goes in as a
+          # block fill.
+          #
+          # With the width fixed, which pixels need splicing follows from the column
+          # alone, and each case gets its own copy of the rows. Computed, it does not:
+          # the rect's LAST column depends on a number that is not known yet. Both ends
+          # come down to one rule, though, and these three are worked out once, above the
+          # rows, because every row of a rect starts and ends in the same columns:
+          #
+          #   - the first pixel needs splicing when the rect starts on an ODD column;
+          #   - the last one needs splicing when it ends on an EVEN column;
+          #   - what is left between them is always an even number of pixels beginning
+          #     on an even column, which is exactly what a block fill wants.
+          #
+          # A width of one is not a special case under that rule — it is a rect whose
+          # single pixel is spliced by one end or the other, and no middle at all.
+          def emit_buffered_rect_computed_width(node)
+            scratch = hold_index_word(node[:color])
+            index = @palette.index_of(node[:color])
+
+            eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y,
+                                     rows_reg: RECT_ROWS_LEFT, width_reg: RECT_MIDDLE)
+
+            # A rect the game has shrunk to nothing draws nothing — and a block fill
+            # asked for zero units would move 65536 of them, so this is not optional.
+            done = gensym
+            emit(ASM.cmp_imm(RECT_MIDDLE, 0))
+            emit_branch(:bcond, done, cond: :le)
+
+            emit(ASM.add_reg(RECT_RIGHT, RECT_X, RECT_MIDDLE)) # the column past the end...
+            emit(ASM.sub_imm(RECT_RIGHT, RECT_RIGHT, 1))       # ...so the last one is one back
+            emit(ASM.and_imm(RECT_LEFT, RECT_X, 1))            # starts on an odd column?
+            emit(ASM.and_imm(ACC, RECT_RIGHT, 1))
+            emit(ASM.rsb_imm(ACC, ACC, 1))                     # ends on an even one?
+            emit(ASM.sub_reg(RECT_MIDDLE, RECT_MIDDLE, RECT_LEFT)) # what the two ends
+            emit(ASM.sub_reg(RECT_MIDDLE, RECT_MIDDLE, ACC))       # do not cover
+
+            # Turn that into a transfer count, or leave it at zero to mean "no middle".
+            no_middle = gensym
+            emit(ASM.cmp_imm(RECT_MIDDLE, 0))
+            emit_branch(:bcond, no_middle, cond: :eq)
+            emit(ASM.lsr_imm(RECT_MIDDLE, RECT_MIDDLE, 1)) # two pixels per unit moved
+            emit(ASM.load_immediate(TMP, dma_fill_control_16(0)))
+            emit(ASM.orr_reg(RECT_MIDDLE, RECT_MIDDLE, TMP))
+            place_label(no_middle)
+
+            height = const_int(node[:h])
+            emit(ASM.load_immediate(RECT_ROWS_LEFT, height)) if height
+            emit_row_loop(RECT_ROWS_LEFT) do
+              emit_buffered_computed_row(index: index, scratch: scratch)
+              emit(ASM.add_imm(RECT_Y, RECT_Y, 1)) # ...and on to the next row down
+            end
+            place_label(done)
+          end
+
+          # One row of a computed-width rect: at most two spliced pixels with a block
+          # fill between them. Which of the three actually run was decided above the
+          # loop; each is a test away.
+          def emit_buffered_computed_row(index:, scratch:)
+            emit(ASM.mov_reg(RECT_ROW, RECT_Y))
+            emit(ASM.load_immediate(RECT_ADDR, SCREEN_WIDTH))
+            emit(ASM.mul(RECT_ROW, RECT_ADDR, RECT_ROW)) # r4 = SCREEN_WIDTH * y, 1 byte/pixel
+            load_var(RECT_ADDR, BACKBUF)
+            emit(ASM.add_reg(RECT_ROW, RECT_ROW, RECT_ADDR))
+
+            skip_left = gensym
+            emit(ASM.cmp_imm(RECT_LEFT, 0))
+            emit_branch(:bcond, skip_left, cond: :eq)
+            emit_splice_column(index: index, col_reg: RECT_X, high: true)
+            place_label(skip_left)
+
+            skip_middle = gensym
+            emit(ASM.cmp_imm(RECT_MIDDLE, 0))
+            emit_branch(:bcond, skip_middle, cond: :eq)
+            emit(ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
+            emit(ASM.add_reg(RECT_ADDR, RECT_ADDR, RECT_LEFT)) # past a spliced first pixel
+            store_word_immediate(scratch, REG_DMA3SAD)
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(RECT_ADDR, TMP))
+            emit(ASM.load_immediate(TMP, REG_DMA3CNT))
+            emit(ASM.str(RECT_MIDDLE, TMP))
+            place_label(skip_middle)
+
+            skip_right = gensym
+            emit(ASM.and_imm(ACC, RECT_RIGHT, 1))
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, skip_right, cond: :ne) # ends on an odd column: nothing to splice
+            emit_splice_column(index: index, col_reg: RECT_RIGHT, high: false)
+            place_label(skip_right)
+          end
+
+          # Splice one pixel of a rect into the hidden page: the pixel in the column
+          # +col_reg+ holds, on the row whose address r4 holds. Its unit also holds a
+          # pixel outside the rect, so read the unit, replace only this pixel's half,
+          # and write it back. An odd column is the HIGH half of its unit, so its
+          # address needs the low bit cleared to name the unit.
+          def emit_splice_column(index:, col_reg:, high:)
+            emit(ASM.add_reg(RECT_ADDR, RECT_ROW, col_reg))
+            if high
+              emit(ASM.lsr_imm(RECT_ADDR, RECT_ADDR, 1))
+              emit(ASM.lsl_imm(RECT_ADDR, RECT_ADDR, 1))
+            end
+            emit(ASM.load_halfword(ACC, RECT_ADDR))
+            splice_index_byte(ACC, index, high)
+            emit(ASM.store_halfword(ACC, RECT_ADDR))
           end
 
           # DMA one row of a run-time-positioned rect: +w+ pixels starting +offset+

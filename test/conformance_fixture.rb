@@ -110,7 +110,12 @@ module ConformanceFixture
       # ...and one whose height the program works out, which a backend fills with a
       # counted loop rather than unrolled rows. :x is 7 here, so it draws seven rows —
       # a backend that mishandled the count would draw a different number of them.
-      B.draw_rect_at(B.int(30), B.int(30), 4, B.var_ref(:x), :white),
+      B.draw_rect_at(B.int(30), B.int(30), B.int(4), B.var_ref(:x), :white),
+      # ...and one whose WIDTH it works out, at an ODD column and an ODD width, which is
+      # the case a backend cannot settle while building: on a screen that writes two
+      # pixels at a time, the rect's first and last pixel then land in different halves
+      # of their units and have to be spliced in one at a time.
+      B.draw_rect_at(B.int(41), B.int(40), B.var_ref(:x), B.int(2), :white),
       B.draw_text("HI", 10, 10, :white),
       B.draw_digit(B.var_ref(:x), 20, 10, :white), # one run-time digit glyph
       B.blit(:sprite, :x, :y),

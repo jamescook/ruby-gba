@@ -4,16 +4,18 @@ require "test_helper"
 
 require_relative "differential"
 
-# A rectangle whose HEIGHT the game works out as it runs — the shape a bar or a column
-# needs (a health meter that shrinks, a wall column in a first-person view, a tower that
-# grows). `draw_rect_at` used to take a build-time height, so the only way to say it was
-# a loop drawing one row-tall rectangle per row.
+# A rectangle whose SIZE the game works out as it runs — the shape a bar or a column
+# needs (a health meter that empties, a wall column in a first-person view, a tower that
+# grows). `draw_rect_at` used to take a build-time size, so the only way to say it was a
+# loop drawing one row-tall rectangle per row.
 #
-# The interesting cases are the edges: a height of zero, a height gone negative from a
-# bar that ran past empty, and a height the game changes every frame. A counted loop that
-# tested its counter the wrong way would draw four thousand million rows for a height of
-# zero, so these are not decoration.
-class TestRuntimeRectHeight < Minitest::Test
+# The interesting cases are the edges. A size of zero, or gone negative from a bar that
+# ran past empty: a counted loop that tested its counter the wrong way would draw four
+# thousand million rows, and a block fill asked for zero units moves 65536 of them. And
+# on the tear-free screen, where a pixel is one byte but the smallest write covers two,
+# the parities: which of the rect's end pixels have to be spliced in one at a time
+# depends on a width that is not known until it runs.
+class TestRuntimeRectSize < Minitest::Test
   include Differential
 
   def build(&block)
@@ -165,6 +167,125 @@ class TestRuntimeRectHeight < Minitest::Test
     assert_equal Color.resolve(:red), interp.screen.pixel(64, 20), "the rect starts at x=60, y=20"
     assert_equal Color.resolve(:blue), interp.screen.pixel(59, 20), "and not one pixel left of it"
     assert_equal 20, rows_painted(interp, x: 64)
+    assert_backends_agree(program)
+  end
+
+  # --- a width the game works out ---
+
+  # A bar `width` wide at (x, 20), over a background that makes "not drawn" visible.
+  def sideways_bar(width, tear_free: false, x: 40)
+    build do
+      screen :bitmap, tear_free: tear_free
+      var :w, width
+      clear_screen :blue
+      draw_rect_at x, 20, :w, 6, Color.resolve(:red)
+      wait_vblank if tear_free
+      halt
+    end
+  end
+
+  def columns_painted(interp, y: 22)
+    (0...240).count { |x| interp.screen.pixel(x, y) == Color.resolve(:red) }
+  end
+
+  def test_the_rect_is_as_wide_as_the_variable_says
+    interp = Reference.new.run(sideways_bar(30))
+
+    assert_equal 30, columns_painted(interp)
+    assert_equal Color.resolve(:red), interp.screen.pixel(40, 22), "it starts at its x"
+    assert_equal Color.resolve(:red), interp.screen.pixel(69, 22), "and ends 30 columns along"
+    assert_equal Color.resolve(:blue), interp.screen.pixel(70, 22), "and no further"
+  end
+
+  def test_a_width_of_zero_or_less_draws_nothing
+    assert_equal 0, columns_painted(Reference.new.run(sideways_bar(0)))
+    assert_equal 0, columns_painted(Reference.new.run(sideways_bar(-5)))
+  end
+
+  def test_the_console_draws_the_same_sideways_bar
+    assert_backends_agree(sideways_bar(30))
+    assert_backends_agree(sideways_bar(0))
+    assert_backends_agree(sideways_bar(-5))
+  end
+
+  # The tear-free screen is where a computed width is hard: a pixel is one byte and the
+  # smallest write covers two, so the rect's first pixel needs splicing when it starts on
+  # an odd column and its last one when it ends on an even column. Which of those apply
+  # is not known until the width is. All four combinations, plus the widths where the two
+  # ends meet or overlap.
+  def test_the_console_draws_a_computed_width_at_every_parity_when_tear_free
+    [40, 41].each do |x|
+      [1, 2, 3, 4, 7, 30].each do |width|
+        assert_backends_agree(sideways_bar(width, tear_free: true, x: x), frames: 2,
+                                                                         name: "W#{x}#{width}")
+      end
+    end
+  end
+
+  # The same widths on the plain screen, where a pixel is two bytes and any width is a
+  # whole number of transfers — so an odd one must not be quietly rounded.
+  def test_the_console_draws_a_computed_width_at_every_parity
+    [40, 41].each do |x|
+      [1, 2, 3, 7].each { |width| assert_backends_agree(sideways_bar(width, x: x), name: "P#{x}#{width}") }
+    end
+  end
+
+  # An odd width settled while building used to be refused outright ("the fast block fill
+  # moves two pixels per step"). It is no longer a rule the author has to know: the same
+  # end-splicing that makes a computed odd width work makes a fixed one work, and the
+  # parities are all known while building, so it costs nothing to work out.
+  def test_a_fixed_odd_width_is_no_longer_refused
+    [40, 41].each do |x|
+      [1, 3, 5].each do |width|
+        program = build do
+          screen :bitmap, tear_free: true
+          clear_screen :blue
+          draw_rect_at x, 20, width, 4, Color.resolve(:red)
+          wait_vblank
+          halt
+        end
+
+        interp = Reference.new.run(program, frames: 2)
+        assert_equal width, columns_painted(interp), "a #{width}-wide rect at x=#{x}"
+        assert_equal Color.resolve(:blue), interp.screen.pixel(x - 1, 22), "nothing left of it"
+        assert_equal Color.resolve(:blue), interp.screen.pixel(x + width, 22), "nothing right of it"
+        assert_backends_agree(program, frames: 2, name: "ODD#{x}#{width}")
+      end
+    end
+  end
+
+  # A bar that empties, one column at a time, past zero and out the other side. This is
+  # the shape the verb exists for, and it walks every parity on the way down.
+  def test_the_console_agrees_frame_by_frame_as_a_sideways_bar_empties
+    program = build do
+      screen :bitmap
+      clear_screen :blue
+      var :w, 8
+      game_loop do
+        clear_screen :blue
+        sub :w, 1
+        draw_rect_at 41, 20, :w, 6, Color.resolve(:red)
+      end
+    end
+
+    (2..8).each { |f| assert_backends_agree(program, frames: f, name: "EMPTY") }
+  end
+
+  # Both sizes computed at once, which is the case where nothing about the rect's shape
+  # is known while building.
+  def test_the_console_draws_a_rect_whose_width_and_height_are_both_worked_out
+    program = build do
+      screen :bitmap
+      clear_screen :blue
+      w = var :w, 3
+      h = var :h, 5
+      draw_rect_at 41, 20, w * 3, h + 2, Color.resolve(:red)
+      halt
+    end
+
+    interp = Reference.new.run(program)
+    assert_equal 9, columns_painted(interp)
+    assert_equal 7, rows_painted(interp, x: 44)
     assert_backends_agree(program)
   end
 

@@ -402,11 +402,10 @@ module RubyGBA
                               eval_value(node[:w]), eval_value(node[:h]),
                               resolve_color(node[:color]))
           when :draw_rect_at
-            # A rectangle whose position and height are computed at run time (x/y/h
-            # may be variables or expressions); only the width is a constant. A height
-            # of zero or less covers no rows, so nothing is drawn.
+            # A rectangle whose position and size are all computed at run time. A width
+            # or height of zero or less covers no pixels, so nothing is drawn.
             @screen.fill_rect(eval_value(node[:x]), eval_value(node[:y]),
-                              node[:w], eval_value(node[:h]), resolve_color(node[:color]))
+                              eval_value(node[:w]), eval_value(node[:h]), resolve_color(node[:color]))
           when :draw_text
             exec_draw_text(node)
           when :draw_digit
