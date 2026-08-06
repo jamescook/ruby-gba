@@ -62,7 +62,7 @@ module ParallelTest
   # ------------------------------------------------------------------
 
   def run(files, workers: nil, seed: nil, libs: %w[test lib])
-    workers = Integer(workers || ENV["JOBS"] || Etc.nprocessors)
+    workers = Integer(workers || ENV["JOBS"] || Etc.nprocessors - 1)
     # One seed for the whole run, so anything that fails in parallel is
     # reproducible with a plain serial rake test.
     seed = Integer(seed || ENV["SEED"] || rand(0xFFFF))
