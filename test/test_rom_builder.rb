@@ -58,6 +58,18 @@ class TestRomBuilder < Minitest::Test
     assert_equal expected, buf.getbyte(0xBD), "checksum"
   end
 
+  # A build can ask to keep the cautious cartridge speed the console powers on with
+  # — the escape hatch for a cartridge that can't take the quicker timing. Then the
+  # program's own first instruction sits where the code starts, with no timing write
+  # in front of it.
+  def test_a_build_can_keep_the_power_on_cartridge_timing
+    rom = RubyGBA.build("SLOWCART", code: "BSLW", maker: "01", fast_cartridge: false) do
+      halt
+    end
+
+    assert_equal [0xEAFFFFFE].pack("V"), rom.buffer[0xC0, 4], "loop_forever, with no prologue in front"
+  end
+
   def test_build_embeds_nintendo_logo
     require "digest"
     rom = RubyGBA.build("LOGOTEST", code: "BLGO", maker: "01") do
