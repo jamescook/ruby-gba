@@ -87,6 +87,27 @@ module RubyGBA
     def green?(x, y) = pixel_is?(x, y, :green)
     def blue?(x, y)  = pixel_is?(x, y, :blue)
 
+    # The whole rendered frame as 15-bit GBA colors, row-major (index = y*240 + x).
+    #
+    # {#pixel_gba} answers "what color is this one pixel?"; this answers "what does
+    # the whole screen look like?" in one pass, which is what a frame-to-frame
+    # comparison needs — asking pixel by pixel would mean 38,400 separate reads.
+    # The values line up with the reference interpreter's own framebuffer dump, so
+    # the two backends' pictures can be compared directly.
+    # @return [Array<Integer>] 240*160 colors in BGR555
+    def frame_gba
+      ensure_rendered!
+      # mGBA gives us one 32-bit word per pixel as XBGR8 (0xXXBBGGRR): red in the
+      # low byte, then green, then blue. The GBA itself stores 5 bits per channel,
+      # so shift each 8-bit channel back down to the 15-bit color the ROM asked for.
+      @pixels.unpack("V*").map! do |word|
+        r = word & 0xFF
+        g = (word >> 8) & 0xFF
+        b = (word >> 16) & 0xFF
+        (r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10)
+      end
+    end
+
     # Check if the entire screen is black (nothing rendered).
     def all_black?
       ensure_rendered!
