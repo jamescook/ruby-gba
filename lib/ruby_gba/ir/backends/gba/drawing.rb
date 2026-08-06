@@ -257,16 +257,20 @@ module RubyGBA
             end
           end
 
-          # A rectangle whose position is computed at run time (x/y may be
-          # variables), its size a constant. Same per-row DMA fill as
+          # A rectangle whose position and height are computed at run time (x/y/h may
+          # be variables), its width a constant. Same per-row DMA fill as
           # dma_fill_rect, but each row's destination address is built from the
-          # live x/y instead of known up front. r2/r3 hold x/y across the loop;
-          # r4/r5 are address scratch. (No run-time bounds clip yet — the caller is
-          # expected to keep it on-screen, as pong does by clamping.)
+          # live x/y instead of known up front. r2/r3 hold x/y across the loop, r6 the
+          # rows left to draw; r4/r5 are address scratch. (No run-time bounds clip yet —
+          # the caller is expected to keep it on-screen, as pong does by clamping.)
+          #
+          # A constant height is unrolled, which is what it always did and what keeps a
+          # paddle or a ball costing exactly what it did before. Only a height the game
+          # works out becomes a counted loop.
           def emit_draw_rect_at(node)
             return emit_draw_rect_at_buffered(node) if @lower_mode == :buffered
 
-            w, h = constant_ints!(node, :w, :h)
+            w = constant_ints!(node, :w).first
             even_width!(w, :draw_rect_at)
             scratch = hold_fill_word(node[:color])
             # x is computed at run time, so it can be an odd column on any given
@@ -275,30 +279,57 @@ module RubyGBA
 
             x_reg = 2
             y_reg = 3
-            eval_value(node[:x])
-            emit(ASM.mov_reg(x_reg, ACC))
-            eval_value(node[:y])
-            emit(ASM.mov_reg(y_reg, ACC))
+            rows_left = 6
+            eval_rect_position(node, x_reg: x_reg, y_reg: y_reg, rows_reg: rows_left)
 
-            h.times do |dy|
-              # r4 = VRAM_START + ((y + dy) * width + x) * 2
-              if dy.zero?
-                emit(ASM.mov_reg(4, y_reg))
-              else
-                emit(ASM.add_imm(4, y_reg, dy))
-              end
-              emit(ASM.load_immediate(5, SCREEN_WIDTH))
-              emit(ASM.mul(4, 5, 4))           # r4 = width * (y + dy)
-              emit(ASM.add_reg(4, 4, x_reg))   # + x
-              emit(ASM.lsl_imm(4, 4, 1))       # * 2 bytes per pixel
-              emit(ASM.load_immediate(5, VRAM_START))
-              emit(ASM.add_reg(4, 4, 5))       # + VRAM base
+            height = const_int(node[:h])
+            return height.times { |dy| emit_mode3_rect_row(dy, x_reg, y_reg, scratch, control) } if height
 
-              store_word_immediate(scratch, REG_DMA3SAD)
-              emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-              emit(ASM.str(4, TMP))            # destination is the computed address
-              store_word_immediate(control, REG_DMA3CNT)
+            emit_row_loop(rows_left) do
+              emit_mode3_rect_row(0, x_reg, y_reg, scratch, control)
+              emit(ASM.add_imm(y_reg, y_reg, 1)) # ...and on to the next row down
             end
+          end
+
+          # One row of a run-time rect: work out where it lands in video memory, then
+          # fire the fill at it. +dy+ is how far below the rect's y this row is.
+          def emit_mode3_rect_row(dy, x_reg, y_reg, scratch, control)
+            # r4 = VRAM_START + ((y + dy) * width + x) * 2
+            if dy.zero?
+              emit(ASM.mov_reg(4, y_reg))
+            else
+              emit(ASM.add_imm(4, y_reg, dy))
+            end
+            emit(ASM.load_immediate(5, SCREEN_WIDTH))
+            emit(ASM.mul(4, 5, 4))           # r4 = width * (y + dy)
+            emit(ASM.add_reg(4, 4, x_reg))   # + x
+            emit(ASM.lsl_imm(4, 4, 1))       # * 2 bytes per pixel
+            emit(ASM.load_immediate(5, VRAM_START))
+            emit(ASM.add_reg(4, 4, 5))       # + VRAM base
+
+            store_word_immediate(scratch, REG_DMA3SAD)
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(4, TMP))            # destination is the computed address
+            store_word_immediate(control, REG_DMA3CNT)
+          end
+
+          # Work out a run-time rect's x, y and row count into their registers.
+          #
+          # The two coordinates go via the stack rather than straight into their
+          # registers, because working out the SECOND one can use the register the
+          # first was just parked in — a multiply of two numbers holding a fraction
+          # borrows exactly those. The stack is the one place nothing else touches.
+          def eval_rect_position(node, x_reg:, y_reg:, rows_reg:)
+            eval_value(node[:x])
+            emit(ASM.push(ACC))
+            eval_value(node[:y])
+            emit(ASM.push(ACC))
+            unless const_int(node[:h])
+              eval_value(node[:h])
+              emit(ASM.mov_reg(rows_reg, ACC))
+            end
+            emit(ASM.pop(y_reg))
+            emit(ASM.pop(x_reg))
           end
 
           # Draw a defined bitmap at a runtime (x, y). An opaque bitmap streams from

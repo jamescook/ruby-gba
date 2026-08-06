@@ -99,16 +99,13 @@ module RubyGBA
           # over and over, and the common even column keeps costing exactly what it did.
           # r2/r3 hold x/y across both copies.
           def emit_draw_rect_at_buffered(node)
-            w, h = constant_ints!(node, :w, :h)
+            w = constant_ints!(node, :w).first
             even_width!(w, :draw_rect_at)
             scratch = hold_index_word(node[:color])
             index = @palette.index_of(node[:color])
-            rows = { w: w, h: h, scratch: scratch, index: index }
+            rows = { w: w, h: const_int(node[:h]), scratch: scratch, index: index }
 
-            eval_value(node[:x])
-            emit(ASM.mov_reg(RECT_X, ACC))
-            eval_value(node[:y])
-            emit(ASM.mov_reg(RECT_Y, ACC))
+            eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y, rows_reg: RECT_ROWS_LEFT)
 
             column = const_int(node[:x])
             return emit_buffered_rect_rows(**rows, edges: column.odd?) if column
@@ -125,34 +122,48 @@ module RubyGBA
             place_label(done)
           end
 
-          # The unrolled rows of a run-time-positioned rect. +edges+ says the column is
-          # odd, so each row's first and last pixel are spliced in one at a time and the
-          # DMA covers only the even middle. Registers through the whole run: r2 the
-          # rect's x, r3 its y, r4 the address of the row's first column, r5 scratch.
+          # The rows of a run-time-positioned rect. +edges+ says the column is odd, so
+          # each row's first and last pixel are spliced in one at a time and the DMA
+          # covers only the even middle. Registers through the whole run: r2 the rect's
+          # x, r3 its y, r4 the address of the row's first column, r5 scratch, r6 how
+          # many rows are left when the height is one the game works out.
           RECT_X = 2
           RECT_Y = 3
           RECT_ROW = 4
           RECT_ADDR = 5
+          RECT_ROWS_LEFT = 6
 
+          # +h+ is the height when it is settled while building — then the rows are
+          # unrolled, exactly as they always were, so a paddle or a ball costs what it
+          # did before. It is nil when the game works the height out, and then the same
+          # row is emitted once inside a counted loop that walks y down the screen.
           def emit_buffered_rect_rows(w:, h:, scratch:, index:, edges:)
+            row = { w: w, scratch: scratch, index: index, edges: edges }
+            return h.times { |dy| emit_buffered_rect_row(dy: dy, **row) } if h
+
+            emit_row_loop(RECT_ROWS_LEFT) do
+              emit_buffered_rect_row(dy: 0, **row)
+              emit(ASM.add_imm(RECT_Y, RECT_Y, 1)) # ...and on to the next row down
+            end
+          end
+
+          def emit_buffered_rect_row(dy:, w:, scratch:, index:, edges:)
             middle_w = edges ? w - 2 : w
 
-            h.times do |dy|
-              # r4 = the hidden page's address of column 0 on row (y + dy)
-              if dy.zero?
-                emit(ASM.mov_reg(RECT_ROW, RECT_Y))
-              else
-                emit(ASM.add_imm(RECT_ROW, RECT_Y, dy))
-              end
-              emit(ASM.load_immediate(RECT_ADDR, SCREEN_WIDTH))
-              emit(ASM.mul(RECT_ROW, RECT_ADDR, RECT_ROW)) # r4 = SCREEN_WIDTH * (y + dy), 1 byte/pixel
-              load_var(RECT_ADDR, BACKBUF)                 # r5 = hidden page base
-              emit(ASM.add_reg(RECT_ROW, RECT_ROW, RECT_ADDR))
-
-              emit_splice_rect_edge(index: index, offset: 0, high: true) if edges
-              emit_buffered_rect_row_dma(offset: edges ? 1 : 0, w: middle_w, scratch: scratch) if middle_w.positive?
-              emit_splice_rect_edge(index: index, offset: w - 1, high: false) if edges
+            # r4 = the hidden page's address of column 0 on row (y + dy)
+            if dy.zero?
+              emit(ASM.mov_reg(RECT_ROW, RECT_Y))
+            else
+              emit(ASM.add_imm(RECT_ROW, RECT_Y, dy))
             end
+            emit(ASM.load_immediate(RECT_ADDR, SCREEN_WIDTH))
+            emit(ASM.mul(RECT_ROW, RECT_ADDR, RECT_ROW)) # r4 = SCREEN_WIDTH * (y + dy), 1 byte/pixel
+            load_var(RECT_ADDR, BACKBUF)                 # r5 = hidden page base
+            emit(ASM.add_reg(RECT_ROW, RECT_ROW, RECT_ADDR))
+
+            emit_splice_rect_edge(index: index, offset: 0, high: true) if edges
+            emit_buffered_rect_row_dma(offset: edges ? 1 : 0, w: middle_w, scratch: scratch) if middle_w.positive?
+            emit_splice_rect_edge(index: index, offset: w - 1, high: false) if edges
           end
 
           # DMA one row of a run-time-positioned rect: +w+ pixels starting +offset+

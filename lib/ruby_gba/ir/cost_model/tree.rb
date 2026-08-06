@@ -229,11 +229,18 @@ module RubyGBA
           nodes.flat_map { |node| node[:children].to_a.empty? ? [node] : all_leaves(node[:children]) }
         end
 
+        # A rect's size for the tree. A side the game works out as it runs shows as "?"
+        # rather than a number, so a reader can see which rect the estimate had to
+        # leave out.
+        def size_of(node)
+          [node[:w], node[:h]].map { |side| const_side(side) || "?" }.join("x")
+        end
+
         # How one op reads in the tree — its kind plus whatever detail tells two of them
         # apart at a glance (which image a blit draws, how big a rect is).
         def label_of(node)
           case node.kind
-          when :fill_rect, :dma_fill_rect, :draw_rect_at then "#{node.kind} #{node[:w]}x#{node[:h]}"
+          when :fill_rect, :dma_fill_rect, :draw_rect_at then "#{node.kind} #{size_of(node)}"
           when :draw_text then "draw_text #{node[:text].inspect}"
           when :draw_digit then "draw_digit"
           when :blit then "blit :#{node[:name]}"

@@ -243,6 +243,7 @@ module RubyGBA
         def estimate_blind_spots(program)
           reasons = []
           reasons << "an unbounded loop" if unbounded_loop?(program)
+          reasons << "a rectangle whose size the game works out" if runtime_sized_rect_anywhere?(program)
           reasons << "an unpriced op" unless unpriced_kinds(program).empty?
           reasons
         end
@@ -252,6 +253,13 @@ module RubyGBA
         def unbounded_loop?(program)
           index(program)
           program.walk.any? { |node| node.kind == :repeat && repeat_factor(node).last.include?("unbounded") }
+        end
+
+        # Whether the program fills a rectangle whose width or height it works out as it
+        # runs. The estimate counts that fill as zero for the same reason it counts an
+        # unbounded loop as zero — there is no provable size to charge for.
+        def runtime_sized_rect_anywhere?(program)
+          program.walk.any? { |node| runtime_sized_rect?(node) }
         end
       end
     end

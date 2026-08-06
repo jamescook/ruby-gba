@@ -136,12 +136,16 @@ module RubyGBA
         Node.new(:draw_digit, value: value, x: x, y: y, color: color, font: font)
       end
 
-      # Fill a rectangle whose *position* is decided at run time: +x+/+y+ may be
-      # variables (or constants), while the size +w+/+h+ is a compile-time
-      # constant. This is the moving-object draw — paddles, a ball — as opposed to
-      # +fill_rect+, whose position is fixed when the program is built.
+      # Fill a rectangle whose *position* and *height* are decided at run time:
+      # +x+/+y+/+h+ may be variables or expressions (or constants), while the width
+      # +w+ is settled while building. This is the moving-object draw — paddles, a
+      # ball — as opposed to +fill_rect+, which is fixed when the program is built.
+      #
+      # A height the program works out is what a bar or a column needs: a health
+      # meter, a wall column in a first-person view, a tower rising out of the
+      # ground. A height of zero or less draws nothing.
       def draw_rect_at(x, y, w, h, color)
-        Node.new(:draw_rect_at, x: wrap(x), y: wrap(y), w: w, h: h, color: color)
+        Node.new(:draw_rect_at, x: wrap(x), y: wrap(y), w: w, h: wrap(h), color: color)
       end
 
       # Fill a rectangle at a fixed position and size — same picture as

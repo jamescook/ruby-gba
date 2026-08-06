@@ -168,19 +168,29 @@ module RubyGBA
         record(Build.dma_fill_rect(x, y, w, h, c))
       end
 
-      # Draw a filled rectangle at a position determined at run time.
-      # Positions can be variables (Symbol) or constants (Integer); the size is a
-      # build-time constant and the width must be even (for the fast fill).
+      # Draw a filled rectangle at a position, and to a height, the game can work out
+      # as it runs. The position and the height may each be a variable, an expression,
+      # or a plain number; only the width is settled while building, and it must be
+      # even (for the fast fill).
       #
-      # @param x_pos [Symbol, Integer] x position (variable or constant)
-      # @param y_pos [Symbol, Integer] y position (variable or constant)
-      # @param w [Integer] width in pixels (must be even, build-time constant)
-      # @param h [Integer] height in pixels (build-time constant)
+      # A height the game computes is what a bar or a column needs — a health meter
+      # that shrinks, a wall column in a first-person view, a tower that grows:
+      #
+      #   draw_rect_at 8, 8, 40, health, :red     # a meter as tall as the health left
+      #
+      # A height of zero or less draws nothing, so a bar can empty completely without
+      # a test around it.
+      #
+      # @param x_pos [Symbol, Integer, Value] x position
+      # @param y_pos [Symbol, Integer, Value] y position
+      # @param w [Integer] width in pixels (must be even, settled while building)
+      # @param h [Symbol, Integer, Value] height in pixels
       # @param c [Symbol, String, Integer] fill color
       def draw_rect_at(x_pos, y_pos, w, h, c)
-        record(Build.draw_rect_at(Value.node_for(x_pos), Value.node_for(y_pos), w, h, c))
+        record(Build.draw_rect_at(Value.node_for(x_pos), Value.node_for(y_pos), w, Value.node_for(h), c))
         ensure_var(x_pos)
         ensure_var(y_pos)
+        ensure_var(h)
       end
 
       # Lay out a board of equal cells and get a handle for painting them one at a

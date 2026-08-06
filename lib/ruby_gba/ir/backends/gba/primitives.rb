@@ -74,6 +74,25 @@ module RubyGBA
           def in_bounds?(x, y)
             (0...SCREEN_WIDTH).cover?(x) && (0...SCREEN_HEIGHT).cover?(y)
           end
+
+          # Run +body+ once per row of a rect whose height the program works out as it
+          # runs. +counter+ is the register holding how many rows are left; +body+ emits
+          # one row and must leave the counter alone.
+          #
+          # The count is tested BEFORE the first row, which is what makes a height of
+          # zero — or a negative one, from a bar that ran past empty — draw nothing
+          # instead of wrapping round to four thousand million rows.
+          def emit_row_loop(counter)
+            top = gensym
+            done = gensym
+            place_label(top)
+            emit(ASM.cmp_imm(counter, 0))
+            emit_branch(:bcond, done, cond: :le)
+            yield
+            emit(ASM.sub_imm(counter, counter, 1))
+            emit_branch(:b, top)
+            place_label(done)
+          end
         end
       end
     end
