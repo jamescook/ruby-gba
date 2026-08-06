@@ -55,6 +55,46 @@ class TestDifferential < Minitest::Test
     end)
   end
 
+  # A rect fill is a block DMA, and DMA rounds its destination down to the size of
+  # the unit it moves. Two pixels per transfer needs an even column; asked for an
+  # odd one, the console used to shift the whole rect a pixel left and say nothing.
+  # Both the fixed-position verb and the run-time-positioned one are checked, at
+  # both parities, since only one of them can know the column at build time.
+  def test_a_rect_lands_on_the_column_it_was_given_odd_or_even
+    [16, 17].each do |x|
+      assert_backends_agree(build do
+        screen :bitmap
+        clear_screen :black
+        dma_fill_rect x, 40, 8, 8, Color.resolve(:white)
+        halt
+      end, name: "DMAFILL")
+
+      assert_backends_agree(build do
+        screen :bitmap
+        clear_screen :black
+        draw_rect_at x, 40, 8, 8, Color.resolve(:white)
+        halt
+      end, name: "RECTAT")
+    end
+  end
+
+  # And with the column only known at run time, where the lowering cannot pick the
+  # fast path by checking parity: a rect stepping by an odd number visits both
+  # parities, so a frame-by-frame comparison catches a shift on the odd frames.
+  def test_a_rect_moving_by_an_odd_step_matches_every_frame
+    prog = build do
+      screen :bitmap
+      clear_screen :black
+      x = var :x, 10
+      game_loop do
+        clear_screen :black
+        x.add 3
+        draw_rect_at x, 40, 8, 8, Color.resolve(:white)
+      end
+    end
+    (2..6).each { |f| assert_backends_agree(prog, frames: f, name: "ODDSTEP") }
+  end
+
   # A moving sprite is the classic place for a lowering bug: it has to erase what
   # it covered last frame and redraw at the new spot. Compare several frames, so a
   # trail left behind or an off-by-one in the restore shows up.
@@ -73,10 +113,13 @@ class TestDifferential < Minitest::Test
   # machinery, same picture — and it's the mode where a page-flip bug would show
   # the wrong page.
   #
-  # The rect steps by an EVEN number on purpose: at an odd x, `draw_rect_at` lands
-  # a pixel to the left on the console — a known open bug this test found. Step by 3
-  # instead and this goes red, which is the point; the odd-x case belongs here once
-  # that's fixed.
+  # The rect steps by an EVEN number on purpose. On the tear-free screen a pixel is
+  # a single byte, and video memory refuses a lone byte write — the smallest write
+  # covers two side-by-side pixels — so the lowering snaps an odd column down to the
+  # even one below it. Step by 3 instead and this goes red. (That is a different
+  # cause from the direct-color screen's odd-column bug, which was a DMA unit too
+  # wide and is fixed and covered above; honoring an odd column here needs
+  # read-modify-write on the rect's two edge pixels, which is filed and not done.)
   def test_the_tear_free_screen_paints_the_same_picture
     prog = build do
       screen :bitmap, tear_free: true
