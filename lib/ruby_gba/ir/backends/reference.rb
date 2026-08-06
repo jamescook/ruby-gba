@@ -106,6 +106,7 @@ module RubyGBA
           @songs = {}              # name -> :song node (from song)
           @data = {}               # name -> bytes (embedded data blobs)
           @bitmaps = {}            # name -> { width:, height: } (a blob that has a shape)
+          @tile_colors = {}        # name -> its pixels as colors, decoded once (nil = see-through)
           @backing = {}            # name -> { width:, height:, pixels: } (saved patch under a moving object)
           @objects = {}            # name -> :object node (a composited moving picture)
           @bg_nodes = []           # :background nodes, in order (the static scene under the objects)
@@ -686,8 +687,14 @@ module RubyGBA
 
         # Repaint one background's visible window at its current scroll offset. The map
         # is a torus, so an offset past an edge wraps around — the same thing tile
-        # hardware does, done here by sampling the map (with wrapping) for every screen
-        # pixel. A background that has never scrolled sits at offset (0, 0).
+        # hardware does, done here by sampling the map (with wrapping). A background
+        # that has never scrolled sits at offset (0, 0).
+        #
+        # This walks the screen one TILE at a time, not one pixel at a time: pixels
+        # side by side in a screen row come from the same tile until the next cell
+        # begins, so the map lookup is done once per cell and the pixels in between are
+        # painted as a run. A scrolling scene is repainted in full every frame, so this
+        # inner loop is where a whole run's time goes.
         def paint_background_window(bg)
           tiles = bg[:tiles]
           map = bg[:map]
@@ -701,17 +708,43 @@ module RubyGBA
           off_x, off_y = @bg_scroll[bg[:name]] || [0, 0]
           off_x %= map_w # Ruby % wraps negatives into 0..map_w-1
           off_y %= map_h
+          width = @screen.width
 
           @screen.height.times do |py|
             my = (off_y + py) % map_h
             row = map[my / tile_h]
-            @screen.width.times do |px|
+            next unless row # no cell row here — the backdrop stays, and layers behind show
+
+            ty = my % tile_h # which of the tile's own rows this screen row lands on
+            px = 0
+            while px < width
               mx = (off_x + px) % map_w
-              index = row && row[mx / tile_w]
-              color = background_pixel(tiles, index, mx % tile_w, my % tile_h)
-              # A backdrop-colored pixel (0) is transparent — leave it so a layer behind
-              # this one keeps showing there (the backdrop itself was painted first).
-              @screen.set_pixel(px, py, color) unless color.zero?
+              tx = mx % tile_w
+              span = [tile_w - tx, width - px].min # up to the next cell, or the screen edge
+              index = row[mx / tile_w]
+              # A tile's see-through pixels are nil in its decoded art, so they're left
+              # alone and whatever is behind this layer keeps showing there.
+              @screen.paint_row(px, py, tile_colors(tiles[index]), from: (ty * tile_w) + tx, count: span) if index
+              px += span
+            end
+          end
+        end
+
+        # A tile's pixels as colors, ready to paint, row after row in one flat list —
+        # so the pixel at (tx, ty) is at (ty * width) + tx. A see-through pixel is nil,
+        # which is how paint_row knows to leave that cell as it is.
+        #
+        # Tiles are fixed at build time and a scrolling background repaints the same
+        # handful of them for every row of every frame, so each one is decoded once and
+        # kept. That turns the packed bytes into colors a few dozen times instead of a
+        # few million.
+        def tile_colors(name)
+          @tile_colors[name] ||= begin
+            bmp = @bitmaps.fetch(name)
+            pixels = @data.fetch(name)
+            Array.new(bmp[:width] * bmp[:height]) do |i|
+              color = (pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
+              color.zero? ? nil : color
             end
           end
         end
