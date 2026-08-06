@@ -183,7 +183,7 @@ class TestCameraShake < Minitest::Test
       halt
     end
 
-    findings = RubyGBA::IR::Guardrails::Checks::ShakeNeedsGameLoop.new.detect(prog)
+    findings = RubyGBA::Effects::Packs::ScreenShake::NeedsGameLoop.new.detect(prog)
 
     assert_equal 1, findings.size
     assert_match(/game_loop/, findings.first.message)
@@ -192,13 +192,13 @@ class TestCameraShake < Minitest::Test
   end
 
   def test_a_shake_inside_a_game_loop_is_not_flagged
-    assert_empty RubyGBA::IR::Guardrails::Checks::ShakeNeedsGameLoop.new.detect(shaking_game(frames: 6))
+    assert_empty RubyGBA::Effects::Packs::ScreenShake::NeedsGameLoop.new.detect(shaking_game(frames: 6))
   end
 
   def test_a_game_that_never_shakes_is_not_flagged
     prog = program { screen :bitmap; clear_screen :blue; halt }
 
-    assert_empty RubyGBA::IR::Guardrails::Checks::ShakeNeedsGameLoop.new.detect(prog)
+    assert_empty RubyGBA::Effects::Packs::ScreenShake::NeedsGameLoop.new.detect(prog)
   end
 
   # --- on the console ---

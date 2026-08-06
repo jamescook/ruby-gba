@@ -101,14 +101,6 @@ module RubyGBA
 
       # --- the camera ---
 
-      # The hidden variables the shake runs on, and the routine that drives it. Named
-      # with the framework's underscore prefix so they never collide with a game's own.
-      SHAKE_LEFT = :__shake_left     # frames of shaking still to run (-1 = settled)
-      SHAKE_POWER = :__shake_power   # how far to move, in pixels
-      SHAKE_DIR = :__shake_dir       # +1 / -1, flipped every frame to make the jitter
-      SHAKE_OFFSET = :__shake_offset # this frame's offset, power * dir
-      SHAKE_TICK = :__shake_tick
-
       # Move the visible window over the whole picture. `camera 0, 0` shows it as
       # drawn; any other offset slides everything on screen at once.
       #
@@ -123,34 +115,6 @@ module RubyGBA
         record(Build.camera(x: Value.node_for(x), y: Value.node_for(y)))
         ensure_var(x)
         ensure_var(y)
-      end
-
-      # Shake the screen — the impact effect for a hit, an explosion, a life lost.
-      #
-      # Say how hard and how long, and the framework does the rest: it jitters the
-      # camera for you every frame from here on, then puts the picture back exactly
-      # where it was. You call this once, at the moment of impact, and nothing else.
-      #
-      #   shake_screen intensity: 3, frames: 8      # eight frames of shaking
-      #   shake_screen intensity: 3, duration: 0.2  # the same, said in seconds
-      #
-      # Calling it again while a shake runs restarts it, so repeated hits keep shaking
-      # rather than queueing up.
-      #
-      # @param intensity [Integer] how far the picture moves, in pixels
-      # @param frames [Integer, nil] how long to shake, in frames
-      # @param duration [Numeric, nil] how long to shake, in seconds (instead of frames)
-      def shake_screen(intensity: 2, frames: nil, duration: nil)
-        count = shake_length!(frames, duration)
-        unless intensity.is_a?(Integer) && intensity.positive?
-          raise ArgumentError,
-                "shake_screen needs a positive whole number for intensity. " \
-                "You gave #{intensity.inspect}."
-        end
-
-        install_shake!
-        set SHAKE_LEFT, count
-        set SHAKE_POWER, intensity
       end
 
       # Fill a rectangle at a fixed position and size.
@@ -199,69 +163,6 @@ module RubyGBA
       end
 
       private
-
-      # How many frames to shake for, from whichever unit the caller used.
-      def shake_length!(frames, duration)
-        if frames && duration
-          raise ArgumentError, "shake_screen takes frames: or duration:, not both."
-        end
-
-        if duration
-          unless duration.is_a?(Numeric) && duration.positive? && to_frames(duration, :seconds).positive?
-            raise ArgumentError,
-                  "shake_screen needs a positive duration in seconds. You gave #{duration.inspect}."
-          end
-          return to_frames(duration, :seconds)
-        end
-
-        frames ||= 8 # a short, punchy default
-        unless frames.is_a?(Integer) && frames.positive?
-          raise ArgumentError,
-                "shake_screen needs a positive whole number of frames. You gave #{frames.inspect}."
-        end
-        frames
-      end
-
-      # Declare the shake routine, once, however many places shake the screen.
-      #
-      # The routine runs every frame (see Builder#finalize_shake_tick) and owns the
-      # camera while a shake lasts: it flips the direction, moves the picture that far,
-      # and counts down. On the frame the count reaches zero it puts the camera back to
-      # where it was and takes the counter negative, so a settled game does no work at
-      # all — the picture is left alone until the next impact.
-      def install_shake!
-        return if @shake_installed
-
-        @shake_installed = true
-        [SHAKE_LEFT, SHAKE_POWER, SHAKE_DIR, SHAKE_OFFSET].each { |name| ensure_var(name) }
-        at_boot(Build.set(SHAKE_LEFT, Build.int(-1))) # settled: nothing to undo yet
-        at_boot(Build.set(SHAKE_DIR, Build.int(1)))
-
-        left = handle_for(SHAKE_LEFT)
-        power = handle_for(SHAKE_POWER)
-        direction = handle_for(SHAKE_DIR)
-
-        func(SHAKE_TICK) do
-          # The settle comes FIRST so the last shaking frame is really shown: the
-          # branch below takes the count to zero, and only the NEXT frame puts the
-          # picture back.
-          (left == 0).then do
-            camera 0, 0
-            left.sub 1 # -> -1, so this never runs again until the next shake
-          end
-          (left > 0).then do
-            direction.flip
-            set SHAKE_OFFSET, power * direction
-            camera SHAKE_OFFSET, SHAKE_OFFSET
-            left.sub 1
-          end
-        end
-        shake_each_frame
-      end
-
-      def handle_for(name)
-        Value.new(self, Build.var_ref(name), name: name)
-      end
 
       def validate_coords!(x, y)
         raise ArgumentError, "x=#{x} is outside the screen. Use an x from 0 to #{SCREEN_WIDTH - 1}." unless (0...SCREEN_WIDTH).cover?(x)

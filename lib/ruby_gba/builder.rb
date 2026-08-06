@@ -107,8 +107,8 @@ module RubyGBA
       @frame_boundaries = []   # each frame's wait node, the anchor the scroll writes are inserted after at finalize
       @scrolled_backgrounds = {} # name → [x var, y var] for every background the game scrolls
       @inline_scroll_nodes = []  # scroll nodes recorded at their call site, dropped once a frame boundary exists
-      @shake_installed = false   # has the shake routine been declared? (declared on first shake_screen)
-      @shake_ticking = false     # does the shake routine need running once a frame?
+      @per_frame_routines = []   # func names `each_frame` declared, called at every frame boundary
+      @each_frame_seq = 0        # counts each_frame bodies, to name each one's hidden routine
       @scene_gates = {}        # scene func name → [state_var, value] it's dispatched on (from case_var), for gating its presentation
       @current_scene_gate = nil # while a scene func's body is being built: the [state_var, value] its declarations belong to
       @building_scene = nil    # the scene func name currently being built (lets its presentation be declared inside it)
@@ -208,7 +208,7 @@ module RubyGBA
       default_screen_mode = @screen_mode
 
       # Drain rather than iterate: building one body can declare another routine — a
-      # verb reached from inside a scene may need one of its own (a shake) — and
+      # verb reached from inside a scene may declare an `each_frame` of its own — and
       # walking the hash directly would either miss it or raise for growing mid-loop.
       # Emitting until nothing new is pending covers however deep that goes.
       emitted = {}
@@ -232,7 +232,7 @@ module RubyGBA
 
       finalize_present_lists
       finalize_background_scrolls
-      finalize_shake_tick
+      finalize_per_frame_routines
       verify_targets_defined!
       initialize_rng_stream
       register_save_init
@@ -466,31 +466,32 @@ module RubyGBA
       end
     end
 
-    # Note that the shake routine has to run once a frame, from #shake_screen.
-    def shake_each_frame
-      @shake_ticking = true
-    end
-
-    # Run the shake routine once at every frame boundary.
+    # Run every per-frame routine once at each frame boundary.
     #
-    # It goes at the boundary for the same reason the scroll writes do: that is the gap
-    # between frames, the one moment the display is not reading, so the picture moves
-    # whole rather than in two halves. And it goes in here rather than where
-    # `shake_screen` was called because a shake is triggered by an event — a brick
-    # breaking, a life lost — while the offset it produces has to be applied on EVERY
-    # frame after it, including the frames the triggering code does not run on.
-    def finalize_shake_tick
-      return unless @shake_ticking
-      return if @frame_boundaries.empty?
+    # They go at the boundary for the same reason the scroll writes do: that is the
+    # gap between frames, the one moment the display is not reading, so whatever they
+    # change takes effect on the whole picture rather than half of it. And they go in
+    # here rather than where `each_frame` was called because such a routine is
+    # normally set off by an event — a brick breaking, a life lost — while what it
+    # produces has to be applied on EVERY frame after that, including the frames the
+    # triggering code does not run on.
+    #
+    # A program with no frame boundary (no game loop) never calls them at all. That
+    # is a real footgun, so a verb built on this wants a guardrail for it — see
+    # Effects::Packs::ScreenShake::NeedsGameLoop.
+    def finalize_per_frame_routines
+      return if @per_frame_routines.empty? || @frame_boundaries.empty?
 
       @frame_boundaries.each do |wait_node|
         container = wait_node.parent
         at = container&.children&.index(wait_node)
         next unless at
 
-        node = Build.call(Drawing::SHAKE_TICK)
-        container.children.insert(at + 1, node)
-        node.parent = container
+        @per_frame_routines.reverse_each do |name|
+          node = Build.call(name)
+          container.children.insert(at + 1, node)
+          node.parent = container
+        end
       end
     end
 

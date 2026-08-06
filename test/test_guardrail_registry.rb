@@ -38,9 +38,17 @@ class TestGuardrailRegistry < Minitest::Test
   end
 
   # Global registry — clear it after every test so one test can't leak into the
-  # next (or into other files' builds).
+  # next (or into other files' builds). A loaded effect pack's checks live in this
+  # same registry, so snapshot what was there and put it back; clearing without
+  # restoring would silently switch a shipped pack's guardrail off for every test
+  # that runs after this file.
+  def setup
+    @already_registered = Guardrails.registered_checks
+  end
+
   def teardown
     Guardrails.clear_registered!
+    @already_registered.each { |check| Guardrails.register(check) }
   end
 
   def test_register_returns_the_check_and_lists_it

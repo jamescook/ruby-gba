@@ -195,6 +195,37 @@ module RubyGBA
         end
       end
 
+      # Run a body once on every frame, wherever the game's own code happens to go.
+      #
+      # This is not the same as writing that code in your `game_loop`. A game loop
+      # body runs where you put it, so it is skipped by a branch that steps over it
+      # and by a scene switch that runs a different scene instead. An `each_frame`
+      # body always runs, once, in the gap between frames — the moment the screen is
+      # safe to change.
+      #
+      # That makes it the home for an effect that keeps going after you set it off:
+      # you trigger it once (a hit, a pickup, a life lost), and something has to carry
+      # it along on every frame after that until it is finished, including the frames
+      # the triggering code does not run on. `shake_screen` is built on exactly this.
+      #
+      #   fade = var :fade, 0
+      #   each_frame { (fade > 0).then { fade.sub 1 } }
+      #
+      # A program with no game loop has no frames, so nothing runs.
+      #
+      # @param name [Symbol, nil] a name for the routine, if something has to find it
+      #   later (a pack's guardrail, a `dump_func`). It gets a hidden one otherwise.
+      # @return [Symbol] the routine's name
+      def each_frame(name = nil, &block)
+        raise ArgumentError, "each_frame needs a block: each_frame { ... }" unless block
+
+        @each_frame_seq += 1
+        name ||= :"__each_frame_#{@each_frame_seq}"
+        func(name, &block)
+        @per_frame_routines << name
+        name
+      end
+
       # --- Low-level comparison verbs ---
       # Compare a variable against an immediate or another variable; the block runs
       # only when the condition is true. The expression DSL's `(a > b).then { }` is
