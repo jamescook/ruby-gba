@@ -1,5 +1,7 @@
 .claude
 *.gba
+# Cartridge save memory, written by the emulator beside the ROM it belongs to
+*.sav
 .DS_Store
 
 # Not committed — this is used as an app but the lock stays out of git (fresh resolve in CI)

@@ -51,6 +51,15 @@ module RubyGBA
             base = 6
             load_var(base, BACKBUF) # the hidden page base, held for the whole rect
 
+            # A rect as wide as the screen is one unbroken run of memory: there is no gap
+            # to skip between rows, because the next row starts exactly where the last one
+            # ended. So the whole rect goes in as a single block transfer instead of one
+            # per row — which for a full-width band (a sky, a floor, a letterbox) is the
+            # difference between two instructions and a hundred and sixty.
+            if full_width_rows?(x: x, y: y, w: w, h: h)
+              return emit_buffered_row_fill(base: base, x: 0, row: y, w: w * h, scratch: scratch)
+            end
+
             h.times do |dy|
               row = y + dy
               next unless (0...SCREEN_HEIGHT).cover?(row)
@@ -59,6 +68,13 @@ module RubyGBA
               emit_buffered_row_fill(base: base, x: middle_x, row: row, w: middle_w, scratch: scratch) if middle_w.positive?
               emit_write_index_pixel_const(base, x + w - 1, row, index) if edges && in_bounds?(x + w - 1, row)
             end
+          end
+
+          # Can this rect go in as one transfer? Only if it spans the full screen width
+          # (so its rows are contiguous) and every row of it is on screen (so there is
+          # nothing to clip away in the middle of the run).
+          def full_width_rows?(x:, y:, w:, h:)
+            x.zero? && w == SCREEN_WIDTH && h.positive? && y >= 0 && (y + h) <= SCREEN_HEIGHT
           end
 
           # DMA one row of a rect into the hidden page: +w+ pixels from the even column

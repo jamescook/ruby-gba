@@ -212,6 +212,45 @@ class TestBufferedMode4 < Minitest::Test
     assert v.pixel_is?(7, 0, :blue)
   end
 
+  # --- a full-width band goes in as one unbroken run ---
+
+  # A rect as wide as the screen has no gap between its rows, so it is filled in one
+  # transfer rather than one per row. The rows must still land exactly where they were
+  # asked for: a band from y=40 to y=79 leaves the row above and the row below alone.
+  def test_a_full_width_band_fills_exactly_its_own_rows
+    prog = program(
+      screen(:bitmap, buffered: true),
+      clear_screen(:blue),
+      dma_fill_rect(0, 40, 240, 40, :red),
+      wait_vblank,
+      halt,
+    )
+    v = assert_gemba_loads_rom(assemble_rom(prog, name: "BAND"), frames: 4)
+
+    assert v.pixel_is?(0, 39, :blue), "the row above the band is untouched"
+    assert v.pixel_is?(239, 39, :blue), "...all the way across"
+    assert v.pixel_is?(0, 40, :red), "the band starts on the row it was given"
+    assert v.pixel_is?(239, 79, :red), "and runs to the far corner of its last row"
+    assert v.pixel_is?(0, 80, :blue), "the row below the band is untouched"
+  end
+
+  # Two bands that meet must not overlap by so much as a row — the one-transfer path
+  # computes its length from w*h, so an off-by-one there would bleed into the next band.
+  def test_two_full_width_bands_meet_without_overlapping
+    prog = program(
+      screen(:bitmap, buffered: true),
+      dma_fill_rect(0, 0, 240, 80, :blue),
+      dma_fill_rect(0, 80, 240, 80, :red),
+      wait_vblank,
+      halt,
+    )
+    v = assert_gemba_loads_rom(assemble_rom(prog, name: "BANDS"), frames: 4)
+
+    assert v.pixel_is?(239, 79, :blue), "the top band owns its last row"
+    assert v.pixel_is?(0, 80, :red), "the bottom band starts on the next one"
+    assert v.pixel_is?(239, 159, :red), "and reaches the bottom corner of the screen"
+  end
+
   # --- the DSL surface: tear_free: is only for :bitmap ---
 
   def test_tear_free_is_rejected_for_non_bitmap_modes
