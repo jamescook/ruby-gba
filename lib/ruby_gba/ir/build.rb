@@ -431,6 +431,18 @@ module RubyGBA
         Node.new(:scroll_background, name: name, x: wrap(x), y: wrap(y))
       end
 
+      # Move the whole displayed picture. x/y are where the visible window's top-left
+      # sits over the drawn image, in pixels, as run-time values — so (0, 0) shows the
+      # picture as drawn, and a small changing offset jitters it (a screen shake).
+      #
+      # Unlike scroll_background, which re-windows ONE map, this offsets everything the
+      # display shows, and it needs no redrawing: the picture is not moved, only the
+      # window onto it. Where the window falls outside the drawn image there is nothing
+      # to show, so the backdrop appears along that edge.
+      def camera(x:, y:)
+        Node.new(:camera, x: wrap(x), y: wrap(y))
+      end
+
       # --- display objects (a moving picture the display composites over the scene) ---
       #
       # An object is an image the display draws on top of the background every frame,

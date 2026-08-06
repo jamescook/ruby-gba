@@ -360,6 +360,47 @@ module RubyGBA
           # that offset and wraps the map around, so a moving offset scrolls the whole
           # layer for free (no redrawing). Two layers scrolled at different speeds give
           # parallax. The offset is evaluated at run time from the game's scroll variables.
+          # The scale/rotate matrix that means "no scaling, no rotation" — 1.0 in the
+          # console's 8-fraction-bit fixed point.
+          FIXED_ONE = 0x0100
+
+          # Move the visible window over the whole picture.
+          #
+          # The bitmap screen is drawn by the console's one scalable layer, and that
+          # layer fetches its pixels starting from a reference point. Write a new
+          # reference point and the whole picture slides, with no redrawing at all —
+          # which is what makes a screen shake nearly free. The game keeps drawing
+          # exactly what it drew before; only the window onto it moves.
+          #
+          # Two details the hardware needs. The reference point counts in a fixed-point
+          # number with 8 fraction bits, so a whole number of pixels is that number
+          # shifted up by 8. And the same layer carries a scale/rotate matrix that the
+          # console powers on holding zeroes, which would shrink the picture away to
+          # nothing; setting it to no-scale-no-rotate here keeps the pan a plain slide.
+          # It is set beside the offset rather than at boot so a program that never
+          # moves the camera emits not one extra byte.
+          def emit_camera(node)
+            raise LoweringError, CAMERA_NEEDS_BITMAP if @default_mode == :tiled
+
+            write_reg16(REG_BG2PA, FIXED_ONE)
+            write_reg16(REG_BG2PB, 0)
+            write_reg16(REG_BG2PC, 0)
+            write_reg16(REG_BG2PD, FIXED_ONE)
+            emit_camera_axis(node[:x], REG_BG2X)
+            emit_camera_axis(node[:y], REG_BG2Y)
+          end
+
+          CAMERA_NEEDS_BITMAP =
+            "the camera cannot move a tiled screen yet. It moves the bitmap screen, so " \
+            "`shake_screen` needs `screen :bitmap`. To move a tiled background, use " \
+            "`scroll_by` or `scroll_to` on the background."
+
+          def emit_camera_axis(value, reg)
+            eval_value(value)                   # r0 = the offset in whole pixels
+            emit(ASM.lsl_imm(ACC, ACC, 8))      # ...into the 8-fraction-bit format
+            store_word_acc(reg)
+          end
+
           def emit_scroll_background(node)
             # In tile mode this names a real layer; outside it (a bitmap-mode program that
             # still declares a background) there's no tiled layer, so fall back to BG0 —

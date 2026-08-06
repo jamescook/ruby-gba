@@ -25,6 +25,16 @@
 # examples/snake.rb, which instead redraws only the few cells that changed each
 # step so it can stay single-buffered.)
 #
+# Why the screen shake is free. Break a brick and the picture jolts; lose a life and
+# it jolts harder, for longer. That costs no extra drawing at all, because a shake
+# does not move anything you drew — it moves the WINDOW you see it through. The
+# console draws the bitmap starting from a reference point, so nudging that point a
+# pixel or two each frame slides the whole picture at once, however much is on it.
+# You say `shake_screen intensity: 2, frames: 4` at the moment of impact and the
+# framework jitters the camera from there and puts the picture back where it was.
+# (The one thing to know: while the window is off the picture's edge, a sliver of
+# backdrop shows along that side — which is why a shake stays small.)
+#
 # One consequence worth calling out: the paddle and ball are plain variables drawn
 # with draw_rect_at, NOT sprites — even though a sprite is the usual way to move a
 # thing around (and what gives you `hero.move :left`). A sprite earns its keep by
@@ -191,6 +201,7 @@ module Breakout
               bricks_left.sub 1
               ball_dy.flip
               beep :brick
+              shake_screen intensity: 2, frames: 4 # a small knock on impact
             end
           end
         end
@@ -205,6 +216,7 @@ module Breakout
       (ball_y >= SCREEN_H).then do
         lives.sub 1
         beep :lose
+        shake_screen intensity: 5, duration: 0.25 # losing a life hits harder, and lasts
         (lives <= 0).then do
           (score > high).then { high.set score } # record a new best (saved automatically)
           state.set 3

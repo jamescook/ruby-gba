@@ -98,6 +98,9 @@ module RubyGBA
         # move the visible window over a background: which background, and the run-time
         # top-left offset (x, y) in pixels.
         scroll_background: { name: :name, x: :value, y: :value },
+        # move the window over the whole displayed picture: the run-time top-left
+        # offset (x, y) in pixels. Nothing is named — it moves everything.
+        camera:            { x: :value, y: :value },
         # a composited moving object: its same-size poses, a run-time index picking
         # which to show (facing/animation), and its run-time position/visibility.
         # present_objects names which to draw this frame.

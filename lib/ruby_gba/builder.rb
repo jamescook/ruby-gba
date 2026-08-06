@@ -107,6 +107,8 @@ module RubyGBA
       @frame_boundaries = []   # each frame's wait node, the anchor the scroll writes are inserted after at finalize
       @scrolled_backgrounds = {} # name → [x var, y var] for every background the game scrolls
       @inline_scroll_nodes = []  # scroll nodes recorded at their call site, dropped once a frame boundary exists
+      @shake_installed = false   # has the shake routine been declared? (declared on first shake_screen)
+      @shake_ticking = false     # does the shake routine need running once a frame?
       @scene_gates = {}        # scene func name → [state_var, value] it's dispatched on (from case_var), for gating its presentation
       @current_scene_gate = nil # while a scene func's body is being built: the [state_var, value] its declarations belong to
       @building_scene = nil    # the scene func name currently being built (lets its presentation be declared inside it)
@@ -205,23 +207,32 @@ module RubyGBA
       # lets `sprite`/`draw_text`/`draw_number` pick software vs hardware per scene.
       default_screen_mode = @screen_mode
 
-      @functions.each do |name, block|
-        # A scene's declarations belong to it: while its body is built, remember the
-        # scene (so its HUD/sprites may be declared here) and the state gate that scopes
-        # what it presents to when the scene is active.
-        @building_scene = name if @scene_gates.key?(name)
-        @current_scene_gate = @scene_gates[name]
-        @screen_mode = default_screen_mode
-        push_container(Build.func(name)) do
-          run_block(&block)
+      # Drain rather than iterate: building one body can declare another routine — a
+      # verb reached from inside a scene may need one of its own (a shake) — and
+      # walking the hash directly would either miss it or raise for growing mid-loop.
+      # Emitting until nothing new is pending covers however deep that goes.
+      emitted = {}
+      until (pending = @functions.reject { |name, _| emitted.key?(name) }).empty?
+        pending.each do |name, block|
+          emitted[name] = true
+          # A scene's declarations belong to it: while its body is built, remember the
+          # scene (so its HUD/sprites may be declared here) and the state gate that
+          # scopes what it presents to when the scene is active.
+          @building_scene = name if @scene_gates.key?(name)
+          @current_scene_gate = @scene_gates[name]
+          @screen_mode = default_screen_mode
+          push_container(Build.func(name)) do
+            run_block(&block)
+          end
+        ensure
+          @building_scene = nil
+          @current_scene_gate = nil
         end
-      ensure
-        @building_scene = nil
-        @current_scene_gate = nil
       end
 
       finalize_present_lists
       finalize_background_scrolls
+      finalize_shake_tick
       verify_targets_defined!
       initialize_rng_stream
       register_save_init
@@ -452,6 +463,34 @@ module RubyGBA
           container.children.insert(at + 1, node)
           node.parent = container
         end
+      end
+    end
+
+    # Note that the shake routine has to run once a frame, from #shake_screen.
+    def shake_each_frame
+      @shake_ticking = true
+    end
+
+    # Run the shake routine once at every frame boundary.
+    #
+    # It goes at the boundary for the same reason the scroll writes do: that is the gap
+    # between frames, the one moment the display is not reading, so the picture moves
+    # whole rather than in two halves. And it goes in here rather than where
+    # `shake_screen` was called because a shake is triggered by an event — a brick
+    # breaking, a life lost — while the offset it produces has to be applied on EVERY
+    # frame after it, including the frames the triggering code does not run on.
+    def finalize_shake_tick
+      return unless @shake_ticking
+      return if @frame_boundaries.empty?
+
+      @frame_boundaries.each do |wait_node|
+        container = wait_node.parent
+        at = container&.children&.index(wait_node)
+        next unless at
+
+        node = Build.call(Drawing::SHAKE_TICK)
+        container.children.insert(at + 1, node)
+        node.parent = container
       end
     end
 
