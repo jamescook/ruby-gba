@@ -2,6 +2,7 @@
 
 require "rake/testtask"
 require "rbconfig"
+require_relative "tools/parallel_test"
 
 # gemba-core's built extension and the sources it comes from. The emulator-backed
 # tests run on gemba-core (the headless libmgba probe), which is required, not
@@ -30,6 +31,15 @@ Rake::TestTask.new(test: :compile_gemba_core) do |t|
 end
 
 namespace :test do
+  # The same files as `rake test`, split across processes. Kept separate rather
+  # than made the default because serial output is what you want the moment
+  # something fails — and because the compile above has to finish before any
+  # worker starts, which the dependency here guarantees.
+  desc "Run the suite across processes (rake test:parallel JOBS=8)"
+  task parallel: :compile_gemba_core do
+    ParallelTest.run(FileList["test/**/test_*.rb"].to_a)
+  end
+
   # gemba-core has its OWN test suite (its C extension + probe, tested in
   # isolation) — kept out of the main `test` glob above. Delegate to its
   # Rakefile, which compiles the extension first.
