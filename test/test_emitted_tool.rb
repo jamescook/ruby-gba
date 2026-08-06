@@ -4,9 +4,9 @@ require "minitest/autorun"
 require "fileutils"
 require "stringio"
 require "tmpdir"
-require_relative "../tools/profile"
+require_relative "../tools/emitted"
 
-# The profile tool (tools/profile.rb, `rake profile`): build every example twice —
+# The emitted-code tool (tools/emitted.rb, `rake emitted`): build every example twice —
 # once against the working tree's library and once against an older one — and say
 # what moved.
 #
@@ -19,12 +19,12 @@ require_relative "../tools/profile"
 # asserted. It is two commands with no decisions in them, so a test of it would be
 # a test of git — and it would need git installed to say anything at all. The tool
 # itself is how we know that part works.
-class TestProfileTool < Minitest::Test
-  Measurement = Profile::Measurement
-  Row = Profile::Row
-  Report = Profile::Report
+class TestEmittedTool < Minitest::Test
+  Measurement = Emitted::Measurement
+  Row = Emitted::Row
+  Report = Emitted::Report
 
-  INSTRUCTION = Profile::BYTES_PER_INSTRUCTION
+  INSTRUCTION = Emitted::BYTES_PER_INSTRUCTION
 
   # An example that built, sized in instructions so the tests read in the unit the
   # report speaks.
@@ -163,7 +163,7 @@ class TestProfileTool < Minitest::Test
   # ---- what came back from the child process ----
 
   def test_a_probe_that_reported_becomes_a_measurement
-    m = Profile.measurement("pong", %({"name":"pong","title":"PONG","code":400,"data":16,"frame":12.5}\n))
+    m = Emitted.measurement("pong", %({"name":"pong","title":"PONG","code":400,"data":16,"frame":12.5}\n))
 
     assert_predicate m, :ok?
     assert_equal 400, m.code
@@ -171,14 +171,14 @@ class TestProfileTool < Minitest::Test
   end
 
   def test_a_probe_that_died_reports_its_last_words_instead_of_crashing
-    m = Profile.measurement("pong", "", "some_file.rb:12:in 'lower': undefined method 'fade'\n")
+    m = Emitted.measurement("pong", "", "some_file.rb:12:in 'lower': undefined method 'fade'\n")
 
     refute_predicate m, :ok?
     assert_match(/undefined method 'fade'/, m.error)
   end
 
   def test_a_probe_that_died_silently_still_says_something
-    m = Profile.measurement("pong", "", "")
+    m = Emitted.measurement("pong", "", "")
 
     refute_predicate m, :ok?
     refute_empty m.error.to_s
@@ -217,18 +217,18 @@ class TestProfileTool < Minitest::Test
   RUBY
 
   def test_the_probe_measures_the_library_it_is_pointed_at
-    example = Profile.examples("pixels").first
+    example = Emitted.examples("pixels").first
     refute_nil example, "the tool finds the example programs"
 
-    plain = Profile.probe(File.join(Profile::ROOT, "lib"), example)
+    plain = Emitted.probe(File.join(Emitted::ROOT, "lib"), example)
     assert_predicate plain, :ok?, "the working tree builds it: #{plain.error}"
 
-    Dir.mktmpdir("profile-isolation") do |dir|
-      FileUtils.cp_r File.join(Profile::ROOT, "lib"), dir
+    Dir.mktmpdir("emitted-isolation") do |dir|
+      FileUtils.cp_r File.join(Emitted::ROOT, "lib"), dir
       entry = File.join(dir, "lib", "ruby_gba.rb")
       File.write entry, File.read(entry) + MARKER
 
-      marked = Profile.probe(File.join(dir, "lib"), example)
+      marked = Emitted.probe(File.join(dir, "lib"), example)
       assert_predicate marked, :ok?, "the copy builds it too: #{marked.error}"
       assert_equal emitted(plain) + 4, emitted(marked),
                    "the measurement came from the library the probe was given, " \

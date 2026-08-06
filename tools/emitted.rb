@@ -5,44 +5,44 @@ require "open3"
 require "tmpdir"
 require "rbconfig"
 
-# `rake profile` — did that change to the compiler cost anything?
+# `rake emitted` — what does a change to the compiler do to the ROMs it produces?
 #
-# Three times now the question was answered by hand: check out an old copy of the
-# library, write a throwaway script that lowers a program and prints its size, run
-# it against both copies, squint. This is that, with the squinting removed.
+# Builds every example twice, once against the working tree's library and once
+# against the library at another commit, and reports what moved.
 #
-#   rake profile              the working tree against HEAD, every example
-#   rake profile REF=HEAD~3   against some other point in history
-#   rake profile ONLY=pong    one example (or a few: ONLY=pong,snake)
+#   rake emitted              the working tree against HEAD, every example
+#   rake emitted REF=HEAD~3   against some other point in history
+#   rake emitted ONLY=pong    one example (or a few: ONLY=pong,snake)
 #
 # It compares two versions of the LIBRARY, so it only means anything while working
 # on ruby-gba itself — hence a contributor's rake task and not part of the
-# `ruby-gba` command a game author runs.
+# `ruby-gba` command a game author runs. Every example by default: the question is
+# "did anything move anywhere", and a corpus of real programs answers that far
+# better than one does.
 #
-# Every example, by default, because the question has never really been "what does
-# this one game cost". It is "did anything move anywhere", and a corpus of real
-# programs answers that far better than one does.
-#
-# WHAT IT REPORTS, and why it is three numbers and not one:
+# THREE NUMBERS, NOT ONE, because they move independently:
 #
 #   code   the emitted instructions. What a change to the lowering moves.
 #   data   the embedded assets — tile pictures, maps, sound samples. A new sprite
-#          sheet is twenty kilobytes and not one extra instruction, so a single
-#          total that mixed the two would say nothing.
-#   frame  the estimated work in one frame, in scanlines. Size and speed move
-#          independently: making a clamp accept a computed bound added thirty
+#          sheet is twenty kilobytes and no extra instructions, so one total that
+#          mixed the two would say nothing.
+#   frame  the estimated work in one frame, in scanlines. An op can cost thirty
 #          instructions of ROM and nothing at all per frame.
-module Profile
+#
+# It reports what the compiler PRODUCES, never how long the compiler takes. A change
+# that only makes the build faster correctly reports "identical" here; for compiler
+# speed, reach for a profiler.
+module Emitted
   ROOT = File.expand_path("..", __dir__)
-  PROBE = File.join(__dir__, "profile_probe.rb")
+  PROBE = File.join(__dir__, "emitted_probe.rb")
   EXAMPLES = File.join(ROOT, "examples")
 
   # Every ARM instruction the backend emits is four bytes, so code is reported in
-  # instructions — the unit the change was thought about in.
+  # instructions — the unit a lowering change is thought about in.
   BYTES_PER_INSTRUCTION = 4
 
-  # Below these, a row is counted but not printed. A run where twenty-four
-  # examples are untouched and one moved by a byte should read as "nothing
+  # Below these, a row is counted but not printed. A run where the corpus is
+  # untouched except for one example that moved by a byte should read as "nothing
   # happened", not as a table. Nothing is dropped silently: whatever falls under
   # the floor is still named on the tally line.
   QUIET_CODE = BYTES_PER_INSTRUCTION # one instruction
@@ -168,7 +168,7 @@ module Profile
   # tree, which is the point: a checkout would bring that commit's examples along
   # too, and then an edited game would score as a compiler change.
   def with_lib_at(commit)
-    Dir.mktmpdir("ruby-gba-profile") do |dir|
+    Dir.mktmpdir("ruby-gba-emitted") do |dir|
       statuses = Open3.pipeline(["git", "-C", ROOT, "archive", commit, "lib"], ["tar", "-x", "-C", dir])
       abort "Could not read lib/ at #{commit}." unless statuses.all?(&:success?)
 
@@ -217,8 +217,7 @@ module Profile
       out.puts summary
     end
 
-    # The pasteable line — the one that ends up in a commit message, which is what
-    # was being written by hand before.
+    # The pasteable line — the one that ends up in a commit message.
     def summary
       return "#{count} vs #{@ref}: nothing to compare." if @rows.empty?
 

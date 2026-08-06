@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-# The child half of `rake profile` (see tools/profile.rb): build ONE example
+# The child half of `rake emitted` (see tools/emitted.rb): build ONE example
 # against ONE copy of the library and print what it emitted, as a line of JSON.
 #
-#   ruby tools/profile_probe.rb <lib root> <repo root> <example.rb>
+#   ruby tools/emitted_probe.rb <lib root> <repo root> <example.rb>
 #
 # It runs in its own process so the two libraries being compared never meet, and
 # so one example that blows up can't take the rest of the run down with it.
@@ -22,7 +22,7 @@
 #    as a compiler change.
 
 lib_root, repo_root, example = ARGV
-abort "usage: profile_probe.rb <lib root> <repo root> <example.rb>" unless example
+abort "usage: emitted_probe.rb <lib root> <repo root> <example.rb>" unless example
 
 $LOAD_PATH.unshift File.expand_path(lib_root)
 require "ruby_gba"
@@ -56,8 +56,8 @@ begin
   # Where the code stops and the embedded assets start. The blobs (tile pictures,
   # maps, sound samples) are laid down after all the code, so the first one's
   # position is the boundary. Reading it off the backend's own bookkeeping is
-  # nosy, but it is bookkeeping that has been there far longer than this tool, so
-  # it is also what still works against an older commit.
+  # nosy, but it is long-standing bookkeeping, which is what an older library can
+  # answer too.
   positions = backend.instance_variable_get(:@data_positions) || {}
   code_bytes = positions.values.min || emitted.bytesize
 

@@ -8,7 +8,7 @@ require_relative "../examples/snake_buffered"
 
 # Building one program twice must give the same bytes.
 #
-# Every comparison `rake profile` makes rests on this, and so does anything that
+# Every comparison `rake emitted` makes rests on this, and so does anything that
 # would ever cache or bisect a build. It matters most that it fails LOUDLY, because
 # the alternative is a tool that quietly reports differences that were never there.
 #
@@ -22,7 +22,7 @@ require_relative "../examples/snake_buffered"
 # WHAT IT CANNOT PIN, deliberately: anything that varies between processes rather
 # than within one — filesystem order from a glob, per-process string hashing. Two
 # builds in one process would agree on those however wrong they were. That half is
-# covered by `rake profile`, which builds every example in a separate process
+# covered by `rake emitted`, which builds every example in a separate process
 # against two copies of the library every time it runs, and would report the
 # difference as a delta.
 #
