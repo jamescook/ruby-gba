@@ -215,6 +215,45 @@ class TestDifferential < Minitest::Test
     (2..6).each { |f| assert_backends_agree(prog, frames: f, name: "SCROLLSP") }
   end
 
+  # A turned sprite is the hardest thing in the file to agree on, because the
+  # console doesn't rotate the picture — it asks, for each screen pixel, which
+  # source pixel lands there, in whole 256ths, rounded down. Get the sampling point
+  # or the rounding wrong and the shape is right but sits half a pixel off, which
+  # shows up as a one-pixel-thick disagreement all along one edge and nowhere else.
+  # A sweep of angles covers every quadrant and the axis-aligned cases between them.
+  def test_a_turned_sprite_covers_the_same_pixels
+    [0, 30, 45, 90, 135, 200, 315].each do |angle|
+      assert_backends_agree(build do
+        screen :tiled
+        image(:brick, "#" => :red) { TILE }
+        image(:floor, "#" => :blue) { TILE }
+        tiles :set, "#" => :brick, "." => :floor
+        background :bg, tiles: :set, map: FULL_MAP
+        image(:ship, "#" => :white) { TILE }
+        s = sprite :ship, at: [100, 60]
+        s.face_angle angle
+        game_loop { nil }
+      end, name: "TURNED")
+    end
+  end
+
+  # And turning as the game runs, which is what a game actually does: the sprite
+  # steps through a new angle every frame, so a frame-by-frame comparison catches an
+  # angle that only disagrees part of the way round.
+  def test_a_sprite_turning_every_frame_matches_frame_for_frame
+    prog = build do
+      screen :tiled
+      image(:brick, "#" => :red) { TILE }
+      image(:floor, "#" => :blue) { TILE }
+      tiles :set, "#" => :brick, "." => :floor
+      background :bg, tiles: :set, map: FULL_MAP
+      image(:ship, "#" => :white) { TILE }
+      s = sprite :ship, at: [100, 60]
+      game_loop { s.turn 11 }
+    end
+    (2..6).each { |f| assert_backends_agree(prog, frames: f, name: "TURNING") }
+  end
+
   # --- the comparison itself has to be able to fail ---
 
   # A differential test that can't fail is worse than none, because it reads like
