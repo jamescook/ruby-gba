@@ -73,6 +73,55 @@ class TestCostModel < Minitest::Test
     near(((8 * 8) - (4 * 4)) * WEIGHTS[:overlap_pixel], delta)
   end
 
+  # A game with six collision tests it hardly ever passes. Six 16x16 pairs walk 345
+  # scanlines against a 228-line frame IF they all land at once, which is the ceiling,
+  # not the every-frame cost — the walk covers the overlap rectangle, and two sprites
+  # that miss walk nothing. Charging it every frame made shmup read 101% of budget while
+  # its busiest measured frame was 54 scanlines.
+  def near_misses
+    program do
+      screen :tiled
+      image(:blk, "#" => :red) { (["#" * 16] * 16).join("\n") }
+      hits = var :hits, 0
+      a = sprite :blk, at: [10, 10]
+      others = Array.new(6) { |i| sprite :blk, at: [16 * i, 120] }
+      game_loop do
+        others.each { |b| a.overlaps?(b).then { hits.add 1 } }
+      end
+    end
+  end
+
+  def test_a_game_that_might_collide_is_not_reported_over_budget
+    prog = near_misses
+    walk = 6 * 16 * 16 * WEIGHTS[:overlap_pixel]
+
+    assert_operator walk, :>, 228, "the worst case really does exceed a frame"
+    assert_operator Cost.new.frame_cost(prog), :>=, walk, "and the worst case still counts it"
+    assert_operator Cost.new.steady_cost(prog), :<, 228, "but the recurring load must not"
+  end
+
+  # Dropping the walk from the recurring load is only safe while the ceiling is still
+  # stated. A game CAN reach it, so the estimate says so instead of quietly losing it.
+  def test_the_estimate_names_the_collision_worst_case
+    io = StringIO.new
+    Cost.new.render(near_misses, out: io)
+
+    refute_match(/over budget/, io.string)
+    assert_match(/collision is the worst case/, io.string)
+    assert_match(/box test/, io.string, "and says why a typical frame does not pay it")
+  end
+
+  def test_a_program_with_no_collision_says_nothing_about_collision
+    prog = program do
+      screen :bitmap
+      game_loop { clear_screen :black }
+    end
+    io = StringIO.new
+    Cost.new.render(prog, out: io)
+
+    refute_match(/collision/, io.string)
+  end
+
   # fill_rect is a CPU per-pixel loop; dma_fill_rect is a per-row DMA. The split prices
   # them apart — the same rectangle costs far more filled by the CPU than by DMA.
   def test_fill_rect_is_priced_as_cpu_plotting_apart_from_dma
