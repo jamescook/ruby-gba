@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
+
 require_relative "../examples/buffered_bounce"
 
 # The buffered-bounce example (examples/buffered_bounce.rb): the worked demo that
@@ -13,10 +12,6 @@ require_relative "../examples/buffered_bounce"
 # balls on a blue field, on both backends, so it can't rot into a black screen.
 class TestBufferedBounceExample < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   BALL_COLORS = %i[yellow cyan magenta].freeze
 

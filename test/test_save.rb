@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "test_helper"
+require "test_helper"
 
 # Persistence: `save_var` — a variable whose value survives power-off. It's loaded
 # from the cartridge's save memory at boot (or its default on a fresh cartridge) and
@@ -8,9 +8,7 @@ require_relative "test_helper"
 # both backends: the reference interpreter models a power cycle with an injected save
 # store, and the console (gemba) writes real SRAM the test reads straight back.
 class TestSave < Minitest::Test
-  include GembaSupport
 
-  Reference = RubyGBA::IR::Backends::Reference
   GBA  = RubyGBA::IR::Backends::GBA
   SAVE_MAGIC = 0x53415631 # "SAV1", the marker written alongside the saved values
   SRAM = 0x0E000000       # where save memory is mapped

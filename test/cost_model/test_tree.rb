@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "test_helper"
+
 require_relative "helper"
 
 # Shaping the cost tree for a reader (lib/ruby_gba/ir/cost_model/tree.rb): the

@@ -1,21 +1,12 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # A pool: many of a component (a thing with named fields that behaves), stamped out
 # with a fixed capacity. spawn fills a free slot, each runs the body per live instance
 # with a mutable row handle, remove retires one. Behind the scenes it's parallel lists
 # + a repeat, so the fields can never desync. Pinned on the reference interpreter.
 class TestPool < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   GREEN = Color.resolve(:green)
   BLACK = 0

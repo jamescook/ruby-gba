@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The Snake move/collision core — the focused integration test for the list
 # feature. It isn't the whole game (that's examples/snake.rb); it's the part that
@@ -19,12 +17,6 @@ require_relative "test_helper"
 # point is that game logic is testable headlessly), and the same drawing stack is
 # checked on real hardware via gemba, so the core is proven on both backends.
 class TestSnakeCore < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  Color = RubyGBA::Color
 
   # Build a snake whose body starts at +start_cells+ (an array of [x, y]) and then
   # walks +moves+ (an array of [dx, dy]). If +grow+ is true the body keeps every

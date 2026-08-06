@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The reference interpreter runs an endless game loop until a step budget. When it stops,
 # it must stop at a FRAME BOUNDARY — never mid-frame, which would leave a torn, half-drawn
@@ -9,10 +8,7 @@ require_relative "../lib/ruby_gba"
 # after an unbounded run should always see a complete, settled frame. A program with no
 # frames at all (a tight compute loop) still stops at the budget and never hangs.
 class TestInterpreterBudget < Minitest::Test
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
   Build = RubyGBA::IR::Build
-  Color = RubyGBA::Color
 
   # A game loop that fills red, does a chunk of per-frame work, then draws a marker LAST.
   # The screen ends every frame showing the marker; a mid-frame cutoff would show red.

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "test_helper"
+
 # The second part, in its own file — so its draws carry right_wall.rb as their source
 # and the cost tree can tell its work apart from the left wall's.
 module CostParts

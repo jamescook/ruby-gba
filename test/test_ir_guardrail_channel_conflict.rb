@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The channel-conflict guardrail: warn (never error) when a program plays a
 # two-part song AND beeps. A two-part song's second part needs the same sound

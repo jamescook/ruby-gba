@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The keep-honest check: the draw-cost model's weights were measured on hardware,
 # and this test makes sure they stay true. It builds a representative frame (a mix
@@ -13,11 +11,7 @@ require_relative "test_helper"
 # is generous: the measurement is coarse (whole scanlines) and the model is a
 # deliberate approximation, so this guards against real drift, not small noise.
 class TestCostCalibration < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   CostModel = RubyGBA::IR::CostModel
 
   # A representative frame: a stack of DMA fills plus a line of text — the two cost

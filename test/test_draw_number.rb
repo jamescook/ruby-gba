@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # draw_number: draw a score/counter, live or fixed, right-aligned with no leading
 # zeros. It renders each digit through the same font as draw_text, so the test of
@@ -10,14 +8,8 @@ require_relative "test_helper"
 # runtime digit machinery must land the same pixels as the trusted text path, in
 # the interpreter and on real hardware.
 class TestDrawNumber < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
   Build = RubyGBA::IR::Build
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   W = Builder::Text::GLYPH_WIDTH # 6px per digit column
 

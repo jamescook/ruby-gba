@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # grid: a board of equal-sized cells you paint one at a time. The point is that
 # the game talks in *cell* coordinates (0, 1, 2 …), never pixels — set_cell and
@@ -11,13 +9,6 @@ require_relative "test_helper"
 # paints exactly its own square, at the right place, in the right color, and
 # nothing else moves" — asserted on the interpreter's screen.
 class TestGrid < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   def interpret_screen(&block)
     builder = Builder.new

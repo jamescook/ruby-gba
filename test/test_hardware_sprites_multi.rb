@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Multiple hardware sprites at once (OAM slice 2): several sprites keep their own
 # colors, stack in a stable front-to-back order (the thing software save-under
@@ -11,13 +9,6 @@ require_relative "test_helper"
 # banks in the game code.
 class TestHardwareSpritesMulti < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   SOLID8 = (["########"] * 8).join("\n") # a solid 8x8 tile of one color
   FLOOR_MAP = Array.new(20, "#" * 30).freeze # a white floor filling the screen

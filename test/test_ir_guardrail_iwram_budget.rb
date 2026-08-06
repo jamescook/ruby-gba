@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 # The whole-program IWRAM budget guardrail. Every variable, list, and component pool
 # lives in the GBA's 32KB of fast RAM; the allocator never checks the ceiling, so a

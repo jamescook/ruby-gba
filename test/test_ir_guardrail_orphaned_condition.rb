@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 # The orphaned-Condition guardrail: catches the native-`if` slip. A comparison in
 # this DSL is a Condition object, which Ruby treats as always-true — so `if x > 5`
@@ -12,7 +12,6 @@ require_relative "../lib/ruby_gba"
 # (.then / .else) or folded into another (& / |). The builder tracks every
 # Condition and reports the unused ones at build-finalize.
 class TestIRGuardrailOrphanedCondition < Minitest::Test
-  Builder = RubyGBA::Builder
   Guardrails = RubyGBA::IR::Guardrails
 
   # The Conditions a build block left unused (the builder's leftover "pending" set).

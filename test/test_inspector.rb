@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 class TestInspector < Minitest::Test
   # Helper: disassemble a single instruction word via Inspector internals.

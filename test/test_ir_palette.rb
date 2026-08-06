@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The auto-managed palette pass. The double-buffered display is 8-bit *indexed*:
 # every pixel is a small number that picks a color out of a 256-entry table, not
@@ -12,7 +10,6 @@ require_relative "test_helper"
 # hands each one a table slot. A human can check the numbers below by eye against
 # the named-color values in Color::PRESETS.
 class TestIRPalette < Minitest::Test
-  Builder = RubyGBA::Builder
   Palette = RubyGBA::IR::Palette
   Build = RubyGBA::IR::Build
 

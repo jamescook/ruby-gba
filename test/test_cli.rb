@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "open3"
 require "tmpdir"
 require "rbconfig"

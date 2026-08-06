@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # Sprite screen-edge helpers: where-is-it-relative-to-the-screen tests read from the
 # sprite's own bounds and the screen size, so game code needs no coordinate literals
@@ -10,8 +9,6 @@ require_relative "../lib/ruby_gba"
 # Pinned on the reference interpreter (the oracle); the shmup example exercises them
 # on real hardware.
 class TestSpriteScreenEdges < Minitest::Test
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
 
   # Place an 8x8 sprite at (px, py) and record `predicate.then { flag = 1 }`; return
   # the flag (1 if the predicate held at that position, else 0). The sprite starts on

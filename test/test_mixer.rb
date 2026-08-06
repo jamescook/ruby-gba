@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The mixer: several samples sound at once instead of cutting each other off — background
 # music plus overlapping sound effects, and (later) chords. `sample.play` adds a voice to
@@ -10,12 +8,6 @@ require_relative "test_helper"
 # mixer — it pins the behavior both backends must share (the GBA software-mix lowering
 # matches it). The surface stays plain: play and stop, no voices or channels exposed.
 class TestMixer < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
 
   # mem8 hands back an unsigned byte; the mix buffer holds signed 8-bit samples.
   def signed8(byte)

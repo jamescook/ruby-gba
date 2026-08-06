@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The backing-store primitive: save the pixels under a patch of the screen, draw
 # over them, then paint them back — so a moving object leaves no trail. This is
@@ -11,13 +9,7 @@ require_relative "test_helper"
 # via gemba. The proof is "after cover-then-restore, every pixel is exactly what
 # it was before" — including a patch hanging off a screen edge.
 class TestBackingStore < Minitest::Test
-  include GembaSupport
   include RubyGBA::IR::Build
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   # A scene with a distinctive patch, save an 8x8 area over it, cover that area
   # with green, then restore. The scene should look untouched afterwards.

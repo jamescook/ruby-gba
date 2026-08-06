@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Flipbook animation: `sprite ..., frames: [...], rate: N` cycles a sprite through a
 # set of same-size pictures, one every N frames, with the timer hidden and managed.
@@ -12,13 +10,6 @@ require_relative "test_helper"
 # reading the sprite's color a few frames apart.
 class TestSpriteAnimation < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   SOLID8 = (["########"] * 8).join("\n")
 

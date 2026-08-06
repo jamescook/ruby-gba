@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
+
 require_relative "conformance_fixture"
 
 # The IR verifier: a well-formedness pass that mechanically enforces the value

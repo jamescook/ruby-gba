@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The cross-backend conformance fixture: ONE synthetic IR program that exercises
 # (nearly) every supported IR feature — not a game, a kitchen sink. It exists so

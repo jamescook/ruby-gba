@@ -1,15 +1,12 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The glyph-reachability pass: which glyphs a program can actually be asked to draw,
 # per font — the tree-shaking brain a data-driven font uses to embed only what's
 # needed. Static text contributes its exact (folded) characters; draw_number
 # contributes 0-9.
 class TestGlyphUsage < Minitest::Test
-  Builder = RubyGBA::Builder
   Usage = RubyGBA::IR::GlyphUsage
   Fonts = RubyGBA::Fonts
 

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../../lib/ruby_gba"
+require "test_helper"
+
 require_relative "../fixtures/cost_parts/left_wall"
 require_relative "../fixtures/cost_parts/right_wall"
 
@@ -11,7 +11,6 @@ require_relative "../fixtures/cost_parts/right_wall"
 # list. No author effort: every IR node already carries its DSL call site.
 class TestCostTreeBySource < Minitest::Test
   Cost = RubyGBA::IR::CostModel
-  Builder = RubyGBA::Builder
 
   # --- the transform in isolation (data in, data out, like aggregate/collapse_repeats) ---
 

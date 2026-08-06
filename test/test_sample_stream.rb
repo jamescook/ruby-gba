@@ -1,20 +1,12 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Streaming a long clip: a PCM clip longer than the old 65536-sample hardware limit used to
 # be a hard error. Now any length just plays — the mixer reads one frame's worth of the clip
 # out of the cartridge each frame and advances its play position, so a minutes-long track
 # loops as background music with no special handling. Pinned on the interpreter and gemba.
 class TestSampleStream < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
 
   OLD_LIMIT = 65_536 # the sample count that used to be the hard ceiling
 

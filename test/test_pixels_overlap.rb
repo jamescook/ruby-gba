@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The per-pixel collision primitive (pixels_overlap): given two posed sprites and where
 # they sit, is any pixel drawn (non-transparent) in both at once? This is the
@@ -11,12 +9,6 @@ require_relative "test_helper"
 # real hardware, since a feature isn't done until both backends agree.
 class TestPixelsOverlap < Minitest::Test
   include RubyGBA::IR::Build
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   TRANSPARENT = 0x8000
   SOLID = 0x1F

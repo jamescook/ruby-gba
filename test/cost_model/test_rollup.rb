@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "test_helper"
+
 require_relative "helper"
 
 # How often a frame pays for an op (lib/ruby_gba/ir/cost_model/rollup.rb): loops

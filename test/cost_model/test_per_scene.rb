@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "test_helper"
+
 require_relative "helper"
 
 # Per-scene budgets: a game that runs some scenes in direct color and others

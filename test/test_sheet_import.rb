@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Importing art from image files, folded into the verbs that use it:
 #   - `tiles from:` slices a tile sheet and points each map-character at a cell;
@@ -13,8 +11,6 @@ require_relative "test_helper"
 # The whole path against real PNGs (on both backends) is test_sheet_example.rb.
 class TestSheetImport < Minitest::Test
   Image = RubyGBA::Image
-  Color = RubyGBA::Color
-  Reference = RubyGBA::IR::Backends::Reference
 
   RED  = Color.rgb8(255, 0, 0) # 0x001F
   BLUE = Color.rgb8(0, 0, 255) # 0x7C00

@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The cross-backend contracts that live in the IR core (peers of IR::Int32): the
 # button vocabulary and the screen model. Every backend must agree on these, so

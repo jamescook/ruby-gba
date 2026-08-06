@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Facing / poses for hardware sprites (OAM slice 3): a `screen :tiled` sprite given
 # `facing:` poses turns to face the way it moves — the console swaps which of the
@@ -13,13 +11,6 @@ require_relative "test_helper"
 # flipbook animation verb builds on.
 class TestHardwareSpriteFacing < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   SOLID8 = (["########"] * 8).join("\n")
   FLOOR_MAP = Array.new(20, "#" * 30).freeze

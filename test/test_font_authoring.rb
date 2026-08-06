@@ -1,21 +1,13 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # `font :name do glyph … end` defines a font from ASCII art, the sibling of `image`.
 # These assert a custom font registers, renders its own glyphs (interpreter + gemba),
 # and that malformed art is a friendly error.
 class TestFontAuthoring < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   Fonts = RubyGBA::Fonts
-  Color = RubyGBA::Color
 
   # Fonts register into a process-global registry (the backends look them up there),
   # so drop any a test defined, leaving the built-ins.

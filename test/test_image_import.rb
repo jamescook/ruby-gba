@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The image importer (RubyGBA::Image): turn a real image file on the host machine
 # into GBA-ready pixels, behind a swappable adapter.
@@ -17,11 +15,8 @@ require_relative "test_helper"
 # that names the install (not a silent green run).
 class TestImageImport < Minitest::Test
   include RubyGBA::IR::Build
-  include GembaSupport
 
   Image = RubyGBA::Image
-  Color = RubyGBA::Color
-  Reference = RubyGBA::IR::Backends::Reference
 
   FIXTURES = File.expand_path("fixtures", __dir__)
   # The 2x2 fixture is red / green / blue / white, row-major (top-left first).

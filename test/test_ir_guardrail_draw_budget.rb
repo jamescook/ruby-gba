@@ -1,15 +1,13 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 
 # The cost-driven render-budget guardrail: warn (never error) when a game's steady
 # per-frame drawing is more than the console can finish before the screen refreshes
 # — the overrun that tears the picture. Advisory: the build still produces a ROM.
 class TestDrawBudgetGuardrail < Minitest::Test
-  Builder = RubyGBA::Builder
   Check = RubyGBA::IR::Guardrails::Checks::DrawBudget
   Build = RubyGBA::IR::Build
 

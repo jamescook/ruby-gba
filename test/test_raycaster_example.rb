@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 require_relative "../examples/raycaster"
 
 # The Raycaster example (examples/raycaster.rb): a first-person view of a maze, built on
@@ -12,9 +11,7 @@ require_relative "../examples/raycaster"
 # and draws a white strip through the eye line. Asserted on the interpreter oracle and the
 # console.
 class TestRaycasterExample < Minitest::Test
-  include GembaSupport
 
-  Reference = RubyGBA::IR::Backends::Reference
   WHITE = RubyGBA::Color.resolve(:white)
 
   # How many screen columns show a wall pixel at the horizon (y = 80).

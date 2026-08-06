@@ -1,22 +1,15 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 require_relative "../examples/animate"
-require_relative "test_helper"
 
 # The Animate example (examples/animate.rb): a spinning coin (a flipbook `sprite`
 # with frames:/rate:) you can also walk around. This confirms the example itself is
 # valid and renders; that the flipbook actually cycles over time is pinned in
 # test_sprite_animation.rb.
 class TestAnimateExample < Minitest::Test
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   # The coin's centre column is gold on every frame of the spin (only its width
   # changes), so it's a stable point to find it.

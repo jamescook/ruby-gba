@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Per-scene bitmap<->tiled switching: a game can run one scene as a direct-color
 # BITMAP screen (a linear framebuffer — plain draws, software sprites) and another
@@ -13,14 +11,7 @@ require_relative "test_helper"
 # This pins the model on the reference interpreter (the oracle). The GBA hardware
 # realization — reconfiguring DISPCNT / VRAM / OAM on the crossing — is its sibling.
 class TestSceneDisplayMode < Minitest::Test
-  include GembaSupport
   include RubyGBA::Constants
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   RED = Color.resolve(:red)     # the bitmap title's fill
   GREEN = Color.resolve(:green) # the tiled game's hardware sprite

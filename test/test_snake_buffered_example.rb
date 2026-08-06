@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 require_relative "../examples/snake_buffered"
 
 # The buffered Snake example (examples/snake_buffered.rb): the demonstration that
@@ -16,7 +15,6 @@ require_relative "../examples/snake_buffered"
 # palette and page flip, with the whole board repainted each frame.
 class TestSnakeBufferedExample < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
 
   # RubyGBA.build runs the guardrails and validation, so a clean build IS the check.
   # The redraw-everything guardrail stays quiet here (buffering makes the whole-board

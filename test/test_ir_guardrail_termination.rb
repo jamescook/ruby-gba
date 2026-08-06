@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 # The termination guardrail: a program whose top-level flow just ends — no halt,
 # no forever-loop — runs off into garbage memory. It catches this on the IR (where

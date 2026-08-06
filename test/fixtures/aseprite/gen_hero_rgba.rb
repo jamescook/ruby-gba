@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "test_helper"
+
 # Generate test/fixtures/aseprite/hero_rgba.aseprite: a tiny, hand-built .aseprite binary
 # for the parser tests. It covers exactly what the real bird fixture does NOT — 32-bit
 # RGBA color and named tags — so the binary loader's RGBA and tags branches are exercised.

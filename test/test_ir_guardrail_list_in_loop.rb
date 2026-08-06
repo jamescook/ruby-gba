@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 # A one-time-setup footgun, sibling to the seed-in-loop guardrail: `list` DECLARES a
 # collection, set up once. Written inside a per-frame context (the game loop, a scene,

@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The GBA backend: lower hand-built IR programs to a real ROM. The deterministic
 # tests check the two-pass jump resolution and that the ROM finalizes cleanly;
@@ -10,9 +8,6 @@ require_relative "test_helper"
 # skip when gemba isn't installed).
 class TestIRBackendGBA < Minitest::Test
   include RubyGBA::IR::Build
-  include GembaSupport
-
-  GBA = RubyGBA::IR::Backends::GBA
 
   # Lower a program to machine code, then assemble it into a runnable ROM.
   def lower(program)

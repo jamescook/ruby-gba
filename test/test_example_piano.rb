@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 require_relative "../examples/piano"
 
 # examples/piano.rb — two hands playing "Mary Had a Little Lamb", animated: the
@@ -13,10 +12,7 @@ require_relative "../examples/piano"
 # sample, re-pitched across the keys and summed by the software mixer. This pins
 # that behavior on the interpreter, and that it renders and sounds on gemba.
 class TestExamplePiano < Minitest::Test
-  include GembaSupport
 
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
   YELLOW = Color.resolve(:yellow)
   WHITE  = Color.resolve(:white)
   SKIN   = Color.rgb(31, 23, 17)

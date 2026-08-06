@@ -1,10 +1,9 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 require_relative "../examples/pacman"
-require_relative "test_helper"
 
 # The Pac-Man example (examples/pacman.rb): the tiled-mode flagship. Pac, the
 # pellets, and the ghost are HARDWARE sprites composited over a TILED room; Pac
@@ -12,13 +11,7 @@ require_relative "test_helper"
 # the whole stack renders and behaves — on the interpreter oracle and on real
 # hardware. (Facing correctness itself is pinned in test_hardware_sprite_facing.rb.)
 class TestPacmanExample < Minitest::Test
-  include GembaSupport
   include RubyGBA::Constants
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   START_X, START_Y = Pacman::START
 

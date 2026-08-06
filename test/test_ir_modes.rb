@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The shared per-scene screen-mode analysis. A game can run some scenes in
 # direct color and others tear-free, and *which* scene draws in *which* mode is a

@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
+
 require_relative "../examples/floating_digits"
-require_relative "test_helper"
 
 # The floating-digits example: 0-9 drift around the screen and bounce off the
 # walls, each in its own solid color, drawn as moving glyph images (blit) since a
@@ -11,12 +10,6 @@ require_relative "test_helper"
 # These assert BEHAVIOR — the digits render in their colors and actually move — on
 # the interpreter, with a gemba check that it renders on the console.
 class TestFloatingDigitsExample < Minitest::Test
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   SW = FloatingDigits::SCREEN_W
   SH = FloatingDigits::SCREEN_H

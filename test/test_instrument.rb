@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # A playable sampled instrument: `instrument :piano, from: …` turns one recording into a
 # whole keyboard you play *notes* on — `piano.play(:E4)`, or `piano.play(:C4, :E4, :G4)` for
@@ -10,12 +8,7 @@ require_relative "test_helper"
 # (no rates/voices/mixer detail exposed). Pinned on the interpreter (chords are several
 # voices; notes play live from input) and on gemba (a chord is three distinct pitched voices).
 class TestInstrument < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   NOTES = RubyGBA::Music::NOTE_FREQUENCIES
 
   # Build a piano, hand it to the block to play, then loop `frames` frames.

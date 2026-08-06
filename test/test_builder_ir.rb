@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The DSL builds an IR tree, which RubyGBA.build lowers to a ROM. These tests
 # assert the DSL constructs the RIGHT tree — without lowering anything — so a
@@ -9,9 +8,6 @@ require_relative "../lib/ruby_gba"
 # lowered output is exercised by the behavioral backend tests.)
 class TestBuilderIR < Minitest::Test
   include RubyGBA::IR::Build # the expected-tree constructors
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
 
   # Build through the DSL and hand back the IR tree it constructed. Functions are
   # deferred in the DSL (so call/func order is free), so their bodies are only

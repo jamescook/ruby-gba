@@ -1,12 +1,9 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 class TestConditionals < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
 
   def build(validate: false, &block)
     RubyGBA.build("CONDTEST", code: "BCND", maker: "01", validate: validate, &block)

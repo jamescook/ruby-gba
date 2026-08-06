@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 
 # Storing assets packed in the cartridge. Tile pictures, palettes and maps hold a
 # lot of repetition, so we pack them at build time and let the console's BIOS
@@ -12,11 +11,7 @@ require_relative "test_helper"
 # ever shrinks, and its output is safe for the video-memory expander) and then boot
 # a real ROM whose tiles are packed, to confirm the hardware expands them correctly.
 class TestBiosCompress < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   Pack = RubyGBA::IR::Backends::GBA::BiosCompress
 
   # --- The packer: pack then expand gives back the original bytes ---

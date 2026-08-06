@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Sprite collision is per-pixel by default: `hero.overlaps?(coin)` is true only when
 # their DRAWN pixels actually meet, whatever their shape and whichever animation frame
@@ -11,13 +9,6 @@ require_relative "test_helper"
 # bounding box gets wrong — on the interpreter oracle and on real hardware.
 class TestPixelPerfectCollision < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   # An 8x8 shape drawn only in two opposite corners (top-left and bottom-right 2x2
   # blocks); the middle is see-through. Its bounding box is the whole 8x8, but almost

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "test_helper"
+require "test_helper"
 
 # Differential testing: run the SAME program on both backends and compare the
 # WHOLE screen, pixel for pixel.
@@ -16,7 +16,6 @@ require_relative "test_helper"
 # interpreter's model of the hardware — either way it's a real disagreement worth
 # a look).
 module Differential
-  include GembaSupport
 
   SCREEN_W = 240
   SCREEN_H = 160

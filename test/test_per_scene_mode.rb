@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Per-scene screen mode: a game can run different scenes in different screen
 # modes, switching the hardware as each scene takes over. The common shape is a
@@ -15,12 +13,7 @@ require_relative "test_helper"
 # set up, and the flip only runs while the buffered scene is live.
 class TestPerSceneMode < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  Color = RubyGBA::Color
   Build = RubyGBA::IR::Build
 
   # A direct-color (Mode 3) title in red; START switches to a double-buffered

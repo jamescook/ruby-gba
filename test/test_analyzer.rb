@@ -1,19 +1,14 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "tmpdir"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 
 # The Analyzer measures a built ROM's real per-frame CPU cost on the emulator — the
 # measured counterpart to the static cost estimate. These run real ROMs through gemba
 # and read the busy scanlines a frame burns.
 class TestAnalyzer < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   Analyzer = RubyGBA::Analyzer
 
   # Build a program, write it to a temp .gba, and measure it.

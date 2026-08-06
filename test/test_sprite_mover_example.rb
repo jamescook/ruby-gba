@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
+
 require_relative "../examples/sprite_mover"
-require_relative "test_helper"
 
 # The sprite_mover example, rewritten to use the `sprite` helper: the heart is a
 # sprite that repaints itself, so the game loop no longer clears the screen or
@@ -11,13 +10,7 @@ require_relative "test_helper"
 # everything pattern is gone from the loop — and that it still renders and steers,
 # on the interpreter and on gemba.
 class TestSpriteMoverExample < Minitest::Test
-  include GembaSupport
   include RubyGBA::Constants
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   FIELD = RubyGBA::Color.rgb(4, 6, 14)
   START = [(SpriteMover::SCREEN_W - SpriteMover::SPRITE_W) / 2,

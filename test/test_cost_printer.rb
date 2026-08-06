@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 # rom.explain prints a cost heatmap through a printer adapter: PlainPrinter reproduces
 # the exact pre-colour output (for a pipe, a file, or a captured StringIO), ColorPrinter

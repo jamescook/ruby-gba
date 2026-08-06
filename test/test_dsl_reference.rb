@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # Keeps .claude/rules/dsl-reference.md honest: it walks the DSL verbs actually mixed
 # into Builder right now and fails if any isn't mentioned in the cheat-sheet. So a

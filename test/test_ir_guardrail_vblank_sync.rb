@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 # The vblank-sync guardrail: a game loop with no reachable frame sync gets a
 # soft, plain-language warning (not an error — the build still succeeds). These

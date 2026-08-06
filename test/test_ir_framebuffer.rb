@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The simulated framebuffer in isolation — a plain 2D grid of colors the reference
 # backend draws into. No IR, no interpreter here: just the screen model and its

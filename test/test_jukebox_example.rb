@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 require_relative "../examples/jukebox"
 
 # The Jukebox example (examples/jukebox.rb): the sound showcase. Three classical
@@ -12,9 +11,6 @@ require_relative "../examples/jukebox"
 # tune's notes actually fire — on the interpreter oracle AND that a real ROM drives
 # the music channel on hardware.
 class TestJukeboxExample < Minitest::Test
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
 
   # The opening (downbeat) note of each tune, in Hz — distinct so each is a
   # diagnostic value. If the frame-0 fix regressed, these would never sound.

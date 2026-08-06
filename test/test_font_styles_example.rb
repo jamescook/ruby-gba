@@ -1,21 +1,14 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
+
 require_relative "../examples/font_styles"
-require_relative "test_helper"
 
 # The font-styles example: the same word in three fonts, two defined inline with
 # `font :name do glyph … end`. Asserts each renders in its own colour, that the two
 # custom fonts really are different (distinct glyph pixels), and that it renders on
 # gemba.
 class TestFontStylesExample < Minitest::Test
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
 
   # The lit pixels of the word band drawn at (8, y), height h — relative coords.
   def word_pixels(screen, y, h, color)

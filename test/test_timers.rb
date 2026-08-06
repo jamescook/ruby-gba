@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The timed-trigger verbs: every(n) { } runs a block every n frames, after(n) { }
 # runs one once after n frames. Both are core control-flow verbs — siblings of
@@ -15,13 +13,8 @@ require_relative "test_helper"
 # gemba test confirms the schedule holds on real hardware.
 class TestTimers < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
   Build = RubyGBA::IR::Build
-  Color = RubyGBA::Color
 
   def interpret(**opts, &block)
     Reference.new.run(tree(&block), **opts)

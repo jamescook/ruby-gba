@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
+require "test_helper"
 
 # The var/set/add/sub DSL gives each named variable a fixed IWRAM slot and
 # exposes it through var_address / variables. These tests cover that allocation

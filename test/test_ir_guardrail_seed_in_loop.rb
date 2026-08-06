@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 # A one-time-setup footgun: `seed` written inside a per-frame context (the game
 # loop, a scene, a repeat/every timer) re-seeds every frame, freezing the random
@@ -14,7 +14,6 @@ class TestIRGuardrailSeedInLoop < Minitest::Test
   include RubyGBA::IR::Build
 
   Guardrails = RubyGBA::IR::Guardrails
-  Builder = RubyGBA::Builder
   RNG = RubyGBA::Builder::Randomness::RNG_STATE
 
   def validator

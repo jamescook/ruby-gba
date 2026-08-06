@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # draw_number on the tear-free (double-buffered, indexed) screen. There a live digit
 # renders data-driven — one shared loop walks the embedded glyph table and splices a
@@ -11,11 +9,6 @@ require_relative "test_helper"
 # loop got the odd/even-column byte splice wrong, the live digits would come out
 # garbled next to the fixed ones. Verified on real hardware.
 class TestDrawNumberBuffered < Minitest::Test
-  include GembaSupport
-
-  Builder = RubyGBA::Builder
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
 
   W = Builder::Text::GLYPH_WIDTH # 6px per default-font column
 

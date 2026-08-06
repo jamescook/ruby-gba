@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # read_scanline: the hardware read the draw-cost timing probe is built on. The
 # console draws scanline by scanline; VCOUNT reports the current one; the vertical
@@ -13,12 +11,7 @@ require_relative "test_helper"
 # interpreter refuses it (it has no real timing). It's built through the non-public
 # Builder::Debug mixin as a regular IR node, not raw assembly.
 class TestScanlineProbe < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   Build = RubyGBA::IR::Build
 
   # Wait for vblank, do +fills+ full-width fills (drawing work), then sample the

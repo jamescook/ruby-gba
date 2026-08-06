@@ -1,11 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 class TestVerifier < Minitest::Test
-  include GembaSupport
 
   def setup
     require_gemba_core!

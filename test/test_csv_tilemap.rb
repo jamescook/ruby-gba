@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "tempfile"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 require_relative "../tools/make_example_assets" # colors of the imported tile sheet
 
 # Importing a CSV tilemap into a background (`background from:`): a level authored in a
@@ -14,9 +13,6 @@ require_relative "../tools/make_example_assets" # colors of the imported tile sh
 # (the example test cross-checks the sheet-import path on real hardware); here we drive
 # the parsing and the number->tile mapping through the DSL surface.
 class TestCsvTilemap < Minitest::Test
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
   Assets = MakeExampleAssets
 
   SHEET = File.expand_path("../examples/assets/tiles.png", __dir__) # brick = tile 1, floor = tile 2

@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # a.overlaps?(b): a rectangle-collision test built from the expression DSL. It
 # returns a Condition you branch on with `.then`, so a game bounces a ball, picks up
@@ -11,14 +9,8 @@ require_relative "test_helper"
 # result — a marker drawn only when the shapes actually touch — on the interpreter
 # and on real hardware.
 class TestOverlaps < Minitest::Test
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
   Condition = RubyGBA::Condition
-  Color = RubyGBA::Color
 
   # Draw a white marker at (0, 0) iff box A overlaps box B, and report the marker
   # pixel from the interpreter. Coordinates are plain integers here so the test

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
 require "tmpdir"
 require_relative "../tools/emitted_baseline"

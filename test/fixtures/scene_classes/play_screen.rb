@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "test_helper"
+
 # The second scene, in its own file: a cyan marker that drifts while this screen is active.
 # Same shape as TitleScreen — a plain object that takes the build, declares its presentation
 # in initialize, and exposes `update`.

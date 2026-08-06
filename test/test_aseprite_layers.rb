@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # The native .aseprite loader composites layers: it skips hidden layers, blends a
 # partly-transparent layer over what is below it, and reads grayscale as well as RGBA. A
@@ -11,7 +9,6 @@ require_relative "test_helper"
 # without committing binary fixtures.
 class TestAsepriteLayers < Minitest::Test
   Aseprite = RubyGBA::Aseprite
-  Color = RubyGBA::Color
 
   # --- a minimal in-memory .aseprite builder (RGBA or grayscale, solid-color cels) ---
 

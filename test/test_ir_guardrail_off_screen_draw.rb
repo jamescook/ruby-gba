@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 # The off-screen-draw guardrail: a draw whose whole footprint (known at build
 # time) lands off the 240x160 screen gets a soft, plain-language warning — it

@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
 
 # Automatic frame timing: `game_loop` means "run this once per frame", and the
 # framework puts the frame sync there so the developer never writes one.
@@ -17,7 +17,6 @@ require_relative "../lib/ruby_gba"
 # runs its body exactly once per frame, and an unpaced loop spins until the step
 # budget cuts it off.
 class TestFrameSync < Minitest::Test
-  Reference = RubyGBA::IR::Backends::Reference
 
   FRAMES = 5
 

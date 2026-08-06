@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
+require "test_helper"
 
 # Tiled-mode text & numbers: on a `screen :tiled` there's no framebuffer, so
 # draw_text / draw_number render each glyph as a little hardware sprite the console
@@ -13,13 +11,7 @@ require_relative "test_helper"
 # variable, leading zeros blank out — on the interpreter oracle and on real hardware.
 class TestTiledText < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
 
-  Builder = RubyGBA::Builder
-  Reference = RubyGBA::IR::Backends::Reference
-  GBA = RubyGBA::IR::Backends::GBA
-  ROM = RubyGBA::ROM
-  Color = RubyGBA::Color
   Fonts = RubyGBA::Fonts
 
   WHITE = Color.resolve(:white)

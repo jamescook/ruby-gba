@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 require_relative "../examples/hero"
 
 # The Hero example (examples/hero.rb): a follow-you camera — a hardware sprite
@@ -15,10 +14,6 @@ require_relative "../examples/hero"
 # memory, tile numbers, or a scroll register.
 class TestHeroExample < Minitest::Test
   include RubyGBA::Constants
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   CENTER = [120, 80].freeze # the middle of the screen, where the hero's body always sits
 

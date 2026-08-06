@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "stringio"
-require_relative "../lib/ruby_gba"
-require_relative "test_helper"
 require_relative "../examples/shmup"
 
 # The Shmup example: a whole game split across files — examples/shmup/player.rb,
@@ -14,10 +13,6 @@ require_relative "../examples/shmup"
 # enemy touching the ship calls the HUD's hit), and losing the last ship switches scenes —
 # on the interpreter oracle and on real hardware.
 class TestShmupExample < Minitest::Test
-  include GembaSupport
-
-  Reference = RubyGBA::IR::Backends::Reference
-  Color = RubyGBA::Color
 
   CYAN = Color.resolve(:cyan)   # the ship (player.rb)
   RED = Color.resolve(:red)     # an enemy (enemies.rb) / the GAME OVER banner

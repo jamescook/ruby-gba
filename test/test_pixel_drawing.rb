@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
+
 require "tempfile"
-require_relative "../lib/ruby_gba"
 
 class TestPixelDrawing < Minitest::Test
   def test_display_bitmap_sets_mode3
