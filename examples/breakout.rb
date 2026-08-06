@@ -54,10 +54,9 @@ require_relative "../lib/ruby_gba"
 module Breakout
   # --- Build-time constants (plain Ruby, resolved before any code is emitted) ---
   #
-  # A note on the numbers: the tear-free screen writes two pixels at a time, so
-  # everything it *fills* — bricks, paddle, ball — has to sit on an even column and
-  # be an even width. Every position and size below is even for that reason; text
-  # (which is drawn differently) is free to sit anywhere.
+  # A note on the numbers: a rectangle fill has to be an even number of pixels
+  # wide, so every width below is even. (Positions are free — a rect can start on
+  # any column.)
   SCREEN_W = 240
   SCREEN_H = 160
 
