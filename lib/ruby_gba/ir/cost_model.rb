@@ -1092,7 +1092,17 @@ module RubyGBA
         [0, "x? (unbounded)"]
       end
 
+      # What one statement costs: the op itself, plus the arithmetic in whatever operands
+      # it was given. The split is the same one #expr_cost makes, and for the same reason —
+      # `blit :ship, (col * W), (top + row)` does the multiply and the add before it draws
+      # a single pixel, and a `clamp` whose bounds are worked out at run time evaluates
+      # them every time. Operands are found from the node's attributes, so an op added
+      # later can't hold unpriced work.
       def op_cost(node)
+        own_op_cost(node) + operand_cost(node)
+      end
+
+      def own_op_cost(node)
         case node.kind
         when :pixel then @weights[:plot_pixel]                     # one hand-plotted pixel
         when :fill_rect then plot_rect_cost(node[:w], node[:h])    # a CPU per-pixel loop
@@ -1106,8 +1116,8 @@ module RubyGBA
         # Tiled-mode per-frame upkeep: one position rewrite per presented sprite, and
         # the two scroll-register writes when a background moves.
         when :present_objects then node[:names].to_a.length * @weights[:obj_write]
-        when :scroll_background then @weights[:scroll_write] + expr_cost(node[:x]) + expr_cost(node[:y])
-        when :background then dma_blob(background_cells(node)) # one-time map stamp (boot, not per frame)
+        when :scroll_background then @weights[:scroll_write]
+        when :background then dma_blob_cost(background_cells(node)) # one-time map stamp (boot, not per frame)
         when :play_song then song_cost(node[:name])
         when :beep then BEEP_WRITES * @weights[:sound_write]
         when :noise then NOISE_WRITES * @weights[:sound_write]
@@ -1115,17 +1125,14 @@ module RubyGBA
         when :stop_wave then STOP_WAVE_WRITES * @weights[:sound_write]
         when :enable_sound then ENABLE_WRITES * @weights[:sound_write]
         when :stop_music then STOP_WRITES * @weights[:sound_write]
-        # Logic / compute statements. Each is at least one step, plus the cost of the
-        # expression it evaluates (so a divide buried in a value shows up). This is
-        # what stops a compute loop — enemy AI, physics, a list walk — from reading
+        # Logic / compute statements. Each is at least one step; the expression it
+        # evaluates is added by #op_cost, so a divide buried in a value shows up. This
+        # is what stops a compute loop — enemy AI, physics, a list walk — from reading
         # as free: run it N times and its per-op cost scales with N.
-        when :set then @weights[:op_step] + expr_cost(node[:value])
-        when :add, :sub then @weights[:op_step] + expr_cost(node[:operand])
+        when :set, :add, :sub then @weights[:op_step]
         when :copy, :negate, :abs, :negate_abs then @weights[:op_step]
         when :clamp then 2 * @weights[:op_step] # a low compare and a high compare
-        when :list_push then @weights[:op_step] + expr_cost(node[:value])
-        when :list_set then @weights[:op_step] + expr_cost(node[:index]) + expr_cost(node[:value])
-        when :list_drop then @weights[:op_step]
+        when :list_push, :list_set, :list_drop then @weights[:op_step]
         else note_unpriced(node.kind, FREE_STATEMENT_KINDS)
         end
       end
@@ -1143,15 +1150,36 @@ module RubyGBA
       # is in the operators, and a divide weighs far more than an add (see the op_*
       # weights). This is why `(a * b) / c` in a per-frame loop isn't free, and why
       # the chain of comparisons behind a collision test (overlaps?) has a real cost.
+      #
+      # Two parts, and the split is what keeps it honest: what this node's own operator
+      # costs, plus what every operand hanging off it costs. Operands are found from the
+      # node's attributes rather than named one kind at a time, so a value kind added
+      # later cannot go unpriced inside.
       def expr_cost(value)
         return 0 unless value.is_a?(Node)
 
+        own_cost(value) + operand_cost(value)
+      end
+
+      # What a value's own operator costs, ignoring what it is applied to.
+      def own_cost(value)
         case value.kind
-        when :binop then op_weight(value[:op]) + expr_cost(value[:lhs]) + expr_cost(value[:rhs])
-        when :neg then @weights[:op_step] + expr_cost(value[:operand])
+        when :binop then op_weight(value[:op])
+        when :neg then @weights[:op_step]
         when :chance then @weights[:op_step] # a random draw and a compare
         when :pixels_overlap then pixels_overlap_cost(value)
         else note_unpriced(value.kind, FREE_VALUE_KINDS) # int/var_ref/held/… are free loads; anything else is unknown
+        end
+      end
+
+      # Every value operand a node holds, priced too. A read like `t[i]` is a single
+      # load and costs nothing, but whatever computes `i` is arithmetic like any other:
+      # charging an index nothing would hide a third of the raycaster's frame, whose hot
+      # divides all sit inside `world[…]`. Attributes that aren't nodes — a name, a
+      # width, a list of image names — aren't operands and add nothing.
+      def operand_cost(value)
+        value.attrs.each_value.sum do |slot|
+          slot.is_a?(Array) ? slot.sum { |item| expr_cost(item) } : expr_cost(slot)
         end
       end
 

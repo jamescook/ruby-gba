@@ -42,6 +42,7 @@ class TestCostModel < Minitest::Test
   Builder = RubyGBA::Builder
   Cost = RubyGBA::IR::CostModel
   Build = RubyGBA::IR::Build
+  Node = RubyGBA::IR::Node
 
   # Build a program through the DSL (same route as the other DSL tests).
   def program(&block)
@@ -121,6 +122,125 @@ class TestCostModel < Minitest::Test
     Cost.new.render(prog, out: io)
     refute_match(/can't estimate/, io.string)
   end
+
+  # ---- operands are priced wherever they are written ----
+
+  # A read like t[i] is a single load and free, but the arithmetic that works out i is
+  # arithmetic like any other. The brackets must make no difference: pricing an index at
+  # zero hid 840 of the raycaster's 930 divides a frame, since its hot ones all sit
+  # inside world[…].
+  def test_the_math_inside_an_index_costs_what_it_costs_outside
+    outside = program do
+      screen :bitmap
+      table :nums, (0...64).to_a
+      i = var :i, 3
+      out = var :out, 0
+      game_loop { out.set(((i / 4) * 8) + (i / 2)) }
+    end
+    inside = program do
+      screen :bitmap
+      t = table :nums, (0...64).to_a
+      i = var :i, 3
+      out = var :out, 0
+      game_loop { out.set t[((i / 4) * 8) + (i / 2)] }
+    end
+
+    near Cost.new.frame_cost(outside), Cost.new.frame_cost(inside)
+    assert_operator Cost.new.frame_cost(inside), :>=, 2 * WEIGHTS[:op_div],
+                    "two divides in that index, and neither of them is free"
+  end
+
+  # clamp's bounds may be worked out as the game runs (x.clamp 0, limit). When they are,
+  # they're evaluated every time it runs, so they cost what they'd cost anywhere else.
+  def test_a_bound_the_game_works_out_is_priced
+    fixed = program do
+      screen :bitmap
+      x = var :x, 0
+      var :limit, 100
+      game_loop { x.clamp 0, 100 }
+    end
+    computed = program do
+      screen :bitmap
+      x = var :x, 0
+      limit = var :limit, 100
+      game_loop { x.clamp 0, limit / 4 }
+    end
+
+    near WEIGHTS[:op_div], Cost.new.frame_cost(computed) - Cost.new.frame_cost(fixed)
+  end
+
+  # Same for a drawing op's position: blit :ship, (col * W), y does the multiply before
+  # it draws a single pixel.
+  def test_a_drawing_position_the_game_works_out_is_priced
+    ship = ->(x) { Build.blit(:ship, x, Build.int(0)) }
+    prog = lambda do |x|
+      Build.program(
+        Build.screen(:bitmap),
+        Build.bitmap(:ship, width: 8, height: 4, pixels: Array.new(32, 0).pack("v*"), transparent: nil),
+        Build.loop_(Build.wait_vblank, ship.call(x)),
+      )
+    end
+    plain = prog.call(Build.var_ref(:col))
+    scaled = prog.call(Build.binop(:*, Build.var_ref(:col), Build.int(8)))
+
+    near WEIGHTS[:op_mul], Cost.new.frame_cost(scaled) - Cost.new.frame_cost(plain)
+  end
+
+  # Stamping a tiled background is one upload, priced per map cell. A background is a
+  # boot-time statement, so the model only reaches it in a program with no game loop —
+  # a narrow path, and the only one that prices it at all.
+  def test_a_tiled_background_is_priced_by_its_map
+    stamped = lambda do |rows|
+      program do
+        screen :tiled
+        image(:brick, "#" => :red) { "########\n" * 8 }
+        tiles :walls, "#" => :brick
+        background :level, tiles: :walls, map: Array.new(rows, "####")
+        halt
+      end
+    end
+
+    extra = Cost.new.frame_cost(stamped.call(6)) - Cost.new.frame_cost(stamped.call(3))
+    near (3 * 4) * WEIGHTS[:dma_pixel], extra, "three more rows of four cells, in the one upload"
+  end
+
+  # Every slot type the schema uses, so a node of any kind can be built here.
+  SLOT_FILLER = { name: :default, text: "", int: 1, option: :x, list: [],
+                  flag: false, color: 0 }.freeze
+
+  # Drift guard, read off the schema rather than a hand-kept list: build one node of
+  # every kind that has value slots, put a divide in each of those slots, and check the
+  # estimate charges for it. A kind added later that can hold arithmetic cannot go
+  # unpriced without failing here.
+  def test_every_kind_prices_the_operands_it_holds
+    unpriced = RubyGBA::IR::Verifier::SLOTS.filter_map do |kind, slots|
+      slots_holding_values = slots.select { |_, type| type == :value }.keys
+      next if slots_holding_values.empty?
+      next if Node::CATEGORY[kind] == :control # loop/if/case are priced in #build, not #op_cost
+
+      kind unless prices_its_operands?(kind, slots, slots_holding_values.length)
+    end
+
+    assert_empty unpriced,
+                 "these kinds charge nothing for the arithmetic in their value slots — the op's own " \
+                 "cost belongs in own_op_cost/own_cost, and what it holds is priced by operand_cost"
+  end
+
+  # One node of the given kind, every value slot holding a divide, priced inside a loop.
+  # A value node needs a statement to live in, which costs one step of its own.
+  def prices_its_operands?(kind, slots, divides)
+    attrs = slots.to_h do |slot, type|
+      [slot, type == :value ? Build.binop(:/, Build.var_ref(:a), Build.var_ref(:b)) : SLOT_FILLER[type]]
+    end
+    node = Node.new(kind, **attrs)
+    statement = value?(kind) ? Build.set(:out, node) : node
+    prog = Build.program(Build.screen(:bitmap), Build.loop_(statement))
+
+    charged = Cost.new.frame_cost(prog) - (value?(kind) ? WEIGHTS[:op_step] : 0)
+    charged >= (divides * WEIGHTS[:op_div]) - 1e-9
+  end
+
+  def value?(kind) = Node::CATEGORY[kind] == :value
 
   # A game loop that clears the whole screen +n+ times a frame, single- or
   # double-buffered. Built straight from the IR so it can flip the buffered flag the
