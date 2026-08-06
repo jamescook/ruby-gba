@@ -49,10 +49,10 @@ namespace :test do
   end
 end
 
-desc "Did a compiler change cost anything? Build every example twice (rake profile REF=HEAD~3 ONLY=pong)"
-task :profile do
-  require_relative "tools/profile"
-  Profile.run(ref: ENV["REF"] || "HEAD", only: ENV["ONLY"])
+desc "Did a compiler change alter what it emits? Build every example twice (rake emitted REF=HEAD~3 ONLY=pong)"
+task :emitted do
+  require_relative "tools/emitted"
+  Emitted.run(ref: ENV["REF"] || "HEAD", only: ENV["ONLY"])
 end
 
 desc "Render examples/EXAMPLE.rb to a watchable HTML page (rake preview EXAMPLE=parallax KEYS=right FRAMES=64)"
