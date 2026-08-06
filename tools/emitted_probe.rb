@@ -21,13 +21,14 @@
 #    difference is the compiler's. Get it backwards and an edited example scores
 #    as a compiler change.
 
-lib_root, repo_root, example = ARGV
-abort "usage: emitted_probe.rb <lib root> <repo root> <example.rb>" unless example
+lib_root, repo_root, example, detail = ARGV
+abort "usage: emitted_probe.rb <lib root> <repo root> <example.rb> [detail]" unless example
 
 $LOAD_PATH.unshift File.expand_path(lib_root)
 require "ruby_gba"
 require "json"
 require "stringio"
+require_relative "emitted_attribution"
 
 # An example asks for the library by relative path (`require_relative
 # "../lib/ruby_gba"`), which would load the working tree's copy straight over the
@@ -50,7 +51,12 @@ begin
   raise "no RubyGBA.game was declared" unless game
 
   program = game.program
-  backend = RubyGBA::IR::Backends::GBA.new
+  # The recording backend is a throwaway subclass, so asking for the breakdown
+  # changes nothing about how the program is lowered — only what is remembered
+  # about it. Off by default: a whole-corpus run wants three numbers per example,
+  # not a byte map of each one.
+  base = RubyGBA::IR::Backends::GBA
+  backend = (detail ? EmittedAttribution.recording(base) : base).new
   emitted = backend.lower(program)
 
   # Where the code stops and the embedded assets start. The blobs (tile pictures,
@@ -81,6 +87,14 @@ begin
     report[:shape] = shape.sort.to_h
   rescue StandardError, ScriptError
     report[:shape] = nil # an older library that cannot answer; claim nothing either way
+  end
+
+  if detail
+    breakdown = EmittedAttribution.breakdown(backend, emitted.bytesize)
+    report[:detail] = {
+      funcs: breakdown.funcs, kinds: breakdown.kinds, lines: breakdown.lines,
+      unattributed: breakdown.unattributed,
+    }
   end
 
   # Size and speed move independently — an op can cost thirty instructions of ROM
