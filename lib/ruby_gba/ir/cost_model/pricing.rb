@@ -91,7 +91,11 @@ module RubyGBA
           case value.kind
           when :binop then op_weight(value[:op])
           when :mul_fix then @weights[:op_mul_fix]
-          when :shift_right then @weights[:op_step] # one instruction, like an add
+          # One instruction, so it is priced at the cheapest tier. Measured against the
+          # same harness the weights come from, it is 0.019 scanlines where an add is
+          # 0.029 and the division it replaces is 0.177 — so this tier slightly
+          # over-charges it, which is the safe direction to be wrong in.
+          when :shift_right then @weights[:op_step]
           when :neg then @weights[:op_step]
           when :chance then @weights[:op_step] # a random draw and a compare
           when :pixels_overlap then worst ? pixels_overlap_cost(value) : 0
