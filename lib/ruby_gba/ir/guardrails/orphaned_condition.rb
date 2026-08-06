@@ -43,7 +43,7 @@ module RubyGBA
           # the message is easy to assert.
           def self.finding(condition)
             message =
-              "You built a comparison like `x > 5` here. But nothing uses it to branch. " \
+              "You built a comparison like `x > 5`. But nothing uses it to branch. " \
               "This almost always means it went into a native Ruby `if`. In this DSL, a " \
               "comparison is a Condition object. Ruby treats that object as always true. So " \
               "the `if` body runs every time, and the comparison has no effect. To fix this, " \

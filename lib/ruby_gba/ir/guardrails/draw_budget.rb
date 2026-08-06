@@ -75,7 +75,7 @@ module RubyGBA
             "This game draws a lot every frame: about #{format('%.0f', steady)} scanlines, against a budget of " \
               "about #{budget}. This is more than the console can finish in the short moment it has to change " \
               "the screen. So the picture can tear or flicker, and it gets worse as things grow. The usual " \
-              "cause is a full clear and draw of the whole screen each frame. Instead, draw the fixed parts " \
+              "cause is a full clear and draw of the whole screen each frame. To fix this, draw the fixed parts " \
               "one time. Then each frame, draw only what moved. Or enable double buffering, which cannot tear. " \
               "To see where the per-frame drawing goes, call `rom.explain` on the built ROM."
           end

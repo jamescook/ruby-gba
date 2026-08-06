@@ -260,10 +260,10 @@ module RubyGBA
           # colors, which need converting to palette indices first. Point at what does.
           def blit_unsupported_in_buffered!
             raise LoweringError,
-                  "blit can't draw on the tear-free screen (tear_free: true). Its images are stored as " \
-                  "direct colors, which the tear-free screen can't show without converting them to a color " \
-                  "table first. Draw with the rectangle fills, draw_text, or pixel there, or drop " \
-                  "`tear_free:` to use the direct-color screen, where blit works."
+                  "`blit` cannot draw on the tear-free screen (`tear_free: true`). Its images hold direct " \
+                  "colors. The tear-free screen shows colors from a color table, so it cannot show them. " \
+                  "To draw there, use the rectangle fills, `draw_text`, or `pixel`. Or drop `tear_free:` " \
+                  "to use the direct-color screen, where `blit` works."
           end
         end
       end

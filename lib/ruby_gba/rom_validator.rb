@@ -85,8 +85,9 @@ module RubyGBA
       return if actual == HEADER_LOGO_BYTES
 
       if actual.each_byte.all?(&:zero?)
-        @errors << "The Nintendo logo (0x04..0x9F) is all zeros. The BIOS checks this logo at boot. " \
-                   "If the logo is wrong, the ROM does not run on real hardware or on accurate emulators. mGBA does not check the logo."
+        @errors << "The Nintendo logo (0x04..0x9F) is all zeros. The BIOS reads this logo at boot. " \
+                   "If the logo is wrong, the ROM does not run on real hardware or on accurate " \
+                   "emulators. mGBA does not read the logo."
       else
         @errors << "The Nintendo logo (0x04..0x9F) does not match the required bytes. " \
                    "The BIOS rejects the ROM on real hardware."

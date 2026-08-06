@@ -24,7 +24,7 @@ module RubyGBA
             "screen on."
 
           FIXED =
-            "You drew without a screen mode, which leaves the screen black. The " \
+            "You drew without a screen mode. This leaves the screen black. The " \
             "framework switched the screen on in bitmap mode (`screen :bitmap`) for " \
             "you. To silence this warning, add `screen :bitmap` yourself before your " \
             "first draw."

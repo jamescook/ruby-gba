@@ -49,8 +49,9 @@ module RubyGBA
             @next_hw_timer += counted ? 2 : 1
             if @next_hw_timer > NUM_HW_TIMERS
               raise LoweringError,
-                    "the program uses more hardware timers than the GBA has (#{NUM_HW_TIMERS}). Reading a " \
-                    "timer's ticks costs two timers (one to run, one to count its overflows); use fewer timers."
+                    "This program uses more hardware timers than the GBA has (#{NUM_HW_TIMERS}). Reading a " \
+                    "timer's ticks costs two timers: one to run it, and one to count its overflows. To fix " \
+                    "this, use fewer timers."
             end
             @timers[name] = { rate: rate, count: count, handler: handler }
           end

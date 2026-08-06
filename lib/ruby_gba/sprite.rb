@@ -210,7 +210,7 @@ module RubyGBA
     end
 
     TURN_NEEDS_TILED =
-      "this sprite can't turn to an angle — turning needs `screen :tiled`. " \
+      "This sprite cannot turn to an angle. Turning needs `screen :tiled`. " \
       "On `screen :bitmap`, face a few fixed ways with `facing:` poses and `face` instead."
 
     # Play a named animation from the sprite's Aseprite sheet (a frameTag). It runs from

@@ -101,9 +101,9 @@ module RubyGBA
 
     def overrun!(axis, count, cell, extent, screen)
       raise ArgumentError,
-            "grid :#{@name} is #{count} cells x #{cell}px = #{extent}px #{axis}, but the screen is only " \
-            "#{screen}px #{axis} — the far cells fall off the edge and never show. Use fewer cells or a " \
-            "smaller cell size so the board fits."
+            "The grid :#{@name} is #{count} cells x #{cell}px = #{extent}px #{axis}. But the screen is " \
+            "only #{screen}px #{axis}. So the far cells fall off the edge and never show. To fix this, " \
+            "use fewer cells or a smaller cell size, so the board fits."
     end
 
     # A cell must be an even number of pixels: the fast rectangle fill writes two
