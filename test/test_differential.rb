@@ -22,11 +22,9 @@ class TestDifferential < Minitest::Test
   # An 8x8 solid tile — the size the sprite and tile hardware wants.
   TILE = (("#" * 8) + "\n") * 8
 
-  # A full 32x32 checkerboard map. Full-size on purpose: the hardware's background
-  # map is 32x32 cells whatever the author fills in, and the two backends currently
-  # disagree about a SCROLLED map smaller than that — the interpreter repeats the
-  # authored part where the console shows the backdrop past it. A small scrolling
-  # map belongs here once that's settled.
+  # A full 32x32 checkerboard map — the whole grid the console gives a background.
+  # test_a_small_scrolling_map_shows_the_backdrop_past_its_edge covers the other
+  # case, where the author fills in less than that.
   FULL_MAP = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "#" : "." }.join }.freeze
 
   def build(&block)
@@ -164,6 +162,24 @@ class TestDifferential < Minitest::Test
       game_loop { bg.scroll_by 1, 1 }
     end
     (2..6).each { |f| assert_backends_agree(prog, frames: f, name: "SCROLL") }
+  end
+
+  # A map smaller than the grid the console gives it — 10x6 cells of the 32x32 —
+  # scrolled. Past the cells the author filled in there is nothing to draw, so the
+  # backdrop shows, and the picture only comes round again after a full 32 cells.
+  # The interpreter used to wrap at the author's own map size instead, repeating a
+  # small map across the whole screen: 34,656 of 38,400 pixels disagreed. Nothing
+  # caught it because every scrolling example fills the full grid.
+  def test_a_small_scrolling_map_shows_the_backdrop_past_its_edge
+    prog = build do
+      screen :tiled
+      image(:brick, "#" => :red) { TILE }
+      image(:floor, "#" => :blue) { TILE }
+      tiles :set, "#" => :brick, "." => :floor
+      bg = background :bg, tiles: :set, map: (["#.#.#.#.#."] * 6) # 80x48 px of a 256x256 grid
+      game_loop { bg.scroll_by 1, 1 }
+    end
+    (2..6).each { |f| assert_backends_agree(prog, frames: f, name: "SMALLMAP") }
   end
 
   # A hardware sprite over a scrolling background: the console draws the sprite on
