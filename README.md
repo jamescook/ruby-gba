@@ -110,6 +110,27 @@ The DSL does **not** emit ARM directly. Each verb builds a node in an in-memory 
 
 This adds a layer of machinery, and it earns it: forward references (branches, calls, scene jumps) resolve automatically in a two-pass lowering instead of hand-rolled offset math; whole-program passes like register allocation and constant-pooling become possible; guardrails inspect the whole program *before* a byte is emitted; and — the big one — **new targets are new backends, not a rewrite of the language.** Nodes are tagged **portable vs hardware-only**, which is what makes the future web/GBC targets tractable.
 
+### Effect packs — add verbs without touching the compiler
+
+The DSL is extensible. A **pack** is a module of verbs you register, and from then on they're ordinary DSL verbs — a game writes them next to `fill_rect` and can't tell which is which:
+
+```ruby
+module Juice
+  def flash_corner(color)          # plain DSL verbs, no receiver — like a `func` body
+    fill_rect 0, 0, 20, 20, color
+  end
+
+  def self.checks = [MyCheck.new]  # the pack's own guardrails, active only while it's loaded
+end
+
+RubyGBA.register_effects(Juice)
+RubyGBA::Effects.register(:wash) { |c| clear_screen c }   # or a single verb, inline
+```
+
+The one rule at the seam: **a pack composes public verbs; it never builds IR or touches hardware.** That isn't taste. A verb built from public verbs bottoms out in things every backend already runs, so it works on the console *and* in the reference interpreter the day you write it — no per-backend lowering, no conformance fixture to extend. Anything lower is **kernel** and gets baked in properly. The test is: *does a backend have to know about it?*
+
+Screen shake is the worked example, and it ships as a default pack. Moving the picture at all is kernel — `camera` is an IR node with a real lowering on each backend. *Shaking* is not: it's `camera` called with a jittering offset, four variables and a routine that runs each frame. So `shake_screen` lives in a pack written in the same verbs a game is, and neither backend knows the file exists — copy `lib/ruby_gba/effects/packs/screen_shake.rb` to write your own. The rule is enforced, not just documented: a test reads the pack sources and fails one that builds IR or names a hardware register.
+
 ### Cost estimator + `rom.explain` — see the work
 
 Because the program is inspectable, `ruby-gba` estimates how much *drawing* each frame does — in "write-units" — and exposes it as a structured tree (human-readable *and* JSON):
@@ -167,6 +188,7 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Asset pipeline — PNG → tiles / sprites / animation frames, and CSV tilemaps → backgrounds
 - [x] Fonts — built-in + register your own (`font` from glyph art)
 - [x] Guardrails (extensible registry) + build-time validation, findings traced to the DSL line
+- [x] Effect packs — register your own DSL verbs (and their guardrails); `camera` + `shake_screen` ship as the first pack
 - [x] Cost estimator + `rom.explain`
 - [x] IR + two backends (GBA lowering, Ruby interpreter) with a conformance fixture + portability tagging
 - [x] CLI — `ruby-gba build / inspect / new` (Thor): per-command help, typed options, friendly errors
@@ -176,9 +198,8 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [ ] Affine transforms — rotation & scaling for sprites and backgrounds (Mode 7-style)
 - [ ] Tiled TMX import + larger streamed maps (beyond one 32×32 screenblock)
 - [ ] Opt-in guardrail auto-fix (`--auto-fix`)
-- [ ] Screen effects — fade / shake / flash (camera + brightness primitives)
+- [ ] Screen effects — fade / flash (needs the brightness primitive)
 - [ ] More motion verbs — lerp / wrap / bounce / snap
-- [ ] Plugin registries — register your own effect verbs
 - [ ] Target-neutral draw layer (decouple draw intent from the framebuffer)
 - [ ] Flash save memory (beyond SRAM)
 - [ ] CLI `preview` — run a game in the browser (JS backend)
