@@ -19,7 +19,18 @@ module CostArith
   WEIGHTS = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
 
   def dma_rows(w, h) = (h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:dma_pixel])
-  def plot_rect(w, h) = w * h * WEIGHTS[:plot_pixel] # fill_rect: a CPU per-pixel loop
+  # fill_rect in direct color: every pixel written out, one store each. They are a RUN,
+  # which is cheaper per pixel than a lone `pixel` (that has to work out a whole address
+  # and fetch its color for the one write).
+  def plot_rect(w, h) = w * h * WEIGHTS[:plot_run_pixel]
+  # A software sprite: an image with a see-through color, drawn a pixel at a time at a
+  # position the game works out. Only the lit pixels are drawn, on the rows that have one.
+  # `wide` is how many of those lit pixels carry a color that needs a step of its own to
+  # build (the color is written into every store, and only some fit inside it).
+  def blit_art(lit_pixels, lit_rows, wide: 0)
+    WEIGHTS[:blit_start] + (lit_rows * WEIGHTS[:blit_row]) +
+      (lit_pixels * WEIGHTS[:blit_pixel]) + (wide * WEIGHTS[:blit_wide_color])
+  end
   def dma_blob(pixels) = WEIGHTS[:dma_setup] + (pixels * WEIGHTS[:dma_pixel])
   # The same whole-screen clear on the TEAR-FREE screen. It holds a pixel as one byte
   # where the direct-color screen holds the color itself in two, so one transfer covers
@@ -33,9 +44,12 @@ module CostArith
   # A repeat: each pass runs the body AND pays for going round (the count, the test, the
   # jump back), which is real work and roughly three plain steps.
   def loop_cost(passes, body) = passes * (body + WEIGHTS[:loop_pass])
-  # A glyph/text costs the pixels it plots, in the given font.
-  def text_cost(text, font = :default) = RubyGBA::Fonts.get(font).text_pixels(text) * WEIGHTS[:plot_pixel]
-  def digit_cost(font = :default) = RubyGBA::Fonts.get(font).max_glyph_pixels(("0".."9").to_a) * WEIGHTS[:plot_pixel]
+  # A glyph/text costs the pixels it lights, in the given font — a run of them, priced
+  # like the pixels of a fill.
+  def text_cost(text, font = :default) = RubyGBA::Fonts.get(font).text_pixels(text) * WEIGHTS[:plot_run_pixel]
+  def digit_cost(font = :default)
+    RubyGBA::Fonts.get(font).max_glyph_pixels(("0".."9").to_a) * WEIGHTS[:plot_run_pixel]
+  end
   def near(expected, actual, msg = nil) = assert_in_delta(expected, actual, 1e-6, msg)
 end
 

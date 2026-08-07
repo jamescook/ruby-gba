@@ -127,6 +127,48 @@ def dma_stall(w, h, per_frame)
   reads.min
 end
 
+# A rectangle of a fixed size on the direct-color screen, `per_frame` times a frame.
+# It is written straight out, one address and one store a pixel, so growing the WIDTH at
+# a fixed height adds pixels and nothing else.
+#
+# DRAWN HALFWAY DOWN THE SCREEN, on purpose, and this is not a detail: the address of
+# each pixel is worked out while building, and a bigger number takes an instruction more
+# to load. Measured, a pixel of a run costs 0.0121 on the top four rows, 0.0129 over the
+# 82% of the screen from there down to row 136, and 0.0161 below that (where a row's
+# distance into the picture stops fitting in sixteen bits). So the top of the screen is
+# the one atypical place to measure, and the middle is where almost all drawing happens.
+# A glyph's lit pixel measures the same three numbers at the same three places, which is
+# what says the two are one shape and want one weight.
+FILL_Y = 80
+def fill_rect_busy(w, h, per_frame)
+  stable_busy("fill#{w}x#{h}", per_frame) { |b, _xv| b.fill_rect 0, FILL_Y, w, h, :red }
+end
+
+# An image with a see-through color, blitted `copies` times at a position the game works
+# out, with `lit` pixels of `color` on each of `rows` rows. FOUR separate things cost here
+# — the blit, its lit rows, its lit pixels, and whether the color fits inside the
+# instruction that writes it — so all four are variable and each measurement below moves
+# exactly one of them.
+#
+# EVERY ART BUILT HERE KEEPS A SEE-THROUGH PIXEL. Art whose every pixel is lit is not
+# transparent at all — it streams by DMA instead — so differencing across that would be
+# measuring two different things and calling the answer one.
+BLIT_W = 64
+def blit_busy(lit, rows, per_frame, copies: 1, color: :red)
+  name = "blt#{color}#{lit}x#{rows}x#{copies}"
+  art = (["#" * lit + "." * (BLIT_W - lit)] * rows).join("\n")
+  rom = RubyGBA.build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
+    screen :bitmap
+    clear_screen :black
+    image(:art, "#" => color, "." => :transparent) { art }
+    xv = var :bx, 40
+    yv = var :by, 20
+    b = self
+    game_loop { b.wait_vblank; b.repeat(per_frame) { copies.times { b.blit :art, xv, yv } } }
+  end
+  measure(name, rom)
+end
+
 # Per-frame cost of a per-pixel collision test that walks the WHOLE overlap. The test
 # stops at the first pixel solid in both sprites, so two identical sprites hit at pixel
 # one and never scale. Two opposite checkerboards (A on even cells, B on odd) overlap
@@ -330,7 +372,41 @@ measured[:op_div_fix] = measured[:op_step] +
                          per_op("addx", 60, 2, 4) { |b, xv| b.set :y, (xv + 2) })
 
 # --- per-pixel drawing / sound ---
+#
+# A pixel comes in THREE shapes on the direct-color screen and they are not one price.
+# plot_pixel is a pixel drawn ON ITS OWN: it works out a whole address and loads its
+# color. Neither of the two below is that, and one of them is not close.
 measured[:plot_pixel] = per_op("plot", 150, 4, 8) { |b, _xv| b.pixel 10, 10, :red }
+# A pixel of a RUN of them, which is how a rectangle of a fixed size is drawn: the color
+# is already held and each pixel is one address and one store. A font glyph's lit pixel
+# is the same shape — it measures the same at every height on the screen — so ONE weight
+# covers both. See #fill_rect_busy for why it is measured halfway down and not at the top.
+measured[:plot_run_pixel] = (fill_rect_busy(32, 10, 20) - fill_rect_busy(4, 10, 20)) / ((32 - 4) * 10 * 20.0)
+# A lit pixel of a TRANSPARENT image — what a software sprite is made of. The position is
+# worked out as the program runs, so every pixel is tested against the screen edges on
+# its own before it is written, and it costs over twice what a pixel of a fixed-size
+# rectangle does. Measured in red, which is a color that rides inside the instruction
+# that writes it (see blit_wide_color below for the ones that do not).
+blit_4x8 = blit_busy(4, 8, 2)
+measured[:blit_pixel] = (blit_busy(32, 8, 2) - blit_4x8) / ((32 - 4) * 8 * 2.0)
+# The extra for a pixel whose color does NOT fit inside that instruction, and so has to be
+# built in a step of its own first. Drawing a pixel at a time means writing the color into
+# every store, so this rides on every pixel of the art and is worth about a tenth of one:
+# two pictures of the same shape can differ by that much on their colors alone. White is
+# one of the colors that does not fit; red, green and blue all do.
+measured[:blit_wide_color] =
+  ((blit_busy(32, 8, 2, color: :white) - blit_busy(4, 8, 2, color: :white)) / ((32 - 4) * 8 * 2.0)) -
+  measured[:blit_pixel]
+# What one ROW of that costs beyond its own pixels: the row is tested against the top and
+# the bottom of the screen once, and its place in the picture worked out. A row with
+# nothing lit in it is skipped whole, so only lit rows pay this.
+measured[:blit_row] = ((blit_busy(4, 32, 2) - blit_4x8) / ((32 - 8) * 2.0)) -
+                      (4 * measured[:blit_pixel])
+# What a blit costs BEFORE its first row: where it goes is worked out once, whatever it
+# then draws. More COPIES of the same image at the same trip count gives the whole cost of
+# one blit; taking off the rows and pixels priced above leaves the part that is fixed.
+measured[:blit_start] = ((blit_busy(4, 8, 2, copies: 3) - blit_4x8) / ((3 - 1) * 2.0)) -
+                        (8 * measured[:blit_row]) - (4 * 8 * measured[:blit_pixel])
 measured[:sound_write] = per_op("beep", 100, 2, 4) { |b, _xv| b.beep 440 } /
                          RubyGBA::IR::CostModel::BEEP_WRITES
 

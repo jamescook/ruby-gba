@@ -28,8 +28,9 @@ class TestCostPricing < CostModelTest
     near(((8 * 8) - (4 * 4)) * WEIGHTS[:overlap_pixel], delta)
   end
 
-  # fill_rect is a CPU per-pixel loop; dma_fill_rect is a per-row DMA. The split prices
-  # them apart — the same rectangle costs far more filled by the CPU than by DMA.
+  # fill_rect writes every pixel itself; dma_fill_rect hands each row to the block-fill
+  # engine. The split prices them apart — the same rectangle costs far more written out
+  # by the CPU than filled by the engine.
   def test_fill_rect_is_priced_as_cpu_plotting_apart_from_dma
     w = 40
     h = 20
@@ -41,7 +42,7 @@ class TestCostPricing < CostModelTest
       screen :bitmap
       game_loop { dma_fill_rect 0, 0, w, h, :red }
     end
-    near(w * h * WEIGHTS[:plot_pixel], Cost.new.frame_cost(cpu))
+    near(w * h * WEIGHTS[:plot_run_pixel], Cost.new.frame_cost(cpu))
     near((h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:dma_pixel]), Cost.new.frame_cost(dma))
     assert_operator Cost.new.frame_cost(cpu), :>, Cost.new.frame_cost(dma), "CPU plotting is dearer than a DMA fill"
   end
@@ -523,7 +524,7 @@ class TestCostPricing < CostModelTest
       halt
     end
     base = Cost.new.frame_cost(prog)
-    doubled = Cost.new(plot_pixel: WEIGHTS[:plot_pixel] * 2).frame_cost(prog) # fill_rect plots per pixel
+    doubled = Cost.new(plot_run_pixel: WEIGHTS[:plot_run_pixel] * 2).frame_cost(prog) # fill_rect writes per pixel
     near 2 * base, doubled
   end
 end

@@ -157,7 +157,7 @@ class TestTearFreeDrawing < CostModelTest
 
     lit = RubyGBA::Fonts.get(:default).text_pixels("SCORE")
     near lit * WEIGHTS[:tearfree_glyph], Cost.new.steady_cost(here)
-    near lit * WEIGHTS[:plot_pixel], Cost.new.steady_cost(there)
+    near lit * WEIGHTS[:plot_run_pixel], Cost.new.steady_cost(there)
   end
 
   # Clearing the screen is one block fill either way, but a pixel here is one byte where
