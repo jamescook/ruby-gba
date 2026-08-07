@@ -622,6 +622,20 @@ module RubyGBA
         Node.new(:mul_fix, lhs: wrap(lhs), rhs: wrap(rhs), fraction_bits: fraction_bits)
       end
 
+      # Divide one number carrying a fraction by another, giving a number carrying one
+      # too. The numerator is widened by +fraction_bits+ before anything is divided, so
+      # the answer keeps a fraction instead of losing it — see Int32.div_fix for why the
+      # widening is needed and what decides how far.
+      #
+      # +fraction_bits+ is settled while building (0..32); the two operands are values.
+      def div_fix(lhs, rhs, fraction_bits)
+        unless fraction_bits.is_a?(Integer) && (0..32).cover?(fraction_bits)
+          raise ArgumentError, "fraction_bits must be a whole number from 0 to 32, got #{fraction_bits.inspect}"
+        end
+
+        Node.new(:div_fix, lhs: wrap(lhs), rhs: wrap(rhs), fraction_bits: fraction_bits)
+      end
+
       # Divide +operand+ by 2**bits, rounding down (see Int32.shift_right for why down
       # and not toward zero). +bits+ is settled while building, 0..31.
       def shift_right(operand, bits)

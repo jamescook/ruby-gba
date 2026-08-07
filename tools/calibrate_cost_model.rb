@@ -41,11 +41,13 @@ def stable_busy(name, repeat_n, &body)
     xv = var :x, 7
     var :y, 0
     dv = var :d, 100 # a divisor the GAME works out, for the ops that need one
+    fv = var :f, 100.5 # and two that hold a fraction, for the ops that divide those
+    gv = var :g, 2.5
     enable_sound
     b = self
     game_loop do
       wait_vblank
-      repeat(repeat_n) { body.call(b, xv, dv) }
+      repeat(repeat_n) { body.call(b, xv, dv, fv, gv) }
     end
   end
   measure(name, rom)
@@ -65,8 +67,8 @@ end
 # Marginal cost per op: (busy with `hi` copies of the op each iteration) minus
 # (busy with `lo`), over the extra ops — the op's own cost, overhead cancelled.
 def per_op(name, repeat_n, lo, hi, &one)
-  b_lo = stable_busy("#{name}#{lo}", repeat_n) { |b, xv, dv| lo.times { one.call(b, xv, dv) } }
-  b_hi = stable_busy("#{name}#{hi}", repeat_n) { |b, xv, dv| hi.times { one.call(b, xv, dv) } }
+  b_lo = stable_busy("#{name}#{lo}", repeat_n) { |b, xv, dv, fv, gv| lo.times { one.call(b, xv, dv, fv, gv) } }
+  b_hi = stable_busy("#{name}#{hi}", repeat_n) { |b, xv, dv, fv, gv| hi.times { one.call(b, xv, dv, fv, gv) } }
   (b_hi - b_lo) / (repeat_n * (hi - lo).to_f)
 end
 
@@ -204,6 +206,13 @@ measured[:op_div_const] = measured[:op_step] +
 measured[:op_mul_fix] = measured[:op_step] +
                         (per_op("mulfix", 300, 2, 6) { |b, xv| b.set :y, xv.times_fraction(2, fraction_bits: 16) } -
                          per_op("addf", 300, 2, 6) { |b, xv| b.set :y, (xv + 2) })
+# Dividing one number holding a fraction by another. The numerator no longer fits a
+# register once it is widened, so this walks the whole width of the answer at a fixed
+# price — the dearest arithmetic there is. Both operands are worked out by the game;
+# with a numerator written down it folds into an ordinary division and is priced as one.
+measured[:op_div_fix] = measured[:op_step] +
+                        (per_op("divfix", 60, 2, 4) { |b, _xv, _dv, fv, gv| b.set :fout, (fv / gv) } -
+                         per_op("addx", 60, 2, 4) { |b, xv| b.set :y, (xv + 2) })
 
 # --- per-pixel drawing / sound ---
 measured[:plot_pixel] = per_op("plot", 150, 4, 8) { |b, _xv| b.pixel 10, 10, :red }

@@ -32,9 +32,10 @@ module RubyGBA
         module Divide
           include Constants
 
-          # Room reserved in fast internal memory for the routine, which is copied there
-          # at boot. The build fails if the routine ever outgrows it.
+          # Room reserved in fast internal memory for each routine, which is copied there
+          # at boot. The build fails if one ever outgrows its room.
           DIVIDE_ROUTINE_IWRAM_MAX = 1024
+          DIVIDE_FIX_ROUTINE_IWRAM_MAX = 1280
 
           # The widest answer there is: a 32-bit division can need 32 steps.
           LADDER_STEPS = 32
@@ -52,37 +53,111 @@ module RubyGBA
           DIV_COUNT = 3 # how far the divisor was scaled up
           DIV_SIGNS = 12
 
+          # The widened-numerator routine's own registers. It takes a third thing in —
+          # how far to widen — and needs two registers for a numerator that no longer
+          # fits in one.
+          FIX_BITS = 2  # in: how far to widen the numerator
+          FIX_WIDE = 3  # the other end of that widening (32 - bits)
+          FIX_LOW = 4   # the low half of the widened numerator; then the answer
+          FIX_HIGH = 5  # the high half; then what is left over as the division walks
+
           SIGN_BIT = 1 << 31
+          INT32_MAX = (1 << 31) - 1
 
           # Does this program divide by anything it works out as it runs? A divisor
           # written into the program is handled at build time and needs none of this;
           # 1, -1 and 0 are written down but still come here, which is why they count.
           def needs_divide_routine?(program)
             program.walk.any? do |node|
-              next false unless node.kind == :binop && %i[/ %].include?(node[:op])
-
-              divisor = const_int(node[:rhs])
-              divisor.nil? || divisor.abs <= 1
+              case node.kind
+              when :binop then %i[/ %].include?(node[:op]) && divisor_needs_routine?(node[:rhs])
+              when :div_fix then folds_to_plain_divide?(node) && divisor_needs_routine?(node[:rhs])
+              else false
+              end
             end
           end
 
-          # Reserve the internal memory the routine is copied into, before anything else
-          # is given a home there. That puts it at the very start of internal memory,
-          # whose address happens to be one the chip can name in a single instruction —
-          # which is worth a little because every division names it.
+          # And does it divide one number holding a fraction by another? Only the ones
+          # that cannot be folded into a plain division count (see #folds_to_plain_divide?).
+          def needs_divide_fix_routine?(program)
+            program.walk.any? { |node| node.kind == :div_fix && !folds_to_plain_divide?(node) }
+          end
+
+          # Whether a division by this operand still has to be worked out as the program
+          # runs. Anything else the build has already turned into shifts or a multiply.
+          def divisor_needs_routine?(operand)
+            divisor = const_int(operand)
+            divisor.nil? || divisor.abs <= 1
+          end
+
+          # A fraction divide whose numerator is written into the program can be widened
+          # at build time — and then it is an ordinary division, with all of that path's
+          # own shortcuts available to it. `WALL_HEIGHT / distance` is exactly this
+          # shape, and it is the common one. It only works while the widened numerator
+          # still fits a register; past that the routine has to do the widening itself.
+          #
+          # The most negative number is left out even though it fits, because it is the
+          # one numerator whose answer can still be too big: divided by -1 it needs one
+          # more than a register holds. Everything else divides to something that fits,
+          # so the ordinary path's wrapping and this one's holding-at-the-end agree.
+          #
+          # CostModel::Pricing#div_fix_weight decides the same thing for the estimate; if
+          # this moves, that must too.
+          def folds_to_plain_divide?(node)
+            numerator = const_int(node[:lhs])
+            return false unless numerator
+
+            widened = numerator << node[:fraction_bits]
+            widened > Int32::MIN && widened <= Int32::MAX
+          end
+
+          # Where in internal memory the routines are copied to: the far end of it, out of
+          # the way of the variables, which grow from the near end toward them.
+          #
+          # It matters which end. Variables start at the very beginning of internal
+          # memory, and that address is one the chip can name in a single instruction —
+          # a rare piece of luck worth keeping, because a program names a variable
+          # thousands of times and names a divide routine a handful. Putting a routine
+          # there instead pushed every variable past the single-instruction address and
+          # cost one game an extra 5,700 bytes of code, all of it in variable reads.
+          ROUTINES_TOP = IWRAM_START + IWRAM_SIZE - 0x1000 # below the stack the BIOS uses
+
           def reserve_divide_routine
-            @divide_routine_iwram = @next_var
-            @next_var += DIVIDE_ROUTINE_IWRAM_MAX
+            @divide_routine_iwram = ROUTINES_TOP
+          end
+
+          def reserve_divide_fix_routine
+            @divide_fix_routine_iwram = ROUTINES_TOP + DIVIDE_ROUTINE_IWRAM_MAX
+          end
+
+          # The variables grow toward the routines, so a program with a great many of
+          # them has to be told rather than quietly overwriting one.
+          def guard_variables_clear_of_routines
+            return unless @divide_routine_iwram && @next_var > ROUTINES_TOP
+
+            raise LoweringError,
+                  "this program uses more internal memory for its variables than there is " \
+                  "room for alongside the divide routine"
           end
 
           # Copy the routine from ROM into fast internal memory once, at boot. Internal
           # memory has no wait states and this chip has no instruction cache to flush, so
           # the copied code simply runs faster. Copies whole words from the routine's
           # start label up to its end.
-          def emit_copy_divide_routine_to_iwram
-            emit_load_label_address(0, :__divide_routine)     # r0 = the routine, in ROM
-            emit_load_label_address(1, :__divide_routine_end)
-            emit(ASM.load_immediate(2, @divide_routine_iwram))
+          def emit_copy_divide_routines_to_iwram
+            if @divide_routine_iwram
+              copy_routine(:__divide_routine, :__divide_routine_end, @divide_routine_iwram)
+            end
+            return unless @divide_fix_routine_iwram
+
+            copy_routine(:__divide_fix_routine, :__divide_fix_routine_end,
+                         @divide_fix_routine_iwram)
+          end
+
+          def copy_routine(from, to, destination)
+            emit_load_label_address(0, from) # r0 = the routine, in ROM
+            emit_load_label_address(1, to)
+            emit(ASM.load_immediate(2, destination))
             copy = gensym
             place_label(copy)
             emit(ASM.ldr(3, 0))
@@ -103,7 +178,19 @@ module RubyGBA
           # the instruction after the branch — and the jump is a BX. The routine returns
           # with BX LR.
           def emit_call_divide_routine
-            emit(ASM.load_immediate(ADDR, @divide_routine_iwram))
+            emit_call_routine_at(@divide_routine_iwram)
+          end
+
+          # Call the widened-numerator routine. Same shape, plus how far to widen in r2.
+          # It hands back only a quotient; there is no leftover to speak of, since the
+          # numerator it divided was not the one the program wrote.
+          def emit_call_divide_fix_routine(bits)
+            emit(ASM.load_immediate(FIX_BITS, bits))
+            emit_call_routine_at(@divide_fix_routine_iwram)
+          end
+
+          def emit_call_routine_at(address)
+            emit(ASM.load_immediate(ADDR, address))
             emit(ASM.mov_reg(14, 15)) # lr = where to come back to
             emit(ASM.bx(ADDR))
           end
@@ -128,10 +215,94 @@ module RubyGBA
             place_label(by_zero)
             emit_divide_by_zero
             place_label(:__divide_routine_end)
-            guard_divide_routine_size(pos - start)
+            guard_routine_size("divide", pos - start, DIVIDE_ROUTINE_IWRAM_MAX)
+          end
+
+          # The other routine: dividing one number that holds a fraction by another.
+          #
+          # Two numbers multiplied up by the same amount divide that amount straight back
+          # out, so the numerator has to be multiplied up AGAIN before anything is
+          # divided — and once it is, it no longer fits in a register (see Int32.div_fix).
+          # So this one divides a numerator held across TWO registers, which is why it
+          # cannot share the routine above.
+          #
+          # It is a plain long division of that double-width numerator, thirty-two steps
+          # of it, because unlike the routine above there is no cheap way to know in
+          # advance how many of them matter. A step walks the numerator along one place
+          # (the two halves shift together, the bit falling out of the low one carried
+          # into the high one) and takes the divisor out of the top if it fits, and the
+          # bit that frees up at the bottom is where the answer accumulates.
+          #
+          #   in:  r1 = the numerator, r0 = the divisor, r2 = how far to widen (0..32)
+          #   out: r0 = the answer
+          def emit_divide_fix_routine
+            return unless @divide_fix_routine_iwram
+
+            emit(ASM.loop_forever) # the routine is only ever entered by the call above
+            place_label(:__divide_fix_routine)
+            start = pos
+            by_zero = gensym
+            too_big = gensym
+
+            emit(ASM.cmp_imm(DIV_DEN, 0))
+            emit_branch(:bcond, by_zero, cond: :eq)
+
+            emit(ASM.eor_reg(DIV_SIGNS, DIV_NUM, DIV_DEN)) # bit 31 = the answer's sign
+            emit(ASM.cmp_imm(DIV_NUM, 0))
+            emit(ASM.rsb_imm_cond(:lt, DIV_NUM, DIV_NUM, 0))
+            emit(ASM.cmp_imm(DIV_DEN, 0))
+            emit(ASM.rsb_imm_cond(:lt, DIV_DEN, DIV_DEN, 0))
+
+            # Widen the numerator across two registers. The shift is held in a register
+            # rather than written into the instruction, which is what lets it be a whole
+            # word: widening by 32 leaves nothing in the low half and the number itself
+            # in the high one, and widening by nothing does the reverse.
+            emit(ASM.rsb_imm(FIX_WIDE, FIX_BITS, 32))
+            emit(ASM.mov_reg_lsl_reg(FIX_LOW, DIV_NUM, FIX_BITS))
+            emit(ASM.mov_reg_lsr_reg(FIX_HIGH, DIV_NUM, FIX_WIDE))
+
+            # If the top half already reaches the divisor, the answer is wider than a
+            # number can hold before a single step has run.
+            emit(ASM.cmp_reg(FIX_HIGH, DIV_DEN))
+            emit_branch(:bcond, too_big, cond: :hs)
+
+            LADDER_STEPS.times do
+              emit(ASM.adds_reg(FIX_LOW, FIX_LOW, FIX_LOW))   # walk the numerator along...
+              emit(ASM.adcs_reg(FIX_HIGH, FIX_HIGH, FIX_HIGH)) # ...carrying between halves
+              emit(ASM.sub_reg_cond(:hs, FIX_HIGH, FIX_HIGH, DIV_DEN)) # past a whole word: it fits
+              emit(ASM.orr_imm_cond(:hs, FIX_LOW, FIX_LOW, 1))
+              emit(ASM.cmp_reg(FIX_HIGH, DIV_DEN))            # otherwise ask outright
+              emit(ASM.sub_reg_cond(:hs, FIX_HIGH, FIX_HIGH, DIV_DEN))
+              emit(ASM.orr_imm_cond(:hs, FIX_LOW, FIX_LOW, 1))
+            end
+
+            # The answer is built without a sign, so its top bit being set means it has
+            # outgrown a signed number.
+            emit(ASM.cmp_imm(FIX_LOW, 0))
+            emit_branch(:bcond, too_big, cond: :lt)
+            emit(ASM.mov_reg(DIV_DEN, FIX_LOW))
+            emit(ASM.cmp_imm(DIV_SIGNS, 0))
+            emit(ASM.rsb_imm_cond(:lt, DIV_DEN, DIV_DEN, 0))
+            emit(ASM.return)
+
+            place_label(too_big)
+            emit_divide_fix_saturate
+            place_label(by_zero)
+            emit_divide_by_zero
+            place_label(:__divide_fix_routine_end)
+            guard_routine_size("fraction divide", pos - start, DIVIDE_FIX_ROUTINE_IWRAM_MAX)
           end
 
           private
+
+          # An answer with no room left is held at the end of the range rather than
+          # wrapped (see Int32.div_fix for why that is the useful wrong answer).
+          def emit_divide_fix_saturate
+            emit(ASM.mvn_imm(DIV_DEN, SIGN_BIT))               # the largest there is
+            emit(ASM.cmp_imm(DIV_SIGNS, 0))
+            emit(ASM.mov_imm_cond(:lt, DIV_DEN, SIGN_BIT))     # or the smallest
+            emit(ASM.return)
+          end
 
           # Divide sizes and put the signs back afterwards, because long division has no
           # notion of a negative number. Two facts have to survive: the quotient is
@@ -199,12 +370,12 @@ module RubyGBA
             emit(ASM.return)
           end
 
-          def guard_divide_routine_size(size)
-            return unless size > DIVIDE_ROUTINE_IWRAM_MAX
+          def guard_routine_size(what, size, room)
+            return unless size > room
 
             raise LoweringError,
-                  "the divide routine is #{size} bytes but only #{DIVIDE_ROUTINE_IWRAM_MAX} are " \
-                  "reserved in internal memory (raise DIVIDE_ROUTINE_IWRAM_MAX)"
+                  "the #{what} routine is #{size} bytes but only #{room} are reserved in " \
+                  "internal memory"
           end
         end
       end

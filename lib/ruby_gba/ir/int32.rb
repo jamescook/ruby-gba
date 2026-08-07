@@ -68,6 +68,33 @@ module RubyGBA
         wrap((wrap(a) * wrap(b)) >> bits) # Ruby's >> on a negative floors, as ASR does
       end
 
+      # The other half of holding a fraction: dividing one of those numbers by another.
+      #
+      # Two numbers multiplied up by the same amount divide that amount straight back
+      # out — 3.0 over 1.5 is 196608 over 98304, which is 2, and the answer has lost the
+      # multiplying-up that made it a fraction. So the numerator has to be multiplied up
+      # AGAIN first, and that is the mirror of the problem #mul_fix has: 3.0 with 16
+      # fraction bits is 196608, and multiplying it up once more needs 48 bits before
+      # anything is divided.
+      #
+      # So the numerator is widened FIRST and only then divided. +bits+ is how far it is
+      # widened, which is what decides the answer's own scale. It truncates toward zero,
+      # like every other `/` here.
+      #
+      # An answer too big to hold is HELD AT THE END OF THE RANGE rather than wrapped,
+      # which is the one place this differs from #mul_fix. Dividing by a very small
+      # fraction genuinely has no room for its answer — a wall one hundredth of a step
+      # away is a wall thousands of pixels high — and of the two wrong answers available,
+      # "as tall as a number goes" is the one that still looks like a wall. Wrapping
+      # would make it negative, which looks like nothing at all.
+      def div_fix(a, b, bits)
+        numerator = wrap(a) << bits # widened, so #div's own wrapping cannot be used here
+        divisor = wrap(b)
+        quotient = numerator.abs / divisor.abs
+        quotient = -quotient if numerator.negative? != divisor.negative?
+        quotient.clamp(MIN, MAX)
+      end
+
       # Divide by 2**bits, rounding DOWN — toward minus infinity, not toward zero.
       #
       # That last part is the whole reason this is not just `div(a, 2**bits)`. Ordinary

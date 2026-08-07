@@ -105,6 +105,7 @@ module RubyGBA
         # a multiply whose product is formed at full width — the answer is defined by
         # Int32.mul_fix, which any backend can compute; only HOW differs
         mul_fix: :portable,
+        div_fix: :portable, # likewise Int32.div_fix defines the answer
         shift_right: :portable, # Int32.shift_right defines the answer, rounding down
         data_byte: :portable, list_get: :portable, list_len: :portable,
         table_get: :portable, # read a ROM table at a run-time index — any backend can

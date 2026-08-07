@@ -18,6 +18,7 @@ module RubyGBA
               emit(ASM.rsb_imm(ACC, ACC, 0))
             when :binop then eval_binop(node)
             when :mul_fix then eval_mul_fix(node)
+            when :div_fix then eval_div_fix(node)
             when :shift_right then eval_shift_right(node)
             when :held then eval_held(node[:button])
             when :pressed then eval_pressed(node[:button])
@@ -328,6 +329,27 @@ module RubyGBA
               emit(ASM.lsr_imm(ACC, SPARE, bits))                  # r0 = the low word, shifted down
               emit(ASM.orr_reg_lsl(ACC, ACC, HIGH, 32 - bits))     # + the high word's bits sliding in
             end
+          end
+
+          # Divide one number holding a fraction by another (see IR::Int32.div_fix).
+          #
+          # When the numerator is written into the program it can be widened at build
+          # time, and then this is an ordinary division — which is the shape a wall
+          # height or a scale factor usually has, and it keeps all of that path's own
+          # shortcuts. Otherwise the widening has to happen as the program runs, across
+          # two registers, which is what the second routine is for.
+          def eval_div_fix(node)
+            numerator = const_int(node[:lhs])
+            if folds_to_plain_divide?(node)
+              return eval_binop(Build.binop(:/, Build.int(numerator << node[:fraction_bits]),
+                                            node[:rhs]))
+            end
+
+            eval_value(node[:lhs])
+            emit(ASM.push(ACC))
+            eval_value(node[:rhs])
+            emit(ASM.pop(TMP)) # r1 = the numerator, r0 = the divisor
+            emit_call_divide_fix_routine(node[:fraction_bits])
           end
 
           # Divide by a power of two, rounding down (see IR::Int32.shift_right).

@@ -13,6 +13,7 @@ module RubyGBA
         op_div: 0.08696,
         op_div_const: 0.03215,
         op_mul_fix: 0.02573,
+        op_div_fix: 0.25542,
         plot_pixel: 0.01606,
         sound_write: 0.01606,
         mix_voice_sample: 0.03000,

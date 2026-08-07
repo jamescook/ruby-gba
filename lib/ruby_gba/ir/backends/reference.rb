@@ -1236,6 +1236,8 @@ module RubyGBA
           when :binop then eval_binop(node[:op], eval_value(node[:lhs]), eval_value(node[:rhs]))
           when :mul_fix
             Int32.mul_fix(eval_value(node[:lhs]), eval_value(node[:rhs]), node[:fraction_bits])
+          when :div_fix
+            Int32.div_fix(eval_value(node[:lhs]), eval_value(node[:rhs]), node[:fraction_bits])
           when :shift_right
             Int32.shift_right(eval_value(node[:operand]), node[:bits])
           when :held then bool(button_held?(node[:button]))

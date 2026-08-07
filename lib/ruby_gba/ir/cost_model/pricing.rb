@@ -91,6 +91,7 @@ module RubyGBA
           case value.kind
           when :binop then op_weight(value)
           when :mul_fix then @weights[:op_mul_fix]
+          when :div_fix then div_fix_weight(value)
           # One instruction, so it is priced at the cheapest tier. Measured against the
           # same harness the weights come from, it is 0.019 scanlines where an add is
           # 0.029 and the division it replaces is 0.177 — so this tier slightly
@@ -157,6 +158,21 @@ module RubyGBA
           when :/, :% then divide_weight(const_side(node[:rhs]))
           else @weights[:op_step]
           end
+        end
+
+        # Dividing one number that holds a fraction by another. When the numerator is
+        # written into the program it is widened at build time and this is an ordinary
+        # division, priced as one. Otherwise the widening happens as the program runs and
+        # the division walks the whole width of the answer, at a fixed price — there is
+        # no cheap way to know in advance how much of that width matters.
+        # (The same test Backends::GBA::Divide#folds_to_plain_divide? makes; if one
+        # moves, both must.)
+        def div_fix_weight(node)
+          numerator = const_side(node[:lhs])
+          widened = numerator ? numerator << node[:fraction_bits] : nil
+          return @weights[:op_div_fix] unless widened && widened > Int32::MIN && widened <= Int32::MAX
+
+          divide_weight(const_side(node[:rhs]))
         end
 
         # What one divide or wrap costs, from where its divisor comes from. A negative
