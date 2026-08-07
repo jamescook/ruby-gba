@@ -24,6 +24,11 @@ module RubyGBA
         # cooler bands grade a frame that still fits.
         SEVERITY_THRESHOLDS = { hot: 1.0, warm: 0.66, ok: 0.33 }.freeze
 
+        # The rate the screen refreshes at, and so the fastest a game loop can run: a loop
+        # waits for the screen, so it runs 60, 30, 20... times a second and nothing in
+        # between. A measured 60 means every pass met its frame.
+        FULL_FRAME_RATE = 60
+
         # Whether a program has a game loop (its cost recurs every frame) or is a
         # one-shot static draw.
         def looping?(program)
@@ -236,23 +241,39 @@ module RubyGBA
           mixer_verdict(program)&.fetch(:cost) || 0
         end
 
-        # A measured reading in words. A frame that fits reads its real cost and share of
-        # the ~228-line frame; one that saturates reads over budget, with its real frame
-        # rate when the counter run could recover it.
+        # A measured reading in words.
+        #
+        # TWO MEASUREMENTS, and which one to believe is the whole of this. The scanline
+        # reading counts a frame's work, but it cannot count past a frame's worth — so as
+        # it nears the ceiling it stops being an exact number, and "saturated" says so.
+        # That is a fact about the MEASUREMENT, not about the program. When it is true, a
+        # second run counts the game loop's passes directly, and THAT is the verdict: a
+        # loop waits for the screen, so counting 60 a second means every pass met its
+        # frame and the work fits, however close to the ceiling the first reading came.
+        #
+        # Reading saturation as "over budget" is what made a raycaster holding 60 report
+        # over budget in red, in a sentence that argued with itself.
         def measured_verdict_text(result)
-          unless result[:saturated]
-            return "measured ~#{fmt(result[:scanlines])} of #{FRAME_BUDGET} scanlines (#{pct(result[:scanlines], FRAME_BUDGET)})"
-          end
+          measured = "measured ~#{fmt(result[:scanlines])} of #{FRAME_BUDGET} scanlines " \
+                     "(#{pct(result[:scanlines], FRAME_BUDGET)})"
+          return measured unless result[:saturated]
+          return "#{measured} — still #{FULL_FRAME_RATE} fps" if holds_full_rate?(result)
+          return "measured over budget — running at ~#{result[:fps]} fps" if result[:fps]
 
-          if result[:fps]
-            "measured over budget — running at ~#{result[:fps]} fps (a frame's work won't fit 60fps)"
-          else
-            "measured over budget — the frame saturates (drops frames)"
-          end
+          "measured over budget — the frame saturates (drops frames)"
         end
 
+        # Whether the counted passes say the game met every frame. Nothing can run faster
+        # than the screen, so this is the ceiling, not a target to beat.
+        def holds_full_rate?(result)
+          result[:fps] && result[:fps] >= FULL_FRAME_RATE
+        end
+
+        # Red is for a frame that really is over budget. A frame that nearly fills and
+        # still holds the full rate is graded like any other that fits — warm, meaning
+        # "your hottest work", not "a problem".
         def measured_severity(result)
-          return :hot if result[:saturated]
+          return :hot if result[:saturated] && !holds_full_rate?(result)
 
           severity_for(result[:scanlines], FRAME_BUDGET)
         end
