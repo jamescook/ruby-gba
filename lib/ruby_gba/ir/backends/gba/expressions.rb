@@ -343,48 +343,41 @@ module RubyGBA
             emit(ASM.asr_imm(ACC, ACC, bits)) if bits.positive? # shifting by none is nothing to do
           end
 
-          # Divide through the BIOS Div routine — the ARM7TDMI has no divide
-          # instruction, so a division traps into the BIOS. This is where a divisor the
-          # GAME works out ends up, and by now the only one: a divisor written into the
-          # program has had its reciprocal found at build time instead.
+          # Divide by a value the game works out — the only division left that has to be
+          # done as the program runs, since a divisor written into the program has had
+          # its reciprocal found at build time.
           #
-          # The routine wants the numerator in r0 and the denominator in r1; after the
-          # binop setup r1 already holds lhs (numerator) and r0 holds rhs (denominator),
-          # so swap them (via r2) and trap. The quotient comes back in r0, our
-          # accumulator — right where an expression's result belongs. (r1 gets the
-          # remainder, r3 is clobbered; neither survives a statement here, so that's
-          # fine.)
+          # It goes to the shared routine (see Divide), which takes the numerator in r1
+          # and the divisor in r0 — exactly where evaluating the two sides has already
+          # left them, so there is nothing to shuffle. The quotient comes back in r0, our
+          # accumulator, right where an expression's result belongs; the leftover in r1.
           def emit_division
-            emit(ASM.mov_reg(2, ACC))   # r2 = denominator (rhs)
-            emit(ASM.mov_reg(ACC, TMP)) # r0 = numerator (lhs)
-            emit(ASM.mov_reg(TMP, 2))   # r1 = denominator
-            emit(ASM.swi(0x06 << 16))   # BIOS Div: r0 = r0 / r1
+            emit_call_divide_routine # r0 = lhs / rhs, r1 = what is left over
           end
 
           # What is left over after dividing by a size the game works out.
           #
-          # The BIOS hands the leftover back in r1 alongside the quotient, so the divide
-          # itself costs nothing extra here. But it gives that leftover the sign of the
-          # NUMERATOR, and Ruby's answer takes the sign of the divisor (see
+          # The routine hands the leftover back in r1 alongside the quotient, so the
+          # division itself costs nothing extra here. But it gives that leftover the sign
+          # of the NUMERATOR, and Ruby's answer takes the sign of the divisor (see
           # IR::Int32.mod). When the two disagree — and only then — one divisor has to be
           # added back. Nothing here knows which sign the divisor has, so the two are
           # compared; where the size IS written into the program that is settled at build
-          # time instead. r2 keeps the divisor across the call, which the BIOS leaves
-          # alone.
+          # time instead. The divisor waits on the stack, since the routine is free to
+          # use every scratch register.
           def emit_modulo
-            emit(ASM.mov_reg(2, ACC))
-            emit(ASM.mov_reg(ACC, TMP))
-            emit(ASM.mov_reg(TMP, 2))
-            emit(ASM.swi(0x06 << 16))
-            emit(ASM.mov_reg(ACC, TMP))  # r0 = the leftover, signed like the numerator
+            emit(ASM.push(ACC))                  # the divisor, needed once the answer is back
+            emit_call_divide_routine
+            emit(ASM.mov_reg(ACC, TMP))          # r0 = the leftover, signed like the numerator
+            emit(ASM.pop(SPARE))                 # r2 = the divisor again
 
             done = gensym
             emit(ASM.cmp_imm(ACC, 0))
             emit_branch(:bcond, done, cond: :eq) # nothing left over: no signs to disagree
-            emit(ASM.eor_reg(3, ACC, 2))         # do the two signs differ?
-            emit(ASM.cmp_imm(3, 0))
+            emit(ASM.eor_reg(HIGH, ACC, SPARE))  # do the two signs differ?
+            emit(ASM.cmp_imm(HIGH, 0))
             emit_branch(:bcond, done, cond: :ge)
-            emit(ASM.add_reg(ACC, ACC, 2))
+            emit(ASM.add_reg(ACC, ACC, SPARE))
             place_label(done)
           end
 

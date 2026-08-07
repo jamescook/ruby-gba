@@ -7,6 +7,7 @@ require_relative "gba/drawing"
 require_relative "gba/buffered"
 require_relative "gba/audio"
 require_relative "gba/reciprocal"
+require_relative "gba/divide"
 require_relative "gba/expressions"
 require_relative "gba/primitives"
 require_relative "gba/collision"
@@ -63,6 +64,7 @@ module RubyGBA
         include Buffered
         include Audio
         include Expressions
+        include Divide
         include Primitives
         include Collision
         include Timers
@@ -221,6 +223,10 @@ module RubyGBA
         # job; this method knows only how to compile the IR, not how a ROM is laid
         # out.
         def lower(program)
+          # First in internal memory, before anything else is given a home there: only a
+          # program that divides by something it works out as it runs carries the divide
+          # routine, and every other division is settled at build time.
+          reserve_divide_routine if needs_divide_routine?(program)
           collect_definitions(program)
           prepare_direct_sound(program) # embed the program's samples as ROM data
           @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
@@ -239,6 +245,7 @@ module RubyGBA
           # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
           # the console's cautious power-on timing.
           emit_waitcnt_setup if @fast_cartridge && !raw_escape_hatch?(program)
+          emit_copy_divide_routine_to_iwram if @divide_routine_iwram
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
           emit_mixer_boot if @plays_samples # start the sound DMA + clock; voices added by `play`
@@ -256,6 +263,7 @@ module RubyGBA
           program.children.each { |stmt| emit_statement(stmt) }
           emit_functions
           emit_mix_routine # the mixer's inner loop, placed in ROM and copied to IWRAM at boot
+          emit_divide_routine # likewise the divide routine, for a divisor worked out at run time
           emit_irq_handler if uses_irq? # the interrupt dispatcher itself, reached only via the vector
           emit_data_region
           emit_save_signature if @uses_save # the marker that maps the save chip (past all code/data)
