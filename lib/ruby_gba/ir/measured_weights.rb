@@ -44,6 +44,8 @@ module RubyGBA
         tearfree_moving_start: 0.09754,
         tearfree_rect_start: 0.02591,
         tearfree_fill_pixel: 0.00081,
+        tearfree_engine_row: 0.05079,
+        tearfree_engine_edge: 0.02241,
         tearfree_pixel: 0.03212,
         tearfree_glyph: 0.02229,
         overlap_pixel: 0.22491,

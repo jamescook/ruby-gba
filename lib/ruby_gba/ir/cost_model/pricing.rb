@@ -508,20 +508,40 @@ module RubyGBA
         # A row of a rectangle that starts on an odd or an even column: its edge pixels,
         # and the run between them either written out as pairs or handed to the fill
         # engine. (The split mirrors Backends::GBA::Buffered#rect_row_parts.)
+        #
+        # The two are priced from separate weights and not from one set, because they are
+        # not the same work. A row written out as pairs costs the step to reach it, its
+        # spliced ends, and its pairs. A row handed to the ENGINE costs the step and the
+        # start of the transfer together — and those cannot be composed from the fixed
+        # rectangle's weight, which pays to rebuild a destination this row only steps
+        # along. Doing that charged the address work twice.
         def tearfree_row_parity_cost(w, starts_odd)
           left = starts_odd ? 1 : 0
           right = (starts_odd ? w + 1 : w).odd? ? 1 : 0
           middle = w - left - right
-          @weights[:tearfree_row] + ((left + right) * @weights[:tearfree_edge]) + tearfree_middle_cost(middle)
+          edges = left + right
+          return tearfree_engine_row_cost(middle, edges) if engine_worth_starting?(middle)
+
+          @weights[:tearfree_row] + (edges * @weights[:tearfree_edge]) +
+            ((middle / 2) * @weights[:tearfree_pair])
         end
 
-        def tearfree_middle_cost(middle)
-          return 0 unless middle.positive?
+        # Whether a run is long enough to be worth starting the engine for, rather than
+        # writing out as pairs. (Backends::GBA::Buffered#emit_buffered_rect_row_middle
+        # decides this; if that moves, this must.)
+        def engine_worth_starting?(middle)
+          middle.positive? && (middle / 2) > TEARFREE_DIRECT_PAIRS
+        end
 
-          pairs = middle / 2
-          return pairs * @weights[:tearfree_pair] if pairs <= TEARFREE_DIRECT_PAIRS
-
-          @weights[:dma_setup] + (middle * @weights[:tearfree_fill_pixel])
+        # One row of a moving rectangle handed to the engine: reaching the row and starting
+        # the transfer, its spliced ends, and the transfer itself.
+        #
+        # The two ends are not quite alike — measured, the near one costs about a third more
+        # than the far one — and one figure between them is charged. That only shows on a
+        # row with exactly ONE spliced end, which is an odd width.
+        def tearfree_engine_row_cost(middle, edges)
+          @weights[:tearfree_engine_row] + (edges * @weights[:tearfree_engine_edge]) +
+            (middle * @weights[:tearfree_fill_pixel])
         end
 
         # A rectangle filled/copied by DMA one row at a time (a DMA fill, an opaque blit, a

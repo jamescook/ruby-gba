@@ -318,6 +318,33 @@ end
 
 def tearfree_busy(name, per_frame, &body) = measure(name, tearfree_rom(name, per_frame, &body))
 
+# Everything one of these costs: the CPU's own work AND the stall the block-fill engine
+# imposes while it copies, which the busy count cannot see. Needed wherever a shape hands
+# work to the engine, since half of what it costs is on the far side of that line.
+def tearfree_total(name, per_frame, &body)
+  rom = tearfree_rom(name, per_frame, &body)
+  tf = Tempfile.new([name.downcase, ".gba"]); tf.binmode; rom.write(tf.path); tf.flush
+  TFS << tf
+  probe = GembaCore.open(tf.path)
+  busy = 3.times.map { probe.busy_scanlines(settle: SETTLE) }.min
+  stall = 3.times.map { probe.frame_cost(settle: SETTLE).dma_scanlines }.min
+  probe.close
+  busy + stall
+end
+
+# Per-ROW cost of a moving rectangle wide enough that its middle goes to the block-fill
+# engine, starting at a column WRITTEN INTO the program so the parity is known. Two heights
+# difference to one row; the once-per-rectangle preamble cancels.
+#
+# Measured on the moving shape itself, and that is the point. A moving rectangle steps its
+# destination along where a fixed one rebuilds it, so a moving row assembled out of the
+# fixed rectangle's weight paid for the address work twice.
+def tearfree_engine_row(tag, col, w, per_frame, lo, hi)
+  a = tearfree_total("#{tag}#{lo}", per_frame) { |b, _xv, yv| b.draw_rect_at col, yv, w, lo, :red }
+  z = tearfree_total("#{tag}#{hi}", per_frame) { |b, _xv, yv| b.draw_rect_at col, yv, w, hi, :red }
+  (z - a) / (per_frame * (hi - lo).to_f)
+end
+
 # Per-ROW cost of a rectangle: two heights of the same rectangle, over the extra rows.
 # The once-per-rectangle preamble is identical in both, so it cancels.
 def tearfree_row_cost(tag, per_frame, lo, hi, &draw)
@@ -571,6 +598,22 @@ measured[:tearfree_rect_start] =
   tearfree_rect_cost("tffs", 20) { |b, _xv, _yv| b.fill_rect 0, 0, 8, 8, :red } - (8 * fill_row)
 # The transfer itself, which the CPU never executes — it is stalled while the engine runs.
 measured[:tearfree_fill_pixel] = (tearfree_fill_stall(80, 2) - tearfree_fill_stall(10, 2)) / (240 * 70 * 2.0)
+# A row of a MOVING rectangle whose middle is wide enough to hand to the engine. It gets
+# its own pair of weights rather than borrowing the fixed rectangle's, because the two are
+# not the same work: a moving rectangle steps its destination along where a fixed one
+# rebuilds it, and charging both the step and the rebuild paid for the address twice.
+#
+# An even column splices neither end of the row. An odd column with an even width splices
+# BOTH — its near end shares a pair with the pixel before it, and its far end with the one
+# after. Measured, the two ends differ a little (the near one costs about a third more),
+# and one figure between them is what is charged; that shows only on an odd width, which
+# is the one case with exactly one spliced end.
+ENGINE_W = 40
+engine_even = tearfree_engine_row("tfee", 40, ENGINE_W, 4, 10, 40)
+engine_odd = tearfree_engine_row("tfeo", 41, ENGINE_W, 4, 10, 40)
+measured[:tearfree_engine_row] = engine_even - (ENGINE_W * measured[:tearfree_fill_pixel])
+measured[:tearfree_engine_edge] =
+  ((engine_odd - ((ENGINE_W - 2) * measured[:tearfree_fill_pixel])) - measured[:tearfree_engine_row]) / 2.0
 # One pixel drawn on its own, and one lit pixel of a font glyph. Both are read-modify-write
 # here (a pixel shares its 16 bits with its neighbour); the lone one also has to find the
 # hidden page's address, which a line of text holds for the whole line.
