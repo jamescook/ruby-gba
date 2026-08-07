@@ -37,7 +37,7 @@ module RubyGBA
             tear_free? ? tearfree_moving_rect_cost(node) : dma_rows_cost(node[:w], node[:h])
           when :clear_screen then clear_screen_cost
           when :draw_text then Fonts.get(node[:font]).text_pixels(node[:text]) * glyph_pixel_weight(node)
-          when :draw_digit then Fonts.get(node[:font]).max_glyph_pixels(DIGITS) * glyph_pixel_weight(node)
+          when :draw_digit then digit_cost(node)
           when :blit then blit_cost(node[:name])
           when :blit_pose then blit_cost(node[:poses].first)         # one pose draws; all are the same size
           when :save_region, :restore_region then region_cost(node[:buffer])
@@ -372,6 +372,41 @@ module RubyGBA
           return dma_blob_cost(pixels) unless tear_free?
 
           @weights[:dma_setup] + (pixels * @weights[:dma_pixel] / 2)
+        end
+
+        # A LIVE digit is not a line of text, and pricing it as one was most of the way to
+        # free. A line of text has its pixels settled while building — the console is told
+        # exactly which ones to write. A live digit cannot be: which of the ten shows is
+        # only known as the game runs, so the console walks the chosen glyph out of a table
+        # instead. That walk tests EVERY cell of the digit's box, lit or not, and stamps
+        # each lit one by working out its address from scratch.
+        #
+        # So the box costs more than the lit pixels do, and the lit pixels were all it used
+        # to be charged: a `:default` digit was priced at a quarter of a scanline against
+        # the console's one and five sixths.
+        #
+        # Priced on the WORST of the ten digits, since which one shows is decided as the
+        # game runs — the same call the model makes wherever it cannot know which way a
+        # frame will go.
+        def digit_cost(node)
+          font = Fonts.get(node[:font])
+          @weights[:digit_start] + (digit_box_cells(font) * @weights[:digit_cell]) +
+            (font.max_glyph_pixels(DIGITS) * digit_stamp_weight)
+        end
+
+        # How many cells the walk visits: the box the widest digit needs, every row of it.
+        def digit_box_cells(font)
+          widest = DIGITS.filter_map { |digit| font.glyph_width(digit) }.max || 0
+          widest * font.height
+        end
+
+        # Stamping one lit cell. The walk is the same loop on both screens — measured, it
+        # costs the same on each — but the write is not: the tear-free screen holds a pixel
+        # as one byte sharing its sixteen bits with its neighbour, so it is read, half
+        # changed and written back, which is two and a half times the direct screen's plain
+        # write.
+        def digit_stamp_weight
+          tear_free? ? @weights[:tearfree_digit_pixel] : @weights[:digit_pixel]
         end
 
         # What one lit pixel of a font glyph costs. It is a pixel of a RUN — the color is

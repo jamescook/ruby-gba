@@ -57,9 +57,13 @@ module RubyGBA
     # #analyze returns the work as a structured tree (op, label, cost, children) —
     # the shape rom.explain renders for humans and dumps as JSON for tests.
     #
-    # Selectivity — that `every(6)` only draws one frame in six, that a
-    # `draw_number` column draws one of ten glyphs — is a later layer that reads
-    # semantic tags off the IR; today every branch is counted at full weight.
+    # Selectivity — that `every(6)` only draws one frame in six, that a `draw_number`
+    # column stays blank until the number reaches its place, so a four-column score
+    # showing "12" draws two digits and not four — is a later layer that reads semantic
+    # tags off the IR; today every branch is counted at full weight. That is the safe way
+    # to be wrong (a score field is sized for the number it will eventually hold, and then
+    # every column does draw), but it is why a game whose score is still small reads a
+    # little over.
     #
     # The work is split by the question each part answers, one file each:
     #

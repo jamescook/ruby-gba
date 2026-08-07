@@ -47,8 +47,14 @@ module CostArith
   # A glyph/text costs the pixels it lights, in the given font — a run of them, priced
   # like the pixels of a fill.
   def text_cost(text, font = :default) = RubyGBA::Fonts.get(font).text_pixels(text) * WEIGHTS[:plot_run_pixel]
+  # What ONE live digit costs, which is not what its glyph's pixels cost. Which of the ten
+  # shows is only known as the game runs, so the console walks the chosen glyph out of a
+  # table: every cell of the digit's box is tested, lit or not, and each lit one stamped.
   def digit_cost(font = :default)
-    RubyGBA::Fonts.get(font).max_glyph_pixels(("0".."9").to_a) * WEIGHTS[:plot_run_pixel]
+    f = RubyGBA::Fonts.get(font)
+    box = ("0".."9").filter_map { |d| f.glyph_width(d) }.max * f.height
+    WEIGHTS[:digit_start] + (box * WEIGHTS[:digit_cell]) +
+      (f.max_glyph_pixels(("0".."9").to_a) * WEIGHTS[:digit_pixel])
   end
   def near(expected, actual, msg = nil) = assert_in_delta(expected, actual, 1e-6, msg)
 end

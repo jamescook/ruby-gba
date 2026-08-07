@@ -172,6 +172,44 @@ def blit_busy(lit, rows, per_frame, copies: 1, color: :red)
   measure(name, rom)
 end
 
+# `copies` LIVE digits a frame, all showing `digit`, in `font`, on either screen.
+#
+# Built straight from the IR, not through the DSL, and that is the point: `draw_number`
+# also works out WHICH digit each column shows, and the model prices that arithmetic as its
+# own nodes — measuring a whole column would fold it into the digit's weight and charge it
+# twice.
+#
+# Differenced from TWO copies and not one. A program holding a single digit and nothing
+# else at all measures oddly here (150 scanlines against 3.8 for two), which does not
+# happen through the DSL, so it is a quirk of this bare harness rather than of the node.
+def digit_node_busy(digit, copies, font, tear_free)
+  name = "dgt#{digit}#{copies}#{font.to_s[0]}#{tear_free ? 'b' : 'd'}"
+  prog = RubyGBA::IR::Build.program(
+    RubyGBA::IR::Build.screen(:bitmap, buffered: tear_free),
+    RubyGBA::IR::Build.set(:d, RubyGBA::IR::Build.int(digit)),
+    RubyGBA::IR::Build.loop_(RubyGBA::IR::Build.wait_vblank,
+                             *Array.new(copies) do |k|
+                               RubyGBA::IR::Build.draw_digit(RubyGBA::IR::Build.var_ref(:d), 8,
+                                                             4 + (k * 9), :white, font: font)
+                             end),
+  )
+  rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(prog),
+                              title: name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01")
+  measure(name, rom)
+end
+
+# The box the walk visits for one digit: the widest digit's width, every row of it.
+def font_box(font)
+  ("0".."9").filter_map { |d| font.glyph_width(d) }.max * font.height
+end
+
+DIGIT_LO = 2
+DIGIT_HI = 6
+def per_digit_node(digit, font, tear_free: false)
+  (digit_node_busy(digit, DIGIT_HI, font, tear_free) - digit_node_busy(digit, DIGIT_LO, font, tear_free)) /
+    (DIGIT_HI - DIGIT_LO).to_f
+end
+
 # Per-frame cost of a per-pixel collision test that walks the WHOLE overlap. The test
 # stops at the first pixel solid in both sprites, so two identical sprites hit at pixel
 # one and never scale. Two opposite checkerboards (A on even cells, B on odd) overlap
@@ -418,6 +456,40 @@ measured[:blit_row] = ((blit_busy(4, 32, 2) - blit_4x8) / ((32 - 8) * 2.0)) -
 # one blit; taking off the rows and pixels priced above leaves the part that is fixed.
 measured[:blit_start] = ((blit_busy(4, 8, 2, copies: 3) - blit_4x8) / ((3 - 1) * 2.0)) -
                         (8 * measured[:blit_row]) - (4 * 8 * measured[:blit_pixel])
+
+# --- a LIVE digit: the walk over the chosen glyph, not the pixels it lights ---
+#
+# A line of text has its pixels settled while building. A live digit cannot: which of the
+# ten shows is only known as the game runs, so the console walks the chosen glyph out of a
+# table — testing EVERY cell of the digit's box, lit or not, and stamping each lit one.
+#
+# Three things cost, and three measurements separate them: two DIGITS of one font differ
+# only in how many cells are lit, and two FONTS at the same digit differ in the size of the
+# box as well.
+digit_font = RubyGBA::Fonts.get(:default)
+tiny_font = RubyGBA::Fonts.get(:tiny)
+lit_spread = (digit_font.text_pixels("8") - digit_font.text_pixels("1")).to_f
+d8 = per_digit_node(8, :default)
+d1 = per_digit_node(1, :default)
+t8 = per_digit_node(8, :tiny)
+
+measured[:digit_pixel] = (d8 - d1) / lit_spread
+measured[:digit_cell] =
+  ((d8 - t8) - ((digit_font.text_pixels("8") - tiny_font.text_pixels("8")) * measured[:digit_pixel])) /
+  (font_box(digit_font) - font_box(tiny_font)).to_f
+# Whatever is left once the box and the lit cells are paid for is what starting one costs:
+# finding the chosen glyph in the table before any of it is walked. (The walk's per-ROW
+# work rides inside the per-cell figure — two fonts cannot separate a row from a cell, and
+# fitted across both built-in fonts it lands within a hundredth on each.)
+measured[:digit_start] = d8 - (font_box(digit_font) * measured[:digit_cell]) -
+                         (digit_font.text_pixels("8") * measured[:digit_pixel])
+# Stamping a lit cell on the TEAR-FREE screen, where a pixel is one byte sharing its
+# sixteen bits with its neighbour and so is read, half changed and written back. The WALK
+# is the same loop on both screens — measured, its start and its per-cell cost come out the
+# same to within a hundredth — so this is the only part that moves.
+measured[:tearfree_digit_pixel] =
+  (per_digit_node(8, :default, tear_free: true) - per_digit_node(1, :default, tear_free: true)) / lit_spread
+
 measured[:sound_write] = per_op("beep", 100, 2, 4) { |b, _xv| b.beep 440 } /
                          RubyGBA::IR::CostModel::BEEP_WRITES
 

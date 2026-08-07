@@ -92,10 +92,10 @@ class TestCostPricing < CostModelTest
     assert_operator Cost.new.frame_cost(tiny), :<, Cost.new.frame_cost(default), "tiny should cost less"
   end
 
-  # A draw_number column is a single draw_digit node worth one glyph — there's no
+  # A draw_number column is a single draw_digit node worth one digit — there's no
   # ten-way fan-out in the tree to discount, so a column's full and steady costs are
-  # both just one glyph (a 3-digit score is ~3 glyphs, not 30).
-  def test_draw_number_column_costs_one_glyph
+  # both just one digit (a 3-digit score is ~3 digits, not 30).
+  def test_draw_number_column_costs_one_digit
     prog = program do
       screen :bitmap
       var :score, 0
@@ -103,13 +103,67 @@ class TestCostPricing < CostModelTest
         draw_number :score, 8, 8, :white, digits: 1 # one column -> one draw_digit
       end
     end
-    # digits:1 draws exactly one glyph — plus the cheap arithmetic to pull the digit
-    # out of the number. So the cost is one glyph's worth and change, never a phantom
-    # fan-out to more columns (which would be two glyphs or more).
+    # digits:1 draws exactly one digit — plus the cheap arithmetic to pull it out of the
+    # number. So the cost is one digit's worth and change, never a phantom fan-out to more
+    # columns (which would be two digits or more).
     assert_operator Cost.new.steady_cost(prog), :>=, digit_cost
     assert_operator Cost.new.steady_cost(prog), :<, 2 * digit_cost
     assert_operator Cost.new.frame_cost(prog), :>=, digit_cost
     assert_operator Cost.new.frame_cost(prog), :<, 2 * digit_cost
+  end
+
+  # A LIVE digit is not a line of text, and pricing it as one was most of the way to free.
+  # Text has its pixels settled while building — the console is told exactly which to write.
+  # A live digit cannot be: which of the ten shows is only known as the game runs, so the
+  # console walks the chosen glyph out of a table instead, which is a different order of
+  # work from writing a glyph it already knows.
+  def test_a_live_digit_costs_far_more_than_the_same_glyph_as_fixed_text
+    live = program do
+      screen :bitmap
+      var :score, 0
+      game_loop { draw_number :score, 8, 8, :white, digits: 1 }
+    end
+    fixed = program { screen(:bitmap); game_loop { draw_text "8", 8, 8, :white } }
+
+    assert_operator Cost.new.steady_cost(live), :>, 4 * Cost.new.steady_cost(fixed),
+                    "walking a glyph out of a table dwarfs writing one settled while building"
+  end
+
+  # The walk tests EVERY cell of the digit's box, lit or not — and most of a digit's box is
+  # not lit. Charging only the lit ones was the whole of the mistake.
+  def test_a_live_digit_pays_for_the_cells_it_does_not_light
+    prog = program do
+      screen :bitmap
+      var :score, 0
+      game_loop { draw_number :score, 8, 8, :white, digits: 1 }
+    end
+    lit_only = RubyGBA::Fonts.get(:default).max_glyph_pixels(("0".."9").to_a) * WEIGHTS[:digit_pixel]
+
+    assert_operator Cost.new.steady_cost(prog), :>, 3 * lit_only,
+                    "the box costs more to walk than its lit cells cost to stamp"
+  end
+
+  # A digit in a smaller font is cheaper on two counts, not one: fewer cells to light AND a
+  # smaller box to walk. So the gap between the two fonts is wider than their lit pixels
+  # alone can explain — which is only true because the box is priced at all.
+  def test_a_digit_in_a_smaller_font_has_less_box_to_walk
+    big = program do
+      screen :bitmap
+      var :score, 0
+      game_loop { draw_number :score, 8, 8, :white, digits: 1 }
+    end
+    small = program do
+      screen :bitmap
+      var :score, 0
+      game_loop { draw_number :score, 8, 8, :white, digits: 1, font: :tiny }
+    end
+
+    digits = ("0".."9").to_a
+    lit_gap = RubyGBA::Fonts.get(:default).max_glyph_pixels(digits) -
+              RubyGBA::Fonts.get(:tiny).max_glyph_pixels(digits)
+    assert_operator Cost.new.steady_cost(big) - Cost.new.steady_cost(small), :>,
+                    lit_gap * WEIGHTS[:digit_pixel],
+                    "the bigger font is more box to walk, not only more cells to light"
   end
 
   # --- tiled-mode per-frame upkeep is no longer free (gba-86vh) ---
