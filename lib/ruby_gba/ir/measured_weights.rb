@@ -9,8 +9,10 @@ module RubyGBA
     class CostModel
       MEASURED_WEIGHTS = {
         op_step: 0.01928,
+        loop_pass: 0.05936,
         op_mul: 0.01928,
-        op_div: 0.08051,
+        op_div: 0.08058,
+        op_div_bit: 0.00313,
         op_div_const: 0.03215,
         op_mul_fix: 0.02573,
         op_div_fix: 0.25211,

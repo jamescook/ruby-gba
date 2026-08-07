@@ -23,16 +23,18 @@ class TestCostTree < CostModelTest
     near dma_rows(8, 8), tree[1][:cost]
   end
 
-  # A repeat node carries its multiplied cost and keeps its per-iteration body.
+  # A repeat node carries its multiplied cost and keeps its per-iteration body — which
+  # leads with what one pass round the loop costs, before the body does anything.
   def test_analyze_repeat_node_multiplies_and_keeps_its_body
     prog = program do
       screen :bitmap
-      repeat(3) { |_i| draw_rect_at 0, 0, 8, 8, :green } # 3 * 64
+      repeat(3) { |_i| draw_rect_at 0, 0, 8, 8, :green } # 3 * (64 + one pass)
       halt
     end
     rep = Cost.new.analyze(prog).find { |n| n[:op] == :repeat }
-    near 3 * dma_rows(8, 8), rep[:cost]
-    near dma_rows(8, 8), rep[:children].first[:cost] # per-iteration
+    near loop_cost(3, dma_rows(8, 8)), rep[:cost]
+    assert_equal "the loop itself", rep[:children].first[:label]
+    near dma_rows(8, 8), rep[:children].last[:cost] # per-iteration
   end
 
   # A case node's cost is its worst branch, but it keeps every branch's cost.

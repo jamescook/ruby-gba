@@ -229,6 +229,63 @@ class TestCostPricing < CostModelTest
                     "a divide (BIOS routine) should cost more than an add"
   end
 
+  # Going round a loop is real work — a count, a test, a jump back — and it is paid once
+  # per pass like everything in the body. Charging nothing for it made a tight loop over a
+  # cheap body read as almost free: 900 passes of an empty body cost 54 scanlines on the
+  # console and the model called them 0.
+  def test_a_loop_pass_is_not_free
+    empty = program do
+      screen :bitmap
+      game_loop { repeat(100) { |_i| nil } }
+    end
+    near 100 * WEIGHTS[:loop_pass], Cost.new.steady_cost(empty)
+  end
+
+  # It is bookkeeping, not drawing, so it does not race the vblank window and the tear
+  # check must not count it.
+  def test_a_loop_pass_does_not_count_toward_tearing
+    prog = program do
+      screen :bitmap
+      game_loop { repeat(100) { |_i| dma_fill_rect 0, 0, 8, 8, :red } }
+    end
+    cost = Cost.new
+    near 100 * dma_rows(8, 8), cost.steady_drawing_cost(prog)
+    near loop_cost(100, dma_rows(8, 8)), cost.steady_cost(prog)
+  end
+
+  # A division worked out as the program runs walks its answer one bit at a time, so a
+  # wide answer costs more than a narrow one — up to two and a third times more. An answer
+  # can be no wider than its numerator, so a numerator written into the program bounds it
+  # exactly. This is the `WALL_HEIGHT / distance` shape.
+  def test_a_wide_answer_costs_more_than_a_narrow_one
+    costs = [3, 255, 1_073_741_823].map do |numerator|
+      prog = program do
+        screen :bitmap
+        d = var :d, 7
+        out = var :out, 0
+        game_loop { out.set(numerator / d) }
+      end
+      Cost.new.steady_cost(prog)
+    end
+    assert_equal costs.sort, costs, "a wider answer must not cost less"
+    assert_operator costs.last, :>, costs.first * 1.5, "and the spread has to be worth pricing"
+    near WEIGHTS[:op_step] + WEIGHTS[:op_div] + (2 * WEIGHTS[:op_div_bit]), costs.first # 3 is 2 bits
+  end
+
+  # With nothing to bound the answer the price is the base alone — deliberately, because
+  # game code divides for coordinates and percentages, whose answers sit within about a
+  # seventh of it either way. The reasoning is written out at runtime_divide_weight.
+  def test_an_unbounded_answer_is_priced_at_the_base
+    prog = program do
+      screen :bitmap
+      n = var :n, 1_073_741_823
+      d = var :d, 7
+      out = var :out, 0
+      game_loop { out.set(n / d) }
+    end
+    near WEIGHTS[:op_step] + WEIGHTS[:op_div], Cost.new.steady_cost(prog)
+  end
+
   # Dividing has three prices, because the lowering gives it three costs, and an author
   # reading `explain` has to be able to tell them apart: by a power of two it is a
   # shift, by any other fixed number a multiply by a reciprocal, and only by a number

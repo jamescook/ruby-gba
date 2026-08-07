@@ -19,14 +19,15 @@ class TestCostRollup < CostModelTest
     near plot_rect(10, 10) + plot_rect(4, 4), Cost.new.frame_cost(prog)
   end
 
-  # A repeat runs its body a fixed number of times, so its cost multiplies.
-  def test_repeat_multiplies_its_body
+  # A repeat runs its body a fixed number of times, so its cost multiplies — and so does
+  # going round, which is not free either.
+  def test_repeat_multiplies_its_body_and_the_pass_around_it
     prog = program do
       screen :bitmap
-      repeat(3) { |_i| draw_rect_at 0, 0, 8, 8, :green } # 3 * one 8x8 rect
+      repeat(3) { |_i| draw_rect_at 0, 0, 8, 8, :green } # 3 * (one 8x8 rect + one pass)
       halt
     end
-    near 3 * dma_rows(8, 8), Cost.new.frame_cost(prog)
+    near loop_cost(3, dma_rows(8, 8)), Cost.new.frame_cost(prog)
   end
 
   # A repeat over a list is bounded by the list's CAPACITY — the worst case we can
@@ -39,9 +40,9 @@ class TestCostRollup < CostModelTest
       repeat(body.length) { |i| draw_rect_at 0, 0, 8, 8, :green }
       halt
     end
-    # ...but the estimate assumes the worst: 8 (capacity) * one 8x8 rect, plus the
+    # ...but the estimate assumes the worst: 8 (capacity) passes of one 8x8 rect, plus the
     # one-time push that seeded the list (a single logic step).
-    near (8 * dma_rows(8, 8)) + WEIGHTS[:op_step], Cost.new.frame_cost(prog)
+    near loop_cost(8, dma_rows(8, 8)) + WEIGHTS[:op_step], Cost.new.frame_cost(prog)
   end
 
   # Inside a game loop, case_var runs exactly ONE scene per frame, so the per-frame
