@@ -10,7 +10,7 @@ module RubyGBA
       MEASURED_WEIGHTS = {
         op_step: 0.01928,
         op_mul: 0.01928,
-        op_div: 0.10008,
+        op_div: 0.08696,
         op_div_const: 0.03215,
         op_mul_fix: 0.02573,
         plot_pixel: 0.01606,

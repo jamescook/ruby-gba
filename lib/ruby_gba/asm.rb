@@ -15,6 +15,8 @@ module RubyGBA
     # Used by conditional branches and (eventually) conditional execution.
     COND_EQ = 0x0  # equal (Z=1)
     COND_NE = 0x1  # not equal (Z=0)
+    COND_HS = 0x2  # unsigned higher or same (C=1)
+    COND_LS = 0x9  # unsigned lower or same (C=0 or Z=1)
     COND_GE = 0xA  # signed greater or equal (N=V)
     COND_LT = 0xB  # signed less than (N!=V)
     COND_GT = 0xC  # signed greater than (Z=0, N=V)
@@ -23,6 +25,7 @@ module RubyGBA
 
     COND_BY_NAME = {
       eq: COND_EQ, ne: COND_NE,
+      hs: COND_HS, ls: COND_LS,
       ge: COND_GE, lt: COND_LT,
       gt: COND_GT, le: COND_LE,
       al: COND_AL,
@@ -433,6 +436,69 @@ module RubyGBA
       imm12 = encode_rotated_immediate(imm) or
         raise ArgumentError, "cannot encode #{imm} as an ARM rotated immediate"
       [(resolve_cond(cond) << 28) | 0x03A00000 | (rd << 12) | imm12].pack("V")
+    end
+
+    # MOV{cond} rd, rm, LSL #shift — a predicated move that shifts on the way. ARM does
+    # the shift as part of the move, so scaling a value up is one instruction.
+    def mov_reg_lsl_cond(cond, rd, rm, shift)
+      raise ArgumentError, "shift must be 0-31" unless (0..31).cover?(shift)
+
+      [(resolve_cond(cond) << 28) | 0x01A00000 | (rd << 12) | (shift << 7) | rm].pack("V")
+    end
+
+    # ADD{cond} rd, rn, #imm — a predicated add (see #mov_reg_cond for why predication).
+    def add_imm_cond(cond, rd, rn, imm)
+      imm12 = encode_rotated_immediate(imm) or
+        raise ArgumentError, "cannot encode #{imm} as an ARM rotated immediate"
+      [(resolve_cond(cond) << 28) | 0x02800000 | (rn << 16) | (rd << 12) | imm12].pack("V")
+    end
+
+    # SUB{cond} rd, rn, rm — a predicated subtract. Flags are left alone, so a compare
+    # before it still decides a later instruction.
+    def sub_reg_cond(cond, rd, rn, rm)
+      [(resolve_cond(cond) << 28) | 0x00400000 | (rn << 16) | (rd << 12) | rm].pack("V")
+    end
+
+    # RSB{cond} rd, rn, #imm — a predicated reverse subtract, which is how a value is
+    # negated conditionally (rsb rd, rd, #0).
+    def rsb_imm_cond(cond, rd, rn, imm)
+      imm12 = encode_rotated_immediate(imm) or
+        raise ArgumentError, "cannot encode #{imm} as an ARM rotated immediate"
+      [(resolve_cond(cond) << 28) | 0x02600000 | (rn << 16) | (rd << 12) | imm12].pack("V")
+    end
+
+    # ADC rd, rn, rm — add with carry. `adc rd, rd, rd` doubles a register and slides the
+    # carry flag into its bottom bit, which is how long division collects one answer bit
+    # per step without a branch.
+    def adc_reg(rd, rn, rm)
+      [0xE0A00000 | (rn << 16) | (rd << 12) | rm].pack("V")
+    end
+
+    # CMP rn, rm, LSR #shift — compare against a register shifted down on the way, so
+    # "is this at most half of that?" is one instruction.
+    def cmp_reg_lsr(rn, rm, shift)
+      raise ArgumentError, "shift must be 1-32" unless (1..32).cover?(shift)
+
+      shift_val = shift == 32 ? 0 : shift # ARM encodes a 32-bit shift as 0
+      [0xE1500000 | (rn << 16) | (shift_val << 7) | 0x20 | rm].pack("V")
+    end
+
+    # ORR rd, rn, rm, LSR #shift — OR in a register shifted down on the way, which is
+    # how a single bit is moved from the top of one register to the bottom of another.
+    def orr_reg_lsr(rd, rn, rm, shift)
+      raise ArgumentError, "shift must be 1-32" unless (1..32).cover?(shift)
+
+      shift_val = shift == 32 ? 0 : shift # ARM encodes a 32-bit shift as 0
+      [0xE1800000 | (rn << 16) | (rd << 12) | (shift_val << 7) | 0x20 | rm].pack("V")
+    end
+
+    # ADD pc, pc, rm, LSL #shift — a computed jump forward, used to enter a run of
+    # identical unrolled blocks at the right one. The CPU reads pc as this instruction's
+    # address plus 8, so an offset of 0 lands two instructions further on.
+    def add_pc_reg_lsl(rm, shift)
+      raise ArgumentError, "shift must be 0-31" unless (0..31).cover?(shift)
+
+      [0xE08FF000 | (shift << 7) | rm].pack("V")
     end
 
     # --- SWI (software interrupt: trap into a BIOS routine) ---

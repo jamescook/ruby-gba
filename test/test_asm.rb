@@ -509,12 +509,81 @@ class TestASM < Minitest::Test
   end
 
   # ========================================================================
+  # The instructions long division is built from
+  # ========================================================================
+
+  # ADC rd, rn, rm adds the carry flag in, so `adc r2, r2, r2` doubles a register and
+  # slides the last compare's answer into its bottom bit — one answer bit per step.
+  def test_adc_reg
+    inst = unpack(A.adc_reg(2, 2, 2))
+    assert_equal 2, rd(inst)
+    assert_equal 2, rn(inst)
+    assert_equal 2, rm(inst)
+    assert_equal 0x5, (inst >> 21) & 0xF # ADC opcode
+  end
+
+  # Comparing against a register shifted down asks "is this at most a sixteenth of
+  # that?" in one instruction, which is how the step count is found without looping.
+  def test_cmp_reg_lsr
+    inst = unpack(A.cmp_reg_lsr(1, 0, 16))
+    assert_equal 1, rn(inst)
+    assert_equal 0, rm(inst)
+    assert_equal 16, (inst >> 7) & 0x1F  # the shift amount
+    assert_equal 1, (inst >> 5) & 0x3    # LSR
+    assert_equal 1, (inst >> 20) & 0x1   # sets flags
+  end
+
+  def test_the_predicated_forms_carry_their_condition
+    assert_equal 0x9, unpack(A.mov_reg_lsl_cond(:ls, 1, 1, 16)) >> 28
+    assert_equal 0x9, unpack(A.add_imm_cond(:ls, 3, 3, 16)) >> 28
+    assert_equal 0x2, unpack(A.sub_reg_cond(:hs, 1, 1, 0)) >> 28
+    assert_equal 0xB, unpack(A.rsb_imm_cond(:lt, 0, 0, 0)) >> 28
+  end
+
+  def test_mov_reg_lsl_cond_shifts_on_the_way
+    inst = unpack(A.mov_reg_lsl_cond(:ls, 1, 1, 16))
+    assert_equal 1, rd(inst)
+    assert_equal 1, rm(inst)
+    assert_equal 16, (inst >> 7) & 0x1F
+    assert_equal 0, (inst >> 5) & 0x3 # LSL
+  end
+
+  # ADD pc, pc, rm LSL #shift is the computed jump that enters a run of identical
+  # unrolled blocks at the right one.
+  def test_add_pc_reg_lsl
+    inst = unpack(A.add_pc_reg_lsl(3, 4))
+    assert_equal 15, rd(inst)
+    assert_equal 15, rn(inst)
+    assert_equal 3, rm(inst)
+    assert_equal 4, (inst >> 7) & 0x1F
+  end
+
+  def test_orr_reg_lsr_moves_a_bit_down
+    inst = unpack(A.orr_reg_lsr(12, 12, 3, 31))
+    assert_equal 12, rd(inst)
+    assert_equal 12, rn(inst)
+    assert_equal 3, rm(inst)
+    assert_equal 31, (inst >> 7) & 0x1F
+    assert_equal 1, (inst >> 5) & 0x3 # LSR
+    assert_equal 0xC, (inst >> 21) & 0xF # ORR opcode
+  end
+
+  def test_the_shifted_forms_reject_an_impossible_shift
+    assert_raises(ArgumentError) { A.mov_reg_lsl_cond(:ls, 1, 1, 32) }
+    assert_raises(ArgumentError) { A.cmp_reg_lsr(1, 0, 33) }
+    assert_raises(ArgumentError) { A.add_pc_reg_lsl(3, 32) }
+    assert_raises(ArgumentError) { A.orr_reg_lsr(1, 1, 2, 0) }
+  end
+
+  # ========================================================================
   # Condition code resolution
   # ========================================================================
 
   def test_resolve_cond_symbols
     assert_equal 0x0, A.resolve_cond(:eq)
     assert_equal 0x1, A.resolve_cond(:ne)
+    assert_equal 0x2, A.resolve_cond(:hs)
+    assert_equal 0x9, A.resolve_cond(:ls)
     assert_equal 0xA, A.resolve_cond(:ge)
     assert_equal 0xB, A.resolve_cond(:lt)
     assert_equal 0xC, A.resolve_cond(:gt)

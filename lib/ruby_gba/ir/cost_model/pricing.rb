@@ -161,6 +161,13 @@ module RubyGBA
 
         # What one divide or wrap costs, from where its divisor comes from. A negative
         # divisor reduces the same way its size does, with the answer flipped after.
+        #
+        # op_div is one number for something that is not one price: a division worked out
+        # as the program runs walks the answer a bit at a time, so it costs about 79
+        # cycles plus 4 for every bit of the answer — 0.064 scanlines for a small answer
+        # and 0.194 for a full-width one. This prices it at the small end, which is where
+        # it is measured. The spread used to be five-fold and is now under two and a half,
+        # which is what makes a single number defensible at all.
         def divide_weight(divisor)
           size = divisor&.abs
           return @weights[:op_div] unless size && size > 1
