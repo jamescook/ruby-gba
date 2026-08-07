@@ -40,11 +40,12 @@ def stable_busy(name, repeat_n, &body)
     clear_screen :black
     xv = var :x, 7
     var :y, 0
+    dv = var :d, 100 # a divisor the GAME works out, for the ops that need one
     enable_sound
     b = self
     game_loop do
       wait_vblank
-      repeat(repeat_n) { body.call(b, xv) }
+      repeat(repeat_n) { body.call(b, xv, dv) }
     end
   end
   measure(name, rom)
@@ -64,8 +65,8 @@ end
 # Marginal cost per op: (busy with `hi` copies of the op each iteration) minus
 # (busy with `lo`), over the extra ops — the op's own cost, overhead cancelled.
 def per_op(name, repeat_n, lo, hi, &one)
-  b_lo = stable_busy("#{name}#{lo}", repeat_n) { |b, xv| lo.times { one.call(b, xv) } }
-  b_hi = stable_busy("#{name}#{hi}", repeat_n) { |b, xv| hi.times { one.call(b, xv) } }
+  b_lo = stable_busy("#{name}#{lo}", repeat_n) { |b, xv, dv| lo.times { one.call(b, xv, dv) } }
+  b_hi = stable_busy("#{name}#{hi}", repeat_n) { |b, xv, dv| hi.times { one.call(b, xv, dv) } }
   (b_hi - b_lo) / (repeat_n * (hi - lo).to_f)
 end
 
@@ -174,17 +175,30 @@ measured[:op_step] = per_op("step", 500, 2, 8) { |b, _xv| b.add :x, 1 }
 # op_mul / op_div = op_step + the operator's extra cost over an add (a `set :y,
 # (x <op> 100)` is a set plus the operator; differencing against `+` isolates it).
 #
-# The operand is 100 and not 2 on purpose. By a POWER OF TWO the lowering reduces
-# both of these to shifts, so measuring with 2 would price every multiply and every
-# divide at the reduced cost and the model would tell an author a divide by 100 is
-# free. These weights are for the general case; the reduced one is priced as a plain
-# step (see Pricing#op_weight), which is what the reduction actually costs.
+# WHICH OPERAND EACH ONE USES IS THE WHOLE POINT, because the lowering reduces some
+# of them and a weight measured on a reduced op would price every op at the reduced
+# cost — the model would then tell an author that dividing by 100 is free.
+#
+#   * 100         a real multiply. By a power of two it would be a shift.
+#   / d           a real divide, and the ONLY kind left: a divisor written into the
+#                 program is turned into a multiply at build time, so a divisor the
+#                 game works out is now the only one that reaches the BIOS routine.
+#   / 100         that reduction — a multiply by a reciprocal, its own tier.
+#
+# The reduced power-of-two case is priced as a plain step (see Pricing#op_weight).
 measured[:op_mul] = measured[:op_step] +
                     (per_op("mul", 300, 2, 6) { |b, xv| b.set :y, (xv * 100) } -
                      per_op("addm", 300, 2, 6) { |b, xv| b.set :y, (xv + 2) })
 measured[:op_div] = measured[:op_step] +
-                    (per_op("div", 80, 2, 4) { |b, xv| b.set :y, (xv / 100) } -
+                    (per_op("div", 80, 2, 4) { |b, xv, dv| b.set :y, (xv / dv) } -
                      per_op("addd", 80, 2, 4) { |b, xv| b.set :y, (xv + 2) })
+# A divide by a number written into the program: no call, just a 64-bit multiply by a
+# reciprocal worked out at build time and a couple of instructions to round it. A wrap
+# (`%`) by such a number is built on this and costs somewhat more, and is priced here
+# too — the same lumping of `/` and `%` the general tier already makes.
+measured[:op_div_const] = measured[:op_step] +
+                          (per_op("divc", 300, 2, 6) { |b, xv| b.set :y, (xv / 100) } -
+                           per_op("addc", 300, 2, 6) { |b, xv| b.set :y, (xv + 2) })
 # A fraction multiply is SMULL plus two instructions to shift the 64-bit product
 # back down — dearer than a plain multiply, nowhere near a divide. Same differencing.
 measured[:op_mul_fix] = measured[:op_step] +

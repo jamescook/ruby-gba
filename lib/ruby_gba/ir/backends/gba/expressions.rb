@@ -106,7 +106,7 @@ module RubyGBA
           # combine. Using the stack for the intermediate keeps arbitrarily nested
           # expressions correct without a register allocator.
           def eval_binop(node)
-            return if emit_power_of_two_binop(node)
+            return if emit_constant_binop(node)
 
             eval_value(node[:lhs])
             emit(ASM.push(ACC))
@@ -128,31 +128,64 @@ module RubyGBA
             end
           end
 
-          # Dividing, multiplying or wrapping by a power of two written into the program
-          # — the cases the chip can do for nothing. Returns true when it handled the
-          # node, false when the general path has to.
+          # Dividing, multiplying or wrapping by a number written into the program — the
+          # cases the backend can settle at build time instead of leaving to the console.
+          # Returns true when it handled the node, false when the general path has to.
           #
           # This is a lowering trick, not an IR one: the tree still says divide, and a
-          # backend without a barrel shifter is free to ignore all of it. Nothing the
-          # author writes mentions a shift, which is the point — the speed comes from the
-          # compiler, not from asking a Ruby programmer to think in bits.
-          def emit_power_of_two_binop(node)
-            bits = power_of_two_bits(node[:rhs])
+          # backend that would rather not do any of this is free to ignore it. Nothing
+          # the author writes mentions a shift or a reciprocal, which is the point — the
+          # speed comes from the compiler, not from asking a Ruby programmer to think in
+          # bits.
+          def emit_constant_binop(node)
+            value = const_int(node[:rhs])
+            return false unless value
+
             case node[:op]
-            when :/ then bits && emit_divide_by_power_of_two(node[:lhs], bits)
-            when :* then bits && emit_multiply_by_power_of_two(node[:lhs], bits)
-            when :% then bits && emit_wrap_to_power_of_two(node[:lhs], bits)
+            when :/ then emit_constant_divide(node[:lhs], value)
+            when :* then emit_constant_multiply(node[:lhs], value)
+            when :% then emit_constant_modulo(node[:lhs], value)
+            else false
             end
           end
 
-          # How many bits +operand+ is a power of two of, or nil if it isn't one written
-          # into the program. Only positive powers: a negative divisor has none of the
-          # useful structure, and 1 is left to the general path so `x / 1` stays honest.
-          def power_of_two_bits(operand)
-            value = const_int(operand)
-            return nil unless value&.positive? && (value & (value - 1)).zero? && value > 1
+          # How many bits +value+ is a power of two of, or nil if it isn't one. Only
+          # positive powers: 1 has nothing to shift, and a negative number is turned
+          # positive before it gets here.
+          def power_of_two_bits(value)
+            return nil unless value.positive? && (value & (value - 1)).zero? && value > 1
 
             Math.log2(value).to_i
+          end
+
+          # x / d for a d written into the program. A power of two is a shift; a negative
+          # divisor is the same division with the answer flipped (truncation is symmetric
+          # about zero, so flipping after is the same as dividing by the negative); and
+          # anything else multiplies by a reciprocal worked out at build time. Only 1, -1
+          # and 0 are left to the console's divide routine — the first two have nothing
+          # to gain and the third has to fail the way it always did.
+          def emit_constant_divide(lhs, divisor)
+            return false if divisor.abs <= 1
+
+            if divisor.negative?
+              emit_constant_divide(lhs, divisor.abs)
+              emit(ASM.rsb_imm(ACC, ACC, 0))
+              return true
+            end
+
+            bits = power_of_two_bits(divisor)
+            return emit_divide_by_power_of_two(lhs, bits) if bits
+
+            emit_reciprocal_divide(lhs, divisor)
+          end
+
+          # x * d — a power of two is a shift, and anything else is already a single
+          # multiply instruction, so there is nothing to improve on.
+          def emit_constant_multiply(lhs, factor)
+            bits = power_of_two_bits(factor)
+            return false unless bits
+
+            emit_multiply_by_power_of_two(lhs, bits)
           end
 
           # x / 2**bits, TRUNCATING TOWARD ZERO — the meaning `/` has everywhere else
@@ -172,20 +205,88 @@ module RubyGBA
             true
           end
 
+          # x / d by multiplying instead of dividing (see Reciprocal for how the
+          # multiplier is found).
+          #
+          # SMULL multiplies two 32-bit numbers and keeps the whole 64-bit product across
+          # a register pair. Multiplying by a number close to 2**k/d and keeping only the
+          # high word is a division by 2**32 for free — the low word is simply not read —
+          # so what is left is to shift the high word down the rest of the way.
+          #
+          # The last instruction is the truncation. The shift has rounded toward minus
+          # infinity, and `/` rounds toward zero, so a negative answer is one too low:
+          # adding its own top bit (0 for a positive answer, 1 for a negative one) puts it
+          # right. The numerator stays in r2 the whole way, because it is needed again
+          # both for the correction some divisors want and by the wrap below.
+          def emit_reciprocal_divide(lhs, divisor)
+            recipe = Reciprocal.for(divisor)
+            eval_value(lhs)
+            emit(ASM.mov_reg(SPARE, ACC))                      # r2 = the numerator, kept
+            emit(ASM.load_immediate(TMP, recipe.multiplier))
+            emit(ASM.smull(ACC, HIGH, TMP, SPARE))             # r3:r0 = multiplier * numerator
+            emit(ASM.add_reg(HIGH, HIGH, SPARE)) if recipe.add_numerator
+            emit(ASM.asr_imm(HIGH, HIGH, recipe.shift)) if recipe.shift.positive?
+            emit(ASM.add_reg_lsr(ACC, HIGH, HIGH, 31))         # toward zero, not toward minus infinity
+            true
+          end
+
+          # x % d for a d written into the program, with Ruby's meaning (see
+          # IR::Int32.mod): the answer takes the sign of the divisor, so it lands in
+          # 0...d for a positive d and in -d...0 for a negative one.
+          def emit_constant_modulo(lhs, divisor)
+            size = divisor.abs
+            return false if size <= 1
+
+            bits = power_of_two_bits(size)
+            bits ? emit_wrap_to_power_of_two(lhs, bits) : emit_reciprocal_modulo(lhs, size)
+            emit_flip_wrap_negative(size) if divisor.negative?
+            true
+          end
+
+          # x % 2**bits, with Ruby's meaning. Keeping the low bits of a two's-complement
+          # number IS that answer for a positive power of two, sign and all: -1 keeps all
+          # its low bits and comes out as the range's top value.
+          def emit_wrap_to_power_of_two(lhs, bits)
+            eval_value(lhs)
+            emit_and_mask(ACC, (1 << bits) - 1)
+            true
+          end
+
+          # What is left over after dividing by a size written into the program.
+          #
+          # There is no leftover to collect here — the reciprocal divide never computes
+          # one — so it is worked back out: the quotient times the size, taken off the
+          # numerator that r2 still holds. That answer carries the sign of the NUMERATOR
+          # and Ruby's carries the sign of the divisor, so one size is added back when the
+          # numerator was negative. The number's own top bit says whether it was, which
+          # makes the correction three instructions and no branch.
+          def emit_reciprocal_modulo(lhs, size)
+            emit_reciprocal_divide(lhs, size)
+            emit(ASM.load_immediate(TMP, size))
+            emit(ASM.mul(HIGH, ACC, TMP))         # r3 = quotient * size
+            emit(ASM.sub_reg(ACC, SPARE, HIGH))   # r0 = numerator - that = the leftover
+            emit(ASM.asr_imm(SPARE, ACC, 31))     # r2 = -1 when the leftover is negative
+            emit(ASM.and_reg(SPARE, SPARE, TMP))  # r2 = one size, but only then
+            emit(ASM.add_reg(ACC, ACC, SPARE))
+          end
+
+          # Turn a wrap onto 0...size into a wrap onto -size...0, which is what Ruby's `%`
+          # gives for a negative divisor. Every answer but zero moves down by one size;
+          # zero stays zero, which is the only reason this needs a branch at all.
+          def emit_flip_wrap_negative(size)
+            emit(ASM.load_immediate(TMP, size))
+            done = gensym
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, done, cond: :eq)
+            emit(ASM.sub_reg(ACC, ACC, TMP))
+            place_label(done)
+          end
+
           # x * 2**bits — one instruction, and exact: the low 32 bits of the product are
           # what a multiply would have left anyway.
           def emit_multiply_by_power_of_two(lhs, bits)
             eval_value(lhs)
             emit(ASM.lsl_imm(ACC, ACC, bits))
-            true
-          end
-
-          # x % 2**bits, with Ruby's meaning (see IR::Int32.mod). Keeping the low bits of
-          # a two's-complement number IS that answer for a positive power of two, sign
-          # and all: -1 keeps all its low bits and comes out as the range's top value.
-          def emit_wrap_to_power_of_two(lhs, bits)
-            eval_value(lhs)
-            emit_and_mask(ACC, (1 << bits) - 1)
             true
           end
 
@@ -216,18 +317,16 @@ module RubyGBA
             eval_value(node[:lhs])
             emit(ASM.push(ACC))
             eval_value(node[:rhs])
-            emit(ASM.pop(TMP))                       # r1 = lhs, r0 = rhs
-            low = 2
-            high = 3
-            emit(ASM.smull(low, high, ACC, TMP))     # r3:r2 = lhs * rhs, all 64 bits of it
+            emit(ASM.pop(TMP))                        # r1 = lhs, r0 = rhs
+            emit(ASM.smull(SPARE, HIGH, ACC, TMP))    # r3:r2 = lhs * rhs, all 64 bits of it
 
             case node[:fraction_bits]
-            when 0 then emit(ASM.mov_reg(ACC, low))  # nothing to shift off — the low word is the answer
-            when 32 then emit(ASM.mov_reg(ACC, high)) # shifted right by a whole word — the high one is
+            when 0 then emit(ASM.mov_reg(ACC, SPARE)) # nothing to shift off — the low word is the answer
+            when 32 then emit(ASM.mov_reg(ACC, HIGH)) # shifted right by a whole word — the high one is
             else
               bits = node[:fraction_bits]
-              emit(ASM.lsr_imm(ACC, low, bits))                    # r0 = the low word, shifted down
-              emit(ASM.orr_reg_lsl(ACC, ACC, high, 32 - bits))     # + the high word's bits sliding in
+              emit(ASM.lsr_imm(ACC, SPARE, bits))                  # r0 = the low word, shifted down
+              emit(ASM.orr_reg_lsl(ACC, ACC, HIGH, 32 - bits))     # + the high word's bits sliding in
             end
           end
 
@@ -245,12 +344,16 @@ module RubyGBA
           end
 
           # Divide through the BIOS Div routine — the ARM7TDMI has no divide
-          # instruction, so a division traps into the BIOS. It wants the numerator
-          # in r0 and the denominator in r1; after the binop setup r1 already holds
-          # lhs (numerator) and r0 holds rhs (denominator), so swap them (via r2)
-          # and trap. The quotient comes back in r0, our accumulator — right where
-          # an expression's result belongs. (r1 gets the remainder, r3 is clobbered;
-          # neither survives a statement here, so that's fine.)
+          # instruction, so a division traps into the BIOS. This is where a divisor the
+          # GAME works out ends up, and by now the only one: a divisor written into the
+          # program has had its reciprocal found at build time instead.
+          #
+          # The routine wants the numerator in r0 and the denominator in r1; after the
+          # binop setup r1 already holds lhs (numerator) and r0 holds rhs (denominator),
+          # so swap them (via r2) and trap. The quotient comes back in r0, our
+          # accumulator — right where an expression's result belongs. (r1 gets the
+          # remainder, r3 is clobbered; neither survives a statement here, so that's
+          # fine.)
           def emit_division
             emit(ASM.mov_reg(2, ACC))   # r2 = denominator (rhs)
             emit(ASM.mov_reg(ACC, TMP)) # r0 = numerator (lhs)
@@ -258,13 +361,16 @@ module RubyGBA
             emit(ASM.swi(0x06 << 16))   # BIOS Div: r0 = r0 / r1
           end
 
-          # What is left over after dividing by something that is not a power of two.
+          # What is left over after dividing by a size the game works out.
           #
           # The BIOS hands the leftover back in r1 alongside the quotient, so the divide
           # itself costs nothing extra here. But it gives that leftover the sign of the
           # NUMERATOR, and Ruby's answer takes the sign of the divisor (see
           # IR::Int32.mod). When the two disagree — and only then — one divisor has to be
-          # added back. r2 keeps the divisor across the call, which the BIOS leaves alone.
+          # added back. Nothing here knows which sign the divisor has, so the two are
+          # compared; where the size IS written into the program that is settled at build
+          # time instead. r2 keeps the divisor across the call, which the BIOS leaves
+          # alone.
           def emit_modulo
             emit(ASM.mov_reg(2, ACC))
             emit(ASM.mov_reg(ACC, TMP))

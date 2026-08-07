@@ -10,7 +10,7 @@
       "data": 5252
     },
     "breakout": {
-      "code": 88252,
+      "code": 88424,
       "data": 100
     },
     "buffered_bounce": {
@@ -50,7 +50,7 @@
       "data": 620
     },
     "pacman": {
-      "code": 16824,
+      "code": 16912,
       "data": 3908
     },
     "parallax": {
@@ -66,7 +66,7 @@
       "data": 0
     },
     "pong": {
-      "code": 27264,
+      "code": 27272,
       "data": 216
     },
     "raycaster": {
@@ -82,15 +82,15 @@
       "data": 728
     },
     "shmup": {
-      "code": 22852,
+      "code": 22968,
       "data": 2328
     },
     "snake": {
-      "code": 58568,
+      "code": 58744,
       "data": 84
     },
     "snake_buffered": {
-      "code": 62304,
+      "code": 62424,
       "data": 82
     },
     "sprite_mover": {
