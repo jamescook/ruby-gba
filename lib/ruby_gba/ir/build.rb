@@ -22,6 +22,16 @@ module RubyGBA
     # Note the trailing underscores: +if_+, +loop_+, +case_+ — +if+/+loop+/+case+
     # are Ruby keywords, so the helpers can't reuse those bare names.
     module Build
+      # An object drawn at its own size — the value an #object's +scale+ operand holds
+      # when nothing has resized it. A size is carried as a count of these, so half size
+      # is SCALE_ONE / 2 and double is SCALE_ONE * 2, and a backend divides by it to
+      # work out which part of the picture lands on a given pixel.
+      #
+      # It is 65536 because that is how many parts the DSL splits a fraction into
+      # (Fraction::DEFAULT_BITS), so a size the author writes as 1.5 arrives here with
+      # nothing to convert. A test pins the two together.
+      SCALE_ONE = 1 << 16
+
       module_function
 
       # --- program root ---
@@ -486,10 +496,18 @@ module RubyGBA
       # pay nothing for rotation. An object that turns holds a variable here instead,
       # and a backend rotates the picture to that angle each frame (the display's own
       # rotate/scale on hardware, a rotated sample in the reference interpreter).
+      #
+      # +scale+ is a value operand: how big to draw the object, in SCALE_ONE-ths of its
+      # own size, about the same center the angle turns about. It defaults to the
+      # constant SCALE_ONE — as drawn — which a backend can see and pay nothing for, the
+      # same way it can for the angle. Angle and scale describe one transform together:
+      # an object may turn, or resize, or both, and a backend that realizes either
+      # realizes both at once.
       # Reserves the object; #present_objects is what actually draws it for a frame.
-      def object(name, poses:, pose:, x:, y:, active:, angle: 0)
+      def object(name, poses:, pose:, x:, y:, active:, angle: 0, scale: SCALE_ONE)
         Node.new(:object, name: name, poses: poses, pose: wrap(pose),
-                          x: wrap(x), y: wrap(y), active: wrap(active), angle: wrap(angle))
+                          x: wrap(x), y: wrap(y), active: wrap(active),
+                          angle: wrap(angle), scale: wrap(scale))
       end
 
       # Draw the named objects for this frame, on top of the background, in order

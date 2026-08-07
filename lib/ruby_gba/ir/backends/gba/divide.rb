@@ -67,11 +67,16 @@ module RubyGBA
           # Does this program divide by anything it works out as it runs? A divisor
           # written into the program is handled at build time and needs none of this;
           # 1, -1 and 0 are written down but still come here, which is why they count.
+          #
+          # A sprite that changes size counts too, even though the program never wrote a
+          # division: drawing at a size means dividing BY it, and the framework does that
+          # for the author every frame (see Drawing#emit_object_scale_reciprocal).
           def needs_divide_routine?(program)
             program.walk.any? do |node|
               case node.kind
               when :binop then %i[/ %].include?(node[:op]) && divisor_needs_routine?(node[:rhs])
               when :div_fix then folds_to_plain_divide?(node) && divisor_needs_routine?(node[:rhs])
+              when :object then object_scales?(node)
               else false
               end
             end

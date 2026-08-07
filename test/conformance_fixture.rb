@@ -148,7 +148,10 @@ module ConformanceFixture
       B.fade(toward: :black, amount: B.int(0)), # blend the picture toward a color (0 = as drawn)
       B.object(:hero_obj, poses: [:obj8], pose: B.int(0), # a composited object (one pose, held at index 0)
                           x: B.var_ref(:x), y: B.var_ref(:y), active: B.int(1),
-                          angle: B.int(45)), # turned 45 degrees — exercises the affine/rotation path
+                          # Turned 45 degrees and drawn at half again its size — the two
+                          # halves of the transform, together, since a backend that does
+                          # either does both through the same matrix.
+                          angle: B.int(45), scale: B.int(B::SCALE_ONE * 3 / 2)),
 
       B.present_objects([:hero_obj]),   # draw the declared objects for this frame
       B.save_region(:under, :x, :y),    # remember the pixels under a moving object

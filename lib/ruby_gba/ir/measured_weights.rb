@@ -35,6 +35,8 @@ module RubyGBA
         dma_pixel: 0.00122,
         obj_write: 0.11726,
         scroll_write: 0.10425,
+        obj_turn: 0.11752,
+        obj_resize: 0.15460,
         camera_move: 0.08355,
         fade_set: 0.02570,
         save_write: 0.07025,

@@ -583,6 +583,12 @@ module RubyGBA
           OBJ_ROTSCALE     = 0x0100
           OBJ_DOUBLE_SIZE  = 0x0200
 
+          # Where one over a resizing sprite's size is parked between the divide that
+          # works it out and the multiplies that use it (see #emit_object_scale_reciprocal).
+          # One variable serves every sprite, because each is done with before the next
+          # one starts.
+          OBJ_SCALE_RECIP = :_obj_scale_recip
+
           # One-time sprite setup at boot: blank the whole sprite table (its memory is
           # garbage at power-on, so an untouched slot would show a stray sprite), upload
           # the one shared color table every sprite indexes into, then each sprite's
@@ -631,8 +637,8 @@ module RubyGBA
             emit_branch(:b, done)
 
             place_label(draw)
-            if obj[:rotates]
-              emit_draw_object_turned(obj, base)
+            if obj[:transformed]
+              emit_draw_object_transformed(obj, base)
             else
               emit_draw_object_upright(obj, base)
             end
@@ -656,12 +662,12 @@ module RubyGBA
             emit_object_tile_number(obj, base + 4)
           end
 
-          # A turning sprite: the console draws it through its affine group in a double-
-          # size box. We offset the box top-left by half the sprite so the picture stays
-          # centered where an upright one would sit and pivots on its own center, turn on
-          # the rotate/scale and double-size bits, point attr1 at the affine group, then
-          # fill that group with this frame's rotation matrix.
-          def emit_draw_object_turned(obj, base)
+          # A turning or resizing sprite: the console draws it through its affine group in
+          # a double-size box. We offset the box top-left by half the sprite so the
+          # picture stays centered where an upright one would sit and pivots on its own
+          # center, turn on the rotate/scale and double-size bits, point attr1 at the
+          # affine group, then fill that group with this frame's matrix.
+          def emit_draw_object_transformed(obj, base)
             half_w = obj[:width] / 2
             half_h = obj[:height] / 2
             # attr0 = ((y - half_h) & 0xFF) | rotate/scale + double-size + shape/color
@@ -680,14 +686,17 @@ module RubyGBA
             emit_object_affine_matrix(obj)
           end
 
-          # Fill this sprite's affine group with a rotation matrix for its current angle.
-          # The group's four parameters (PA, PB, PC, PD) live in the fourth halfword of
-          # four sprite slots, 8 bytes apart, starting 6 bytes into the group. For a
-          # clockwise turn of the drawn picture the matrix is [PA PB; PC PD] =
-          # [cos sin; -sin cos] (the console reads it as screen -> texture, so the same
-          # matrix the reference interpreter samples through — the two agree by design).
+          # Fill this sprite's affine group with the matrix for its current angle and
+          # size. The group's four parameters (PA, PB, PC, PD) live in the fourth
+          # halfword of four sprite slots, 8 bytes apart, starting 6 bytes into the
+          # group. For a clockwise turn of the drawn picture the matrix is
+          # [PA PB; PC PD] = [cos sin; -sin cos], each scaled by one over the size — the
+          # console reads it as screen -> picture, so it is the same matrix the reference
+          # interpreter samples through, built by the same {IR::Affine} rules. The two
+          # agree by design.
           def emit_object_affine_matrix(obj)
             group = OAM_START + (obj[:affine_slot] * 32)
+            emit_object_scale_reciprocal(obj) if obj[:scales] # do the divide first: it clobbers everything
             eval_value(obj[:angle])                      # r0 = angle in degrees (0..359)
             emit_load_data_address(TMP, OBJ_SINE_BLOB)   # r1 = sine table base
             emit(ASM.lsl_imm(2, ACC, 1))                 # r2 = angle * 2 (halfword offset)
@@ -697,11 +706,45 @@ module RubyGBA
             emit(ASM.lsl_imm(3, 3, 1))
             emit(ASM.add_reg(ADDR, TMP, 3))
             emit(ASM.ldrsh(3, ADDR))                     # r3 = sin(angle + 90) = cos(angle)
+            emit_scale_sine_and_cosine if obj[:scales]   # r2, r3 *= one over the size
             emit(ASM.rsb_imm(ACC, 2, 0))                 # r0 = -sin(angle)
             store_halfword_reg(3, group + 6)             # PA =  cos
             store_halfword_reg(2, group + 14)            # PB =  sin
             store_halfword_reg(ACC, group + 22)          # PC = -sin
             store_halfword_reg(3, group + 30)            # PD =  cos
+          end
+
+          # Work out one over this sprite's size and park it in a scratch variable.
+          #
+          # The matrix says which picture pixel lands on a given screen pixel, so drawing
+          # bigger means stepping through the picture SLOWER — the matrix carries one
+          # over the size, not the size. There is nothing to precompute (the size is a
+          # number the game works out), so this is a real division, once per resizing
+          # sprite per frame, and it is why resizing costs more than turning.
+          #
+          # It goes to memory rather than staying in a register because the divide
+          # routine uses every scratch register there is.
+          def emit_object_scale_reciprocal(obj)
+            eval_value(obj[:scale])                             # r0 = size, in SCALE_ONE-ths
+            emit(ASM.cmp_imm(ACC, Affine::MIN_SCALE))
+            emit(ASM.mov_imm_cond(:lt, ACC, Affine::MIN_SCALE)) # a size of 0 has no reciprocal
+            emit(ASM.load_immediate(Divide::DIV_NUM, Build::SCALE_ONE * Affine::ONE_TH))
+            emit_call_divide_routine                            # r0 = SCALE_ONE * 256 / size
+            emit(ASM.load_immediate(TMP, Affine::MAX))
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit(ASM.mov_reg_cond(:gt, ACC, TMP))               # too tiny to say: hold at the largest
+            store_var(ACC, OBJ_SCALE_RECIP)
+          end
+
+          # Scale the sine and cosine in r2/r3 by the reciprocal worked out above, back
+          # down into 256ths. A shift, not a divide, so the rounding matches
+          # Affine.matrix — which rounds down for the same reason.
+          def emit_scale_sine_and_cosine
+            load_var(4, OBJ_SCALE_RECIP)
+            emit(ASM.mul(5, 2, 4)) # rd must differ from rm, so the product lands elsewhere
+            emit(ASM.asr_imm(2, 5, 8))
+            emit(ASM.mul(5, 3, 4))
+            emit(ASM.asr_imm(3, 5, 8))
           end
 
           # Store the low halfword of +reg+ to a fixed address (a sibling of

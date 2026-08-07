@@ -175,6 +175,21 @@ module RubyGBA
         object_node[:angle] = Build.var_ref(angle_var)
       end
 
+      # Make a hardware sprite able to change size (see HardwareSprite#scale): allocate
+      # its size variable, boot it to "as drawn", and swap the object's scale operand
+      # from its default constant to that variable. The same shape as
+      # #make_object_rotatable, and for the same reason — a sprite that never resizes
+      # keeps the constant and pays nothing. Called by the HardwareSprite handle.
+      def make_object_scalable(object_node, scale_var)
+        return unless object_node[:scale].kind == :int # already resizing (a variable size)
+
+        # Declared with a Float, which is how a program says "this holds a fraction" —
+        # so the size variable carries its scale like any other, and 1.0 boots it to
+        # exactly the constant it is replacing.
+        var(scale_var, 1.0)
+        object_node[:scale] = Build.var_ref(scale_var)
+      end
+
       private
 
       # A `screen :tiled` sprite: the console draws it in hardware. Reserve a name for

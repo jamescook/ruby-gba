@@ -41,9 +41,10 @@ module RubyGBA
           when :blit then blit_cost(node[:name])
           when :blit_pose then blit_cost(node[:poses].first)         # one pose draws; all are the same size
           when :save_region, :restore_region then region_cost(node[:buffer])
-          # Tiled-mode per-frame upkeep: one position rewrite per presented sprite, and
-          # the two scroll-register writes when a background moves.
-          when :present_objects then node[:names].to_a.length * @weights[:obj_write]
+          # Tiled-mode per-frame upkeep: a rewrite per presented sprite (dearer for one
+          # that turns or resizes — see #present_object_cost), and the two scroll-register
+          # writes when a background moves.
+          when :present_objects then node[:names].to_a.sum { |name| present_object_cost(name) }
           when :scroll_background then @weights[:scroll_write]
           # Telling the display what to show, without redrawing a pixel: where the window
           # over the picture sits, and how far the whole picture is blended toward a color.
@@ -74,6 +75,20 @@ module RubyGBA
           when :save_store then @weights[:save_write]
           else note_unpriced(node.kind, FREE_STATEMENT_KINDS)
           end
+        end
+
+        # What drawing one sprite costs this frame. A sprite that only moves is its
+        # position written into the display's table. One that turns is drawn through a
+        # matrix rebuilt from its angle every frame, which costs about as much again. One
+        # that also changes size pays a division on top of that — the dearest of the
+        # three, and the only one the author never wrote (see {Sprite}).
+        def present_object_cost(name)
+          sprite = @objects && @objects[name]
+          return @weights[:obj_write] unless sprite
+
+          @weights[:obj_write] +
+            (sprite.turns ? @weights[:obj_turn] : 0) +
+            (sprite.resizes ? @weights[:obj_resize] : 0)
         end
 
         # A fade is two register writes: which way to blend, and how far. "How far" is a

@@ -11,6 +11,11 @@
 # Climb or dive and it tilts to match — `face_angle` turns the whole sprite in hardware, the
 # way a bird pitches its nose up and down.
 #
+# It also drifts toward you and away again, over and over: `pulse` grows and shrinks the
+# sprite on a slow rhythm, so the bird reads as nearer or further off without a second
+# picture or a line of per-frame code. Size and angle are one thing to the console, so the
+# bird tilts and drifts at the same time for the price of either.
+#
 # This is the modern art workflow: draw in your tool, point the game at the file. (An
 # Aseprite sheet exported to a PNG + JSON works the same way — pass that .json instead.)
 #
@@ -22,6 +27,11 @@ require_relative "../lib/ruby_gba"
 module Bird
   SPEED = 2 # pixels per frame the D-pad moves the bird
 
+  # How near and how far the bird drifts, and how long one round trip takes.
+  NEAREST = 1.25
+  FURTHEST = 0.75
+  DRIFT_SECONDS = 2.5
+
   GAME = RubyGBA.game("BIRD", code: "BBRD", maker: "01") do
     screen :tiled # tile mode: a background layer for the sky + a hardware sprite for the bird
 
@@ -32,6 +42,10 @@ module Bird
 
     # The whole animated sprite — six flapping frames — comes from the .aseprite file.
     bird = sprite :bird, at: [88, 48], from_aseprite: "assets/bird.aseprite"
+
+    # Drift nearer and further, for ever. Said once, here; the framework does the rest
+    # every frame.
+    pulse bird, from: FURTHEST, to: NEAREST, over: DRIFT_SECONDS
 
     game_loop do
       bird.face_angle(0) # level unless it's climbing or diving this frame

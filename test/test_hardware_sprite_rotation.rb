@@ -139,6 +139,6 @@ class TestHardwareSpriteRotation < Minitest::Test
     end
     builder.emit_pending_functions
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(builder.program) }
-    assert_match(/turn at most 32/, err.message)
+    assert_match(/at most 32/, err.message)
   end
 end
