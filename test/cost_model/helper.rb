@@ -21,6 +21,9 @@ module CostArith
   def dma_rows(w, h) = (h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:dma_pixel])
   def plot_rect(w, h) = w * h * WEIGHTS[:plot_pixel] # fill_rect: a CPU per-pixel loop
   def dma_blob(pixels) = WEIGHTS[:dma_setup] + (pixels * WEIGHTS[:dma_pixel])
+  # A repeat: each pass runs the body AND pays for going round (the count, the test, the
+  # jump back), which is real work and roughly three plain steps.
+  def loop_cost(passes, body) = passes * (body + WEIGHTS[:loop_pass])
   # A glyph/text costs the pixels it plots, in the given font.
   def text_cost(text, font = :default) = RubyGBA::Fonts.get(font).text_pixels(text) * WEIGHTS[:plot_pixel]
   def digit_cost(font = :default) = RubyGBA::Fonts.get(font).max_glyph_pixels(("0".."9").to_a) * WEIGHTS[:plot_pixel]

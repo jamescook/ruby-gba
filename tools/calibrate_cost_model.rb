@@ -157,6 +157,48 @@ def sprites_busy(n)
   measure("obj#{n}", rom)
 end
 
+# What one pass of a `repeat` costs before its body does anything — the counter, the
+# compare and the branch back. Two loops with the same (empty) body and different trip
+# counts difference to the per-pass bookkeeping.
+#
+# Every other weight here is measured by #per_op, which varies how many COPIES of an op a
+# pass holds and keeps the trip count fixed — that cancels this cost by construction,
+# correctly for the op's own weight, which is why the loop's own cost needs its own case.
+def loop_busy(per_frame)
+  rom = RubyGBA.build("lp#{per_frame}", code: "LP#{per_frame.to_s.rjust(2, '0')[0, 2]}", maker: "01",
+                                        err: StringIO.new) do
+    screen :bitmap
+    clear_screen :black
+    var :x, 0
+    b = self
+    game_loop { b.wait_vblank; b.repeat(per_frame) { nil } }
+  end
+  measure("lp#{per_frame}", rom)
+end
+
+# A division worked out as the program runs walks the answer one bit at a time, so it is
+# not one price: the routine costs a fixed setup plus a step per bit of the ANSWER.
+# Holding the divisor at 1 and growing the numerator sweeps the answer's width.
+def divide_busy(bits, repeat_n, copies)
+  numerator = bits.zero? ? 0 : (2**bits) - 1
+  name = "dw#{bits}x#{copies}"
+  rom = RubyGBA.build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
+    screen :bitmap
+    clear_screen :black
+    n = var :n, numerator
+    d = var :d, 1
+    var :out, 0
+    b = self
+    game_loop { b.wait_vblank; b.repeat(repeat_n) { copies.times { b.set :out, (n / d) } } }
+  end
+  measure(name, rom)
+end
+
+# One division of a `bits`-wide answer, with the loop and the `set` around it cancelled.
+def per_divide(bits, repeat_n = 60)
+  (divide_busy(bits, repeat_n, 6) - divide_busy(bits, repeat_n, 2)) / (repeat_n * 4.0)
+end
+
 # Per-frame cost of mirroring one persisted variable back to save memory. Every change
 # to a `save_var` emits one of these, right after the change. Two ROMs that differ ONLY
 # in whether the variable is persisted cancel the change itself exactly, leaving what
@@ -191,6 +233,10 @@ measured = {}
 
 # --- logic (op_* tiers) ---
 measured[:op_step] = per_op("step", 500, 2, 8) { |b, _xv| b.add :x, 1 }
+# What a pass of a `repeat` costs before its body does anything. Every weight around it
+# is measured with the trip count held fixed, which cancels this — so it needs its own
+# case or it is never measured at all.
+measured[:loop_pass] = (loop_busy(900) - loop_busy(300)) / (900 - 300).to_f
 # op_mul / op_div = op_step + the operator's extra cost over an add (a `set :y,
 # (x <op> 100)` is a set plus the operator; differencing against `+` isolates it).
 #
@@ -208,9 +254,13 @@ measured[:op_step] = per_op("step", 500, 2, 8) { |b, _xv| b.add :x, 1 }
 measured[:op_mul] = measured[:op_step] +
                     (per_op("mul", 300, 2, 6) { |b, xv| b.set :y, (xv * 100) } -
                      per_op("addm", 300, 2, 6) { |b, xv| b.set :y, (xv + 2) })
-measured[:op_div] = measured[:op_step] +
-                    (per_op("div", 80, 2, 4) { |b, xv, dv| b.set :y, (xv / dv) } -
-                     per_op("addd", 80, 2, 4) { |b, xv| b.set :y, (xv + 2) })
+# A divisor the game works out is the one case that still walks the answer a bit at a
+# time, so it is TWO numbers: a fixed setup, and a step for every bit of the answer. The
+# base is measured at an answer of no width at all, which is what op_div has always been
+# (7 / 100 answers zero), so this number carries on from the one before it.
+addd = per_op("addd", 60, 2, 6) { |b, xv| b.set :y, (xv + 2) }
+measured[:op_div] = measured[:op_step] + (per_divide(0) - addd)
+measured[:op_div_bit] = (per_divide(30) - per_divide(0)) / 30.0
 # A divide by a number written into the program: no call, just a 64-bit multiply by a
 # reciprocal worked out at build time and a couple of instructions to round it. A wrap
 # (`%`) by such a number is built on this and costs somewhat more, and is priced here

@@ -97,8 +97,11 @@ module RubyGBA
             cond = drawing_only ? 0 : expr_cost(node[:cond], worst: worst)
             cond + node.children.sum { |child| steady(child, drawing_only, worst: worst) } +
               (node[:else] ? steady(node[:else], drawing_only, worst: worst) : 0)
+          # A pass round a loop costs something before the body does anything — see
+          # #loop_pass_leaf. It is bookkeeping, so the tear measure (drawing only) skips it.
           when :repeat
-            repeat_factor(node).first * node.children.sum { |child| steady(child, drawing_only, worst: worst) }
+            body = node.children.sum { |child| steady(child, drawing_only, worst: worst) }
+            repeat_factor(node).first * (body + (drawing_only ? 0 : @weights[:loop_pass]))
           # A timed trigger's steady per-frame cost follows from its kind: every(k)
           # runs one frame in k, so its body counts 1/k; after(n) fires once ever, so
           # it adds nothing to the every-frame load.
@@ -271,12 +274,23 @@ module RubyGBA
           { op: :call, label: "call :#{node[:target]}", cost: sum(kids), source: node.source, children: kids }
         end
 
-        # A repeat runs its body count times, so its cost multiplies.
+        # A repeat runs its body count times, so its cost multiplies — and so does the
+        # cost of going round, which leads the body because that is when it happens.
         def build_repeat(node)
           factor, note = repeat_factor(node)
-          kids = node.children.flat_map { |child| build(child) }
+          kids = loop_pass_leaf + node.children.flat_map { |child| build(child) }
           { op: :repeat, label: "repeat #{note}", cost: factor * sum(kids), factor: factor,
             source: node.source, children: kids }
+        end
+
+        # What one pass round a loop costs before the body does anything: counting, testing
+        # the count, and jumping back. Small — about three plain steps — but it is paid
+        # once per pass like everything else in the body, so a loop that runs six hundred
+        # times pays it six hundred times. Shown as its own line so a reader can see that a
+        # loop is never free, and that a tight loop over a cheap body is mostly loop.
+        def loop_pass_leaf
+          [{ op: :loop_pass, name: "the loop itself", label: "the loop itself",
+             cost: @weights[:loop_pass], children: [] }]
         end
 
         # A timed trigger (every/after) as a labeled container: it carries its body's

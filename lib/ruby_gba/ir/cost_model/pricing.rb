@@ -178,7 +178,7 @@ module RubyGBA
         def op_weight(node)
           case node[:op]
           when :* then power_of_two_operand?(node[:rhs]) ? @weights[:op_step] : @weights[:op_mul]
-          when :/, :% then divide_weight(const_side(node[:rhs]))
+          when :/, :% then divide_weight(numerator: const_side(node[:lhs]), divisor: const_side(node[:rhs]))
           else @weights[:op_step]
           end
         end
@@ -191,7 +191,10 @@ module RubyGBA
         def div_fix_weight(node)
           return @weights[:op_div_fix] unless div_fix_folds?(node)
 
-          divide_weight(const_side(node[:rhs]))
+          # It lowers to an ordinary division of the WIDENED numerator, so that is the
+          # number whose width bounds the answer — not the one written in the program.
+          divide_weight(numerator: const_side(node[:lhs]) << node[:fraction_bits],
+                        divisor: const_side(node[:rhs]))
         end
 
         # Whether a fraction divide's numerator is a number written into the program and
@@ -209,19 +212,47 @@ module RubyGBA
 
         # What one divide or wrap costs, from where its divisor comes from. A negative
         # divisor reduces the same way its size does, with the answer flipped after.
-        #
-        # op_div is one number for something that is not one price: a division worked out
-        # as the program runs walks the answer a bit at a time, so it costs about 79
-        # cycles plus 4 for every bit of the answer — 0.064 scanlines for a small answer
-        # and 0.194 for a full-width one. This prices it at the small end, which is where
-        # it is measured. The spread used to be five-fold and is now under two and a half,
-        # which is what makes a single number defensible at all.
-        def divide_weight(divisor)
+        # Both sides are given as build-time numbers, or nil where the game works one out.
+        def divide_weight(numerator:, divisor:)
           size = divisor&.abs
-          return @weights[:op_div] unless size && size > 1
+          return runtime_divide_weight(numerator) unless size && size > 1
           return @weights[:op_step] if power_of_two?(size)
 
           @weights[:op_div_const]
+        end
+
+        # A divisor the game works out is the one divide left that walks its answer one bit
+        # at a time, so it is not one price: a fixed setup, plus a step for every bit of the
+        # ANSWER. Measured on the console, 0.071 scanlines for an answer of no width up to
+        # 0.165 for a full-width one — a spread of two and a third.
+        #
+        # An answer can be no wider than its numerator, so a numerator written into the
+        # program bounds it exactly, and that is worth reading: `WALL_HEIGHT / distance` can
+        # never answer wider than WALL_HEIGHT however small the distance, and `100 / total`
+        # never wider than 100. Those are the shapes a game divides in.
+        #
+        # WHEN NOTHING BOUNDS IT the price is the base alone. That is deliberate, and it is
+        # the part to argue with if this is ever revisited. Measured, per division:
+        #
+        #     an answer of no width   0.071        this charges 0.081
+        #     8 bits (a coordinate)   0.094
+        #     16 bits                 0.119
+        #     full width              0.165
+        #
+        # Game code divides to get a coordinate, a percentage, a share of a bar or an index,
+        # so its answers live in the first two rows — and the base sits between them, within
+        # about a seventh either way. Charging for a width nobody can see would make
+        # ordinary code read dearer than it is, and an estimate crying wolf on a game that
+        # fits is the failure this model can least afford.
+        #
+        # The undercharge that leaves is bounded: the whole spread is 0.094 scanlines a
+        # division, so it takes some hundreds of them in one frame to be worth a percent of
+        # that frame — and `explain` names a run-time divide and counts them, so a frame
+        # with hundreds says so out loud where a single weight never could.
+        def runtime_divide_weight(numerator)
+          return @weights[:op_div] unless numerator
+
+          @weights[:op_div] + (numerator.abs.bit_length * @weights[:op_div_bit])
         end
 
         # What to call one arithmetic operator in a report, or nil for anything that
