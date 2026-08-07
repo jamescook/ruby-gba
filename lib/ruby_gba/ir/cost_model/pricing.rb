@@ -89,7 +89,7 @@ module RubyGBA
         # What a value's own operator costs, ignoring what it is applied to.
         def own_cost(value, worst)
           case value.kind
-          when :binop then op_weight(value[:op])
+          when :binop then op_weight(value)
           when :mul_fix then @weights[:op_mul_fix]
           # One instruction, so it is priced at the cheapest tier. Measured against the
           # same harness the weights come from, it is 0.019 scanlines where an add is
@@ -142,12 +142,26 @@ module RubyGBA
         # An operator's weight: multiply and divide are their own (pricier) tiers;
         # everything else — add, subtract, the comparisons, the and/or that combine
         # conditions — is one plain step.
-        def op_weight(op)
+        # A divide, multiply or wrap by a power of two written into the program is a
+        # shift or two on the console, not a call — so it is priced as a plain step, and
+        # `explain` can say a divide by 256 is free while a divide by 100 is not. That
+        # is the same fact the lowering acts on; if one moves, both must.
+        def op_weight(node)
+          op = node[:op]
+          return @weights[:op_step] if %i[* / %].include?(op) && power_of_two_operand?(node[:rhs])
+
           case op
           when :* then @weights[:op_mul]
-          when :/ then @weights[:op_div]
+          when :/, :% then @weights[:op_div]
           else @weights[:op_step]
           end
+        end
+
+        # Whether the right-hand side is a power of two settled while building — the
+        # thing that lets the lowering reduce the operation to shifts.
+        def power_of_two_operand?(operand)
+          value = const_side(operand)
+          value&.positive? && value > 1 && (value & (value - 1)).zero?
         end
 
         # How many map cells a background stamps — the map is rows of tile cells, so

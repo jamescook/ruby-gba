@@ -30,7 +30,7 @@
       "data": 0
     },
     "grid_cursor": {
-      "code": 7620,
+      "code": 7404,
       "data": 0
     },
     "hero": {
@@ -50,7 +50,7 @@
       "data": 620
     },
     "pacman": {
-      "code": 17068,
+      "code": 16824,
       "data": 3908
     },
     "parallax": {
@@ -70,7 +70,7 @@
       "data": 216
     },
     "raycaster": {
-      "code": 4240,
+      "code": 4116,
       "data": 2168
     },
     "scroll": {
@@ -82,15 +82,15 @@
       "data": 728
     },
     "shmup": {
-      "code": 22996,
+      "code": 22852,
       "data": 2328
     },
     "snake": {
-      "code": 59192,
+      "code": 58568,
       "data": 84
     },
     "snake_buffered": {
-      "code": 62856,
+      "code": 62304,
       "data": 82
     },
     "sprite_mover": {

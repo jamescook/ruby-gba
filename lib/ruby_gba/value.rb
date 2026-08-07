@@ -97,6 +97,16 @@ module RubyGBA
       scaled(Build.binop(:/, @node, node_at_scale(other, Fraction.bits_of(other))), @fraction_bits)
     end
 
+    # What is left over after dividing — Ruby's meaning, so `-1 % 64` is 63.
+    #
+    # This is how you wrap a value onto a range: an angle that stepped below zero comes
+    # back near a full turn, a map coordinate off the left edge comes back against the
+    # right one. Wrapping onto a range that is a power of two (64, 256, 512) costs one
+    # instruction; any other range is a real division.
+    def %(other)
+      scaled(Build.binop(:%, @node, node_at_scale(other, Fraction.bits_of(other))), @fraction_bits)
+    end
+
     # --- moving between a fraction and a whole number ---
 
     # This value as a whole number, dropping the fraction — rounding down, so -0.5

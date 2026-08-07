@@ -106,6 +106,8 @@ module RubyGBA
           # combine. Using the stack for the intermediate keeps arbitrarily nested
           # expressions correct without a register allocator.
           def eval_binop(node)
+            return if emit_power_of_two_binop(node)
+
             eval_value(node[:lhs])
             emit(ASM.push(ACC))
             eval_value(node[:rhs])
@@ -121,7 +123,80 @@ module RubyGBA
             when :and then emit(ASM.and_reg(ACC, TMP, ACC))
             when :or then emit(ASM.orr_reg(ACC, TMP, ACC))
             when :/ then emit_division
+            when :% then emit_modulo
             else emit_comparison(op)
+            end
+          end
+
+          # Dividing, multiplying or wrapping by a power of two written into the program
+          # — the cases the chip can do for nothing. Returns true when it handled the
+          # node, false when the general path has to.
+          #
+          # This is a lowering trick, not an IR one: the tree still says divide, and a
+          # backend without a barrel shifter is free to ignore all of it. Nothing the
+          # author writes mentions a shift, which is the point — the speed comes from the
+          # compiler, not from asking a Ruby programmer to think in bits.
+          def emit_power_of_two_binop(node)
+            bits = power_of_two_bits(node[:rhs])
+            case node[:op]
+            when :/ then bits && emit_divide_by_power_of_two(node[:lhs], bits)
+            when :* then bits && emit_multiply_by_power_of_two(node[:lhs], bits)
+            when :% then bits && emit_wrap_to_power_of_two(node[:lhs], bits)
+            end
+          end
+
+          # How many bits +operand+ is a power of two of, or nil if it isn't one written
+          # into the program. Only positive powers: a negative divisor has none of the
+          # useful structure, and 1 is left to the general path so `x / 1` stays honest.
+          def power_of_two_bits(operand)
+            value = const_int(operand)
+            return nil unless value&.positive? && (value & (value - 1)).zero? && value > 1
+
+            Math.log2(value).to_i
+          end
+
+          # x / 2**bits, TRUNCATING TOWARD ZERO — the meaning `/` has everywhere else
+          # here, and what the console's BIOS divide would have given.
+          #
+          # A plain arithmetic shift is not that. It rounds toward minus infinity, so
+          # -7 >> 2 is -2 where -7 / 4 is -1. The fix is to nudge a negative numerator up
+          # by one less than the divisor before shifting, and the sign of the number is
+          # itself available as a shift: shifting right by 31 leaves all ones for a
+          # negative and all zeros for anything else. Three instructions, no branch, and
+          # no call.
+          def emit_divide_by_power_of_two(lhs, bits)
+            eval_value(lhs)
+            emit(ASM.asr_imm(TMP, ACC, 31))                  # r1 = -1 when negative, else 0
+            emit(ASM.add_reg_lsr(ACC, ACC, TMP, 32 - bits))  # + (2**bits - 1) when negative
+            emit(ASM.asr_imm(ACC, ACC, bits))
+            true
+          end
+
+          # x * 2**bits — one instruction, and exact: the low 32 bits of the product are
+          # what a multiply would have left anyway.
+          def emit_multiply_by_power_of_two(lhs, bits)
+            eval_value(lhs)
+            emit(ASM.lsl_imm(ACC, ACC, bits))
+            true
+          end
+
+          # x % 2**bits, with Ruby's meaning (see IR::Int32.mod). Keeping the low bits of
+          # a two's-complement number IS that answer for a positive power of two, sign
+          # and all: -1 keeps all its low bits and comes out as the range's top value.
+          def emit_wrap_to_power_of_two(lhs, bits)
+            eval_value(lhs)
+            emit_and_mask(ACC, (1 << bits) - 1)
+            true
+          end
+
+          # AND a register with a mask, loading the mask first when it is too big to ride
+          # along inside the instruction (anything past 8 bits).
+          def emit_and_mask(reg, mask)
+            if mask <= 0xFF
+              emit(ASM.and_imm(reg, reg, mask))
+            else
+              emit(ASM.load_immediate(TMP, mask))
+              emit(ASM.and_reg(reg, reg, TMP))
             end
           end
 
@@ -181,6 +256,30 @@ module RubyGBA
             emit(ASM.mov_reg(ACC, TMP)) # r0 = numerator (lhs)
             emit(ASM.mov_reg(TMP, 2))   # r1 = denominator
             emit(ASM.swi(0x06 << 16))   # BIOS Div: r0 = r0 / r1
+          end
+
+          # What is left over after dividing by something that is not a power of two.
+          #
+          # The BIOS hands the leftover back in r1 alongside the quotient, so the divide
+          # itself costs nothing extra here. But it gives that leftover the sign of the
+          # NUMERATOR, and Ruby's answer takes the sign of the divisor (see
+          # IR::Int32.mod). When the two disagree — and only then — one divisor has to be
+          # added back. r2 keeps the divisor across the call, which the BIOS leaves alone.
+          def emit_modulo
+            emit(ASM.mov_reg(2, ACC))
+            emit(ASM.mov_reg(ACC, TMP))
+            emit(ASM.mov_reg(TMP, 2))
+            emit(ASM.swi(0x06 << 16))
+            emit(ASM.mov_reg(ACC, TMP))  # r0 = the leftover, signed like the numerator
+
+            done = gensym
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, done, cond: :eq) # nothing left over: no signs to disagree
+            emit(ASM.eor_reg(3, ACC, 2))         # do the two signs differ?
+            emit(ASM.cmp_imm(3, 0))
+            emit_branch(:bcond, done, cond: :ge)
+            emit(ASM.add_reg(ACC, ACC, 2))
+            place_label(done)
           end
 
           # A comparison yields 1 or 0. Compare, default the result to 0, and set it
