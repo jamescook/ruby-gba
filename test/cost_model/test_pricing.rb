@@ -144,11 +144,62 @@ class TestCostPricing < CostModelTest
     divider = program do
       screen :bitmap
       x = var :x, 100
-      game_loop { x.set(x / 2) }
+      game_loop { x.set(x / 100) }
     end
 
     assert_operator Cost.new.steady_cost(divider), :>, Cost.new.steady_cost(adder),
                     "a divide (BIOS routine) should cost more than an add"
+  end
+
+  # ...but not every divide is that. By a power of two the console shifts instead of
+  # calling, so the estimate has to say so — otherwise it would send an author chasing a
+  # cost that is not there. This is the same fact the lowering acts on.
+  def test_a_divide_by_a_power_of_two_is_priced_as_a_plain_step
+    adder = program do
+      screen :bitmap
+      x = var :x, 100
+      game_loop { x.set(x + 1) }
+    end
+    halver = program do
+      screen :bitmap
+      x = var :x, 100
+      game_loop { x.set(x / 256) }
+    end
+
+    near Cost.new.steady_cost(adder), Cost.new.steady_cost(halver)
+  end
+
+  def test_multiplying_and_wrapping_by_a_power_of_two_are_priced_as_plain_steps
+    [->(x) { x * 64 }, ->(x) { x % 64 }].each do |cheap|
+      plain = program do
+        screen :bitmap
+        x = var :x, 100
+        game_loop { x.set(x + 1) }
+      end
+      shifted = program do
+        screen :bitmap
+        x = var :x, 100
+        game_loop { x.set(cheap.call(x)) }
+      end
+
+      near Cost.new.steady_cost(plain), Cost.new.steady_cost(shifted)
+    end
+  end
+
+  # A wrap onto anything else is a real divide, and priced as one.
+  def test_wrapping_onto_a_size_that_is_not_a_power_of_two_costs_a_divide
+    adder = program do
+      screen :bitmap
+      x = var :x, 100
+      game_loop { x.set(x + 1) }
+    end
+    wrapper = program do
+      screen :bitmap
+      x = var :x, 100
+      game_loop { x.set(x % 100) }
+    end
+
+    assert_operator Cost.new.steady_cost(wrapper), :>, Cost.new.steady_cost(adder)
   end
 
   # A collision test's comparison chain runs every frame, whether or not it hits, so
@@ -201,14 +252,14 @@ class TestCostPricing < CostModelTest
       table :nums, (0...64).to_a
       i = var :i, 3
       out = var :out, 0
-      game_loop { out.set(((i / 4) * 8) + (i / 2)) }
+      game_loop { out.set(((i / 5) * 8) + (i / 3)) }
     end
     inside = program do
       screen :bitmap
       t = table :nums, (0...64).to_a
       i = var :i, 3
       out = var :out, 0
-      game_loop { out.set t[((i / 4) * 8) + (i / 2)] }
+      game_loop { out.set t[((i / 5) * 8) + (i / 3)] }
     end
 
     near Cost.new.frame_cost(outside), Cost.new.frame_cost(inside)
@@ -229,7 +280,7 @@ class TestCostPricing < CostModelTest
       screen :bitmap
       x = var :x, 0
       limit = var :limit, 100
-      game_loop { x.clamp 0, limit / 4 }
+      game_loop { x.clamp 0, limit / 5 }
     end
 
     near WEIGHTS[:op_div], Cost.new.frame_cost(computed) - Cost.new.frame_cost(fixed)

@@ -224,6 +224,14 @@ module RubyGBA
       [0xE1800000 | (rn << 16) | (rd << 12) | (shift << 7) | rm].pack("V")
     end
 
+    # ADD rd, rn, rm, LSR #shift — add a register shifted right on the way, the
+    # shift folded into the instruction for free. A shift of 0 is a plain ADD.
+    def add_reg_lsr(rd, rn, rm, shift)
+      raise ArgumentError, "shift must be 0-31" unless (0..31).cover?(shift)
+
+      [0xE0800000 | (rn << 16) | (rd << 12) | (shift << 7) | 0x20 | rm].pack("V")
+    end
+
     # EOR rd, rn, rm — exclusive OR
     def eor_reg(rd, rn, rm)
       [0xE0200000 | (rn << 16) | (rd << 12) | rm].pack("V")

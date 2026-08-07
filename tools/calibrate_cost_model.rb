@@ -172,12 +172,18 @@ measured = {}
 # --- logic (op_* tiers) ---
 measured[:op_step] = per_op("step", 500, 2, 8) { |b, _xv| b.add :x, 1 }
 # op_mul / op_div = op_step + the operator's extra cost over an add (a `set :y,
-# (x <op> 2)` is a set plus the operator; differencing against `+` isolates it).
+# (x <op> 100)` is a set plus the operator; differencing against `+` isolates it).
+#
+# The operand is 100 and not 2 on purpose. By a POWER OF TWO the lowering reduces
+# both of these to shifts, so measuring with 2 would price every multiply and every
+# divide at the reduced cost and the model would tell an author a divide by 100 is
+# free. These weights are for the general case; the reduced one is priced as a plain
+# step (see Pricing#op_weight), which is what the reduction actually costs.
 measured[:op_mul] = measured[:op_step] +
-                    (per_op("mul", 300, 2, 6) { |b, xv| b.set :y, (xv * 2) } -
+                    (per_op("mul", 300, 2, 6) { |b, xv| b.set :y, (xv * 100) } -
                      per_op("addm", 300, 2, 6) { |b, xv| b.set :y, (xv + 2) })
 measured[:op_div] = measured[:op_step] +
-                    (per_op("div", 80, 2, 4) { |b, xv| b.set :y, (xv / 2) } -
+                    (per_op("div", 80, 2, 4) { |b, xv| b.set :y, (xv / 100) } -
                      per_op("addd", 80, 2, 4) { |b, xv| b.set :y, (xv + 2) })
 # A fraction multiply is SMULL plus two instructions to shift the 64-bit product
 # back down — dearer than a plain multiply, nowhere near a divide. Same differencing.

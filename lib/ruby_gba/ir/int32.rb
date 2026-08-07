@@ -101,6 +101,28 @@ module RubyGBA
         wrap(quotient)
       end
 
+      # What is left over after division — with RUBY's meaning, not the one that falls
+      # out of #div.
+      #
+      # Those differ, and the difference is the whole point of having this. #div
+      # truncates toward zero to match the console's BIOS, so the leftover it implies
+      # takes the sign of the NUMERATOR: -1 would leave -1. Ruby's `%` takes the sign of
+      # the divisor, so -1 % 64 is 63. That is what wrapping wants — an angle one step
+      # below zero is one step below a full turn, and a map coordinate off the left edge
+      # is against the right one. A wrap that returned -1 would index off the front of
+      # every table it was used on.
+      #
+      # Ruby's meaning wins here because the audience knows Ruby. It does mean `/` and
+      # `%` do not decompose consistently on negatives, which is a deliberate and
+      # documented wrinkle rather than an oversight.
+      def mod(a, b)
+        a = wrap(a)
+        b = wrap(b)
+        raise ZeroDivisionError, "cannot take what is left over after dividing by zero" if b.zero?
+
+        wrap(a.modulo(b))
+      end
+
       # Signed ordering: -1 / 0 / 1, comparing both operands as signed 32-bit
       # values — which is why 0xFFFF_FFFF (i.e. -1) is *less* than 1 here, not
       # greater as the raw bit pattern would suggest.

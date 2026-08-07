@@ -24,7 +24,7 @@ module ConformanceFixture
   # Every binary operator the backends implement (arithmetic, comparison, and the
   # 0/1 logical composition `held(:a) & held(:b)` lowers to). Kept in sync with
   # each backend's binop dispatch by the coverage test.
-  OPERATORS = %i[+ - * / == != < > <= >= and or].freeze
+  OPERATORS = %i[+ - * / % == != < > <= >= and or].freeze
 
   # Node kinds a portable backend may legitimately not implement — the kinds tagged
   # hardware-only, read from the portability classification rather than restated.
@@ -79,6 +79,17 @@ module ConformanceFixture
       # --- every value-operand kind and every operator ---
       *OPERATORS.map { |op| B.set(:acc, B.binop(op, B.var_ref(:x), B.int(2))) },
       B.set(:acc, B.neg(B.var_ref(:x))),      # neg
+      # Dividing and wrapping with a NEGATIVE numerator, which is where the two round
+      # differently and where a backend taking a shortcut goes wrong. -7 / 4 truncates
+      # toward zero to -1, while -7 % 4 takes the sign of the divisor and is 1. A
+      # power-of-two divisor is reduced to shifts on some backends, so both the reduced
+      # and the general path are covered.
+      B.set(:acc, B.binop(:/, B.int(-7), B.int(4))),   # -1, not the -2 a bare shift gives
+      B.set(:acc, B.binop(:%, B.int(-7), B.int(4))),   # 1, not the -3 the BIOS leftover gives
+      B.set(:acc, B.binop(:%, B.int(-1), B.int(64))),  # 63 — an angle stepped below zero
+      B.set(:acc, B.binop(:/, B.int(-7), B.int(3))),   # ...and the same two with a divisor
+      B.set(:acc, B.binop(:%, B.int(-7), B.int(3))),   # that no shift can reduce
+      B.set(:acc, B.binop(:%, B.int(7), B.int(-3))),   # a negative divisor: -2 in Ruby
       # mul_fix — a multiply whose product is formed at full width. The operands are
       # chosen so a plain 32-bit multiply gets a DIFFERENT answer: 1.5 * 1.5 with 16
       # fraction bits needs 9,663,676,416 on the way, which wraps. A backend that
