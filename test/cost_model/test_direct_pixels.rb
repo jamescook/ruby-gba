@@ -94,6 +94,48 @@ class TestDirectPixels < CostModelTest
                     "a lone pixel costs more than one pixel of a run"
   end
 
+  # --- where on the screen it is drawn ---
+
+  # The same rectangle costs a quarter more at the bottom of the screen than in the middle,
+  # and nothing about the WRITE differs. What differs is working out WHERE to write: the
+  # address is a number settled while building, a row far enough down needs a bigger number
+  # to say where it is, and a bigger number takes the console another step to build. It is
+  # the bottom twenty rows or so — which is where a status bar or a floor goes, so it is
+  # not an unusual place to draw.
+  def test_a_fill_low_on_the_screen_costs_more_than_the_same_fill_higher_up
+    middle = direct { game_loop { fill_rect 0, 80, 40, 10, :red } }
+    bottom = direct { game_loop { fill_rect 0, 145, 40, 10, :red } }
+
+    near 40 * 10 * WEIGHTS[:plot_run_pixel], Cost.new.steady_cost(middle)
+    near 40 * 10 * (WEIGHTS[:plot_run_pixel] + WEIGHTS[:plot_run_address_step]),
+         Cost.new.steady_cost(bottom)
+  end
+
+  # A rectangle is priced a row at a time, so one lying across the line pays the extra on
+  # the rows below it and not on the rows above.
+  def test_a_fill_across_the_line_pays_it_on_the_lower_rows_only
+    above = direct { game_loop { fill_rect 0, 110, 40, 20, :red } }
+    across = direct { game_loop { fill_rect 0, 130, 40, 20, :red } }
+    below = direct { game_loop { fill_rect 0, 140, 40, 20, :red } }
+
+    assert_operator Cost.new.steady_cost(above), :<, Cost.new.steady_cost(across),
+                    "some of its rows are below the line, so it costs more than one wholly above"
+    assert_operator Cost.new.steady_cost(across), :<, Cost.new.steady_cost(below),
+                    "only some of them are, so it costs less than one wholly below"
+  end
+
+  # Text is the same shape as a fill, so it costs more at the bottom of the screen too — a
+  # score along the foot of the picture is dearer than the same score along the top.
+  def test_text_low_on_the_screen_costs_more_than_the_same_text_higher_up
+    middle = direct { game_loop { draw_text "SCORE", 0, 80, :white } }
+    bottom = direct { game_loop { draw_text "SCORE", 0, 150, :white } }
+
+    lit = RubyGBA::Fonts.get(:default).text_pixels("SCORE")
+    near lit * WEIGHTS[:plot_run_pixel], Cost.new.steady_cost(middle)
+    near lit * (WEIGHTS[:plot_run_pixel] + WEIGHTS[:plot_run_address_step]),
+         Cost.new.steady_cost(bottom)
+  end
+
   # --- a software sprite ---
 
   # An image with a see-through color is drawn a pixel at a time so the background shows
