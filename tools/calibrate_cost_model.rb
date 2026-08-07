@@ -157,6 +157,23 @@ def sprites_busy(n)
   measure("obj#{n}", rom)
 end
 
+# Per-frame cost of mirroring one persisted variable back to save memory. Every change
+# to a `save_var` emits one of these, right after the change. Two ROMs that differ ONLY
+# in whether the variable is persisted cancel the change itself exactly, leaving what
+# the mirroring adds. Save memory sits on a slow bus and is written a byte at a time,
+# so this is not the couple of instructions it looks like.
+def save_busy(per_frame, copies, persist:)
+  name = "sav#{persist ? 's' : 'p'}#{copies}"
+  rom = RubyGBA.build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
+    screen :bitmap
+    clear_screen :black
+    kept = persist ? save_var(:kept, 0) : var(:kept, 0)
+    b = self
+    game_loop { b.wait_vblank; b.repeat(per_frame) { copies.times { kept.add 1 } } }
+  end
+  measure(name, rom)
+end
+
 # Per-frame cost of scrolling a background `per_frame` times — each scroll is a couple
 # of register writes.
 def scroll_busy(per_frame)
@@ -245,6 +262,17 @@ measured[:dma_pixel] = (dma_stall(200, 100, 4) - dma_stall(40, 100, 4)) / ((200 
 # writes per background scroll.
 measured[:obj_write] = (sprites_busy(64) - sprites_busy(8)) / (64 - 8).to_f
 measured[:scroll_write] = (scroll_busy(40) - scroll_busy(8)) / (40 - 8).to_f
+
+# --- what the DISPLAY is told to show, without redrawing a pixel. Both are a handful of
+# register writes, and both are only safe in the vblank window, so both are drawing.
+# `shake_screen` moves the camera every frame it runs, which is what makes the camera
+# worth a weight rather than a shrug. The fade is measured at a level written into the
+# program; a level the game works out costs the conversion on top (see Pricing#fade_cost).
+measured[:camera_move] = per_op("cam", 100, 2, 6) { |b, _xv| b.camera 3, 5 }
+measured[:fade_set] = per_op("fade", 100, 2, 6) { |b, _xv| b.fade :black, 50 }
+
+# --- mirroring a saved variable back to save memory, on every change to it.
+measured[:save_write] = (save_busy(60, 4, persist: true) - save_busy(60, 4, persist: false)) / (60 * 4.0)
 
 # --- per-pixel collision: a bigger overlap walks more pixels (size^2, fully overlapped
 # opposite checkerboards force the full walk).

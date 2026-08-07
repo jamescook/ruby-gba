@@ -179,19 +179,39 @@ module RubyGBA
         # priced nor declared free (see FREE_STATEMENT_KINDS / FREE_VALUE_KINDS). They're
         # counted as zero, which would hide real work, so the estimate announces them.
         # Empty for a program the model fully understands.
+        #
+        # This walks the WHOLE program, not a frame of it. Asking a frame is what let
+        # camera, fade and save_store sit unpriced: the kitchen-sink program that audits
+        # the model holds every kind above its game loop, and a frame walk sees only the
+        # loop's body — `wait_vblank, halt` in that program. So the one guard meant to
+        # catch an op nobody priced was reading two free statements and finding nothing
+        # to say.
         def unpriced_kinds(program)
-          analyze(program) # walking every node leaves the set in @unpriced as a side effect
+          index(program) # resets the set, and catalogues what pricing an op needs
+          program.walk { |node| audit_price(node) }
           @unpriced.dup
         end
 
-        # A loud line, above the estimate, naming any op the model couldn't account for —
-        # so a newly-added op nobody taught it to price can't slip by as free. Reads the
-        # set left by the most recent analysis; silent when everything was understood.
-        def emit_unpriced_banner(printer)
-          return if @unpriced.nil? || @unpriced.empty?
+        # Price one node for no reason but to find out whether the model knows how.
+        # Control flow is skipped: it is costed by walking what it contains, never priced
+        # on its own, so asking it would flag every `if` in the program.
+        def audit_price(node)
+          case Node::CATEGORY[node.kind]
+          when :value then expr_cost(node)
+          when :root, :control then nil
+          else op_cost(node) # a statement — including a kind the table has never heard of
+          end
+        end
 
-          printer.puts "!! cannot estimate: #{@unpriced.sort.join(', ')} — counted as FREE, so the real " \
-                       "per-frame cost can be higher. Teach the cost model to price it.", emphasis: :banner
+        # A loud line, above the estimate, naming any op the model couldn't account for —
+        # so a newly-added op nobody taught it to price can't slip by as free. Silent for
+        # a program the model fully understands.
+        def emit_unpriced_banner(printer, program)
+          kinds = unpriced_kinds(program)
+          return if kinds.empty?
+
+          printer.puts "!! cannot estimate: #{kinds.sort.join(', ')} — counted as FREE, so the real " \
+                       "cost can be higher. Teach the cost model to price it.", emphasis: :banner
         end
 
         private
