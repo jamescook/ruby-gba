@@ -142,8 +142,9 @@ end
 # A glyph's lit pixel measures the same three numbers at the same three places, which is
 # what says the two are one shape and want one weight.
 FILL_Y = 80
-def fill_rect_busy(w, h, per_frame)
-  stable_busy("fill#{w}x#{h}", per_frame) { |b, _xv| b.fill_rect 0, FILL_Y, w, h, :red }
+DEEP_Y = 145 # far enough down that a row's distance into the picture needs an extra byte
+def fill_rect_busy(w, h, per_frame, y = FILL_Y)
+  stable_busy("fill#{w}x#{h}y#{y}", per_frame) { |b, _xv| b.fill_rect 0, y, w, h, :red }
 end
 
 # An image with a see-through color, blitted `copies` times at a position the game works
@@ -384,6 +385,14 @@ measured[:plot_pixel] = per_op("plot", 150, 4, 8) { |b, _xv| b.pixel 10, 10, :re
 # is the same shape — it measures the same at every height on the screen — so ONE weight
 # covers both. See #fill_rect_busy for why it is measured halfway down and not at the top.
 measured[:plot_run_pixel] = (fill_rect_busy(32, 10, 20) - fill_rect_busy(4, 10, 20)) / ((32 - 4) * 10 * 20.0)
+# The write itself costs the same wherever it lands. What differs is building the ADDRESS,
+# and a bigger number takes another step to build — so a row far enough down the screen
+# that its distance into the picture no longer fits in sixteen bits costs a step more, on
+# every pixel. That is the bottom twenty rows: a status bar, a floor. Measured against the
+# same fill higher up, where the address is one step shorter.
+measured[:plot_run_address_step] =
+  ((fill_rect_busy(32, 10, 20, DEEP_Y) - fill_rect_busy(4, 10, 20, DEEP_Y)) / ((32 - 4) * 10 * 20.0)) -
+  measured[:plot_run_pixel]
 # A lit pixel of a TRANSPARENT image — what a software sprite is made of. The position is
 # worked out as the program runs, so every pixel is tested against the screen edges on
 # its own before it is written, and it costs over twice what a pixel of a fixed-size

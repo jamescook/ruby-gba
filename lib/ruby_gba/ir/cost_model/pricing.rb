@@ -30,14 +30,14 @@ module RubyGBA
           # The two screens draw a rectangle in shapes that have nothing in common, so
           # which screen this one is on decides the whole price (see #tearfree_fill_cost).
           when :fill_rect
-            tear_free? ? tearfree_fill_cost(node) : plot_rect_cost(node[:w], node[:h])
+            tear_free? ? tearfree_fill_cost(node) : plot_rect_cost(node)
           when :dma_fill_rect
             tear_free? ? tearfree_fill_cost(node) : dma_rows_cost(node[:w], node[:h])
           when :draw_rect_at
             tear_free? ? tearfree_moving_rect_cost(node) : dma_rows_cost(node[:w], node[:h])
           when :clear_screen then clear_screen_cost
-          when :draw_text then Fonts.get(node[:font]).text_pixels(node[:text]) * glyph_pixel_weight
-          when :draw_digit then Fonts.get(node[:font]).max_glyph_pixels(DIGITS) * glyph_pixel_weight
+          when :draw_text then Fonts.get(node[:font]).text_pixels(node[:text]) * glyph_pixel_weight(node)
+          when :draw_digit then Fonts.get(node[:font]).max_glyph_pixels(DIGITS) * glyph_pixel_weight(node)
           when :blit then blit_cost(node[:name])
           when :blit_pose then blit_cost(node[:poses].first)         # one pose draws; all are the same size
           when :save_region, :restore_region then region_cost(node[:buffer])
@@ -324,8 +324,43 @@ module RubyGBA
         # RUN of them — the color is loaded once and every address is settled while
         # building — so a pixel here is cheaper than a lone `pixel`, which has to work out
         # a whole address and fetch its color for the one write.
-        def plot_rect_cost(w, h)
-          w * h * @weights[:plot_run_pixel]
+        #
+        # Priced a row at a time, because where a row sits changes what its pixels cost
+        # (see #run_pixel_weight). Each row is priced on its LAST pixel, the furthest into
+        # the picture and so the dearest of them.
+        def plot_rect_cost(node)
+          w, h, x, y = %i[w h x y].map { |slot| const_side(node[slot]) }
+          return 0 unless w && h && x && y
+
+          h.times.sum { |row| w * run_pixel_weight(x + w - 1, y + row) }
+        end
+
+        # How many steps the console spends working out where an ORDINARY pixel goes. One
+        # whose address takes more than this costs a plain step for each extra.
+        ORDINARY_ADDRESS_STEPS = 3
+
+        # What one pixel of a run costs where it is drawn. The write itself is the same
+        # wherever it lands; what differs is building the ADDRESS, and a bigger number takes
+        # more steps to build. A row far enough down that its distance into the picture no
+        # longer fits in sixteen bits needs one step more than the rest — and that is the
+        # bottom twenty rows, which is where a status bar or a floor goes, so it is not an
+        # unusual place to draw. Measured, those rows cost a quarter more a pixel.
+        #
+        # The assembler is ASKED how many steps an address really takes, rather than the
+        # rule being restated here, so the two cannot drift apart.
+        def run_pixel_weight(x, y)
+          @weights[:plot_run_pixel] + (extra_address_steps(x, y) * @weights[:plot_run_address_step])
+        end
+
+        # The steps an address needs beyond an ordinary one, never fewer than none. A pixel
+        # near the very start of the picture needs fewer, but only the first row or so is
+        # like that, and charging it the ordinary rate is the safe way to be wrong.
+        def extra_address_steps(x, y)
+          return 0 unless y && (0...SCREEN_H).cover?(y) && x && (0...SCREEN_W).cover?(x)
+
+          address = FRAMEBUFFER_BASE + ((((y * SCREEN_W) + x) * BYTES_PER_DIRECT_PIXEL))
+          steps = ASM.load_immediate(0, address).bytesize / ARM_INSTRUCTION_BYTES
+          [steps - ORDINARY_ADDRESS_STEPS, 0].max
         end
 
         # Clearing the whole screen is one block fill either way. The tear-free screen
@@ -341,11 +376,14 @@ module RubyGBA
 
         # What one lit pixel of a font glyph costs. It is a pixel of a RUN — the color is
         # held for the whole line and each address is settled while building — so on the
-        # direct screen it is the same shape, and the same price, as a pixel of a fill.
-        # On the tear-free screen it is a read-modify-write of the pair the pixel shares
-        # with its neighbour, which is dearer than either.
-        def glyph_pixel_weight
-          tear_free? ? @weights[:tearfree_glyph] : @weights[:plot_run_pixel]
+        # direct screen it is the same shape, and the same price, as a pixel of a fill,
+        # including costing more further down the screen. On the tear-free screen it is a
+        # read-modify-write of the pair the pixel shares with its neighbour, which is
+        # dearer than either.
+        def glyph_pixel_weight(node)
+          return @weights[:tearfree_glyph] if tear_free?
+
+          run_pixel_weight(const_side(node[:x]), const_side(node[:y]))
         end
 
         # THE TEAR-FREE SCREEN DRAWS A RECTANGLE IN A DIFFERENT SHAPE, and that shape is

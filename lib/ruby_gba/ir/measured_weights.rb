@@ -18,6 +18,7 @@ module RubyGBA
         op_div_fix: 0.25211,
         plot_pixel: 0.01606,
         plot_run_pixel: 0.01285,
+        plot_run_address_step: 0.00321,
         blit_pixel: 0.03534,
         blit_wide_color: 0.00322,
         blit_row: 0.02249,
