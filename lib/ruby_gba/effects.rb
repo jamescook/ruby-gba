@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "effects/packs/screen_shake"
+require_relative "effects/packs/pulse"
 
 module RubyGBA
   # The effect registry: how a verb gets added to the DSL from outside the
@@ -194,6 +195,7 @@ module RubyGBA
     # gets these verbs without asking for them; anything else it registers itself.
     DEFAULT_PACKS = [
       Packs::ScreenShake, # shake_screen — the impact effect, built on `camera`
+      Packs::Pulse,       # pulse — a sprite that breathes, built on `sprite.scale`
     ].freeze
   end
 

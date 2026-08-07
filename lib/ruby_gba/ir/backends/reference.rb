@@ -760,8 +760,8 @@ module RubyGBA
           @screen.clear(0) # the backdrop the layers' transparent pixels reveal
           @bg_nodes.each { |bg| paint_background_window(bg) }
           @obj_layer.each do |obj|
-            if obj[:angle]
-              blit_image_rotated(obj[:image], obj[:x], obj[:y], obj[:angle])
+            if obj[:transform]
+              blit_image_transformed(obj[:image], obj[:x], obj[:y], *obj[:transform])
             else
               blit_image(obj[:image], obj[:x], obj[:y])
             end
@@ -820,21 +820,30 @@ module RubyGBA
           end
         end
 
-        # Draw one object's picture at (x, y): straight when it never turns, rotated to
-        # its current heading when it does. Shared by the still-scene present path and
+        # Draw one object's picture at (x, y): straight when it never turns or resizes,
+        # through the transform when it does. Shared by the still-scene present path and
         # the scrolling-scene recomposite.
         def draw_object(obj, image, x, y)
-          return blit_image(image, x, y) unless object_rotates?(obj)
+          return blit_image(image, x, y) unless object_transformed?(obj)
 
-          blit_image_rotated(image, x, y, eval_value(obj[:angle]))
+          blit_image_transformed(image, x, y, *object_transform(obj))
         end
 
-        # Does this object turn? It does unless its angle is the constant 0 it defaults
-        # to — an object that never calls turn/face_angle keeps that constant and draws
-        # upright, so we take the cheaper straight-blit path for it.
-        def object_rotates?(obj)
-          angle = obj[:angle]
-          !(angle.kind == :int && angle[:value].zero?)
+        # Does this object turn or resize? It does unless BOTH its angle and its size are
+        # still the constants they default to — an object that never calls
+        # turn/face_angle/scale keeps them and draws straight, so we take the cheaper
+        # blit path for it.
+        def object_transformed?(obj)
+          !(constant?(obj[:angle], 0) && constant?(obj[:scale], Build::SCALE_ONE))
+        end
+
+        def constant?(node, value)
+          node.kind == :int && node[:value] == value
+        end
+
+        # This frame's angle and size for a transformed object.
+        def object_transform(obj)
+          [eval_value(obj[:angle]), eval_value(obj[:scale])]
         end
 
         # Capture the objects that are on screen this frame — their current pose picture
@@ -850,7 +859,7 @@ module RubyGBA
             next if image.nil?
 
             snap = { image: image, x: eval_value(obj[:x]), y: eval_value(obj[:y]) }
-            snap[:angle] = eval_value(obj[:angle]) if object_rotates?(obj)
+            snap[:transform] = object_transform(obj) if object_transformed?(obj)
             snap
           end
         end
@@ -882,9 +891,9 @@ module RubyGBA
         def restore_scene_rect(scene, name, (x, y))
           obj = @objects.fetch(name)
           bmp = @bitmaps.fetch(obj[:poses].first)
-          if object_rotates?(obj)
-            rx, ry, side = rotated_footprint(x, y, bmp[:width], bmp[:height])
-            restore_patch(scene, rx, ry, side, side)
+          if object_transformed?(obj)
+            rx, ry, w, h = transformed_footprint(obj, x, y, bmp[:width], bmp[:height])
+            restore_patch(scene, rx, ry, w, h)
           else
             restore_patch(scene, x, y, bmp[:width], bmp[:height])
           end
@@ -901,9 +910,10 @@ module RubyGBA
           end
         end
 
-        # Draw an image turned +degrees+ clockwise about its own center, its upright
-        # top-left at (x, y) — the reference interpreter's stand-in for the console's
-        # sprite rotate/scale.
+        # Draw an image turned +degrees+ clockwise and +scale+ times its size, about its
+        # own center, its untransformed top-left at (x, y) — the reference interpreter's
+        # stand-in for the console's sprite rotate/scale. See {IR::Affine} for the matrix
+        # both backends share.
         #
         # The hardware does not turn the picture and stamp it down. It walks the patch
         # of screen the sprite covers and, for each screen pixel, turns the OTHER way to
@@ -916,20 +926,21 @@ module RubyGBA
         #
         #   * The patch is twice the picture's width and height, centered on it, so a
         #     corner swung out by the turn still has room (the console's "double size").
+        #     That box is also the ceiling on size: at twice its size a picture fills the
+        #     box exactly, and past that its edges are cut off — here and on the console.
         #   * The turn uses whole numbers in 256ths, from the same table of sines the
         #     ROM carries — not exact trigonometry.
         #   * A screen pixel is taken at its whole coordinate, NOT at its center, and
         #     the answer is rounded down. Sampling at pixel centers instead moves the
         #     whole shape half a pixel, which shows up as a one-pixel-thick disagreement
         #     all along one side.
-        def blit_image_rotated(name, x, y, degrees)
+        def blit_image_transformed(name, x, y, degrees, scale)
           bmp = @bitmaps.fetch(name) { raise ProgramError, "blit of undefined image #{name.inspect}" }
           pixels = @data.fetch(name)
           transparent = bmp[:transparent]
           w = bmp[:width]
           h = bmp[:height]
-          cos = fixed_sine(degrees + 90) # cos d is sin(d + 90) — one table serves both
-          sin = fixed_sine(degrees)
+          pa, pb, pc, pd = Affine.matrix(degrees % 360, scale)
           left = x - (w / 2) # the double-size patch: half a picture out on every side
           top = y - (h / 2)
 
@@ -937,10 +948,10 @@ module RubyGBA
             ddy = iy - h # offset from the patch's center, in whole pixels
             (w * 2).times do |ix|
               ddx = ix - w
-              # Turn back to the picture. The matrix is in 256ths, so shifting down by
+              # Work back to the picture. The matrix is in 256ths, so shifting down by
               # 8 both scales it back and rounds down, exactly as the console does.
-              sx = (((cos * ddx) + (sin * ddy)) >> 8) + (w / 2)
-              sy = (((-sin * ddx) + (cos * ddy)) >> 8) + (h / 2)
+              sx = (((pa * ddx) + (pb * ddy)) >> 8) + (w / 2)
+              sy = (((pc * ddx) + (pd * ddy)) >> 8) + (h / 2)
               next unless sx >= 0 && sx < w && sy >= 0 && sy < h
 
               i = ((sy * w) + sx) * 2
@@ -952,25 +963,22 @@ module RubyGBA
           end
         end
 
-        # sin(+degrees+) in 256ths, as a whole number — the same table the ROM carries,
-        # so both backends turn a sprite through exactly the same matrix.
-        def fixed_sine(degrees)
-          (Math.sin((degrees % 360) * Math::PI / 180.0) * 256).round
-        end
-
-        # The square of screen a width×height picture can cover at any rotation about
-        # its center: the side is the picture's diagonal (rounded up, plus a small
-        # margin so a corner never clips), centered on the picture. This is the patch
-        # put back under a turning object before it's redrawn — one square that holds
-        # the picture at every angle, so the erase doesn't depend on the angle it was
-        # last drawn at. A turned draw can never paint outside it: a source pixel is at
-        # most half the picture's diagonal from the center, and turning doesn't change
-        # that distance.
-        def rotated_footprint(x, y, w, h)
-          side = Integer.sqrt((w * w) + (h * h)) + 2
+        # The patch of screen a transformed object can cover, as [x, y, width, height].
+        # This is what's put back under it before it's redrawn, so it has to hold the
+        # picture at every angle and size it might have been drawn at last frame — the
+        # erase can't depend on knowing which.
+        #
+        # An object that only turns can't reach further than half its own diagonal from
+        # its center, whatever the angle, so a square that wide is enough and is cheaper
+        # to walk. One that resizes has no such bound short of the whole double-size box
+        # the display gives it, so that's what we clear.
+        def transformed_footprint(obj, x, y, w, h)
           cx = x + (w / 2)
           cy = y + (h / 2)
-          [cx - (side / 2), cy - (side / 2), side]
+          return [cx - w, cy - h, w * 2, h * 2] unless constant?(obj[:scale], Build::SCALE_ONE)
+
+          side = Integer.sqrt((w * w) + (h * h)) + 2
+          [cx - (side / 2), cy - (side / 2), side, side]
         end
 
         # Run a block with the draw ops pointed at +target+ instead of the visible

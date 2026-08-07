@@ -213,6 +213,17 @@ module RubyGBA
       "This sprite cannot turn to an angle. Turning needs `screen :tiled`. " \
       "On `screen :bitmap`, face a few fixed ways with `facing:` poses and `face` instead."
 
+    # Resizing uses the same console hardware as turning, so it has the same boundary. A
+    # bitmap sprite is copied to the screen pixel for pixel and there is no step where a
+    # different size could come out.
+    def scale(_size = nil)
+      raise ArgumentError, SCALE_NEEDS_TILED
+    end
+
+    SCALE_NEEDS_TILED =
+      "This sprite cannot change size. Resizing needs `screen :tiled`. " \
+      "On `screen :bitmap`, draw the sizes you need as separate `image`s and swap between them."
+
     # Play a named animation from the sprite's Aseprite sheet (a frameTag). It runs from
     # its first frame and loops until you play another one. Only for a sprite made with
     # `from_aseprite:`, and only a name the sheet defines — anything else is a friendly

@@ -230,14 +230,22 @@ end
 
 # Per-frame cost of presenting `n` hardware sprites — each frame rewrites every sprite's
 # OAM position, so more sprites is more of those writes. One shared 8x8 image.
-def sprites_busy(n)
-  rom = RubyGBA.build("obj#{n}", code: "OB#{n.to_s.rjust(2, '0')}", maker: "01", err: StringIO.new) do
+def sprites_busy(n, turn: false, resize: false)
+  tag = "#{turn ? 't' : 'u'}#{resize ? 's' : 'p'}#{n}"
+  rom = RubyGBA.build("obj#{tag}", code: "O#{tag.rjust(3, '0')[0, 3]}", maker: "01", err: StringIO.new) do
     screen :tiled
     image(:dot, "#" => :red) { (["#" * 8] * 8).join("\n") }
-    n.times { |i| sprite :dot, at: [(i % 28) * 8, (i / 28) * 8] }
+    n.times do |i|
+      s = sprite :dot, at: [(i % 28) * 8, (i / 28) * 8]
+      # Set once, up front. The angle and the size are then variables the draw reads
+      # every frame — which is the cost being measured — with no per-frame `set` of
+      # the author's own to muddle it.
+      s.face_angle(20) if turn
+      s.scale(1.5) if resize
+    end
     game_loop { wait_vblank }
   end
-  measure("obj#{n}", rom)
+  measure("obj#{tag}", rom)
 end
 
 # What one pass of a `repeat` costs before its body does anything — the counter, the
@@ -562,6 +570,19 @@ measured[:dma_pixel] = dma_pixel
 # writes per background scroll.
 measured[:obj_write] = (sprites_busy(64) - sprites_busy(8)) / (64 - 8).to_f
 measured[:scroll_write] = (scroll_busy(40) - scroll_busy(8)) / (40 - 8).to_f
+
+# A sprite that turns, or changes size, is drawn through one of the display's 32
+# rotate/resize groups instead of straight, and that group is refilled every frame. Both
+# weights are measured against the SAME number of sprites, so only the shape of the draw
+# differs and the count cancels. 32 is the most the display can do at once.
+AFFINE_SPRITES = 32
+turning = sprites_busy(AFFINE_SPRITES, turn: true)
+measured[:obj_turn] = (turning - sprites_busy(AFFINE_SPRITES)) / AFFINE_SPRITES.to_f
+# ...and on top of that, working out one over the size. That is a division the framework
+# does for the author (Drawing#emit_object_scale_reciprocal), so it is measured against a
+# sprite that already turns — leaving the division and the two multiplies alone.
+measured[:obj_resize] =
+  (sprites_busy(AFFINE_SPRITES, turn: true, resize: true) - turning) / AFFINE_SPRITES.to_f
 
 # --- what the DISPLAY is told to show, without redrawing a pixel. Both are a handful of
 # register writes, and both are only safe in the vblank window, so both are drawing.

@@ -114,6 +114,17 @@ module RubyGBA
       # See {Rollup}#catalogue_bitmap for how the counts are taken.
       Bitmap = Data.define(:width, :height, :transparent, :lit_pixels, :wide_color_pixels, :lit_rows)
 
+      # What drawing one hardware sprite needs to be priced, likewise taken off its
+      # DECLARATION rather than the per-frame draw. A sprite that only moves is a
+      # position written into a table. One that TURNS is drawn through a small matrix
+      # instead, and that matrix is rebuilt from its angle every frame. One that also
+      # RESIZES has to work out one over its size to build that matrix — a division,
+      # done for the author, and the dearest part of drawing a sprite.
+      #
+      # Resizing implies turning: a sprite drawn at a size goes through the same matrix
+      # whether or not its angle ever moves. See {Rollup}#catalogue_object.
+      Sprite = Data.define(:turns, :resizes)
+
       # The per-frame drawing budget, in scanlines: the vertical blank — the safe
       # window to change the screen before the visible frame starts — is about 68 of
       # the console's 228 scanlines. Draw more than this in a single-buffered frame

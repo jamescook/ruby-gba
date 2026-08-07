@@ -55,6 +55,7 @@ module RubyGBA
       @object_name = object_name
       @object_node = object_node # the IR object node; turning it swaps in a variable angle
       @angle_var = nil           # allocated the first time the sprite is told to turn
+      @scale_var = nil           # ...and this the first time it is told to resize
       @x_var = x
       @y_var = y
       @active = active
@@ -261,6 +262,35 @@ module RubyGBA
       Value.new(@builder, Build.var_ref(@angle_var), name: @angle_var)
     end
 
+    # Draw the sprite bigger or smaller, about its own center. 1.0 is the size it was
+    # drawn at, 2.0 is twice as big, 0.5 half — a boss that swells, a coin that pops
+    # when you collect it, an enemy that shrinks into the distance.
+    #
+    #   coin.scale 1.6                 # half again as big
+    #   coin.scale size                # whatever `size` says this frame
+    #   coin.scale.approach 1.0, 0.05  # ease it back down to normal
+    #
+    # With no argument it hands back the size as a {Value} you can read, compare and
+    # ease, so growing over time is the expression DSL and nothing new. The size can be
+    # a fraction (that is the point) and composes with #face_angle — a sprite can turn
+    # and resize at once for the same price as either.
+    #
+    # Twice the drawn size is the ceiling: the console gives a turned sprite a box twice
+    # as wide and tall to swing its corners through, and past that the picture runs out
+    # of box and its edges are cut off. Only a `screen :tiled` sprite can resize.
+    def scale(size = nil)
+      ensure_scalable
+      return scale_value if size.nil?
+
+      if size.is_a?(Numeric) && size <= 0
+        raise ArgumentError,
+              "a sprite's size must be more than 0. You gave #{size.inspect}. " \
+              "1.0 is the size it was drawn at, 0.5 is half. To make it vanish, use `hide`."
+      end
+      scale_value.set(size)
+      self
+    end
+
     # Play a named animation from the sprite's Aseprite sheet (a frameTag). It runs from
     # its first frame and loops until you play another one. Only for a sprite made with
     # `from_aseprite:`, and only a name the sheet defines — anything else is a friendly
@@ -330,6 +360,21 @@ module RubyGBA
     def ensure_rotatable
       @angle_var ||= :"#{@object_name}_angle"
       @builder.make_object_rotatable(@object_node, @angle_var)
+    end
+
+    # The same idea for size: allocate the variable and attach it to the object the
+    # first time the sprite is resized, so one that never is stays at its drawn size for
+    # free. Idempotent.
+    def ensure_scalable
+      @scale_var ||= :"#{@object_name}_scale"
+      @builder.make_object_scalable(@object_node, @scale_var)
+    end
+
+    # The size variable as a handle. It carries a fraction, so `scale.approach 2.0, 0.1`
+    # and `scale * 2` mean what they read as.
+    def scale_value
+      Value.new(@builder, Build.var_ref(@scale_var), name: @scale_var,
+                          fraction_bits: Fraction::DEFAULT_BITS)
     end
 
     # Fold the angle variable back into 0..359 after a set or turn. One truncated-

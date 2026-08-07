@@ -39,4 +39,23 @@ class TestBirdExample < Minitest::Test
     v = assert_gemba_loads_rom(Bird.build_rom(out: StringIO.new, err: StringIO.new), frames: 6)
     assert bird_over_sky?(->(x, y) { v.pixel_gba(x, y) }), "the bird should composite over the sky on hardware"
   end
+
+  # The bird drifts nearer and further on its own, which is `pulse` running the sprite's
+  # size. Read as a player would see it: the bird is drawn smaller at the bottom of the
+  # drift than it is part-way up.
+  def test_the_bird_drifts_nearer_and_further
+    half = (Bird::DRIFT_SECONDS * 60 / 2).round
+    smallest = drawn_size(1)
+    biggest = drawn_size(half - 1)
+
+    assert_in_delta Bird::FURTHEST, smallest, 0.02, "it starts at its furthest"
+    assert_in_delta Bird::NEAREST, biggest, 0.02, "and reaches its nearest half a cycle later"
+  end
+
+  # The size the console is being told to draw the bird at, as the multiple the example
+  # writes — read off the variable the pulse walks.
+  def drawn_size(frames)
+    interp = Reference.new.run(Bird.program, frames: frames, max_steps: 50_000_000)
+    interp[:__obj1_scale] / RubyGBA::IR::Build::SCALE_ONE.to_f
+  end
 end

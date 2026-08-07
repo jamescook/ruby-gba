@@ -730,36 +730,47 @@ module RubyGBA
                 "Use fewer or smaller sprites."
         end
 
-        # Set up the sprites that turn. Each is given one of the console's 32 rotation
-        # parameter groups (its "affine slot"), and the shared sine table is baked into
-        # ROM once. A sprite that never turns keeps its default upright angle and gets
-        # no slot, so it costs nothing. More than 32 turning sprites is a friendly error
-        # — the hardware simply has no more groups.
+        # Set up the sprites that turn or change size. Each is given one of the console's
+        # 32 rotation/size parameter groups (its "affine slot"), and the shared sine
+        # table is baked into ROM once. A sprite that does neither keeps its default
+        # upright, drawn-size settings and gets no slot, so it costs nothing. More than
+        # 32 is a friendly error — the hardware simply has no more groups.
         def prepare_affine(nodes)
-          turning = nodes.select { |node| object_rotates?(node) }
-          return if turning.empty?
+          transformed = nodes.select { |node| object_transformed?(node) }
+          return if transformed.empty?
 
-          if turning.size > MAX_AFFINE_GROUPS
+          if transformed.size > MAX_AFFINE_GROUPS
             raise LoweringError,
-                  "#{turning.size} sprites turn, but the console can turn at most #{MAX_AFFINE_GROUPS} at once. " \
-                  "Turn fewer sprites at the same time."
+                  "#{transformed.size} sprites turn or change size, but the console can do that to at " \
+                  "most #{MAX_AFFINE_GROUPS} at once. Turn or resize fewer sprites at the same time."
           end
-          turning.each_with_index { |node, group| @objects[node[:name]][:affine_slot] = group }
+          transformed.each_with_index { |node, group| @objects[node[:name]][:affine_slot] = group }
           @data_blobs[OBJ_SINE_BLOB] = build_sine_table
         end
 
-        # Does this object turn? It does unless its angle is the constant 0 it defaults
-        # to. A variable angle (or any non-zero constant) means it rotates and needs an
-        # affine slot; the plain constant 0 draws upright.
+        # Does this object turn or change size? It does unless BOTH its angle and its
+        # size are still the constants they default to. Either one being a variable (or
+        # any other constant) means it goes through an affine slot; both at their
+        # defaults draws upright at its drawn size, for free.
+        def object_transformed?(node)
+          object_rotates?(node) || object_scales?(node)
+        end
+
         def object_rotates?(node)
           value = const_int(node[:angle])
           value.nil? || !value.zero?
         end
 
+        def object_scales?(node)
+          const_int(node[:scale]) != Build::SCALE_ONE
+        end
+
         # The sine lookup table as ROM bytes: sin(d°) in 8.8 fixed point for d in
         # 0..449, each a signed 16-bit little-endian value (256 = 1.0, -256 = -1.0).
+        # Built from the same helper the reference interpreter reads, so the two cannot
+        # turn a sprite through different numbers.
         def build_sine_table
-          (0...OBJ_SINE_ENTRIES).map { |degrees| (Math.sin(degrees * Math::PI / 180.0) * 256).round }.pack("s<*")
+          (0...OBJ_SINE_ENTRIES).map { |degrees| Affine.sine(degrees) }.pack("s<*")
         end
 
         # Build the one color table every sprite shares (8-bit color has a single
@@ -830,7 +841,9 @@ module RubyGBA
             width: width, height: height,
             x: node[:x], y: node[:y], active: node[:active], # the live position/visibility operands
             angle: node[:angle],   # the rotation operand (a constant 0 unless the sprite turns)
-            rotates: object_rotates?(node), # draw it turned (affine) rather than upright?
+            scale: node[:scale],   # the size operand (the "as drawn" constant unless it resizes)
+            transformed: object_transformed?(node), # draw it through an affine group rather than upright?
+            scales: object_scales?(node),           # ...and does that group need a size worked out?
             attr0_base: OBJ_256_COLOR | (shape << 14),
             attr1_base: size << 14,
           }

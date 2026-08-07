@@ -265,6 +265,20 @@ module RubyGBA
           [node[:w], node[:h]].map { |side| const_side(side) || "?" }.join("x")
         end
 
+        # How a frame's sprites read in the tree. Just a count while they only move; once
+        # some of them turn or change size the count alone hides where the cost went, so
+        # those are called out — a sprite that resizes costs about three times one that
+        # only moves, and the reader has no other way to see that from a single line.
+        def sprite_tally(names)
+          sprites = names.filter_map { |name| @objects && @objects[name] }
+          turning = sprites.count { |sprite| sprite.turns && !sprite.resizes }
+          resizing = sprites.count(&:resizes)
+          parts = ["#{names.length} sprite#{'s' unless names.length == 1}"]
+          parts << "#{turning} turning" if turning.positive?
+          parts << "#{resizing} resizing" if resizing.positive?
+          parts.join(", ")
+        end
+
         # How one op reads in the tree — its kind plus whatever detail tells two of them
         # apart at a glance (which image a blit draws, how big a rect is).
         def label_of(node)
@@ -276,7 +290,7 @@ module RubyGBA
           when :blit_pose then "blit_pose (#{node[:poses].length} poses)"
           when :save_region then "save_region :#{node[:buffer]}"
           when :restore_region then "restore_region :#{node[:buffer]}"
-          when :present_objects then "present_objects (#{node[:names].to_a.length} sprites)"
+          when :present_objects then "present_objects (#{sprite_tally(node[:names].to_a)})"
           when :scroll_background then "scroll_background :#{node[:name]}"
           when :background then "background :#{node[:name]}"
           when :play_song then "play_song :#{node[:name]} (#{song_notes(node[:name])} notes)"

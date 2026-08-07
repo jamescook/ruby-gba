@@ -147,8 +147,10 @@ module RubyGBA
 
         # Catalogue the funcs (so a `call`/`case` can be costed), the list capacities
         # (so a repeat over a list can be bounded), the songs (so a `play_song` can be
-        # costed by its note count), and the bitmaps (so a `blit` can be costed by its
-        # image's size, which lives on the definition, not the blit op).
+        # costed by its note count), the bitmaps (so a `blit` can be costed by its
+        # image's size, which lives on the definition, not the blit op), and the sprites
+        # (so drawing one can be costed by whether it turns or resizes, which likewise
+        # lives on the declaration and not on the draw).
         #
         # Every analysis starts here, so the walk's own state — which routines it is
         # inside, and which screen each of them draws on — is reset here too.
@@ -161,13 +163,30 @@ module RubyGBA
           @songs = {}
           @bitmaps = {}
           @backing = {}
+          @objects = {}
           program.walk do |node|
             @funcs[node[:name]] = node if node.kind == :func
             @capacities[node[:name]] = node[:capacity] if node.kind == :list_new
             @songs[node[:name]] = node if node.kind == :song
             @bitmaps[node[:name]] = catalogue_bitmap(node) if node.kind == :bitmap
+            @objects[node[:name]] = catalogue_object(node) if node.kind == :object
             @backing[node[:name]] = [node[:width], node[:height]] if node.kind == :backing_buffer
           end
+        end
+
+        # What drawing one sprite costs, in the two ways a sprite can be more than a
+        # position: it can be turned to an angle, and it can be drawn at a size. Both are
+        # settled on the declaration — a sprite that never turns keeps a fixed angle
+        # there — so they are read once here rather than at every frame's draw.
+        def catalogue_object(node)
+          turns = !constant_operand?(node[:angle], 0)
+          Sprite.new(turns: turns || resizes?(node), resizes: resizes?(node))
+        end
+
+        def resizes?(node) = !constant_operand?(node[:scale], Build::SCALE_ONE)
+
+        def constant_operand?(node, value)
+          node.kind == :int && node[:value] == value
         end
 
         # What an image costs to draw, worked out once here rather than at every blit of
