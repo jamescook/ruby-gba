@@ -44,6 +44,11 @@ class CostModelTest < Minitest::Test
     b.program
   end
 
+  # Every leaf of a cost tree, flattened — for asking what got a line of its own.
+  def leaves(nodes)
+    nodes.flat_map { |node| node[:children].to_a.empty? ? [node] : leaves(node[:children]) }
+  end
+
   # A game loop that clears the whole screen +n+ times a frame, single- or
   # double-buffered. Built straight from the IR so it can flip the buffered flag the
   # DSL doesn't expose yet.

@@ -28,7 +28,7 @@ module RubyGBA
             if node[:children].to_a.empty? && prev && prev[:children].to_a.empty? &&
                prev[:op] == node[:op] && prev[:w] == node[:w] && prev[:h] == node[:h]
               out[-1] = prev.merge(count: (prev[:count] || 1) + 1, cost: prev[:cost] + node[:cost],
-                                   label: "#{node[:op]} ×#{(prev[:count] || 1) + 1}")
+                                   label: "#{name_of(node)} ×#{(prev[:count] || 1) + 1}")
             else
               out << node
             end
@@ -213,20 +213,49 @@ module RubyGBA
         end
 
         # The +top+ hottest op kinds across the whole tree — the flat "profiler" view.
+        #
+        # A leaf is counted once for every time a frame runs it, so an op inside a loop
+        # weighs what it really costs the frame. That is the only way this view means
+        # anything: a program's hot work is nearly always inside a loop, and counting a
+        # body once put the raycaster's 30 wall divides on the list at a thirtieth of
+        # what they cost. The weights come from the same numbers the tree rolls up with,
+        # so these add up to the frame — see #weigh_leaves.
         def hot_ops(nodes, top = 5)
-          all_leaves(nodes).group_by { |n| n[:op] }
-                           .map { |op, ns| { op: op, cost: ns.sum { |n| n[:cost] }, count: ns.sum { |n| n[:count] || 1 } } }
-                           .sort_by { |h| -h[:cost] }.first(top)
+          weigh_leaves(nodes).group_by { |leaf, _times| leaf[:op] }
+                             .map { |op, rows| hot_row(op, rows) }
+                             .sort_by { |h| -h[:cost] }.first(top)
+        end
+
+        # One line of the hottest list, from every [leaf, times] pair sharing an op kind.
+        def hot_row(op, rows)
+          first, = rows.first
+          { op: op, name: name_of(first),
+            cost: rows.sum { |leaf, times| leaf[:cost] * times },
+            count: rows.sum { |leaf, times| (leaf[:count] || 1) * times } }
+        end
+
+        # Every leaf in the tree paired with how many times a frame reaches it: the loop
+        # counts above it, multiplied. A scene branch the estimate doesn't charge for
+        # (only one scene runs a frame, and the cost is the heaviest) weighs nothing.
+        def weigh_leaves(nodes, times = 1)
+          nodes.flat_map do |node|
+            kids = node[:children].to_a
+            kids.empty? ? [[node, times]] : weigh_leaves(kids, times * (node[:factor] || 1))
+          end
+        end
+
+        # What one KIND of op is called, with none of the detail that tells two of them
+        # apart — the wording for a fold ("pixel ×10") or a hottest-list line. Most ops
+        # are named by their kind; the ones whose kind is machinery rather than English
+        # (a divide, a branch test) carry their own name, set where the leaf is made.
+        def name_of(node)
+          node[:name] || node[:op]
         end
 
         private
 
         def leaf_count(node)
           node[:children].to_a.empty? ? 1 : node[:children].sum { |child| leaf_count(child) }
-        end
-
-        def all_leaves(nodes)
-          nodes.flat_map { |node| node[:children].to_a.empty? ? [node] : all_leaves(node[:children]) }
         end
 
         # A rect's size for the tree. A side the game works out as it runs shows as "?"
