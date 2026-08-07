@@ -81,7 +81,6 @@ module RubyGBA
           steady = steady_drawing_cost(program)
           return [] if steady <= budget # fits even at full capacity — nothing tips it over
 
-          @stack = []
           thresholds = capacity_bounded_loops(program).filter_map do |loop_node|
             name = loop_node[:count][:name]
             cap = @capacities[name]
@@ -120,9 +119,10 @@ module RubyGBA
         def scene_verdicts(program)
           return [] unless looping?(program)
 
+          # Asked for here rather than read off the index, so a program whose routines
+          # can't be resolved to one screen each raises instead of being judged anyway.
           modes = Modes.resolve(program)
           index(program)
-          @stack = []
           modes.scene_funcs.map do |name|
             mode = modes.mode_of(name)
             cost = steady_func(name)

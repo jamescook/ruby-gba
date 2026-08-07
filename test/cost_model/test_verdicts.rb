@@ -59,9 +59,10 @@ class TestCostVerdicts < CostModelTest
     single = loop_of_clears(3, buffered: false) # 3 whole-screen clears a frame
     double = loop_of_clears(3, buffered: true)
 
-    # identical drawing work either way...
+    # each priced by the screen it is on — the tear-free one clears for half the work,
+    # because a pixel there is one byte where a direct-color one is two...
     near 3 * dma_blob(240 * 160), Cost.new.steady_cost(single)
-    near 3 * dma_blob(240 * 160), Cost.new.steady_cost(double)
+    near 3 * tearfree_clear, Cost.new.steady_cost(double)
 
     # ...but a different budget applies, and only one calls it buffered.
     assert_equal Cost::VBLANK_BUDGET, Cost.new.budget_for(single) # the vblank window (68 scanlines)
@@ -70,8 +71,8 @@ class TestCostVerdicts < CostModelTest
     assert Cost.new.buffered?(double)
   end
 
-  # 115,200/frame is over the single-buffer window (so it tears) but under a whole
-  # frame (so buffered it's fine) — the verdict wording says which.
+  # 3 whole-screen clears a frame are over the single-buffer window (so it tears) but
+  # under a whole frame (so buffered it's fine) — the verdict wording says which.
   def test_verdict_wording_reflects_the_mode
     io = StringIO.new
     Cost.new.report(loop_of_clears(3, buffered: false), out: io)
@@ -118,7 +119,7 @@ class TestCostVerdicts < CostModelTest
   # the frame rate drops (it still never tears).
   def test_buffered_over_a_whole_frame_reads_as_a_dropped_frame_not_tearing
     io = StringIO.new
-    Cost.new.report(loop_of_clears(7, buffered: true), out: io) # 268,800 > 240,000
+    Cost.new.report(loop_of_clears(10, buffered: true), out: io)
     assert_match(/estimate over budget/, io.string)
     refute_match(/tears/, io.string)
   end

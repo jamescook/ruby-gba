@@ -26,12 +26,18 @@ module RubyGBA
 
         def own_op_cost(node)
           case node.kind
-          when :pixel then @weights[:plot_pixel]                     # one hand-plotted pixel
-          when :fill_rect then plot_rect_cost(node[:w], node[:h])    # a CPU per-pixel loop
-          when :dma_fill_rect, :draw_rect_at then dma_rows_cost(node[:w], node[:h]) # per-row DMA
-          when :clear_screen then dma_blob_cost(SCREEN_W * SCREEN_H) # the whole screen in one DMA
-          when :draw_text then Fonts.get(node[:font]).text_pixels(node[:text]) * @weights[:plot_pixel]
-          when :draw_digit then Fonts.get(node[:font]).max_glyph_pixels(DIGITS) * @weights[:plot_pixel]
+          when :pixel then tear_free? ? @weights[:tearfree_pixel] : @weights[:plot_pixel]
+          # The two screens draw a rectangle in shapes that have nothing in common, so
+          # which screen this one is on decides the whole price (see #tearfree_fill_cost).
+          when :fill_rect
+            tear_free? ? tearfree_fill_cost(node) : plot_rect_cost(node[:w], node[:h])
+          when :dma_fill_rect
+            tear_free? ? tearfree_fill_cost(node) : dma_rows_cost(node[:w], node[:h])
+          when :draw_rect_at
+            tear_free? ? tearfree_moving_rect_cost(node) : dma_rows_cost(node[:w], node[:h])
+          when :clear_screen then clear_screen_cost
+          when :draw_text then Fonts.get(node[:font]).text_pixels(node[:text]) * glyph_pixel_weight
+          when :draw_digit then Fonts.get(node[:font]).max_glyph_pixels(DIGITS) * glyph_pixel_weight
           when :blit then blit_cost(node[:name])
           when :blit_pose then blit_cost(node[:poses].first)         # one pose draws; all are the same size
           when :save_region, :restore_region then region_cost(node[:buffer])
@@ -319,6 +325,128 @@ module RubyGBA
         # (dma_fill_rect) for the same rectangle.
         def plot_rect_cost(w, h)
           w * h * @weights[:plot_pixel]
+        end
+
+        # Clearing the whole screen is one block fill either way. The tear-free screen
+        # holds a pixel as one BYTE (a number picking a color out of a table) where the
+        # direct-color screen holds the color itself in two, so the same transfer covers
+        # twice as many pixels there — the fill is half the work for the same picture.
+        def clear_screen_cost
+          pixels = SCREEN_W * SCREEN_H
+          return dma_blob_cost(pixels) unless tear_free?
+
+          @weights[:dma_setup] + (pixels * @weights[:dma_pixel] / 2)
+        end
+
+        # What one pixel of a run of them costs — a font glyph's lit pixels, drawn with
+        # the page's address already in hand. On the tear-free screen it is a
+        # read-modify-write of the pair the pixel shares with its neighbour, which is
+        # dearer than the direct screen's plain write.
+        def glyph_pixel_weight
+          tear_free? ? @weights[:tearfree_glyph] : @weights[:plot_pixel]
+        end
+
+        # THE TEAR-FREE SCREEN DRAWS A RECTANGLE IN A DIFFERENT SHAPE, and that shape is
+        # what the methods below price. Worth knowing why, because none of it follows
+        # from the rectangle:
+        #
+        # A pixel there is one byte — a number that picks a color out of a table — and
+        # video memory refuses to write a lone byte. The smallest write covers two
+        # side-by-side pixels. So every row of a rectangle is built out of three things:
+        #
+        #   a PAIR    two side-by-side pixels in one write, the cheapest thing there is
+        #   an EDGE   a pixel whose neighbour is outside the rectangle, so it is read,
+        #             half of it changed, and written back
+        #   a FILL    a run handed to the block-fill engine, which costs the same to
+        #             start whatever it then moves
+        #
+        # A narrow run is written out as pairs instead, because starting the engine costs
+        # many times what a pair does (Backends::GBA::Buffered
+        # #emit_buffered_rect_row_middle decides where the line falls; if that moves,
+        # this must). That is what makes a two-pixel column a QUARTER of the price of two
+        # one-pixel ones — the wider one is cheaper — and pricing every row as a block
+        # fill is what used to hide it.
+
+        # How many pairs the block-fill engine is worth starting for. The same number
+        # Backends::GBA::Buffered::DIRECT_STORE_UNITS; if one moves, both must.
+        TEARFREE_DIRECT_PAIRS = 4
+
+        # A rectangle of a size settled while building, filled on the tear-free screen —
+        # what `fill_rect` and `dma_fill_rect` both lower to there.
+        #
+        # A rectangle spanning the whole screen width is one unbroken run of memory: the
+        # next row starts exactly where the last one ended, so there is no gap to skip and
+        # the whole thing goes in as ONE fill instead of one per row. For a sky or a floor
+        # band that is the difference between two starts and a hundred and sixty.
+        def tearfree_fill_cost(node)
+          x, y, w, h = %i[x y w h].map { |slot| const_side(node[slot]) }
+          # Every side of this rectangle is settled while building. Anything the game
+          # works out has no provable size, so — like a loop with no bound — it counts
+          # as nothing rather than a guess, and the estimate says so out loud.
+          return 0 unless w && h && x && y
+
+          transfer = w * h * @weights[:tearfree_fill_pixel]
+          return @weights[:tearfree_rect_start] + @weights[:dma_setup] + transfer if full_width_run?(x, y, w, h)
+
+          @weights[:tearfree_rect_start] + (h * tearfree_fill_row_cost(x, w)) + transfer
+        end
+
+        # One row of a fixed rectangle: the fill, plus the two edge pixels an odd column
+        # forces (both ends of the row then share a pair with a pixel outside it). A
+        # two-pixel rectangle at an odd column is all edge and has no fill at all.
+        def tearfree_fill_row_cost(x, w)
+          edges = x.odd? ? 2 * @weights[:tearfree_edge] : 0
+          middle = x.odd? ? w - 2 : w
+          edges + (middle.positive? ? @weights[:dma_setup] : 0)
+        end
+
+        # Whether a rectangle covers whole screen rows with nothing clipped off, so it
+        # goes in as one run. (Backends::GBA::Buffered#full_width_rows? decides this; if
+        # one moves, both must.)
+        def full_width_run?(x, y, w, h)
+          x.zero? && w == SCREEN_W && h.positive? && y >= 0 && (y + h) <= SCREEN_H
+        end
+
+        # A rectangle whose position the game works out, drawn on the tear-free screen —
+        # what `draw_rect_at` lowers to there. It walks down the rows stepping one address
+        # along, so a row costs what its own pixels cost and almost nothing else.
+        def tearfree_moving_rect_cost(node)
+          w = const_side(node[:w])
+          h = const_side(node[:h])
+          return 0 unless w && h && w.positive?
+
+          @weights[:tearfree_moving_start] + (h * tearfree_moving_row_cost(w, node[:x]))
+        end
+
+        # One row of a moving rectangle. Which pixels need an edge write follows from the
+        # column the rectangle starts in, so a column settled while building is priced
+        # exactly; otherwise both columns are possible and only one of them is emitted, so
+        # this takes the dearer — the same call the model makes for a scene dispatch,
+        # where only one branch runs a frame.
+        def tearfree_moving_row_cost(w, x)
+          column = const_side(x)
+          return tearfree_row_parity_cost(w, column.odd?) if column
+
+          [false, true].map { |odd| tearfree_row_parity_cost(w, odd) }.max
+        end
+
+        # A row of a rectangle that starts on an odd or an even column: its edge pixels,
+        # and the run between them either written out as pairs or handed to the fill
+        # engine. (The split mirrors Backends::GBA::Buffered#rect_row_parts.)
+        def tearfree_row_parity_cost(w, starts_odd)
+          left = starts_odd ? 1 : 0
+          right = (starts_odd ? w + 1 : w).odd? ? 1 : 0
+          middle = w - left - right
+          @weights[:tearfree_row] + ((left + right) * @weights[:tearfree_edge]) + tearfree_middle_cost(middle)
+        end
+
+        def tearfree_middle_cost(middle)
+          return 0 unless middle.positive?
+
+          pairs = middle / 2
+          return pairs * @weights[:tearfree_pair] if pairs <= TEARFREE_DIRECT_PAIRS
+
+          @weights[:dma_setup] + (middle * @weights[:tearfree_fill_pixel])
         end
 
         # A rectangle filled/copied by DMA one row at a time (a DMA fill, an opaque blit, a
