@@ -27,9 +27,10 @@ module RubyGBA
     # workload actually burns in a frame of the emulator's GBA timing model — see
     # tools/calibrate_cost_model.rb, which measures each one and is re-run whenever the
     # lowering of a priced op changes. Every weight is measured that way — the logic
-    # steps, plot_pixel, sound_write, the mixer, music, both parts of a DMA fill (the
-    # per-row CPU setup and the per-pixel transfer stall), sprite/scroll upkeep, and
-    # per-pixel collision. A game dev can override any of them.
+    # steps, plot_pixel, sound_write, the mixer, music, both parts of a DMA fill (what
+    # STARTING a row's transfer costs — on the CPU and in the engine, which is stalled
+    # time the CPU never executes — and the per-pixel transfer on top), sprite/scroll
+    # upkeep, and per-pixel collision. A game dev can override any of them.
     #
     # Two things drive the cost. Drawing is dominated by DMA *operations*: a fill, a
     # blit, a save/restore is one DMA per row, and the per-row setup dwarfs the
