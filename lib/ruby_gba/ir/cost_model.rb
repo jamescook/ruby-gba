@@ -139,6 +139,9 @@ module RubyGBA
         define_sound song data bitmap backing_buffer list_new table
         timer_start timer_stop on_timer
         sample play_sample stop_sample
+        # loading the saved variables happens once at boot, before the first frame, so
+        # it never lands on a frame's budget — like the declarations above it.
+        save_init
       ].freeze
       FREE_VALUE_KINDS = %i[int var_ref data_byte list_get list_len table_get held pressed read_scanline timer_ticks].freeze
 
@@ -148,9 +151,13 @@ module RubyGBA
       # tear check. SOUND is the sound-register writes plus the software mixer. Anything
       # else the loop computes — moving things, collisions, counters — is LOGIC. They
       # all share the one frame, so they all roll into the frame total.
+      # camera and fade redraw nothing — they tell the display where to look and how far
+      # to blend — but they are still writes the visible frame must not see part-done, so
+      # they belong with the drawing the tear check judges.
       DRAW_KINDS = %i[
         pixel fill_rect dma_fill_rect draw_rect_at clear_screen draw_text draw_digit
         blit blit_pose save_region restore_region present_objects scroll_background background
+        camera fade
       ].freeze
       SOUND_KINDS = %i[play_song beep noise wave stop_wave enable_sound stop_music mixer].freeze
       CATEGORY_ORDER = %i[drawing sound logic].freeze

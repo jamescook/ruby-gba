@@ -133,6 +133,83 @@ class TestCostPricing < CostModelTest
     near WEIGHTS[:scroll_write], Cost.new.steady_cost(prog)
   end
 
+  # Moving the camera and setting the fade redraw nothing, so they are cheap — but not
+  # free, and `shake_screen` moves the camera on every frame it runs. Counting them as
+  # free made the estimate announce it could not price them and hedge every verdict on
+  # a game that shakes.
+  def test_moving_the_camera_and_fading_are_priced
+    prog = Build.program(
+      Build.screen(:bitmap),
+      Build.loop_(Build.wait_vblank, Build.camera(x: Build.int(3), y: Build.int(5))),
+    )
+    near WEIGHTS[:camera_move], Cost.new.steady_cost(prog)
+
+    fading = Build.program(
+      Build.screen(:bitmap),
+      Build.loop_(Build.wait_vblank, Build.fade(toward: :black, amount: Build.int(50))),
+    )
+    near WEIGHTS[:fade_set], Cost.new.steady_cost(fading)
+  end
+
+  # The hardware counts a fade in sixteenths, so a level the GAME works out has to be
+  # converted as the program runs — a multiply and a divide the tree cannot see, because
+  # the lowering builds them. A level written into the program is converted while
+  # building and costs nothing extra.
+  def test_a_fade_the_game_works_out_costs_the_conversion
+    fixed = Build.program(
+      Build.screen(:bitmap),
+      Build.loop_(Build.wait_vblank, Build.fade(toward: :black, amount: Build.int(50))),
+    )
+    live = Build.program(
+      Build.screen(:bitmap),
+      Build.loop_(Build.wait_vblank, Build.fade(toward: :black, amount: Build.var_ref(:level))),
+    )
+    assert_operator Cost.new.steady_cost(live), :>, Cost.new.steady_cost(fixed)
+    near WEIGHTS[:fade_set] + WEIGHTS[:op_mul] + WEIGHTS[:op_div_const], Cost.new.steady_cost(live)
+  end
+
+  # Save memory sits on a slow bus and takes a byte at a time, so keeping a counter in a
+  # `save_var` costs several times what keeping it in an ordinary one does — every change
+  # mirrors it back. Worth seeing rather than counting as free.
+  def test_changing_a_saved_variable_costs_more_than_changing_an_ordinary_one
+    ordinary = program do
+      screen :bitmap
+      score = var :score, 0
+      game_loop { score.add 1 }
+    end
+    saved = program do
+      screen :bitmap
+      score = save_var :score, 0
+      game_loop { score.add 1 }
+    end
+    near WEIGHTS[:op_step], Cost.new.steady_cost(ordinary)
+    near WEIGHTS[:op_step] + WEIGHTS[:save_write], Cost.new.steady_cost(saved)
+  end
+
+  # Both are display writes the visible frame must not catch part-done, so they belong to
+  # the drawing the tear check judges — not to the logic that runs through the frame.
+  def test_the_camera_and_the_fade_count_as_drawing
+    prog = Build.program(
+      Build.screen(:bitmap),
+      Build.loop_(Build.wait_vblank,
+                  Build.camera(x: Build.int(3), y: Build.int(5)),
+                  Build.fade(toward: :black, amount: Build.int(50))),
+    )
+    near WEIGHTS[:camera_move] + WEIGHTS[:fade_set], Cost.new.steady_drawing_cost(prog)
+  end
+
+  # Loading the saved variables happens once at boot, before the first frame, so it is
+  # declared free rather than left to the "cannot estimate" banner — the banner is for
+  # work nobody has decided about yet.
+  def test_a_program_that_saves_is_fully_priced
+    prog = program do
+      screen :bitmap
+      best = save_var :best, 0
+      game_loop { best.add 1; camera 1, 1; fade :black, 25 }
+    end
+    assert_empty Cost.new.unpriced_kinds(prog)
+  end
+
   # A divide is priced well above an add, because on this CPU it traps into the BIOS
   # Div routine rather than running as a single instruction.
   def test_a_divide_costs_more_than_an_add

@@ -39,6 +39,12 @@ module RubyGBA
           # the two scroll-register writes when a background moves.
           when :present_objects then node[:names].to_a.length * @weights[:obj_write]
           when :scroll_background then @weights[:scroll_write]
+          # Telling the display what to show, without redrawing a pixel: where the window
+          # over the picture sits, and how far the whole picture is blended toward a color.
+          # Cheap next to drawing, but not free, and `shake_screen` moves the camera on
+          # every frame it runs.
+          when :camera then @weights[:camera_move]
+          when :fade then fade_cost(node)
           when :background then dma_blob_cost(background_cells(node)) # one-time map stamp (boot, not per frame)
           when :play_song then song_cost(node[:name])
           when :beep then BEEP_WRITES * @weights[:sound_write]
@@ -55,8 +61,25 @@ module RubyGBA
           when :copy, :negate, :abs, :negate_abs then @weights[:op_step]
           when :clamp then 2 * @weights[:op_step] # a low compare and a high compare
           when :list_push, :list_set, :list_drop then @weights[:op_step]
+          # Every change to a save_var mirrors it back to save memory, right after the
+          # change. Save memory sits on a slow bus and takes one byte at a time, so this
+          # costs several times the step that triggered it — worth seeing when a game
+          # keeps a live counter in one.
+          when :save_store then @weights[:save_write]
           else note_unpriced(node.kind, FREE_STATEMENT_KINDS)
           end
+        end
+
+        # A fade is two register writes: which way to blend, and how far. "How far" is a
+        # percentage, and the hardware counts in sixteenths — so a level the game works
+        # out has to be converted as the program runs, which is a multiply and a divide on
+        # top. A level written into the program is converted while building and is free.
+        # (The conversion is built by the lowering, so it is not in the tree to be found;
+        # Backends::GBA::Drawing#emit_fade is where it lives. If one moves, both must.)
+        def fade_cost(node)
+          return @weights[:fade_set] if const_side(node[:amount])
+
+          @weights[:fade_set] + @weights[:op_mul] + @weights[:op_div_const]
         end
 
         # A kind that fell through to the zero-cost fallback: 0 if it's a declared-free

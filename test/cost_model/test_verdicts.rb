@@ -16,6 +16,16 @@ class TestCostVerdicts < CostModelTest
                  "these kinds have no cost estimate — price them in op_cost/expr_cost, or add to a FREE_*_KINDS list"
   end
 
+  # The audit above is only worth anything if it reads the WHOLE program. Asking it for a
+  # frame is what let camera, fade and save_store sit unpriced for so long: the fixture
+  # keeps every kind above its game loop, so a frame walk saw `wait_vblank, halt` and had
+  # nothing to report — while three real ops were being counted as free.
+  def test_an_unpriced_op_outside_the_game_loop_is_still_found
+    mystery = RubyGBA::IR::Node.new(:mystery_op)
+    prog = Build.program(Build.screen(:bitmap), mystery, Build.loop_(Build.wait_vblank, Build.halt))
+    assert_includes Cost.new.unpriced_kinds(prog), :mystery_op
+  end
+
   # An op the model can't price is announced loudly at the very top of the estimate,
   # rather than silently counted as free.
   def test_an_unpriced_op_is_announced_at_the_top

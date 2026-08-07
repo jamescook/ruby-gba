@@ -10,10 +10,10 @@ module RubyGBA
       MEASURED_WEIGHTS = {
         op_step: 0.01928,
         op_mul: 0.01928,
-        op_div: 0.08696,
+        op_div: 0.08051,
         op_div_const: 0.03215,
         op_mul_fix: 0.02573,
-        op_div_fix: 0.25542,
+        op_div_fix: 0.25211,
         plot_pixel: 0.01606,
         sound_write: 0.01606,
         mix_voice_sample: 0.03000,
@@ -23,6 +23,9 @@ module RubyGBA
         dma_pixel: 0.00122,
         obj_write: 0.11726,
         scroll_write: 0.10425,
+        camera_move: 0.08355,
+        fade_set: 0.02570,
+        save_write: 0.07025,
         overlap_pixel: 0.22491,
       }.freeze
     end
