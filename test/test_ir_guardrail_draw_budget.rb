@@ -62,8 +62,8 @@ class TestDrawBudgetGuardrail < Minitest::Test
     assert_empty Check.new.detect(prog), "a one-shot draw has no per-frame tear risk"
   end
 
-  # 3 clears/frame (115,200) overruns the brief single-buffer window (tears) but
-  # fits a whole frame, so double-buffered it's quiet — the mode changes the budget.
+  # 3 clears a frame overrun the brief single-buffer window (so it tears) but fit a
+  # whole frame, so double-buffered it's quiet — the mode changes the budget.
   def test_buffered_is_judged_against_the_whole_frame_budget
     refute_empty Check.new.detect(loop_of_clears(3, buffered: false)), "single-buffer: tears"
     assert_empty Check.new.detect(loop_of_clears(3, buffered: true)), "buffered: fits a whole frame"
@@ -72,7 +72,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
   # Double buffering still has a ceiling: over a whole frame it warns, but about a
   # dropped frame rate, not tearing (buffering makes tearing impossible).
   def test_buffered_over_a_whole_frame_warns_about_frame_rate_not_tearing
-    findings = Check.new.detect(loop_of_clears(7, buffered: true)) # 268,800 > 240,000
+    findings = Check.new.detect(loop_of_clears(10, buffered: true))
     assert_equal 1, findings.length
     assert_match(/frame rate|60 frames|choppy/, findings.first.message)
     # It reassures ("won't tear"), it does NOT raise the alarm the single-buffer
@@ -97,7 +97,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
   # Per-scene budgets catch it and name it; the buffered scene, on its own wider
   # budget, stays quiet. (The old whole-program budget hid the direct scene.)
   def test_a_heavy_direct_scene_warns_even_beside_a_buffered_one
-    findings = Check.new.detect(mixed(direct_clears: 3, buffered_clears: 1)) # direct 115,200 > 80,000
+    findings = Check.new.detect(mixed(direct_clears: 3, buffered_clears: 1))
     assert_equal 1, findings.length
     assert_match(/still/, findings.first.message) # names the offending scene
     assert_match(/tear/, findings.first.message)
@@ -106,7 +106,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
   # When the heavy scene is the buffered one (over a whole frame), the warning is
   # about frame rate, not tearing; the light direct scene stays quiet.
   def test_a_heavy_buffered_scene_warns_about_frame_rate_not_tearing
-    findings = Check.new.detect(mixed(direct_clears: 1, buffered_clears: 7)) # buffered 268,800 > 240,000
+    findings = Check.new.detect(mixed(direct_clears: 1, buffered_clears: 10))
     assert_equal 1, findings.length
     assert_match(/action/, findings.first.message)
     assert_match(/frame rate|60 frames|choppy/, findings.first.message)

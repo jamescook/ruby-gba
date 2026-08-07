@@ -21,6 +21,15 @@ module CostArith
   def dma_rows(w, h) = (h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:dma_pixel])
   def plot_rect(w, h) = w * h * WEIGHTS[:plot_pixel] # fill_rect: a CPU per-pixel loop
   def dma_blob(pixels) = WEIGHTS[:dma_setup] + (pixels * WEIGHTS[:dma_pixel])
+  # The same whole-screen clear on the TEAR-FREE screen. It holds a pixel as one byte
+  # where the direct-color screen holds the color itself in two, so one transfer covers
+  # twice as many pixels — the same picture for half the work.
+  def tearfree_clear = WEIGHTS[:dma_setup] + (240 * 160 * WEIGHTS[:dma_pixel] / 2)
+  # A rectangle of a fixed size on the tear-free screen: a block fill per row, plus the
+  # transfer, plus what it costs before the first row.
+  def tearfree_fill(w, h)
+    WEIGHTS[:tearfree_rect_start] + (h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:tearfree_fill_pixel])
+  end
   # A repeat: each pass runs the body AND pays for going round (the count, the test, the
   # jump back), which is real work and roughly three plain steps.
   def loop_cost(passes, body) = passes * (body + WEIGHTS[:loop_pass])

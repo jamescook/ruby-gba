@@ -28,8 +28,11 @@
 # perspective divide, the single line that turns a distance into a picture.
 #
 # A note on speed: this casts a ray per screen column, and each column is one fill as
-# tall as the ray says — draw_rect_at takes a height the game works out. It runs at 30
-# frames a second, and most of that is the two full-screen fills for sky and floor.
+# tall as the ray says — draw_rect_at takes a height the game works out. It holds sixty
+# frames a second, and nearly all of that is the ray casting itself. The sky and the
+# floor look like the expensive part and are not: each spans the whole screen width, so
+# its rows are one unbroken run of memory and the whole band goes in as a single
+# transfer rather than one per row.
 
 require_relative "../lib/ruby_gba"
 

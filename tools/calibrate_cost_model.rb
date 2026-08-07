@@ -216,6 +216,54 @@ def save_busy(per_frame, copies, persist:)
   measure(name, rom)
 end
 
+# --- the tear-free screen ---
+#
+# It holds a pixel as one BYTE (a number picking a color out of a table) and video memory
+# refuses to write a lone byte, so it draws in shapes the direct-color screen has no
+# counterpart for: pairs of side-by-side pixels written straight out, single pixels read
+# and spliced back, and the block-fill engine for anything wider. Each shape gets its own
+# ROM below, and the differencing isolates one of them at a time.
+def tearfree_rom(name, per_frame, &body)
+  RubyGBA.build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
+    screen :bitmap, tear_free: true
+    xv = var :px, 40 # an EVEN column: no spliced edges unless a case asks for them
+    yv = var :py, 10
+    b = self
+    game_loop { b.wait_vblank; b.repeat(per_frame) { body.call(b, xv, yv) } }
+  end
+end
+
+def tearfree_busy(name, per_frame, &body) = measure(name, tearfree_rom(name, per_frame, &body))
+
+# Per-ROW cost of a rectangle: two heights of the same rectangle, over the extra rows.
+# The once-per-rectangle preamble is identical in both, so it cancels.
+def tearfree_row_cost(tag, per_frame, lo, hi, &draw)
+  a = tearfree_busy("#{tag}#{lo}", per_frame) { |b, xv, yv| draw.call(b, xv, yv, lo) }
+  z = tearfree_busy("#{tag}#{hi}", per_frame) { |b, xv, yv| draw.call(b, xv, yv, hi) }
+  (z - a) / (per_frame * (hi - lo).to_f)
+end
+
+# The WHOLE cost of one rectangle, preamble included: more copies of the same rectangle
+# at a fixed trip count. Subtracting the rows leaves what it costs before the first one.
+def tearfree_rect_cost(tag, per_frame, &draw)
+  a = tearfree_busy("#{tag}1", per_frame) { |b, xv, yv| draw.call(b, xv, yv) }
+  z = tearfree_busy("#{tag}3", per_frame) { |b, xv, yv| 3.times { draw.call(b, xv, yv) } }
+  (z - a) / (per_frame * 2.0)
+end
+
+# The stall the block-fill engine imposes on the tear-free screen while it copies. It
+# moves 16 bits — two pixels — at a time here, so this is not the direct screen's rate.
+def tearfree_fill_stall(h, per_frame)
+  name = "tfs#{h}"
+  rom = tearfree_rom(name, per_frame) { |b, _xv, _yv| b.fill_rect 0, 0, 240, h, :red }
+  tf = Tempfile.new([name.downcase, ".gba"]); tf.binmode; rom.write(tf.path); tf.flush
+  TFS << tf
+  probe = GembaCore.open(tf.path)
+  reads = 3.times.map { probe.frame_cost(settle: SETTLE).dma_scanlines }
+  probe.close
+  reads.min
+end
+
 # Per-frame cost of scrolling a background `per_frame` times — each scroll is a couple
 # of register writes.
 def scroll_busy(per_frame)
@@ -323,6 +371,47 @@ measured[:fade_set] = per_op("fade", 100, 2, 6) { |b, _xv| b.fade :black, 50 }
 
 # --- mirroring a saved variable back to save memory, on every change to it.
 measured[:save_write] = (save_busy(60, 4, persist: true) - save_busy(60, 4, persist: false)) / (60 * 4.0)
+
+# --- the tear-free screen's own drawing shapes. Every one of these is measured on that
+# screen, because the same verb emits something else entirely on the direct-color one.
+#
+# A moving rectangle walks its rows, so a row is the address step plus its own pixels.
+# Two widths of the same rectangle difference to the pixels, and one pixel wide (all
+# edge, no pairs) gives the address step on its own.
+row_w2 = tearfree_row_cost("tfr2", 20, 4, 20) { |b, xv, yv, h| b.draw_rect_at xv, yv, 2, h, :red }
+row_w8 = tearfree_row_cost("tfr8", 20, 4, 20) { |b, xv, yv, h| b.draw_rect_at xv, yv, 8, h, :red }
+row_w1 = tearfree_row_cost("tfr1", 20, 4, 20) { |b, xv, yv, h| b.draw_rect_at xv, yv, 1, h, :red }
+measured[:tearfree_pair] = (row_w8 - row_w2) / 3.0 # 4 pairs against 1
+measured[:tearfree_row] = row_w2 - measured[:tearfree_pair]
+measured[:tearfree_edge] = row_w1 - measured[:tearfree_row]
+# What a rectangle costs before its first row. A moving one pays much more of this than a
+# fixed one: its position has to be worked out and its column's parity tested.
+measured[:tearfree_moving_start] =
+  tearfree_rect_cost("tfms", 20) { |b, xv, yv| b.draw_rect_at xv, yv, 8, 8, :red } -
+  (8 * (measured[:tearfree_row] + (4 * measured[:tearfree_pair])))
+# A fixed rectangle hands every row to the block-fill engine, so its rows measure what
+# starting that engine costs here — the same shape dma_setup measures on the other screen.
+fill_row = tearfree_row_cost("tff", 20, 4, 20) { |b, _xv, _yv, h| b.fill_rect 0, 0, 8, h, :red }
+measured[:tearfree_rect_start] =
+  tearfree_rect_cost("tffs", 20) { |b, _xv, _yv| b.fill_rect 0, 0, 8, 8, :red } - (8 * fill_row)
+# The transfer itself, which the CPU never executes — it is stalled while the engine runs.
+measured[:tearfree_fill_pixel] = (tearfree_fill_stall(80, 2) - tearfree_fill_stall(10, 2)) / (240 * 70 * 2.0)
+# One pixel drawn on its own, and one lit pixel of a font glyph. Both are read-modify-write
+# here (a pixel shares its 16 bits with its neighbour); the lone one also has to find the
+# hidden page's address, which a line of text holds for the whole line.
+measured[:tearfree_pixel] =
+  (tearfree_busy("tfp8", 150) { |b, _xv, _yv| 8.times { b.pixel 10, 10, :red } } -
+   tearfree_busy("tfp4", 150) { |b, _xv, _yv| 4.times { b.pixel 10, 10, :red } }) / (150 * 4.0)
+glyph_font = RubyGBA::Fonts.get(:default)
+# Drawn HALFWAY DOWN the screen, on purpose. Forming the address of a pixel takes one
+# instruction near the top of the screen and two below it, so text at y=0 is the one
+# cheap case and everywhere else costs about a seventh more. Measuring at the top would
+# under-charge every line of text that is not the first.
+GLYPH_Y = 80
+measured[:tearfree_glyph] =
+  (tearfree_busy("tfg4", 30) { |b, _xv, _yv| b.draw_text "ABCD", 0, GLYPH_Y, :red } -
+   tearfree_busy("tfg2", 30) { |b, _xv, _yv| b.draw_text "AB", 0, GLYPH_Y, :red }) /
+  (30.0 * (glyph_font.text_pixels("ABCD") - glyph_font.text_pixels("AB")))
 
 # --- per-pixel collision: a bigger overlap walks more pixels (size^2, fully overlapped
 # opposite checkerboards force the full walk).

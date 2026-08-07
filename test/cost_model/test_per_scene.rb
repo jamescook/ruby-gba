@@ -30,9 +30,10 @@ class TestPerSceneCost < CostModelTest
     )
   end
 
-  # The same drawing work is judged differently by mode: a direct scene clearing
-  # 3x a frame (115,200) overruns the brief safe window and tears; a buffered one
-  # clearing 3x fits a whole frame and is fine.
+  # The same code in two scenes, priced and judged by the screen each one is on. A
+  # direct scene clearing 3x a frame overruns the brief safe window and tears; a
+  # tear-free one clearing 3x costs half as much (a pixel there is one byte, so one
+  # transfer covers twice as many) and is judged against a whole frame besides.
   def test_each_scene_is_judged_against_its_own_mode_budget
     verdicts = Cost.new.scene_verdicts(mixed(direct_clears: 3, buffered_clears: 3))
     still  = verdicts.find { |s| s[:name] == "still" }
@@ -44,9 +45,9 @@ class TestPerSceneCost < CostModelTest
     assert still[:over], "a direct scene clearing 3x a frame overruns the safe window"
 
     assert_equal :buffered, action[:mode]
-    near 3 * dma_blob(240 * 160), action[:steady_cost]
+    near 3 * tearfree_clear, action[:steady_cost]
     assert_equal Cost::FRAME_BUDGET, action[:budget]
-    refute action[:over], "the same work, buffered, fits a whole frame"
+    refute action[:over], "the same code, tear-free, fits a whole frame"
   end
 
   # Judging each scene against its OWN mode's budget is what catches a heavy direct

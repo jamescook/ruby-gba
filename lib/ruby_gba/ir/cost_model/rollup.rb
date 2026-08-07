@@ -28,7 +28,6 @@ module RubyGBA
         # case_var takes its worst branch).
         def analyze(program, focus: nil)
           index(program)
-          @stack = []
           if focus
             func = @funcs.fetch(focus)
             @stack.push(focus)
@@ -65,7 +64,6 @@ module RubyGBA
         # program's top-level draws (funcs excluded; they're counted where called).
         def steady_statements(program)
           index(program)
-          @stack = []
           loop_node = program.children.find { |node| node.kind == :loop }
           loop_node ? loop_node.children : program.children.reject { |node| node.kind == :func }
         end
@@ -151,8 +149,13 @@ module RubyGBA
         # (so a repeat over a list can be bounded), the songs (so a `play_song` can be
         # costed by its note count), and the bitmaps (so a `blit` can be costed by its
         # image's size, which lives on the definition, not the blit op).
+        #
+        # Every analysis starts here, so the walk's own state — which routines it is
+        # inside, and which screen each of them draws on — is reset here too.
         def index(program)
           @unpriced = [] # kinds seen with no estimate — reset each analysis (see #unpriced_kinds)
+          @stack = []
+          @modes = resolve_modes(program)
           @funcs = {}
           @capacities = {}
           @songs = {}
@@ -168,6 +171,32 @@ module RubyGBA
             @backing[node[:name]] = [node[:width], node[:height]] if node.kind == :backing_buffer
           end
         end
+
+        # Which screen each routine of the program draws on. A program that reaches one
+        # drawing routine from two different screens can't be lowered at all, so there is
+        # no mode to read and no cost to quote either — the build will say so, and every
+        # op falls back to the boot screen here rather than guessing.
+        def resolve_modes(program)
+          Modes.resolve(program)
+        rescue Modes::Conflict
+          nil
+        end
+
+        # The screen the op being priced draws on: the mode of the routine the walk is
+        # inside, or the boot mode at the top level. A game can put a direct-color title
+        # and a tear-free play field in one program, and the SAME verb costs very
+        # different things on the two — so which one is being priced has to be known
+        # before the price is (see Pricing#own_op_cost).
+        def current_mode
+          return Modes::DIRECT unless @modes
+
+          @stack.last ? @modes.mode_of(@stack.last) : @modes.default_mode
+        end
+
+        # Whether the op being priced draws on the tear-free (double-buffered) screen,
+        # which holds a pixel as one byte and can't write a lone one — so it draws
+        # everything in a different shape from the direct-color screen.
+        def tear_free? = current_mode == Modes::BUFFERED
 
         # Build the cost tree for a node — an array (if/else/program are transparent
         # and splice their children; a non-draw leaf contributes nothing).

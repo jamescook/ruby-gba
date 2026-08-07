@@ -28,6 +28,14 @@ module RubyGBA
         camera_move: 0.08355,
         fade_set: 0.02570,
         save_write: 0.07025,
+        tearfree_pair: 0.00322,
+        tearfree_row: 0.00639,
+        tearfree_edge: 0.01285,
+        tearfree_moving_start: 0.09754,
+        tearfree_rect_start: 0.02591,
+        tearfree_fill_pixel: 0.00081,
+        tearfree_pixel: 0.03212,
+        tearfree_glyph: 0.02229,
         overlap_pixel: 0.22491,
       }.freeze
     end
