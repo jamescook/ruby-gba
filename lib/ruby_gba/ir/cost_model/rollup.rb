@@ -165,12 +165,45 @@ module RubyGBA
             @funcs[node[:name]] = node if node.kind == :func
             @capacities[node[:name]] = node[:capacity] if node.kind == :list_new
             @songs[node[:name]] = node if node.kind == :song
-            # transparency ride-along: an opaque bitmap streams by DMA, a transparent
-            # one is plotted pixel by pixel, and those cost very differently.
-            @bitmaps[node[:name]] = [node[:width], node[:height], !node[:transparent].nil?] if node.kind == :bitmap
+            @bitmaps[node[:name]] = catalogue_bitmap(node) if node.kind == :bitmap
             @backing[node[:name]] = [node[:width], node[:height]] if node.kind == :backing_buffer
           end
         end
+
+        # What an image costs to draw, worked out once here rather than at every blit of
+        # it. An image with no see-through color streams onto the screen in whole rows and
+        # is priced by its size alone.
+        #
+        # One WITH a see-through color is drawn a pixel at a time, and then three numbers
+        # matter. How many pixels are actually LIT (a see-through one is never written).
+        # How many ROWS hold at least one (a row with none is skipped whole). And how many
+        # of the lit pixels carry a color that needs a step of its own to build — because
+        # drawing a pixel at a time means writing the color into every store, and only some
+        # colors fit inside that instruction.
+        #
+        # Counting them is what stops a sprite that is mostly cut-out background from being
+        # priced as a solid rectangle.
+        def catalogue_bitmap(node)
+          see_through = node[:transparent]
+          width = node[:width]
+          height = node[:height]
+          unless see_through
+            return Bitmap.new(width: width, height: height, transparent: false,
+                              lit_pixels: width * height, wide_color_pixels: 0, lit_rows: height)
+          end
+
+          # The pixels arrive as a run of 16-bit colors, row after row.
+          rows = node[:pixels].unpack("v*").each_slice(width).map { |row| row.reject { |px| px == see_through } }
+          Bitmap.new(width: width, height: height, transparent: true,
+                     lit_pixels: rows.sum(&:length),
+                     wide_color_pixels: rows.sum { |row| row.count { |px| wide_color?(px) } },
+                     lit_rows: rows.count { |row| !row.empty? })
+        end
+
+        # Whether a color has to be built in a step of its own instead of riding inside the
+        # instruction that writes it. The assembler makes this exact call every time it
+        # loads a constant, so it is asked rather than restated here.
+        def wide_color?(color) = ASM.encode_rotated_immediate(color).nil?
 
         # Which screen each routine of the program draws on. A program that reaches one
         # drawing routine from two different screens can't be lowered at all, so there is

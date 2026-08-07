@@ -165,8 +165,8 @@ module RubyGBA
 
         # A sprite's pixel dimensions from its (same-size) poses, or [0, 0] if unknown.
         def mask_dims(poses)
-          dims = @bitmaps && @bitmaps[poses.first]
-          dims ? [dims[0], dims[1]] : [0, 0]
+          bmp = @bitmaps && @bitmaps[poses.first]
+          bmp ? [bmp.width, bmp.height] : [0, 0]
         end
 
         # An operator's weight: multiply and divide are their own (pricier) tiers;
@@ -319,12 +319,13 @@ module RubyGBA
           node[:map].to_a.sum { |row| row.respond_to?(:length) ? row.length : 1 }
         end
 
-        # A rectangle filled the slow way: a CPU loop writing each pixel, which is what
-        # fill_rect does in direct color. No per-row DMA setup, just the per-pixel plot, so
-        # the cost is the area times one plotted pixel — far dearer than the DMA fill
-        # (dma_fill_rect) for the same rectangle.
+        # A rectangle written out pixel by pixel, which is what fill_rect does in direct
+        # color: no block-fill engine, just a store per pixel. The whole rectangle is a
+        # RUN of them — the color is loaded once and every address is settled while
+        # building — so a pixel here is cheaper than a lone `pixel`, which has to work out
+        # a whole address and fetch its color for the one write.
         def plot_rect_cost(w, h)
-          w * h * @weights[:plot_pixel]
+          w * h * @weights[:plot_run_pixel]
         end
 
         # Clearing the whole screen is one block fill either way. The tear-free screen
@@ -338,12 +339,13 @@ module RubyGBA
           @weights[:dma_setup] + (pixels * @weights[:dma_pixel] / 2)
         end
 
-        # What one pixel of a run of them costs — a font glyph's lit pixels, drawn with
-        # the page's address already in hand. On the tear-free screen it is a
-        # read-modify-write of the pair the pixel shares with its neighbour, which is
-        # dearer than the direct screen's plain write.
+        # What one lit pixel of a font glyph costs. It is a pixel of a RUN — the color is
+        # held for the whole line and each address is settled while building — so on the
+        # direct screen it is the same shape, and the same price, as a pixel of a fill.
+        # On the tear-free screen it is a read-modify-write of the pair the pixel shares
+        # with its neighbour, which is dearer than either.
         def glyph_pixel_weight
-          tear_free? ? @weights[:tearfree_glyph] : @weights[:plot_pixel]
+          tear_free? ? @weights[:tearfree_glyph] : @weights[:plot_run_pixel]
         end
 
         # THE TEAR-FREE SCREEN DRAWS A RECTANGLE IN A DIFFERENT SHAPE, and that shape is
@@ -508,15 +510,36 @@ module RubyGBA
           song[:voices].sum { |voice| voice[:events].to_a.length }
         end
 
-        # A blit costs by how it's drawn: an opaque image streams by per-row DMA, but a
-        # transparent one is plotted pixel by pixel (so its see-through pixels can be
-        # skipped), which is far dearer. The size and transparency live on the bitmap
-        # definition, catalogued in #index. An unknown image costs nothing.
+        # A blit costs by how it is drawn, and the two ways are nothing alike.
+        #
+        # An image with no see-through color streams onto the screen in whole rows, so it
+        # is priced by its size like any other rectangle copy.
+        #
+        # One WITH a see-through color — a software sprite — is drawn a pixel at a time so
+        # the background shows between them, and its position is worked out as the program
+        # runs. That means every pixel is tested against the screen edges on its own before
+        # it is written, which is why a pixel here costs over twice what a pixel of a
+        # fixed-size fill does. Only the LIT pixels are drawn, and a row with none is
+        # skipped whole, so those are what is counted (see Rollup#catalogue_bitmap) —
+        # charging a sprite for its cut-out background would price a small figure like a
+        # solid block.
+        #
+        # On top of the pixels there is what the blit costs before its first row (where it
+        # goes is worked out once, whatever it then draws), and a little more for each
+        # pixel whose color needs a step of its own to build — drawing a pixel at a time
+        # means writing the color into every store, and only some colors fit inside that
+        # instruction.
+        #
+        # The size and the counts live on the image definition, catalogued in #index. An
+        # unknown image costs nothing.
         def blit_cost(name)
-          w, h, transparent = @bitmaps && @bitmaps[name]
-          return 0 unless w
+          bmp = @bitmaps && @bitmaps[name]
+          return 0 unless bmp
+          return dma_rows_cost(bmp.width, bmp.height) unless bmp.transparent
 
-          transparent ? w * h * @weights[:plot_pixel] : dma_rows_cost(w, h)
+          @weights[:blit_start] + (bmp.lit_rows * @weights[:blit_row]) +
+            (bmp.lit_pixels * @weights[:blit_pixel]) +
+            (bmp.wide_color_pixels * @weights[:blit_wide_color])
         end
 
         # Saving or restoring a patch copies its footprint by per-row DMA — the same
