@@ -26,7 +26,7 @@ module RubyGBA
         mix_voice_sample: 0.03000,
         mix_overhead_sample: 0.01104,
         music_voice: 0.05438,
-        dma_setup: 0.04822,
+        dma_setup: 0.05340,
         dma_pixel: 0.00122,
         obj_write: 0.11726,
         scroll_write: 0.10425,

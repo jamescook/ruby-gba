@@ -100,17 +100,19 @@ def music_busy(n)
   measure("mus#{n}", rom)
 end
 
-# One DMA fill of 2 x h, `per_frame` times a frame. Each row is a DMA whose fixed CPU
-# setup (the register writes that kick it off) is dma_setup; adding rows isolates it.
-# This is the CPU (busy) side — the register writes, not the transfer.
+# One DMA fill of w x h, `per_frame` times a frame. Each row is a transfer whose fixed CPU
+# setup (the register writes that kick it off) is part of dma_setup; adding rows isolates
+# it. This is the CPU (busy) side — the register writes, not the transfer.
 def dma_fill_busy(w, h, per_frame)
   stable_busy("dma#{w}x#{h}", per_frame) { |b, _xv| b.dma_fill_rect 0, 0, w, h, :red }
 end
 
-# The DMA-stall scanlines of a w x h fill done `per_frame` times a frame: the transfer
-# time the DMA engine spends copying while the CPU is frozen. It never lands in the busy
-# count (the CPU is stalled, not executing), but it is part of the frame's wall-clock
-# work, which #frame_cost exposes as the difference between active and busy time.
+# The DMA-stall scanlines of a w x h fill done `per_frame` times a frame: the time the
+# engine spends while the CPU is frozen. It never lands in the busy count (the CPU is
+# stalled, not executing), but it is part of the frame's wall-clock work, which #frame_cost
+# exposes as the difference between active and busy time. Both parts of the transfer are
+# in here — the engine's fixed start-up and its per-pixel rate — and the two measurements
+# below separate them.
 def dma_stall(w, h, per_frame)
   name = "dst#{w}x#{h}"
   rom = RubyGBA.build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
@@ -422,15 +424,31 @@ measured[:mix_overhead_sample] = base / MIXER_SPF
 # isolates one voice; the per-song counter overhead cancels).
 measured[:music_voice] = music_busy(2) - music_busy(1)
 
-# --- DMA fill per-row setup: the CPU register writes that start each row's DMA (a thin
-# 2-wide fill, so the transfer itself is negligible). This is the busy (CPU) side.
-measured[:dma_setup] = (dma_fill_busy(2, 40, 15) - dma_fill_busy(2, 8, 15)) / ((40 - 8) * 15.0)
-
-# --- DMA transfer per pixel: the stall the DMA engine imposes while it copies. A wide
-# fill's stall minus a narrow fill's stall at the SAME height cancels the per-row cost
-# (row count is equal), leaving the per-pixel transfer over the extra pixels. The
+# --- DMA transfer per pixel: part of the stall the engine imposes while it copies. A wide
+# fill's stall minus a narrow fill's stall at the SAME height cancels everything per-row
+# (the row count is equal), leaving the per-pixel transfer over the extra pixels. The
 # wall-clock probe sees this stall the busy count cannot.
-measured[:dma_pixel] = (dma_stall(200, 100, 4) - dma_stall(40, 100, 4)) / ((200 - 40) * 100 * 4.0)
+#
+# Measured FIRST because the start-up below is found by taking this out of a row's stall.
+dma_pixel = (dma_stall(200, 100, 4) - dma_stall(40, 100, 4)) / ((200 - 40) * 100 * 4.0)
+
+# --- STARTING one row's transfer. It costs on BOTH sides of the line the probe draws, and
+# only one side used to be measured.
+#
+# The CPU writes a few registers to kick the engine off. That is busy time, on a fill two
+# pixels wide so the transfer itself is negligible.
+cpu_start = (dma_fill_busy(2, 40, 15) - dma_fill_busy(2, 8, 15)) / ((40 - 8) * 15.0)
+# Then the engine takes a fixed moment of its own before the first pixel moves, and the CPU
+# is STALLED through it — not executing — so the busy count cannot see it. Nor can the
+# per-pixel weight: that is a marginal rate measured at a fixed row count, so it excludes
+# the start-up by construction. It fell between the two and was charged by neither. Taking
+# a row's own pixels back out of the stall per row leaves it, with nothing double-counted.
+#
+# It is about a ninth of the register writes: nothing on one wide row, real on a rectangle
+# of forty short ones, where there is nothing to spread it over.
+engine_start = ((dma_stall(8, 40, 4) - dma_stall(8, 20, 4)) / ((40 - 20) * 4.0)) - (8 * dma_pixel)
+measured[:dma_setup] = cpu_start + engine_start
+measured[:dma_pixel] = dma_pixel
 
 # --- tiled per-frame upkeep: one OAM rewrite per presented sprite, a couple of register
 # writes per background scroll.
