@@ -387,6 +387,25 @@ class TestASM < Minitest::Test
     assert_equal 0, (inst >> 20) & 1  # store, not load
   end
 
+  # A halfword instruction splits its offset across two nibbles — the high one up at bits
+  # 11-8, the low one at 3-0 — with the encoding's own bits in between. Getting that wrong
+  # writes to the wrong address, so the split is worth asserting directly.
+  def test_store_halfword_at_an_offset_splits_the_offset_across_two_nibbles
+    assert_equal A.store_halfword(2, 4), A.store_halfword_offset(2, 4, 0), "offset 0 is the plain form"
+
+    inst = unpack(A.store_halfword_offset(2, 4, 0x26))
+    assert_equal 2, rd(inst)
+    assert_equal 4, rn(inst)
+    assert_equal 0, (inst >> 20) & 1        # store, not load
+    assert_equal 0x2, (inst >> 8) & 0xF     # the high nibble of the offset
+    assert_equal 0x6, inst & 0xF            # and the low one
+    assert_equal 0xB, (inst >> 4) & 0xF     # the halfword selector still sits between them
+  end
+
+  def test_store_halfword_refuses_an_offset_it_cannot_encode
+    assert_raises(ArgumentError) { A.store_halfword_offset(2, 4, 256) }
+  end
+
   # ========================================================================
   # Branches
   # ========================================================================
