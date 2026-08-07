@@ -78,6 +78,22 @@ class TestCostReport < CostModelTest
     assert_match(/every 30/, io.string)
   end
 
+  # The whole point of the drill-down: a reader can see WHAT their dearest work is, not
+  # only that it is dear. A divide used to be priced right and then labelled with the
+  # statement it fed, so the word never appeared and the biggest number in a raycaster
+  # read as "set".
+  def test_explain_names_a_divide_and_how_often_a_frame_does_it
+    prog = program do
+      screen :bitmap
+      step = var :step, 3
+      x = var :x, 100
+      game_loop { repeat(30) { |_i| x.set(x / step) } }
+    end
+    text = rendered(prog)
+    assert_match(/divide \(worked out\)/, text, "the tree names it")
+    assert_match(/divide \(worked out\) ×30/, text, "and the hottest list counts a frame's worth")
+  end
+
   # Dropping the walk from the recurring load is only safe while the ceiling is still
   # stated. A game CAN reach it, so the estimate says so instead of quietly losing it.
   def test_the_estimate_names_the_collision_worst_case

@@ -169,4 +169,82 @@ class TestCostRollup < CostModelTest
     assert_operator Cost.new.frame_cost(prog), :>=, walk, "and the worst case still counts it"
     assert_operator Cost.new.steady_cost(prog), :<, 228, "but the recurring load must not"
   end
+
+  # --- naming the arithmetic a statement hides ---
+
+  # Arithmetic dearer than a plain step gets a line of its own, so it can be seen. A
+  # divide used to be priced right and then labelled with the statement it fed, which
+  # left the dearest thing in a program reading as "set".
+  def test_a_divide_gets_a_line_of_its_own_beside_the_statement_it_feeds
+    prog = program do
+      screen :bitmap
+      step = var :step, 3
+      x = var :x, 100
+      game_loop { x.set(x / step) }
+    end
+    labels = leaves(Cost.new.analyze(prog)).map { |n| n[:label] }
+    assert_includes labels, "divide (worked out)"
+    assert_includes labels, "set", "the statement it feeds is still there, at what is left"
+  end
+
+  # Naming the arithmetic only splits what was already counted — it must not change,
+  # lose or double any of it. Checked against #steady_cost, which prices the same frame
+  # without building a tree at all, so the two paths have to agree.
+  def test_naming_the_arithmetic_does_not_change_what_a_frame_costs
+    prog = program do
+      screen :bitmap
+      step = var :step, 3
+      x = var :x, 100
+      game_loop { x.set((x / step) + (x / 100) + (x * 7)) }
+    end
+    cost = Cost.new
+    near cost.steady_cost(prog), leaves(cost.analyze(prog)).sum { |n| n[:cost] }
+  end
+
+  # A power of two is a shift, no dearer than an add, so it gets no line of its own.
+  # Naming it would cry wolf on the one divide an author never has to think about.
+  def test_a_divide_by_a_power_of_two_is_not_singled_out
+    prog = program do
+      screen :bitmap
+      x = var :x, 100
+      game_loop { x.set(x / 64) }
+    end
+    labels = leaves(Cost.new.analyze(prog)).map { |n| n[:label] }
+    assert_empty labels.grep(/divide/), "a shift is not worth a line of its own"
+  end
+
+  # The three divides differ by five times, and which one you have is something an
+  # author can act on — make the divisor a fixed number, precompute a table. One word
+  # for all three would hide exactly that.
+  def test_the_three_divide_tiers_are_named_apart
+    prog = program do
+      screen :bitmap
+      step = var :step, 3
+      x = var :x, 100
+      depth = var :depth, 4.0
+      scale = var :scale, 2.0
+      game_loop do
+        x.set(x / step)        # a divisor the game works out
+        x.set(x / 100)         # a number written into the program
+        depth.set(depth / scale) # two numbers that hold a fraction
+      end
+    end
+    labels = leaves(Cost.new.analyze(prog)).map { |n| n[:label] }.grep(/divide/)
+    assert_equal ["divide (worked out)", "divide (fixed number)", "divide (fraction)"], labels
+  end
+
+  # Splitting the arithmetic out must not move cost between the drawing / sound / logic
+  # sections: a width the game divides out is part of what drawing that rectangle costs,
+  # and the drawing subtotal is what the tear check reads.
+  def test_arithmetic_stays_in_the_section_of_the_statement_that_pays_for_it
+    prog = program do
+      screen :bitmap
+      step = var :step, 3
+      w = var :w, 40
+      game_loop { draw_rect_at 0, 0, (w / step), 8, :red }
+    end
+    drawing = Cost.new.category_tree(prog).find { |c| c[:category] == :drawing }
+    refute_nil drawing, "the divide belongs to the rectangle it sizes, so drawing keeps it"
+    assert_includes leaves([drawing]).map { |n| n[:label] }, "divide (worked out)"
+  end
 end

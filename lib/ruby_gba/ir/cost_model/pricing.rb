@@ -165,14 +165,23 @@ module RubyGBA
         # division, priced as one. Otherwise the widening happens as the program runs and
         # the division walks the whole width of the answer, at a fixed price — there is
         # no cheap way to know in advance how much of that width matters.
-        # (The same test Backends::GBA::Divide#folds_to_plain_divide? makes; if one
-        # moves, both must.)
         def div_fix_weight(node)
-          numerator = const_side(node[:lhs])
-          widened = numerator ? numerator << node[:fraction_bits] : nil
-          return @weights[:op_div_fix] unless widened && widened > Int32::MIN && widened <= Int32::MAX
+          return @weights[:op_div_fix] unless div_fix_folds?(node)
 
           divide_weight(const_side(node[:rhs]))
+        end
+
+        # Whether a fraction divide's numerator is a number written into the program and
+        # small enough to widen while building — the case that lowers to an ordinary
+        # division, so it is priced and named as one.
+        # (The same test Backends::GBA::Divide#folds_to_plain_divide? makes; if one
+        # moves, both must.)
+        def div_fix_folds?(node)
+          numerator = const_side(node[:lhs])
+          return false unless numerator
+
+          widened = numerator << node[:fraction_bits]
+          widened > Int32::MIN && widened <= Int32::MAX
         end
 
         # What one divide or wrap costs, from where its divisor comes from. A negative
@@ -190,6 +199,47 @@ module RubyGBA
           return @weights[:op_step] if power_of_two?(size)
 
           @weights[:op_div_const]
+        end
+
+        # What to call one arithmetic operator in a report, or nil for anything that
+        # costs a plain step — which is most arithmetic, and not worth a line of its own.
+        # This lives here, beside the weights, because it makes the same three-way call
+        # #divide_weight makes: a name that disagreed with the price would be worse than
+        # no name at all.
+        #
+        # Naming the divides apart is the point. They differ by five times, an author can
+        # act on which one they have (make the divisor a fixed number, precompute a
+        # `table`), and one word for all three would hide exactly that.
+        def arithmetic_kind(value)
+          case value.kind
+          when :binop then binop_kind(value)
+          when :mul_fix then Arithmetic.new(op: :multiply_fraction, name: "multiply (fraction)")
+          when :div_fix then div_fix_kind(value)
+          end
+        end
+
+        def div_fix_kind(value)
+          return divide_kind(const_side(value[:rhs])) if div_fix_folds?(value)
+
+          Arithmetic.new(op: :divide_fraction, name: "divide (fraction)")
+        end
+
+        def binop_kind(value)
+          case value[:op]
+          when :* then Arithmetic.new(op: :multiply, name: "multiply") unless power_of_two_operand?(value[:rhs])
+          when :/, :% then divide_kind(const_side(value[:rhs]))
+          end
+        end
+
+        # Which divide a divisor gives, named rather than priced — the same split
+        # #divide_weight prices. A power of two is a shift, no dearer than an add, so it
+        # gets no line of its own.
+        def divide_kind(divisor)
+          size = divisor&.abs
+          return Arithmetic.new(op: :divide_worked_out, name: "divide (worked out)") unless size && size > 1
+          return nil if power_of_two?(size)
+
+          Arithmetic.new(op: :divide_fixed, name: "divide (fixed number)")
         end
 
         # Whether the right-hand side is a power of two settled while building — the

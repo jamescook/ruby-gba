@@ -134,6 +134,49 @@ class TestCostTree < CostModelTest
     assert_equal 2, hot[1][:count]
   end
 
+  # An op inside a loop is counted once per pass. The tree shows a loop body once and
+  # multiplies at the loop line, so reading the leaves flat has to put the multiplier
+  # back — otherwise the one view meant to say where the time goes reports a program's
+  # hottest work, which is nearly always in a loop, at a fraction of what it costs.
+  def test_hot_ops_counts_a_loop_body_once_per_pass
+    tree = [{ op: :repeat, label: "repeat x30", cost: 120, factor: 30, children: [
+      { op: :pixel, label: "pixel", cost: 4, children: [] },
+    ] }]
+    hot = Cost.new.hot_ops(tree, 5)
+    assert_equal 120, hot[0][:cost], "30 passes over a 4-scanline body"
+    assert_equal 30, hot[0][:count], "and it runs 30 times a frame"
+  end
+
+  # Only one scene runs a frame and the estimate charges the heaviest, so a lighter
+  # scene adds nothing here — summing them all would report work that never shares a
+  # frame.
+  def test_hot_ops_charges_only_the_heaviest_scene
+    prog = program do
+      screen :bitmap
+      var :state, 0
+      scene(:light) { fill_rect 0, 0, 2, 2, :red }
+      scene(:heavy) { fill_rect 0, 0, 10, 10, :red }
+      game_loop do
+        case_var(:state) do
+          when_val 0, :light
+          when_val 1, :heavy
+        end
+      end
+    end
+    cost = Cost.new
+    hot = cost.hot_ops(cost.category_tree(prog), 5).find { |h| h[:op] == :fill_rect }
+    near plot_rect(10, 10), hot[:cost]
+    assert_equal 1, hot[:count], "one fill a frame, not one per scene"
+  end
+
+  # A fold shows what the op is CALLED, so a run of divides reads as divides. An op
+  # whose kind is machinery rather than English carries its own name (see Tree#name_of).
+  def test_aggregate_folds_a_named_op_under_its_name
+    divide = { op: :divide_worked_out, name: "divide (worked out)",
+               label: "divide (worked out)", cost: 1, children: [] }
+    assert_equal "divide (worked out) ×2", Cost.new.aggregate([divide, divide.dup])[0][:label]
+  end
+
   # The mixer's per-frame cost shows up as a leaf in the SOUND section — rolled up
   # with everything else, not a bolt-on line.
   def test_the_mixer_shows_up_in_the_sound_section

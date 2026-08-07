@@ -73,6 +73,11 @@ module RubyGBA
       # The characters a run-time digit field can show — one of these draws.
       DIGITS = ("0".."9").to_a.freeze
 
+      # How a report names one arithmetic operator it pulls out of the statement it sits
+      # in: +op+ is the key the hottest list groups by, +name+ is the words a person
+      # reads. See {Pricing}#arithmetic_kind for which operators get one and why.
+      Arithmetic = Data.define(:op, :name)
+
       # The per-frame drawing budget, in scanlines: the vertical blank — the safe
       # window to change the screen before the visible frame starts — is about 68 of
       # the console's 228 scanlines. Draw more than this in a single-buffered frame

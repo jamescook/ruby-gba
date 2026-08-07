@@ -195,29 +195,74 @@ module RubyGBA
           c = expr_cost(cond)
           return [] unless c.positive?
 
-          label = cond && cond.walk.any? { |n| n.kind == :pixels_overlap } ? "collision test" : "test"
-          [{ op: :cond, label: label, cost: c, children: [] }]
+          arithmetic = arithmetic_leaves(cond, category: :logic, source: nil)
+          own = c - sum(arithmetic)
+          return arithmetic unless own.positive?
+
+          collision = cond.walk.any? { |n| n.kind == :pixels_overlap }
+          name = collision ? "collision test" : "test"
+          arithmetic + [{ op: collision ? :collision : :cond, name: name, label: name, cost: own, children: [] }]
         end
 
-        # A drawing op becomes a leaf; anything else costs nothing and is dropped.
-        # w/h ride along so aggregation can tell a 33x60 stripe from a 4x4 corner
-        # (they're nil for pixel/clear/text, which then all fold together).
+        # A drawing or compute op becomes a leaf, with the dear arithmetic it was handed
+        # split out ahead of it — the arithmetic runs before the statement can, and reads
+        # that way. Anything that costs nothing at all is dropped.
         def build_leaf(node)
           c = op_cost(node)
           return [] unless c.positive?
 
-          [{ op: node.kind, label: label_of(node), cost: c, w: node[:w], h: node[:h],
+          arithmetic = arithmetic_leaves(node, category: category_of(node.kind), source: node.source)
+          arithmetic + statement_leaf(node, c - sum(arithmetic))
+        end
+
+        # A statement's own leaf: what it costs once the arithmetic it was handed is
+        # counted separately. None at all when its own work is free, so a statement that
+        # is nothing but its arithmetic leaves only the arithmetic behind.
+        # w/h ride along so aggregation can tell a 33x60 stripe from a 4x4 corner
+        # (they're nil for pixel/clear/text, which then all fold together).
+        def statement_leaf(node, cost)
+          return [] unless cost.positive?
+
+          [{ op: node.kind, label: label_of(node), cost: cost, w: node[:w], h: node[:h],
              source: node.source, children: [] }]
         end
 
-        # case_var runs one scene per frame, so its cost is the heaviest branch.
+        # The arithmetic a statement or a test does before it can run, as cost leaves of
+        # its own — everything dearer than a plain step, named for a reader. This is what
+        # stops a divide from hiding inside the statement it sits in: `set :height,
+        # WALL / distance` is one `set` in the tree and the divide is nearly all of what
+        # it costs, so showing the `set` alone shows a number with no name on it. An add,
+        # a compare, a shift stay folded into their statement, where they belong.
+        #
+        # A leaf carries the section and the call site of the statement it came from, so
+        # pulling it out never moves cost between the drawing / sound / logic sections or
+        # between files — it only names what was already counted there.
+        def arithmetic_leaves(value, category:, source:, out: [])
+          return out unless value.is_a?(Node)
+
+          if (kind = arithmetic_kind(value))
+            out << { op: kind.op, name: kind.name, label: kind.name, cost: own_cost(value, true),
+                     category: category, source: source, children: [] }
+          end
+          value.attrs.each_value do |slot|
+            items = slot.is_a?(Array) ? slot : [slot]
+            items.each { |item| arithmetic_leaves(item, category: category, source: source, out: out) }
+          end
+          out
+        end
+
+        # case_var runs one scene per frame, so its cost is the heaviest branch. Every
+        # branch is still shown — a reader wants to see the light scenes too — but only
+        # the heaviest carries a frame's worth of work, which is what `factor` says (see
+        # Tree#weigh_leaves).
         def build_case(node)
           branches = node[:clauses].map do |value, target|
             kids = func_children(target)
             { op: :branch, label: "#{value} -> :#{target}", cost: sum(kids), children: kids }
           end
-          { op: :case, label: "case_var :#{node[:var]}", cost: (branches.map { |b| b[:cost] }.max || 0),
-            source: node.source, children: branches }
+          worst = branches.max_by { |b| b[:cost] }
+          { op: :case, label: "case_var :#{node[:var]}", cost: worst ? worst[:cost] : 0, source: node.source,
+            children: branches.map { |b| b.merge(factor: b.equal?(worst) ? 1 : 0) } }
         end
 
         # A call is its target func's body, inlined (guarding against a call cycle).
@@ -230,7 +275,8 @@ module RubyGBA
         def build_repeat(node)
           factor, note = repeat_factor(node)
           kids = node.children.flat_map { |child| build(child) }
-          { op: :repeat, label: "repeat #{note}", cost: factor * sum(kids), source: node.source, children: kids }
+          { op: :repeat, label: "repeat #{note}", cost: factor * sum(kids), factor: factor,
+            source: node.source, children: kids }
         end
 
         # A timed trigger (every/after) as a labeled container: it carries its body's

@@ -123,8 +123,11 @@ module RubyGBA
           return if hot.empty?
 
           printer.puts "  hottest:"
-          width = hot.map { |h| h[:op].to_s.length }.max
-          hot.each { |h| printer.puts "    • #{h[:op].to_s.ljust(width)}  ~#{fmt(h[:cost])}" }
+          # The count is how many times a FRAME runs it — 30 wall divides, not one in a
+          # body that happens to loop — which is often the number that explains the cost.
+          labels = hot.map { |h| h[:count] > 1 ? "#{h[:name]} ×#{h[:count]}" : h[:name].to_s }
+          width = labels.map(&:length).max
+          hot.zip(labels) { |h, label| printer.puts "    • #{label.ljust(width)}  ~#{fmt(h[:cost])}" }
         end
 
         # The drawing section's cost from the categorized tree (0 if it draws nothing) —
