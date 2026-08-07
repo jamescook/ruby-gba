@@ -132,16 +132,23 @@ class TestFractionType < Minitest::Test
     assert_match(/16 bits against 8/, err.message)
   end
 
-  def test_dividing_a_fraction_by_a_fraction_is_a_build_error
+  # Dividing two of them keeps the fraction: 3.0 over 1.5 is 2.0, not 2, and 3.0 over 2.0
+  # is 1.5 and not 1. The marker lands at the answer times ten so a fraction shows.
+  def test_dividing_a_fraction_by_a_fraction_keeps_the_fraction
+    assert_equal 20, marker_x { ((var(:a, 3.0) / var(:b, 1.5)) * 10).to_i }
+    assert_equal 15, marker_x { ((var(:c, 3.0) / var(:d, 2.0)) * 10).to_i }
+  end
+
+  # Two that hold DIFFERENT amounts of fraction still cannot be divided, the same way
+  # they cannot be added — the answer would be wrong by a factor of thousands.
+  def test_dividing_fractions_of_different_scales_is_a_build_error
     err = assert_raises(ArgumentError) do
-      build do
-        screen :bitmap
-        var(:a, 3.0) / var(:b, 1.5)
-      end
+      b = RubyGBA::Builder.new
+      coarse = RubyGBA::Value.new(b, RubyGBA::IR::Build.var_ref(:c), name: :c, fraction_bits: 8)
+      b.instance_eval { var :fine, 3.0 } / coarse
     end
 
-    assert_match(/more room/, err.message)
-    assert_match(/table/, err.message)
+    assert_match(/not the same amount/, err.message)
   end
 
   def test_giving_a_whole_number_variable_a_fraction_is_a_build_error

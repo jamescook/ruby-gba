@@ -483,6 +483,40 @@ module RubyGBA
       [0xE1500000 | (rn << 16) | (shift_val << 7) | 0x20 | rm].pack("V")
     end
 
+    # ADDS rd, rn, rm — add and SET THE FLAGS. `adds rd, rd, rd` doubles a register and
+    # leaves the bit that fell off the top in the carry flag, which is how a value wider
+    # than one register is shifted along.
+    def adds_reg(rd, rn, rm)
+      [0xE0900000 | (rn << 16) | (rd << 12) | rm].pack("V")
+    end
+
+    # ADCS rd, rn, rm — add with carry, setting the flags. Paired with ADDS above, this
+    # is the top half of a double-width shift: it takes in the bit that fell out of the
+    # bottom half and passes its own out.
+    def adcs_reg(rd, rn, rm)
+      [0xE0B00000 | (rn << 16) | (rd << 12) | rm].pack("V")
+    end
+
+    # ORR{cond} rd, rn, #imm — a predicated OR, for setting one answer bit only when the
+    # last compare said so.
+    def orr_imm_cond(cond, rd, rn, imm)
+      imm12 = encode_rotated_immediate(imm) or
+        raise ArgumentError, "cannot encode #{imm} as an ARM rotated immediate"
+      [(resolve_cond(cond) << 28) | 0x03800000 | (rn << 16) | (rd << 12) | imm12].pack("V")
+    end
+
+    # MOV rd, rm, LSL rs / LSR rs — shift by an amount held in a REGISTER rather than
+    # written into the instruction. Unlike the written-down form, this one accepts a
+    # shift of 32 (giving zero), which is what makes a shift the program works out safe
+    # at both ends of its range.
+    def mov_reg_lsl_reg(rd, rm, rs)
+      [0xE1A00010 | (rd << 12) | (rs << 8) | rm].pack("V")
+    end
+
+    def mov_reg_lsr_reg(rd, rm, rs)
+      [0xE1A00030 | (rd << 12) | (rs << 8) | rm].pack("V")
+    end
+
     # ORR rd, rn, rm, LSR #shift — OR in a register shifted down on the way, which is
     # how a single bit is moved from the top of one register to the bottom of another.
     def orr_reg_lsr(rd, rn, rm, shift)

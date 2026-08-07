@@ -83,18 +83,33 @@ module RubyGBA
       scaled(Build.binop(:*, @node, node_at_scale(other, bits)), @fraction_bits || bits)
     end
 
-    # Integer division, truncated toward zero (so -7 / 2 is -3). On the console
-    # this becomes a BIOS Div call — the CPU has no divide instruction.
+    # Division, truncated toward zero (so -7 / 2 is -3).
+    #
+    # Dividing by a plain COUNT is ordinary division and keeps the fraction — half the
+    # speed is half the speed. Dividing by another FRACTION is the one that needs care,
+    # for the mirror of the reason `*` does: two numbers multiplied up by the same amount
+    # divide that amount straight back out, so the answer would come back a whole number.
+    # The framework widens the numerator first to stop that, which is what {Build.div_fix}
+    # is; see {Fraction}. An answer with no room left is held at the end of the range
+    # rather than wrapped, so dividing by something very close to zero gives the biggest
+    # number there is instead of a negative one.
     def /(other)
-      if fraction? && Fraction.bits_of(other)
-        raise ArgumentError,
-              "you cannot divide a number that holds a fraction by another number " \
-              "that holds a fraction. The answer needs more room on the way than a " \
-              "variable has. Work the answers out as you build the program, put them " \
-              "in a `table`, and look them up."
+      bits = Fraction.bits_of(other)
+      if fraction? && bits
+        same_scale!(bits, "divide")
+        return scaled(Build.div_fix(@node, node_at_scale(other, bits), bits), bits)
       end
+      return whole_over_fraction(other, bits) if bits
 
-      scaled(Build.binop(:/, @node, node_at_scale(other, Fraction.bits_of(other))), @fraction_bits)
+      scaled(Build.binop(:/, @node, node_at_scale(other, bits)), @fraction_bits)
+    end
+
+    # A plain whole number divided by one that holds a fraction. The answer holds a
+    # fraction — 160 over 2.5 is 64, and over 2.4 it is not a whole number at all — so
+    # the numerator is widened twice over: once to give the answer its fraction, and once
+    # to cancel the divisor's.
+    def whole_over_fraction(other, bits)
+      Value.new(@builder, Build.div_fix(@node, node_of(other), bits * 2), fraction_bits: bits)
     end
 
     # What is left over after dividing — Ruby's meaning, so `-1 % 64` is 63.
@@ -105,6 +120,16 @@ module RubyGBA
     # instruction; any other range is a real division.
     def %(other)
       scaled(Build.binop(:%, @node, node_at_scale(other, Fraction.bits_of(other))), @fraction_bits)
+    end
+
+    # Let a plain number stand on the LEFT of an operator: `160 / distance` is how a
+    # person writes a wall height, and Ruby asks the value on the right how to make sense
+    # of that. A number written here takes this value's own kind, so dividing by
+    # something holding a fraction gives an answer holding one.
+    def coerce(other)
+      bits = other.is_a?(Float) ? (@fraction_bits || Fraction::DEFAULT_BITS) : nil
+      literal = bits ? Fraction.scale(other, bits) : other
+      [Value.new(@builder, Build.int(literal), fraction_bits: bits), self]
     end
 
     # --- moving between a fraction and a whole number ---

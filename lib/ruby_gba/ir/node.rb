@@ -121,6 +121,11 @@ module RubyGBA
         # Int32.mul_fix). Its own kind rather than a binop operator because it takes
         # a third thing a binop has no room for: how many fraction bits they carry.
         mul_fix: :value,
+        # divide one of those numbers by another, widening the numerator first so the
+        # answer keeps a fraction instead of dividing it back out (see Int32.div_fix).
+        # Its own kind for the same reason mul_fix is: it takes how far to widen, which
+        # a binop has no room for.
+        div_fix: :value,
         # divide by a power of two, rounding DOWN (toward minus infinity) rather than
         # toward zero the way `/` does. Its own kind because that rounding is a
         # different operation, not a special case of division — and because dropping

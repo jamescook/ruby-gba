@@ -14,22 +14,22 @@
 #
 # Two things make this example what it is.
 #
-# `table` — the console can't do sine or division cheaply enough to run per ray, per
-# frame. So the curves are precomputed in plain Ruby at build time and shipped as ROM
-# tables the game just looks up:
+# `table` — the console can't work out a sine cheaply enough to do it per ray, per frame.
+# So the curve is precomputed in plain Ruby at build time and shipped as a ROM table the
+# game just looks up:
 #   - `sin` — the ray's direction from its angle (cosine is the same table, a quarter turn over).
-#   - `heights` — the wall-column height for a hit distance (the "inside out" reciprocal).
 #   - `world` — the maze itself, one byte per cell (1 = wall).
 #
-# `times_fraction` — a walking player stands *between* cells, so every position, step and
-# distance here is a number with a fraction (see FIXED, below). Adding those works as it
-# is. Multiplying two of them does not, and that is what times_fraction is for: read the
-# comment at the fisheye correction, which is the multiply that needs it.
+# Numbers with a fraction — a walking player stands *between* cells, so every position,
+# step and distance here is one. Writing a Float is all it takes to declare one, and the
+# arithmetic carries it: adding works as it is, and multiplying or dividing two of them
+# is handled for you (both would otherwise come out wrong by a factor of thousands).
+# The wall height is the interesting one — `WALL_SCALE / (seen + SOFTEN)` is the
+# perspective divide, the single line that turns a distance into a picture.
 #
 # A note on speed: this casts a ray per screen column, and each column is one fill as
 # tall as the ray says — draw_rect_at takes a height the game works out. It runs at 30
-# frames a second. What is left is the ray march itself: two divisions per step to find
-# which cell the ray is in, sixty times a column.
+# frames a second, and most of that is the two full-screen fills for sky and floor.
 
 require_relative "../lib/ruby_gba"
 
@@ -60,10 +60,14 @@ module Raycaster
   QUARTER = TURN / 4
   SIN = (0...TURN).map { |a| Math.sin(a * 2 * Math::PI / TURN) }
 
-  # Wall-column height for a hit distance, in quarter-cell steps: a reciprocal, so a near
-  # wall (small distance) is tall and a far one is short, clamped to a sensible band.
+  # How tall a wall one cell away stands on screen. Everything closer is taller and
+  # everything further is shorter, in proportion — that is the perspective divide below.
+  # The band keeps a wall you are nose-to-nose with from filling the world, and one at
+  # the far end of the corridor from vanishing.
+  WALL_SCALE = 90
+  SOFTEN = 0.5
   MAX_H = 120
-  HEIGHT = (0..STEPS).map { |d| [[(MAX_H * 3) / (d + 2), MAX_H].min, 8].max }
+  MIN_H = 8
 
   # The palette. Sky and floor bracket the eye line, and the three wall shades are the
   # depth cue: a near wall catches the light, a far one falls into the gloom.
@@ -80,7 +84,6 @@ module Raycaster
     # A table written with Floats holds numbers with a fraction, and every read from it
     # hands one back — so nothing below has to mention a scale.
     sin     = table :sin, SIN
-    heights = table :heights, HEIGHT, width: :half
     world   = table :world, MAP, width: :byte
 
     view = var :view, 0    # the way the player faces (0..511, wraps freely)
@@ -183,11 +186,12 @@ module Raycaster
         # fraction and works the product out at full width.
         seen.set(dist * sin[(col * 2) + (QUARTER - (NUM_COLS - 1))])
 
-        # Round to the nearest step rather than letting `.to_i` drop the remainder. A ray
-        # only ever stops on a whole step, and the correction always shaves a little off,
-        # so dropping the remainder would put nearly every column a whole step further
-        # out than it really is. Adding half a step first rounds instead.
-        col_h.set heights[((seen + (STEP / 2)) * STEPS_PER_CELL).to_i]
+        # The perspective divide, which is the whole trick of a view like this: a wall
+        # twice as far away covers half as much of the screen, so its height on screen is
+        # one over its distance. SOFTEN keeps a wall you are nose-to-nose with from being
+        # infinitely tall, and the band keeps the answer on screen at both ends.
+        col_h.set((WALL_SCALE / (seen + SOFTEN)).to_i)
+        col_h.clamp MIN_H, MAX_H
         top.set HORIZON
         top.sub(col_h / 2)
         # Shade the wall by how far away it is, which is what reads as depth: near walls

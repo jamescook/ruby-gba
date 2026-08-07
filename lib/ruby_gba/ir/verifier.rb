@@ -171,6 +171,8 @@ module RubyGBA
         neg:     { operand: :value },
         # a full-width multiply of two numbers carrying the same fraction bits
         mul_fix: { lhs: :value, rhs: :value, fraction_bits: :int },
+        # a division whose numerator is widened first, so the answer keeps a fraction
+        div_fix: { lhs: :value, rhs: :value, fraction_bits: :int },
         shift_right: { operand: :value, bits: :int },
         held:    { button: :option },
         pressed: { button: :option },

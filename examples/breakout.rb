@@ -92,6 +92,13 @@ module Breakout
   HUD_SCORE_X = 8
   HUD_LIVES_X = 224
 
+  # A bar between them showing how close this run is to your best. It fills as the
+  # score climbs and is full when you match the record.
+  BEST_BAR_X = 48
+  BEST_BAR_Y = 5
+  BEST_BAR_W = 160
+  BEST_BAR_H = 4
+
   # The wall as plain build-time data: one entry per brick with its screen
   # position, colour, points, and the name of the on/off flag that tracks whether
   # it's still there. Generating it in Ruby up front keeps the game code below a
@@ -130,6 +137,7 @@ module Breakout
     high        = save_var :high_score, 0
     lives       = var :lives, START_LIVES
     bricks_left = var :bricks_left, BRICKS.length
+    best_bar    = var :_best_bar, 0 # how much of the record this run has matched
     state       = var :state, 0   # 0=title, 1=playing, 2=cleared, 3=game_over
     blink       = var :blink, 1   # flashes the title prompt
     _hit        = var :_hit, 0    # scratch: where on the paddle the ball landed
@@ -270,6 +278,16 @@ module Breakout
       # HUD: score (up to three digits) and lives remaining.
       draw_number score, HUD_SCORE_X, HUD_Y, :white, digits: 3
       draw_number lives, HUD_LIVES_X, HUD_Y, :white, digits: 1
+
+      # How close this run is to your best. The number being divided BY is the record
+      # the cartridge remembered, so it is different every time you play — the game
+      # works it out, the build cannot. Dividing by it before there IS a record would
+      # be dividing by nothing, so the first run simply has no bar to show.
+      (high > 0).then do
+        best_bar.set(score * BEST_BAR_W / high)
+        best_bar.clamp 0, BEST_BAR_W
+        draw_rect_at BEST_BAR_X, BEST_BAR_Y, best_bar, BEST_BAR_H, :green
+      end
     end
 
     scene :cleared do

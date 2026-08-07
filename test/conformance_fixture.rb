@@ -99,6 +99,14 @@ module ConformanceFixture
       # wrong, so the differential comparison has something real to disagree about.
       B.set(:acc, B.mul_fix(B.int(98_304), B.int(98_304), 16)),
       B.set(:acc, B.mul_fix(B.var_ref(:x), B.int(-98_304), 16)), # and one that goes negative
+      # div_fix — the same idea for dividing: the numerator is widened before anything is
+      # divided, so 3.0 over 1.5 comes back as 2.0 and not 2. The first has a numerator
+      # written down (which a backend may widen while building); the second does not, so
+      # the widening has to happen as it runs; the third has no room for its answer and
+      # must be held at the end of the range rather than wrapped.
+      B.set(:acc, B.div_fix(B.int(196_608), B.int(98_304), 16)),
+      B.set(:acc, B.div_fix(B.var_ref(:x), B.int(-98_304), 16)),
+      B.set(:acc, B.div_fix(B.int(2_000_000), B.int(1), 32)),
       # shift_right — divide by a power of two, rounding DOWN. The negative operand is
       # the one that matters: rounding down gives -3 where an ordinary divide, which
       # truncates toward zero, gives -2. A backend that lowered this as `/` would differ

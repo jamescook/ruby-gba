@@ -227,6 +227,7 @@ module RubyGBA
           # program that divides by something it works out as it runs carries the divide
           # routine, and every other division is settled at build time.
           reserve_divide_routine if needs_divide_routine?(program)
+          reserve_divide_fix_routine if needs_divide_fix_routine?(program)
           collect_definitions(program)
           prepare_direct_sound(program) # embed the program's samples as ROM data
           @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
@@ -245,7 +246,7 @@ module RubyGBA
           # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
           # the console's cautious power-on timing.
           emit_waitcnt_setup if @fast_cartridge && !raw_escape_hatch?(program)
-          emit_copy_divide_routine_to_iwram if @divide_routine_iwram
+          emit_copy_divide_routines_to_iwram if @divide_routine_iwram || @divide_fix_routine_iwram
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
           emit_mixer_boot if @plays_samples # start the sound DMA + clock; voices added by `play`
@@ -261,9 +262,11 @@ module RubyGBA
           end
           @lower_mode = @default_mode
           program.children.each { |stmt| emit_statement(stmt) }
+          guard_variables_clear_of_routines
           emit_functions
           emit_mix_routine # the mixer's inner loop, placed in ROM and copied to IWRAM at boot
           emit_divide_routine # likewise the divide routine, for a divisor worked out at run time
+          emit_divide_fix_routine # and the one for dividing numbers that hold a fraction
           emit_irq_handler if uses_irq? # the interrupt dispatcher itself, reached only via the vector
           emit_data_region
           emit_save_signature if @uses_save # the marker that maps the save chip (past all code/data)
