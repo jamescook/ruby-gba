@@ -120,6 +120,34 @@ class TestTearFreeDrawing < CostModelTest
                     "past the narrow widths the engine is started instead, which costs more to begin"
   end
 
+  # A moving rectangle STEPS its destination along; a fixed one rebuilds it every row. So a
+  # wide moving row is no dearer than a fixed one — measured, the two are within a
+  # twentieth of each other. The model used to charge the moving one the step AND the fixed
+  # one's whole setup, which is the address work twice, and made it read a third dearer
+  # than the console says it is.
+  def test_a_wide_moving_rectangle_costs_about_what_a_fixed_one_does
+    moving = tear_free { game_loop { draw_rect_at 40, 20, 40, 40, :red } }
+    fixed  = tear_free { game_loop { fill_rect 40, 20, 40, 40, :red } }
+
+    ratio = Cost.new.steady_cost(moving) / Cost.new.steady_cost(fixed)
+    assert_operator ratio, :<, 1.05, "a moving row does not also pay to rebuild what it steps along"
+    assert_operator ratio, :>, 0.95, "but it still starts the same engine, so it is not much cheaper"
+  end
+
+  # Splicing the two ends of a WIDE row costs more than splicing the ends of a narrow one:
+  # the engine is being started between them. Priced from the narrow row's edges, an odd
+  # column read under.
+  def test_a_wide_row_splices_its_ends_at_its_own_price
+    even = tear_free { game_loop { draw_rect_at 40, 20, 40, 40, :red } }
+    odd  = tear_free { game_loop { draw_rect_at 41, 20, 40, 40, :red } }
+
+    # An odd column splices both ends, and those two pixels leave the run the engine moves.
+    near 40 * 2 * (WEIGHTS[:tearfree_engine_edge] - WEIGHTS[:tearfree_fill_pixel]),
+         Cost.new.steady_cost(odd) - Cost.new.steady_cost(even)
+    assert_operator WEIGHTS[:tearfree_engine_edge], :>, WEIGHTS[:tearfree_edge],
+                    "an end spliced beside a starting engine costs more than one written among pairs"
+  end
+
   # The column decides whether a row has pixels to splice, and a column settled while
   # building is known exactly. When the game works it out, both columns are possible and
   # only one of them is emitted — so it is priced at the dearer, the same call the model
