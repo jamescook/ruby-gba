@@ -177,6 +177,29 @@ class TestCostPrinter < Minitest::Test
     assert_includes over, "18.0 fps", "with the measured frame rate"
   end
 
+  # A reading near the ceiling is not a verdict, it is a reading that stopped being
+  # exact — so the frames get counted, and a game that meets every one of them FITS.
+  # Reading saturation as over-budget put a raycaster holding 60 in red, in a sentence
+  # that argued with itself ("over budget — running at ~60.0 fps").
+  def test_a_nearly_full_frame_that_holds_the_full_rate_reads_as_fitting
+    output = rendered(cheap_program, measured: { nil => { scanlines: 224.8, fps: 60.0, saturated: true } })
+
+    refute_includes output, "over budget", "it meets every frame, so it is not over budget"
+    assert_includes output, "measured ~224.8", "the cost is still reported"
+    assert_includes output, "still 60 fps", "and so is the rate that settles it"
+  end
+
+  # The colour rule: red is for a frame that really is over budget. A frame that nearly
+  # fills and still holds the rate is the author's hottest work, not a fault.
+  def test_a_nearly_full_frame_that_holds_the_full_rate_is_not_red
+    holds = { nil => { scanlines: 224.8, fps: 60.0, saturated: true } }
+    drops = { nil => { scanlines: 224.8, fps: 30.0, saturated: true } }
+
+    red = Color::COLORS.fetch(:hot)
+    refute_includes rendered(cheap_program, measured: holds, color: true), red
+    assert_includes rendered(cheap_program, measured: drops, color: true), red
+  end
+
   # Estimate-only, and the frame has an unbounded loop the model can't size: it must NOT
   # claim "within budget" — the estimate says it can't tell.
   def test_a_blind_spot_stops_the_estimate_claiming_within_budget

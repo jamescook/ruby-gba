@@ -13,16 +13,20 @@ module RubyGBA
     module_function
 
     # A full frame is 228 scanlines; work past that can't finish before the next frame,
-    # so the frame rate drops. The emulator's busy measurement caps and wobbles as it
-    # nears this ceiling, so a reading that high means "saturated", not an exact count.
+    # so the frame rate drops. The measurement cannot count past a frame's worth, though,
+    # so as it nears that ceiling it stops being an exact number.
     FRAME_SCANLINES = 228
-    SATURATED = 200       # at or above this, the CPU is effectively maxed for the frame
+    # At or above this the reading is no longer an exact count. That is a fact about the
+    # MEASUREMENT and says nothing yet about whether the program fits — a frame can very
+    # nearly fill and still meet every one. It means "go and count the frames instead".
+    SATURATED = 200
     SETTLE = 8            # frames to run before reading, so the game reaches steady state
-    FPS_WINDOW = 90       # emulated frames to count game frames over, for a saturated scene's real fps
+    FPS_WINDOW = 90       # emulated frames to count game frames over, for a saturated scene's real rate
 
-    # +scanlines+ is the measured per-frame wall-clock cost (CPU plus DMA-stall); +fps+
-    # is the real game framerate, only measured (and only meaningful) when the scene
-    # saturates the frame — a fitting scene runs at the full 60.
+    # +scanlines+ is the measured per-frame wall-clock cost (CPU plus DMA-stall); +fps+ is
+    # the counted game frame rate, measured only when the scanline reading saturates,
+    # because that is the only time it is needed. It settles what the reading cannot: 60
+    # means every pass met its frame.
     Result = Data.define(:scanlines, :fps) do
       def saturated?
         scanlines >= SATURATED
@@ -116,9 +120,10 @@ module RubyGBA
       program
     end
 
-    # Measure a program's per-frame cost. A scene that fits is one busy-scanline read; a
-    # scene that saturates the CPU is also run with a hidden per-frame counter to recover
-    # its real, sub-60 framerate (busy scanlines alone only say "over the ceiling").
+    # Measure a program's per-frame cost. A reading well clear of the ceiling is exact and
+    # that is the end of it; one near the ceiling is not, so the program is run again with
+    # a hidden per-frame counter and its frames are counted directly. That count is what
+    # decides whether it fits — it can just as well come back at the full rate.
     def measure_program(program)
       busy = in_temp_rom(assemble(program)) { |path| measure(path) }
       return busy unless busy.saturated?
@@ -126,10 +131,11 @@ module RubyGBA
       Result.new(scanlines: busy.scanlines, fps: measure_fps(program))
     end
 
-    # The real framerate of an over-budget program. A hidden counter ticks once per
-    # game-loop iteration; run a window of emulated frames and the counter's rise is how
-    # many game frames elapsed, so fps = game frames * 60 / window. nil when there is no
-    # game loop to count.
+    # The counted frame rate. A hidden counter ticks once per game-loop iteration; run a
+    # window of emulated frames and the counter's rise is how many game frames elapsed, so
+    # fps = game frames * 60 / window. A loop waits for the screen, so the answer lands on
+    # 60, 30, 20... and 60 means every pass met its frame. nil when there is no game loop
+    # to count.
     def measure_fps(program)
       counter = :__profile_frames
       return nil unless instrument_frame_counter(program, counter)
