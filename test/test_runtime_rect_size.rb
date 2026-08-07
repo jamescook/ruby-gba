@@ -88,6 +88,45 @@ class TestRuntimeRectSize < Minitest::Test
     assert_backends_agree(bar(12, tear_free: true, x: 41), frames: 2)
   end
 
+  # --- narrow columns: what a per-column renderer draws hundreds of ---
+
+  # A column two pixels wide is the cheapest thing this screen can draw: both pixels sit
+  # in one 16-bit unit, so a row is a single store with nothing to read first. It is also
+  # the case a wrong offset inside the row would break silently, painting the column next
+  # door. Every width from one to nine, at both parities, over a background that makes a
+  # stray pixel visible.
+  def columns(width, x)
+    build do
+      screen :bitmap, tear_free: true
+      var :h, 40
+      clear_screen :blue
+      draw_rect_at x, 20, width, :h, Color.resolve(:red)
+      wait_vblank
+      halt
+    end
+  end
+
+  def test_the_console_draws_a_narrow_column_at_every_width_and_parity
+    (1..9).each do |width|
+      [40, 41].each do |x|
+        assert_backends_agree(columns(width, x), frames: 2)
+      end
+    end
+  end
+
+  # The column must be exactly as wide as asked — a store that ran one unit too far would
+  # still agree with itself but paint a neighbour, so the columns on either side are
+  # checked against the background directly.
+  def test_a_narrow_column_leaves_its_neighbours_alone
+    [[2, 40], [2, 41], [4, 41], [1, 40]].each do |width, x|
+      interp = Reference.new.run(columns(width, x))
+      assert_equal Color.resolve(:blue), interp.screen.pixel(x - 1, 30), "left of a #{width}-wide column at #{x}"
+      assert_equal Color.resolve(:red), interp.screen.pixel(x, 30), "the column itself"
+      assert_equal Color.resolve(:red), interp.screen.pixel(x + width - 1, 30), "up to its last pixel"
+      assert_equal Color.resolve(:blue), interp.screen.pixel(x + width, 30), "and nothing past it"
+    end
+  end
+
   # --- a height that changes as the game runs ---
 
   # The shape this verb exists for: a meter that empties. Each frame the bar is a row

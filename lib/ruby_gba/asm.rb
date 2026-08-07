@@ -399,6 +399,17 @@ module RubyGBA
       [0xE1C000B0 | (addr_reg << 16) | (src << 12)].pack("V")
     end
 
+    # STRH src, [addr_reg, #offset] — the same store a fixed distance further on, so a
+    # run of neighbouring halfwords needs no address arithmetic between them. A halfword
+    # instruction splits its offset across two nibbles (the high one up at bits 11-8, the
+    # low one at 3-0), which is why it cannot share the plain store's encoding.
+    # @param offset [Integer] byte offset, 0..255
+    def store_halfword_offset(src, addr_reg, offset)
+      raise ArgumentError, "halfword store offset #{offset} is outside 0..255" unless (0..255).cover?(offset)
+
+      [0xE1C000B0 | (addr_reg << 16) | (src << 12) | ((offset & 0xF0) << 4) | (offset & 0x0F)].pack("V")
+    end
+
     # --- Stack operations (PUSH/POP via STM/LDM) ---
 
     # PUSH registers onto stack (STMFD sp!, {regs})
