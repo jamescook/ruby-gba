@@ -82,14 +82,16 @@ module ConformanceFixture
       # Dividing and wrapping with a NEGATIVE numerator, which is where the two round
       # differently and where a backend taking a shortcut goes wrong. -7 / 4 truncates
       # toward zero to -1, while -7 % 4 takes the sign of the divisor and is 1. A
-      # power-of-two divisor is reduced to shifts on some backends, so both the reduced
-      # and the general path are covered.
+      # backend may reduce a divisor written into the program — one way for a power of
+      # two, another way for anything else — so every one of those paths is covered.
       B.set(:acc, B.binop(:/, B.int(-7), B.int(4))),   # -1, not the -2 a bare shift gives
       B.set(:acc, B.binop(:%, B.int(-7), B.int(4))),   # 1, not the -3 the BIOS leftover gives
       B.set(:acc, B.binop(:%, B.int(-1), B.int(64))),  # 63 — an angle stepped below zero
       B.set(:acc, B.binop(:/, B.int(-7), B.int(3))),   # ...and the same two with a divisor
-      B.set(:acc, B.binop(:%, B.int(-7), B.int(3))),   # that no shift can reduce
+      B.set(:acc, B.binop(:%, B.int(-7), B.int(3))),   # no shift can reduce
       B.set(:acc, B.binop(:%, B.int(7), B.int(-3))),   # a negative divisor: -2 in Ruby
+      B.set(:acc, B.binop(:/, B.int(3599), B.int(60))), # 59 — frames into seconds, and a
+      B.set(:acc, B.binop(:/, B.int(-1), B.int(60))),   # divisor whose reciprocal needs a fixup
       # mul_fix — a multiply whose product is formed at full width. The operands are
       # chosen so a plain 32-bit multiply gets a DIFFERENT answer: 1.5 * 1.5 with 16
       # fraction bits needs 9,663,676,416 on the way, which wraps. A backend that

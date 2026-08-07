@@ -6,6 +6,7 @@ require_relative "gba/lists"
 require_relative "gba/drawing"
 require_relative "gba/buffered"
 require_relative "gba/audio"
+require_relative "gba/reciprocal"
 require_relative "gba/expressions"
 require_relative "gba/primitives"
 require_relative "gba/collision"
@@ -130,6 +131,12 @@ module RubyGBA
         ACC = 0   # accumulator register
         TMP = 1   # temporary / I/O address register
         ADDR = 12 # variable address scratch
+
+        # Two more scratch registers, live only inside one arithmetic expression and
+        # never across a statement. A 64-bit multiply needs both of them, because its
+        # answer does not fit in one register.
+        SPARE = 2 # somewhere to keep a value while the accumulator is busy
+        HIGH = 3  # the top half of a 64-bit product
 
         # Interrupt-driven frame timing. `wait_vblank` asks the BIOS to sleep the CPU
         # until the next VBlank rather than busy-poll the scanline counter — the BIOS

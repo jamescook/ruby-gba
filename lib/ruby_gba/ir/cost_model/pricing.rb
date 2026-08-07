@@ -142,26 +142,42 @@ module RubyGBA
         # An operator's weight: multiply and divide are their own (pricier) tiers;
         # everything else — add, subtract, the comparisons, the and/or that combine
         # conditions — is one plain step.
-        # A divide, multiply or wrap by a power of two written into the program is a
-        # shift or two on the console, not a call — so it is priced as a plain step, and
-        # `explain` can say a divide by 256 is free while a divide by 100 is not. That
-        # is the same fact the lowering acts on; if one moves, both must.
+        #
+        # Dividing and wrapping have three tiers, because the lowering gives them three
+        # costs. By a POWER OF TWO written into the program it is a shift or two, priced
+        # as a plain step. By ANY OTHER number written into the program it is a multiply
+        # by a reciprocal worked out at build time — dearer than a shift, far cheaper
+        # than a call. Only a divisor the GAME works out still reaches the console's
+        # divide routine. So `explain` can say a divide by 256 is free, a divide by 100
+        # costs about an add and a half, and a divide by a variable costs five times
+        # that. Those are the same facts the lowering acts on; if one moves, both must.
         def op_weight(node)
-          op = node[:op]
-          return @weights[:op_step] if %i[* / %].include?(op) && power_of_two_operand?(node[:rhs])
-
-          case op
-          when :* then @weights[:op_mul]
-          when :/, :% then @weights[:op_div]
+          case node[:op]
+          when :* then power_of_two_operand?(node[:rhs]) ? @weights[:op_step] : @weights[:op_mul]
+          when :/, :% then divide_weight(const_side(node[:rhs]))
           else @weights[:op_step]
           end
+        end
+
+        # What one divide or wrap costs, from where its divisor comes from. A negative
+        # divisor reduces the same way its size does, with the answer flipped after.
+        def divide_weight(divisor)
+          size = divisor&.abs
+          return @weights[:op_div] unless size && size > 1
+          return @weights[:op_step] if power_of_two?(size)
+
+          @weights[:op_div_const]
         end
 
         # Whether the right-hand side is a power of two settled while building — the
         # thing that lets the lowering reduce the operation to shifts.
         def power_of_two_operand?(operand)
           value = const_side(operand)
-          value&.positive? && value > 1 && (value & (value - 1)).zero?
+          value&.positive? && power_of_two?(value)
+        end
+
+        def power_of_two?(value)
+          value > 1 && (value & (value - 1)).zero?
         end
 
         # How many map cells a background stamps — the map is rows of tile cells, so

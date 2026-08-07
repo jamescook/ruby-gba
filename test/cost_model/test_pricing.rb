@@ -144,11 +144,31 @@ class TestCostPricing < CostModelTest
     divider = program do
       screen :bitmap
       x = var :x, 100
-      game_loop { x.set(x / 100) }
+      d = var :d, 100
+      game_loop { x.set(x / d) }
     end
 
     assert_operator Cost.new.steady_cost(divider), :>, Cost.new.steady_cost(adder),
                     "a divide (BIOS routine) should cost more than an add"
+  end
+
+  # Dividing has three prices, because the lowering gives it three costs, and an author
+  # reading `explain` has to be able to tell them apart: by a power of two it is a
+  # shift, by any other fixed number a multiply by a reciprocal, and only by a number
+  # the game works out is it the BIOS routine.
+  def test_a_divide_is_priced_by_where_its_divisor_comes_from
+    costs = [->(x, _d) { x / 256 }, ->(x, _d) { x / 100 }, ->(x, d) { x / d }].map do |divide|
+      prog = program do
+        screen :bitmap
+        x = var :x, 100
+        d = var :d, 100
+        game_loop { x.set(divide.call(x, d)) }
+      end
+      Cost.new.steady_cost(prog)
+    end
+
+    assert_operator costs[0], :<, costs[1], "a shift should beat a multiply by a reciprocal"
+    assert_operator costs[1], :<, costs[2], "a reciprocal should beat calling the divide routine"
   end
 
   # ...but not every divide is that. By a power of two the console shifts instead of
@@ -186,8 +206,8 @@ class TestCostPricing < CostModelTest
     end
   end
 
-  # A wrap onto anything else is a real divide, and priced as one.
-  def test_wrapping_onto_a_size_that_is_not_a_power_of_two_costs_a_divide
+  # A wrap onto anything else has to work the leftover out, so it costs more than a step.
+  def test_wrapping_onto_a_size_that_is_not_a_power_of_two_costs_more_than_a_step
     adder = program do
       screen :bitmap
       x = var :x, 100
@@ -263,7 +283,7 @@ class TestCostPricing < CostModelTest
     end
 
     near Cost.new.frame_cost(outside), Cost.new.frame_cost(inside)
-    assert_operator Cost.new.frame_cost(inside), :>=, 2 * WEIGHTS[:op_div],
+    assert_operator Cost.new.frame_cost(inside), :>=, 2 * WEIGHTS[:op_div_const],
                     "two divides in that index, and neither of them is free"
   end
 
@@ -283,7 +303,7 @@ class TestCostPricing < CostModelTest
       game_loop { x.clamp 0, limit / 5 }
     end
 
-    near WEIGHTS[:op_div], Cost.new.frame_cost(computed) - Cost.new.frame_cost(fixed)
+    near WEIGHTS[:op_div_const], Cost.new.frame_cost(computed) - Cost.new.frame_cost(fixed)
   end
 
   # Same for a drawing op's position: blit :ship, (col * W), y does the multiply before

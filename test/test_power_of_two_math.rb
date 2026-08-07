@@ -158,9 +158,10 @@ class TestPowerOfTwoMath < Minitest::Test
     end
   end
 
-  # A divisor that is not a power of two must NOT be reduced — it has no shift to reduce
-  # to, and quietly turning it into one would give wrong answers.
-  def test_a_divisor_that_is_not_a_power_of_two_is_left_alone
+  # A divisor that is not a power of two has no shift to reduce to. It is reduced a
+  # different way (see TestConstantDivision), and that way is dearer than a shift — so
+  # a power of two must stay the cheapest of them.
+  def test_a_power_of_two_divisor_beats_one_that_is_not
     two = emitted_bytes do
       screen :bitmap
       n = var :n, 100

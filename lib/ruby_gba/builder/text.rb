@@ -169,8 +169,8 @@ module RubyGBA
       end
 
       # The value node for one digit column of the number in +source+:
-      # (source / place) mod 10, spelled out since there's no modulo op (mod 10 is
-      # q - (q / 10) * 10, a true remainder for a non-negative q).
+      # (source / place) mod 10, spelled out as q - (q / 10) * 10 — a true remainder for
+      # a non-negative q, and a number on screen is never negative.
       def digit_at(source, place)
         quotient = source_over_place(source, place)
         tens = Build.binop(:/, quotient, Build.int(10))
