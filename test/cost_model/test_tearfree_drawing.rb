@@ -151,6 +151,19 @@ class TestTearFreeDrawing < CostModelTest
     assert_operator Cost.new.steady_cost(here), :>, Cost.new.steady_cost(there)
   end
 
+  # A live digit walks the same glyph table on both screens, so what differs is only the
+  # stamp — and stamping here means reading the pair a pixel shares with its neighbour,
+  # changing half of it and writing it back, which is two and a half times a plain write.
+  def test_a_live_digit_costs_more_on_the_tear_free_screen
+    here  = tear_free { var :score, 0; game_loop { draw_number :score, 8, 8, :white, digits: 1 } }
+    there = direct { var :score, 0; game_loop { draw_number :score, 8, 8, :white, digits: 1 } }
+
+    assert_operator Cost.new.steady_cost(here), :>, Cost.new.steady_cost(there)
+    # But not by a lot, because the walk over the box is the same work on both and it is
+    # most of what a digit costs.
+    assert_operator Cost.new.steady_cost(here), :<, 2 * Cost.new.steady_cost(there)
+  end
+
   def test_text_is_priced_by_the_screen_it_is_drawn_on
     here  = tear_free { game_loop { draw_text "SCORE", 0, 80, :white } }
     there = direct { game_loop { draw_text "SCORE", 0, 80, :white } }
