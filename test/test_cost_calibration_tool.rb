@@ -94,10 +94,15 @@ class TestCostCalibrationTool < Minitest::Test
 
   # --- the file the tool writes ---
 
-  # The renderer reproduces the COMMITTED fixture byte for byte from the committed weights. This
-  # is what says the refactor changed nothing about the output: same numbers in, same file out.
+  # The renderer reproduces the COMMITTED fixture byte for byte from the committed weights and
+  # domains. A full round trip — the fixture's own contents rendered back into the fixture — so
+  # any change to what the tool writes has to be a change somebody meant to make.
   def test_it_renders_the_committed_fixture_exactly
-    rendered = Calibration::WeightsFixture.new(weights: RubyGBA::IR::CostModel::MEASURED_WEIGHTS).render
+    committed = RubyGBA::IR::CostModel
+    rendered = Calibration::WeightsFixture.new(
+      weights: committed::MEASURED_WEIGHTS,
+      domains: committed::WEIGHT_DOMAINS.transform_values { |d| Domain.new(**d) },
+    ).render
     assert_equal File.read(fixture_path), rendered
   end
 

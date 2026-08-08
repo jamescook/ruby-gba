@@ -48,6 +48,7 @@ calibration.weights.each do |name, value|
               was ? format("%7.2fx", value / was) : format("%8s", "-"))
 end
 
-File.write(FIXTURE, RubyGBA::Calibration::WeightsFixture.new(weights: calibration.weights).render)
+File.write(FIXTURE, RubyGBA::Calibration::WeightsFixture.new(weights: calibration.weights,
+                                                             domains: calibration.domains).render)
 puts
 puts "wrote #{calibration.weights.size} weights to #{FIXTURE.sub("#{Dir.pwd}/", '')}"
