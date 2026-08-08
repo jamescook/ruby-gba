@@ -6,12 +6,19 @@ module RubyGBA
       class GBA
         # Which routines run from the console's quick memory, and how they get there.
         #
-        # THE HARDWARE, briefly. Code lives in the cartridge, which the console reads
-        # over a narrow, slow connection. It also has 32KB of memory of its own that runs
-        # at full speed with nothing to wait for. Nothing decides which one a routine runs
-        # from except where its bytes happen to be — so a routine can be made faster by
-        # copying it into the quick memory at boot and jumping there instead. Measured on
-        # a real inner loop, that is worth about two and a half times.
+        # THE HARDWARE, briefly. Code lives in the cartridge, which the console reads over a
+        # narrow, slow connection. It also has 32KB of memory of its own that runs at full
+        # speed with nothing to wait for. Nothing decides which one a routine runs from
+        # except where its bytes happen to be — so a routine can be made faster by copying it
+        # into the quick memory at boot and jumping there instead.
+        #
+        # HOW MUCH FASTER, since that is the number everything here turns on: about two and a
+        # half times, comparing THE SAME INSTRUCTIONS in the two places they can live. Not an
+        # algorithm being improved — identical code, in identical order, fetched over the
+        # cartridge connection or out of the console's own memory. It is measured rather than
+        # reasoned about, on a body of plain arithmetic steps so that nothing but the fetching
+        # differs (tools/calibration/calibrator.rb#fast_memory), and it is the weight the cost
+        # model calls fast_code_speedup.
         #
         # It is not free. There is only 32KB and it is already home to every variable,
         # every list, the sound mixer's working memory and the stack. So this is a

@@ -150,7 +150,9 @@ rom.explain   # drill-down cost tree: which scene / func / loop costs the most p
 
 Every weight in it was **measured**, not guessed: a ROM that does one thing a known number of times, run on emulated hardware timing, differenced against one that does less of it. And each weight ships with the range it was measured over, so when your program asks it for an answer from well outside that range the report says so instead of answering confidently.
 
-It is a **teaching aid** (understand why a frame is heavy, in terms of the verbs you wrote), a **guardrail** (it can warn that a loop redraws the whole screen every frame — the exact reason Snake draws incrementally), and a **build decision**: the estimate is what picks which routines to keep in the console's 32K of quick memory, where code runs ~2.6x faster. That choice has to be made while the ROM is still being built, before there is anything to measure — which is why an estimate earns its place next to a real emulator. With `gemba-core` installed the verdict is measured on top; without it, the report says "estimate only" and names what it could not price. Cost profiles will eventually be parameterized per backend (GBA vs GBC).
+It is a **teaching aid** (understand why a frame is heavy, in terms of the verbs you wrote), a **guardrail** (it can warn that a loop redraws the whole screen every frame — the exact reason Snake draws incrementally), and a **build decision**: the estimate is what picks which routines to keep in the console's small pool of fast memory, where the same code runs quicker.[^fast] That choice has to be made while the ROM is still being built, before there is anything to measure — which is why an estimate earns its place next to a real emulator. With `gemba-core` installed the verdict is measured on top; without it, the report says "estimate only" and names what it could not price. Cost profiles will eventually be parameterized per backend (GBA vs GBC).
+
+[^fast]: How much quicker, why, and how the build chooses what goes there: [`placement.rb`](lib/ruby_gba/ir/backends/gba/placement.rb). `rom.explain` prints what it chose and how much room is left.
 
 ### Future targets
 
