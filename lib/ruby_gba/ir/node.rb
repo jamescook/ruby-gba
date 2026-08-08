@@ -53,6 +53,9 @@ module RubyGBA
         blit_pose: :draw,  # one of a set of same-size images, chosen at run time (a facing/frame)
         background: :draw, # a whole grid of tiles, drawn from a tileset and a map
         scroll_background: :draw, # move the visible window over a background (scrolling)
+        # give each row of the picture its own sideways offset, so the picture bends
+        # (a wavy reflection, a heat haze) — its #children run before the offset is read
+        scroll_rows: :draw,
         camera: :draw, # offset the whole displayed picture (a pan, or a shake)
         fade: :draw,   # blend the whole displayed picture toward a color (a fade, a flash)
         # a moving picture the display composites over the scene each frame: `object`

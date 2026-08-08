@@ -110,6 +110,41 @@ class TestAnalyzer < Minitest::Test
     assert_nil Analyzer.scenes(b.program)
   end
 
+  # The probe has two clocks and each is blind to something. The wall-clock one counts the
+  # stall while a DMA engine copies, which the CPU-executing count cannot see; but it is
+  # measured by summing the CPU's sleeps, so a program the hardware wakes over and over
+  # comes out BELOW the cycles it demonstrably executed. A background bending row by row is
+  # woken 228 times a frame, which is that case — so a reading must never be less than the
+  # CPU it can be shown to burn.
+  def test_a_reading_is_never_less_than_the_cpu_the_frame_burns
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      tiles :ts, "#" => :t
+      bg = background :bg, tiles: :ts, map: Array.new(20, "#" * 30)
+      bg.scroll_each_row { |row| row % 8 }
+      game_loop { }
+    end
+    b.emit_pending_functions
+    program = b.program
+
+    rom = ROM.assemble(GBA.new.lower(program), title: "ANLZ", code: "BANL", maker: "01")
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "bend.gba")
+      rom.write(path)
+      probe = RubyGBA::Emulator.probe(path)
+      probe.step(8)
+      busy = 10.times.map { probe.frame_cost.busy_scanlines }.max
+      probe.close
+
+      reading = RubyGBA::Analyzer.measure(path)
+      assert_operator busy, :>, 20, "bending really does cost this frame a lot of CPU"
+      assert_operator reading.scanlines, :>=, busy,
+                      "the reading must not come in under the CPU the frame demonstrably executed"
+    end
+  end
+
   # The Result's read of its own number: near the frame ceiling is "saturated" (the
   # measurement can't count past a frame's worth of work), below it is a plain percent.
   def test_result_reads_saturation_and_percent

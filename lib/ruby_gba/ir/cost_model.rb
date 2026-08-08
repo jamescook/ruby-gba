@@ -168,6 +168,20 @@ module RubyGBA
       MIXER_FPS = 60            # it refills one frame's worth of samples per frame
       DEFAULT_MIXER_RATE = 8192 # fallback output rate when no sample declares one
 
+      # Bending a background row by row (`scroll_each_row`) is the other standing
+      # per-frame cost, and the bigger one. The display asks where each row sits as it
+      # draws it, so the framework answers once per line — which means the program is
+      # interrupted after every line the display counts, all 228 of them, whether that
+      # line is part of the picture or not. Only the visible ones need the program's own
+      # offset worked out.
+      #
+      # Like the mixer, this happens every frame no matter what the game loop does, so it
+      # is added to the frame rather than found in the op tree. It is CPU work spread
+      # through the whole frame (it never touches video memory), so it is judged against
+      # the whole frame and cannot tear.
+      LINES_PER_FRAME = 228  # every line the display counts, picture or not — each one interrupts
+      VISIBLE_LINES = 160    # the lines the picture is drawn on, where an offset is worked out
+
       # The default weights are the generated fixture — every priced op measured on the
       # emulator's GBA timing model by the calibration tool. Override per-call for
       # what-ifs: CostModel.new(op_step: 0.5). Re-run tools/calibrate_cost_model.rb to
@@ -186,6 +200,11 @@ module RubyGBA
         define_sound song data bitmap backing_buffer list_new table
         timer_start timer_stop on_timer
         sample play_sample stop_sample
+        # A row-by-row bend is a standing declaration, like a timer's handler: nothing
+        # happens where it is written. Its real cost is per LINE, not per statement, so it
+        # is priced once for the whole frame in #bend_verdict and rolled in beside the
+        # mixer's — charging it here as well would count it twice.
+        scroll_rows
         # loading the saved variables happens once at boot, before the first frame, so
         # it never lands on a frame's budget — like the declarations above it.
         save_init

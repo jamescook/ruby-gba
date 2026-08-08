@@ -115,6 +115,7 @@ module RubyGBA
           @obj_prev = {}           # object name -> [x, y] it was last drawn at (to erase before redrawing)
           @scrolling = false       # does this program scroll a background? (decided in collect_definitions)
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
+          @row_bends = {}          # background name -> :scroll_rows node giving each row its own offset
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @tables = {}             # name -> { values:, signed: } (a read-only ROM table)
@@ -242,6 +243,13 @@ module RubyGBA
               # offset, so the whole scene has to be repainted every frame — the static
               # save-under trick objects normally ride on no longer holds. Remember that
               # here so present_objects and scroll_background take the repaint path.
+              @scrolling = true
+            when :scroll_rows
+              # A bending background is a moving background: each row sits somewhere new
+              # every frame, so the scene has to be repainted like a scrolled one.
+              # Declared once and standing from then on (last wins if repeated), which is
+              # why it is collected here rather than run as a statement.
+              @row_bends[n[:name]] = n
               @scrolling = true
             end
           end
@@ -414,6 +422,11 @@ module RubyGBA
             exec_background(node)
           when :scroll_background
             exec_scroll_background(node)
+          when :scroll_rows
+            # A standing declaration, gathered up front (collect_definitions) — the bend
+            # is read while a row is painted, not where it was written. Reaching it inline
+            # repaints, so a program that only bends still shows the bend.
+            composite_scrolled_frame
           when :camera
             @screen.camera_to(eval_value(node[:x]), eval_value(node[:y]))
           when :fade
@@ -485,6 +498,17 @@ module RubyGBA
           @held = to_button_set(Array(@input_script.call(@frame))) if @input_script
           @log << [:vblank, @frame]
           @on_vblank&.call(@frame)
+          repaint_bent_backgrounds
+        end
+
+        # A bending background's picture changes every frame even when the program draws
+        # nothing: the bend is worked out from whatever its block reads, so moving one
+        # variable is a whole rippling lake. Display hardware repaints continuously and gets
+        # that for free — here the repaint has to be asked for, or the picture would sit at
+        # whatever the bend said the first time and the two backends would disagree about
+        # every frame after the first.
+        def repaint_bent_backgrounds
+          composite_scrolled_frame unless @row_bends.empty?
         end
 
         # The most samples the mixer sounds at once. A new play past this is dropped rather
@@ -705,12 +729,15 @@ module RubyGBA
           # tile there, and an absent tile reads as the backdrop.
           map_w = MAP_CELLS * tile_w
           map_h = MAP_CELLS * tile_h
-          off_x, off_y = @bg_scroll[bg[:name]] || [0, 0]
-          off_x %= map_w # Ruby % wraps negatives into 0..map_w-1
+          base_x, off_y = @bg_scroll[bg[:name]] || [0, 0]
           off_y %= map_h
+          bend = @row_bends[bg[:name]]
           width = @screen.width
 
           @screen.height.times do |py|
+            # A bending background sits somewhere different on every row: work out this
+            # row's own sideways offset, on top of wherever the background is scrolled to.
+            off_x = (base_x + row_bend_offset(bend, py)) % map_w # Ruby % wraps negatives into 0..map_w-1
             my = (off_y + py) % map_h
             row = map[my / tile_h]
             next unless row # no cell row here — the backdrop stays, and layers behind show
@@ -728,6 +755,18 @@ module RubyGBA
               px += span
             end
           end
+        end
+
+        # How far across screen row +py+ sits, for a background given a per-row bend. The
+        # row number goes into the bend's row variable, then its body runs and its offset
+        # is worked out from there — so the same expression a console works out per
+        # scanline is worked out here per row, and the two pictures agree.
+        def row_bend_offset(bend, py)
+          return 0 unless bend
+
+          @vars[bend[:row]] = py
+          bend.children.each { |child| exec(child) }
+          eval_value(bend[:offset])
         end
 
         # A tile's pixels as colors, ready to paint, row after row in one flat list —

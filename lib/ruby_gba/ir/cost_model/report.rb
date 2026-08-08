@@ -102,7 +102,9 @@ module RubyGBA
         # The analysis as a plain Hash, ready to serialize (rom.explain format: :json).
         def as_json(program)
           {
-            frame_cost: frame_cost(program) + mixer_cost(program), # everything on a frame, incl. the mixer
+            # everything on a frame, including the two standing costs the op tree can't
+            # show: the sound mixer and a row-by-row bend's per-line interrupt
+            frame_cost: frame_cost(program) + mixer_cost(program) + bend_cost(program),
             steady_cost: steady_cost(program), # what recurs every frame from the op tree (the tear risk)
             frame_budget: FRAME_BUDGET,        # the whole-frame 60fps deadline
             budget: budget_for(program),       # the drawing/tear budget (vblank, or the whole frame when buffered)
@@ -112,6 +114,7 @@ module RubyGBA
             scenes: scene_verdicts(program),   # per-scene cost vs each scene's own budget
             songs: song_verdicts(program),     # per-song music cost vs the music budget
             mixer: mixer_verdict(program),     # the software mixer's per-frame CPU (nil if no sampled sound)
+            bend: bend_verdict(program),       # a row-by-row bend's per-frame CPU (nil if nothing bends)
             glyphs: IR::GlyphUsage.footprint(program), # per-font reachable-glyph footprint
             unestimated: unpriced_kinds(program).sort,  # op kinds the model can't price (counted as free)
             tree: category_tree(program),      # the frame's cost as drawing / sound / logic sections
@@ -173,7 +176,7 @@ module RubyGBA
           # spike (a transition repaint, an every() tick) is named separately below, not
           # judged as if it ran every frame: 60fps against the whole recurring load,
           # tearing against the recurring DRAWING alone (only drawing races the vblank).
-          recurring = steady_cost(program) + mixer_cost(program)
+          recurring = steady_cost(program) + mixer_cost(program) + bend_cost(program)
           recurring_drawing = steady_drawing_cost(program)
           if measured
             # A measurement is the verdict: the real per-frame cost / frame rate, per scene
@@ -193,6 +196,8 @@ module RubyGBA
           if (mv = mixer_verdict(program))
             printer.puts "    (sound is the worst case — all #{mv[:voices]} mixer voices at once; a typical frame sounds fewer)"
           end
+
+          bend_line(program, printer)
 
           if (cw = collision_worst_case(program)).positive?
             printer.puts "    (collision is the worst case — ~#{fmt(cw)} if every per-pixel test lands on one frame. " \
@@ -235,6 +240,21 @@ module RubyGBA
           note = "    (the worst frame found. Each button this game reads was held in turn."
           note += " No button cost more than none held." unless measured.values.any? { |r| r[:keys].to_a.any? }
           printer.puts "#{note})"
+        end
+
+        # What a row-by-row bend costs the frame, and why. This is not in the tree above and
+        # cannot be: the work is per LINE, not per statement, so a reader looking for where
+        # the frame went would find nothing. It also says which part is the interrupt and
+        # which part is the block, because the block is almost never the expensive half —
+        # somebody hunting for the cost will otherwise rewrite the wrong thing.
+        def bend_line(program, printer)
+          verdict = bend_verdict(program) or return
+
+          layers = verdict[:layers].map { |name| ":#{name}" }.join(", ")
+          printer.puts format("    bending %s costs ~%s a frame — the display is interrupted on all " \
+                              "%d of its lines (~%s), and each row's own offset is worked out (~%s)",
+                              layers, fmt(verdict[:cost]), verdict[:lines],
+                              fmt(verdict[:interrupts]), fmt(verdict[:offsets]))
         end
 
         # No measurement ran (the emulator was not available), so the frame rate is an

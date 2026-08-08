@@ -47,6 +47,7 @@ module RubyGBA
             when :blit_pose then emit_blit_pose(node)
             when :background then emit_background(node)
             when :scroll_background then emit_scroll_background(node)
+            when :scroll_rows then nil # a standing declaration — its body runs per line, from the dispatcher
             when :camera then emit_camera(node)
             when :fade then emit_fade(node)
             when :present_objects then emit_present_objects(node)

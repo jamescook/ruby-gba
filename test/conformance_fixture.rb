@@ -144,6 +144,11 @@ module ConformanceFixture
       B.background(:grid, tiles: [:tile_a, :tile_b],          # a tiled grid; nil = an empty cell
                           map: [[0, 1], [1, nil]], tile_w: 2, tile_h: 2),
       B.scroll_background(:grid, x: B.var_ref(:x), y: B.var_ref(:y)), # move the window over it
+      # ...and bend it row by row: every row of the picture gets its own sideways offset,
+      # worked out from the row number a backend puts in :bend_row. `% 2` keeps the offsets
+      # small and makes alternate rows differ, so a backend that ignored the bend, or
+      # applied one row's offset to another, draws a different picture.
+      B.scroll_rows(:grid, row: :bend_row, offset: B.binop(:%, B.var_ref(:bend_row), B.int(2))),
       B.camera(x: B.int(0), y: B.int(0)), # move the window over the whole picture
       B.fade(toward: :black, amount: B.int(0)), # blend the picture toward a color (0 = as drawn)
       B.object(:hero_obj, poses: [:obj8], pose: B.int(0), # a composited object (one pose, held at index 0)

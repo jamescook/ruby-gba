@@ -23,8 +23,10 @@ class TestDslReference < Minitest::Test
   # make_object_rotatable / make_object_scalable are not authoring verbs — they're
   # internal hooks a HardwareSprite handle calls to wire up its rotation and its size
   # (see #face_angle / #turn / #scale), which the cheat-sheet documents on the sprite
-  # verb, not on their own lines.
-  SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable].freeze
+  # verb, not on their own lines. record_row_bend is the same: the hook behind
+  # Background#scroll_each_row, documented on the background verb.
+  SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable
+            record_row_bend].freeze
 
   # …plus the verbs the loaded effect packs contribute. A pack's verb is an ordinary
   # DSL verb at the call site, so it has to be looked up in the same place.

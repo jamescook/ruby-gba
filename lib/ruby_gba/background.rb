@@ -61,7 +61,46 @@ module RubyGBA
       apply
     end
 
+    # Slide each ROW of the picture sideways by its own amount, so the whole background
+    # bends instead of moving as one flat rectangle. The block is given the row (0 at the
+    # top of the screen, 159 at the bottom) and gives back how far across that row sits:
+    #
+    #   ripple = table :ripple, (0...64).map { |i| (Math.sin(i / 64.0 * 2 * Math::PI) * 4).round }
+    #   phase  = var :phase, 0
+    #
+    #   water.scroll_each_row { |row| ripple[(row + phase) % ripple.length] }
+    #   game_loop { phase.add 1 }         # the wave travels down the water
+    #
+    # That is wavy water, a heat haze over a desert, a reflection in a lake, a screen
+    # melting into a transition. The offset is ON TOP of the background's own scroll, so a
+    # scrolling background can ripple too, and the block is read once for every row of
+    # every frame — a `table` lookup is the usual body, because whatever you write there
+    # is paid for 160 times a frame.
+    #
+    # Declare it once, where the background is declared. It keeps running from there, so
+    # there is nothing to call each frame; animate it by moving a variable the block reads
+    # (the `phase` above). Calling it again on the same background replaces the bend.
+    #
+    # Rows only bend sideways. A row shows the same part of the map vertically as it
+    # always did, which is what a reflection or a haze wants.
+    def scroll_each_row(&block)
+      unless block
+        raise ArgumentError,
+              "scroll_each_row needs a block that gives back how far across a row sits: " \
+              "#{@name}.scroll_each_row { |row| ripple[row] }"
+      end
+
+      @builder.record_row_bend(@name, row_var, &block)
+      self
+    end
+
     private
+
+    # The variable the row number is put in before the block's offset is worked out —
+    # one per background, so two bending backgrounds cannot tread on each other.
+    def row_var
+      :"__bg_#{@name}_row"
+    end
 
     # Show the background at its current offset.
     #

@@ -69,6 +69,12 @@ module RubyGBA
       aligned(:-, other)
     end
 
+    # The same value the other way round: `-speed` is as far backwards as `speed` is
+    # forwards. It keeps a fraction, since flipping a sign changes nothing about scale.
+    def -@
+      scaled(Build.neg(@node), @fraction_bits)
+    end
+
     # Multiply. A fraction times a plain COUNT is ordinary multiplication and keeps the
     # fraction — twice as fast is twice as fast. A fraction times another FRACTION is
     # the one that overflows on the way, so it becomes the full-width multiply

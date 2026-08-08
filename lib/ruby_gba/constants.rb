@@ -234,6 +234,7 @@ module RubyGBA
     REG_IFBIOS      = 0x03007FF8 # the BIOS's own copy of "which IRQs fired"; IntrWait/VBlankIntrWait
     #                              wait on it, so a handler must OR the acknowledged bit in here too
     DISPSTAT_VBLANK_IRQ = 0x0008 # REG_DISPSTAT bit 3: have the display raise a VBlank interrupt each frame
+    DISPSTAT_HBLANK_IRQ = 0x0010 # REG_DISPSTAT bit 4: ...and one at the end of every scanline
 
     IRQ_VBLANK  = 0x0001  # Fires once per frame (~60Hz) — primary game tick
     IRQ_HBLANK  = 0x0002  # Fires once per scanline — for raster effects
