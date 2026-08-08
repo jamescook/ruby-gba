@@ -29,6 +29,25 @@ module RubyGBA
         # between. A measured 60 means every pass met its frame.
         FULL_FRAME_RATE = 60
 
+        # WHEN THE BREAKDOWN IS TOO SMALL TO BE THE WHOLE FRAME (see #residual_note). Two
+        # tests, and it takes both, because either one alone is noise.
+        #
+        # The SHARE has to clear the model's own honest error. The keep-honest tests hold
+        # each standing cost to a quarter (test/test_cost_calibration.rb), and the estimate
+        # answers a deliberately different question from the reading on top of that — it
+        # counts a list-driven loop at capacity where a real frame draws what the list
+        # holds. Half leaves that whole band alone and still catches a factor: the four
+        # examples that fire today read 0.40 to 0.44, and the nearest one that does not is
+        # 0.57.
+        #
+        # The GAP is what stops the share from firing on nothing. A game loop that does
+        # NOTHING AT ALL measures 0.20 scanlines — the wake from the vblank, the branch —
+        # and the estimate says 0.00, so a tiny program is 0% accounted for and always will
+        # be. Three tiled examples sit there. Five scanlines is far above that floor and is
+        # about 2% of a frame, which is the least worth interrupting somebody for.
+        RESIDUAL_SHARE = 0.5
+        RESIDUAL_GAP = 5.0
+
         # Whether a program has a game loop (its cost recurs every frame) or is a
         # one-shot static draw.
         def looping?(program)
@@ -318,6 +337,73 @@ module RubyGBA
           when :root, :control then nil
           else op_cost(node) # a statement — including a kind the table has never heard of
           end
+        end
+
+        # HOW MUCH OF THE MEASURED FRAME THE BREAKDOWN ACCOUNTS FOR, when a measurement
+        # ran — the estimate's own coverage, checked against the one number that cannot be
+        # argued with.
+        #
+        # The report has always put an estimated TREE next to a measured TOTAL and never
+        # related the two, and that is a blind spot with no bottom to it. When a cost is
+        # missing from the model, BOTH halves still look fine: the tree sums to something
+        # plausible, the verdict reads correct because it is measured, and nothing anywhere
+        # looks odd. A timer's tick handler cost nothing for as long as it did for exactly
+        # that reason — the estimate said 0, the emulator said 9 scanlines, and the two sat
+        # four lines apart in the same report.
+        #
+        # This is a beat in the loop the whole tool exists for: guess where the frame goes,
+        # look, find out you were wrong. Before an author optimizes the biggest line in the
+        # breakdown, they get told whether the breakdown is the whole frame.
+        #
+        # Returns nil when there is nothing to say, or { estimate:, measured:, share:,
+        # blind: }.
+        def residual_note(program, measured)
+          return nil unless measured && looping?(program)
+
+          estimate = category_tree(program).sum { |node| node[:cost] }
+          # The tree is the heaviest frame the program can reach and the reading is the
+          # worst frame found, so they answer the same question. Across scenes, take the
+          # dearest — the tree costs a case_var at its heaviest branch too.
+          worst = measured.values.filter_map { |result| result[:scanlines] }.max
+          return nil unless worst&.positive?
+          return nil if estimate > worst * RESIDUAL_SHARE || worst - estimate < RESIDUAL_GAP
+
+          { estimate: estimate, measured: worst, share: estimate / worst,
+            blind: estimate_blind_spots(program) }
+        end
+
+        # A loud line, above the estimate, when the breakdown accounts for far less of the
+        # frame than the emulator measured.
+        #
+        # It says the share is a NET and that is not a hedge, it is the arithmetic. The
+        # estimate is deliberately not a point prediction: it counts a list-driven loop at
+        # its capacity, counts a `pressed` body at zero, and holds the collision worst case
+        # out of the recurring load. Over-counts and under-counts land in the same total, so
+        # a program can read 100% with two real errors in it that happen to cancel. A LOW
+        # share is strong evidence of a problem; a high one is weak evidence of correctness,
+        # and saying only the first half would mislead.
+        #
+        # IT IS RED, like the other two banners, and that does not break the rule that red
+        # means a frame is over budget. A banner sits ABOVE the report and is a statement
+        # about the report, not about the game: the verdict line below keeps its own colour,
+        # so a game that fits in a frame still reads green where it counts. All three
+        # banners say the same thing — do not act on the breakdown below — and an author who
+        # spends an afternoon optimizing the biggest line in a breakdown that is missing the
+        # real cost has been failed exactly as badly as one whose frame overran.
+        def emit_residual_banner(printer, program, measured)
+          note = residual_note(program, measured) or return
+
+          missing =
+            if note[:blind].any?
+              "The estimate cannot price #{note[:blind].join(' or ')}."
+            else
+              "Some of this frame is not priced."
+            end
+          printer.puts "!! the breakdown accounts for #{pct(note[:estimate], note[:measured])} of the " \
+                       "measured frame (~#{fmt(note[:estimate])} of ~#{fmt(note[:measured])} scanlines). " \
+                       "#{missing} So the largest line below is not always the largest cost. The share " \
+                       "is a net: an over-count and an under-count can cancel. So a low share shows a " \
+                       "problem, but a high share does not show that there is none.", emphasis: :banner
         end
 
         # A loud line, above the estimate, naming any op the model couldn't account for —

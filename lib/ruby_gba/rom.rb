@@ -121,16 +121,22 @@ module RubyGBA
         raise ROMError, "this ROM has no source program to explain (assemble via RubyGBA.build)"
       end
 
-      # The estimate has to know which routines this ROM kept in the console's quick
-      # memory, or it reads nearly three times over for every program whose loop moved
-      # there (see IR::CostModel#initialize).
-      model = IR::CostModel.new(**placement_for_cost_model)
+      model = cost_model
       case format
       when :human   then model.render(source_program, out: out, **opts)
       when :summary then model.report(source_program, out: out, **opts)
       when :json    then out.puts(JSON.generate(model.as_json(source_program)))
       else raise ArgumentError, "unknown explain format #{format.inspect} (use :human, :summary, or :json)"
       end
+    end
+
+    # A cost model that knows how THIS ROM was built. The estimate has to know which
+    # routines the build kept in the console's quick memory, or it reads nearly three
+    # times over for every program whose loop moved there (see {IR::CostModel#initialize}).
+    # So a model asked about a built ROM comes from here rather than from CostModel.new.
+    # +overrides+ replaces named weights, for asking what a different price would mean.
+    def cost_model(**overrides)
+      IR::CostModel.new(**placement_for_cost_model, **overrides)
     end
 
     # Write the ROM to a file.

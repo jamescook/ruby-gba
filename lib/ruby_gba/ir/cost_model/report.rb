@@ -31,6 +31,7 @@ module RubyGBA
           frame_total = tree.sum { |node| node[:cost] }
           emit_unpriced_banner(printer, program)
           emit_domain_banner(printer, program)
+          emit_residual_banner(printer, program, measured)
           printer.puts header_line(measured)
           printer.puts "  per frame ~ #{fmt(frame_total)} scanlines" # the roll-up; the verdict/red is at the bottom
           tree.each { |cat| category_line(cat, printer, frame_total) } # section subtotals, no detail
@@ -47,6 +48,7 @@ module RubyGBA
           frame_total = tree.sum { |node| node[:cost] } # the reference for a node's share-of-frame heat
           emit_unpriced_banner(printer, program)
           emit_domain_banner(printer, program) # loud, at the very top, before the estimate itself
+          emit_residual_banner(printer, program, measured) unless focus # the tree below is one func, not the frame
           printer.puts header_line(measured)
           if focus
             printer.puts "  func :#{focus} ~ #{fmt(frame_total)} scanlines"

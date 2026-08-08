@@ -139,6 +139,12 @@ class TestCostPrinter < Minitest::Test
     text.lines.find { |line| line =~ /estimate (within|over) budget/ }
   end
 
+  # The frame's own verdict, once a measurement has replaced the estimate's. Not the
+  # banner above it, which also says "measured" but is about the estimate, not the frame.
+  def measured_line(text)
+    text.lines.find { |line| strip(line).lstrip.start_with?("frame ") && line.include?("measured") }
+  end
+
   def test_an_over_budget_frame_paints_the_verdict_red
     line = verdict_line(rendered(over_budget_program, color: true))
     assert_includes line, Color::COLORS[:hot]
@@ -191,13 +197,18 @@ class TestCostPrinter < Minitest::Test
 
   # The colour rule: red is for a frame that really is over budget. A frame that nearly
   # fills and still holds the rate is the author's hottest work, not a fault.
+  #
+  # Asked of the VERDICT line, which is what the rule is about. A banner above the report
+  # is a statement about the estimate and not about the frame, and it carries its own red
+  # for its own reason — here, that a 40x40 fill cannot be 224 scanlines, so the breakdown
+  # is missing nearly the whole frame.
   def test_a_nearly_full_frame_that_holds_the_full_rate_is_not_red
     holds = { nil => { scanlines: 224.8, fps: 60.0, saturated: true } }
     drops = { nil => { scanlines: 224.8, fps: 30.0, saturated: true } }
 
     red = Color::COLORS.fetch(:hot)
-    refute_includes rendered(cheap_program, measured: holds, color: true), red
-    assert_includes rendered(cheap_program, measured: drops, color: true), red
+    refute_includes measured_line(rendered(cheap_program, measured: holds, color: true)), red
+    assert_includes measured_line(rendered(cheap_program, measured: drops, color: true)), red
   end
 
   # Estimate-only, and the frame has an unbounded loop the model can't size: it must NOT
