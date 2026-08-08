@@ -54,6 +54,7 @@ module RubyGBA
           render_category_tree(tree, printer, frame_total, max_depth)
           render_hottest(tree, printer, top)
           glyph_footprint_lines(program, printer)
+          fast_memory_lines(printer) unless focus
           budget_summary_lines(program, printer, frame_total, measured: measured) unless focus
         end
 
@@ -68,6 +69,26 @@ module RubyGBA
             "per-frame cost estimate (scanlines):"
           end
         end
+
+        # What the build kept in the console's quick memory, and how much of it is left.
+        #
+        # This is the one decision the framework makes that changes how fast a game runs
+        # without changing a line of it, so it does not get to be invisible. It names the
+        # routines, says what they cost in memory, and says what a routine that did not
+        # move would have needed — which is the number an author reaches for when they
+        # want to make one fit.
+        def fast_memory_lines(printer)
+          return if @placement.nil? || @placement[:funcs].empty?
+
+          printer.puts "  kept in quick memory (code runs ~#{fmt(@weights[:fast_code_speedup])}x faster there):"
+          @placement[:funcs].each do |name|
+            printer.puts "    #{name == :__frame ? 'the game loop' : "func :#{name}"}"
+          end
+          printer.puts format("    %s of 32K used, %s free",
+                              kb(@placement[:used_bytes]), kb(@placement[:free_bytes]))
+        end
+
+        def kb(bytes) = format("%.1fK", bytes / 1024.0)
 
         # One line per font whose text this program draws: how many of its glyphs are
         # actually reachable — the footprint a data-driven font would embed. Silent

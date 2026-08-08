@@ -35,7 +35,7 @@ module RubyGBA
           end
           loop_node = program.children.find { |node| node.kind == :loop }
           statements = loop_node ? loop_node.children : program.children.reject { |node| node.kind == :func }
-          statements.flat_map { |node| build(node) }
+          in_fast_frame { statements.flat_map { |node| build(node) } }
         end
 
         # The total draw cost of one frame — the roll-up of #analyze. This is the
@@ -50,14 +50,14 @@ module RubyGBA
         # weighs 1, so a program with no hints has steady_cost == frame_cost. For the
         # tear risk (drawing only) use #steady_drawing_cost.
         def steady_cost(program)
-          steady_statements(program).sum { |node| steady(node) }
+          in_fast_frame { steady_statements(program).sum { |node| steady(node) } }
         end
 
         # The recurring drawing cost alone — the tear risk. Only drawing races the
         # brief vblank window; logic and sound run through the visible frame and can't
         # tear, so they're excluded here (they still count in #steady_cost's 60fps load).
         def steady_drawing_cost(program)
-          steady_statements(program).sum { |node| steady(node, true) }
+          in_fast_frame { steady_statements(program).sum { |node| steady(node, true) } }
         end
 
         # The statements that make up a frame — a game loop's body, or a static
@@ -66,6 +66,20 @@ module RubyGBA
           index(program)
           loop_node = program.children.find { |node| node.kind == :loop }
           loop_node ? loop_node.children : program.children.reject { |node| node.kind == :func }
+        end
+
+        # What one pass through a named routine costs — its own statements, its loops
+        # multiplied out, and the routines it calls. This is what a backend ranks by when
+        # it decides which routines are worth keeping in faster memory (see
+        # Backends::GBA::Placement).
+        #
+        # It is a pass, not a frame: a routine reached once a frame is priced exactly,
+        # and one behind an `every(6)` is priced as though it ran every frame. That errs
+        # generously toward a routine that runs sometimes, which is the safe way to be
+        # wrong when the answer only picks an ORDER.
+        def func_frame_cost(program, name)
+          index(program)
+          steady_func(name)
         end
 
         private
@@ -99,7 +113,7 @@ module RubyGBA
           # #loop_pass_leaf. It is bookkeeping, so the tear measure (drawing only) skips it.
           when :repeat
             body = node.children.sum { |child| steady(child, drawing_only, worst: worst) }
-            repeat_factor(node).first * (body + (drawing_only ? 0 : @weights[:loop_pass]))
+            repeat_factor(node).first * (body + (drawing_only ? 0 : loop_pass_cost))
           # A timed trigger's steady per-frame cost follows from its kind: every(k)
           # runs one frame in k, so its body counts 1/k; after(n) fires once ever, so
           # it adds nothing to the every-frame load.
@@ -117,9 +131,35 @@ module RubyGBA
           return 0 if @stack.include?(name)
           func = @funcs[name] or return 0
           @stack.push(name)
-          total = func.children.sum { |child| steady(child, drawing_only, worst: worst) }
+          total = in_fast_memory(name) { func.children.sum { |child| steady(child, drawing_only, worst: worst) } }
           @stack.pop
           total
+        end
+
+        # Run a block as though it were inside a routine that lives in faster memory, so
+        # every op it prices is charged at what it really costs there (see
+        # Pricing#fast_memory_factor). Nested routines that also moved change nothing —
+        # they are inside the same block of memory and are already being charged for it.
+        def in_fast_memory(name)
+          return yield unless @fast_routines.include?(name)
+
+          in_fast_code { yield }
+        end
+
+        # The same, for the frame's own body — which is a routine to the machine once it
+        # has been moved, but has no name in the program to be found by.
+        def in_fast_frame
+          return yield unless @fast_frame
+
+          in_fast_code { yield }
+        end
+
+        def in_fast_code
+          was = @in_fast_code
+          @in_fast_code = true
+          yield
+        ensure
+          @in_fast_code = was
         end
 
         # How often an `if`'s body runs, read from its condition: a body behind a
@@ -371,8 +411,12 @@ module RubyGBA
         # loop is never free, and that a tight loop over a cheap body is mostly loop.
         def loop_pass_leaf
           [{ op: :loop_pass, name: "the loop itself", label: "the loop itself",
-             cost: @weights[:loop_pass], children: [] }]
+             cost: loop_pass_cost, children: [] }]
         end
+
+        # Going round a loop is instructions like any other, so it is charged less where
+        # the code runs faster.
+        def loop_pass_cost = @weights[:loop_pass] * fast_memory_factor
 
         # A timed trigger (every/after) as a labeled container: it carries its body's
         # full cost — the cost of the frame it does fire — so the tree and the
@@ -387,7 +431,7 @@ module RubyGBA
           return [] if @stack.include?(name)
           func = @funcs[name] or return []
           @stack.push(name)
-          kids = func.children.flat_map { |child| build(child) }
+          kids = in_fast_memory(name) { func.children.flat_map { |child| build(child) } }
           @stack.pop
           kids
         end

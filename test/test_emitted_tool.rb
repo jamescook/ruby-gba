@@ -348,8 +348,8 @@ class TestEmittedTool < Minitest::Test
         module Backends
           class GBA
             alias_method :__lower_before_marker, :lower
-            def lower(program)
-              __lower_before_marker(program) + ("\\x00" * 4)
+            def lower(program, **opts)
+              __lower_before_marker(program, **opts) + ("\\x00" * 4)
             end
           end
         end

@@ -209,8 +209,20 @@ module RubyGBA
       SOUND_KINDS = %i[play_song beep noise wave stop_wave enable_sound stop_music mixer].freeze
       CATEGORY_ORDER = %i[drawing sound logic].freeze
 
-      def initialize(**weights)
+      # +fast_routines+ names the routines this build keeps in faster memory, and
+      # +fast_frame+ says whether the frame's own body is one of them (it has no name of
+      # its own). Their work is charged at #FAST_SPEEDUP less, because that is measured to
+      # be how much faster the same instructions run there — see
+      # Backends::GBA::Placement. Left out, nothing is discounted, which is what a target
+      # with one kind of memory wants.
+      # +placement+ is the whole picture for the report — which routines moved and how
+      # much memory is used and left (see Backends::GBA::Placement#iwram_report).
+      def initialize(fast_routines: nil, fast_frame: false, placement: nil, **weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)
+        @fast_routines = Array(fast_routines).to_set
+        @fast_frame = fast_frame
+        @placement = placement
+        @in_fast_code = false
       end
     end
   end

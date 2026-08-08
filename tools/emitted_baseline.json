@@ -2,23 +2,23 @@
   "version": 1,
   "examples": {
     "animate": {
-      "code": 49932,
+      "code": 50052,
       "data": 0
     },
     "bird": {
-      "code": 4100,
+      "code": 4216,
       "data": 5252
     },
     "breakout": {
-      "code": 88920,
+      "code": 89184,
       "data": 100
     },
     "buffered_bounce": {
-      "code": 4656,
+      "code": 4776,
       "data": 10
     },
     "floating_digits": {
-      "code": 14716,
+      "code": 14836,
       "data": 0
     },
     "font_styles": {
@@ -34,7 +34,7 @@
       "data": 0
     },
     "hero": {
-      "code": 1232,
+      "code": 1352,
       "data": 772
     },
     "jukebox": {
@@ -42,23 +42,23 @@
       "data": 724
     },
     "level": {
-      "code": 15004,
+      "code": 15124,
       "data": 728
     },
     "maze": {
-      "code": 25400,
+      "code": 25520,
       "data": 620
     },
     "pacman": {
-      "code": 16912,
+      "code": 17032,
       "data": 3908
     },
     "parallax": {
-      "code": 976,
+      "code": 1096,
       "data": 1164
     },
     "piano": {
-      "code": 17344,
+      "code": 17464,
       "data": 7760
     },
     "pixels": {
@@ -66,35 +66,35 @@
       "data": 0
     },
     "pong": {
-      "code": 27272,
+      "code": 27388,
       "data": 216
     },
     "raycaster": {
-      "code": 5012,
+      "code": 5132,
       "data": 2124
     },
     "scroll": {
-      "code": 876,
+      "code": 996,
       "data": 732
     },
     "sheet": {
-      "code": 15004,
+      "code": 15124,
       "data": 728
     },
     "shmup": {
-      "code": 22968,
+      "code": 23084,
       "data": 2328
     },
     "snake": {
-      "code": 58744,
+      "code": 58964,
       "data": 84
     },
     "snake_buffered": {
-      "code": 59256,
+      "code": 59436,
       "data": 82
     },
     "sprite_mover": {
-      "code": 5052,
+      "code": 5172,
       "data": 0
     },
     "tiles": {

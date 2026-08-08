@@ -51,6 +51,7 @@ module RubyGBA
         tearfree_pixel: 0.03212,
         tearfree_glyph: 0.02229,
         overlap_pixel: 0.22491,
+        fast_code_speedup: 2.64689,
       }.freeze
     end
   end

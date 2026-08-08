@@ -29,7 +29,7 @@ module RubyGBA
     option :explain, type: :boolean, default: false,
                      desc: "Print the per-frame cost report (verdict measured on the emulator when available)"
     option :stats, type: :boolean, default: false,
-                   desc: "Print how far asset packing shrank the cartridge"
+                   desc: "Print how far asset packing shrank the cartridge, and what is kept in quick memory"
     option :scene, type: :array, banner: "NAME", default: [],
                    desc: "Measure only these scenes in the report (default: all scenes)"
     def build(game_file)
@@ -39,6 +39,7 @@ module RubyGBA
       rom.write(path)
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
       say rom.compression.summary_line if options[:stats] && rom.compression&.any?
+      say placement_line(rom) if options[:stats] && rom.placement&.dig(:funcs)&.any?
       rom.explain(measured: measured_verdicts(game)) if options[:explain] || options[:scene].any?
     end
 
@@ -62,6 +63,16 @@ module RubyGBA
     end
 
     private
+
+    # One line on what the build kept in the console's quick memory, for --stats. The
+    # full list is in the cost report; this is the size of it.
+    def placement_line(rom)
+      placement = rom.placement
+      routines = placement[:funcs].length
+      format("Quick memory: %d routine%s (%.1fK), %.1fK of 32K free",
+             routines, routines == 1 ? "" : "s",
+             placement[:code_bytes] / 1024.0, placement[:free_bytes] / 1024.0)
+    end
 
     # Measure the game's scenes on the emulator and return the plain verdict hash the
     # explain report folds in: { scene_or_nil => { scanlines:, fps:, saturated: } } — a

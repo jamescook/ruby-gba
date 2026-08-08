@@ -55,11 +55,15 @@ module RubyGBA
   # @param fast_cartridge [Boolean] ask the console for quick cartridge timing at boot
   #   (default: true). Pass false to leave the cautious power-on timing alone — the
   #   escape hatch for a cartridge that can't keep up.
+  # @param fast_code [Boolean] let the build work out which routines are worth keeping
+  #   in the console's quick memory, where code runs about two and a half times faster
+  #   (default: true). `rom.explain` says what it chose. Pass false to stop it choosing —
+  #   a routine you mark `func :name, fast: true` yourself still goes there.
   # @return [RubyGBA::ROM] finalized ROM ready to write
   # +out+/+err+ are the streams dump_func writes its disassembly and warnings to;
   # they default to the process streams and can be pointed at a StringIO in tests.
   def self.build(title, code:, maker:, validate: true, frame_sync: :auto, fast_cartridge: true,
-                 out: $stdout, err: $stderr, &block)
+                 fast_code: true, out: $stdout, err: $stderr, &block)
     builder = Builder.new(frame_sync: frame_sync)
     catch(:debug_halt) do
       builder.instance_eval(&block)
@@ -105,11 +109,12 @@ module RubyGBA
     # The DSL built an IR tree as the block ran. Turn it into a ROM in two steps,
     # both behind this single call so building stays one operation: lower the tree
     # to machine code, then assemble that code into a cartridge.
-    backend = IR::Backends::GBA.new(fast_cartridge: fast_cartridge)
+    backend = IR::Backends::GBA.new(fast_cartridge: fast_cartridge, fast_code: fast_code)
     machine_code = backend.lower(program)
     rom = ROM.assemble(machine_code, title: title, code: code, maker: maker,
                                      validate: builder.debug_halted? ? false : validate)
     rom.source_program = program # so the ROM can report on itself (rom.explain)
+    rom.placement = backend.iwram_report # ...including which routines it kept in quick memory
 
     # Record how far asset packing shrank the cart (tile pictures, palettes, maps) so
     # a caller can read it back or a verbose build can show it. Building it into the

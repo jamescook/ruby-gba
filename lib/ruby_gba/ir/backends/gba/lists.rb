@@ -195,22 +195,31 @@ module RubyGBA
           # Func bodies live after the main code. A leading endless loop guards
           # against the main flow running off its end into the first body. Each func
           # saves the return address and restores it as the program counter.
+          # The routines that stay in the cartridge. The ones chosen to run from the
+          # console's quick memory are emitted separately, as one block (see
+          # {Placement}#emit_hot_functions), because that block is copied wholesale.
           def emit_functions
-            return if @funcs.empty?
+            cold = @funcs.reject { |name, _| @fast_funcs.include?(name) }
+            return if cold.empty?
 
             emit(ASM.loop_forever) # fall-through guard
-            @funcs.each do |name, fnode|
-              start = pos
-              place_label(func_label(name))
-              emit(ASM.push(14))                          # push {lr}
-              # Draws in this func lower in its resolved mode; a scene (a per-frame
-              # entry point) also switches the hardware to that mode as it takes over.
-              @lower_mode = @func_mode.fetch(name, @default_mode)
-              emit_scene_preamble(name) if @manage_modes && @scene_funcs.include?(name)
-              fnode.children.each { |stmt| emit_statement(stmt) }
-              emit(ASM.pop(15))                           # pop {pc}  (return)
-              @func_ranges[name] = (start...pos)          # byte span, for dump_func
-            end
+            cold.each { |name, fnode| emit_one_function(name, fnode) }
+          end
+
+          # One routine: save the return address, run the body, return. Shared by both
+          # places routines are emitted, so where a routine lives cannot change what it
+          # does.
+          def emit_one_function(name, fnode)
+            start = pos
+            place_label(func_label(name))
+            emit(ASM.push(14))                          # push {lr}
+            # Draws in this func lower in its resolved mode; a scene (a per-frame
+            # entry point) also switches the hardware to that mode as it takes over.
+            @lower_mode = @func_mode.fetch(name, @default_mode)
+            emit_scene_preamble(name) if @manage_modes && @scene_funcs.include?(name)
+            fnode.children.each { |stmt| emit_statement(stmt) }
+            emit(ASM.pop(15))                           # pop {pc}  (return)
+            @func_ranges[name] = (start...pos)          # byte span, for dump_func
           end
 
           def func_label(name)
