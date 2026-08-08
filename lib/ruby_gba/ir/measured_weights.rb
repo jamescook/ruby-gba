@@ -36,6 +36,7 @@ module RubyGBA
         obj_write: 0.11726,
         scroll_write: 0.10425,
         bend_line: 0.16668,
+        bend_line_fast: 0.08871,
         obj_turn: 0.11752,
         obj_resize: 0.15460,
         camera_move: 0.08355,

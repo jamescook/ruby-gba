@@ -81,11 +81,27 @@ module RubyGBA
           return if @placement.nil? || @placement[:funcs].empty?
 
           printer.puts "  kept in quick memory (code runs ~#{fmt(@weights[:fast_code_speedup])}x faster there):"
-          @placement[:funcs].each do |name|
-            printer.puts "    #{name == :__frame ? 'the game loop' : "func :#{name}"}"
-          end
+          @placement[:funcs].each { |name| printer.puts "    #{quick_memory_label(name)}" }
           printer.puts format("    %s of 32K used, %s free",
                               kb(@placement[:used_bytes]), kb(@placement[:free_bytes]))
+        end
+
+        # What to call each thing that moved. Two of them are routines the machine sees but
+        # the author never wrote, so they are named for what they do rather than by the
+        # placeholder the build files them under.
+        #
+        # The interrupt routine also says its own figure, because it is the one thing here
+        # that does NOT gain the factor on the line above: some of answering an interrupt is
+        # the console's own doing and runs at the console's own speed wherever ours lives.
+        def quick_memory_label(name)
+          case name
+          when :__frame then "the game loop"
+          when :__interrupt
+            gain = @weights[:bend_line] / @weights[:bend_line_fast]
+            "the routine that answers the display and the timers (~#{fmt(gain)}x here — " \
+              "part of an interrupt is the console's own work, which does not move)"
+          else "func :#{name}"
+          end
         end
 
         def kb(bytes) = format("%.1fK", bytes / 1024.0)

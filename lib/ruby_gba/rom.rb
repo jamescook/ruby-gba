@@ -151,11 +151,14 @@ module RubyGBA
       return {} unless placement
 
       names = placement[:funcs]
-      { fast_routines: names - [FRAME_ROUTINE], fast_frame: names.include?(FRAME_ROUTINE),
+      { fast_routines: names - [FRAME_ROUTINE, IRQ_ROUTINE],
+        fast_frame: names.include?(FRAME_ROUTINE),
+        fast_interrupts: names.include?(IRQ_ROUTINE),
         placement: placement }
     end
 
     FRAME_ROUTINE = IR::Backends::GBA::Placement::FRAME_ROUTINE
+    IRQ_ROUTINE = IR::Backends::GBA::Placement::IRQ_ROUTINE
 
     # The GBA BIOS validates the 156-byte Nintendo logo at 0x04..0x9F on boot.
     # It sits outside the header checksum range (0xA0..0xBC), so writing it here
