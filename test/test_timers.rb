@@ -165,6 +165,13 @@ class TestTimers < Minitest::Test
   # Pin that lowering by building the node form and the equivalent explicit
   # counter+compare form and asserting identical generated code (two fresh backends
   # label gensyms the same way, so equal bytes means an equal instruction stream).
+  #
+  # Both are built with `fast_code: false`. Where code is KEPT is a whole-program
+  # decision made from what a frame costs, and the two forms don't cost the same to the
+  # estimate — `every(3)` is counted as a third of its body, the spelled-out compare as
+  # all of it — so one can be moved into the console's quick memory and the other left
+  # where it is. That is the placement working, not the lowering differing, and it has
+  # to be held still for a byte-for-byte comparison to mean anything.
   def test_every_lowers_identically_to_an_explicit_counter_compare
     node_form = Build.program(
       Build.screen(:bitmap), Build.set(:c, 0),
@@ -178,7 +185,8 @@ class TestTimers < Minitest::Test
                             Build.set(:c, 0), Build.set(:hit, 1)), # on reach: reset, then body
                   Build.halt),
     )
-    assert_equal GBA.new.lower(explicit_form), GBA.new.lower(node_form)
+    assert_equal GBA.new(fast_code: false).lower(explicit_form),
+                 GBA.new(fast_code: false).lower(node_form)
   end
 
   def test_after_lowers_identically_to_an_explicit_counter_compare
@@ -195,7 +203,8 @@ class TestTimers < Minitest::Test
                                       Build.set(:hit, 1))), # ...and fire on the frame it lands on
                   Build.halt),
     )
-    assert_equal GBA.new.lower(explicit_form), GBA.new.lower(node_form)
+    assert_equal GBA.new(fast_code: false).lower(explicit_form),
+                 GBA.new(fast_code: false).lower(node_form)
   end
 
   # ---- guardrails ----

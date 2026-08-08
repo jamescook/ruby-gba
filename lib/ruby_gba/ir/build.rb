@@ -308,8 +308,20 @@ module RubyGBA
         Node.new(:after, children: body, counter: counter, frames: frames)
       end
 
-      def func(name, *body)
-        Node.new(:func, children: body, name: name)
+      # A named routine. +fast+ is a HINT about where the routine should live, for a
+      # target that has more than one kind of memory to run code from and a real
+      # difference in speed between them:
+      #
+      #   nil   — no opinion; the target decides (the usual case)
+      #   true  — put this one in the fastest memory there is
+      #   false — never move it, whatever the target would have decided
+      #
+      # A hint, not a promise: a target with one kind of memory ignores it entirely, and
+      # so does one that has run out of the fast kind. Nothing about what the routine
+      # DOES changes either way, which is why this can sit on the node without making the
+      # IR describe a machine.
+      def func(name, *body, fast: nil)
+        Node.new(:func, children: body, name: name, fast: fast)
       end
 
       # --- hardware timers ---

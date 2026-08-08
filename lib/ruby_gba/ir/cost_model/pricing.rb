@@ -10,7 +10,7 @@ module RubyGBA
       # Two questions get asked of every node: what the op itself costs, and what the
       # operands it was handed cost. Keeping those apart is what lets the operand half be
       # found from a node's attributes instead of named one kind at a time — see
-      # #operand_cost.
+      # #raw_operand_cost.
       module Pricing
         private
 
@@ -21,7 +21,21 @@ module RubyGBA
         # them every time. Operands are found from the node's attributes, so an op added
         # later can't hold unpriced work.
         def op_cost(node, worst: true)
-          own_op_cost(node) + operand_cost(node, worst)
+          (own_op_cost(node) + raw_operand_cost(node, worst)) * fast_memory_factor
+        end
+
+        # What a scanline of work costs when the code doing it lives in the console's
+        # faster memory: less, by a measured amount. Every weight in the model describes
+        # code running from the cartridge, which is where code runs unless the build
+        # decides otherwise, so this is the one place the other case is priced.
+        #
+        # It scales the WHOLE op, including the part that is memory rather than
+        # instructions. That is the coarse bit, and it is what the measurement says: taken
+        # frame by frame across the examples, moving a game's loop into the faster memory
+        # is worth between 2.6 and 3.0 times whatever the frame was doing, which is close
+        # enough to one number that splitting it would be inventing precision.
+        def fast_memory_factor
+          @in_fast_code ? 1.0 / @weights[:fast_code_speedup] : 1
         end
 
         def own_op_cost(node)
@@ -125,9 +139,16 @@ module RubyGBA
         # could cost", false for "what every frame really pays". They differ only where an
         # op has a worst case it seldom reaches — see #pixels_overlap_cost.
         def expr_cost(value, worst: true)
+          raw_expr_cost(value, worst) * fast_memory_factor
+        end
+
+        # The same before the faster-memory discount. Everything inside an op is priced
+        # through here so the discount lands exactly once, on the whole op, however deeply
+        # its operands nest.
+        def raw_expr_cost(value, worst)
           return 0 unless value.is_a?(Node)
 
-          own_cost(value, worst) + operand_cost(value, worst)
+          own_cost(value, worst) + raw_operand_cost(value, worst)
         end
 
         # What a value's own operator costs, ignoring what it is applied to.
@@ -153,9 +174,9 @@ module RubyGBA
         # charging an index nothing would hide a third of the raycaster's frame, whose hot
         # divides all sit inside `world[…]`. Attributes that aren't nodes — a name, a
         # width, a list of image names — aren't operands and add nothing.
-        def operand_cost(value, worst)
+        def raw_operand_cost(value, worst)
           value.attrs.each_value.sum do |slot|
-            slot.is_a?(Array) ? slot.sum { |item| expr_cost(item, worst: worst) } : expr_cost(slot, worst: worst)
+            slot.is_a?(Array) ? slot.sum { |item| raw_expr_cost(item, worst) } : raw_expr_cost(slot, worst)
           end
         end
 

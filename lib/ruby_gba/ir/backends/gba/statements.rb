@@ -30,7 +30,7 @@ module RubyGBA
             when :list_push then emit_list_push(node)
             when :list_drop then emit_list_drop(node)
             when :list_set then emit_list_set(node)
-            when :call then emit_branch(:bl, func_label(node[:target]))
+            when :call then emit_call_func(node[:target])
             when :case then emit_case(node)
             when :raw then emit(node[:bytes]) # escape hatch: pre-assembled bytes, verbatim
             when :halt then emit(ASM.loop_forever)
@@ -169,10 +169,23 @@ module RubyGBA
 
           # loop: an endless repeat of the body — a jump back to the top. A `halt`
           # (or the step budget, on the interpreter) is what ends it.
+          #
+          # The body is usually the busiest code in the whole program, so it is the first
+          # thing worth keeping in the console's quick memory. When it has been chosen for
+          # that (see {Placement}) the loop becomes a call into it and the body is emitted
+          # with the other moved routines; otherwise it stays inline, exactly as it was.
           def emit_loop(node)
             top = gensym
             place_label(top)
-            node.children.each { |stmt| emit_statement(stmt) }
+            if @fast_funcs.include?(Placement::FRAME_ROUTINE)
+              emit_call_func(Placement::FRAME_ROUTINE)
+            else
+              start = pos
+              node.children.each { |stmt| emit_statement(stmt) }
+              # Remember how big it came out: the measuring pass reads this to decide
+              # whether moving it would fit.
+              @func_ranges[Placement::FRAME_ROUTINE] = (start...pos)
+            end
             emit_branch(:b, top)
           end
 

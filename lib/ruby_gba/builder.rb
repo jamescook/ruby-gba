@@ -81,6 +81,7 @@ module RubyGBA
       @fraction_vars = {}      # name → fraction bits, for variables that hold a fraction (see Fraction)
       @next_var_addr = IWRAM_START
       @functions = {}          # name → deferred body block (evaluated at emit time)
+      @func_fast = {}          # name → where the author insisted the routine live (func fast:)
       @dump_requests = []      # function names to disassemble from the lowered ROM
       @songs = {}              # name → Music::SongContext (for build-time validation)
       @sound_enabled = false
@@ -228,7 +229,7 @@ module RubyGBA
           @building_scene = name if @scene_gates.key?(name)
           @current_scene_gate = @scene_gates[name]
           @screen_mode = default_screen_mode
-          push_container(Build.func(name)) do
+          push_container(Build.func(name, fast: @func_fast[name])) do
             run_block(&block)
           end
         ensure

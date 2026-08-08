@@ -40,6 +40,8 @@ module RubyGBA
               case fix[:kind]
               when :data_addr then resolve_data_address(fix)
               when :label_addr then resolve_label_address(fix)
+              when :fast_addr then resolve_fast_address(fix)
+              when :hot_size then resolve_hot_size(fix)
               else resolve_branch(fix)
               end
             end

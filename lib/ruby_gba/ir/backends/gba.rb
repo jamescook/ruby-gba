@@ -4,6 +4,7 @@ require_relative "gba/emit"
 require_relative "gba/statements"
 require_relative "gba/lists"
 require_relative "gba/drawing"
+require_relative "gba/placement"
 require_relative "gba/buffered"
 require_relative "gba/audio"
 require_relative "gba/reciprocal"
@@ -61,6 +62,7 @@ module RubyGBA
         include Statements
         include Lists
         include Drawing
+        include Placement
         include Buffered
         include Audio
         include Expressions
@@ -162,8 +164,17 @@ module RubyGBA
         # (the default) is the quick timing every real cartridge handles; false leaves
         # the console's cautious power-on timing alone, which is the escape hatch for a
         # cartridge that can't keep up (see #emit_waitcnt_setup).
-        def initialize(fast_cartridge: true)
+        # +fast_code+ decides whether the build works out for itself which routines are
+        # worth keeping in the console's quick memory (see {Placement}). True is the
+        # default; false leaves every routine in the cartridge unless the author asked for
+        # one by name with `func :thing, fast: true`.
+        def initialize(fast_cartridge: true, fast_code: true)
           @fast_cartridge = fast_cartridge
+          @fast_code = fast_code
+          @fast_funcs = Set.new  # routines that run from the quick memory
+          @emitting_hot = false  # are we emitting into the block that gets copied there?
+          @hot_base = nil        # where that block lands, once every variable has a home
+          @hot_bytes = 0
           @code = +"".b          # emitted machine code; byte 0 is where execution starts
           @labels = {}           # label name -> byte offset within @code
           @fixups = []           # branch placeholders to resolve once labels are known
@@ -222,13 +233,18 @@ module RubyGBA
         # cartridge — header, entry branch, checksum, padding — is ROM.assemble's
         # job; this method knows only how to compile the IR, not how a ROM is laid
         # out.
-        def lower(program)
+        # +fast_funcs+ forces the placement decision instead of working it out. Only the
+        # throwaway measuring pass inside {Placement}#choose_fast_funcs passes it, so that
+        # pass cannot set off another one.
+        def lower(program, fast_funcs: nil)
+          @fast_funcs = fast_funcs || choose_fast_funcs(program)
           # First in internal memory, before anything else is given a home there: only a
           # program that divides by something it works out as it runs carries the divide
           # routine, and every other division is settled at build time.
           reserve_divide_routine if needs_divide_routine?(program)
           reserve_divide_fix_routine if needs_divide_fix_routine?(program)
           collect_definitions(program)
+          adopt_frame_body(program) # the game loop's body counts as a routine once it moves
           prepare_direct_sound(program) # embed the program's samples as ROM data
           @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
           prepare_mixer(program) # the software mixer's rate, buffers, voice slots, timer
@@ -247,6 +263,7 @@ module RubyGBA
           # the console's cautious power-on timing.
           emit_waitcnt_setup if @fast_cartridge && !raw_escape_hatch?(program)
           emit_copy_divide_routines_to_iwram if @divide_routine_iwram || @divide_fix_routine_iwram
+          emit_copy_hot_code_to_iwram unless @fast_funcs.empty?
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
           emit_mixer_boot if @plays_samples # start the sound DMA + clock; voices added by `play`
@@ -264,12 +281,16 @@ module RubyGBA
           program.children.each { |stmt| emit_statement(stmt) }
           guard_variables_clear_of_routines
           emit_functions
+          emit_hot_functions # the routines worth running from the quick memory, as one block
           emit_mix_routine # the mixer's inner loop, placed in ROM and copied to IWRAM at boot
           emit_divide_routine # likewise the divide routine, for a divisor worked out at run time
           emit_divide_fix_routine # and the one for dividing numbers that hold a fraction
           emit_irq_handler if uses_irq? # the interrupt dispatcher itself, reached only via the vector
           emit_data_region
           emit_save_signature if @uses_save # the marker that maps the save chip (past all code/data)
+          # Only now does every variable have a home, so only now is it known where the
+          # quick memory's spare room begins — which is where the moved block goes.
+          place_hot_code
           resolve_fixups
           @code
         end

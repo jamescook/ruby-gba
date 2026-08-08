@@ -32,6 +32,11 @@ module RubyGBA
     # assembled straight from machine code.
     attr_accessor :compression
 
+    # Which routines this ROM keeps in the console's quick memory, and how much of that
+    # memory is used and left (see the GBA backend's Placement#iwram_report). RubyGBA.build
+    # attaches it; nil for a ROM assembled straight from machine code.
+    attr_accessor :placement
+
     # Package finished machine code into a cartridge: write the header, drop the
     # code in after it, and finalize (entry branch, checksum, power-of-two
     # padding, and the ROM-image validation). This is the counterpart to a
@@ -116,7 +121,10 @@ module RubyGBA
         raise ROMError, "this ROM has no source program to explain (assemble via RubyGBA.build)"
       end
 
-      model = IR::CostModel.new
+      # The estimate has to know which routines this ROM kept in the console's quick
+      # memory, or it reads nearly three times over for every program whose loop moved
+      # there (see IR::CostModel#initialize).
+      model = IR::CostModel.new(**placement_for_cost_model)
       case format
       when :human   then model.render(source_program, out: out, **opts)
       when :summary then model.report(source_program, out: out, **opts)
@@ -136,6 +144,18 @@ module RubyGBA
     end
 
     private
+
+    # What the cost model needs to know about where this ROM's code lives. The frame's
+    # own body has no name in the program, so it is passed as its own flag.
+    def placement_for_cost_model
+      return {} unless placement
+
+      names = placement[:funcs]
+      { fast_routines: names - [FRAME_ROUTINE], fast_frame: names.include?(FRAME_ROUTINE),
+        placement: placement }
+    end
+
+    FRAME_ROUTINE = IR::Backends::GBA::Placement::FRAME_ROUTINE
 
     # The GBA BIOS validates the 156-byte Nintendo logo at 0x04..0x9F on boot.
     # It sits outside the header checksum range (0xA0..0xBC), so writing it here

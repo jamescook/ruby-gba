@@ -141,7 +141,9 @@ module RubyGBA
         timer_start: { name: :name, hz: :int },
         timer_stop:  { name: :name },
         on_timer:    { timer: :name }, # handler body is #children, run on each overflow
-        func:       { name: :name },
+        # fast: where the routine wants to live, for a target with more than one kind of
+        # memory to run code from. nil (the usual) leaves it to the target.
+        func:       { name: :name, fast: :flag },
         call:       { target: :name },
         case:       { var: :name, clauses: :list },
         wait_vblank: {},

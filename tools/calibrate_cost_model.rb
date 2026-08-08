@@ -31,11 +31,25 @@ MIXER_RATE = RubyGBA::IR::CostModel::DEFAULT_MIXER_RATE          # 8192
 MIXER_SPF = ((MIXER_RATE + 59) / 60)                            # samples the mixer fills a frame
 TFS = []
 
+# Every weight here is what an op costs running FROM THE CARTRIDGE, so every ROM built
+# here is built with `fast_code: false`.
+#
+# This matters more than it looks. A normal build works out which routines are worth
+# keeping in the console's quick memory and puts them there, where the same code runs
+# about two and a half times faster — including the measuring loops below. Left on, it
+# would quietly rescale every weight in the file to "code in quick memory", and then a
+# program whose routines did NOT fit would be under-charged by that factor. So the
+# weights describe the slow case, and how much the quick memory buys is one more
+# measured weight (fast_code_speedup) applied on top of them.
+def cartridge_build(name, **opts, &block)
+  RubyGBA.build(name, fast_code: false, **opts, &block)
+end
+
 # Build a ROM whose game loop runs `body` (a proc given the builder and the `x`
 # value handle) `repeat_n` times a frame, and return the real scanlines of CPU it
 # burns per frame — re-read to confirm it's in the stable (sub-frame) regime.
 def stable_busy(name, repeat_n, &body)
-  rom = RubyGBA.build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
+  rom = cartridge_build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
     screen :bitmap
     clear_screen :black
     xv = var :x, 7
@@ -74,7 +88,7 @@ end
 
 # The mixer's per-frame cost with `n` looping voices sounding at once.
 def mixer_busy(n)
-  rom = RubyGBA.build("mix#{n}", code: "MX#{n.to_s.rjust(2, '0')}", maker: "01", err: StringIO.new) do
+  rom = cartridge_build("mix#{n}", code: "MX#{n.to_s.rjust(2, '0')}", maker: "01", err: StringIO.new) do
     screen :bitmap
     clear_screen :black
     n.times do |i|
@@ -90,7 +104,7 @@ end
 # cursor per voice and touches only the note currently due each frame, so cost is
 # per active voice, not per note — every voice plays the same 40-note line.
 def music_busy(n)
-  rom = RubyGBA.build("mus#{n}", code: "MUS#{n}", maker: "01", err: StringIO.new) do
+  rom = cartridge_build("mus#{n}", code: "MUS#{n}", maker: "01", err: StringIO.new) do
     screen :bitmap
     clear_screen :black
     enable_sound
@@ -115,7 +129,7 @@ end
 # below separate them.
 def dma_stall(w, h, per_frame)
   name = "dst#{w}x#{h}"
-  rom = RubyGBA.build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
+  rom = cartridge_build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
     screen :bitmap
     clear_screen :black
     b = self
@@ -160,7 +174,7 @@ BLIT_W = 64
 def blit_busy(lit, rows, per_frame, copies: 1, color: :red)
   name = "blt#{color}#{lit}x#{rows}x#{copies}"
   art = (["#" * lit + "." * (BLIT_W - lit)] * rows).join("\n")
-  rom = RubyGBA.build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
+  rom = cartridge_build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
     screen :bitmap
     clear_screen :black
     image(:art, "#" => color, "." => :transparent) { art }
@@ -193,7 +207,9 @@ def digit_node_busy(digit, copies, font, tear_free)
                                                              4 + (k * 9), :white, font: font)
                              end),
   )
-  rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(prog),
+  # fast_code: false for the same reason every other ROM here is built that way — these
+  # weights describe code running from the cartridge (see #cartridge_build).
+  rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new(fast_code: false).lower(prog),
                               title: name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01")
   measure(name, rom)
 end
@@ -217,7 +233,7 @@ end
 def overlap_busy(size, per_frame)
   a_art = (0...size).map { |r| (0...size).map { |c| (r + c).even? ? "#" : "." }.join }.join("\n")
   b_art = (0...size).map { |r| (0...size).map { |c| (r + c).odd? ? "#" : "." }.join }.join("\n")
-  rom = RubyGBA.build("ov#{size}", code: "OV#{size.to_s.rjust(2, '0')}", maker: "01", err: StringIO.new) do
+  rom = cartridge_build("ov#{size}", code: "OV#{size.to_s.rjust(2, '0')}", maker: "01", err: StringIO.new) do
     screen :tiled
     image(:blka, "#" => :red, "." => :transparent) { a_art }
     image(:blkb, "#" => :blue, "." => :transparent) { b_art }
@@ -232,7 +248,7 @@ end
 # OAM position, so more sprites is more of those writes. One shared 8x8 image.
 def sprites_busy(n, turn: false, resize: false)
   tag = "#{turn ? 't' : 'u'}#{resize ? 's' : 'p'}#{n}"
-  rom = RubyGBA.build("obj#{tag}", code: "O#{tag.rjust(3, '0')[0, 3]}", maker: "01", err: StringIO.new) do
+  rom = cartridge_build("obj#{tag}", code: "O#{tag.rjust(3, '0')[0, 3]}", maker: "01", err: StringIO.new) do
     screen :tiled
     image(:dot, "#" => :red) { (["#" * 8] * 8).join("\n") }
     n.times do |i|
@@ -256,7 +272,7 @@ end
 # pass holds and keeps the trip count fixed — that cancels this cost by construction,
 # correctly for the op's own weight, which is why the loop's own cost needs its own case.
 def loop_busy(per_frame)
-  rom = RubyGBA.build("lp#{per_frame}", code: "LP#{per_frame.to_s.rjust(2, '0')[0, 2]}", maker: "01",
+  rom = cartridge_build("lp#{per_frame}", code: "LP#{per_frame.to_s.rjust(2, '0')[0, 2]}", maker: "01",
                                         err: StringIO.new) do
     screen :bitmap
     clear_screen :black
@@ -273,7 +289,7 @@ end
 def divide_busy(bits, repeat_n, copies)
   numerator = bits.zero? ? 0 : (2**bits) - 1
   name = "dw#{bits}x#{copies}"
-  rom = RubyGBA.build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
+  rom = cartridge_build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
     screen :bitmap
     clear_screen :black
     n = var :n, numerator
@@ -297,7 +313,7 @@ end
 # so this is not the couple of instructions it looks like.
 def save_busy(per_frame, copies, persist:)
   name = "sav#{persist ? 's' : 'p'}#{copies}"
-  rom = RubyGBA.build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
+  rom = cartridge_build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
     screen :bitmap
     clear_screen :black
     kept = persist ? save_var(:kept, 0) : var(:kept, 0)
@@ -315,7 +331,7 @@ end
 # and spliced back, and the block-fill engine for anything wider. Each shape gets its own
 # ROM below, and the differencing isolates one of them at a time.
 def tearfree_rom(name, per_frame, &body)
-  RubyGBA.build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
+  cartridge_build(name, code: name[0, 4].upcase.ljust(4, "X"), maker: "01", err: StringIO.new) do
     screen :bitmap, tear_free: true
     xv = var :px, 40 # an EVEN column: no spliced edges unless a case asks for them
     yv = var :py, 10
@@ -385,7 +401,7 @@ end
 # Per-frame cost of scrolling a background `per_frame` times — each scroll is a couple
 # of register writes.
 def scroll_busy(per_frame)
-  rom = RubyGBA.build("scr#{per_frame}", code: "SC#{per_frame.to_s.rjust(2, '0')}", maker: "01", err: StringIO.new) do
+  rom = cartridge_build("scr#{per_frame}", code: "SC#{per_frame.to_s.rjust(2, '0')}", maker: "01", err: StringIO.new) do
     screen :tiled
     image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
     tiles :ts, "#" => :t
@@ -655,6 +671,32 @@ measured[:tearfree_glyph] =
 # --- per-pixel collision: a bigger overlap walks more pixels (size^2, fully overlapped
 # opposite checkerboards force the full walk).
 measured[:overlap_pixel] = (overlap_busy(16, 2) - overlap_busy(8, 2)) / (((16 * 16) - (8 * 8)) * 2.0)
+
+# --- how much faster the same code runs from the console's quick memory.
+#
+# Every weight above is what an op costs from the cartridge. A routine the build keeps in
+# the quick memory runs the SAME instructions with nothing to wait for on the way in, so
+# its whole cost scales by one number — this one — and Pricing divides by it for the
+# routines that moved. Without it the estimate would read nearly three times over for any
+# program whose loop got moved, which is most of them.
+#
+# Measured on a body of plain steps rather than draws, because this is a property of
+# fetching instructions and nothing else: the same work, in the same order, in the two
+# places it can live.
+SPEEDUP_OPS = 40
+def speedup_busy(fast)
+  name = "spd#{fast ? 'f' : 's'}"
+  rom = RubyGBA.build(name, code: name.upcase.ljust(4, "X"), maker: "01", fast_code: fast,
+                            err: StringIO.new) do
+    screen :bitmap
+    clear_screen :black
+    xv = var :x, 7
+    b = self
+    game_loop { b.wait_vblank; b.repeat(60) { SPEEDUP_OPS.times { xv.add 1 } } }
+  end
+  measure(name, rom)
+end
+measured[:fast_code_speedup] = speedup_busy(false) / speedup_busy(true)
 
 # --- report + write the fixture ---
 current = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS

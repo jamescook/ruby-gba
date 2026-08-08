@@ -14,11 +14,22 @@ module RubyGBA
       # Define a named subroutine. The block is stored and evaluated after the main
       # block (so func/call order in the DSL doesn't matter).
       #
+      # `fast:` says where the routine should be kept. The console has a small amount of
+      # very quick memory and a much larger, slower cartridge, and code runs about two
+      # and a half times faster from the quick one. The framework works out on its own
+      # which routines are worth keeping there — the ones a frame spends the most time in
+      # — so you can leave this alone. Say `fast: true` to insist on one it did not pick,
+      # or `fast: false` to keep one out. `rom.explain` says what it chose and how much
+      # room is left. (See RubyGBA.build's `fast_code:` to turn the choosing off
+      # altogether.)
+      #
       # @param name [Symbol] function name
-      def func(name, &block)
+      # @param fast [Boolean, nil] keep it in the quick memory (nil = let the framework decide)
+      def func(name, fast: nil, &block)
         raise ArgumentError, "The function :#{name} is already defined. Use a different name for each function." if @functions.key?(name)
 
         @functions[name] = block
+        @func_fast[name] = fast unless fast.nil?
       end
 
       # Call a named subroutine. The target is resolved by name when the tree is
