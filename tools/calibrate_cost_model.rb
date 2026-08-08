@@ -406,9 +406,16 @@ end
 # number written into the program, the cheapest one there is, so differencing against the
 # same ROM without the bend leaves the interrupt itself and nothing of the program's own
 # arithmetic (which the model prices separately, per visible line).
-def bend_busy(bend)
-  name = "bend#{bend ? 1 : 0}"
-  rom = cartridge_build(name, code: "BN#{bend ? 1 : 0}X", maker: "01", err: StringIO.new) do
+#
+# +fast+ builds the same ROM the way a real one is built, so the build keeps the routine
+# the announcement lands in in the console's quick memory. That is the OTHER weight: the
+# handler runs from fast memory but the console's own part of an interrupt — stopping the
+# game, saving registers, handing over and taking back — does not, so how much it saves
+# has to be measured rather than assumed from the general fast-memory factor.
+def bend_busy(bend, fast: false)
+  name = "bend#{bend ? 1 : 0}#{fast ? 'f' : ''}"
+  build = fast ? ->(*a, **k, &b) { RubyGBA.build(*a, **k, &b) } : method(:cartridge_build)
+  rom = build.call(name, code: "B#{bend ? 1 : 0}#{fast ? 'F' : 'X'}X", maker: "01", err: StringIO.new) do
     screen :tiled
     image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
     tiles :ts, "#" => :t
@@ -608,13 +615,19 @@ measured[:scroll_write] = (scroll_busy(40) - scroll_busy(8)) / (40 - 8).to_f
 
 # --- bending a background row by row: what ONE line costs. The display announces the end
 # of every line it draws, all 228 of them, and each announcement stops the game, saves
-# registers, works the line's offset out and resumes. That fixed cost dwarfs the offset
-# expression itself — measured, a table lookup per line adds a fortieth of what the
-# interrupts add — which is why it gets a weight of its own rather than being folded into
-# the arithmetic. Divided over every line the display counts, not just the visible ones:
-# the interrupt fires below the picture too.
+# registers, works the line's offset out and resumes. That fixed cost is the bulk of it —
+# measured, a sine lookup per line adds a fifth of what the interrupts add — which is why it
+# gets a weight of its own rather than being folded into the arithmetic. Divided over every
+# line the display counts, not just the visible ones: the interrupt fires below the picture
+# too.
 measured[:bend_line] =
   (bend_busy(true) - bend_busy(false)) / RubyGBA::IR::CostModel::LINES_PER_FRAME.to_f
+# ...and the same line with the handler kept in the console's quick memory, which is what a
+# real build does with it. Two weights rather than one and a discount, because part of an
+# interrupt is the console's own work and gets no faster wherever our code lives.
+measured[:bend_line_fast] =
+  (bend_busy(true, fast: true) - bend_busy(false, fast: true)) /
+  RubyGBA::IR::CostModel::LINES_PER_FRAME.to_f
 
 # A sprite that turns, or changes size, is drawn through one of the display's 32
 # rotate/resize groups instead of straight, and that group is refilled every frame. Both

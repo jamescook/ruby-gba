@@ -154,6 +154,14 @@ module RubyGBA
           in_fast_code { yield }
         end
 
+        # And for the routine an announcement from the display or a timer is answered in,
+        # which likewise has no name in the program.
+        def in_fast_interrupts
+          return yield unless @fast_interrupts
+
+          in_fast_code { yield }
+        end
+
         def in_fast_code
           was = @in_fast_code
           @in_fast_code = true

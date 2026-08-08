@@ -234,12 +234,17 @@ module RubyGBA
       # be how much faster the same instructions run there — see
       # Backends::GBA::Placement. Left out, nothing is discounted, which is what a target
       # with one kind of memory wants.
+      # +fast_interrupts+ likewise says whether the routine an announcement is answered in
+      # lives there. It is its own flag for the same reason the frame's body is: the program
+      # has no name for it.
       # +placement+ is the whole picture for the report — which routines moved and how
       # much memory is used and left (see Backends::GBA::Placement#iwram_report).
-      def initialize(fast_routines: nil, fast_frame: false, placement: nil, **weights)
+      def initialize(fast_routines: nil, fast_frame: false, fast_interrupts: false,
+                     placement: nil, **weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)
         @fast_routines = Array(fast_routines).to_set
         @fast_frame = fast_frame
+        @fast_interrupts = fast_interrupts
         @placement = placement
         @in_fast_code = false
       end

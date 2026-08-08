@@ -28,10 +28,14 @@ module RubyGBA
         #
         # WHAT IT COSTS. An interrupt per line is real work — the console stops the game,
         # saves registers, runs the handler, and resumes, 228 times a frame (the display
-        # keeps counting lines past the bottom of the picture). Two things keep it small.
+        # keeps counting lines past the bottom of the picture). Three things keep it small.
         # The handler is the FIRST thing the dispatcher checks, because it fires far more
-        # often than anything else. And it stops early on the lines below the picture,
-        # where there is nothing to bend — about a third of them.
+        # often than anything else. It stops early on the lines below the picture, where
+        # there is nothing to bend — about a third of them. And the dispatcher itself is
+        # normally worth keeping in the console's quick memory, which the build works out
+        # on its own (see Placement#IRQ_ROUTINE) and which measured a shade under half the
+        # cost off. What is left is the part of an interrupt the console does itself, which
+        # nothing we can do reaches.
         module Raster
           include Constants
 

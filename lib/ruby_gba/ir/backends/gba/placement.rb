@@ -52,6 +52,22 @@ module RubyGBA
           # which has no routines at all: 191 scanlines a frame down to 69.
           FRAME_ROUTINE = :__frame
 
+          # The routine the console jumps into when the display or a timer announces
+          # something. Like the game loop's body it is not a routine the author wrote, but
+          # it is a routine in every way that matters here, so it is placed like one.
+          #
+          # It earns its place the same way anything else does — by what a frame spends in
+          # it. That is usually nothing: a program that only sleeps until the next frame
+          # enters it once a frame and leaves again immediately. But a background bending
+          # row by row is entered after every single line the display draws, 228 times a
+          # frame, and then it is the busiest routine in the program by a wide margin.
+          # Measured on examples/lake.rb: 47.6 scanlines a frame down to 24.2.
+          #
+          # It buys less than the 2.6x the rest of this file talks about — 1.9x, measured —
+          # because a fair share of an interrupt is the console's own doing, and that part
+          # runs wherever the console keeps it however fast our memory is.
+          IRQ_ROUTINE = :__interrupt
+
           # The top of the memory the moved block may use. The last 4KB is where the
           # divide routines are copied and where the console's own startup code keeps its
           # stack, so nothing of ours may grow into it.
@@ -162,8 +178,16 @@ module RubyGBA
             place_label(HOT_START)
             @emitting_hot = true
             @funcs.each { |name, node| emit_one_function(name, node) if @fast_funcs.include?(name) }
+            emit_irq_handler if irq_runs_fast?
             @emitting_hot = false
             place_label(HOT_END)
+          end
+
+          # Does the routine the console interrupts into run from the quick memory this
+          # build? When it does, it is emitted inside the moved block above and the vector
+          # is pointed at where the block lands rather than at the cartridge.
+          def irq_runs_fast?
+            uses_irq? && @fast_funcs.include?(IRQ_ROUTINE)
           end
 
           # Give the moved block its home: the first spare word above everything else in
@@ -273,9 +297,17 @@ module RubyGBA
               name = node.kind == :loop ? FRAME_ROUTINE : (node[:name] if node.kind == :func)
               calls[name] = node.walk.count { |child| child.kind == :call } if name
             end
+            calls[IRQ_ROUTINE] = irq_bodies(program).sum { |node| node.walk.count { |c| c.kind == :call } }
             measured.to_h do |name, size|
               [name, size + (calls[name] * CROSS_CALL_GROWTH) + ROUTINE_WRAPPER]
             end
+          end
+
+          # The trees the console runs on an announcement: every bending background's block
+          # and every timer's tick body. There is no one node standing for all of it the way
+          # a routine has one, so the pieces are gathered.
+          def irq_bodies(program)
+            program.walk.select { |node| %i[scroll_rows on_timer].include?(node.kind) }
           end
 
           # The routines the author asked for by name, placed before anything the
@@ -300,19 +332,22 @@ module RubyGBA
               next if chosen.include?(name) || forbidden.include?(name)
 
               size = sizes[name]
-              next if size.nil? || size > room || !movable?(placeable_node(program, name))
+              next if size.nil? || size > room || !movable?(program, name)
 
               chosen << name
               room -= size
             end
           end
 
-          # The tree a name stands for: a routine the author wrote, or — for the game
-          # loop's body — the loop itself.
-          def placeable_node(program, name)
-            return program.walk.find { |node| node.kind == :loop } if name == FRAME_ROUTINE
-
-            program.walk.find { |node| node.kind == :func && node[:name] == name }
+          # The trees a name stands for: a routine the author wrote, the loop itself for the
+          # game loop's body, or every announcement body for the routine those run in.
+          def placeable_nodes(program, name)
+            case name
+            # The first loop only, matching the one #adopt_frame_body actually emits.
+            when FRAME_ROUTINE then [program.walk.find { |node| node.kind == :loop }].compact
+            when IRQ_ROUTINE   then irq_bodies(program)
+            else program.walk.select { |node| node.kind == :func && node[:name] == name }
+            end
           end
 
           # What a frame spends in each routine, dearest first. The cost model already
@@ -330,6 +365,7 @@ module RubyGBA
             costs = program.walk.select { |node| node.kind == :func }
                            .to_h { |node| [node[:name], model.func_frame_cost(program, node[:name])] }
             costs[FRAME_ROUTINE] = model.steady_cost(program) if sizes.key?(FRAME_ROUTINE)
+            costs[IRQ_ROUTINE] = model.interrupt_frame_cost(program) if sizes.key?(IRQ_ROUTINE)
 
             costs.select { |name, cost| cost >= WORTH_MOVING && sizes[name].to_i.positive? }
                  .sort_by { |name, cost| [-cost, name.to_s] }.map(&:first)
@@ -357,8 +393,8 @@ module RubyGBA
           # has to be built entirely from instructions that do not care where they run —
           # which is a promise it can make about its own output and not about someone
           # else's.
-          def movable?(node)
-            node.walk.none? { |child| child.kind == :raw }
+          def movable?(program, name)
+            placeable_nodes(program, name).none? { |node| node.walk.any? { |c| c.kind == :raw } }
           end
         end
       end

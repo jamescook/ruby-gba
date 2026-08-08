@@ -24,9 +24,11 @@
 # to get in between two lines of a picture being drawn to do this at all.
 #
 # It is not free. Answering per line means being interrupted per line, which `explain`
-# prices at about 38 of a frame's 228 scanlines — a sixth of the frame for the effect,
+# prices at about 20 of a frame's 228 scanlines — a tenth of the frame for the effect,
 # almost all of it the interruptions rather than the sine lookup. Run
-# `ruby-gba build examples/lake.rb --explain` to see it named.
+# `ruby-gba build examples/lake.rb --explain` to see it named, and to see that the build
+# put the routine those interruptions land in in the console's quick memory, which is worth
+# about half of what it used to cost.
 #
 # Run it to build examples/lake.gba:
 #   ruby examples/lake.rb

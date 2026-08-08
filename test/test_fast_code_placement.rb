@@ -176,6 +176,120 @@ class TestFastCodePlacement < Minitest::Test
                     RubyGBA::IR::CostModel.new(fast_routines: [:something_else]).steady_cost(program), 0.001
   end
 
+  # --- the routine the console interrupts into ---
+
+  # A background bending row by row is answered after every line the display draws, 228
+  # times a frame, which makes the routine those answers run in the busiest thing in the
+  # program. It has no name the author wrote, like the game loop's body, and it is placed
+  # the same way.
+  def bending_program(&block)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:bar, "." => :transparent, "#" => :red) { (["##......"] * 8).join("\n") }
+      tiles :stripes, "#" => :bar
+      water = background :water, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+      if block
+        instance_exec(water, &block)
+      else
+        water.scroll_each_row { |row| row % 8 }
+      end
+      game_loop { }
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  def test_the_routine_the_display_interrupts_into_moves_when_a_background_bends
+    assert_includes placement_of(bending_program)[:funcs], Placement::IRQ_ROUTINE
+  end
+
+  # ...and it does NOT move for a program that only sleeps until the next frame. That
+  # program enters it once a frame and leaves again immediately, so the room is better spent
+  # on anything else — the same "has to earn its place" rule every routine is held to.
+  def test_it_stays_in_the_cartridge_when_nothing_interrupts_often
+    refute_includes placement_of(looping_program)[:funcs], Placement::IRQ_ROUTINE
+  end
+
+  def test_it_stays_in_the_cartridge_with_the_choosing_off
+    refute_includes placement_of(bending_program, fast_code: false)[:funcs], Placement::IRQ_ROUTINE
+  end
+
+  # The whole point of moving it, measured on the console: the same bend, the same picture,
+  # for about half the frame. This is the one assertion that cannot be argued with — the
+  # routine really is running from the quick memory, because nothing else would show here.
+  def test_a_bending_background_costs_much_less_once_that_routine_moves
+    quick = frame_scanlines(bending_program, fast_code: true)
+    cart = frame_scanlines(bending_program, fast_code: false)
+    assert_operator cart / quick.to_f, :>, 1.5,
+                    "expected a real saving, got #{format('%.2fx', cart / quick.to_f)} (#{cart} -> #{quick})"
+  end
+
+  # And it changes nothing about the picture. The handler is copied bytes running from a
+  # different address, so a branch inside it that did not survive the move, or a vector left
+  # pointing at the cartridge, would show up as rows bending by the wrong amount.
+  def test_the_console_bends_the_same_rows_whether_that_routine_moves
+    program = bending_program
+    moved = console_pixels(program, fast_code: true)
+    left = console_pixels(program, fast_code: false)
+    differing = moved.each_index.count { |i| moved[i] != left[i] }
+    assert_equal 0, differing, "#{differing} pixels differ between the two builds"
+  end
+
+  # A block that does more than work one number out — it sets a variable, calls a routine,
+  # and reads the result. Those statements run inside the moved routine too, and a call out
+  # of it to a routine still in the cartridge is four instructions instead of one, so this
+  # is the path that breaks if the crossing is not handled.
+  def test_a_block_that_calls_a_routine_still_bends_the_same_rows
+    program = bending_program do |water|
+      shift = var :shift, 0
+      func(:pick) { shift.set 4 }
+      water.scroll_each_row do |row|
+        call :pick
+        shift.add row % 2
+        shift
+      end
+    end
+    assert_includes placement_of(program)[:funcs], Placement::IRQ_ROUTINE
+    assert_backends_agree(program, frames: 3, name: "CBND")
+  end
+
+  # --- and the price follows it ---
+
+  # Moving it makes bending genuinely cheaper, so an estimate that ignored the move would
+  # read nearly twice over for every program that ripples.
+  def test_the_estimate_follows_the_interrupt_into_quick_memory
+    program = bending_program
+    cart = RubyGBA::IR::CostModel.new.bend_verdict(program)[:interrupts]
+    quick = RubyGBA::IR::CostModel.new(fast_interrupts: true).bend_verdict(program)[:interrupts]
+    assert_operator quick, :<, cart
+  end
+
+  # It buys less than the general fast-memory factor, and that is not a rounding error:
+  # stopping the game, saving registers and handing control over is the console's own work
+  # and runs at the console's own speed however fast ours is. Measured, so the two cases are
+  # two weights rather than one weight and a discount.
+  def test_an_interrupt_gains_less_from_quick_memory_than_ordinary_code
+    weights = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
+    gain = weights[:bend_line] / weights[:bend_line_fast]
+    assert_operator gain, :>, 1.5, "moving it is still worth a lot"
+    assert_operator gain, :<, weights[:fast_code_speedup],
+                    "but less than ordinary code gains, because part of an interrupt is not ours"
+  end
+
+  def test_the_report_names_the_routine_the_display_interrupts_into
+    program = bending_program
+    backend = GBA.new
+    rom = RubyGBA::ROM.assemble(backend.lower(program), title: "BENDP", code: "BNDP", maker: "01")
+    rom.source_program = program
+    rom.placement = backend.iwram_report
+
+    out = StringIO.new
+    rom.explain(out: out, color: false)
+    assert_match(/kept in quick memory/, out.string)
+    assert_match(/answers the display and the timers/, out.string)
+  end
+
   # --- the memory is accounted for ---
 
   # Whatever it chooses on its own, it can never overrun the memory: the choice is made

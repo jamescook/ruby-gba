@@ -291,7 +291,9 @@ module RubyGBA
           emit_mix_routine # the mixer's inner loop, placed in ROM and copied to IWRAM at boot
           emit_divide_routine # likewise the divide routine, for a divisor worked out at run time
           emit_divide_fix_routine # and the one for dividing numbers that hold a fraction
-          emit_irq_handler if uses_irq? # the interrupt dispatcher itself, reached only via the vector
+          # The interrupt dispatcher itself, reached only via the vector. When it was worth
+          # keeping in the quick memory it has already been emitted inside the moved block.
+          emit_irq_handler if uses_irq? && !irq_runs_fast?
           emit_data_region
           emit_save_signature if @uses_save # the marker that maps the save chip (past all code/data)
           # Only now does every variable have a home, so only now is it known where the
@@ -409,7 +411,14 @@ module RubyGBA
           write_io_halfword(REG_DISPSTAT, announce) unless announce.zero?
           write_io_halfword(REG_IE, enabled)                     # listen for exactly these interrupts
           emit(ASM.load_immediate(TMP, REG_INTR_VECTOR))         # the vector the BIOS reads on every interrupt
-          emit_load_label_address(ACC, IRQ_HANDLER_LABEL)        # ...store our dispatcher's address there
+          # ...store our dispatcher's address there. It runs from wherever its bytes ended
+          # up, and by this point the copy into the quick memory has already happened, so a
+          # dispatcher that moved is pointed at its home there rather than the cartridge.
+          if irq_runs_fast?
+            emit_load_fast_address(ACC, IRQ_HANDLER_LABEL)
+          else
+            emit_load_label_address(ACC, IRQ_HANDLER_LABEL)
+          end
           emit(ASM.str(ACC, TMP))
           write_io_halfword(REG_IME, 1)                          # interrupts on
         end
@@ -421,6 +430,7 @@ module RubyGBA
         # handler is empty (just the ack) so wait_vblank wakes; a timer's is its on_tick
         # body. The body may clobber r0-r3/r12, so REG_IF is re-read per source.
         def emit_irq_handler
+          start = pos
           place_label(IRQ_HANDLER_LABEL)
           emit(ASM.push(*IRQ_SAVED_REGS))
           # A bending background is checked FIRST because it fires by far the most often —
@@ -437,6 +447,9 @@ module RubyGBA
           end
           emit(ASM.pop(*IRQ_SAVED_REGS))
           emit(ASM.return) # BX LR back to the BIOS dispatcher
+          # Its byte span, so the build can weigh keeping it in the quick memory against
+          # everything else that wants the room (see Placement#IRQ_ROUTINE).
+          @func_ranges[Placement::IRQ_ROUTINE] = (start...pos)
         end
 
         # The IE/IF bit for the interrupt hardware timer +index+ raises (timer 0 -> bit

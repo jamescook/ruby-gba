@@ -177,20 +177,32 @@ module RubyGBA
         # bend's own offset expression once per visible line.
         #
         # It is worth naming rather than folding into the tree because the shape surprises
-        # people: the cost has almost nothing to do with what you wrote in the block. A
-        # constant and a table lookup measured within a fortieth of each other — the price
-        # is the 228 interruptions, and the block is a rounding error unless you put
-        # something dear in it. Each entry: { layers:, lines:, cost:, budget:, over: }
+        # people: most of the cost is not what you wrote in the block. Measured, the 228
+        # interruptions come to about 20 scanlines and reading a sine table on every visible
+        # row adds 4 — so the reader hunting for their frame would rewrite the sine lookup
+        # and find four fifths of the cost still there. A block that is only a number costs
+        # nothing measurable at all.
+        # Each entry: { layers:, lines:, cost:, budget:, over: }
         def bend_verdict(program)
           bends = program.walk.select { |node| node.kind == :scroll_rows }
           return nil if bends.empty?
 
-          interrupts = LINES_PER_FRAME * @weights[:bend_line]
-          offsets = bends.sum { |node| VISIBLE_LINES * bend_offset_cost(node) }
+          interrupts = LINES_PER_FRAME * bend_line_weight
+          offsets = in_fast_interrupts { bends.sum { |node| VISIBLE_LINES * bend_offset_cost(node) } }
           cost = interrupts + offsets
           { layers: bends.map { |node| node[:name] }.uniq, lines: LINES_PER_FRAME,
             interrupts: interrupts, offsets: offsets,
             cost: cost, budget: FRAME_BUDGET, over: cost > FRAME_BUDGET }
+        end
+
+        # What one line's interrupt costs. Keeping the routine it lands in in faster memory
+        # buys back a good part of it, but NOT the measured factor the rest of the model
+        # uses: a fair share of an interrupt is the console's own doing — stopping the game,
+        # saving registers, handing control over and taking it back — and none of that runs
+        # from our memory or gets any faster. So the two cases are two measured weights
+        # rather than one weight and a discount.
+        def bend_line_weight
+          @fast_interrupts ? @weights[:bend_line_fast] : @weights[:bend_line]
         end
 
         # What working ONE row's offset out costs: the program's expression, plus anything
@@ -204,6 +216,18 @@ module RubyGBA
         # a frame the way the mixer's is.
         def bend_cost(program)
           bend_verdict(program)&.fetch(:cost) || 0
+        end
+
+        # What a frame spends inside the routine the console jumps into when the display or
+        # a timer announces something — the number that decides whether that routine is
+        # worth keeping in faster memory (Backends::GBA::Placement#IRQ_ROUTINE).
+        #
+        # Today that is bending backgrounds row by row, all of which happens in there: the
+        # per-line interrupt and the block that works each row's offset out. A timer's tick
+        # body runs in there too and is not priced yet, so a program whose only interrupt is
+        # a timer reads as spending nothing and its routine stays in the cartridge.
+        def interrupt_frame_cost(program)
+          bend_cost(program)
         end
 
         # The rate the mixer runs at — the one most of the program's samples were recorded
