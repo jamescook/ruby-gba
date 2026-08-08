@@ -198,13 +198,14 @@ module RubyGBA
       FREE_STATEMENT_KINDS = %i[
         screen wait_vblank halt raw object
         define_sound song data bitmap backing_buffer list_new table
-        timer_start timer_stop on_timer
+        timer_start timer_stop
         sample play_sample stop_sample
-        # A row-by-row bend is a standing declaration, like a timer's handler: nothing
-        # happens where it is written. Its real cost is per LINE, not per statement, so it
-        # is priced once for the whole frame in #bend_verdict and rolled in beside the
-        # mixer's — charging it here as well would count it twice.
-        scroll_rows
+        # These two are standing declarations: nothing happens where they are written, and
+        # what they cost is not per statement but per LINE the display draws and per TICK the
+        # timer counts. Both are priced once for the whole frame — in #bend_verdict and
+        # #tick_verdict — and rolled in beside the mixer's, so charging them here as well
+        # would count them twice.
+        scroll_rows on_timer
         # loading the saved variables happens once at boot, before the first frame, so
         # it never lands on a frame's budget — like the declarations above it.
         save_init

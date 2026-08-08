@@ -173,4 +173,37 @@ class TestTimer < Minitest::Test
     hits = v.var(:hits)
     assert hits.between?(10, 30), "the on_tick handler should have run ~20 times over 20 frames, got #{hits}"
   end
+
+  # A timer fast enough to be worth it has its handler kept in the console's quick memory,
+  # which means the handler is copied bytes running from a different address than the ones the
+  # build laid out (see Backends::GBA::Placement#IRQ_ROUTINE). It has to count exactly the
+  # same either way, so this counts the same ticks with the handler in both places.
+  def ticks_counted_on_the_console(fast_code:)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      var :hits, 0
+      timer(:beat, per_second: 1200).on_tick { add :hits, 1 }
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    backend = GBA.new(fast_code: fast_code)
+    rom = ROM.assemble(backend.lower(b.program), title: "TICKF", code: "BTKF", maker: "01")
+    [assert_gemba_loads_rom(rom, frames: 12, vars: backend.var_addresses).var(:hits),
+     backend.iwram_report[:funcs]]
+  end
+
+  def test_a_moved_tick_handler_counts_the_same_ticks
+    quick, moved = ticks_counted_on_the_console(fast_code: true)
+    cart, left = ticks_counted_on_the_console(fast_code: false)
+
+    assert_includes moved, RubyGBA::IR::Backends::GBA::Placement::IRQ_ROUTINE,
+                    "a timer at 1200 a second is worth keeping in the quick memory"
+    refute_includes left, RubyGBA::IR::Backends::GBA::Placement::IRQ_ROUTINE
+
+    # 1200 a second over 12 frames is ~240 ticks. Where the handler runs cannot change that.
+    assert_equal cart, quick, "the moved handler counted a different number of ticks"
+    assert_operator quick, :>, 100, "the handler really ran (#{quick} ticks)"
+  end
 end

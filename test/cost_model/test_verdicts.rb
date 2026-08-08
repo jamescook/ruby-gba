@@ -178,4 +178,118 @@ class TestCostVerdicts < CostModelTest
     assert_operator high[:samples_per_frame], :>, low[:samples_per_frame]
     assert_operator high[:cost], :>, low[:cost]
   end
+
+  # --- a timer's tick handler: the other place a frame goes outside the loop ---
+
+  # A timer runs its body off its own clock, at a rate written on the `timer` and not on the
+  # handler, so nothing where the body is written says how often it runs. At 4000 a second
+  # that is 67 times a frame.
+  def ticking_game(per_second: 4000, ops: 1)
+    program do
+      screen :bitmap
+      n = var :n, 0
+      timer(:beat, per_second: per_second).on_tick { ops.times { n.add 1 } }
+      game_loop { }
+    end
+  end
+
+  def test_a_tick_handler_costs_the_frame_something
+    v = Cost.new.tick_verdict(ticking_game)
+    assert_equal 1, v[:timers].length
+    assert_equal :beat, v[:timers].first[:name]
+    assert_in_delta 4000 / 60.0, v[:timers].first[:ticks], 0.01
+    assert_operator v[:cost], :>, 1, "67 ticks a frame is real work"
+  end
+
+  # It is judged against the WHOLE frame, like the mixer and a bend: it is CPU spread through
+  # the frame that touches no video memory, so it can cost a frame its rate but never tear it.
+  def test_a_tick_handler_is_priced_against_the_frame_budget
+    assert_equal Cost::FRAME_BUDGET, Cost.new.tick_verdict(ticking_game)[:budget]
+  end
+
+  # Twice the rate, twice the cost — the whole point, since the rate is the thing the reader
+  # cannot see from the handler.
+  def test_the_cost_follows_the_rate
+    slow = Cost.new.tick_verdict(ticking_game(per_second: 2000))[:cost]
+    fast = Cost.new.tick_verdict(ticking_game(per_second: 4000))[:cost]
+    assert_in_delta slow * 2, fast, 0.001
+  end
+
+  # The body is charged too, per tick, so a dear handler reads as dear rather than hiding
+  # behind the fixed interrupt cost.
+  def test_the_bodys_own_work_is_charged_per_tick
+    one = Cost.new.tick_verdict(ticking_game(ops: 1))
+    ten = Cost.new.tick_verdict(ticking_game(ops: 10))
+    assert_operator ten[:timers].first[:body], :>, one[:timers].first[:body] * 5
+    assert_in_delta one[:timers].first[:interrupts], ten[:timers].first[:interrupts], 0.001,
+                    "the interrupt costs the same whatever the body does"
+  end
+
+  # ...but for a short body the interrupt is the bigger half, which is the shape a reader
+  # guesses wrong: they shorten the body and most of the cost stays.
+  def test_a_short_handler_is_mostly_interrupt
+    t = Cost.new.tick_verdict(ticking_game(ops: 1))[:timers].first
+    assert_operator t[:interrupts], :>, t[:body] * 4
+  end
+
+  # A program with no timer handler pays nothing and says nothing.
+  def test_a_program_with_no_tick_handler_has_no_tick_cost
+    assert_nil Cost.new.tick_verdict(silent_game)
+    assert_equal 0, Cost.new.tick_cost(silent_game)
+  end
+
+  # A handler on a timer that was never started never runs, so it costs nothing. There is no
+  # rate to work from either, which would otherwise be a crash.
+  def test_a_handler_on_a_timer_that_never_started_costs_nothing
+    prog = Build.program(Build.screen(:bitmap),
+                         Build.on_timer(:ghost, Build.set(:n, Build.int(1))),
+                         Build.loop_(Build.wait_vblank))
+    assert_nil Cost.new.tick_verdict(prog)
+  end
+
+  # The frame total has to include it. Without this a program whose whole frame is a fast
+  # timer reads as costing nothing — the same silent zero a bend had.
+  def test_the_frame_total_includes_the_tick_handler
+    total = Cost.new.as_json(ticking_game)[:frame_cost]
+    assert_in_delta Cost.new.tick_cost(ticking_game), total, 0.001
+    assert_operator total, :>, 1
+  end
+
+  # And the tree gives it a line, so `hottest` can name it.
+  def test_the_tree_gives_a_tick_handler_a_line
+    leaf = leaves(Cost.new.category_tree(ticking_game)).find { |node| node[:op] == :tick }
+    refute_nil leaf, "a frame spent in a tick handler has to appear in the tree"
+    assert_match(/timer :beat/, leaf[:label])
+    assert_match(/67 times a frame/, leaf[:label])
+  end
+
+  # Keeping the routine a tick lands in in faster memory makes it genuinely cheaper, and by
+  # LESS than ordinary code gains — part of an interrupt is the console's own work. Both
+  # cases are measured.
+  def test_the_estimate_follows_the_tick_into_quick_memory
+    cart = Cost.new.tick_verdict(ticking_game)[:cost]
+    quick = Cost.new(fast_interrupts: true).tick_verdict(ticking_game)[:cost]
+    assert_operator quick, :<, cart
+
+    gain = Cost::DEFAULT_WEIGHTS[:tick_interrupt] / Cost::DEFAULT_WEIGHTS[:tick_interrupt_fast]
+    assert_operator gain, :>, 1.2
+    assert_operator gain, :<, Cost::DEFAULT_WEIGHTS[:fast_code_speedup]
+  end
+
+  # A busy timer is named in the budget section with both halves apart, the same as a bend.
+  def test_the_report_names_what_a_busy_timer_costs
+    out = reported(ticking_game)
+    assert_match(/timer :beat costs/, out)
+    assert_match(/ticks 4000 times a second/, out)
+    assert_match(/interrupts/, out)
+  end
+
+  # A timer slow enough to cost nothing gets no budget line — most timers tick a handful of
+  # times a second, and a line reading "~<0.1" only teaches a reader to skip the section. It
+  # is still in the tree.
+  def test_a_slow_timer_gets_no_budget_line
+    prog = ticking_game(per_second: 2)
+    refute_match(/timer :beat costs/, reported(prog))
+    refute_nil leaves(Cost.new.category_tree(prog)).find { |node| node[:op] == :tick }
+  end
 end
