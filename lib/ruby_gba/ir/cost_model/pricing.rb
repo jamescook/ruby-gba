@@ -194,9 +194,15 @@ module RubyGBA
         # for a `pressed` body. Charging it every frame made a shmup whose busiest measured
         # frame is 54 scanlines report 101% of budget.
         def pixels_overlap_cost(node)
+          overlap_cells(node) * @weights[:overlap_pixel]
+        end
+
+        # How many cells that walk can cover at worst — the count {Domains} measures against
+        # where overlap_pixel was calibrated.
+        def overlap_cells(node)
           aw, ah = mask_dims(node[:a_poses])
           bw, bh = mask_dims(node[:b_poses])
-          [aw, bw].min * [ah, bh].min * @weights[:overlap_pixel]
+          [aw, bw].min * [ah, bh].min
         end
 
         # A sprite's pixel dimensions from its (same-size) poses, or [0, 0] if unknown.

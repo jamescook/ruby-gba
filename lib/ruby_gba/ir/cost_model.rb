@@ -9,6 +9,7 @@ require_relative "cost_model/pricing"
 require_relative "cost_model/rollup"
 require_relative "cost_model/tree"
 require_relative "cost_model/verdicts"
+require_relative "cost_model/domains"
 require_relative "cost_model/report"
 
 module RubyGBA
@@ -71,6 +72,7 @@ module RubyGBA
     #   {Rollup}    how many times does a frame pay for it?
     #   {Tree}      how does that read to a person? (folding, grouping, pruning)
     #   {Verdicts}  does it fit, and what can't the estimate see?
+    #   {Domains}   is this program inside where the weights were measured?
     #   {Report}    print it, or hand it back as a Hash
     #
     # This file is the class itself: the shared constants and the weights. A constant
@@ -99,10 +101,11 @@ module RubyGBA
     # model does not grow by adding operations — it grows by enumerating regimes, and it is
     # accurate exactly as far as somebody has thought of the regime in front of it.
     #
-    # Which is why a missing OP is loud (see #unpriced_kinds — it is collected, banner-ed
-    # at the top of the report, and a new IR kind fails the suite until it is priced) and a
-    # weight used outside where it was measured is, today, silent. Both halves of that
-    # sentence are deliberate; only the first one is finished.
+    # So the model guards two things rather than one. A missing OP is loud: #unpriced_kinds
+    # collects it, the report banners it above everything else, and a new IR kind fails the
+    # suite until it is priced. And a weight asked for an answer from outside the range it was
+    # MEASURED over says so — see {Domains}, and the range each weight carries in
+    # measured_weights.rb.
     #
     # The other half of being wrong is HOW OFTEN, not how much — trip counts, ticks a
     # second, lines a frame, how full a list gets. That is the same problem a query planner
@@ -113,6 +116,7 @@ module RubyGBA
       include Rollup
       include Tree
       include Verdicts
+      include Domains
       include Report
 
       SCREEN_W = 240

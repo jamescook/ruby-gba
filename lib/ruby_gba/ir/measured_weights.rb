@@ -4,6 +4,14 @@
 # Re-run that tool after changing the lowering of a priced op, and commit the diff.
 # Each value is scanlines per op, measured on the emulated GBA timing model via
 # gemba-core (emulated-cycle counts, not host wall-clock — the same on any machine).
+#
+# WEIGHT_DOMAINS records where each weight was MEASURED, which is where it can be
+# trusted. Nearly every weight is a marginal rate — two ROMs differenced over how
+# many of the thing they do — and that cancels whatever the thing pays only ONCE. So
+# a rate measured over a loop of 300..900 passes says nothing about a loop of 4, and
+# the model uses these ranges to say so out loud instead of answering confidently.
+# An empty range means the weight has no countable regime: an add costs what an add
+# costs, and no number in a program changes it. See tools/calibration/domain.rb.
 module RubyGBA
   module IR
     class CostModel
@@ -56,6 +64,57 @@ module RubyGBA
         tearfree_glyph: 0.02229,
         overlap_pixel: 0.22491,
         fast_code_speedup: 2.64689,
+      }.freeze
+
+      WEIGHT_DOMAINS = {
+        op_step: { note: "an add, 2..8 copies a pass" },
+        loop_pass: { varies: :passes, from: 300, to: 900, note: "one pass of a repeat, measured on loops of 300 and 900 passes" },
+        op_mul: { note: "a multiply by a number written in the program" },
+        op_div: { note: "starting a divide by a divisor the game works out, at an answer of no width" },
+        op_div_bit: { varies: :answer_bits, from: 0, to: 30, note: "one bit of the answer of such a divide" },
+        op_div_const: { note: "a divide by a number written in the program" },
+        op_mul_fix: { note: "multiplying two numbers that hold a fraction" },
+        op_div_fix: { note: "dividing two numbers that hold a fraction" },
+        plot_pixel: { note: "a pixel drawn on its own" },
+        plot_run_pixel: { varies: :run_width, from: 4, to: 32, note: "a pixel of a fixed-size run, halfway down the screen" },
+        plot_run_address_step: { varies: :run_width, from: 4, to: 32, note: "the extra per pixel below the row where an address needs another byte" },
+        blit_pixel: { varies: :lit_pixels_per_row, from: 4, to: 32, note: "a lit pixel of a see-through image drawn at a worked-out position" },
+        blit_wide_color: { varies: :lit_pixels_per_row, from: 4, to: 32, note: "the extra per pixel for a color that does not fit inside the write" },
+        blit_row: { varies: :lit_rows, from: 8, to: 32, note: "one lit row of such an image, beyond its own pixels" },
+        blit_start: { note: "what one such image costs before its first row" },
+        digit_pixel: { note: "stamping one lit cell of a live digit" },
+        digit_cell: { note: "testing one cell of a live digit's box, lit or not" },
+        digit_start: { note: "finding the chosen glyph before the walk starts" },
+        tearfree_digit_pixel: { note: "the same, on the tear-free screen" },
+        sound_write: { note: "one sound-register write" },
+        mix_voice_sample: { varies: :mixer_voices, from: 1, to: 8, note: "mixing one sample of one sounding voice" },
+        mix_overhead_sample: { varies: :mixer_voices, from: 1, to: 8, note: "the mixer's per-sample cost with no voice sounding" },
+        music_voice: { varies: :music_voices, from: 1, to: 2, note: "one active music voice, per frame" },
+        dma_setup: { varies: :dma_rows, from: 8, to: 40, note: "starting one row's transfer, on the CPU and in the engine" },
+        dma_pixel: { varies: :dma_row_pixels, from: 40, to: 200, note: "one pixel of a transfer, as engine stall" },
+        obj_write: { varies: :sprites, from: 8, to: 64, note: "rewriting one sprite's position each frame" },
+        scroll_write: { varies: :scrolls_per_frame, from: 8, to: 40, note: "one background scroll" },
+        bend_line: { varies: :lines_per_frame, from: 228, to: 228, note: "one line's interrupt, handler in the cartridge" },
+        bend_line_fast: { varies: :lines_per_frame, from: 228, to: 228, note: "the same, handler in the quick memory" },
+        tick_interrupt: { varies: :ticks_per_frame, from: 133.33333333333334, to: 133.33333333333334, note: "one timer tick's interrupt, handler in the cartridge" },
+        tick_interrupt_fast: { varies: :ticks_per_frame, from: 133.33333333333334, to: 133.33333333333334, note: "the same, handler in the quick memory" },
+        obj_turn: { varies: :turning_sprites, from: 32, to: 32, note: "drawing one sprite through a rotate/resize group instead of straight" },
+        obj_resize: { varies: :turning_sprites, from: 32, to: 32, note: "working out one over a resized sprite's size, on top of turning" },
+        camera_move: { note: "moving the visible window over the picture" },
+        fade_set: { note: "setting the fade level, from a number written in the program" },
+        save_write: { note: "mirroring one change to a saved variable back to save memory" },
+        tearfree_pair: { varies: :rect_rows, from: 4, to: 20, note: "a side-by-side pair of pixels written straight out" },
+        tearfree_row: { varies: :rect_rows, from: 4, to: 20, note: "one row of a moving rectangle, beyond its pixels" },
+        tearfree_edge: { varies: :rect_rows, from: 4, to: 20, note: "a lone pixel read and spliced back at a row's end" },
+        tearfree_moving_start: { note: "what a moving rectangle costs before its first row" },
+        tearfree_rect_start: { note: "what a fixed rectangle costs before its first row" },
+        tearfree_fill_pixel: { varies: :fill_rows, from: 10, to: 80, note: "one pixel of a block fill, as engine stall" },
+        tearfree_engine_row: { varies: :rect_rows, from: 10, to: 40, note: "one engine-fed row of a moving rectangle" },
+        tearfree_engine_edge: { varies: :rect_rows, from: 10, to: 40, note: "one spliced end of such a row" },
+        tearfree_pixel: { note: "a pixel drawn on its own, on the tear-free screen" },
+        tearfree_glyph: { note: "a lit pixel of a glyph, on the tear-free screen, halfway down" },
+        overlap_pixel: { varies: :overlap_pixels, from: 64, to: 256, note: "one pixel of a per-pixel collision walk" },
+        fast_code_speedup: { note: "how many times faster the same code runs from the quick memory" },
       }.freeze
     end
   end
