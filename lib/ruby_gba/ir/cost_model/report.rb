@@ -213,30 +213,28 @@ module RubyGBA
 
         # The measured verdict, one line per measured entry: a whole-frame reading for a
         # single-loop game (the nil key), or one per scene the profiler booted into. Each
-        # result is plain data — { scanlines:, fps:, saturated: } — so this stays free of
-        # the analyzer's own types.
+        # result is plain data — { scanlines:, fps:, saturated:, keys: } — so this stays
+        # free of the analyzer's own types.
         def measured_verdict_lines(printer, measured)
           width = measured.keys.map { |scene| (scene ? "scene :#{scene}" : "frame").length }.max
           measured.each do |scene, result|
             label = (scene ? "scene :#{scene}" : "frame").ljust(width)
             printer.puts "    #{label}  #{measured_verdict_text(result)}", severity: measured_severity(result)
           end
-          near_the_line_note(printer, measured)
+          how_it_was_played_note(printer, measured)
         end
 
-        # A reading close to the line is the one to be careful with. It is taken with no
-        # buttons held, so a game whose cost depends on what the player is doing was
-        # measured doing nothing — which can be the cheapest frame it ever draws. Well
-        # clear of the line that does not matter; right up against it, it decides whether
-        # the game holds its frame rate while it is played.
-        NEAR_THE_LINE = 0.85
+        # What the reading assumed the player was doing. A game costs what the player makes
+        # it cost, so the number above means nothing without this: it is the worst frame
+        # found while holding each button the game reads, in turn. When a held button is
+        # what made a frame the worst one, the verdict line above already names it, and
+        # this line explains where that came from.
+        def how_it_was_played_note(printer, measured)
+          return unless measured.values.any? { |result| result[:keys] }
 
-        def near_the_line_note(printer, measured)
-          worst = measured.values.map { |result| result[:scanlines].to_f }.max.to_f
-          return if worst.zero? || worst < FRAME_BUDGET * NEAR_THE_LINE
-
-          printer.puts "    (measured with no buttons held. This is close enough to the line that a frame " \
-                       "which costs more while the player moves can go over it — play it to be sure.)"
+          note = "    (the worst frame found. Each button this game reads was held in turn."
+          note += " No button cost more than none held." unless measured.values.any? { |r| r[:keys].to_a.any? }
+          printer.puts "#{note})"
         end
 
         # No measurement ran (the emulator was not available), so the frame rate is an

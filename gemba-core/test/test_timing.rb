@@ -127,4 +127,28 @@ class TestGembaCoreTiming < Minitest::Test
       assert_operator cost.dma_scanlines, :<, 2.0, "no DMA means no stall"
     end
   end
+
+  # A loop that only works while LEFT is down — how much a game costs usually depends on
+  # what the player is doing, so the measured frame has to be able to hold buttons the
+  # way step does. Without that, every reading is of a game standing still.
+  def held_rom
+    build_rom("HELD", code: "THLD") do
+      screen :bitmap
+      clear_screen :black
+      var :x, 0
+      game_loop do
+        wait_vblank
+        held(:left).then { repeat(500) { add :x, 1 } }
+      end
+    end
+  end
+
+  def test_frame_cost_holds_the_buttons_it_is_given
+    with_probe(held_rom) do |probe|
+      idle = probe.frame_cost(settle: 8).busy_scanlines
+      held = probe.frame_cost(settle: 8, keys: :left).busy_scanlines
+      assert_operator idle, :<, 1.0, "with nothing held the loop skips its work"
+      assert_operator held, :>, idle + 1.0, "with LEFT down the measured frame does the work"
+    end
+  end
 end

@@ -102,6 +102,41 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # A game whose expensive state needs a particular combination can say so, instead of
+  # relying on the sweep that holds one button at a time. Naming the buttons also asks
+  # for the report, so there is no --explain to remember.
+  def test_keys_holds_the_named_buttons_and_says_so
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "held.rb"), HELD)
+      out, status = cli("build", "held.rb", "--keys", "left", "a", dir: dir)
+      assert status.success?, out
+      assert_match(/while LEFT\+A are held/, out)
+    end
+  end
+
+  # A typo in a button name is caught before the emulator runs, and reads as a sentence.
+  def test_an_unknown_button_is_a_friendly_error
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "held.rb"), HELD)
+      out, status = cli("build", "held.rb", "--keys", "triangle", dir: dir)
+      refute status.success?, out
+      assert_match(/triangle is not a button/, out)
+      assert_match(/start/, out, "the message lists the buttons there are")
+    end
+  end
+
+  # A game that reads a button, for the --keys tests.
+  HELD = <<~RUBY
+    require "ruby_gba"
+    Held = RubyGBA.game "HELD", code: "BHLD", maker: "01" do
+      screen :bitmap
+      var :x, 0
+      game_loop do
+        held(:left).then { add :x, 1 }
+      end
+    end
+  RUBY
+
   def test_scene_narrows_to_one_and_an_unknown_scene_is_friendly
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "scened.rb"), SCENED)
