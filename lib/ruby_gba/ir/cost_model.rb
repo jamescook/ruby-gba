@@ -75,6 +75,39 @@ module RubyGBA
     #
     # This file is the class itself: the shared constants and the weights. A constant
     # only one part uses lives with that part.
+    #
+    # WHAT KIND OF COST MODEL THIS IS, because it is not the usual kind and knowing which
+    # kind it is tells you where it will be wrong.
+    #
+    # A database's query planner has a handful of cost constants — five, in Postgres — for
+    # dozens of plan shapes, because every shape's cost is written in terms of those few:
+    # pages times what a page costs, plus rows times what a row costs. The structure does
+    # the work and the constants are only units. Nothing measures them; they are knobs.
+    #
+    # Ours are the other way round. There are about fifty of them for about twenty
+    # operations, none of them a unit, each one an empirical measurement of a whole
+    # compound operation. That is not laziness: these operations genuinely do not compose.
+    # A blit is not "N pixel writes" — it is a bespoke loop with per-row setup, a step to
+    # build the color, and a see-through test — so there is no per-instruction price to
+    # multiply, and pretending otherwise would be a guess where a measurement is available.
+    #
+    # The consequence is the thing to remember. Fifty weights for twenty operations means
+    # the extra forty are REGIMES: op_div against op_div_bit against op_div_const against
+    # op_div_fix is one operation measured four ways; the eleven tearfree_* weights are
+    # their direct-color twins measured on the other screen mode; bend_line against
+    # bend_line_fast is the same interrupt with the handler in the other memory. So this
+    # model does not grow by adding operations — it grows by enumerating regimes, and it is
+    # accurate exactly as far as somebody has thought of the regime in front of it.
+    #
+    # Which is why a missing OP is loud (see #unpriced_kinds — it is collected, banner-ed
+    # at the top of the report, and a new IR kind fails the suite until it is priced) and a
+    # weight used outside where it was measured is, today, silent. Both halves of that
+    # sentence are deliberate; only the first one is finished.
+    #
+    # The other half of being wrong is HOW OFTEN, not how much — trip counts, ticks a
+    # second, lines a frame, how full a list gets. That is the same problem a query planner
+    # calls cardinality, it has never been solved anywhere, and it is why a measurement
+    # beats an estimate and the report says which one you are reading.
     class CostModel
       include Pricing
       include Rollup
