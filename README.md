@@ -142,13 +142,15 @@ Screen shake is the worked example, and it ships as a default pack. Moving the p
 
 ### Cost estimator + `rom.explain` — see the work
 
-Because the program is inspectable, `ruby-gba` estimates how much *drawing* each frame does — in "write-units" — and exposes it as a structured tree (human-readable *and* JSON):
+Because the program is inspectable, `ruby-gba` works out what each frame costs — in **scanlines**, the console's own unit, so "45 of your 228" means something — and exposes it as a structured tree (human-readable *and* JSON):
 
 ```ruby
-rom.explain   # drill-down cost tree: which scene / func / loop draws the most per frame
+rom.explain   # drill-down cost tree: which scene / func / loop costs the most per frame
 ```
 
-This is both a **teaching aid** (understand why a frame is heavy) and a **debugging tool** (a guardrail can warn when a loop redraws the whole screen every frame — the exact reason Snake draws incrementally). Cost profiles will eventually be parameterized per backend (GBA vs GBC).
+Every weight in it was **measured**, not guessed: a ROM that does one thing a known number of times, run on emulated hardware timing, differenced against one that does less of it. And each weight ships with the range it was measured over, so when your program asks it for an answer from well outside that range the report says so instead of answering confidently.
+
+It is a **teaching aid** (understand why a frame is heavy, in terms of the verbs you wrote), a **guardrail** (it can warn that a loop redraws the whole screen every frame — the exact reason Snake draws incrementally), and a **build decision**: the estimate is what picks which routines to keep in the console's 32K of quick memory, where code runs ~2.6x faster. That choice has to be made while the ROM is still being built, before there is anything to measure — which is why an estimate earns its place next to a real emulator. With `gemba-core` installed the verdict is measured on top; without it, the report says "estimate only" and names what it could not price. Cost profiles will eventually be parameterized per backend (GBA vs GBC).
 
 ### Future targets
 
@@ -331,4 +333,6 @@ assets/                      # captured GIFs / screenshots
 
 Pre-1.0 and moving fast. Full games work end-to-end on both bitmap and tiled screens — sprites, scrolling backgrounds, four-channel sound, and the asset pipeline are all in (see `examples/`); sampled audio, affine transforms, and the alternate backends are the next frontier.
 
-Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. The debugging tooling is where C comes in: reading back the pixels a ROM actually drew, and the measured frame-rate verdict in `rom.explain`, run the ROM in an emulator through **`gemba-core`** — a small in-repo C extension that binds libmgba, so it needs a C compiler and libmgba installed to build. You never need it to *make* a ROM, but you will want it to *debug* one — that fast, real feedback is the point of the tool. (How you install libmgba varies by platform, and most dev setups have a C compiler already.)
+Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. Anything that reads what a ROM *actually did* runs it in an emulator through **`gemba-core`**, a small in-repo C extension binding libmgba, which needs a C compiler and libmgba to build. Three things use it: the pixel read-back the tests assert on, the measured frame-rate verdict in `rom.explain`, and — the one that is easy to miss — **calibrating the cost model's weights**.
+
+That last one is why the estimate works without it. Every number the cost model charges was measured through `gemba-core` on emulated hardware timing, once, by `tools/calibrate_cost_model.rb`, and committed as data (`lib/ruby_gba/ir/measured_weights.rb`). So the estimate is not a guess standing in for a measurement — it *is* a measurement, generalized and shipped. A pure-Ruby install gets hardware-calibrated cost feedback with no C toolchain; adding `gemba-core` gets you the live verdict for your own game on top, and `explain` says plainly which of the two you are reading. (How you install libmgba varies by platform, and most dev setups have a C compiler already.)
