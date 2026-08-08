@@ -149,8 +149,8 @@ class TestCostCalibrationTool < Minitest::Test
   # --- the recipes, against canned readings ---
 
   # Every reading answers the same number, so every marginal rate comes out at zero. Useless as
-  # a value and exactly right as a wiring check: it runs all 48 recipes and says they produce
-  # the weights the model expects, in the order the fixture wants them.
+  # a value and exactly right as a wiring check: it runs every recipe and says they produce the
+  # weights the model expects, in the order the fixture wants them.
   def flat_calibration(default: 1.0, busy: {})
     fake = Calibration::FakeMeasurer.new(busy: busy, default: default)
     [Calibration::Calibrator.new(fake).run, fake]

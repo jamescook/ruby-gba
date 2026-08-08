@@ -280,6 +280,9 @@ module RubyGBA
       def initialize(fast_routines: nil, fast_frame: false, fast_interrupts: false,
                      placement: nil, **weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)
+        # The same table with everything but the transfer engine's own work zeroed, so an op
+        # can be priced twice over and the two answers differenced (see Pricing::ENGINE_WEIGHTS).
+        @engine_weights = @weights.transform_values { 0.0 }.merge(@weights.slice(*Pricing::ENGINE_WEIGHTS))
         @fast_routines = Array(fast_routines).to_set
         @fast_frame = fast_frame
         @fast_interrupts = fast_interrupts

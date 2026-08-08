@@ -110,6 +110,16 @@ class TestCostCalibration < Minitest::Test
     end
   end
 
+  # A frame of nothing but instructions, which is the case that gains the WHOLE of what the
+  # quick memory is worth. The frame above gains almost none of it, because a transfer is not
+  # instructions — and getting that difference right is the whole of the pair of tests at the
+  # bottom of this file.
+  ARITHMETIC = lambda do |with|
+    screen :bitmap
+    n = var :n, 0
+    game_loop { 500.times { n.add 1 } if with }
+  end
+
   CASES = [
     Standing.new(name: :mixer, weight: :mix_voice_sample, fast_code: false, shape: MIXER,
                  predict: ->(model, program) { model.mixer_verdict(program)&.fetch(:cost) || 0 }),
@@ -122,6 +132,8 @@ class TestCostCalibration < Minitest::Test
     Standing.new(name: :ticks_fast, weight: :tick_interrupt_fast, fast_code: true, shape: TICKS,
                  predict: ->(model, program) { model.tick_cost(program) }),
     Standing.new(name: :frame, weight: :dma_pixel, fast_code: false, shape: FRAME,
+                 predict: ->(model, program) { model.frame_cost(program) }),
+    Standing.new(name: :arithmetic, weight: :fast_code_speedup, fast_code: true, shape: ARITHMETIC,
                  predict: ->(model, program) { model.frame_cost(program) }),
   ].freeze
 
@@ -170,31 +182,56 @@ class TestCostCalibration < Minitest::Test
     end
   end
 
-  # A KNOWN DIVERGENCE, PINNED ON PURPOSE — see the bug this names in its failure message.
-  # The build charges a routine kept in the console's quick memory at the full speed-up for
-  # everything it does, including a transfer, which does not get faster because the code
-  # that started it moved. So a frame of transfers reads about two and a half times too
-  # cheap the moment its loop moves.
+  # WHAT THE QUICK MEMORY IS AND IS NOT WORTH, which is one claim in two halves and was got
+  # wrong in both directions at once until it was measured.
   #
-  # The #frame case above builds with fast_code: false and so never meets this. Here is the
-  # same frame built the way a game ships, asserting the wrong answer, so the bug cannot rot
-  # quietly: fix it and this test fails and asks to be deleted.
-  def test_a_frame_of_transfers_reads_too_cheap_when_its_routine_moved
-    hot = Standing.new(name: :frame_hot, weight: :dma_pixel, fast_code: true, shape: FRAME,
-                       predict: ->(model, program) { model.frame_cost(program) })
-    predicted = predict(hot)
-    measured = measure(hot)
-
+  # A routine kept in the console's quick memory runs about two and a half times faster. That
+  # is true of INSTRUCTIONS. A transfer is not instructions: the CPU writes a few registers to
+  # set a copy going and is then stopped while a separate engine moves the pixels, so where our
+  # code lives changes nothing about how long that takes. Charging the whole speed-up against
+  # a transfer made four of the examples estimate at four tenths of the measured frame, and in
+  # the direction that matters — a game the estimate called comfortable would tear.
+  #
+  # So: the same transfer frame built both ways, each in band, and the real gain far short of
+  # the full factor.
+  def test_a_frame_of_transfers_is_priced_right_wherever_its_routine_lives
+    cold = frame_case(:frame, fast_code: false)
+    hot = frame_case(:frame_hot, fast_code: true)
     assert_includes rom_for(hot, true).placement[:funcs], :__frame,
-                    "this case is only about a frame whose loop moved; this one did not"
-    assert_operator predicted, :<, measured * 0.6,
-                    "the frame estimate (~#{predicted.round(2)}) is no longer far below what the " \
-                    "emulator measures (#{measured.round(2)}). If you have stopped charging the " \
-                    "quick-memory speed-up against a transfer, delete this test — it exists only to " \
-                    "pin that bug in place."
+                    "this test is about a frame whose loop moved; this one did not"
+
+    [cold, hot].each do |standing|
+      assert_in_delta predict(standing), measure(standing), (predict(standing) * BAND) + SLACK,
+                      "#{standing.name}: a frame of transfers is mispriced when its routine " \
+                      "#{standing.fast_code ? 'moves into' : 'stays out of'} the quick memory"
+    end
+    assert_operator measure(cold) / measure(hot), :<, 2.0,
+                    "a frame of transfers gains far less than the full speed-up, and if it no " \
+                    "longer does then this fixture stopped being mostly transfers"
+  end
+
+  # The other half: a frame of nothing but instructions still gains all of it. Getting the
+  # transfer case right by simply charging less everywhere would break this one.
+  def test_a_frame_of_arithmetic_still_gains_the_whole_speed_up
+    cold = Standing.new(name: :arith_cold, weight: :op_step, fast_code: false, shape: ARITHMETIC,
+                        predict: ->(model, program) { model.frame_cost(program) })
+    hot = CASES.find { |c| c.name == :arithmetic }
+
+    [cold, hot].each do |standing|
+      assert_in_delta predict(standing), measure(standing), (predict(standing) * BAND) + SLACK,
+                      "#{standing.name}: a frame of arithmetic is mispriced"
+    end
+    assert_in_delta CostModel::DEFAULT_WEIGHTS[:fast_code_speedup], measure(cold) / measure(hot), 0.5,
+                    "moving a frame of instructions into the quick memory is worth the measured " \
+                    "factor, and the model has to keep charging it"
   end
 
   private
+
+  def frame_case(name, fast_code:)
+    Standing.new(name: name, weight: :dma_pixel, fast_code: fast_code, shape: FRAME,
+                 predict: ->(model, program) { model.frame_cost(program) })
+  end
 
   # What the model says this case's one thing costs, asked of a model that knows how the
   # ROM was built. +drift+ names a weight to triple first.

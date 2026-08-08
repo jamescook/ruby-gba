@@ -315,8 +315,16 @@ module RubyGBA
           Reductions.marginal(@bench.dma_stall(8, 40, 4), @bench.dma_stall(8, 20, 4), over: (40 - 20) * 4),
           8 * dma_pixel
         )
-        weigh(:dma_setup, cpu_start + engine_start, varies: :dma_rows, from: 8, to: 40,
-                                                    note: "starting one row's transfer, on the CPU and in the engine")
+        # The two halves are KEPT APART rather than added into one figure, because they behave
+        # differently in the one place it matters. Code kept in the console's quick memory runs
+        # about two and a half times faster, and the register writes get all of that. The engine
+        # does not: the CPU is stopped while it copies, so where our instructions live changes
+        # nothing about how long that takes. Added together, a whole-screen clear read a third of
+        # its true cost the moment the game loop moved. See Pricing::ENGINE_WEIGHTS.
+        weigh(:dma_cpu_start, cpu_start, varies: :dma_rows, from: 8, to: 40,
+                                         note: "starting one row's transfer: the register writes, on the CPU")
+        weigh(:dma_engine_start, engine_start, varies: :dma_rows, from: 8, to: 40,
+                                               note: "the engine's own moment before a row's first pixel moves, as stall")
         weigh(:dma_pixel, dma_pixel, varies: :dma_row_pixels, from: 40, to: 200,
                                      note: "one pixel of a transfer, as engine stall")
       end

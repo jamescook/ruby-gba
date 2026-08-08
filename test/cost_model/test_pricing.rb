@@ -43,8 +43,52 @@ class TestCostPricing < CostModelTest
       game_loop { dma_fill_rect 0, 0, w, h, :red }
     end
     near(w * h * WEIGHTS[:plot_run_pixel], Cost.new.frame_cost(cpu))
-    near((h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:dma_pixel]), Cost.new.frame_cost(dma))
+    near((h * dma_start) + (w * h * WEIGHTS[:dma_pixel]), Cost.new.frame_cost(dma))
     assert_operator Cost.new.frame_cost(cpu), :>, Cost.new.frame_cost(dma), "CPU plotting is dearer than a DMA fill"
+  end
+
+  # --- what the quick memory is worth, which is not the same for every op ---
+
+  # A routine kept in the console's quick memory runs about two and a half times faster, and
+  # that is true of INSTRUCTIONS. A transfer is not instructions: the CPU writes a few
+  # registers to set the copy going and is then stopped while a separate engine moves the
+  # pixels, so where our code lives changes nothing about how long the copy takes.
+  #
+  # A whole-screen clear is one transfer and one row of register writes, so it is the extreme
+  # case — almost all engine. Charging it the full speed-up read it at a third of its cost.
+  def test_a_transfer_costs_about_the_same_wherever_its_code_lives
+    clearing = program do
+      screen :bitmap
+      game_loop { clear_screen :black }
+    end
+    slow = Cost.new.frame_cost(clearing)
+    fast = Cost.new(fast_frame: true).frame_cost(clearing)
+    assert_in_delta 1.0, fast / slow, 0.01, "a transfer gains nothing worth seeing"
+  end
+
+  # ...and the opposite extreme, which has to keep the whole factor.
+  def test_arithmetic_gains_the_whole_speed_up
+    adding = program do
+      screen :bitmap
+      n = var :n, 0
+      game_loop { 100.times { n.add 1 } }
+    end
+    near(Cost.new.frame_cost(adding) / WEIGHTS[:fast_code_speedup],
+         Cost.new(fast_frame: true).frame_cost(adding))
+  end
+
+  # The arithmetic in between, stated exactly: a fill's register writes are discounted, its
+  # engine start-up and its pixels are not.
+  def test_a_fill_discounts_its_register_writes_and_not_its_transfer
+    w = 40
+    h = 20
+    fill = program do
+      screen :bitmap
+      game_loop { dma_fill_rect 0, 0, w, h, :red }
+    end
+    engine = (h * WEIGHTS[:dma_engine_start]) + (w * h * WEIGHTS[:dma_pixel])
+    cpu = h * WEIGHTS[:dma_cpu_start]
+    near((cpu / WEIGHTS[:fast_code_speedup]) + engine, Cost.new(fast_frame: true).frame_cost(fill))
   end
 
   # A blit costs its image's footprint (width x height), looked up from the bitmap
