@@ -254,13 +254,25 @@ module RubyGBA
         # Reading saturation as "over budget" is what made a raycaster holding 60 report
         # over budget in red, in a sentence that argued with itself.
         def measured_verdict_text(result)
+          held = held_suffix(result)
           measured = "measured ~#{fmt(result[:scanlines])} of #{FRAME_BUDGET} scanlines " \
                      "(#{pct(result[:scanlines], FRAME_BUDGET)})"
-          return measured unless result[:saturated]
-          return "#{measured} — still #{FULL_FRAME_RATE} fps" if holds_full_rate?(result)
-          return "measured over budget — running at ~#{result[:fps]} fps" if result[:fps]
+          return "#{measured}#{held}" unless result[:saturated]
+          return "#{measured}#{held} — still #{FULL_FRAME_RATE} fps" if holds_full_rate?(result)
+          return "measured over budget — running at ~#{result[:fps]} fps#{held}" if result[:fps]
 
-          "measured over budget — the frame saturates (drops frames)"
+          "measured over budget#{held} — the frame saturates (drops frames)"
+        end
+
+        # What the player was holding when this frame was measured. A game costs what the
+        # player makes it cost, so a reading that only goes over budget while LEFT is down
+        # has to say so — that is the difference between "your game is fine" and "your game
+        # is fine until someone plays it". Empty when nothing held made the game dearer.
+        def held_suffix(result)
+          keys = result[:keys].to_a
+          return "" if keys.empty?
+
+          " while #{keys.map { |key| key.to_s.upcase }.join('+')} #{keys.length == 1 ? 'is' : 'are'} held"
         end
 
         # Whether the counted passes say the game met every frame. Nothing can run faster

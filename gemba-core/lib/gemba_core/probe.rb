@@ -151,7 +151,9 @@ module GembaCore
     # against. Advancing the measurement steps one frame of emulated time.
     #
     # Pass +settle:+ to run that many frames first so the ROM is in steady state
-    # (past boot) before the measured frame.
+    # (past boot) before the measured frame, and +keys:+ to hold buttons for the
+    # settling AND the measured frame — a game costs what the player makes it
+    # cost, so a reading with nothing held is a reading of a game standing still.
     #
     # Meaningful for a workload that FITS in a frame (the regime you calibrate
     # in): there it's stable and repeatable. A ROM whose per-frame work can't
@@ -159,9 +161,10 @@ module GembaCore
     # near a full frame and wobbles, which is the honest answer.
     #
     # @return [Integer] busy cycles for the measured frame
-    def busy_cycles(settle: 0)
+    def busy_cycles(settle: 0, keys: nil)
       ensure_open!
-      step(settle) if settle.positive?
+      step(settle, keys: keys) if settle.positive?
+      @core.set_keys(keys_mask(keys))
       cycles = @core.measure_frame_busy_cycles
       @frames_run += 1
       @prev_pixels = @pixels
@@ -172,8 +175,8 @@ module GembaCore
     # {#busy_cycles} expressed in the cost model's unit — scanlines.
     #
     # @return [Float]
-    def busy_scanlines(settle: 0)
-      busy_cycles(settle: settle) / cycles_per_scanline
+    def busy_scanlines(settle: 0, keys: nil)
+      busy_cycles(settle: settle, keys: keys) / cycles_per_scanline
     end
 
     # One frame's cost split into the CPU-executing part and the wall-clock
@@ -194,12 +197,14 @@ module GembaCore
 
     # Measure one frame and return its {FrameCost} — busy and active (wall-clock)
     # cycles from the same pass, so their DMA-stall difference is exact. Pass
-    # +settle:+ to reach steady state first, like {#busy_cycles}.
+    # +settle:+ to reach steady state first and +keys:+ to hold buttons, like
+    # {#busy_cycles}.
     #
     # @return [FrameCost]
-    def frame_cost(settle: 0)
+    def frame_cost(settle: 0, keys: nil)
       ensure_open!
-      step(settle) if settle.positive?
+      step(settle, keys: keys) if settle.positive?
+      @core.set_keys(keys_mask(keys))
       busy, active = @core.measure_frame_work
       @frames_run += 1
       @prev_pixels = @pixels

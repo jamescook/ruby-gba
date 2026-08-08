@@ -32,6 +32,8 @@ module RubyGBA
                    desc: "Print how far asset packing shrank the cartridge, and what is kept in quick memory"
     option :scene, type: :array, banner: "NAME", default: [],
                    desc: "Measure only these scenes in the report (default: all scenes)"
+    option :keys, type: :array, banner: "BUTTON", default: [],
+                  desc: "Hold these buttons while measuring (default: hold each button the game reads, in turn)"
     def build(game_file)
       game = load_game(game_file)
       rom = game.build_rom
@@ -40,7 +42,9 @@ module RubyGBA
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
       say rom.compression.summary_line if options[:stats] && rom.compression&.any?
       say placement_line(rom) if options[:stats] && rom.placement&.dig(:funcs)&.any?
-      rom.explain(measured: measured_verdicts(game)) if options[:explain] || options[:scene].any?
+      if options[:explain] || options[:scene].any? || options[:keys].any?
+        rom.explain(measured: measured_verdicts(game))
+      end
     end
 
     desc "inspect ROM_FILE", "Show a built .gba's header and a disassembly"
@@ -75,19 +79,33 @@ module RubyGBA
     end
 
     # Measure the game's scenes on the emulator and return the plain verdict hash the
-    # explain report folds in: { scene_or_nil => { scanlines:, fps:, saturated: } } — a
-    # whole-frame reading for a single-loop game (nil key), or one per scene. Returns nil
-    # when the emulator is not built, so the report shows the hedged estimate instead of
-    # failing. An unknown scene name is a friendly error, not a backtrace.
+    # explain report folds in: { scene_or_nil => { scanlines:, fps:, saturated:, keys: } }
+    # — a whole-frame reading for a single-loop game (nil key), or one per scene. Returns
+    # nil when the emulator is not built, so the report shows the hedged estimate instead
+    # of failing. An unknown scene name is a friendly error, not a backtrace.
     def measured_verdicts(game)
       only = options[:scene].any? ? options[:scene] : nil
-      RubyGBA::Analyzer.profile(game, only: only).transform_values do |result|
-        { scanlines: result.scanlines, fps: result.fps, saturated: result.saturated? }
+      RubyGBA::Analyzer.profile(game, only: only, keys: held_buttons).transform_values do |result|
+        { scanlines: result.scanlines, fps: result.fps, saturated: result.saturated?, keys: result.keys }
       end
     rescue LoadError
       nil
     rescue ArgumentError => e
       raise Thor::Error, e.message
+    end
+
+    # The buttons --keys named, checked before the emulator runs. nil when none were
+    # named, which leaves the profiler to hold each button the game reads, in turn.
+    def held_buttons
+      return nil if options[:keys].empty?
+
+      buttons = options[:keys].map { |name| name.to_s.downcase.to_sym }
+      unknown = buttons.reject { |button| RubyGBA::IR::Buttons.known?(button) }
+      unless unknown.empty?
+        raise Thor::Error, "#{unknown.first} is not a button. The buttons are: " \
+                           "#{RubyGBA::IR::Buttons::NAMES.join(', ')}."
+      end
+      buttons
     end
 
     # The file only declares its game (RubyGBA.game records without building), so clear

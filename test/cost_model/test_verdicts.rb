@@ -115,6 +115,36 @@ class TestCostVerdicts < CostModelTest
     refute_match(/estimate only/, io.string)
   end
 
+  # A game costs what the player makes it cost, so a verdict found with a button down has
+  # to say which one. Without it, "your game is fine" and "your game is fine until someone
+  # plays it" read exactly the same.
+  def test_a_verdict_found_with_a_button_held_names_it
+    io = StringIO.new
+    Cost.new.report(loop_of_clears(1, buffered: false), out: io,
+                    measured: { nil => { scanlines: 228.0, fps: 30.0, saturated: true, keys: [:left] } })
+    assert_match(/running at ~30\.0 fps while LEFT is held/, io.string)
+    assert_match(/Each button this game reads was held in turn/, io.string)
+  end
+
+  # When nothing the player does costs more than standing still, the report says so —
+  # that is the reader's licence to trust the number.
+  def test_a_verdict_no_button_made_dearer_says_input_was_tried
+    io = StringIO.new
+    Cost.new.report(loop_of_clears(1, buffered: false), out: io,
+                    measured: { nil => { scanlines: 40.0, fps: nil, saturated: false, keys: [] } })
+    assert_match(/No button cost more than none held/, io.string)
+    refute_match(/while .* is held/, io.string)
+  end
+
+  # Several buttons at once (the profiler will hold exactly what a dev names) reads as a
+  # plural, not "LEFT+A is held".
+  def test_several_held_buttons_read_as_a_plural
+    io = StringIO.new
+    Cost.new.report(loop_of_clears(1, buffered: false), out: io,
+                    measured: { nil => { scanlines: 90.0, fps: nil, saturated: false, keys: %i[left a] } })
+    assert_match(/while LEFT\+A are held/, io.string)
+  end
+
   # Even double buffering has a ceiling: draw more than fits in a whole frame and
   # the frame rate drops (it still never tears).
   def test_buffered_over_a_whole_frame_reads_as_a_dropped_frame_not_tearing
