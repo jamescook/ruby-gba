@@ -48,6 +48,14 @@ module RubyGBA
     # the next frame, and the peak is the honest "this is over budget" signal (the min
     # can dip below the saturation line and read as fitting when it is not). Returns a
     # {Result} with no fps (that needs the counter run).
+    #
+    # WITH NO BUTTONS HELD, and that is the reading's one big limitation. A game whose
+    # cost depends on what the player is doing is measured doing nothing, which for some
+    # games is the cheapest frame they ever draw. examples/raycaster.rb read 225 of 228
+    # standing still — just inside a frame — and 228 the moment the view turned, because
+    # turning brings nearer walls and taller columns into view. So this number is a floor,
+    # not a typical frame, and a game that reads NEAR the line is worth playing rather
+    # than trusting.
     def measure(rom_path)
       probe = Emulator.probe(rom_path)
       scanlines = 3.times.map { probe.frame_cost(settle: SETTLE).active_scanlines }.max
@@ -61,13 +69,16 @@ module RubyGBA
     # Hash of scene name => {Result}. +only+ narrows to named scenes; nil profiles all,
     # up to SCENE_CAP. A game with no scenes profiles as a whole under the +nil+ key.
     def profile(game, only: nil)
+      # Build the measuring ROMs exactly as the game builds its own. Measuring a
+      # differently-built ROM would report a frame rate the shipped game does not have.
+      options = game.respond_to?(:build_options) ? game.build_options : {}
       dispatch = scenes(game.program)
-      return { nil => measure_program(game.program) } unless dispatch
+      return { nil => measure_program(game.program, options) } unless dispatch
 
       names = pick_scenes(dispatch[:scenes], only)
       names.to_h do |name|
         variant = boot_into(game.program, dispatch[:selector], dispatch[:scenes].fetch(name))
-        [name, measure_program(variant)]
+        [name, measure_program(variant, options)]
       end
     end
 
@@ -124,11 +135,11 @@ module RubyGBA
     # that is the end of it; one near the ceiling is not, so the program is run again with
     # a hidden per-frame counter and its frames are counted directly. That count is what
     # decides whether it fits — it can just as well come back at the full rate.
-    def measure_program(program)
-      busy = in_temp_rom(assemble(program)) { |path| measure(path) }
+    def measure_program(program, options = {})
+      busy = in_temp_rom(assemble(program, options)) { |path| measure(path) }
       return busy unless busy.saturated?
 
-      Result.new(scanlines: busy.scanlines, fps: measure_fps(program))
+      Result.new(scanlines: busy.scanlines, fps: measure_fps(program, options))
     end
 
     # The counted frame rate. A hidden counter ticks once per game-loop iteration; run a
@@ -136,11 +147,11 @@ module RubyGBA
     # fps = game frames * 60 / window. A loop waits for the screen, so the answer lands on
     # 60, 30, 20... and 60 means every pass met its frame. nil when there is no game loop
     # to count.
-    def measure_fps(program)
+    def measure_fps(program, options = {})
       counter = :__profile_frames
       return nil unless instrument_frame_counter(program, counter)
 
-      backend = IR::Backends::GBA.new
+      backend = IR::Backends::GBA.new(**options)
       rom = ROM.assemble(backend.lower(program), title: "PROFILE", code: "BPRF", maker: "01")
       address = backend.instance_variable_get(:@vars)[counter]
       in_temp_rom(rom) do |path|
@@ -165,8 +176,9 @@ module RubyGBA
       true
     end
 
-    def assemble(program)
-      ROM.assemble(IR::Backends::GBA.new.lower(program), title: "PROFILE", code: "BPRF", maker: "01")
+    def assemble(program, options = {})
+      ROM.assemble(IR::Backends::GBA.new(**options).lower(program),
+                   title: "PROFILE", code: "BPRF", maker: "01")
     end
 
     def in_temp_rom(rom)

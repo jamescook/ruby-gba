@@ -221,6 +221,22 @@ module RubyGBA
             label = (scene ? "scene :#{scene}" : "frame").ljust(width)
             printer.puts "    #{label}  #{measured_verdict_text(result)}", severity: measured_severity(result)
           end
+          near_the_line_note(printer, measured)
+        end
+
+        # A reading close to the line is the one to be careful with. It is taken with no
+        # buttons held, so a game whose cost depends on what the player is doing was
+        # measured doing nothing — which can be the cheapest frame it ever draws. Well
+        # clear of the line that does not matter; right up against it, it decides whether
+        # the game holds its frame rate while it is played.
+        NEAR_THE_LINE = 0.85
+
+        def near_the_line_note(printer, measured)
+          worst = measured.values.map { |result| result[:scanlines].to_f }.max.to_f
+          return if worst.zero? || worst < FRAME_BUDGET * NEAR_THE_LINE
+
+          printer.puts "    (measured with no buttons held. This is close enough to the line that a frame " \
+                       "which costs more while the player moves can go over it — play it to be sure.)"
         end
 
         # No measurement ran (the emulator was not available), so the frame rate is an

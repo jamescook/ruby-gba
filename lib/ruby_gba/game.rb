@@ -14,6 +14,14 @@ module RubyGBA
   class Game
     attr_reader :title, :code, :maker
 
+    # How this game is built, for anything that has to build it the same way — the
+    # profiler especially: a ROM measured with different settings is not the ROM that
+    # ships, and the difference between code in the cartridge and code in the console's
+    # quick memory is a factor of about two and a half.
+    def build_options
+      { fast_cartridge: @fast_cartridge, fast_code: @fast_code }
+    end
+
     def initialize(title, code:, maker:, block:, frame_sync: :auto, fast_cartridge: true, fast_code: true)
       @title = title
       @code = code
