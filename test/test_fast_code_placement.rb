@@ -211,6 +211,39 @@ class TestFastCodePlacement < Minitest::Test
     refute_includes placement_of(looping_program)[:funcs], Placement::IRQ_ROUTINE
   end
 
+  # A timer is the other thing that can make it busy: `per_second: 4000` runs its handler 67
+  # times a frame, off the timer rather than the frame loop. So it moves for that too, which
+  # is what "this helps every interrupt, not only bends" has to mean in practice.
+  def ticking_program(per_second: 4000)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      n = var :n, 0
+      timer(:beat, per_second: per_second).on_tick { n.add 1 }
+      game_loop { fill_rect 0, 0, 40, 8, :green }
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  def test_the_routine_moves_for_a_busy_timer_too
+    assert_includes placement_of(ticking_program)[:funcs], Placement::IRQ_ROUTINE
+  end
+
+  # A timer that ticks a handful of times a second is not worth the room, the same as a
+  # program with no timer at all.
+  def test_a_slow_timer_does_not_earn_the_room
+    refute_includes placement_of(ticking_program(per_second: 2))[:funcs], Placement::IRQ_ROUTINE
+  end
+
+  def test_a_busy_timers_frame_is_cheaper_once_that_routine_moves
+    quick = frame_scanlines(ticking_program, fast_code: true)
+    cart = frame_scanlines(ticking_program, fast_code: false)
+    assert_operator cart / quick.to_f, :>, 1.3,
+                    "expected a real saving, got #{format('%.2fx', cart / quick.to_f)} (#{cart} -> #{quick})"
+  end
+
   def test_it_stays_in_the_cartridge_with_the_choosing_off
     refute_includes placement_of(bending_program, fast_code: false)[:funcs], Placement::IRQ_ROUTINE
   end

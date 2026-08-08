@@ -46,4 +46,55 @@ class TestCostCalibration < Minitest::Test
                     "model predicted ~#{predicted.round(1)} scanlines, hardware measured #{measured} — " \
                     "the cost weights have drifted from reality; re-measure and re-calibrate"
   end
+
+  # The same check for a timer's tick handler, which is nowhere in the frame the test above
+  # measures: its body runs off the timer, not the loop. A fast timer is most of a frame, so
+  # a drifted weight here would quietly hide that whole frame — which is exactly what this
+  # cost being missing did before it was priced.
+  #
+  # Measured by DIFFERENCE against the same program with no timer, so only the ticks are
+  # left; the timer's own rate is what the estimate has to get right, and it is written
+  # nowhere near the handler.
+  TICK_HZ = 4000
+
+  def ticking_frame(with_timer:)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      n = var :n, 0
+      timer(:beat, per_second: TICK_HZ).on_tick { n.add 1 } if with_timer
+      game_loop { }
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_the_model_predicts_what_a_timers_ticks_measure
+    with = ticking_frame(with_timer: true)
+    without = ticking_frame(with_timer: false)
+    backend = GBA.new
+    backend.lower(with)
+    moved = backend.iwram_report[:funcs].include?(RubyGBA::IR::Backends::GBA::Placement::IRQ_ROUTINE)
+    predicted = CostModel.new(fast_interrupts: moved).tick_cost(with)
+
+    measured = busy_scanlines(with) - busy_scanlines(without)
+    assert_operator measured, :>, 1, "4000 ticks a second is measurable work"
+    assert_in_delta predicted, measured, (predicted * 0.25) + 1,
+                    "model predicted ~#{predicted.round(1)} scanlines for #{TICK_HZ}Hz of ticks, " \
+                    "hardware measured #{measured.round(1)} — re-measure tick_interrupt"
+  end
+
+  def busy_scanlines(program)
+    rom = ROM.assemble(GBA.new.lower(program), title: "TICKCAL", code: "BTKC", maker: "01")
+    require_gemba_core!
+    Tempfile.create(["tick", ".gba"]) do |file|
+      file.binmode
+      rom.write(file.path)
+      probe = GembaCore.open(file.path)
+      reading = 3.times.map { probe.busy_scanlines(settle: 12) }.min
+      probe.close
+      return reading
+    end
+  end
 end

@@ -138,7 +138,7 @@ module RubyGBA
         # — so it stops being a bolt-on and rolls up with everything else. Within a
         # section the per-file / repeat folding still applies.
         def group_by_category(nodes, program)
-          nodes += mixer_nodes(program) + bend_nodes(program)
+          nodes += mixer_nodes(program) + bend_nodes(program) + tick_nodes(program)
           buckets = nodes.group_by { |node| node_category(node) }
           CATEGORY_ORDER.filter_map do |cat|
             kids = buckets[cat]
@@ -175,6 +175,29 @@ module RubyGBA
           layers = v[:layers].map { |name| ":#{name}" }.join(", ")
           [{ op: :bend, category: :logic, cost: v[:cost], children: [],
              label: "bending #{layers} row by row — interrupted on each of #{v[:lines]} lines a frame" }]
+        end
+
+        # One leaf per timer that runs a tick handler, for the same reason: the body runs off
+        # the timer rather than the frame loop, so it is nowhere in the op tree, and a frame
+        # that goes entirely into a fast timer would otherwise read as free. Its cost model
+        # lives in #tick_verdict, and the same LOGIC reasoning as a bend's applies.
+        def tick_nodes(program)
+          v = tick_verdict(program)
+          return [] unless v
+
+          v[:timers].map do |t|
+            { op: :tick, category: :logic, cost: t[:cost], children: [],
+              label: "timer :#{t[:name]} — its body runs #{tick_rate_phrase(t)}, off the timer itself" }
+          end
+        end
+
+        # How often a tick handler runs, said the way round that reads: several times a
+        # frame, or once every so many frames.
+        def tick_rate_phrase(entry)
+          return "#{entry[:ticks].round} times a frame" if entry[:ticks] >= 2
+
+          every = (1 / entry[:ticks]).round
+          every <= 1 ? "every frame" : "once every #{every} frames"
         end
 
         # The frame's cost as drawing / sound / logic sections — the categorized tree the

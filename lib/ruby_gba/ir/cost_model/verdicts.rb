@@ -218,16 +218,69 @@ module RubyGBA
           bend_verdict(program)&.fetch(:cost) || 0
         end
 
+        # What a timer's tick handler costs per frame, one entry per timer that runs one, or
+        # nil when none does.
+        #
+        # A tick handler is the other place a program spends a frame outside its own loop.
+        # `timer :beat, per_second: 4` runs its body four times a second whatever the frame
+        # loop is doing; at 4000 a second it runs 67 times a frame, and then it is most of
+        # the frame. Nothing about the statement it is written on says any of that — the rate
+        # is on the `timer` that started it — so the cost is worked out for the whole frame
+        # here and rolled in beside the mixer's and a bend's, the same way.
+        #
+        # Measured, the shape is the same as a bend's: the interrupt is the bigger half. One
+        # tick costs 0.113 scanlines before the body does anything, which is about six plain
+        # steps — so a body of one or two statements is mostly interrupt, and only a long
+        # body outweighs it. Each entry: { timers:, cost:, budget:, over: }
+        def tick_verdict(program)
+          index(program)
+          entries = program.walk.select { |node| node.kind == :on_timer }
+                           .filter_map { |node| tick_entry(program, node) }
+          return nil if entries.empty?
+
+          cost = entries.sum { |entry| entry[:cost] }
+          { timers: entries, cost: cost, budget: FRAME_BUDGET, over: cost > FRAME_BUDGET }
+        end
+
+        # One timer's share: how often it ticks a frame, times the interrupt plus its body.
+        # A handler on a timer that is never started has no rate and so no cost — it never
+        # runs.
+        def tick_entry(program, node)
+          hz = timer_rate(program, node[:timer])
+          return nil unless hz
+
+          ticks = hz / FULL_FRAME_RATE.to_f
+          interrupts = ticks * tick_interrupt_weight
+          body = in_fast_interrupts { ticks * node.children.sum { |child| steady(child) } }
+          { name: node[:timer], hz: hz, ticks: ticks,
+            interrupts: interrupts, body: body, cost: interrupts + body }
+        end
+
+        # How many times a second the named timer was started at.
+        def timer_rate(program, name)
+          program.walk.find { |node| node.kind == :timer_start && node[:name] == name }&.[](:hz)
+        end
+
+        # What one tick's interrupt costs — two weights, cartridge and faster memory, for
+        # exactly the reason #bend_line_weight gives.
+        def tick_interrupt_weight
+          @fast_interrupts ? @weights[:tick_interrupt_fast] : @weights[:tick_interrupt]
+        end
+
+        # The tick handlers' per-frame cost as a plain number (0 when no timer runs one).
+        def tick_cost(program)
+          tick_verdict(program)&.fetch(:cost) || 0
+        end
+
         # What a frame spends inside the routine the console jumps into when the display or
         # a timer announces something — the number that decides whether that routine is
         # worth keeping in faster memory (Backends::GBA::Placement#IRQ_ROUTINE).
         #
-        # Today that is bending backgrounds row by row, all of which happens in there: the
-        # per-line interrupt and the block that works each row's offset out. A timer's tick
-        # body runs in there too and is not priced yet, so a program whose only interrupt is
-        # a timer reads as spending nothing and its routine stays in the cartridge.
+        # Both things that land there: bending backgrounds row by row, and timers' tick
+        # handlers. All of each happens in that routine — the interrupt AND the body — so
+        # both count in full.
         def interrupt_frame_cost(program)
-          bend_cost(program)
+          bend_cost(program) + tick_cost(program)
         end
 
         # The rate the mixer runs at — the one most of the program's samples were recorded

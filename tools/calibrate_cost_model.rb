@@ -426,6 +426,26 @@ def bend_busy(bend, fast: false)
   measure(name, rom)
 end
 
+# A hardware timer ticking +hz+ times a second with a handler that does NOTHING: the bare
+# cost of being interrupted by it, with none of the program's own work in the way (the model
+# prices the handler's body separately, per tick). Differenced against the same ROM with no
+# timer at all. +fast+ builds it the way a real one is built, where the build keeps the
+# routine the tick lands in in the console's quick memory — the second weight, for the same
+# reason bend_busy needs one.
+TICK_HZ = 8000
+def tick_busy(ticking, fast: false)
+  name = "tick#{ticking ? 1 : 0}#{fast ? 'f' : ''}"
+  build = fast ? ->(*a, **k, &b) { RubyGBA.build(*a, **k, &b) } : method(:cartridge_build)
+  rom = build.call(name, code: "T#{ticking ? 1 : 0}#{fast ? 'F' : 'X'}X", maker: "01", err: StringIO.new) do
+    screen :bitmap
+    clear_screen :black
+    n = var :n, 0
+    timer(:beat, per_second: TICK_HZ).on_tick { } if ticking
+    game_loop { n.add 0 }
+  end
+  measure(name, rom)
+end
+
 def scroll_busy(per_frame)
   rom = cartridge_build("scr#{per_frame}", code: "SC#{per_frame.to_s.rjust(2, '0')}", maker: "01", err: StringIO.new) do
     screen :tiled
@@ -628,6 +648,16 @@ measured[:bend_line] =
 measured[:bend_line_fast] =
   (bend_busy(true, fast: true) - bend_busy(false, fast: true)) /
   RubyGBA::IR::CostModel::LINES_PER_FRAME.to_f
+
+# --- a timer's tick: what ONE tick costs. The other place a program is interrupted often —
+# `timer :beat, per_second: 8000` runs its handler 133 times a frame, whatever the frame loop
+# is doing. Cheaper per interrupt than a line's bend (which reads the scanline counter, works
+# a row out and writes a register on top), and the same two cases: from the cartridge, and
+# from the console's quick memory where a real build puts the routine.
+TICKS_PER_FRAME = TICK_HZ / 60.0
+measured[:tick_interrupt] = (tick_busy(true) - tick_busy(false)) / TICKS_PER_FRAME
+measured[:tick_interrupt_fast] =
+  (tick_busy(true, fast: true) - tick_busy(false, fast: true)) / TICKS_PER_FRAME
 
 # A sprite that turns, or changes size, is drawn through one of the display's 32
 # rotate/resize groups instead of straight, and that group is refilled every frame. Both

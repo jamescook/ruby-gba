@@ -54,7 +54,7 @@ module RubyGBA
           render_category_tree(tree, printer, frame_total, max_depth)
           render_hottest(tree, printer, top)
           glyph_footprint_lines(program, printer)
-          fast_memory_lines(printer) unless focus
+          fast_memory_lines(program, printer) unless focus
           budget_summary_lines(program, printer, frame_total, measured: measured) unless focus
         end
 
@@ -77,11 +77,11 @@ module RubyGBA
         # routines, says what they cost in memory, and says what a routine that did not
         # move would have needed — which is the number an author reaches for when they
         # want to make one fit.
-        def fast_memory_lines(printer)
+        def fast_memory_lines(program, printer)
           return if @placement.nil? || @placement[:funcs].empty?
 
           printer.puts "  kept in quick memory (code runs ~#{fmt(@weights[:fast_code_speedup])}x faster there):"
-          @placement[:funcs].each { |name| printer.puts "    #{quick_memory_label(name)}" }
+          @placement[:funcs].each { |name| printer.puts "    #{quick_memory_label(name, program)}" }
           printer.puts format("    %s of 32K used, %s free",
                               kb(@placement[:used_bytes]), kb(@placement[:free_bytes]))
         end
@@ -93,14 +93,27 @@ module RubyGBA
         # The interrupt routine also says its own figure, because it is the one thing here
         # that does NOT gain the factor on the line above: some of answering an interrupt is
         # the console's own doing and runs at the console's own speed wherever ours lives.
-        def quick_memory_label(name)
+        def quick_memory_label(name, program)
           case name
           when :__frame then "the game loop"
           when :__interrupt
-            gain = @weights[:bend_line] / @weights[:bend_line_fast]
-            "the routine that answers the display and the timers (~#{fmt(gain)}x here — " \
-              "part of an interrupt is the console's own work, which does not move)"
+            "the routine that answers the display and the timers " \
+              "(~#{fmt(interrupt_gain(program))}x here — part of an interrupt is the " \
+              "console's own work, which does not move)"
           else "func :#{name}"
+          end
+        end
+
+        # How much moving that routine is worth for THIS program, which depends on what
+        # interrupts it: a bend does more of its own work per interrupt than a timer's tick,
+        # so it gains more. Measured both ways (bend_line / tick_interrupt against their
+        # _fast twins). A program that bends is judged on the bend, since that is what fires
+        # 228 times a frame against a timer's handful.
+        def interrupt_gain(program)
+          if bend_verdict(program)
+            @weights[:bend_line] / @weights[:bend_line_fast]
+          else
+            @weights[:tick_interrupt] / @weights[:tick_interrupt_fast]
           end
         end
 
@@ -118,9 +131,9 @@ module RubyGBA
         # The analysis as a plain Hash, ready to serialize (rom.explain format: :json).
         def as_json(program)
           {
-            # everything on a frame, including the two standing costs the op tree can't
-            # show: the sound mixer and a row-by-row bend's per-line interrupt
-            frame_cost: frame_cost(program) + mixer_cost(program) + bend_cost(program),
+            # everything on a frame, including the standing costs the op tree can't show:
+            # the sound mixer, a row-by-row bend's per-line interrupt, and a timer's ticks
+            frame_cost: frame_cost(program) + mixer_cost(program) + bend_cost(program) + tick_cost(program),
             steady_cost: steady_cost(program), # what recurs every frame from the op tree (the tear risk)
             frame_budget: FRAME_BUDGET,        # the whole-frame 60fps deadline
             budget: budget_for(program),       # the drawing/tear budget (vblank, or the whole frame when buffered)
@@ -131,6 +144,7 @@ module RubyGBA
             songs: song_verdicts(program),     # per-song music cost vs the music budget
             mixer: mixer_verdict(program),     # the software mixer's per-frame CPU (nil if no sampled sound)
             bend: bend_verdict(program),       # a row-by-row bend's per-frame CPU (nil if nothing bends)
+            ticks: tick_verdict(program),      # each timer's tick handler per frame (nil if no timer runs one)
             glyphs: IR::GlyphUsage.footprint(program), # per-font reachable-glyph footprint
             unestimated: unpriced_kinds(program).sort,  # op kinds the model can't price (counted as free)
             tree: category_tree(program),      # the frame's cost as drawing / sound / logic sections
@@ -192,7 +206,7 @@ module RubyGBA
           # spike (a transition repaint, an every() tick) is named separately below, not
           # judged as if it ran every frame: 60fps against the whole recurring load,
           # tearing against the recurring DRAWING alone (only drawing races the vblank).
-          recurring = steady_cost(program) + mixer_cost(program) + bend_cost(program)
+          recurring = steady_cost(program) + mixer_cost(program) + bend_cost(program) + tick_cost(program)
           recurring_drawing = steady_drawing_cost(program)
           if measured
             # A measurement is the verdict: the real per-frame cost / frame rate, per scene
@@ -214,6 +228,7 @@ module RubyGBA
           end
 
           bend_line(program, printer)
+          tick_lines(program, printer)
 
           if (cw = collision_worst_case(program)).positive?
             printer.puts "    (collision is the worst case — ~#{fmt(cw)} if every per-pixel test lands on one frame. " \
@@ -271,6 +286,33 @@ module RubyGBA
                               "%d of its lines (~%s), and each row's own offset is worked out (~%s)",
                               layers, fmt(verdict[:cost]), verdict[:lines],
                               fmt(verdict[:interrupts]), fmt(verdict[:offsets]))
+        end
+
+        # Below this a timer's per-frame cost prints as "<0.1" anyway, so there is nothing to
+        # say about it.
+        TICK_WORTH_SAYING = 0.1
+
+        # What each timer's tick handler costs the frame, and why. Like a bend, the work is
+        # not per statement — it is per tick, at a rate written somewhere else entirely (on
+        # the `timer` that started it) — so a reader looking at the handler's body has no way
+        # to see how often it runs. It also says which part is the interrupt, because for a
+        # short body that is most of it and the body is the thing they would try to shorten.
+        #
+        # A timer slow enough to cost nothing measurable gets no line. Unlike a bend, which is
+        # never cheap, most timers tick a handful of times a second, and a line reading "costs
+        # ~<0.1" in the budget section only teaches a reader to skip the section. It is still
+        # in the tree above, which is where everything is.
+        def tick_lines(program, printer)
+          verdict = tick_verdict(program) or return
+
+          verdict[:timers].each do |t|
+            next if t[:cost] < TICK_WORTH_SAYING
+
+            printer.puts format("    timer :%s costs ~%s a frame — it ticks %d times a second, so its body " \
+                                "runs %s (interrupts ~%s, the body ~%s)",
+                                t[:name], fmt(t[:cost]), t[:hz], tick_rate_phrase(t),
+                                fmt(t[:interrupts]), fmt(t[:body]))
+          end
         end
 
         # No measurement ran (the emulator was not available), so the frame rate is an
