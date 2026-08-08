@@ -184,12 +184,29 @@ module RubyGBA
       watch = scene_watch(vars, stays_in, held)
       peak = 0.0
       WINDOW.times do
-        peak = [peak, probe.frame_cost(keys: held).active_scanlines].max
+        peak = [peak, frame_scanlines(probe.frame_cost(keys: held))].max
         return nil if watch && probe.read32(watch) != stays_in[:value]
       end
       Result.new(scanlines: peak, fps: nil, keys: held)
     ensure
       probe&.close
+    end
+
+    # What one measured frame cost, from the probe's two clocks — the LARGER of them,
+    # because each one is blind to something the other sees and neither can overstate a
+    # frame.
+    #
+    # The wall-clock reading is the frame minus the time the CPU spent asleep, so it counts
+    # the stall while a DMA engine copies, which the CPU-executing count cannot see. But it
+    # is measured by summing the sleeps, and a program the hardware wakes over and over —
+    # one bending a background is woken 228 times a frame — has its waking time counted
+    # into a sleep and comes out BELOW the cycles it demonstrably executed. Bending
+    # examples/lake.rb reads 29 that way against 38 executed.
+    #
+    # So take whichever is higher. A DMA-heavy frame reads its stall; an interrupt-heavy one
+    # reads its CPU; an ordinary one reads the same either way.
+    def frame_scanlines(cost)
+      [cost.active_scanlines, cost.busy_scanlines].max
     end
 
     # Where to watch for the game leaving the scene being measured: the address of the

@@ -138,7 +138,7 @@ module RubyGBA
         # — so it stops being a bolt-on and rolls up with everything else. Within a
         # section the per-file / repeat folding still applies.
         def group_by_category(nodes, program)
-          nodes += mixer_nodes(program)
+          nodes += mixer_nodes(program) + bend_nodes(program)
           buckets = nodes.group_by { |node| node_category(node) }
           CATEGORY_ORDER.filter_map do |cat|
             kids = buckets[cat]
@@ -157,6 +157,24 @@ module RubyGBA
 
           [{ op: :mixer, category: :sound, cost: v[:cost], children: [],
              label: "software mixer — worst case, all #{v[:voices]} voices summed each frame" }]
+        end
+
+        # A row-by-row bend as a cost leaf, or none when nothing bends. It belongs in the
+        # tree for the same reason the mixer does: it is real recurring work that is not an
+        # IR op, and a frame total that left it out would read as nearly free for a program
+        # whose whole cost is the bend. Its cost model lives in #bend_verdict.
+        #
+        # LOGIC, not drawing, though it is a display effect. The drawing section is the
+        # work that races the brief gap between frames and can tear; this is CPU spread
+        # through the whole frame, touching no video memory — it can cost a frame its rate,
+        # never tear it.
+        def bend_nodes(program)
+          v = bend_verdict(program)
+          return [] unless v
+
+          layers = v[:layers].map { |name| ":#{name}" }.join(", ")
+          [{ op: :bend, category: :logic, cost: v[:cost], children: [],
+             label: "bending #{layers} row by row — interrupted on each of #{v[:lines]} lines a frame" }]
         end
 
         # The frame's cost as drawing / sound / logic sections — the categorized tree the

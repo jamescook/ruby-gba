@@ -169,6 +169,29 @@ module RubyGBA
                              walls: wall_rects(img_rows, set))
       end
 
+      # Record a background's per-row bend (see {Background#scroll_each_row}). The block
+      # is handed the row as a {Value} and gives back the sideways offset for it; anything
+      # else the block records runs first, in the same place.
+      #
+      # An internal hook, not a DSL verb — `background(...).scroll_each_row { }` is the
+      # surface.
+      def record_row_bend(name, row_var, &block)
+        unless @screen_mode == :tiled
+          raise ArgumentError,
+                "#{name}.scroll_each_row bends a tiled background row by row, so it needs a " \
+                "`screen :tiled`. A bitmap screen has no background layer to bend — it has pixels you " \
+                "draw. To bend a picture there, draw each row where you want it with `draw_rect_at` " \
+                "or `blit`."
+        end
+
+        ensure_var(row_var)
+        node = Build.scroll_rows(name, row: row_var, offset: Build.int(0))
+        offset = nil
+        push_container(node) { offset = block.call(Value.new(self, Build.var_ref(row_var))) }
+        node[:offset] = Value.node_for(offset)
+        node
+      end
+
       private
 
       # Import a tileset from a sheet by CHARACTER: slice the file into cells of the

@@ -98,6 +98,9 @@ module RubyGBA
         # move the visible window over a background: which background, and the run-time
         # top-left offset (x, y) in pixels.
         scroll_background: { name: :name, x: :value, y: :value },
+        # bend a background row by row: which background, the variable the row number is
+        # put in, and the sideways offset worked out from it. #children run first.
+        scroll_rows:       { name: :name, row: :name, offset: :value },
         # move the window over the whole displayed picture: the run-time top-left
         # offset (x, y) in pixels. Nothing is named — it moves everything.
         camera:            { x: :value, y: :value },

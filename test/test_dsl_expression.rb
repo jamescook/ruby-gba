@@ -132,6 +132,23 @@ class TestDSLExpression < Minitest::Test
     assert_equal Color.resolve(:white), pixel_at(i, 20, 40)
   end
 
+  # `flip` mutates a variable in place; unary minus is the same idea as an EXPRESSION —
+  # `-speed` reads as far backwards as `speed` reads forwards, without disturbing speed.
+  # It is what you reach for writing a wave that runs the other way.
+  def test_unary_minus_is_the_value_the_other_way_round
+    # d stays 5; the marker's x is 25 + (-5) = 20, so reading the marker proves both that
+    # the sign flipped and that d itself was left alone.
+    i = interpret do
+      d = var :d, 5
+      m = var :m, 0
+      m.set(25 + -d)
+      draw_rect_at :m, 40, 2, 2, :white
+      draw_rect_at :d, 60, 2, 2, :green
+    end
+    assert_equal Color.resolve(:white), pixel_at(i, 20, 40)
+    assert_equal Color.resolve(:green), pixel_at(i, 5, 60), "d was not changed by reading -d"
+  end
+
   def test_division_truncates_toward_zero
     # 20 / 3 = 6 (truncated, not 6.66); the marker's x reveals the quotient.
     i = interpret do

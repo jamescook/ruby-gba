@@ -400,6 +400,25 @@ end
 
 # Per-frame cost of scrolling a background `per_frame` times — each scroll is a couple
 # of register writes.
+# A tiled background, optionally bending row by row. With +bend+ the display raises an
+# interrupt after every line it draws and the handler writes that line's own scroll
+# offset — so this ROM pays the whole per-line cost 228 times a frame. The offset is a
+# number written into the program, the cheapest one there is, so differencing against the
+# same ROM without the bend leaves the interrupt itself and nothing of the program's own
+# arithmetic (which the model prices separately, per visible line).
+def bend_busy(bend)
+  name = "bend#{bend ? 1 : 0}"
+  rom = cartridge_build(name, code: "BN#{bend ? 1 : 0}X", maker: "01", err: StringIO.new) do
+    screen :tiled
+    image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
+    tiles :ts, "#" => :t
+    bg = background :bg, tiles: :ts, map: Array.new(20, "#" * 30)
+    bg.scroll_each_row { |_row| 3 } if bend
+    game_loop { wait_vblank }
+  end
+  measure(name, rom)
+end
+
 def scroll_busy(per_frame)
   rom = cartridge_build("scr#{per_frame}", code: "SC#{per_frame.to_s.rjust(2, '0')}", maker: "01", err: StringIO.new) do
     screen :tiled
@@ -586,6 +605,16 @@ measured[:dma_pixel] = dma_pixel
 # writes per background scroll.
 measured[:obj_write] = (sprites_busy(64) - sprites_busy(8)) / (64 - 8).to_f
 measured[:scroll_write] = (scroll_busy(40) - scroll_busy(8)) / (40 - 8).to_f
+
+# --- bending a background row by row: what ONE line costs. The display announces the end
+# of every line it draws, all 228 of them, and each announcement stops the game, saves
+# registers, works the line's offset out and resumes. That fixed cost dwarfs the offset
+# expression itself — measured, a table lookup per line adds a fortieth of what the
+# interrupts add — which is why it gets a weight of its own rather than being folded into
+# the arithmetic. Divided over every line the display counts, not just the visible ones:
+# the interrupt fires below the picture too.
+measured[:bend_line] =
+  (bend_busy(true) - bend_busy(false)) / RubyGBA::IR::CostModel::LINES_PER_FRAME.to_f
 
 # A sprite that turns, or changes size, is drawn through one of the display's 32
 # rotate/resize groups instead of straight, and that group is refilled every frame. Both

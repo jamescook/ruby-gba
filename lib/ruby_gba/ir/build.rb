@@ -460,6 +460,20 @@ module RubyGBA
         Node.new(:scroll_background, name: name, x: wrap(x), y: wrap(y))
       end
 
+      # Give every ROW of the picture its own sideways offset on top of the named
+      # background's scroll. +row+ names the variable the row number is put in (0 at the
+      # top of the picture, counting down), and +offset+ is the expression worked out from
+      # it — so a program says "row R sits this many pixels across" and the whole picture
+      # bends. +body+ is any statement that has to run before the offset is worked out.
+      #
+      # This says *the picture is not one flat rectangle* — each row is windowed
+      # separately. A backend that draws the picture itself reads the offset per row as it
+      # paints; a backend with display hardware that re-reads its scroll position for
+      # every row it draws can hand the whole thing over and pay nothing per pixel.
+      def scroll_rows(name, row:, offset:, body: [])
+        Node.new(:scroll_rows, children: body, name: name, row: row, offset: wrap(offset))
+      end
+
       # Move the whole displayed picture. x/y are where the visible window's top-left
       # sits over the drawn image, in pixels, as run-time values — so (0, 0) shows the
       # picture as drawn, and a small changing offset jitters it (a screen shake).

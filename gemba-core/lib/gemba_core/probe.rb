@@ -184,6 +184,14 @@ module GembaCore
     # frame burns real frame budget the busy count alone cannot see. +active+
     # is everything but the end-of-frame halt (executing plus DMA-stall);
     # +dma+ is the difference — the stall time.
+    #
+    # Neither number is the whole cost on its own. +active+ is measured as the
+    # frame minus the time the CPU spent halted, so a ROM the hardware wakes
+    # over and over — one taking an interrupt on every scanline, say — has some
+    # of its waking time counted into a halt and reads BELOW its own +busy+.
+    # When a single figure is wanted for "what did this frame cost", take the
+    # larger of the two: each is blind to something the other sees, and neither
+    # can overstate a frame.
     FrameCost = Data.define(:busy_cycles, :active_cycles, :cycles_per_scanline) do
       def busy_scanlines = busy_cycles / cycles_per_scanline
       def active_scanlines = active_cycles / cycles_per_scanline

@@ -171,6 +171,41 @@ module RubyGBA
             cost: cost, budget: FRAME_BUDGET, over: cost > FRAME_BUDGET }
         end
 
+        # What bending backgrounds row by row costs per frame, or nil when nothing bends.
+        # One entry for the whole program, since every bend rides the same per-line
+        # interrupt: the interrupt itself is paid once per line the display counts, and each
+        # bend's own offset expression once per visible line.
+        #
+        # It is worth naming rather than folding into the tree because the shape surprises
+        # people: the cost has almost nothing to do with what you wrote in the block. A
+        # constant and a table lookup measured within a fortieth of each other — the price
+        # is the 228 interruptions, and the block is a rounding error unless you put
+        # something dear in it. Each entry: { layers:, lines:, cost:, budget:, over: }
+        def bend_verdict(program)
+          bends = program.walk.select { |node| node.kind == :scroll_rows }
+          return nil if bends.empty?
+
+          interrupts = LINES_PER_FRAME * @weights[:bend_line]
+          offsets = bends.sum { |node| VISIBLE_LINES * bend_offset_cost(node) }
+          cost = interrupts + offsets
+          { layers: bends.map { |node| node[:name] }.uniq, lines: LINES_PER_FRAME,
+            interrupts: interrupts, offsets: offsets,
+            cost: cost, budget: FRAME_BUDGET, over: cost > FRAME_BUDGET }
+        end
+
+        # What working ONE row's offset out costs: the program's expression, plus anything
+        # it put in the block before it. The register write and the row bookkeeping are
+        # already in the per-line weight.
+        def bend_offset_cost(node)
+          expr_cost(node[:offset]) + node.children.sum { |child| op_cost(child) }
+        end
+
+        # The bend's per-frame cost as a plain number (0 when nothing bends), for adding to
+        # a frame the way the mixer's is.
+        def bend_cost(program)
+          bend_verdict(program)&.fetch(:cost) || 0
+        end
+
         # The rate the mixer runs at — the one most of the program's samples were recorded
         # at (matching the backend), so the buffer size is right. Defaults when none say.
         def mixer_rate(program)
