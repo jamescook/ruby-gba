@@ -11,6 +11,11 @@ module RubyGBA
       # operands it was handed cost. Keeping those apart is what lets the operand half be
       # found from a node's attributes instead of named one kind at a time — see
       # #raw_operand_cost.
+      #
+      # A third question is asked only of a node inside a routine the build kept in the
+      # console's quick memory: how much of it is a transfer engine copying rather than the
+      # CPU running instructions, since only the second half of that gets any faster there.
+      # See ENGINE_WEIGHTS.
       module Pricing
         private
 
@@ -20,23 +25,64 @@ module RubyGBA
         # a single pixel, and a `clamp` whose bounds are worked out at run time evaluates
         # them every time. Operands are found from the node's attributes, so an op added
         # later can't hold unpriced work.
+        #
+        # The engine's share is taken out before the quick-memory discount and added back
+        # after, so it is charged in full wherever the code lives. Operands are always
+        # instructions, so they are discounted whole.
         def op_cost(node, worst: true)
-          (own_op_cost(node) + raw_operand_cost(node, worst)) * fast_memory_factor
+          own = own_op_cost(node)
+          engine = engine_op_cost(node)
+          ((own - engine + raw_operand_cost(node, worst)) * fast_memory_factor) + engine
         end
 
         # What a scanline of work costs when the code doing it lives in the console's
         # faster memory: less, by a measured amount. Every weight in the model describes
         # code running from the cartridge, which is where code runs unless the build
         # decides otherwise, so this is the one place the other case is priced.
-        #
-        # It scales the WHOLE op, including the part that is memory rather than
-        # instructions. That is the coarse bit, and it is what the measurement says: taken
-        # frame by frame across the examples, moving a game's loop into the faster memory
-        # is worth between 2.6 and 3.0 times whatever the frame was doing, which is close
-        # enough to one number that splitting it would be inventing precision.
         def fast_memory_factor
           @in_fast_code ? 1.0 / @weights[:fast_code_speedup] : 1
         end
+
+        # THE PART OF AN OP THAT IS NOT INSTRUCTIONS, and so gains nothing from being kept in
+        # the quick memory.
+        #
+        # A transfer is not the CPU running code. The CPU writes a few registers to set the
+        # copy going and is then STOPPED while a separate engine moves the pixels — it executes
+        # nothing at all until the copy is done. So moving that code to faster memory speeds up
+        # the register writes and cannot touch the copy, however far the rest of the frame gains.
+        #
+        # Measured, that is the whole story of a bitmap game's frame. The same program built
+        # both ways: a `clear_screen` on the tear-free screen costs 23.60 scanlines with the loop
+        # in quick memory and 23.70 without it — no gain at all, because it is one transfer of
+        # the whole picture. Five hundred adds go 3.86 against 9.94, the full factor. Charging
+        # both at the full factor made four of the examples estimate at four tenths of what the
+        # emulator measured, and in the direction that matters: a game the estimate called
+        # comfortable would tear on the console.
+        #
+        # So the discount applies to the op MINUS this. It is worked out by pricing the same op
+        # again with every other weight zeroed, which keeps one implementation of each op's shape
+        # rather than a second copy that could drift from the first.
+        ENGINE_WEIGHTS = %i[dma_engine_start dma_pixel tearfree_fill_pixel].freeze
+
+        def engine_op_cost(node)
+          return 0 unless @in_fast_code # nothing is being discounted, so there is nothing to hold back
+
+          with_engine_weights { own_op_cost(node) }
+        end
+
+        def with_engine_weights
+          was = @weights
+          @weights = @engine_weights
+          yield
+        ensure
+          @weights = was
+        end
+
+        # What STARTING one row's transfer costs, both sides of the line: the CPU's register
+        # writes, and the engine's own moment before the first pixel moves. They are separate
+        # weights so that the discount above can reach one and not the other; every caller wants
+        # the pair.
+        def dma_start_weight = @weights[:dma_cpu_start] + @weights[:dma_engine_start]
 
         def own_op_cost(node)
           case node.kind
@@ -413,7 +459,7 @@ module RubyGBA
           pixels = SCREEN_W * SCREEN_H
           return dma_blob_cost(pixels) unless tear_free?
 
-          @weights[:dma_setup] + (pixels * @weights[:dma_pixel] / 2)
+          dma_start_weight + (pixels * @weights[:dma_pixel] / 2)
         end
 
         # A LIVE digit is not a line of text, and pricing it as one was most of the way to
@@ -503,7 +549,7 @@ module RubyGBA
           return 0 unless w && h && x && y
 
           transfer = w * h * @weights[:tearfree_fill_pixel]
-          return @weights[:tearfree_rect_start] + @weights[:dma_setup] + transfer if full_width_run?(x, y, w, h)
+          return @weights[:tearfree_rect_start] + dma_start_weight + transfer if full_width_run?(x, y, w, h)
 
           @weights[:tearfree_rect_start] + (h * tearfree_fill_row_cost(x, w)) + transfer
         end
@@ -514,7 +560,7 @@ module RubyGBA
         def tearfree_fill_row_cost(x, w)
           edges = x.odd? ? 2 * @weights[:tearfree_edge] : 0
           middle = x.odd? ? w - 2 : w
-          edges + (middle.positive? ? @weights[:dma_setup] : 0)
+          edges + (middle.positive? ? dma_start_weight : 0)
         end
 
         # Whether a rectangle covers whole screen rows with nothing clipped off, so it
@@ -598,7 +644,7 @@ module RubyGBA
           # the estimate says out loud that it could not account for it.
           return 0 unless w && h
 
-          (h * @weights[:dma_setup]) + (w * h * @weights[:dma_pixel])
+          (h * dma_start_weight) + (w * h * @weights[:dma_pixel])
         end
 
         # A rect side as a build-time number, or nil when the game works it out as it
@@ -621,7 +667,7 @@ module RubyGBA
         # A single DMA transfer of +pixels+ pixels in one shot (a whole-screen clear):
         # one setup, then the transfer. For a big blob the transfer dominates.
         def dma_blob_cost(pixels)
-          @weights[:dma_setup] + pixels * @weights[:dma_pixel]
+          dma_start_weight + pixels * @weights[:dma_pixel]
         end
 
         # The per-frame cost of playing +name+. The sequencer keeps a cursor per voice

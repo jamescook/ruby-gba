@@ -17,7 +17,7 @@ class TestCostDomains < CostModelTest
   # conformance fixture does for an unpriced IR kind: you cannot add one silently.
   #
   # The note is what makes measured_weights.rb readable as a SET — the one place a person can
-  # see all 48 weights, what each stands for and where it can be trusted, without grepping the
+  # see every weight, what each stands for and where it can be trusted, without grepping the
   # measurement script. There is deliberately no second document saying the same thing: a
   # generated copy of a generated file is one more thing to keep in step for no new fact.
   def test_every_weight_records_where_it_was_measured

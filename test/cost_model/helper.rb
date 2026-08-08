@@ -18,7 +18,11 @@ require "stringio"
 module CostArith
   WEIGHTS = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
 
-  def dma_rows(w, h) = (h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:dma_pixel])
+  # Starting one row's transfer, both sides of the line: the CPU's register writes and the
+  # engine's own moment before the first pixel moves. Two weights because only the first
+  # gets faster when the code is kept in the console's quick memory.
+  def dma_start = WEIGHTS[:dma_cpu_start] + WEIGHTS[:dma_engine_start]
+  def dma_rows(w, h) = (h * dma_start) + (w * h * WEIGHTS[:dma_pixel])
   # fill_rect in direct color: every pixel written out, one store each. They are a RUN,
   # which is cheaper per pixel than a lone `pixel` (that has to work out a whole address
   # and fetch its color for the one write).
@@ -31,15 +35,15 @@ module CostArith
     WEIGHTS[:blit_start] + (lit_rows * WEIGHTS[:blit_row]) +
       (lit_pixels * WEIGHTS[:blit_pixel]) + (wide * WEIGHTS[:blit_wide_color])
   end
-  def dma_blob(pixels) = WEIGHTS[:dma_setup] + (pixels * WEIGHTS[:dma_pixel])
+  def dma_blob(pixels) = dma_start + (pixels * WEIGHTS[:dma_pixel])
   # The same whole-screen clear on the TEAR-FREE screen. It holds a pixel as one byte
   # where the direct-color screen holds the color itself in two, so one transfer covers
   # twice as many pixels — the same picture for half the work.
-  def tearfree_clear = WEIGHTS[:dma_setup] + (240 * 160 * WEIGHTS[:dma_pixel] / 2)
+  def tearfree_clear = dma_start + (240 * 160 * WEIGHTS[:dma_pixel] / 2)
   # A rectangle of a fixed size on the tear-free screen: a block fill per row, plus the
   # transfer, plus what it costs before the first row.
   def tearfree_fill(w, h)
-    WEIGHTS[:tearfree_rect_start] + (h * WEIGHTS[:dma_setup]) + (w * h * WEIGHTS[:tearfree_fill_pixel])
+    WEIGHTS[:tearfree_rect_start] + (h * dma_start) + (w * h * WEIGHTS[:tearfree_fill_pixel])
   end
   # A repeat: each pass runs the body AND pays for going round (the count, the test, the
   # jump back), which is real work and roughly three plain steps.
