@@ -62,7 +62,8 @@ module RubyGBA
         # So the discount applies to the op MINUS this. It is worked out by pricing the same op
         # again with every other weight zeroed, which keeps one implementation of each op's shape
         # rather than a second copy that could drift from the first.
-        ENGINE_WEIGHTS = %i[dma_engine_start dma_pixel tearfree_fill_pixel].freeze
+        ENGINE_WEIGHTS = %i[dma_engine_start dma_pixel
+                            tearfree_engine_stall tearfree_fill_pixel].freeze
 
         def engine_op_cost(node)
           return 0 unless @in_fast_code # nothing is being discounted, so there is nothing to hold back
@@ -515,13 +516,16 @@ module RubyGBA
         #
         # A pixel there is one byte — a number that picks a color out of a table — and
         # video memory refuses to write a lone byte. The smallest write covers two
-        # side-by-side pixels. So every row of a rectangle is built out of three things:
+        # side-by-side pixels. So every row of a rectangle is built out of four things:
         #
         #   a PAIR    two side-by-side pixels in one write, the cheapest thing there is
         #   an EDGE   a pixel whose neighbour is outside the rectangle, so it is read,
         #             half of it changed, and written back
         #   a FILL    a run handed to the block-fill engine, which costs the same to
         #             start whatever it then moves
+        #   a PART    reaching any of those: working out where in memory it goes. The row
+        #             already knows where it starts, so its first part gets this for
+        #             nothing and each one after it pays
         #
         # A narrow run is written out as pairs instead, because starting the engine costs
         # many times what a pair does (Backends::GBA::Buffered
@@ -557,6 +561,13 @@ module RubyGBA
         # One row of a fixed rectangle: the fill, plus the two edge pixels an odd column
         # forces (both ends of the row then share a pair with a pixel outside it). A
         # two-pixel rectangle at an odd column is all edge and has no fill at all.
+        #
+        # Both weights here are BORROWED from shapes measured elsewhere, because a fixed
+        # rectangle is a third emitter again: its rows are unrolled with every address
+        # settled while building, so its ends are not the moving rectangle's spliced ends
+        # and its fill is not the moving rectangle's. Measured, a row of one reads 1.12 at
+        # an even column and 0.91 at an odd one — inside the calibration band at both, and
+        # in opposite directions, so a whole rectangle is nearer than either.
         def tearfree_fill_row_cost(x, w)
           edges = x.odd? ? 2 * @weights[:tearfree_edge] : 0
           middle = x.odd? ? w - 2 : w
@@ -593,25 +604,38 @@ module RubyGBA
           [false, true].map { |odd| tearfree_row_parity_cost(w, odd) }.max
         end
 
-        # A row of a rectangle that starts on an odd or an even column: its edge pixels,
-        # and the run between them either written out as pairs or handed to the fill
-        # engine. (The split mirrors Backends::GBA::Buffered#rect_row_parts.)
+        # A row of a moving rectangle, built out of the PARTS the emitter builds it out of:
+        # a spliced near end, a run of middle, a spliced far end. Which of the three a row
+        # has follows from the column it starts in and how wide it is
+        # (Backends::GBA::Buffered#rect_row_parts decides; if that moves, this must).
         #
-        # The two are priced from separate weights and not from one set, because they are
-        # not the same work. A row written out as pairs costs the step to reach it, its
-        # spliced ends, and its pairs. A row handed to the ENGINE costs the step and the
-        # start of the transfer together — and those cannot be composed from the fixed
-        # rectangle's weight, which pays to rebuild a destination this row only steps
-        # along. Doing that charged the address work twice.
+        # Every part forms its own address, and only the first one starts where the row
+        # itself does — so a row with three parts pays for reaching a place twice more than
+        # a row with one. That is what `tearfree_part` is, and leaving it out is what used
+        # to make a rectangle at an odd column read at seven tenths of its cost: the two
+        # ends' own address work, plus the near end's extra step to name its unit, went
+        # uncharged. Measured against the emulator, a row of this screen costs the same
+        # 0.0032 scanlines per instruction whatever shape it is, so counting the parts is
+        # the whole of getting it right.
         def tearfree_row_parity_cost(w, starts_odd)
-          left = starts_odd ? 1 : 0
-          right = (starts_odd ? w + 1 : w).odd? ? 1 : 0
-          middle = w - left - right
-          edges = left + right
-          return tearfree_engine_row_cost(middle, edges) if engine_worth_starting?(middle)
+          near = starts_odd ? 1 : 0
+          far = (starts_odd ? w + 1 : w).odd? ? 1 : 0
+          middle = w - near - far
+          parts = near + far + (middle.positive? ? 1 : 0)
 
-          @weights[:tearfree_row] + (edges * @weights[:tearfree_edge]) +
-            ((middle / 2) * @weights[:tearfree_pair])
+          @weights[:tearfree_row] + ((parts - 1) * @weights[:tearfree_part]) +
+            (near * @weights[:tearfree_edge_near]) + (far * @weights[:tearfree_edge]) +
+            tearfree_middle_cost(middle)
+        end
+
+        # The run between a row's spliced ends: written straight out as pairs of pixels, or
+        # handed to the block-fill engine when it is long enough to be worth starting.
+        def tearfree_middle_cost(middle)
+          return 0 unless middle.positive?
+          return (middle / 2) * @weights[:tearfree_pair] unless engine_worth_starting?(middle)
+
+          @weights[:tearfree_engine_start] + @weights[:tearfree_engine_stall] +
+            (middle * @weights[:tearfree_fill_pixel])
         end
 
         # Whether a run is long enough to be worth starting the engine for, rather than
@@ -619,17 +643,6 @@ module RubyGBA
         # decides this; if that moves, this must.)
         def engine_worth_starting?(middle)
           middle.positive? && (middle / 2) > TEARFREE_DIRECT_PAIRS
-        end
-
-        # One row of a moving rectangle handed to the engine: reaching the row and starting
-        # the transfer, its spliced ends, and the transfer itself.
-        #
-        # The two ends are not quite alike — measured, the near one costs about a third more
-        # than the far one — and one figure between them is charged. That only shows on a
-        # row with exactly ONE spliced end, which is an odd width.
-        def tearfree_engine_row_cost(middle, edges)
-          @weights[:tearfree_engine_row] + (edges * @weights[:tearfree_engine_edge]) +
-            (middle * @weights[:tearfree_fill_pixel])
         end
 
         # A rectangle filled/copied by DMA one row at a time (a DMA fill, an opaque blit, a

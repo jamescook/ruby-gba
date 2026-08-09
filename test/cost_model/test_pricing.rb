@@ -91,6 +91,23 @@ class TestCostPricing < CostModelTest
     near((cpu / WEIGHTS[:fast_code_speedup]) + engine, Cost.new(fast_frame: true).frame_cost(fill))
   end
 
+  # The same line, on the OTHER screen. A moving rectangle wide enough to be worth starting
+  # the engine for hands it the run and then waits, so that wait is the engine's and not the
+  # code's — priced together with the register writes, the wait got a discount it can never
+  # earn, and a tear-free game read cheap for the same reason a bitmap one did.
+  def test_a_moving_rectangle_discounts_its_register_writes_and_not_its_transfer
+    w = 40
+    h = 20
+    rect = program do
+      screen :bitmap, tear_free: true
+      y = var :y, 0
+      game_loop { draw_rect_at 40, y, w, h, :red } # an even column: no ends to splice
+    end
+    engine = h * (WEIGHTS[:tearfree_engine_stall] + (w * WEIGHTS[:tearfree_fill_pixel]))
+    cpu = WEIGHTS[:tearfree_moving_start] + (h * (WEIGHTS[:tearfree_row] + WEIGHTS[:tearfree_engine_start]))
+    near((cpu / WEIGHTS[:fast_code_speedup]) + engine, Cost.new(fast_frame: true).frame_cost(rect))
+  end
+
   # A blit costs its image's footprint (width x height), looked up from the bitmap
   # definition — so a game's sprites weigh in the estimate, not silently as zero.
   def test_blit_costs_its_image_footprint

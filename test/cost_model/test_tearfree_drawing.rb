@@ -134,18 +134,46 @@ class TestTearFreeDrawing < CostModelTest
     assert_operator ratio, :>, 0.95, "but it still starts the same engine, so it is not much cheaper"
   end
 
-  # Splicing the two ends of a WIDE row costs more than splicing the ends of a narrow one:
-  # the engine is being started between them. Priced from the narrow row's edges, an odd
-  # column read under.
-  def test_a_wide_row_splices_its_ends_at_its_own_price
-    even = tear_free { game_loop { draw_rect_at 40, 20, 40, 40, :red } }
+  # An end is the same work whatever the middle beside it does — the emitter splices it
+  # with the same instructions either way — so it is the same weight either way. It used
+  # to have a second weight of its own for wide rows, worth a third more, which was really
+  # the row's unaccounted address work hiding inside an averaged figure.
+  def test_a_row_splices_its_ends_at_the_same_price_whatever_its_middle_does
+    even = tear_free { game_loop { draw_rect_at 40, 20, 40, 40, :red } } # a middle for the engine
     odd  = tear_free { game_loop { draw_rect_at 41, 20, 40, 40, :red } }
 
-    # An odd column splices both ends, and those two pixels leave the run the engine moves.
-    near 40 * 2 * (WEIGHTS[:tearfree_engine_edge] - WEIGHTS[:tearfree_fill_pixel]),
+    # An odd column splices both ends and so has three parts where the even row had one;
+    # the two spliced pixels also leave the run the engine moves.
+    near 40 * ((2 * WEIGHTS[:tearfree_part]) + WEIGHTS[:tearfree_edge_near] +
+               WEIGHTS[:tearfree_edge] - (2 * WEIGHTS[:tearfree_fill_pixel])),
          Cost.new.steady_cost(odd) - Cost.new.steady_cost(even)
-    assert_operator WEIGHTS[:tearfree_engine_edge], :>, WEIGHTS[:tearfree_edge],
-                    "an end spliced beside a starting engine costs more than one written among pairs"
+  end
+
+  # The two ends are NOT alike, and that is not a rounding difference. The near one has to
+  # clear a bit to name the pair its pixel sits in; the far one is already on a pair
+  # boundary. A rectangle one pixel wide is exactly one end and nothing else, so the two
+  # can be told apart by which column it stands in.
+  def test_the_near_end_of_a_row_costs_more_than_the_far_end
+    far  = tear_free { game_loop { draw_rect_at 40, 0, 1, 100, :red } } # even: only a far end
+    near_end = tear_free { game_loop { draw_rect_at 41, 0, 1, 100, :red } } # odd: only a near end
+
+    near 100 * (WEIGHTS[:tearfree_edge_near] - WEIGHTS[:tearfree_edge]),
+         Cost.new.steady_cost(near_end) - Cost.new.steady_cost(far)
+    assert_operator WEIGHTS[:tearfree_edge_near], :>, WEIGHTS[:tearfree_edge],
+                    "the near end has a bit to clear that the far end does not"
+  end
+
+  # A row is built out of PARTS, and only the first one starts where the row itself does —
+  # each one after it has to work out where in memory it goes. Charging that once a row
+  # however many parts it had is what made a rectangle at an odd column read at seven
+  # tenths of its cost: three parts were paying for one.
+  def test_each_part_of_a_row_after_the_first_pays_to_be_reached
+    one  = tear_free { game_loop { draw_rect_at 40, 0, 2, 100, :red } } # a middle, and that is all
+    two  = tear_free { game_loop { draw_rect_at 40, 0, 3, 100, :red } } # a middle and a far end
+
+    # The extra pixel is a spliced far end, and reaching it is a part of its own.
+    near 100 * (WEIGHTS[:tearfree_part] + WEIGHTS[:tearfree_edge]),
+         Cost.new.steady_cost(two) - Cost.new.steady_cost(one)
   end
 
   # The column decides whether a row has pixels to splice, and a column settled while
@@ -160,8 +188,10 @@ class TestTearFreeDrawing < CostModelTest
     end
 
     assert_operator Cost.new.steady_cost(moving), :>, Cost.new.steady_cost(fixed)
-    # Two spliced ends, and they take the place of one of the pairs the even row wrote.
-    near 100 * ((2 * WEIGHTS[:tearfree_edge]) - WEIGHTS[:tearfree_pair]),
+    # Two spliced ends taking the place of one of the pairs the even row wrote, and the
+    # two extra parts they make of the row.
+    near 100 * ((2 * WEIGHTS[:tearfree_part]) + WEIGHTS[:tearfree_edge_near] +
+                WEIGHTS[:tearfree_edge] - WEIGHTS[:tearfree_pair]),
          Cost.new.steady_cost(moving) - Cost.new.steady_cost(fixed)
   end
 
