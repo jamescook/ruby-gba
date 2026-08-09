@@ -146,7 +146,7 @@ class TestDirectPixels < CostModelTest
     sprite = sprite_program(width: 16, height: 8, lit: 14)
     fill = direct { game_loop { fill_rect 0, 0, 14, 8, :red } }
 
-    near blit_art(14 * 8, 8), Cost.new.steady_cost(sprite)
+    near blit_art(14 * 8, 8) + var_reads(2), Cost.new.steady_cost(sprite)
     assert_operator Cost.new.steady_cost(sprite), :>, 2 * Cost.new.steady_cost(fill),
                     "a sprite's pixel is tested against the screen edges; a fill's is not"
   end
@@ -159,7 +159,7 @@ class TestDirectPixels < CostModelTest
     dense = sprite_program(width: 16, height: 8, lit: 14)
     sparse = sprite_program(width: 16, height: 8, lit: 4)
 
-    near blit_art(4 * 8, 8), Cost.new.steady_cost(sparse)
+    near blit_art(4 * 8, 8) + var_reads(2), Cost.new.steady_cost(sparse)
     # The two images are the same size, so a price read off the size would make these
     # equal. Every bit of the difference is the pixels that are actually lit.
     near (14 - 4) * 8 * WEIGHTS[:blit_pixel],
@@ -175,10 +175,29 @@ class TestDirectPixels < CostModelTest
     plain = sprite_program(width: 16, height: 8, lit: 14, color: :red)
     wide = sprite_program(width: 16, height: 8, lit: 14, color: :white)
 
-    near blit_art(14 * 8, 8), Cost.new.steady_cost(plain)
-    near blit_art(14 * 8, 8, wide: 14 * 8), Cost.new.steady_cost(wide)
+    near blit_art(14 * 8, 8) + var_reads(2), Cost.new.steady_cost(plain)
+    near blit_art(14 * 8, 8, wide: 14 * 8) + var_reads(2), Cost.new.steady_cost(wide)
     assert_operator Cost.new.steady_cost(wide), :>, Cost.new.steady_cost(plain),
                     "white has to be built before it can be written; red rides along"
+  end
+
+  # WHERE IT GOES IS READ, and read once — not once by the blit's own weight and again by the
+  # position it holds. blit_start is measured on a blit at a worked-out position, so those two
+  # reads are taken back out where it is measured; left in, every moving sprite would pay for
+  # them twice. What is left is a real difference: a blit at a position written into the
+  # program never reads anything, and costs those two reads less.
+  def test_a_blit_pays_once_for_the_position_it_reads_and_a_fixed_one_pays_nothing
+    picture = art(width: 16, height: 8, lit: 14)
+    moving = sprite_program(width: 16, height: 8, lit: 14)
+    fixed = direct do
+      image(:art, "#" => :red, "." => :transparent) { picture }
+      var :sx, 40 # declared, so the two programs place their variables alike
+      var :sy, 20
+      game_loop { blit :art, 40, 20 }
+    end
+
+    near blit_art(14 * 8, 8), Cost.new.steady_cost(fixed)
+    near var_reads(2), Cost.new.steady_cost(moving) - Cost.new.steady_cost(fixed)
   end
 
   # A row with nothing lit in it is skipped whole — not one test, not one address. So the
@@ -214,8 +233,8 @@ class TestDirectPixels < CostModelTest
       game_loop { blit :tile, x, y }
     end
 
-    near dma_rows(16, 8), Cost.new.steady_cost(plain)
-    near dma_rows(16, 8), Cost.new.steady_cost(named)
+    near dma_rows(16, 8) + var_reads(2), Cost.new.steady_cost(plain)
+    near dma_rows(16, 8) + var_reads(2), Cost.new.steady_cost(named)
     assert_operator Cost.new.steady_cost(plain), :<,
                     Cost.new.steady_cost(sprite_program(width: 16, height: 8, lit: 14)),
                     "streaming whole rows beats testing and writing each pixel"

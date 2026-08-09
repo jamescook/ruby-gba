@@ -77,13 +77,13 @@ module RubyGBA
         # was `add :x, 1` on that first variable, which is exactly one variable per program.
         weigh(:op_step, @bench.per_op("step", 500, 2, 8) { |b, _xv| b.add :y, 1 },
               note: "a statement that reads a variable, changes it and writes it back")
-        # `set :y, x` and not `set :y, 0`, and the difference is one absorbed variable read.
-        # Every operator weight below is measured as what it adds to THIS shape, so an
-        # assignment whose value is an expression comes out exact — which is most of them —
-        # while one that only stores a plain number is charged that read it never does. A
-        # couple of instructions, and over rather than under.
-        weigh(:op_assign, @bench.per_op("assign", 500, 2, 8) { |b, xv| b.set :y, xv },
-              note: "a statement that only writes a variable")
+        # An assignment, MINUS the variable it was handed: `set :y, x` reads one, and the model
+        # charges a read where it finds it (see #operand_read). Left in, this weight would pay
+        # for the first variable a statement reads and nothing for the second, which is what
+        # made `n.set(m + p)` — two reads, one paid for — run two instructions dearer than the
+        # model said.
+        weigh(:op_assign, @bench.per_op("assign", 500, 2, 8) { |b, xv| b.set :y, xv } - operand_read,
+              note: "a statement that only writes a variable, with the value already worked out")
         weigh(:op_plain, @bench.per_operator("plain") { |b, xv| b.set :y, (xv + 2) },
               note: "a plain operator — add, subtract, and the and/or that combine conditions")
         weigh(:op_compare,
@@ -92,12 +92,24 @@ module RubyGBA
               end,
               note: "a comparison, priced on the answer that costs more (false, which jumps)")
 
-        # ...and on top of any of those, what reaching a variable costs where the variable
-        # happens to sit. The four above are measured on an ORDINARY variable — one of the
-        # sixty-three whose address takes two instructions to build. A variable past the first
-        # 256 bytes of the quick memory takes three, and a list of 64 items claims that whole
-        # 256 bytes on its own, so in a game with a list or a pool nearly every variable is
-        # the dearer kind and every statement touching one pays this at each end.
+        # THE TWO THINGS THAT RIDE ON TOP OF ANY OF THE FOUR. Both are about a variable, and
+        # they answer different questions: this one is what READING one costs, and the next is
+        # what reaching a FAR one costs on top of that.
+        #
+        # A statement or an operator has to get its operands from somewhere, and where the
+        # weight above got its own is part of the weight. `set :y, x` reads a variable — three
+        # instructions — where a plain operator's benchmark is handed the NUMBER 2, which is
+        # one. So this is the difference between those two operands and nothing else: the same
+        # statement, the same operator, a variable in place of the number.
+        weigh(:var_operand, operand_read,
+              note: "reading a variable handed to a statement or an operator, over the number a weight assumes")
+
+        # ...and what reaching a variable costs where the variable happens to sit. The four
+        # above are measured on an ORDINARY variable — one of the sixty-three whose address
+        # takes two instructions to build. A variable past the first 256 bytes of the quick
+        # memory takes three, and a list of 64 items claims that whole 256 bytes on its own,
+        # so in a game with a list or a pool nearly every variable is the dearer kind and
+        # every statement touching one pays this at each end.
         weigh(:var_address_step, @bench.per_var_address_step,
               note: "the extra to reach a variable that sits past the first 256 bytes of quick memory")
 
@@ -172,26 +184,30 @@ module RubyGBA
         # both. Most tables a game writes by hand (a sine table of 360, a level of 60) are the
         # dearer kind.
         #
-        # ONE STEP COMES BACK OUT of each. These are measured in a ROM that declares a list, so
-        # its 256 bytes are claimed before any variable gets a home and every variable there is
-        # one of the dear ones to reach. The reading and its baseline both store into the same
-        # variable, so that end cancels — what does not is the INDEX, which the read has and the
-        # baseline does not. The model charges the index's own reach where it finds it
-        # (Pricing#var_reach_cost), so it is taken out here rather than paid for twice.
-        index_reach = @weights[:var_address_step]
-        weigh(:list_read, @bench.per_indexed_read(:list) - index_reach,
-              note: "reading one element of a list, index in an ordinary variable")
-        weigh(:table_read, @bench.per_indexed_read(:table) - index_reach,
+        # THE INDEX COMES BACK OUT of each. The reading and its baseline both store into the
+        # same variable, so that end cancels — what does not is the INDEX, which the read has
+        # and the baseline does not. The model charges an index where it finds it, both what
+        # reading it costs and what reaching it costs, so both come out here rather than being
+        # paid for twice. (These are measured in a ROM that declares a list, whose 256 bytes are
+        # claimed before any variable gets a home — so every variable there is one of the dear
+        # ones to reach, and the reach is a real part of the reading.)
+        index = operand_read + @weights[:var_address_step]
+        weigh(:list_read, @bench.per_indexed_read(:list) - index,
+              note: "reading one element of a list, apart from the index")
+        weigh(:table_read, @bench.per_indexed_read(:table) - index,
               note: "reading one element of a table whose length is a power of two (the index wraps)")
-        weigh(:table_read_clamped, @bench.per_indexed_read(:table_clamped) - index_reach,
+        weigh(:table_read_clamped, @bench.per_indexed_read(:table_clamped) - index,
               note: "reading one element of a table of any other length (the index clamps)")
 
         # A divisor the game works out is the one case that still walks the answer a bit at a
         # time, so it is TWO numbers: a fixed setup, and a step for every bit of the answer. The
         # base is measured at an answer of no width at all, which is what op_div has always been
         # (7 / 100 answers zero), so this number carries on from the one before it.
+        #
+        # ONE OPERAND COMES BACK OUT: the divide is measured on `set :out, (n / d)`, whose
+        # divisor is a variable where the add it is differenced against holds a number.
         addd = @bench.per_op("addd", 60, 2, 6) { |b, xv| b.set :y, (xv + 2) }
-        weigh(:op_div, @weights[:op_plain] + (@bench.per_divide(0) - addd),
+        weigh(:op_div, @weights[:op_plain] + (@bench.per_divide(0) - addd) - operand_read,
               note: "starting a divide by a divisor the game works out, at an answer of no width")
         weigh(:op_div_bit, Reductions.marginal(@bench.per_divide(30), @bench.per_divide(0), over: 30),
               varies: :answer_bits, from: 0, to: 30,
@@ -219,8 +235,11 @@ module RubyGBA
         # register once it is widened, so this walks the whole width of the answer at a fixed
         # price — the dearest arithmetic there is. Both operands are worked out by the game;
         # with a numerator written down it folds into an ordinary division and is priced as one.
+        #
+        # ONE OPERAND COMES BACK OUT, for the reason the run-time divide's does: both its
+        # operands are variables where the add it is differenced against holds a number.
         weigh(:op_div_fix,
-              @weights[:op_plain] +
+              @weights[:op_plain] - operand_read +
               over_an_add(tag: "divfix", against: "addx", passes: 60, lo: 2, hi: 4) do |b, _xv, _dv, fv, gv|
                 b.set :fout, (fv / gv)
               end,
@@ -232,6 +251,25 @@ module RubyGBA
       def over_an_add(tag:, against:, passes:, lo:, hi:, &op)
         @bench.per_op(tag, passes, lo, hi, &op) -
           @bench.per_op(against, passes, lo, hi) { |b, xv| b.set :y, (xv + 2) }
+      end
+
+      # WHAT READING A VARIABLE OPERAND COSTS, measured once and then TAKEN BACK OUT of every
+      # weight whose benchmark read one. That subtraction is the other half of charging the
+      # read where it happens (Pricing#own_cost prices a var_ref), and without it a program
+      # would pay twice for the same read wherever the benchmark had one — a rectangle drawn
+      # at a worked-out position, a blitted sprite, a live digit, every assignment.
+      #
+      # Every weight that absorbed one says so where it is measured, and how many. Nearly all
+      # absorbed none: a weight found by differencing two ROMs that both read the same operands
+      # has them cancel by construction, which is most of them.
+      #
+      # `set :y, (x + d)` against `set :y, (x + 2)`: the same statement, the same operator,
+      # only the right-hand operand differs — a variable where the weights assume a number.
+      def operand_read
+        @operand_read ||=
+          over_an_add(tag: "varop", against: "addv", passes: 300, lo: 2, hi: 6) do |b, xv, dv|
+            b.set :y, (xv + dv)
+          end
       end
 
       # --- per-pixel drawing ---
@@ -292,12 +330,16 @@ module RubyGBA
         # What a blit costs BEFORE its first row: where it goes is worked out once, whatever it
         # then draws. More COPIES of the same image at the same trip count gives the whole cost
         # of one blit; taking off the rows and pixels priced above leaves the part that is fixed.
+        #
+        # TWO OPERANDS COME BACK OUT — the x and the y, which every blit reads and which the
+        # weights above cannot absorb, since they are differenced at a fixed copy count and so
+        # cancel a position rather than paying for one.
         weigh(:blit_start,
               Reductions.residual(
                 Reductions.marginal(@bench.blit_busy(4, 8, 2, copies: 3), blit_4x8, over: (3 - 1) * 2),
-                8 * @weights[:blit_row], 4 * 8 * @weights[:blit_pixel]
+                8 * @weights[:blit_row], 4 * 8 * @weights[:blit_pixel], 2 * operand_read
               ),
-              note: "what one such image costs before its first row")
+              note: "what one such image costs before its first row, apart from reaching its position")
       end
 
       def run_pixel_rate(y)
@@ -337,10 +379,13 @@ module RubyGBA
         # costs: finding the chosen glyph in the table before any of it is walked. (The walk's
         # per-ROW work rides inside the per-cell figure — two fonts cannot separate a row from a
         # cell, and fitted across both built-in fonts it lands within a hundredth on each.)
+        #
+        # ONE OPERAND COMES BACK OUT: a live digit reads the number it shows, and every reading
+        # here does, so it would otherwise be paid for twice.
         weigh(:digit_start,
               Reductions.residual(d8, Benchmarks.font_box(default) * @weights[:digit_cell],
-                                  default.text_pixels("8") * @weights[:digit_pixel]),
-              note: "finding the chosen glyph before the walk starts")
+                                  default.text_pixels("8") * @weights[:digit_pixel], operand_read),
+              note: "finding the chosen glyph before the walk starts, apart from reading the number")
         # Stamping a lit cell on the TEAR-FREE screen, where a pixel is one byte sharing its
         # sixteen bits with its neighbour and so is read, half changed and written back. The
         # WALK is the same loop on both screens — measured, its start and its per-cell cost come
@@ -555,12 +600,16 @@ module RubyGBA
 
         # What a rectangle costs before its first row. A moving one pays much more of this than a
         # fixed one: its position has to be worked out and its column's parity tested.
+        #
+        # TWO OPERANDS COME BACK OUT, as they do for a blit and for the same reason: this is
+        # the one reading here taken over COPIES of the rectangle rather than over its rows, so
+        # it is the only one that pays for reading the position at all.
         weigh(:tearfree_moving_start,
               Reductions.residual(
                 @bench.tearfree_rect_cost("tfms", 20) { |b, xv, yv| b.draw_rect_at xv, yv, 8, 8, :red },
-                8 * (@weights[:tearfree_row] + (4 * @weights[:tearfree_pair]))
+                8 * (@weights[:tearfree_row] + (4 * @weights[:tearfree_pair])), 2 * operand_read
               ),
-              note: "what a moving rectangle costs before its first row")
+              note: "what a moving rectangle costs before its first row, apart from reaching its position")
         # A fixed rectangle hands every row to the block-fill engine, so its rows measure what
         # starting that engine costs here — the same shape dma_setup measures on the other screen.
         fill_row = @bench.tearfree_row_cost("tff", 20, 4, 20) { |b, _xv, _yv, h| b.fill_rect 0, 0, 8, h, :red }

@@ -104,7 +104,8 @@ class TestCostPricing < CostModelTest
       game_loop { draw_rect_at 40, y, w, h, :red } # an even column: no ends to splice
     end
     engine = h * (WEIGHTS[:tearfree_engine_stall] + (w * WEIGHTS[:tearfree_fill_pixel]))
-    cpu = WEIGHTS[:tearfree_moving_start] + (h * (WEIGHTS[:tearfree_row] + WEIGHTS[:tearfree_engine_start]))
+    cpu = WEIGHTS[:tearfree_moving_start] + var_reads + # the row it is drawn on is a variable
+          (h * (WEIGHTS[:tearfree_row] + WEIGHTS[:tearfree_engine_start]))
     near((cpu / WEIGHTS[:fast_code_speedup]) + engine, Cost.new(fast_frame: true).frame_cost(rect))
   end
 
@@ -281,7 +282,8 @@ class TestCostPricing < CostModelTest
       Build.loop_(Build.wait_vblank, Build.fade(toward: :black, amount: Build.var_ref(:level))),
     )
     assert_operator Cost.new.steady_cost(live), :>, Cost.new.steady_cost(fixed)
-    near WEIGHTS[:fade_set] + WEIGHTS[:op_mul] + WEIGHTS[:op_div_const], Cost.new.steady_cost(live)
+    near WEIGHTS[:fade_set] + WEIGHTS[:op_mul] + WEIGHTS[:op_div_const] + var_reads,
+         Cost.new.steady_cost(live), "the conversion, and reading the level it converts"
   end
 
   # Save memory sits on a slow bus and takes a byte at a time, so keeping a counter in a
@@ -385,7 +387,8 @@ class TestCostPricing < CostModelTest
     end
     assert_equal costs.sort, costs, "a wider answer must not cost less"
     assert_operator costs.last, :>, costs.first * 1.5, "and the spread has to be worth pricing"
-    near WEIGHTS[:op_assign] + WEIGHTS[:op_div] + (2 * WEIGHTS[:op_div_bit]), costs.first # 3 is 2 bits
+    # 3 is 2 bits wide; the divisor is the one variable read.
+    near WEIGHTS[:op_assign] + WEIGHTS[:op_div] + (2 * WEIGHTS[:op_div_bit]) + var_reads, costs.first
   end
 
   # With nothing to bound the answer the price is the base alone — deliberately, because
@@ -399,7 +402,7 @@ class TestCostPricing < CostModelTest
       out = var :out, 0
       game_loop { out.set(n / d) }
     end
-    near WEIGHTS[:op_assign] + WEIGHTS[:op_div], Cost.new.steady_cost(prog)
+    near WEIGHTS[:op_assign] + WEIGHTS[:op_div] + var_reads(2), Cost.new.steady_cost(prog)
   end
 
   # Dividing has three prices, because the lowering gives it three costs, and an author
@@ -487,7 +490,7 @@ class TestCostPricing < CostModelTest
 
     assert_operator Cost.new.steady_cost(changed), :>, Cost.new.steady_cost(assignment_loop)
     near WEIGHTS[:op_step], Cost.new.steady_cost(changed)
-    near WEIGHTS[:op_assign], Cost.new.steady_cost(assignment_loop)
+    near WEIGHTS[:op_assign] + var_reads, Cost.new.steady_cost(assignment_loop)
   end
 
   # An operator is charged BESIDE the statement that holds it, so its weight has to be what
@@ -499,6 +502,57 @@ class TestCostPricing < CostModelTest
     near WEIGHTS[:op_plain], Cost.new.steady_cost(added) - Cost.new.steady_cost(assignment_loop)
     assert_operator WEIGHTS[:op_plain], :<, WEIGHTS[:op_assign],
                     "an operator inside a statement costs less than the statement around it"
+  end
+
+  # EVERY VARIABLE A STATEMENT READS IS CHARGED, and that is something no weight can do on
+  # its own: a weight is one number, measured on a benchmark that read the operands it read.
+  # `set :y, x` reads one variable and a plain operator's benchmark is handed the NUMBER 2 —
+  # so between them they could pay for one read and never for two, and the second read was
+  # free. `n.set(m + p)` is the shape that catches it, and it is not a corner: it is what a
+  # game writes wherever one thing follows another.
+  def test_a_statement_is_charged_for_every_variable_it_reads
+    one = pair_loop { |m, _p| m + 1 }
+    two = pair_loop { |m, p| m + p }
+
+    near WEIGHTS[:op_assign] + WEIGHTS[:op_plain] + var_reads, Cost.new.steady_cost(one)
+    near WEIGHTS[:op_assign] + WEIGHTS[:op_plain] + var_reads(2), Cost.new.steady_cost(two)
+    near var_reads, Cost.new.steady_cost(two) - Cost.new.steady_cost(one),
+         "the two statements differ by one operand, so they differ by one read"
+  end
+
+  # ...and a statement that reads NO variable is not charged for one. The weight used to carry
+  # the read its own benchmark did, so `n.set 5` — every counter reset in every game — was
+  # charged a read it never does.
+  def test_a_statement_that_reads_no_variable_is_not_charged_for_one
+    near WEIGHTS[:op_assign], Cost.new.steady_cost(pair_loop { |_m, _p| 5 })
+  end
+
+  # A `copy` reads a variable as well, and NAMES it where a `set` holds it as an expression.
+  # So its read has nowhere to be found and has to be charged beside the statement — the two
+  # shapes do the same work and must not cost different amounts because of how the tree says
+  # it.
+  def test_a_copy_costs_what_the_same_assignment_costs
+    copied = program do
+      screen :bitmap
+      var :n, 0
+      var :m, 7
+      game_loop { copy :n, :m }
+    end
+
+    near WEIGHTS[:op_assign] + var_reads, Cost.new.steady_cost(copied)
+    near Cost.new.steady_cost(assignment_loop), Cost.new.steady_cost(copied)
+  end
+
+  # `n.set(<something worked out from m and p>)` once a frame. Three variables in every
+  # program here, so which of them a statement reads is the only thing that differs.
+  def pair_loop(&expr)
+    program do
+      screen :bitmap
+      n = var :n, 0
+      m = var :m, 7
+      p = var :p, 3
+      game_loop { n.set(expr.call(m, p)) }
+    end
   end
 
   # A comparison is dearer than an add, which nothing about `>` suggests. Adding two numbers
@@ -547,9 +601,10 @@ class TestCostPricing < CostModelTest
     near_cost = Cost.new(var_addresses: { x: ORDINARY_VAR }).steady_cost(assignment_loop)
     far_cost = Cost.new(var_addresses: { x: DISTANT_VAR }).steady_cost(assignment_loop)
 
-    near WEIGHTS[:op_assign], near_cost, "an ordinary variable is what the weight was measured on"
+    near WEIGHTS[:op_assign] + var_reads, near_cost,
+         "an ordinary variable is what the weight was measured on"
     # `x.set(x)` reaches x twice — once to read it, once to write it.
-    near WEIGHTS[:op_assign] + (2 * WEIGHTS[:var_address_step]), far_cost
+    near WEIGHTS[:op_assign] + var_reads + (2 * WEIGHTS[:var_address_step]), far_cost
   end
 
   # An `add` reaches its variable at both ends where a `set` only writes, so the same distance
@@ -568,8 +623,8 @@ class TestCostPricing < CostModelTest
   # No map, no charge — a program the model is handed with no build behind it has nothing to
   # say where its variables went, and pricing them all as ordinary is what it did before.
   def test_a_program_with_no_build_behind_it_prices_every_variable_the_same
-    near WEIGHTS[:op_assign], Cost.new.steady_cost(assignment_loop)
-    near WEIGHTS[:op_assign], Cost.new(var_addresses: {}).steady_cost(assignment_loop)
+    near WEIGHTS[:op_assign] + var_reads, Cost.new.steady_cost(assignment_loop)
+    near WEIGHTS[:op_assign] + var_reads, Cost.new(var_addresses: {}).steady_cost(assignment_loop)
   end
 
   # The one variable that is NEARER than ordinary is charged the ordinary rate rather than
@@ -578,7 +633,7 @@ class TestCostPricing < CostModelTest
   def test_the_one_variable_nearer_than_ordinary_is_not_credited
     first = Cost.new(var_addresses: { x: 0x03000000 })
 
-    near WEIGHTS[:op_assign], first.steady_cost(assignment_loop)
+    near WEIGHTS[:op_assign] + var_reads, first.steady_cost(assignment_loop)
   end
 
   # END TO END, because the map has to travel from the build to the estimate for any of the
@@ -597,8 +652,8 @@ class TestCostPricing < CostModelTest
       rom.cost_model.steady_cost(rom.source_program)
     end
 
-    near WEIGHTS[:op_assign], costs.first
-    near WEIGHTS[:op_assign] + (2 * WEIGHTS[:var_address_step]), costs.last
+    near WEIGHTS[:op_assign] + var_reads, costs.first
+    near WEIGHTS[:op_assign] + var_reads + (2 * WEIGHTS[:var_address_step]), costs.last
   end
 
   # `set :out, <node>` once a frame. Built straight from the IR because the surface will not
@@ -702,7 +757,8 @@ class TestCostPricing < CostModelTest
       game_loop { out.set xs[i] }
     end
 
-    near WEIGHTS[:list_read], Cost.new.steady_cost(read) - Cost.new.steady_cost(bare)
+    # The read, and the index it reads — which the program without it does not do.
+    near WEIGHTS[:list_read] + var_reads, Cost.new.steady_cost(read) - Cost.new.steady_cost(bare)
   end
 
   # A TABLE read comes in two prices, and which one is settled by the table's LENGTH: a
@@ -711,8 +767,8 @@ class TestCostPricing < CostModelTest
   # clamping one is twice the wrapping one — and it is the one most tables a game writes by
   # hand are, so charging the cheap one for both would halve the price of the common case.
   def test_a_table_read_is_priced_by_whether_its_length_lets_the_index_wrap
-    near WEIGHTS[:table_read], table_read_cost(64)
-    near WEIGHTS[:table_read_clamped], table_read_cost(60)
+    near WEIGHTS[:table_read] + var_reads, table_read_cost(64)
+    near WEIGHTS[:table_read_clamped] + var_reads, table_read_cost(60)
     assert_operator WEIGHTS[:table_read_clamped], :>, WEIGHTS[:table_read] * 1.5,
                     "clamping is a compare and a branch per bound, not a mask"
   end
@@ -734,7 +790,7 @@ class TestCostPricing < CostModelTest
   end
 
   # What one read of a +length+-long table costs, with the `set` around it cancelled by the
-  # same program without the read — so what is left is the read alone.
+  # same program without the read — so what is left is the read and the index it reads.
   def table_read_cost(length)
     with = program do
       screen :bitmap
@@ -799,7 +855,8 @@ class TestCostPricing < CostModelTest
       game_loop { x.clamp 0, limit / 5 }
     end
 
-    near WEIGHTS[:op_div_const], Cost.new.frame_cost(computed) - Cost.new.frame_cost(fixed)
+    near WEIGHTS[:op_div_const] + var_reads, Cost.new.frame_cost(computed) - Cost.new.frame_cost(fixed),
+         "the divide, and reading the bound it divides"
   end
 
   # Same for a drawing op's position: blit :ship, (col * W), y does the multiply before
