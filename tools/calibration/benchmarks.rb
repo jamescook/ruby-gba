@@ -288,39 +288,46 @@ module RubyGBA
       # Every other weight is measured by #per_op, which varies how many COPIES of an op a
       # pass holds and keeps the trip count fixed — that cancels this cost by construction,
       # correctly for the op's own weight, which is why the loop's own cost needs its own case.
-      def loop_busy(per_frame)
-        name = "lp#{per_frame}"
-        rom = cartridge_build(name) do
-          screen :bitmap
-          clear_screen :black
-          var :x, 0
-          b = self
-          game_loop { b.wait_vblank; b.repeat(per_frame) { nil } }
-        end
-        @m.busy(name, rom)
+      # A LOOP COMES IN TWO SHAPES and both are measured, because a program gets whichever its
+      # body allows. With nothing in the way the counter and the limit stay in registers; a
+      # body that can reach other code sends them to memory, where every pass loads and stores
+      # them (Backends::GBA::LoopForm decides, and these ROMs are built either side of it).
+      #
+      # +blocked+ puts one empty instruction of the author's own in the body. It emits nothing
+      # at all, so it adds no cost to measure around — and it is the escape hatch, which may
+      # use any register, so the loop around it has to go through memory. That is the cheapest
+      # honest way to ask for the other shape.
+      def loop_busy(per_frame, blocked: false)
+        name = "lp#{blocked ? 'm' : 'r'}#{per_frame}"
+        @m.busy(name, loop_rom(name, [[per_frame, blocked]]))
       end
 
-      # ...and what a loop costs ONCE, before its first pass: working the trip count out into
-      # the loop's hidden limit, zeroing its hidden counter, and the branch that leaves.
-      #
-      # +loops+ separate loops of the same length, so the trip count is fixed and only the
-      # number of ENTRIES moves. That is what the per-pass measurement above cannot see: it
-      # differences two trip counts inside one loop, which cancels the entering by
-      # construction — and then a short loop, which pays it over a handful of passes, is
-      # priced as though it were free.
+      # ...and what a loop costs ONCE, before its first pass. +loops+ separate loops of the
+      # same length, so the trip count is fixed and only the number of ENTRIES moves.
       LOOP_START_PASSES = 4 # short enough that entering is a real share, long enough to be a loop
 
-      def loop_start_busy(loops)
-        passes = LOOP_START_PASSES
-        name = "ls#{loops}"
-        rom = cartridge_build(name) do
-          screen :bitmap
-          clear_screen :black
-          var :x, 0
-          b = self
-          game_loop { b.wait_vblank; loops.times { b.repeat(passes) { nil } } }
+      def loop_start_busy(loops, blocked: false)
+        name = "ls#{blocked ? 'm' : 'r'}#{loops}"
+        @m.busy(name, loop_rom(name, Array.new(loops) { [LOOP_START_PASSES, blocked] }))
+      end
+
+      # A frame holding the given loops, built straight from the IR: the surface has no way to
+      # write an empty escape hatch, and that is what asks for the memory shape.
+      def loop_rom(name, loops)
+        b = IR::Build
+        # Every loop here shares one index name on purpose. Two ROMs holding a different NUMBER
+        # of loops are differenced, and a name of its own per loop would put a different number
+        # of variables in them too — so the difference would carry those variables' addresses
+        # as well as the loop entries being measured. Sharing keeps the variables fixed and the
+        # entries the only thing that moves. It is safe because these loops all run one after
+        # another and all get the same shape.
+        body = loops.map do |passes, blocked|
+          b.repeat(b.int(passes), :__lp, *(blocked ? [b.raw("")] : []))
         end
-        @m.busy(name, rom)
+        prog = b.program(b.screen(:bitmap), b.set(:x, b.int(0)), b.loop_(b.wait_vblank, *body))
+        # fast_code: false for the same reason every other ROM here is built that way.
+        ROM.assemble(IR::Backends::GBA.new(fast_code: false).lower(prog),
+                     title: name, code: code_for(name), maker: "01")
       end
 
       # A division worked out as the program runs walks the answer one bit at a time, so it is

@@ -186,6 +186,16 @@ module RubyGBA
       # See {Rollup}#catalogue_bitmap for how the counts are taken.
       Bitmap = Data.define(:width, :height, :transparent, :lit_pixels, :wide_color_pixels, :lit_rows)
 
+      # WHICH SHAPE A LOOP GOT, as the build reports it: whether its counter stayed in a
+      # register, and when it did not, what in the body stopped it. A loop through memory
+      # spends sixteen instructions a pass where one in registers spends four, so the two are
+      # priced apart — and the reason travels with the answer because it is the one thing an
+      # author can act on (a call moved out of a loop is worth most of what the loop costs).
+      #
+      # It is HANDED OVER, never worked out here: which registers are free is a fact about a
+      # lowering, and this file prices what a lowering produced. See Rollup#loop_shape.
+      LoopShape = Data.define(:held, :blocked_by)
+
       # What drawing one hardware sprite needs to be priced, likewise taken off its
       # DECLARATION rather than the per-frame draw. A sprite that only moves is a
       # position written into a table. One that TURNS is drawn through a small matrix
@@ -318,8 +328,10 @@ module RubyGBA
       # has no name for it.
       # +placement+ is the whole picture for the report — which routines moved and how
       # much memory is used and left (see Backends::GBA::Placement#iwram_report).
+      # +loop_shapes+ says which loops kept their counter in a register, keyed by the loop's
+      # index — the build's answer again, for the same reason (see {LoopShape}).
       def initialize(fast_routines: nil, fast_frame: false, fast_interrupts: false,
-                     placement: nil, var_addresses: nil, **weights)
+                     placement: nil, var_addresses: nil, loop_shapes: nil, **weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)
         # The same table with everything but the transfer engine's own work zeroed, so an op
         # can be priced twice over and the two answers differenced (see Pricing::ENGINE_WEIGHTS).
@@ -332,6 +344,9 @@ module RubyGBA
         # variable is priced as an ordinary one — which is what a program handed straight to
         # the model, with no build behind it, gets. See Pricing#extra_var_address_steps.
         @var_addresses = var_addresses
+        # ...and which shape each loop got. Without it every loop is priced as the safe shape,
+        # which is the dearer one — the right way to be wrong.
+        @loop_shapes = loop_shapes
         @in_fast_code = false
         # Whether a walk over a list is being counted at the most it can hold rather than
         # what it usually holds — the growth question, asked by one caller (see

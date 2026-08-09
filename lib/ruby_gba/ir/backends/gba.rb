@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "gba/emit"
+require_relative "gba/loop_form" # which shape a repeat gets; the cost model asks it too
 require_relative "gba/statements"
 require_relative "gba/lists"
 require_relative "gba/drawing"
@@ -309,6 +310,14 @@ module RubyGBA
         # read a variable's value back from memory (see RubyGBA::Verifier#var).
         def var_addresses
           @vars.dup
+        end
+
+        # Which shape each loop was given, keyed by its index — whether its counter stayed in
+        # a register, and if not, what in the body stopped it. Known once the program has been
+        # lowered, because this backend is what decides it, and handed to the cost estimate so
+        # that it charges for the loop that will really run (see Statements#emit_repeat).
+        def loop_shapes
+          (@loop_shapes || {}).dup
         end
 
         # Work out which screen mode each scene draws in. A program that never uses

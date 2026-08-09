@@ -117,6 +117,8 @@ module RubyGBA
     rom.placement = backend.iwram_report # ...including which routines it kept in quick memory
     # ...and where each variable landed, which decides what reaching it costs
     rom.var_addresses = backend.var_addresses
+    # ...and which loops kept their counter in a register, which decides what a pass costs
+    rom.loop_shapes = backend.loop_shapes
 
     # Record how far asset packing shrank the cart (tile pictures, palettes, maps) so
     # a caller can read it back or a verbose build can show it. Building it into the

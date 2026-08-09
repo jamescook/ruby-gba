@@ -165,13 +165,36 @@ module RubyGBA
       pinned = keys ? Array(keys).map(&:to_sym) : nil
       attempts = pinned ? [pinned] : attempt_keys(program)
       worst = in_temp_rom(measuring[:rom]) do |path|
-        attempts.filter_map { |held| attempt(path, held, measuring[:vars], pinned ? nil : stays_in) }
-                .max_by(&:scanlines)
+        readings = attempts.filter_map do |held|
+          attempt(path, held, measuring[:vars], pinned ? nil : stays_in)
+        end
+        worst_reading(readings)
       end
       return worst unless worst.saturated?
 
       Result.new(scanlines: worst.scanlines, fps: measure_fps(program, options, keys: worst.keys),
                  keys: worst.keys)
+    end
+
+    # How much dearer a held button has to read before the reading is attributed to it.
+    #
+    # Two runs of the same program are not bit-identical to a fraction of a scanline: holding
+    # a button moves nothing about the work, but it does move where the reading lands by a
+    # thousandth or two. Without a floor, the dearest attempt wins by that thousandth and the
+    # report says "the worst frame found while holding LEFT" about a button that costs
+    # nothing — which is worse than saying nothing, because it points a reader at the wrong
+    # thing. A quarter of a scanline is far above that wobble and far below anything a player
+    # could feel, so it names a button only when the button is doing something.
+    WORTH_BLAMING = 0.25
+
+    # The reading to report: nothing held unless a button really made it dearer. The
+    # buttons-free attempt comes first, so it is the one to beat.
+    def worst_reading(readings)
+      at_rest = readings.first
+      return readings.max_by(&:scanlines) unless at_rest && at_rest.keys.empty?
+
+      dearest = readings.max_by(&:scanlines)
+      dearest.scanlines - at_rest.scanlines > WORTH_BLAMING ? dearest : at_rest
     end
 
     # One windowed reading with +held+ down throughout, or nil when it does not count:

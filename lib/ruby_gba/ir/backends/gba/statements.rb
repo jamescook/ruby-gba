@@ -190,11 +190,33 @@ module RubyGBA
             emit_branch(:b, top)
           end
 
-          # repeat: a counted loop. The count is evaluated once into a hidden limit
-          # variable (matching the interpreter, which captures the bound up front),
-          # a hidden counter runs 0..count-1, and the body runs each pass. Counter
-          # and limit live in memory, so the body is free to clobber registers.
+          # repeat: a counted loop. The count is evaluated once into a hidden limit (matching
+          # the interpreter, which captures the bound up front) and a hidden counter runs
+          # 0..count-1 with the body on each pass.
+          #
+          # Where those two numbers are kept is the whole difference between the two shapes
+          # below, and it is decided by the body and nothing else — see LoopForm.
+          #
+          # The answer is REMEMBERED as it is made, because the cost estimate has to charge for
+          # the shape that will really run and must not work that out for itself: which
+          # registers are free is this file's business. #loop_shapes hands it over the way
+          # #var_addresses hands over where a variable landed.
           def emit_repeat(node)
+            held = LoopForm.registers?(node)
+            @loop_shapes ||= {}
+            @loop_shapes[node[:index]] =
+              CostModel::LoopShape.new(held: held, blocked_by: held ? nil : LoopForm.reason(node))
+            return emit_repeat_held(node) if held
+
+            emit_repeat_in_memory(node)
+          end
+
+          # THE SAFE SHAPE: the counter and the limit live in the console's quick memory, so
+          # anything at all may happen in the body — a call, a nested loop, a divide that
+          # reaches the console's own routine — and the loop still counts right.
+          #
+          # It costs sixteen instructions a pass, twelve of them reaching those two numbers.
+          def emit_repeat_in_memory(node)
             index = node[:index]
             limit = :"#{index}__limit"
 
@@ -218,6 +240,37 @@ module RubyGBA
             store_var(ACC, index)
             emit_branch(:b, top)
             place_label(done)
+          end
+
+          # THE FAST SHAPE: the counter and the limit stay in two registers for the whole loop,
+          # so a pass is a compare, a branch, an add and a branch — four instructions where the
+          # safe shape spends sixteen.
+          #
+          # The body may still READ the index (`xs[i]` is what most loops are for), and it
+          # reads it out of the register: #load_var is told the index is being held, so a read
+          # is one move rather than three instructions of address and load. The index is
+          # written back to its memory once on the way out, so anything after the loop sees
+          # the value it would have seen anyway.
+          def emit_repeat_held(node)
+            index = node[:index]
+            eval_value(node[:count])
+            emit(ASM.mov_reg(LoopForm::LIMIT, ACC))
+            emit(ASM.load_immediate(LoopForm::COUNTER, 0))
+
+            top = gensym
+            done = gensym
+            place_label(top)
+            emit(ASM.cmp_reg(LoopForm::COUNTER, LoopForm::LIMIT))
+            emit_branch(:bcond, done, cond: :ge)
+
+            holding(index, LoopForm::COUNTER) do
+              node.children.each { |stmt| emit_statement(stmt) }
+            end
+
+            emit(ASM.add_imm(LoopForm::COUNTER, LoopForm::COUNTER, 1))
+            emit_branch(:b, top)
+            place_label(done)
+            store_var(LoopForm::COUNTER, index)
           end
 
           # every: run the body once every `period` frames. Tick the hidden frame
