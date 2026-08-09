@@ -34,11 +34,15 @@ module RubyGBA
         usage.transform_values { |set| set.to_a.sort }
       end
 
-      # A one-line-per-font summary: the reachable count against the font's full size,
-      # so the tree-shaking is visible (e.g. ":default draws 10 of 41 glyphs").
+      # What one font costs a program: how many of its glyphs are reachable against how many
+      # it has. The parts are fixed here, so it is a value object.
+      Footprint = Data.define(:font, :drawn, :total, :keys)
+
+      # A one-line-per-font summary, so the tree-shaking is visible (e.g. ":default draws 10
+      # of 41 glyphs").
       def footprint(program)
         reachable(program).map do |name, keys|
-          { font: name, drawn: keys.length, total: Fonts.get(name).glyph_count, keys: keys }
+          Footprint.new(font: name, drawn: keys.length, total: Fonts.get(name).glyph_count, keys: keys)
         end
       end
     end

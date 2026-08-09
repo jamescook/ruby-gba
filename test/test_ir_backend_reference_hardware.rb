@@ -143,7 +143,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
     i = run_ir(program(enable_sound, beep(:high), stop_music))
     assert_equal [:enabled], i.audio[0]
     assert_equal :beep, i.audio[1][0]
-    assert_equal 880, i.audio[1][1][:frequency] # :high resolves to 880 Hz
+    assert_equal 880, i.audio[1][1].frequency # :high resolves to 880 Hz
     assert_equal [:stop_music], i.audio[2]
   end
 
@@ -166,13 +166,13 @@ class TestIRBackendReferenceHardware < Minitest::Test
       beep(:paddle),
     ))
     effect = i.audio.find { |e| e[0] == :beep }[1]
-    assert_equal 500, effect[:frequency]
-    assert_equal :quarter, effect[:duty]
+    assert_equal 500, effect.frequency
+    assert_equal :quarter, effect.duty
   end
 
   def test_a_beep_override_wins_over_the_preset
     i = run_ir(program(enable_sound, beep(:high, volume: 3)))
-    assert_equal 3, i.audio.find { |e| e[0] == :beep }[1][:volume]
+    assert_equal 3, i.audio.find { |e| e[0] == :beep }[1].volume
   end
 
   def test_play_song_triggers_notes_frame_by_frame_and_loops

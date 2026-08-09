@@ -54,7 +54,7 @@ class TestFastCodePlacement < Minitest::Test
   # real console. Where code lives is not allowed to change what it draws.
   def test_the_console_draws_the_same_picture_whether_or_not_code_moves
     program = looping_program
-    refute_empty placement_of(program)[:funcs], "the program has something worth moving"
+    refute_empty placement_of(program).funcs, "the program has something worth moving"
     assert_backends_agree(program, frames: 3)
   end
 
@@ -111,28 +111,28 @@ class TestFastCodePlacement < Minitest::Test
 
   # `fast_code: false` stops the framework choosing. Nothing moves.
   def test_the_choosing_can_be_turned_off
-    assert_empty placement_of(looping_program, fast_code: false)[:funcs]
+    assert_empty placement_of(looping_program, fast_code: false).funcs
   end
 
   # ...but a routine the author names still goes, which is the point of having both
   # switches: turn the automatic choosing off, then say where you want it yourself.
   def test_a_named_routine_still_moves_with_the_choosing_off
     report = placement_of(looping_program(fast: true), fast_code: false)
-    assert_equal [:work], report[:funcs]
+    assert_equal [:work], report.funcs
   end
 
   # And a routine marked `fast: false` is left alone even when the framework would have
   # taken it.
   def test_a_routine_can_be_kept_out
     report = placement_of(looping_program(fast: false))
-    refute_includes report[:funcs], :work
+    refute_includes report.funcs, :work
   end
 
   # The game loop's body has no name in the program, but it is where nearly all of a
   # frame's time goes, so the framework treats it as a routine and moves it. Without this
   # a game that puts everything in its loop — which is most of them — would get nothing.
   def test_the_game_loops_own_body_can_move
-    assert_includes placement_of(looping_program)[:funcs], Placement::FRAME_ROUTINE
+    assert_includes placement_of(looping_program).funcs, Placement::FRAME_ROUTINE
   end
 
   # --- it says what it did ---
@@ -201,14 +201,14 @@ class TestFastCodePlacement < Minitest::Test
   end
 
   def test_the_routine_the_display_interrupts_into_moves_when_a_background_bends
-    assert_includes placement_of(bending_program)[:funcs], Placement::IRQ_ROUTINE
+    assert_includes placement_of(bending_program).funcs, Placement::IRQ_ROUTINE
   end
 
   # ...and it does NOT move for a program that only sleeps until the next frame. That
   # program enters it once a frame and leaves again immediately, so the room is better spent
   # on anything else — the same "has to earn its place" rule every routine is held to.
   def test_it_stays_in_the_cartridge_when_nothing_interrupts_often
-    refute_includes placement_of(looping_program)[:funcs], Placement::IRQ_ROUTINE
+    refute_includes placement_of(looping_program).funcs, Placement::IRQ_ROUTINE
   end
 
   # A timer is the other thing that can make it busy: `per_second: 4000` runs its handler 67
@@ -228,13 +228,13 @@ class TestFastCodePlacement < Minitest::Test
   end
 
   def test_the_routine_moves_for_a_busy_timer_too
-    assert_includes placement_of(ticking_program)[:funcs], Placement::IRQ_ROUTINE
+    assert_includes placement_of(ticking_program).funcs, Placement::IRQ_ROUTINE
   end
 
   # A timer that ticks a handful of times a second is not worth the room, the same as a
   # program with no timer at all.
   def test_a_slow_timer_does_not_earn_the_room
-    refute_includes placement_of(ticking_program(per_second: 2))[:funcs], Placement::IRQ_ROUTINE
+    refute_includes placement_of(ticking_program(per_second: 2)).funcs, Placement::IRQ_ROUTINE
   end
 
   def test_a_busy_timers_frame_is_cheaper_once_that_routine_moves
@@ -245,7 +245,7 @@ class TestFastCodePlacement < Minitest::Test
   end
 
   def test_it_stays_in_the_cartridge_with_the_choosing_off
-    refute_includes placement_of(bending_program, fast_code: false)[:funcs], Placement::IRQ_ROUTINE
+    refute_includes placement_of(bending_program, fast_code: false).funcs, Placement::IRQ_ROUTINE
   end
 
   # The whole point of moving it, measured on the console: the same bend, the same picture,
@@ -283,7 +283,7 @@ class TestFastCodePlacement < Minitest::Test
         shift
       end
     end
-    assert_includes placement_of(program)[:funcs], Placement::IRQ_ROUTINE
+    assert_includes placement_of(program).funcs, Placement::IRQ_ROUTINE
     assert_backends_agree(program, frames: 3, name: "CBND")
   end
 
@@ -330,8 +330,8 @@ class TestFastCodePlacement < Minitest::Test
   # gets a smaller share rather than a broken build.
   def test_the_automatic_choice_always_fits
     report = placement_of(looping_program)
-    assert_operator report[:used_bytes], :<=, report[:total_bytes]
-    assert_operator report[:free_bytes], :>=, 0
+    assert_operator report.used_bytes, :<=, report.total_bytes
+    assert_operator report.free_bytes, :>=, 0
   end
 
   # A routine the author insists on that will not fit is a plain error naming it — the one

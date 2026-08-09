@@ -82,12 +82,12 @@ module RubyGBA
         # move would have needed — which is the number an author reaches for when they
         # want to make one fit.
         def fast_memory_lines(program, printer)
-          return if @placement.nil? || @placement[:funcs].empty?
+          return if @placement.nil? || @placement.funcs.empty?
 
           printer.puts "  kept in quick memory (code runs ~#{fmt(@weights[:fast_code_speedup])}x faster there):"
-          @placement[:funcs].each { |name| printer.puts "    #{quick_memory_label(name, program)}" }
+          @placement.funcs.each { |name| printer.puts "    #{quick_memory_label(name, program)}" }
           printer.puts format("    %s of 32K used, %s free",
-                              kb(@placement[:used_bytes]), kb(@placement[:free_bytes]))
+                              kb(@placement.used_bytes), kb(@placement.free_bytes))
         end
 
         # What to call each thing that moved. Two of them are routines the machine sees but
@@ -128,7 +128,7 @@ module RubyGBA
         # when the program draws no text.
         def glyph_footprint_lines(program, printer)
           IR::GlyphUsage.footprint(program).each do |f|
-            printer.puts "  text: font :#{f[:font]} draws #{f[:drawn]} of its #{f[:total]} glyphs"
+            printer.puts "  text: font :#{f.font} draws #{f.drawn} of its #{f.total} glyphs"
           end
         end
 
@@ -149,7 +149,9 @@ module RubyGBA
             mixer: mixer_verdict(program),     # the software mixer's per-frame CPU (nil if no sampled sound)
             bend: bend_verdict(program),       # a row-by-row bend's per-frame CPU (nil if nothing bends)
             ticks: tick_verdict(program),      # each timer's tick handler per frame (nil if no timer runs one)
-            glyphs: IR::GlyphUsage.footprint(program), # per-font reachable-glyph footprint
+            # per-font reachable-glyph footprint, flattened here because this hash is the
+            # serialized output and a value object has no meaning once it is JSON
+            glyphs: IR::GlyphUsage.footprint(program).map(&:to_h),
             unestimated: unpriced_kinds(program).sort,  # op kinds the model can't price (counted as free)
             tree: category_tree(program),      # the frame's cost as drawing / sound / logic sections
           }

@@ -54,9 +54,9 @@ class TestGlyphUsage < Minitest::Test
     # a 3-digit score in the big default font touches only the ten digit glyphs, far
     # fewer than the font's full set — the whole point of tree-shaking.
     prog = program { screen(:bitmap); var(:s, 0); draw_number(:s, 8, 8, :white, digits: 3); halt }
-    fp = Usage.footprint(prog).find { |f| f[:font] == :default }
-    assert_equal 10, fp[:drawn]
-    assert_operator fp[:total], :>, 30, "the default font has far more glyphs than are drawn"
-    assert_operator fp[:drawn], :<, fp[:total]
+    fp = Usage.footprint(prog).find { |f| f.font == :default }
+    assert_equal 10, fp.drawn
+    assert_operator fp.total, :>, 30, "the default font has far more glyphs than are drawn"
+    assert_operator fp.drawn, :<, fp.total
   end
 end

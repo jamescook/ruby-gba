@@ -191,7 +191,7 @@ class TestTimer < Minitest::Test
     backend = GBA.new(fast_code: fast_code)
     rom = ROM.assemble(backend.lower(b.program), title: "TICKF", code: "BTKF", maker: "01")
     [assert_gemba_loads_rom(rom, frames: 12, vars: backend.var_addresses).var(:hits),
-     backend.iwram_report[:funcs]]
+     backend.iwram_report.funcs]
   end
 
   def test_a_moved_tick_handler_counts_the_same_ticks

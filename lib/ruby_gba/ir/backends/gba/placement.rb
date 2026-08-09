@@ -129,16 +129,18 @@ module RubyGBA
           def var_addresses = @vars.dup
 
           # How much of the quick memory this build used, and what is left — the numbers
-          # `rom.explain` prints. Valid after #lower.
+          # `rom.explain` prints. The field names are ours, fixed when this is written, so it
+          # is a value object: a reader asking for a field that is not here says so instead of
+          # answering nil and printing a blank number.
+          Report = Data.define(:funcs, :code_bytes, :used_bytes, :free_bytes, :total_bytes)
+
+          # Valid after #lower.
           def iwram_report
-            used = @next_var - IWRAM_START
-            {
-              funcs: @fast_funcs.to_a,
-              code_bytes: @hot_bytes.to_i,
-              used_bytes: used,
-              free_bytes: [HOT_CEILING - @next_var, 0].max,
-              total_bytes: IWRAM_SIZE,
-            }
+            Report.new(funcs: @fast_funcs.to_a,
+                       code_bytes: @hot_bytes.to_i,
+                       used_bytes: @next_var - IWRAM_START,
+                       free_bytes: [HOT_CEILING - @next_var, 0].max,
+                       total_bytes: IWRAM_SIZE)
           end
 
           # Decide what moves. Runs before anything is emitted, and answers a set of func

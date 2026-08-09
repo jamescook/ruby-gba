@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "ruby_gba/version"
+require_relative "ruby_gba/migrating_hash_reads"
 require_relative "ruby_gba/constants"
 require_relative "ruby_gba/color"
 require_relative "ruby_gba/sound"

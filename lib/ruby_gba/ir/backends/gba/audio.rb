@@ -28,7 +28,7 @@ module RubyGBA
           def emit_beep(node)
             effect = Sound.resolve_effect(node[:tone], duty: node[:duty], decay: node[:decay],
                                                        volume: node[:volume], defined: @defined_sounds)
-            emit_writes(Sound::Registers.channel2(**effect))
+            emit_writes(Sound::Registers.channel2(**effect.to_h))
           end
 
           # A one-off percussion / explosion hit on channel 4 (the noise voice).
