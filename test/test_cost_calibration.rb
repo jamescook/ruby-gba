@@ -152,6 +152,24 @@ class TestCostCalibration < Minitest::Test
     game_loop { PLAIN_STATEMENTS.times { n.set m } if with }
   end
 
+  # THE SAME ASSIGNMENTS, in a program that declares a list. Reaching a variable begins by
+  # building its address, and how many instructions that takes depends on the address: two for
+  # an ordinary variable, three for one past the first 256 bytes of the console's quick memory.
+  # A list of 64 items claims that whole 256 bytes before any variable gets a home, so every
+  # variable here is the dearer kind and every statement pays it at both ends — the read and
+  # the write. That is a quarter more than the same statements without the list, and the model
+  # used to charge one price for both.
+  #
+  # The list is declared and never used: what is under test is where the variables landed, not
+  # what a list costs.
+  FAR_VARIABLES = lambda do |with|
+    screen :bitmap
+    list :xs, capacity: 64
+    n = var :n, 0
+    m = var :m, 7
+    game_loop { PLAIN_STATEMENTS.times { n.set m } if with }
+  end
+
   # An OPERATOR, which is charged beside the statement that holds it rather than instead of
   # it. Building an operator's weight out of a statement charged the statement twice, and that
   # is what made `n.set(m + 1)` — a shape every game writes — read a third over.
@@ -266,6 +284,8 @@ class TestCostCalibration < Minitest::Test
     Standing.new(name: :plain_ops, weight: :op_plain, fast_code: false, shape: PLAIN_OPERATORS,
                  predict: ->(model, program) { model.frame_cost(program) }),
     Standing.new(name: :comparisons, weight: :op_compare, fast_code: false, shape: COMPARISONS,
+                 predict: ->(model, program) { model.frame_cost(program) }),
+    Standing.new(name: :far_vars, weight: :var_address_step, fast_code: false, shape: FAR_VARIABLES,
                  predict: ->(model, program) { model.frame_cost(program) }),
   ].freeze
 

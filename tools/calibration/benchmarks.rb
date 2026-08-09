@@ -332,6 +332,52 @@ module RubyGBA
           per_op("#{tag}b", repeat_n, lo, hi) { |b, xv| b.set :y, xv }
       end
 
+      # --- reaching a variable that sits further out ---
+      #
+      # Every read and write of a variable begins by building its address, and how many
+      # instructions that takes depends on the address: one for the very first variable, two
+      # for the next sixty-three, three for anything past the first 256 bytes of the console's
+      # quick memory. Every weight above is measured on an ordinary one; this is the extra a
+      # far one costs, per touch.
+      #
+      # Two ROMs with the SAME variables, differing only in which of them the loop touches —
+      # so the boot code, the loop and the statement are identical and what is left is the
+      # address. The pad puts the far one comfortably past the boundary.
+      ADDRESS_PAD_VARS = 80
+      ADDRESS_PASSES = 300
+      ADDRESS_LO = 2
+      ADDRESS_HI = 6
+
+      def address_step_busy(name, copies, far:)
+        pad = ADDRESS_PAD_VARS
+        passes = ADDRESS_PASSES
+        rom = cartridge_build(name) do
+          screen :bitmap
+          clear_screen :black
+          var :first, 0
+          near = var :near, 7
+          pad.times { |i| var :"pad#{i}", 0 }
+          distant = var :distant, 7
+          target = far ? distant : near
+          b = self
+          game_loop { b.wait_vblank; b.repeat(passes) { copies.times { target.add 1 } } }
+        end
+        @m.busy(name, rom)
+      end
+
+      # An `add` reaches its variable twice — once to read it, once to write it back — so the
+      # difference between the two ROMs is two of these.
+      def per_var_address_step
+        (address_step_rate(far: true) - address_step_rate(far: false)) / 2.0
+      end
+
+      def address_step_rate(far:)
+        tag = far ? "adrf" : "adrn"
+        Reductions.marginal(address_step_busy("#{tag}#{ADDRESS_HI}", ADDRESS_HI, far: far),
+                            address_step_busy("#{tag}#{ADDRESS_LO}", ADDRESS_LO, far: far),
+                            over: ADDRESS_PASSES * (ADDRESS_HI - ADDRESS_LO))
+      end
+
       # --- a COMPARISON, which the DSL cannot put where the others go ---
       #
       # Every other operator above is measured inside `set :y, <expression>`. A comparison

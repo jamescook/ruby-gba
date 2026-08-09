@@ -37,6 +37,12 @@ module RubyGBA
     # attaches it; nil for a ROM assembled straight from machine code.
     attr_accessor :placement
 
+    # Where this ROM's variables ended up in the console's quick memory: name -> address.
+    # The estimate needs it because reaching a variable costs more the further out it sits
+    # (see the GBA backend's Placement#var_addresses). RubyGBA.build attaches it; nil for a
+    # ROM assembled straight from machine code, and then every variable is priced the same.
+    attr_accessor :var_addresses
+
     # Package finished machine code into a cartridge: write the header, drop the
     # code in after it, and finalize (entry branch, checksum, power-of-two
     # padding, and the ROM-image validation). This is the counterpart to a
@@ -151,16 +157,18 @@ module RubyGBA
 
     private
 
-    # What the cost model needs to know about where this ROM's code lives. The frame's
-    # own body has no name in the program, so it is passed as its own flag.
+    # What the cost model needs to know about where this ROM's code and variables live —
+    # both change what the same statement costs. The frame's own body has no name in the
+    # program, so it is passed as its own flag.
     def placement_for_cost_model
-      return {} unless placement
+      return { var_addresses: var_addresses }.compact unless placement
 
       names = placement[:funcs]
       { fast_routines: names - [FRAME_ROUTINE, IRQ_ROUTINE],
         fast_frame: names.include?(FRAME_ROUTINE),
         fast_interrupts: names.include?(IRQ_ROUTINE),
-        placement: placement }
+        placement: placement,
+        var_addresses: var_addresses }
     end
 
     FRAME_ROUTINE = IR::Backends::GBA::Placement::FRAME_ROUTINE
