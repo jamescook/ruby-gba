@@ -592,14 +592,20 @@ module RubyGBA
           @weights[:tearfree_moving_start] + (h * tearfree_moving_row_cost(w, node[:x]))
         end
 
-        # One row of a moving rectangle. Which pixels need an edge write follows from the
-        # column the rectangle starts in, so a column settled while building is priced
-        # exactly; otherwise both columns are possible and only one of them is emitted, so
-        # this takes the dearer — the same call the model makes for a scene dispatch,
-        # where only one branch runs a frame.
+        # One row of a moving rectangle. Which pixels need an edge write follows from
+        # whether the column the rectangle starts in is even or odd, and that is often
+        # settled while building even when the column itself is not: a game laying its
+        # world out on a grid writes `cell * 8`, and eight times anything is even
+        # (IR::Parity proves it). Then this prices the one shape that will run — and
+        # the backend emits only that shape, so the two agree by reading the same proof.
+        #
+        # An odd row costs about three times an even one, so this matters: when nothing
+        # can be proved, both shapes are emitted, only one of them runs, and this takes
+        # the dearer — the same call the model makes for a scene dispatch. Over-charging
+        # by three is the price of not knowing, which is why proving it is worth doing.
         def tearfree_moving_row_cost(w, x)
-          column = const_side(x)
-          return tearfree_row_parity_cost(w, column.odd?) if column
+          parity = Parity.of(x)
+          return tearfree_row_parity_cost(w, parity == :odd) if parity
 
           [false, true].map { |odd| tearfree_row_parity_cost(w, odd) }.max
         end

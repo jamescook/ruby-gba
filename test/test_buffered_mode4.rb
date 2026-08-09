@@ -251,6 +251,54 @@ class TestBufferedMode4 < Minitest::Test
     assert v.pixel_is?(239, 159, :red), "and reaches the bottom corner of the screen"
   end
 
+  # --- a column the game works out, whose parity the build can still prove ---
+
+  # A rectangle's rows are built differently at an odd column from an even one, so when the
+  # column is a number the game works out the backend normally emits BOTH shapes and picks
+  # at run time. It does not have to when the parity is provable: a game on a grid writes
+  # `cell * 8`, and eight times anything is even (IR::Parity).
+  #
+  # These two are the proof that the shortcut is honest, because a wrong proof shows up as
+  # wrong PIXELS: emit the even shape for an odd column and the rectangle's two end pixels
+  # are written into the wrong halves of their pairs, painting a neighbour and missing an
+  # end. So each asserts the pixel just outside the rectangle at BOTH ends, which is where
+  # that damage lands.
+  def test_a_column_proved_even_draws_exactly_its_own_pixels
+    prog = program(
+      screen(:bitmap, buffered: true),
+      clear_screen(:blue),
+      set(:cell, 5),
+      draw_rect_at(binop(:*, var_ref(:cell), int(8)), 0, 8, 4, :red), # 40..47
+      wait_vblank,
+      halt,
+    )
+    v = assert_gemba_loads_rom(assemble_rom(prog, name: "EVENPR"), frames: 4)
+
+    assert v.pixel_is?(39, 0, :blue), "the pixel left of the rectangle keeps its color"
+    assert v.pixel_is?(40, 0, :red), "the rectangle starts on the column the game worked out"
+    assert v.pixel_is?(47, 0, :red), "and spans its own eight pixels"
+    assert v.pixel_is?(48, 0, :blue), "stopping there"
+  end
+
+  # The other direction, which is the one a wrong proof would break: an odd column has both
+  # its end pixels spliced into pairs they share with the background.
+  def test_a_column_proved_odd_draws_exactly_its_own_pixels
+    prog = program(
+      screen(:bitmap, buffered: true),
+      clear_screen(:blue),
+      set(:cell, 5),
+      draw_rect_at(binop(:+, binop(:*, var_ref(:cell), int(8)), int(1)), 0, 8, 4, :red), # 41..48
+      wait_vblank,
+      halt,
+    )
+    v = assert_gemba_loads_rom(assemble_rom(prog, name: "ODDPR"), frames: 4)
+
+    assert v.pixel_is?(40, 0, :blue), "the pixel sharing a pair with the rectangle's first survives"
+    assert v.pixel_is?(41, 0, :red), "the rectangle starts on the odd column the game worked out"
+    assert v.pixel_is?(48, 0, :red), "and spans its own eight pixels"
+    assert v.pixel_is?(49, 0, :blue), "the pixel sharing a pair with its last survives too"
+  end
+
   # --- the DSL surface: tear_free: is only for :bitmap ---
 
   def test_tear_free_is_rejected_for_non_bitmap_modes

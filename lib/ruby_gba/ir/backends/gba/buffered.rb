@@ -92,12 +92,17 @@ module RubyGBA
           # differently from an even one (see emit_fill_rect_buffered), so the shape of
           # a row depends on a number the game works out as it runs.
           #
-          # A rect whose column is a plain number still settles it while building, and
-          # only that one shape is emitted. Otherwise the low bit of x is tested ONCE
-          # here and each case gets its own copy of the rows: every row of a rect starts
-          # on the same column, so a test inside the loop would ask the same question
-          # over and over, and the common even column keeps costing exactly what it did.
-          # r2/r3 hold x/y across both copies.
+          # A rect whose column is settled while building emits only that one shape.
+          # The column does not have to be a plain number to be settled: a game that
+          # lays its world out on a grid writes `cell * 8`, and eight times anything is
+          # even however the game works `cell` out (IR::Parity proves it). Then there is
+          # nothing to test and half the code is not there at all.
+          #
+          # Otherwise the low bit of x is tested ONCE here and each case gets its own
+          # copy of the rows: every row of a rect starts on the same column, so a test
+          # inside the loop would ask the same question over and over, and the common
+          # even column keeps costing exactly what it did. r2/r3 hold x/y across both
+          # copies.
           def emit_draw_rect_at_buffered(node)
             w = const_int(node[:w])
             return emit_buffered_rect_computed_width(node) unless w
@@ -109,8 +114,8 @@ module RubyGBA
 
             eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y, rows_reg: RECT_ROWS_LEFT)
 
-            column = const_int(node[:x])
-            return emit_buffered_rect_rows(**rows, starts_odd: column.odd?) if column
+            parity = Parity.of(node[:x])
+            return emit_buffered_rect_rows(**rows, starts_odd: parity == :odd) if parity
 
             odd_column = gensym
             done = gensym

@@ -195,6 +195,60 @@ class TestTearFreeDrawing < CostModelTest
          Cost.new.steady_cost(moving) - Cost.new.steady_cost(fixed)
   end
 
+  # ...but "the game works it out" is not the same as "nobody can tell". A game laying its
+  # world out on a grid writes `cell * 8`, and eight times anything is even however the
+  # game works `cell` out, so the cheaper row is the only one that can run. Charging the
+  # dearer one there over-charges by three — and the backend emits one shape too, from the
+  # same proof, so the two cannot disagree about which row was priced.
+  #
+  # These two columns take exactly the same work to arrive at — a variable, a shift, an
+  # add — and differ only in landing on an even column or an odd one. So the difference
+  # between them is the difference between the two ROWS, and it must be the same
+  # difference the written-in columns show.
+  def test_a_provable_column_is_priced_as_the_row_it_will_actually_run
+    fixed_even = tear_free { game_loop { draw_rect_at 40, 0, 8, 100, :red } }
+    fixed_odd  = tear_free { game_loop { draw_rect_at 41, 0, 8, 100, :red } }
+    grid_even = tear_free do
+      cell = var :cell, 5
+      game_loop { draw_rect_at (cell * 8) + 2, 0, 8, 100, :red }
+    end
+    grid_odd = tear_free do
+      cell = var :cell, 5
+      game_loop { draw_rect_at (cell * 8) + 1, 0, 8, 100, :red }
+    end
+
+    # Working the column out costs the same in both, so what is left over each side is the
+    # row — and each side landed on the written-in column that matches it.
+    near Cost.new.steady_cost(grid_odd) - Cost.new.steady_cost(fixed_odd),
+         Cost.new.steady_cost(grid_even) - Cost.new.steady_cost(fixed_even)
+    assert_operator Cost.new.steady_cost(grid_odd), :>, Cost.new.steady_cost(grid_even),
+                    "and the odd one is still the dearer, which is the whole reason to ask"
+  end
+
+  # The refusal, which is the half that keeps this honest. Three times a number is even or
+  # odd as that number is, so nothing is proved and the dearer row is charged again — even
+  # though the column beside it, six times the same number, is proved even by the same
+  # rule. The two take identical work to arrive at, so what separates them is one row shape.
+  #
+  # An estimate under what the game costs is the one failure the model exists to prevent,
+  # so a near miss like this must fall back rather than guess.
+  def test_a_column_with_no_provable_parity_is_still_charged_the_dearer_row
+    proved = tear_free do
+      cell = var :cell, 5
+      game_loop { draw_rect_at (cell * 6) + 2, 0, 8, 100, :red }
+    end
+    refused = tear_free do
+      cell = var :cell, 5
+      game_loop { draw_rect_at (cell * 3) + 2, 0, 8, 100, :red }
+    end
+
+    # Two spliced ends taking the place of one of the pairs the even row wrote, and the
+    # two extra parts they make of the row — the worst-case charge, in full.
+    near 100 * ((2 * WEIGHTS[:tearfree_part]) + WEIGHTS[:tearfree_edge_near] +
+                WEIGHTS[:tearfree_edge] - WEIGHTS[:tearfree_pair]),
+         Cost.new.steady_cost(refused) - Cost.new.steady_cost(proved)
+  end
+
   # --- pixels, text and the whole screen ---
 
   # A lone pixel is a read-modify-write here (it shares its sixteen bits with its
