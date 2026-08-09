@@ -17,7 +17,15 @@ module RubyGBA
             end
           end
 
+          # Reading a variable is normally building its address and loading it — three
+          # instructions. A variable the code around us is already HOLDING in a register is one
+          # move instead, and it is the same number either way because whoever holds it is
+          # keeping memory and register in step (see Statements#emit_repeat, the only holder
+          # today: a loop's index).
           def load_var(reg, name)
+            held = held_register(name)
+            return emit(ASM.mov_reg(reg, held)) if held
+
             emit(ASM.load_immediate(ADDR, var_addr(name)))
             emit(ASM.ldr(reg, ADDR))
           end
@@ -25,6 +33,21 @@ module RubyGBA
           def store_var(reg, name)
             emit(ASM.load_immediate(ADDR, var_addr(name)))
             emit(ASM.str(reg, ADDR))
+          end
+
+          # The register a variable is being held in for the moment, or nil. Kept as a plain
+          # map rather than an allocator: exactly one thing puts anything in it, and it puts
+          # the entry back the way it found it.
+          def held_register(name) = (@held_registers ||= {})[name]
+
+          def holding(name, reg)
+            @held_registers ||= {}
+            was = @held_registers[name]
+            @held_registers[name] = reg
+            yield
+          ensure
+            @held_registers[name] = was
+            @held_registers.delete(name) if was.nil?
           end
 
           # Write a 16-bit value to a memory-mapped register / VRAM halfword.

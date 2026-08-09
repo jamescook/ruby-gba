@@ -123,7 +123,7 @@ class TestCostOverruns < Minitest::Test
   end
 
   CASES = [
-    Overrun.new(name: :arithmetic, deadline: :frame_rate, shape: ARITHMETIC, fits: 2_000, over: 9_000),
+    Overrun.new(name: :arithmetic, deadline: :frame_rate, shape: ARITHMETIC, fits: 2_000, over: 24_000),
     Overrun.new(name: :blits, deadline: :tearing, shape: BLITS, fits: 20, over: 60),
     Overrun.new(name: :digits, deadline: :tearing, shape: DIGITS, fits: 8, over: 32),
     Overrun.new(name: :fills, deadline: :tearing, shape: FILLS, fits: 20, over: 140),

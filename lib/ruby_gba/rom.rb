@@ -43,6 +43,14 @@ module RubyGBA
     # ROM assembled straight from machine code, and then every variable is priced the same.
     attr_accessor :var_addresses
 
+    # Which shape each of this ROM's loops was given: index name -> {CostModel::LoopShape}.
+    # A loop that kept its counter in a register spends four instructions a pass where one
+    # through memory spends sixteen, so the estimate has to know which it got — and the build
+    # is what decided it (see
+    # the GBA backend's #loop_shapes). Nil for a ROM assembled straight from machine code,
+    # and then every loop is priced as the dearer shape.
+    attr_accessor :loop_shapes
+
     # Package finished machine code into a cartridge: write the header, drop the
     # code in after it, and finalize (entry branch, checksum, power-of-two
     # padding, and the ROM-image validation). This is the counterpart to a
@@ -161,14 +169,14 @@ module RubyGBA
     # both change what the same statement costs. The frame's own body has no name in the
     # program, so it is passed as its own flag.
     def placement_for_cost_model
-      return { var_addresses: var_addresses }.compact unless placement
+      decided = { var_addresses: var_addresses, loop_shapes: loop_shapes }.compact
+      return decided unless placement
 
       names = placement[:funcs]
       { fast_routines: names - [FRAME_ROUTINE, IRQ_ROUTINE],
         fast_frame: names.include?(FRAME_ROUTINE),
         fast_interrupts: names.include?(IRQ_ROUTINE),
-        placement: placement,
-        var_addresses: var_addresses }
+        placement: placement }.merge(decided)
     end
 
     FRAME_ROUTINE = IR::Backends::GBA::Placement::FRAME_ROUTINE

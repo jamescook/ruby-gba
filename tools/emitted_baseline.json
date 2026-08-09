@@ -74,7 +74,7 @@
       "data": 216
     },
     "raycaster": {
-      "code": 4712,
+      "code": 4648,
       "data": 2124
     },
     "scroll": {
@@ -90,11 +90,11 @@
       "data": 2328
     },
     "snake": {
-      "code": 58964,
+      "code": 57964,
       "data": 84
     },
     "snake_buffered": {
-      "code": 46024,
+      "code": 45024,
       "data": 82
     },
     "sprite_mover": {

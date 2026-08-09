@@ -172,11 +172,16 @@ class TestCostCalibrationTool < Minitest::Test
            "a domain with neither a range nor a note says nothing")
   end
 
-  # A real recipe, end to end, on numbers chosen so the answer is known. loop_pass differences a
-  # 900-pass loop against a 300-pass one: 61 minus 1, over the 600 extra passes.
+  # A real recipe, end to end, on numbers chosen so the answer is known. A loop's pass
+  # differences a 900-pass loop against a 300-pass one: 61 minus 1, over the 600 extra passes.
+  # Both shapes of loop are measured that way, and the two are told apart by the ROM name —
+  # "m" for the counter in memory, "r" for the counter in a register.
   def test_a_recipe_reduces_its_readings_the_way_it_says
-    calibration, = flat_calibration(busy: { "lp900" => 61.0, "lp300" => 1.0 })
+    calibration, = flat_calibration(busy: { "lpm900" => 61.0, "lpm300" => 1.0,
+                                            "lpr900" => 25.0, "lpr300" => 1.0 })
+
     assert_in_delta 0.1, calibration.weights[:loop_pass], 1e-9
+    assert_in_delta 0.04, calibration.weights[:loop_pass_held], 1e-9
   end
 
   # A WEIGHT HANDS BACK THE VARIABLE ITS OWN BENCHMARK READ. Every weight is measured on a

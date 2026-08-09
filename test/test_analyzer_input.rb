@@ -17,7 +17,11 @@ class TestAnalyzerInput < Minitest::Test
   # Enough passes of a trivial body to fill a whole frame — the workload stands in for
   # any per-frame work whose amount follows the player (a raycaster's taller columns, a
   # list of spawned enemies, a screen that fills up).
-  OVER_A_FRAME = 10_000
+  #
+  # A body this plain lets the loop keep its counter in a register, which is most of twice
+  # as fast as one that has to go through memory — so it takes rather more passes to fill a
+  # frame than the shape of the number suggests.
+  OVER_A_FRAME = 24_000
   # Enough to be plainly visible in a reading but nowhere near the ceiling.
   A_VISIBLE_SLICE = 1500
 
@@ -65,13 +69,18 @@ class TestAnalyzerInput < Minitest::Test
 
   # A game whose cost does not follow the player still reports at rest, with no button
   # named — nothing to warn about, and no invented input.
+  #
+  # The button here does cost something — one statement — and that is the point: a reading is
+  # attributed to a button only when the button is worth blaming, which one statement a frame
+  # is not. Without that floor the dearest attempt wins by a thousandth of a scanline, and the
+  # report points a reader at a button that is doing nothing.
   def test_a_game_input_does_not_make_dearer_reports_no_buttons
     program = build do
       screen :bitmap
-      var :x, 0
+      x = var :x, 0
       game_loop do
-        repeat(A_VISIBLE_SLICE) { add :x, 1 }
-        held(:left).then { add :x, 1 }
+        repeat(A_VISIBLE_SLICE) { x.add 1 }
+        held(:left).then { x.add 1 }
       end
     end
     result = Analyzer.measure_program(program)

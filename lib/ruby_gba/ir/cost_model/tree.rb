@@ -261,9 +261,12 @@ module RubyGBA
         # body once put the raycaster's 30 wall divides on the list at a thirtieth of
         # what they cost. The weights come from the same numbers the tree rolls up with,
         # so these add up to the frame — see #weigh_leaves.
+        # Rows of one op kind that a reader would act on differently are kept apart, which is
+        # what the name grouped alongside the op is for: the two shapes a loop can get cost
+        # very different amounts, so rolling them together would report an average nobody has.
         def hot_ops(nodes, top = 5)
-          weigh_leaves(nodes).group_by { |leaf, _times| leaf[:op] }
-                             .map { |op, rows| hot_row(op, rows) }
+          weigh_leaves(nodes).group_by { |leaf, _times| [leaf[:op], name_of(leaf)] }
+                             .map { |(op, _name), rows| hot_row(op, rows) }
                              .sort_by { |h| -h[:cost] }.first(top)
         end
 

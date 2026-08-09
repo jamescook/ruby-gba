@@ -161,7 +161,8 @@ module RubyGBA
             # above counts it at the capacity: this is the every-frame load, and no frame
             # pays for a list it has not filled (see #repeat_factor).
             passes = repeat_factor(node, typical: true).first
-            (passes * (body + loop_pass_cost)) + (passes.positive? ? loop_start_cost : 0)
+            (passes * (body + loop_pass_cost(node))) +
+              (passes.positive? ? loop_start_cost(node) : 0)
           # A timed trigger's steady per-frame cost follows from its kind: every(k)
           # runs one frame in k, so its body counts 1/k; after(n) fires once ever, so
           # it adds nothing to the every-frame load.
@@ -468,7 +469,7 @@ module RubyGBA
         # cost of going round, which leads the body because that is when it happens.
         def build_repeat(node)
           factor, note = repeat_factor(node)
-          kids = loop_overhead_leaf(factor) + node.children.flat_map { |child| build(child) }
+          kids = loop_overhead_leaf(node, factor) + node.children.flat_map { |child| build(child) }
           { op: :repeat, label: "repeat #{note}", cost: factor * sum(kids), factor: factor,
             source: node.source, children: kids }
         end
@@ -486,16 +487,60 @@ module RubyGBA
         # being the sum of its children times the trip count. That division is also what makes
         # the line say the useful thing: a loop of four reads several times dearer a pass than
         # a loop of four hundred, because it is — most of a short loop is being a loop.
-        def loop_overhead_leaf(factor)
-          each = loop_pass_cost + (factor.positive? ? loop_start_cost / factor : 0)
-          [{ op: :loop_pass, name: "the loop itself", label: "the loop itself",
+        #
+        # The line also says WHICH SHAPE the loop got, and when it got the slow one, what in
+        # the body stopped it having the other. That is the one thing an author can act on: a
+        # call moved out of a loop is worth three quarters of what the loop costs.
+        def loop_overhead_leaf(node, factor)
+          each = loop_pass_cost(node) + (factor.positive? ? loop_start_cost(node) / factor : 0)
+          [{ op: :loop_pass, name: loop_overhead_name(node), label: loop_overhead_label(node),
              cost: each, children: [] }]
         end
 
+        # The name the hottest list groups on carries the SHAPE but not the per-loop reason.
+        # A program's loops rarely all get the same shape, and the tree row for a hot one is
+        # often collapsed behind a call, so rolling every loop into one line would hide the
+        # thing worth knowing: how much of the frame goes on loops that could not hold their
+        # counter. The tree line adds the reason for each.
+        def loop_overhead_name(node)
+          shape = loop_shape(node)
+          return "the loop itself" unless shape
+
+          shape.held ? "the loop itself (in registers)" : "the loop itself (through memory)"
+        end
+
+        def loop_overhead_label(node)
+          shape = loop_shape(node)
+          return "the loop itself" unless shape
+          return "the loop itself (in registers)" if shape.held
+
+          "the loop itself (through memory — #{shape.blocked_by})"
+        end
+
+        # WHICH SHAPE THIS LOOP GOT, which is the BUILD'S answer and is handed over rather than
+        # worked out again here — the same arrangement as where each variable landed.
+        #
+        # It has to be. Whether a loop can keep its counter in a register is a fact about
+        # registers, and registers belong to a lowering; this file prices what a lowering
+        # produced and must not start deciding for it. A program handed straight to the model,
+        # or a guardrail asking before anything has been lowered, has no map — and then every
+        # loop is priced as the safe shape, which is the dearer of the two and the right way to
+        # be wrong.
+        def loop_shape(node) = @loop_shapes && @loop_shapes[node[:index]]
+
+        # A loop that keeps its counter in a register is four instructions a pass where one
+        # through memory is sixteen, so the two are priced apart.
+        def held_loop?(node) = loop_shape(node)&.held || false
+
         # Both halves are instructions like any other, so both are charged less where the code
         # runs faster.
-        def loop_pass_cost = @weights[:loop_pass] * fast_memory_factor
-        def loop_start_cost = @weights[:loop_start] * fast_memory_factor
+        def loop_pass_cost(node)
+          @weights[held_loop?(node) ? :loop_pass_held : :loop_pass] * fast_memory_factor
+        end
+
+        def loop_start_cost(node)
+          @weights[held_loop?(node) ? :loop_start_held : :loop_start] * fast_memory_factor
+        end
 
         # A timed trigger (every/after) as a labeled container: it carries its body's
         # full cost — the cost of the frame it does fire — so the tree and the

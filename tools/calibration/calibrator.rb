@@ -126,23 +126,39 @@ module RubyGBA
         # second case below and why this one has no regime to be warned about: with the fixed
         # part measured on its own, what is left here is a true rate, and it holds from one
         # pass to hundreds.
-        weigh(:loop_pass, Reductions.marginal(@bench.loop_busy(900), @bench.loop_busy(300), over: 600),
-              note: "one pass of a repeat — the counter, the compare and the branch back")
+        # And it is measured TWICE, because a loop comes in two shapes and a program gets
+        # whichever its body allows: the counter and the limit stay in registers unless
+        # something in the body could land on them, and then both live in memory and every
+        # pass loads and stores them (Backends::GBA::LoopForm decides).
+        weigh(:loop_pass,
+              Reductions.marginal(@bench.loop_busy(900, blocked: true),
+                                  @bench.loop_busy(300, blocked: true), over: 600),
+              note: "one pass of a repeat whose counter lives in memory")
+        weigh(:loop_pass_held,
+              Reductions.marginal(@bench.loop_busy(900), @bench.loop_busy(300), over: 600),
+              note: "one pass of a repeat whose counter stays in a register")
 
-        # ...and the entering: working the trip count out into the loop's hidden limit, zeroing
-        # its hidden counter, and the branch that leaves. Measured over how many LOOPS a frame
-        # holds rather than how long one is, which is the only way to see it, then with the
-        # passes those loops do taken back out.
+        # ...and the entering, in both shapes too: working the trip count out into the loop's
+        # limit, zeroing its counter, and the branch that leaves. Measured over how many LOOPS
+        # a frame holds rather than how long one is, which is the only way to see it, then with
+        # the passes those loops do taken back out.
         #
-        # It is worth about twenty ordinary instructions, so a loop of four passes spends a
-        # fifth of itself simply being entered — and a game reaches for a short loop often (a
-        # handful of rows, a few slots, a per-tick step).
+        # Through memory it is worth about twenty ordinary instructions, so a loop of four
+        # passes spends a fifth of itself simply being entered — and a game reaches for a short
+        # loop often (a handful of rows, a few slots, a per-tick step).
         weigh(:loop_start,
               Reductions.residual(
-                Reductions.marginal(@bench.loop_start_busy(12), @bench.loop_start_busy(4), over: 8),
+                Reductions.marginal(@bench.loop_start_busy(12, blocked: true),
+                                    @bench.loop_start_busy(4, blocked: true), over: 8),
                 Benchmarks::LOOP_START_PASSES * @weights[:loop_pass]
               ),
-              note: "entering a repeat, whatever it then does")
+              note: "entering a repeat whose counter lives in memory")
+        weigh(:loop_start_held,
+              Reductions.residual(
+                Reductions.marginal(@bench.loop_start_busy(12), @bench.loop_start_busy(4), over: 8),
+                Benchmarks::LOOP_START_PASSES * @weights[:loop_pass_held]
+              ),
+              note: "entering a repeat whose counter stays in a register")
 
         # op_mul / op_div = op_plain + the operator's extra cost over an add (a `set :y,
         # (x <op> 100)` is a set plus the operator; differencing against `+` isolates it).

@@ -127,6 +127,63 @@ class TestCostReport < CostModelTest
     assert_match(/estimate: \{ usually: N \}/, io.string, "and how to say the real length")
   end
 
+  # THE ONE THING AN AUTHOR CAN ACT ON about a loop. A loop that keeps its counter in a
+  # register costs a fraction of one that cannot, and what stops it is always something in the
+  # body — so the line says which shape the loop got and, when it is the dear one, what put it
+  # there. A call moved out of a loop is worth most of what the loop costs.
+  #
+  # The shape is the BUILD's answer and travels with the ROM, so this reads a built one.
+  def test_the_tree_says_which_shape_each_loop_got
+    rom = RubyGBA.build("LOOPS", code: "BLPR", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      total = var :total, 0
+      b = self
+      func(:bump) { total.add 1 }
+      game_loop do
+        b.repeat(8) { total.add 1 }
+        b.repeat(8) { b.call :bump }
+      end
+    end
+    io = StringIO.new
+    rom.cost_model.render(rom.source_program, out: io, color: false)
+
+    assert_match(/the loop itself \(in registers\)/, io.string)
+    assert_match(/the loop itself \(through memory — the body calls :bump\)/, io.string)
+  end
+
+  # ...and the hottest list splits the two shapes apart, because that is the line a reader
+  # reaches for and a hot loop's tree row is often collapsed behind a call. It groups on the
+  # shape alone — the reason belongs to one loop, the total to all of them.
+  def test_the_hottest_list_counts_the_two_shapes_apart
+    rom = RubyGBA.build("LOOPS", code: "BLPH", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      total = var :total, 0
+      b = self
+      func(:bump) { total.add 1 }
+      game_loop do
+        b.repeat(64) { total.add 1 }
+        b.repeat(64) { b.call :bump }
+      end
+    end
+    io = StringIO.new
+    rom.cost_model.render(rom.source_program, out: io, color: false)
+    hottest = io.string[/hottest:.*/m]
+
+    assert_match(/the loop itself \(in registers\) ×64/, hottest)
+    assert_match(/the loop itself \(through memory\) ×64/, hottest)
+    refute_match(/calls :bump/, hottest, "the reason belongs to the one loop, not the total")
+  end
+
+  # A program handed to the model with no build behind it has no such answer — the shapes are
+  # decided by the lowering — so the line says what a loop costs and claims nothing about how.
+  def test_a_program_with_no_build_behind_it_claims_nothing_about_the_shape
+    io = StringIO.new
+    Cost.new.render(program { screen(:bitmap); game_loop { repeat(8) { add :n, 1 } } }, out: io)
+
+    assert_match(/the loop itself/, io.string)
+    refute_match(/in registers|through memory/, io.string)
+  end
+
   def test_a_program_that_walks_no_list_says_nothing_about_one
     io = StringIO.new
     Cost.new.render(program { screen(:bitmap); game_loop { clear_screen :black } }, out: io)
