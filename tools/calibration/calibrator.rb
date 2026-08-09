@@ -61,20 +61,22 @@ module RubyGBA
       # --- logic (the op_* tiers) ---
 
       def logic
-        # THE FOUR SHAPES OF PLAIN WORK, which used to be one weight measured once and charged
-        # for all of them. In instructions, they are not one price:
+        # THE FOUR SHAPES OF PLAIN WORK, each measured on its own because in instructions they
+        # are four prices and not one:
         #
         #   add :y, 1        8   a statement that reads a variable, changes it, writes it back
         #   set :y, x        6   a statement that only writes one — three quarters of the above
         #   x + 2            4   an operator: hold the left side, work out the right, combine
         #   x > 2            8+  a comparison, which also turns the answer into a 1 or a 0
         #
-        # The one weight was six, so an `add` read a quarter light, a plain operator half again
-        # too dear, and a comparison a third light — on the commonest things a program does.
+        # One figure for all four would be about six, which reads an `add` a quarter light, a
+        # plain operator half again too dear and a comparison a third light — on the commonest
+        # things a program does.
         #
         # WHICH VARIABLE a statement weight is measured on is part of the recipe, not a detail:
-        # see Benchmarks#stable_busy for why the harness keeps a spare in the first slot. Six
-        # was `add :x, 1` on that first variable, which is exactly one variable per program.
+        # see Benchmarks#stable_busy for why the harness keeps a spare in the first slot. On the
+        # program's first variable an `add` measures six rather than eight, and exactly one
+        # variable per program is like that.
         weigh(:op_step, @bench.per_op("step", 500, 2, 8) { |b, _xv| b.add :y, 1 },
               note: "a statement that reads a variable, changes it and writes it back")
         # An assignment, MINUS the variable it was handed: `set :y, x` reads one, and the model
@@ -146,18 +148,18 @@ module RubyGBA
               over_an_add(tag: "mul", against: "addm", passes: 300, lo: 2, hi: 6) { |b, xv| b.set :y, (xv * 100) },
               note: "a multiply by a number written in the program")
 
-        # THE POWER-OF-TWO CASES, which the lowering reduces and the model used to charge a
-        # whole plain step for. Measured, they are the cheapest operators there are — and
-        # they are three different prices, not one:
+        # THE POWER-OF-TWO CASES, which the lowering reduces to a shift or a mask. Measured,
+        # they are the cheapest operators there are — and they are three prices, not one:
         #
         #   * 8     one instruction. The shift, and nothing else.
         #   % 64    one. Keeping the low bits IS the answer, sign and all, so it is a mask.
         #   / 8     three. A shift rounds DOWN and `/` rounds toward zero, so a negative
         #           numerator is nudged up first — see emit_divide_by_power_of_two.
         #
-        # Charged a plain step, `set :y, (x * 8)` read at twice what it costs. These are the
-        # operator's OWN cost, not a statement over again (see Benchmarks#per_operator), which
-        # is what makes them compose with the statement they sit in instead of doubling it.
+        # A plain step for any of them would read `set :y, (x * 8)` at twice what it costs.
+        # These are the operator's OWN cost, not a statement over again (see
+        # Benchmarks#per_operator), which is what makes them compose with the statement they
+        # sit in instead of doubling it.
         #
         # The wrap is measured at 64, which is the size a game actually wraps onto — an angle,
         # a sine table's index. A mask too big to ride inside the instruction has to be loaded
@@ -431,8 +433,8 @@ module RubyGBA
         dma_pixel = Reductions.marginal(@bench.dma_stall(200, 100, 4), @bench.dma_stall(40, 100, 4),
                                         over: (200 - 40) * 100 * 4)
 
-        # STARTING one row's transfer costs on BOTH sides of the line the probe draws, and only
-        # one side used to be measured.
+        # STARTING one row's transfer costs on BOTH sides of the line the probe draws, so both
+        # sides are measured.
         #
         # The CPU writes a few registers to kick the engine off. That is busy time, on a fill two
         # pixels wide so the transfer itself is negligible.

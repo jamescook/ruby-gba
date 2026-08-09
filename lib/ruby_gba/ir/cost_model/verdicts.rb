@@ -111,8 +111,8 @@ module RubyGBA
           # ONE ANSWER PER LIST, not per loop, and the walks over a list are summed to get
           # it. They all grow together — a body walked in three loops costs three walks per
           # item — so what capping the list saves is the sum of them. Solved one loop at a
-          # time, no single walk could be capped back into budget on its own, and a list
-          # walked more than once (which is what a real game does) went unwarned.
+          # time, no single walk over a list a game walks repeatedly is big enough on its own
+          # to be worth capping, and the list goes unwarned.
           capacity_bounded_loops(program).group_by { |node| node[:count][:name] }.filter_map do |name, loops|
             # THE LENGTH THE AUTHOR ASKED FOR, not the power of two the ring rounded it up
             # to. Whether this warning is worth making turns on whether the list can really

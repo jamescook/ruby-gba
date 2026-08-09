@@ -266,13 +266,11 @@ module RubyGBA
           when :mul_fix then @weights[:op_mul_fix]
           when :div_fix then div_fix_weight(value)
           # Dropping the low bits of a number is ONE instruction — the same shift a multiply
-          # by a power of two is, and measured at the same price. It used to be charged a
-          # whole plain step, six instructions for one, which mattered because this is what
-          # `.to_i` lowers to and a game holding fractions writes that on every coordinate it
-          # draws.
+          # by a power of two is, and measured at the same price, so it shares that weight.
+          # Worth getting right rather than rounding up to a plain step: this is what `.to_i`
+          # lowers to, and a game holding fractions writes it on every coordinate it draws.
           when :shift_right then @weights[:op_mul_pow2]
-          # Turning a number round is the same single instruction, so it shares that price
-          # too. It used to be charged a whole plain statement — eight instructions for one.
+          # Turning a number round is the same single instruction, so it shares that price too.
           when :neg then @weights[:op_mul_pow2]
           when :chance then @weights[:op_compare] # it IS a compare: is the draw under the threshold
           when :pixels_overlap then worst ? pixels_overlap_cost(value) : 0
@@ -651,12 +649,12 @@ module RubyGBA
         # many times what a pair does (Backends::GBA::Buffered
         # #emit_buffered_rect_row_middle decides where the line falls; if that moves,
         # this must). That is what makes a two-pixel column a QUARTER of the price of two
-        # one-pixel ones — the wider one is cheaper — and pricing every row as a block
-        # fill is what used to hide it.
+        # one-pixel ones — the wider one is cheaper, which only shows if a row is priced by
+        # the pieces it is built from rather than as one block fill.
 
         # How many pairs the block-fill engine is worth starting for. The same number
         # Backends::GBA::Buffered::DIRECT_STORE_UNITS; if one moves, both must.
-        TEARFREE_DIRECT_PAIRS = 4
+        TEARFREE_DIRECT_PAIRS = 12
 
         # A rectangle of a size settled while building, filled on the tear-free screen —
         # what `fill_rect` and `dma_fill_rect` both lower to there.
@@ -672,27 +670,50 @@ module RubyGBA
           # as nothing rather than a guess, and the estimate says so out loud.
           return 0 unless w && h && x && y
 
-          transfer = w * h * @weights[:tearfree_fill_pixel]
-          return @weights[:tearfree_rect_start] + dma_start_weight + transfer if full_width_run?(x, y, w, h)
+          if full_width_run?(x, y, w, h)
+            return @weights[:tearfree_rect_start] + dma_start_weight +
+                   (w * h * @weights[:tearfree_fill_pixel])
+          end
 
-          @weights[:tearfree_rect_start] + (h * tearfree_fill_row_cost(x, w)) + transfer
+          @weights[:tearfree_rect_start] + (h * tearfree_fill_row_cost(x, w))
         end
 
-        # One row of a fixed rectangle: the fill, plus the two edge pixels an odd column
+        # One row of a fixed rectangle: its middle, plus the two edge pixels an odd column
         # forces (both ends of the row then share a pair with a pixel outside it). A
-        # two-pixel rectangle at an odd column is all edge and has no fill at all.
+        # two-pixel rectangle at an odd column is all edge and has no middle at all.
         #
-        # Both weights here are BORROWED from shapes measured elsewhere, because a fixed
-        # rectangle is a third emitter again: its rows are unrolled with every address
-        # settled while building, so its ends are not the moving rectangle's spliced ends
-        # and its fill is not the moving rectangle's. Measured, a row of one reads a little
-        # OVER at an even column and a little UNDER at an odd one — inside the calibration
-        # band at both, and in opposite directions, so a whole rectangle is nearer than
-        # either of its rows.
+        # The middle takes the same two shapes a moving rectangle's does — written out as
+        # pairs while it is narrow, handed to the block-fill engine once it is wide enough to
+        # be worth starting — and off the same number, so the model and the emitter cannot
+        # disagree about which one a row got. Only an engine row pays the transfer, because
+        # only an engine row starts the engine.
+        #
+        # THE WEIGHTS ARE BORROWED, because a fixed rectangle is a third emitter again: its
+        # rows are unrolled with every address settled while building. Each end is the same
+        # read-splice-write a moving row's NEAR end is, and the pair of them comes out an
+        # instruction or two dearer than that weight makes them — so an odd column reads a
+        # little under, and an even one, which splices nothing, reads exactly.
         def tearfree_fill_row_cost(x, w)
-          edges = x.odd? ? 2 * @weights[:tearfree_edge] : 0
+          edges = x.odd? ? 2 * @weights[:tearfree_edge_near] : 0
           middle = x.odd? ? w - 2 : w
-          edges + (middle.positive? ? dma_start_weight : 0)
+          return edges unless middle.positive?
+          return edges + tearfree_engine_row_cost(middle) if engine_worth_starting?(middle)
+
+          edges + tearfree_written_row_cost(middle)
+        end
+
+        # A block-filled row: starting the engine, and the pixels it then moves as stall.
+        def tearfree_engine_row_cost(middle)
+          dma_start_weight + (middle * @weights[:tearfree_fill_pixel])
+        end
+
+        # A written-out row of a FIXED rectangle: a store per pair, and the row's own address.
+        # That address is three instructions where a moving row's is two — a fixed row builds
+        # it from the page base every time, where a moving one steps the last one along — so
+        # it is a row's reach and one more, borrowed as a pair since a pair is one
+        # instruction.
+        def tearfree_written_row_cost(middle)
+          @weights[:tearfree_row] + (((middle / 2) + 1) * @weights[:tearfree_pair])
         end
 
         # Whether a rectangle covers whole screen rows with nothing clipped off, so it
@@ -822,8 +843,8 @@ module RubyGBA
           song[:voices].length * @weights[:music_voice]
         end
 
-        # How many notes a song holds — summed across its parts. Informational (shown in
-        # the music-budget message); the per-frame cost no longer depends on it.
+        # How many notes a song holds — summed across its parts. Informational (shown in the
+        # music-budget message); the per-frame cost is per VOICE and does not depend on it.
         def song_notes(name)
           song = @songs && @songs[name]
           return 0 unless song

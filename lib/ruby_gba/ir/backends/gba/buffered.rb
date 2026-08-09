@@ -50,6 +50,9 @@ module RubyGBA
 
             base = 6
             load_var(base, BACKBUF) # the hidden page base, held for the whole rect
+            # A row narrow enough to be written out needs the fill unit in a register, and it
+            # is the same unit for every row — so it is loaded once here rather than per row.
+            emit(ASM.load_immediate(RECT_FILL, fill_unit(index))) if direct_fill?(middle_w)
 
             # A rect as wide as the screen is one unbroken run of memory: there is no gap
             # to skip between rows, because the next row starts exactly where the last one
@@ -77,15 +80,35 @@ module RubyGBA
             x.zero? && w == SCREEN_WIDTH && h.positive? && y >= 0 && (y + h) <= SCREEN_HEIGHT
           end
 
-          # DMA one row of a rect into the hidden page: +w+ pixels from the even column
-          # +x+ of +row+. +base+ is the register holding the hidden page base.
+          # One row of a rect into the hidden page: +w+ pixels from the even column +x+ of
+          # +row+. +base+ is the register holding the hidden page base.
+          #
+          # A narrow row is written out as pairs of pixels rather than handed to the
+          # block-fill engine, for the reason DIRECT_STORE_UNITS gives: starting the engine
+          # costs the same whatever it then moves, so below that width the starting is most
+          # of the work. A row of eight pixels goes in as four stores against the engine's
+          # fifteen instructions and its stall.
           def emit_buffered_row_fill(base:, x:, row:, w:, scratch:)
+            return emit_buffered_row_stores(base: base, x: x, row: row, w: w) if direct_fill?(w)
+
             store_word_immediate(scratch, REG_DMA3SAD)
             emit_add_const(ACC, base, (row * SCREEN_WIDTH) + x, TMP) # + byte offset (1 byte/pixel)
             emit(ASM.load_immediate(TMP, REG_DMA3DAD))
             emit(ASM.str(ACC, TMP))                                  # destination = that row
             store_word_immediate(dma_fill_control_16(w / 2), REG_DMA3CNT)
           end
+
+          # The same row written out: the fill unit — the palette index in both of its bytes,
+          # held in RECT_FILL — stored a pair at a time. Every address here is settled while
+          # building, so a row is one address built into r1 and then a store per pair at a
+          # fixed offset from it.
+          def emit_buffered_row_stores(base:, x:, row:, w:)
+            emit_add_const(1, base, (row * SCREEN_WIDTH) + x, ACC) # r1 = the row's first unit
+            (w / 2).times { |unit| emit(ASM.store_halfword_offset(RECT_FILL, 1, unit * 2)) }
+          end
+
+          # The 16-bit unit a packed fill writes: the palette index in both of its pixels.
+          def fill_unit(index) = (index * 0x0101) & 0xFFFF
 
           # A rectangle at a run-time position, filled per row into the hidden page.
           # Only its row moves in the general case — but an odd column fills
@@ -331,16 +354,13 @@ module RubyGBA
           # +offset+ columns right of the rect's x, on the row whose address r4 holds.
           #
           # A NARROW middle is written straight out, one 16-bit store per pair of pixels,
-          # rather than handing it to the block-fill engine. Starting that engine is five
-          # instructions plus its own start-up, together about what ten plain instructions
-          # cost — so for a pair or two the starting is nearly all of the work. Measured,
-          # that made a 2-pixel-wide column dearer per row than a 1-pixel one, which reads
-          # as nonsense and was true: the 1-pixel column spliced (a handful of
-          # instructions) while the 2-pixel one started the engine.
+          # rather than handing it to the block-fill engine. Starting that engine costs the
+          # same whatever it then moves — the register writes, and the stall while it copies
+          # — so for a pair or two the starting is nearly all of the work, and a two-pixel
+          # column would cost more per row than a one-pixel one that only splices.
           #
-          # Past DIRECT_STORE_UNITS the engine wins, and it also keeps the code small — a
-          # direct fill is a store per pair on every row, and those are written out one by
-          # one when the height is known.
+          # Past DIRECT_STORE_UNITS the engine is worth starting; see the constant below for
+          # where that line sits and what it is measured against.
           def emit_buffered_rect_row_middle(offset:, w:, scratch:)
             return emit_buffered_rect_row_dma(offset: offset, w: w, scratch: scratch) unless direct_fill?(w)
 
@@ -350,10 +370,22 @@ module RubyGBA
           end
 
           # Up to this many pairs of pixels, writing them out beats starting the block-fill
-          # engine. Measured on the console: a pair costs about a tenth of what starting
-          # the engine does, so the two break even near ten — this is set well below that
-          # so a wide rect keeps the engine and the code stays small.
-          DIRECT_STORE_UNITS = 4
+          # engine — and up to here it beats it TWICE OVER, in time and in the code it takes.
+          #
+          # Counted off the emitted code, a row that starts the engine is fifteen
+          # instructions whatever it then moves, and a row written out is two instructions
+          # plus one per pair. So the written-out row is the SMALLER one up to thirteen
+          # pairs, and it stays the faster one much further than that: starting the engine
+          # costs about what fourteen pairs do — the register writes AND the stall while the
+          # engine copies, which stops the CPU dead — so the engine does not win on time
+          # until a row is nearly thirty pairs wide.
+          #
+          # This sits at the point where those two agree, so nothing is traded for anything.
+          # Past it the written-out row is still faster and starts to cost more code, and a
+          # rectangle's rows are unrolled — so going further needs a size budget the
+          # framework does not have, and it would spend the quick memory that a game's hot
+          # routines are competing for.
+          DIRECT_STORE_UNITS = 12
 
           def direct_fill?(w) = w.positive? && (w / 2) <= DIRECT_STORE_UNITS
 
