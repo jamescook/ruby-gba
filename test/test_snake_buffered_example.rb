@@ -18,14 +18,22 @@ class TestSnakeBufferedExample < Minitest::Test
 
   # RubyGBA.build runs the guardrails and validation, so a clean build IS the check.
   # The redraw-everything guardrail stays quiet here (buffering makes the whole-board
-  # repaint tear-safe), but the draw-budget guardrail correctly speaks up: repainting
-  # the whole board every frame is over the whole-frame budget, so it would run below
-  # 60fps. That warning is the teaching point — buffering stops tearing, not slowness.
-  def test_the_example_builds_and_warns_it_is_too_heavy_for_60fps
+  # repaint tear-safe), and the one that speaks is the growth warning: repainting the
+  # whole body every frame costs more the longer the snake gets, and a few hundred cells
+  # no longer fit in a frame. That warning is the teaching point — buffering stops
+  # tearing, not slowness.
+  #
+  # WHICH WARNING IS THE RIGHT ONE HERE was settled by measuring. This used to warn that
+  # the game is too heavy for 60fps full stop, which the console disagrees with: it costs
+  # a fraction of a frame with the four-cell snake it opens with, and grows past a whole
+  # frame only once the body is a few hundred cells long. The cost is real and it arrives
+  # WITH LENGTH, so the warning that names the length is the true one.
+  def test_the_example_builds_and_warns_the_frame_grows_with_the_snake
     err = StringIO.new
     rom = BufferedSnake.build_rom(err: err)
     assert_operator rom.size, :>, 0, "the built ROM should be non-empty"
-    assert_match(/slower than 60 frames/, err.string, "the over-frame-budget warning should fire")
+    assert_match(/goes over budget/, err.string, "the growing-list warning should fire")
+    assert_match(/:xs/, err.string, "and it should name the list to cap")
   end
 
   # The title screen shows "SNAKE" in green — the simplest proof it isn't a black

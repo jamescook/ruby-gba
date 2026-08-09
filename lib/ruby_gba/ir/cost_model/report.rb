@@ -239,6 +239,8 @@ module RubyGBA
                          "Most frames the sprites miss and stop at the cheap box test.)"
           end
 
+          list_walk_line(program, printer)
+
           if frame_total > recurring + 0.1
             printer.puts "    (a heavier frame reaches #{fmt(frame_total)} — the worst case for everything on it, " \
                          "not the every-frame cost)"
@@ -248,6 +250,23 @@ module RubyGBA
             blind_spot_note(program, printer)
           else
             estimate_only_hint(program, printer)
+          end
+        end
+
+        # HOW LONG THE LISTS WERE TAKEN TO BE, which the every-frame figure above turns on
+        # and nothing in the program says. A walk is bounded by the capacity and by nothing
+        # else, and a list sized so it can never overflow is nearly never full — so this is
+        # the one assumption in the budget an author can correct, and it says how.
+        def list_walk_line(program, printer)
+          walks = list_walk_verdicts(program)
+          return if walks.empty?
+
+          at = walks.map { |walk| ":#{walk[:name]} #{walk[:counted]} of #{walk[:capacity]}" }.join(", ")
+          if walks.all? { |walk| walk[:said] }
+            printer.puts "    (a list walk counts what the list usually holds — #{at}, the length you gave)"
+          else
+            printer.puts "    (a list walk counts what the list usually holds — #{at}, a guess. " \
+                         "To give the real length, write estimate: { usually: N } on the list.)"
           end
         end
 

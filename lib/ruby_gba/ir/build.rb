@@ -581,12 +581,24 @@ module RubyGBA
 
       # Create a named list that can hold up to `capacity` items. The stored
       # capacity is the rounded value.
-      def list_new(name, capacity)
+      #
+      # `usually` is how many it normally holds, and it changes nothing about what the
+      # program does — no backend reads it. It is what a walk over the list is counted
+      # at when the estimate asks what a frame USUALLY costs, where the capacity is what
+      # the same walk is counted at when it asks what a frame could cost at worst. A
+      # snake's body list holds every cell of the board and holds four of them for most
+      # of a game, so the two questions have answers 128 times apart.
+      def list_new(name, capacity, usually: nil)
         unless capacity.is_a?(Integer) && capacity.positive?
           raise ArgumentError,
                 "a list's capacity must be a positive whole number, got #{capacity.inspect}"
         end
-        Node.new(:list_new, name: name, capacity: round_up_capacity(capacity))
+        if usually && !(usually.is_a?(Integer) && usually.positive? && usually <= capacity)
+          raise ArgumentError,
+                "`usually:` must be between 1 and the capacity of #{capacity}. " \
+                "You gave #{usually.inspect}."
+        end
+        Node.new(:list_new, name: name, capacity: round_up_capacity(capacity), usually: usually)
       end
 
       # Append a value at the end of the list (grows its length by one).

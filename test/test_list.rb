@@ -263,4 +263,64 @@ class TestList < Minitest::Test
       assert_raises(ArgumentError) { Build.list_drop(:x, from: :sideways) }
     end
   end
+
+  # --- `estimate: { usually: N }`, which the estimate reads and the game never does ---
+
+  # The whole claim of the hint: it says something about the list to `rom.explain` and
+  # changes nothing about what the program does. Same pushes, same reads, same answers.
+  def test_saying_how_long_a_list_usually_is_changes_nothing_about_the_run
+    plain = interpret do
+      body = list :body, capacity: 8
+      3.times { |n| body.push n }
+      set :len, body.length
+      set :last, body[2]
+      halt
+    end
+    hinted = interpret do
+      body = list :body, capacity: 8, estimate: { usually: 2 }
+      3.times { |n| body.push n }
+      set :len, body.length
+      set :last, body[2]
+      halt
+    end
+
+    assert_equal 3, hinted[:len]
+    assert_equal plain[:len], hinted[:len]
+    assert_equal plain[:last], hinted[:last]
+  end
+
+  # A range says a length that moves. The estimate counts its top, so this is stored as
+  # one number — the surface takes the range, the program keeps the answer.
+  def test_a_range_is_kept_as_its_top
+    builder = Builder.new
+    builder.instance_eval { list :body, capacity: 64, estimate: { usually: 4..12 } }
+
+    assert_equal 12, builder.program.walk.find { |n| n.kind == :list_new }[:usually]
+  end
+
+  # A hint the surface does not know is an ERROR, not a shrug. A misspelled key that
+  # quietly did nothing would leave the report calling the number a guess while the author
+  # believed they had answered it.
+  def test_a_hint_it_does_not_know_is_refused
+    error = assert_raises(ArgumentError) do
+      Builder.new.instance_eval { list :body, capacity: 8, estimate: { usualy: 2 } }
+    end
+    assert_match(/usualy/, error.message)
+    assert_match(/usually/, error.message, "and names the one it does know")
+  end
+
+  # A range so wide it covers the whole list is not an answer — it is the assumption the
+  # estimate already had to make, dressed up as a fact somebody checked.
+  def test_a_range_wider_than_half_the_capacity_is_refused
+    error = assert_raises(ArgumentError) do
+      Builder.new.instance_eval { list :body, capacity: 64, estimate: { usually: 0..63 } }
+    end
+    assert_match(/usual length/, error.message)
+  end
+
+  def test_a_length_bigger_than_the_capacity_is_refused
+    assert_raises(ArgumentError) { Build.list_new(:x, 8, usually: 9) }
+    assert_raises(ArgumentError) { Build.list_new(:x, 8, usually: 0) }
+    assert_equal 8, Build.list_new(:x, 8, usually: 8)[:usually]
+  end
 end
