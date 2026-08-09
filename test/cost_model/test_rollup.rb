@@ -225,7 +225,7 @@ class TestCostRollup < CostModelTest
       x = var :x, 100
       game_loop { x.set(x / step) }
     end
-    labels = leaves(Cost.new.analyze(prog)).map { |n| n[:label] }
+    labels = leaves(Cost.new.analyze(prog)).map(&:label)
     assert_includes labels, "divide (worked out)"
     assert_includes labels, "set", "the statement it feeds is still there, at what is left"
   end
@@ -241,7 +241,7 @@ class TestCostRollup < CostModelTest
       game_loop { x.set((x / step) + (x / 100) + (x * 7)) }
     end
     cost = Cost.new
-    near cost.steady_cost(prog), leaves(cost.analyze(prog)).sum { |n| n[:cost] }
+    near cost.steady_cost(prog), leaves(cost.analyze(prog)).sum(&:cost)
   end
 
   # A power of two is a shift, no dearer than an add, so it gets no line of its own.
@@ -252,7 +252,7 @@ class TestCostRollup < CostModelTest
       x = var :x, 100
       game_loop { x.set(x / 64) }
     end
-    labels = leaves(Cost.new.analyze(prog)).map { |n| n[:label] }
+    labels = leaves(Cost.new.analyze(prog)).map(&:label)
     assert_empty labels.grep(/divide/), "a shift is not worth a line of its own"
   end
 
@@ -272,7 +272,7 @@ class TestCostRollup < CostModelTest
         depth.set(depth / scale) # two numbers that hold a fraction
       end
     end
-    labels = leaves(Cost.new.analyze(prog)).map { |n| n[:label] }.grep(/divide/)
+    labels = leaves(Cost.new.analyze(prog)).map(&:label).grep(/divide/)
     assert_equal ["divide (worked out)", "divide (fixed number)", "divide (fraction)"], labels
   end
 
@@ -286,8 +286,8 @@ class TestCostRollup < CostModelTest
       w = var :w, 40
       game_loop { draw_rect_at 0, 0, (w / step), 8, :red }
     end
-    drawing = Cost.new.category_tree(prog).find { |c| c[:category] == :drawing }
+    drawing = Cost.new.category_tree(prog).find { |c| c.category == :drawing }
     refute_nil drawing, "the divide belongs to the rectangle it sizes, so drawing keeps it"
-    assert_includes leaves([drawing]).map { |n| n[:label] }, "divide (worked out)"
+    assert_includes leaves([drawing]).map(&:label), "divide (worked out)"
   end
 end

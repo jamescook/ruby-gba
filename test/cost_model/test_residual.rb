@@ -26,7 +26,7 @@ class TestCostResidual < CostModelTest
 
   def measurement(scanlines) = { nil => { scanlines: scanlines, fps: nil, saturated: false, keys: [] } }
 
-  def estimate(prog) = Cost.new.category_tree(prog).sum { |node| node[:cost] }
+  def estimate(prog) = Cost.new.category_tree(prog).sum(&:cost)
 
   # --- when it speaks ---
 

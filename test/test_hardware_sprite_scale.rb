@@ -191,7 +191,7 @@ class TestHardwareSpriteScale < Minitest::Test
   end
 
   def tree_labels(nodes)
-    nodes.flat_map { |node| [node[:label].to_s] + tree_labels(node[:children].to_a) }
+    nodes.flat_map { |node| [node.label.to_s] + tree_labels(node.children) }
   end
 
   # --- the two backends build the matrix from one set of rules ---

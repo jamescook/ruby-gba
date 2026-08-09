@@ -43,17 +43,37 @@ module RubyGBA
       sites.each { |where, what| out.puts "  #{where}  #{what}" }
     end
 
-    # Mixed into the value object itself.
+    # Mixed into the value object itself. Hash-style reading is not only #[] — a caller that
+    # copies with a change says #merge and one that reaches through says #dig, and both are
+    # sites to move as much as a bracket is. They record too, or a conversion would look
+    # finished while a #merge sat waiting to fail.
     module Reads
       def [](key)
-        MigratingHashReads.record(caller_locations(1, 1).first, self.class.name, key)
+        record_site(caller_locations(1, 1).first, key)
         public_send(key)
+      end
+
+      def merge(changes)
+        record_site(caller_locations(1, 1).first, :merge)
+        with(**changes)
+      end
+
+      def dig(key, *rest)
+        record_site(caller_locations(1, 1).first, key)
+        value = public_send(key)
+        rest.empty? ? value : value&.dig(*rest)
       end
 
       # The escape hatch: asking whether a field exists at all, which a caller cannot do
       # with #[] now that an unknown field raises.
       def key?(key)
         self.class.members.include?(key)
+      end
+
+      private
+
+      def record_site(site, key)
+        MigratingHashReads.record(site, self.class.name, key)
       end
     end
   end
