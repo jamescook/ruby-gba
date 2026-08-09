@@ -209,9 +209,9 @@ module RubyGBA
           # Judge the RECURRING per-frame load — what every frame really pays. A one-off
           # spike (a transition repaint, an every() tick) is named separately below, not
           # judged as if it ran every frame: 60fps against the whole recurring load,
-          # tearing against the recurring DRAWING alone (only drawing races the vblank).
+          # tearing against the work that runs before the frame's last write to the screen.
           recurring = steady_cost(program) + mixer_cost(program) + bend_cost(program) + tick_cost(program)
-          recurring_drawing = steady_drawing_cost(program)
+          recurring_tear = steady_tear_cost(program)
           if measured
             # A measurement is the verdict: the real per-frame cost / frame rate, per scene
             # (or once for a single-loop game). The estimate's own within/over verdict is
@@ -219,12 +219,12 @@ module RubyGBA
             # Tearing stays an estimate: the emulator reads a settled framebuffer, so it
             # can't see a mid-frame tear.
             measured_verdict_lines(printer, measured)
-            tear_budget_line(program, printer, recurring_drawing) unless mixed?(program)
+            tear_budget_line(program, printer, recurring_tear) unless mixed?(program)
           elsif mixed?(program)
             scene_verdict_lines(program, printer)
           else
             frame_budget_line(program, printer, recurring)
-            tear_budget_line(program, printer, recurring_drawing)
+            tear_budget_line(program, printer, recurring_tear)
           end
 
           if (mv = mixer_verdict(program))
@@ -374,18 +374,25 @@ module RubyGBA
                        severity: blind.any? ? :warm : severity_for(frame_total, FRAME_BUDGET)
         end
 
-        # The tear check: drawing alone must land in the ~68-line vblank window, unless the
-        # game double-buffers (draws to a hidden page shown at once, so it can't tear).
-        def tear_budget_line(program, printer, drawing)
+        # The tear check: everything the frame does up to its last write to the screen must
+        # land inside the ~68-line vblank window, unless the game double-buffers (it draws to
+        # a hidden page shown all at once, so it cannot tear).
+        #
+        # It says "before the last draw" because that is not the same as "drawing", and the
+        # difference is the whole reason an author reads this line: work that draws nothing
+        # still pushes the last write later, and a frame that spends the window thinking
+        # tears just as surely as one that spends it drawing.
+        def tear_budget_line(program, printer, cost)
           if buffered?(program)
             printer.puts "    tearing  double-buffered — drawing can't tear   ok", severity: :good
             return
           end
 
-          over = drawing > VBLANK_BUDGET
-          printer.puts "    tearing  drawing #{fmt(drawing)} of #{VBLANK_BUDGET}-line vblank (#{pct(drawing, VBLANK_BUDGET)})   " \
+          over = cost > VBLANK_BUDGET
+          printer.puts "    tearing  #{fmt(cost)} of the #{VBLANK_BUDGET}-line vblank, everything " \
+                       "up to the last draw (#{pct(cost, VBLANK_BUDGET)})   " \
                        "#{over ? '! over — the screen tears' : 'ok — no tearing'}",
-                       severity: severity_for(drawing, VBLANK_BUDGET)
+                       severity: severity_for(cost, VBLANK_BUDGET)
         end
 
         # One verdict line per scene, each against its own mode's budget — the report

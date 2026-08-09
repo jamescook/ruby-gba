@@ -313,7 +313,7 @@ class TestCostPricing < CostModelTest
                   Build.camera(x: Build.int(3), y: Build.int(5)),
                   Build.fade(toward: :black, amount: Build.int(50))),
     )
-    near WEIGHTS[:camera_move] + WEIGHTS[:fade_set], Cost.new.steady_drawing_cost(prog)
+    near WEIGHTS[:camera_move] + WEIGHTS[:fade_set], Cost.new.steady_tear_cost(prog)
   end
 
   # Loading the saved variables happens once at boot, before the first frame, so it is
@@ -359,16 +359,44 @@ class TestCostPricing < CostModelTest
     near 100 * WEIGHTS[:loop_pass], Cost.new.steady_cost(empty)
   end
 
-  # It is bookkeeping, not drawing, so it does not race the vblank window and the tear
-  # check must not count it.
-  def test_a_loop_pass_does_not_count_toward_tearing
+  # IT IS BOOKKEEPING, AND IT STILL TEARS THE PICTURE. Going round a loop draws nothing, so
+  # the tear check used to leave it out — only drawing races the vblank window, the thinking
+  # went. That is true of the WRITE and false of the DEADLINE: what tears is a write landing
+  # after the safe window closed, and a hundred passes of counting push every write in the
+  # loop that much later. Measured on the console, a thousand passes of plain arithmetic
+  # ahead of a single pixel put that pixel on scanline 11, in the middle of the picture.
+  def test_a_loop_pass_counts_toward_tearing_because_it_delays_the_drawing
     prog = program do
       screen :bitmap
       game_loop { repeat(100) { |_i| dma_fill_rect 0, 0, 8, 8, :red } }
     end
     cost = Cost.new
-    near 100 * dma_rows(8, 8), cost.steady_drawing_cost(prog)
-    near loop_cost(100, dma_rows(8, 8)), cost.steady_cost(prog)
+
+    near loop_cost(100, dma_rows(8, 8)), cost.steady_tear_cost(prog)
+    near cost.steady_cost(prog), cost.steady_tear_cost(prog),
+         "everything here happens before the last draw, so both measures see all of it"
+  end
+
+  # ...and work AFTER the last draw does not, which is the other half of the same fact. A
+  # frame that draws first and thinks afterwards has nothing left to push out of the window.
+  def test_work_after_the_last_draw_does_not_count_toward_tearing
+    thinks_first = program do
+      screen :bitmap
+      n = var :n, 0
+      game_loop { repeat(100) { n.add 1 }; dma_fill_rect 0, 0, 8, 8, :red }
+    end
+    draws_first = program do
+      screen :bitmap
+      n = var :n, 0
+      game_loop { dma_fill_rect 0, 0, 8, 8, :red; repeat(100) { n.add 1 } }
+    end
+
+    near dma_rows(8, 8), Cost.new.steady_tear_cost(draws_first)
+    assert_operator Cost.new.steady_tear_cost(thinks_first), :>,
+                    Cost.new.steady_tear_cost(draws_first) * 10,
+                    "the same work ahead of the draw is what pushes it out of the window"
+    near Cost.new.steady_cost(thinks_first), Cost.new.steady_cost(draws_first),
+         "the frame costs the same either way — only the tear risk moves"
   end
 
   # A division worked out as the program runs walks its answer one bit at a time, so a

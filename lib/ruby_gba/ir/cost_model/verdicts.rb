@@ -102,13 +102,10 @@ module RubyGBA
 
           budget = budget_for(program)
           # WHICH COST RACES WHICH DEADLINE, the same split the draw-budget guardrail makes.
-          # On a single screen the risk is tearing, and only drawing races the brief safe
-          # window. A double-buffered game cannot tear at all, so its risk is the whole
-          # frame's work against 60fps — and counting only its drawing against the whole
-          # frame's budget compared two different things and stayed quiet for a game that
-          # really does slow down as its list fills.
-          drawing_only = !buffered?(program)
-          steady = at_list_capacity { frame_load(program, drawing_only) }
+          # On a single screen the risk is tearing, and what races the brief safe window is
+          # everything the frame does up to its last write to the screen. A double-buffered
+          # game cannot tear at all, so its risk is the whole frame's work against 60fps.
+          steady = at_list_capacity { frame_load(program) }
           return [] if steady <= budget # fits even at full capacity — nothing tips it over
 
           # ONE ANSWER PER LIST, not per loop, and the walks over a list are summed to get
@@ -117,14 +114,18 @@ module RubyGBA
           # time, no single walk could be capped back into budget on its own, and a list
           # walked more than once (which is what a real game does) went unwarned.
           capacity_bounded_loops(program).group_by { |node| node[:count][:name] }.filter_map do |name, loops|
-            cap = @capacities[name]
+            # THE LENGTH THE AUTHOR ASKED FOR, not the power of two the ring rounded it up
+            # to. Whether this warning is worth making turns on whether the list can really
+            # get that long, and the rounding is headroom for the mask rather than for the
+            # game: a snake whose board holds 340 cells was told its frame gives out at 459.
+            cap = @declared[name]
             body = at_list_capacity do
-              loops.sum { |node| node.children.sum { |child| steady(child, drawing_only) } }
+              loops.sum { |node| node.children.sum { |child| steady(child) } }
             end
             next unless body.positive? # what one item of the list costs the frame
 
-            # cost(N) = (steady - cap*body) + N*body, so it crosses the budget at:
-            break_even = (cap - ((steady - budget) / body)).floor
+            # cost(N) = (slots - N)*body less than the whole, so it crosses the budget at:
+            break_even = (@capacities[name] - ((steady - budget) / body)).floor
             next unless break_even.between?(0, cap - 1)
 
             { list: name, break_even: break_even, cap: cap, budget: budget, steady: steady,
@@ -132,11 +133,11 @@ module RubyGBA
           end
         end
 
-        # The recurring per-frame load a deadline is judged against: the drawing alone when
-        # what is at risk is a tear, the whole frame (the mixer included) when it is the
-        # frame rate.
-        def frame_load(program, drawing_only)
-          return steady_drawing_cost(program) if drawing_only
+        # The recurring per-frame load the deadline is judged against: the work that races
+        # the safe window when what is at risk is a tear, the whole frame (the mixer
+        # included) when it is the frame rate.
+        def frame_load(program)
+          return steady_tear_cost(program) unless buffered?(program)
 
           steady_cost(program) + mixer_cost(program)
         end

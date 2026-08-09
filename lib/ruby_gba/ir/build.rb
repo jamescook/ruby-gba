@@ -598,7 +598,14 @@ module RubyGBA
                 "`usually:` must be between 1 and the capacity of #{capacity}. " \
                 "You gave #{usually.inspect}."
         end
-        Node.new(:list_new, name: name, capacity: round_up_capacity(capacity), usually: usually)
+        # +declared+ is what the author asked for, kept beside the rounded ceiling the ring
+        # actually enforces. They are different questions: the ring wraps an index with a
+        # mask so its size has to be a power of two, and rounding 340 up to 512 hands the
+        # program 172 slots nobody planned for. Anything asking how full a list can really
+        # GET wants the number the author wrote — see the growth guardrail, which warned a
+        # snake about a body length its board cannot hold.
+        Node.new(:list_new, name: name, capacity: round_up_capacity(capacity),
+                            declared: capacity, usually: usually)
       end
 
       # Append a value at the end of the list (grows its length by one).

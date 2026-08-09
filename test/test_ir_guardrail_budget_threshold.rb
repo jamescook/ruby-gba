@@ -53,6 +53,25 @@ class TestBudgetThresholdGuardrail < Minitest::Test
     assert_empty Check.new.detect(growing_draw_game(cap: 8, cell: 2))
   end
 
+  # NOR DOES A LENGTH THE LIST CANNOT REACH. A list's storage is a ring, and a ring wraps an
+  # index with a mask, so its size is rounded up to a power of two — 33 items get 64 slots.
+  # Those spare slots are for the mask, not for the game: the author said 33. A frame that
+  # only gives out at 41 gives out at a length this list is never going to hold, and saying
+  # so is crying wolf. (The same shape at 64 warns, two tests up: there 41 is reachable.)
+  def test_a_tip_over_in_the_rounded_up_headroom_is_quiet
+    assert_empty Check.new.detect(growing_draw_game(cap: 33, cell: 20))
+  end
+
+  # ...and the same list DOES warn once the body is dear enough to give out inside the length
+  # the author asked for. So it is the declared length that decides, not the rounding.
+  def test_the_same_list_warns_when_the_tip_over_is_inside_what_was_declared
+    threshold = Cost.new.budget_thresholds(growing_draw_game(cap: 33, cell: 30)).first
+
+    refute_nil threshold
+    assert_equal 33, threshold[:cap], "the length the author asked for, not the 64 slots it got"
+    assert_operator threshold[:break_even], :<, 33
+  end
+
   # No growing loop, nothing to warn about.
   def test_a_game_without_a_growing_loop_is_quiet
     prog = build_program do
