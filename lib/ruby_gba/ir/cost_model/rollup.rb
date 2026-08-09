@@ -90,7 +90,7 @@ module RubyGBA
           when :case then node[:clauses].any? { |_value, target| func_draws?(target, seen) }
           else
             node.children.any? { |child| draws?(child, seen) } ||
-              (node[:else] ? draws?(node[:else], seen) : false)
+              (node.branching? && !node[:else].nil? && draws?(node[:else], seen))
           end
         end
 
@@ -417,8 +417,10 @@ module RubyGBA
         def statement_leaf(node, cost)
           return [] unless cost.positive?
 
-          [Entry.new(op: node.kind, label: label_of(node), cost: cost, w: node[:w], h: node[:h],
-                     source: node.source)]
+          # A rectangle's size rides along so aggregation can tell a 33x60 stripe from a 4x4
+          # corner; a pixel, a clear or a text draw has no size and they all fold together.
+          size = node.sized? ? { w: node[:w], h: node[:h] } : {}
+          [Entry.new(op: node.kind, label: label_of(node), cost: cost, source: node.source, **size)]
         end
 
         # The arithmetic a statement or a test does before it can run, as cost leaves of

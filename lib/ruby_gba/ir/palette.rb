@@ -101,8 +101,8 @@ module RubyGBA
           root.walk do |node|
             if node.kind == :bitmap
               collect_bitmap(node, values)
-            elsif (spec = node[:color])
-              values << Color.resolve(spec)
+            elsif node.colored? && node[:color]
+              values << Color.resolve(node[:color])
             end
           end
         end

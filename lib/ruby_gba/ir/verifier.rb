@@ -21,7 +21,7 @@ module RubyGBA
     # silently, the whole class of bug where a run-time value handed to an
     # author-time-only slot renders garbage with no error.
     #
-    # This pass proves it. {SLOTS} declares, per node kind, whether each field is
+    # This pass proves it. {Fields} declares, per node kind, whether each field is
     # a *value slot* (must hold a value node — any timing) or a *structural slot*
     # (an author-time literal of a stated type: a name, a size, packed bytes, a
     # color). The verifier walks the tree and checks every field against its slot;
@@ -55,148 +55,12 @@ module RubyGBA
         flag:    ->(v) { v == true || v == false },            # an on/off switch (e.g. double buffering)
       }.freeze
 
-      # Every kind's fields, each tagged with what it must hold — the single source
-      # of truth for the author-time vs run-time boundary. `:value` marks a value
-      # slot (a wrapped operand, any timing); every other tag is a {TYPES}
-      # structural literal. Fields absent from a node are fine (the constructors
-      # require them); this table only says what a field must be *when present*,
-      # plus that a `:value` field must be present and be a value node.
-      #
-      # Kept complete by the coverage test, which asserts every Node::CATEGORY kind
-      # has a row here — so a new verb cannot slip the net.
-      SLOTS = {
-        program: {},
-
-        # variable operations
-        set:        { var: :name, value: :value },
-        add:        { var: :name, operand: :value },
-        sub:        { var: :name, operand: :value },
-        copy:       { dest: :name, src: :name },
-        negate:     { var: :name },
-        abs:        { var: :name },
-        negate_abs: { var: :name },
-        clamp:      { var: :name, min: :value, max: :value }, # bounds may be run-time values
-        # persistence: boot-load the saved variables (a list of {name, default, slot}
-        # hashes plus a marker), and mirror one back to its slot when it changes.
-        save_init:  { vars: :list, magic: :int },
-        save_store: { var: :name, slot: :int },
-
-        # drawing / screen
-        screen:        { mode: :mode, buffered: :flag }, # buffered: opt into double buffering
-        pixel:         { x: :value, y: :value, color: :color },
-        fill_rect:     { x: :int, y: :int, w: :int, h: :int, color: :color }, # fixed position
-        clear_screen:  { color: :color },
-        draw_text:     { text: :text, x: :int, y: :int, color: :color, font: :name },   # fixed origin
-        draw_digit:    { value: :value, x: :int, y: :int, color: :color, font: :name }, # run-time digit
-        draw_rect_at:  { x: :value, y: :value, w: :value, h: :value, color: :color }, # runtime position and size
-        dma_fill_rect: { x: :int, y: :int, w: :int, h: :int, color: :color },
-        blit:          { name: :name, x: :value, y: :value },
-        blit_pose:     { poses: :list, index: :value, x: :value, y: :value }, # one image of a same-size set
-        # a tiled background: the distinct tile images, the grid of indices into them
-        # (nil = empty cell), and the tile size — all author-time (the picture is fixed).
-        background:    { name: :name, tiles: :list, map: :list, tile_w: :int, tile_h: :int },
-        # move the visible window over a background: which background, and the run-time
-        # top-left offset (x, y) in pixels.
-        scroll_background: { name: :name, x: :value, y: :value },
-        # bend a background row by row: which background, the variable the row number is
-        # put in, and the sideways offset worked out from it. #children run first.
-        scroll_rows:       { name: :name, row: :name, offset: :value },
-        # move the window over the whole displayed picture: the run-time top-left
-        # offset (x, y) in pixels. Nothing is named — it moves everything.
-        camera:            { x: :value, y: :value },
-        # blend the whole picture toward a color: which color (author-time, :black or
-        # :white) and how far, 0-100, at run time.
-        fade:              { toward: :option, amount: :value },
-        # a composited moving object: its same-size poses, a run-time index picking
-        # which to show (facing/animation), and its run-time position/visibility.
-        # present_objects names which to draw this frame.
-        object:          { name: :name, poses: :list, pose: :value, x: :value, y: :value, active: :value,
-                           angle: :value, scale: :value },
-        present_objects: { names: :list },
-        # save/restore the pixels under a moving object; the patch size comes from
-        # the named backing buffer, so these carry only where (x/y, run-time).
-        save_region:    { buffer: :name, x: :value, y: :value },
-        restore_region: { buffer: :name, x: :value, y: :value },
-
-        # audio
-        enable_sound: {},
-        define_sound: { name: :name, frequency: :int, duty: :option, decay: :option, volume: :int },
-        beep:         { tone: :tone, duty: :option, decay: :option, volume: :int },
-        noise:        { preset: :option, pitch: :option, decay: :option, volume: :int, metallic: :flag },
-        wave:         { shape: :option, frequency: :int, volume: :option },
-        stop_wave:    {},
-        song:         { name: :name, voices: :list, total_frames: :int },
-        play_song:    { name: :name },
-        stop_music:   {},
-        play_sample:  { name: :name, loop: :flag, volume: :option, pitch: :option }, # loop/level/pitch
-        stop_sample:  { name: :name }, # stop a sample's voices (or all if no name)
-
-        # control flow (bodies nest as #children; an if's else is a :branch attr).
-        if:         { cond: :value, else: :branch },
-        else:       {},
-        loop:       {},
-        repeat:     { count: :value, index: :name },
-        # timed triggers: the body nests as #children; the counter is a hidden var
-        # name, the period/delay an author-time whole number of frames.
-        every:      { counter: :name, period: :int },
-        after:      { counter: :name, frames: :int },
-        # hardware timers: a named counter at an author-time rate in Hz; stop by name.
-        timer_start: { name: :name, hz: :int },
-        timer_stop:  { name: :name },
-        on_timer:    { timer: :name }, # handler body is #children, run on each overflow
-        # fast: where the routine wants to live, for a target with more than one kind of
-        # memory to run code from. nil (the usual) leaves it to the target.
-        func:       { name: :name, fast: :flag },
-        call:       { target: :name },
-        case:       { var: :name, clauses: :list },
-        wait_vblank: {},
-        halt:       {},
-        raw:        { bytes: :text },
-
-        # embedded data
-        data:      { name: :name, bytes: :text },
-        data_byte: { name: :name, index: :int }, # a fixed index into the blob
-        bitmap:    { name: :name, width: :int, height: :int, pixels: :text, transparent: :int },
-        backing_buffer: { name: :name, width: :int, height: :int }, # a RAM patch a sprite saves under itself
-        sample:    { name: :name, bytes: :text, rate: :int, note: :option }, # PCM data + rate + recorded pitch
-        table:     { name: :name, values: :list, width: :option, signed: :flag }, # a build-time array of numbers
-
-        # lists
-        list_new:  { name: :name, capacity: :int, declared: :int, usually: :int },
-        list_push: { name: :name, value: :value },
-        list_drop: { name: :name, from: :option },
-        list_set:  { name: :name, index: :value, value: :value },
-        list_get:  { name: :name, index: :value },
-        list_len:  { name: :name },
-        table_get: { name: :name, index: :value }, # read a ROM table at a run-time index
-
-        # expression values
-        int:     { value: :int },
-        var_ref: { name: :name },
-        binop:   { op: :option, lhs: :value, rhs: :value },
-        neg:     { operand: :value },
-        # a full-width multiply of two numbers carrying the same fraction bits
-        mul_fix: { lhs: :value, rhs: :value, fraction_bits: :int },
-        # a division whose numerator is widened first, so the answer keeps a fraction
-        div_fix: { lhs: :value, rhs: :value, fraction_bits: :int },
-        shift_right: { operand: :value, bits: :int },
-        held:    { button: :option },
-        pressed: { button: :option },
-        chance:  { draw: :value, percent: :int }, # draw is the 0..99 value; percent an author-time bound
-        read_scanline: {}, # the current scanline (VCOUNT) — a hardware-only value read, no operands
-        timer_ticks: { name: :name }, # how many times a named timer has overflowed since it started
-        # do two posed sprites' solid pixels overlap? each side: its poses (image names),
-        # the run-time pose index, and where it sits (value operands)
-        pixels_overlap: { a_poses: :list, a_pose: :value, a_x: :value, a_y: :value,
-                          b_poses: :list, b_pose: :value, b_x: :value, b_y: :value },
-      }.freeze
-
       # Verify a whole program tree. Returns the node on success; raises
       # {InvariantError} on the first problem.
       #
       # Two passes, and the order is the point. The first proves the verifier
-      # *recognizes* every node — its kind has a SLOTS row — so a new primitive the
-      # schema hasn't been taught about is a hard, unambiguous error before any
+      # *recognizes* every node — its kind has a {Fields} row — so a new primitive the
+      # model hasn't been taught about is a hard, unambiguous error before any
       # other check can mask it. Only then does the second pass judge whether each
       # recognized node is well-formed. A node the verifier can't identify never
       # slips through as "fine"; it fails loudly, pointing at the missing row.
@@ -206,21 +70,21 @@ module RubyGBA
         node
       end
 
-      # -- pass 1: every kind must be in the schema (the drift backstop) --
+      # -- pass 1: every kind must be in the model (the drift backstop) --
 
       def check_known(node)
-        return if SLOTS.key?(node.kind)
+        return if Fields.known?(node.kind)
 
         raise InvariantError,
-              "unknown IR kind #{node.kind.inspect} — no Verifier::SLOTS row. If you added a new IR " \
-              "primitive, declare its fields in Verifier::SLOTS (and Node::CATEGORY); the verifier refuses " \
+              "unknown IR kind #{node.kind.inspect} — no IR::Fields row. If you added a new IR " \
+              "primitive, declare its fields in IR::Fields (and Node::CATEGORY); the verifier refuses " \
               "any node it hasn't been taught, so drift can't slip through silently."
       end
 
       # -- pass 2: every recognized node must be well-formed --
 
       def check_node(node)
-        schema = SLOTS.fetch(node.kind) # present — pass 1 proved it
+        schema = Fields.of(node.kind) # present — pass 1 proved it
         node.attrs.each { |field, value| check_field(node, schema, field, value) }
         check_value_slots_present(node, schema)
         check_children_are_statements(node)
@@ -231,7 +95,7 @@ module RubyGBA
       def check_field(node, schema, field, value)
         type = schema.fetch(field) do
           raise InvariantError,
-                "#{node.kind}.#{field} is not a declared field — add it to Verifier::SLOTS[:#{node.kind}] " \
+                "#{node.kind}.#{field} is not a declared field — add it to IR::Fields[:#{node.kind}] " \
                 "(a verb set an operand the schema doesn't know about)"
         end
 

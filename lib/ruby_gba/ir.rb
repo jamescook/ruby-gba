@@ -3,6 +3,7 @@
 require_relative "ir/int32"
 require_relative "ir/buttons"
 require_relative "ir/screen"
+require_relative "ir/fields" # what each kind of node carries; the node model asks it
 require_relative "ir/node"
 require_relative "ir/build"
 require_relative "ir/parity"

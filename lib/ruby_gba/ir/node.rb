@@ -200,14 +200,58 @@ module RubyGBA
       end
 
       # Read an operand by name, e.g. node[:var].
+      #
+      # A field this KIND does not carry is refused rather than answered with nil. A hash
+      # answers nil for a name it has never heard of, which makes a misspelling and a stale
+      # field name indistinguishable from an operand that is genuinely unset — and the
+      # reader goes on to treat "no answer" as a real answer. A field the kind DOES carry
+      # but this node has not set is a legitimate nil (an `if` with no `else`), so that one
+      # comes back as it always did.
+      #
+      # Code that walks a whole tree meets every kind, so it asks what a node IS before
+      # reading what only some kinds have — see #sized?, #colored? and #branching?.
       def [](key)
+        refuse(key, "read") unless fields.key?(key)
         @attrs[key]
+      end
+
+      # -- what a node is, for code that walks every kind --
+      #
+      # A tree walk cannot read a size off a node that has no size, so it asks first. These
+      # say what the node is in the words of the thing being asked about, rather than asking
+      # after a field by name — the caller wants to know whether there is a rectangle here,
+      # not whether a :w exists. Each comes off the schema, so a kind that gains a size is
+      # sized without anything here changing.
+
+      # A rectangle: something with a width and a height of its own.
+      def sized?
+        fields.key?(:w) && fields.key?(:h)
+      end
+
+      # Something drawn in a color.
+      def colored?
+        fields.key?(:color)
+      end
+
+      # A test with a branch to take when it fails.
+      def branching?
+        fields.key?(:else)
+      end
+
+      # The fields this node's kind has, from the one table that says so.
+      def fields
+        Fields.of(@kind)
       end
 
       # Set an operand after construction — used to attach a branch built later,
       # e.g. an `if` node's :else once `.else { ... }` runs. If the value is a
       # child Node, wire its parent back so the tree stays navigable.
+      #
+      # Refuses a field the kind does not carry, here at the line that wrote it. The
+      # verifier catches this too, but not until the whole tree is built and checked, and
+      # by then the verb that did it is not in the message.
       def []=(key, value)
+        refuse(key, "set") unless fields.key?(key)
         @attrs[key] = value
         value.parent = self if value.is_a?(Node)
         value
@@ -275,6 +319,17 @@ module RubyGBA
       end
 
       private
+
+      # A field this kind does not carry. Says what the kind DOES carry, because the answer
+      # is nearly always in that list — a typo, or a field that moved to another kind.
+      def refuse(key, verb)
+        known = fields.keys
+        raise InvariantError,
+              "#{@kind} has no #{key.inspect} field to #{verb}. It has: " \
+              "#{known.empty? ? '(nothing)' : known.map(&:inspect).join(', ')}. " \
+              "Code that walks every kind asks what a node is first (#sized?, #colored?, " \
+              "#branching?); declare the field in IR::Fields if this kind should have it."
+      end
 
       # Recurse #walk into an operand that may itself be a Node, or an array of
       # them (e.g. a case node's clause list).

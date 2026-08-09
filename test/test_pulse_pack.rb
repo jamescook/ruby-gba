@@ -146,8 +146,8 @@ class TestPulsePack < Minitest::Test
     end
     builder.emit_pending_functions
 
-    routines = builder.program.walk.select { |node| node[:name].to_s.start_with?("__pulse___obj1") }
-                      .select { |node| node.kind == :func }
+    routines = builder.program.walk.select { |node| node.kind == :func }
+                      .select { |node| node[:name].to_s.start_with?("__pulse___obj1") }
     assert_equal 1, routines.length, "expected one pulse routine, got #{routines.map { |r| r[:name] }.inspect}"
   end
 

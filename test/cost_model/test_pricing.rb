@@ -952,7 +952,7 @@ class TestCostPricing < CostModelTest
   # estimate charges for it. A kind added later that can hold arithmetic cannot go
   # unpriced without failing here.
   def test_every_kind_prices_the_operands_it_holds
-    unpriced = RubyGBA::IR::Verifier::SLOTS.filter_map do |kind, slots|
+    unpriced = RubyGBA::IR::Fields::BY_KIND.filter_map do |kind, slots|
       slots_holding_values = slots.select { |_, type| type == :value }.keys
       next if slots_holding_values.empty?
       next if Node::CATEGORY[kind] == :control # loop/if/case are priced in #build, not #op_cost
