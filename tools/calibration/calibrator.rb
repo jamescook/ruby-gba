@@ -61,8 +61,36 @@ module RubyGBA
       # --- logic (the op_* tiers) ---
 
       def logic
-        weigh(:op_step, @bench.per_op("step", 500, 2, 8) { |b, _xv| b.add :x, 1 },
-              note: "an add, 2..8 copies a pass")
+        # THE FOUR SHAPES OF PLAIN WORK, which used to be one weight measured once and charged
+        # for all of them. In instructions, they are not one price:
+        #
+        #   add :y, 1        8   a statement that reads a variable, changes it, writes it back
+        #   set :y, x        6   a statement that only writes one — three quarters of the above
+        #   x + 2            4   an operator: hold the left side, work out the right, combine
+        #   x > 2            8+  a comparison, which also turns the answer into a 1 or a 0
+        #
+        # The one weight was six, so an `add` read a quarter light, a plain operator half again
+        # too dear, and a comparison a third light — on the commonest things a program does.
+        #
+        # WHICH VARIABLE a statement weight is measured on is part of the recipe, not a detail:
+        # see Benchmarks#stable_busy for why the harness keeps a spare in the first slot. Six
+        # was `add :x, 1` on that first variable, which is exactly one variable per program.
+        weigh(:op_step, @bench.per_op("step", 500, 2, 8) { |b, _xv| b.add :y, 1 },
+              note: "a statement that reads a variable, changes it and writes it back")
+        # `set :y, x` and not `set :y, 0`, and the difference is one absorbed variable read.
+        # Every operator weight below is measured as what it adds to THIS shape, so an
+        # assignment whose value is an expression comes out exact — which is most of them —
+        # while one that only stores a plain number is charged that read it never does. A
+        # couple of instructions, and over rather than under.
+        weigh(:op_assign, @bench.per_op("assign", 500, 2, 8) { |b, xv| b.set :y, xv },
+              note: "a statement that only writes a variable")
+        weigh(:op_plain, @bench.per_operator("plain") { |b, xv| b.set :y, (xv + 2) },
+              note: "a plain operator — add, subtract, and the and/or that combine conditions")
+        weigh(:op_compare,
+              @bench.per_compare_operator("cmp") do
+                IR::Build.binop(:>, IR::Build.var_ref(:d), IR::Build.int(200))
+              end,
+              note: "a comparison, priced on the answer that costs more (false, which jumps)")
 
         # What a pass of a `repeat` costs before its body does anything. Every weight around it
         # is measured with the trip count held FIXED, which cancels this — so it needs its own
@@ -76,8 +104,11 @@ module RubyGBA
               varies: :passes, from: 300, to: 900,
               note: "one pass of a repeat, measured on loops of 300 and 900 passes")
 
-        # op_mul / op_div = op_step + the operator's extra cost over an add (a `set :y,
+        # op_mul / op_div = op_plain + the operator's extra cost over an add (a `set :y,
         # (x <op> 100)` is a set plus the operator; differencing against `+` isolates it).
+        # A PLAIN OPERATOR is the thing being added to, not a whole statement: these weights
+        # are charged beside the statement that holds them, so building one out of a statement
+        # charged the statement twice.
         #
         # WHICH OPERAND EACH ONE USES IS THE WHOLE POINT, because the lowering reduces some of
         # them and a weight measured on a reduced op would price every op at the reduced cost —
@@ -90,7 +121,7 @@ module RubyGBA
         #   / 100         that reduction — a multiply by a reciprocal, its own tier.
         #
         weigh(:op_mul,
-              @weights[:op_step] +
+              @weights[:op_plain] +
               over_an_add(tag: "mul", against: "addm", passes: 300, lo: 2, hi: 6) { |b, xv| b.set :y, (xv * 100) },
               note: "a multiply by a number written in the program")
 
@@ -143,7 +174,7 @@ module RubyGBA
         # base is measured at an answer of no width at all, which is what op_div has always been
         # (7 / 100 answers zero), so this number carries on from the one before it.
         addd = @bench.per_op("addd", 60, 2, 6) { |b, xv| b.set :y, (xv + 2) }
-        weigh(:op_div, @weights[:op_step] + (@bench.per_divide(0) - addd),
+        weigh(:op_div, @weights[:op_plain] + (@bench.per_divide(0) - addd),
               note: "starting a divide by a divisor the game works out, at an answer of no width")
         weigh(:op_div_bit, Reductions.marginal(@bench.per_divide(30), @bench.per_divide(0), over: 30),
               varies: :answer_bits, from: 0, to: 30,
@@ -154,14 +185,14 @@ module RubyGBA
         # (`%`) by such a number is built on this and costs somewhat more, and is priced here
         # too — the same lumping of `/` and `%` the general tier already makes.
         weigh(:op_div_const,
-              @weights[:op_step] +
+              @weights[:op_plain] +
               over_an_add(tag: "divc", against: "addc", passes: 300, lo: 2, hi: 6) { |b, xv| b.set :y, (xv / 100) },
               note: "a divide by a number written in the program")
 
         # A fraction multiply is SMULL plus two instructions to shift the 64-bit product back
         # down — dearer than a plain multiply, nowhere near a divide. Same differencing.
         weigh(:op_mul_fix,
-              @weights[:op_step] +
+              @weights[:op_plain] +
               over_an_add(tag: "mulfix", against: "addf", passes: 300, lo: 2, hi: 6) do |b, xv|
                 b.set :y, xv.times_fraction(2, fraction_bits: 16)
               end,
@@ -172,7 +203,7 @@ module RubyGBA
         # price — the dearest arithmetic there is. Both operands are worked out by the game;
         # with a numerator written down it folds into an ordinary division and is priced as one.
         weigh(:op_div_fix,
-              @weights[:op_step] +
+              @weights[:op_plain] +
               over_an_add(tag: "divfix", against: "addx", passes: 60, lo: 2, hi: 4) do |b, _xv, _dv, fv, gv|
                 b.set :fout, (fv / gv)
               end,

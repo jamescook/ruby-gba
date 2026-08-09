@@ -125,8 +125,14 @@ module RubyGBA
           # evaluates is added by #op_cost, so a divide buried in a value shows up. This
           # is what stops a compute loop — enemy AI, physics, a list walk — from reading
           # as free: run it N times and its per-op cost scales with N.
-          when :set, :add, :sub then @weights[:op_step]
-          when :copy, :negate, :abs, :negate_abs then @weights[:op_step]
+          #
+          # A statement that CHANGES a variable it already holds and one that only WRITES
+          # a variable are two prices, not one: `add :x, 1` has to reach the variable at
+          # both ends, where `set :x, y` only reaches it at the writing end. Charging the
+          # first for both read a `set` about a third over, on one of the two commonest
+          # things a program does.
+          when :add, :sub, :negate, :abs, :negate_abs then @weights[:op_step]
+          when :set, :copy then @weights[:op_assign]
           when :clamp then 2 * @weights[:op_step] # a low compare and a high compare
           when :list_push, :list_set, :list_drop then @weights[:op_step]
           # Every change to a save_var mirrors it back to save memory, right after the
@@ -210,8 +216,10 @@ module RubyGBA
           # `.to_i` lowers to and a game holding fractions writes that on every coordinate it
           # draws.
           when :shift_right then @weights[:op_mul_pow2]
-          when :neg then @weights[:op_step]
-          when :chance then @weights[:op_step] # a random draw and a compare
+          # Turning a number round is the same single instruction, so it shares that price
+          # too. It used to be charged a whole plain statement — eight instructions for one.
+          when :neg then @weights[:op_mul_pow2]
+          when :chance then @weights[:op_compare] # it IS a compare: is the draw under the threshold
           when :pixels_overlap then worst ? pixels_overlap_cost(value) : 0
           # Reading a list or a table element is NOT the single load a variable read is, and
           # pricing it as one hid the hottest thing a game does — a list element sits in a
@@ -279,24 +287,38 @@ module RubyGBA
           bmp ? [bmp.width, bmp.height] : [0, 0]
         end
 
-        # An operator's weight: multiply and divide are their own (pricier) tiers;
-        # everything else — add, subtract, the comparisons, the and/or that combine
-        # conditions — is one plain step.
+        # An operator's weight: multiply and divide are their own tiers, a COMPARISON is
+        # its own, and add, subtract and the and/or that combine conditions are the plain
+        # one.
+        #
+        # A comparison is dearer than an add and it is worth knowing why, because nothing
+        # about `>` looks dearer than `+`. Adding two numbers IS the answer. Comparing them
+        # is not: the console sets its flags and the answer still has to be turned into a 1
+        # or a 0, which takes a jump over one of them — and a jump that is TAKEN throws away
+        # the instructions being fetched behind it. So a comparison costs more on the frames
+        # it answers false, and this charges the worst of the two, the same call the model
+        # makes wherever it cannot know which way a frame will go. That matters because
+        # comparisons are not rare: every `.then` holds one, and a collision test is a
+        # chain of them.
+        #
+        # Anything not named below is charged the comparison's price, which is the dearer.
+        # An operator added later and forgotten is then over-charged rather than under-.
         #
         # Dividing and wrapping have three tiers, because the lowering gives them three
-        # costs. By a POWER OF TWO written into the program it is a shift or two, priced
-        # as a plain step. By ANY OTHER number written into the program it is a multiply
+        # costs. By a POWER OF TWO written into the program it is a shift or two, cheaper
+        # than an add. By ANY OTHER number written into the program it is a multiply
         # by a reciprocal worked out at build time — dearer than a shift, far cheaper
         # than a call. Only a divisor the GAME works out still reaches the console's
         # divide routine. So `explain` can say a divide by 256 is free, a divide by 100
-        # costs about an add and a half, and a divide by a variable costs five times
-        # that. Those are the same facts the lowering acts on; if one moves, both must.
+        # costs about twice an add, and a divide by a variable costs three times
+        # that again. Those are the same facts the lowering acts on; if one moves, both must.
         def op_weight(node)
           case node[:op]
           when :* then power_of_two_operand?(node[:rhs]) ? @weights[:op_mul_pow2] : @weights[:op_mul]
           when :/, :% then divide_weight(op: node[:op], numerator: const_side(node[:lhs]),
                                          divisor: const_side(node[:rhs]))
-          else @weights[:op_step]
+          when :+, :-, :and, :or then @weights[:op_plain]
+          else @weights[:op_compare]
           end
         end
 
@@ -358,14 +380,17 @@ module RubyGBA
         # WHEN NOTHING BOUNDS IT the price is the base alone. That is deliberate, and it is
         # the part to argue with if this is ever revisited. Measured, per division:
         #
-        #     an answer of no width   0.071        this charges 0.081
+        #     an answer of no width   0.071        the base charges a little over this
         #     8 bits (a coordinate)   0.094
         #     16 bits                 0.119
         #     full width              0.165
         #
+        # (Those four came off one calibration run and move with the next; what survives is
+        # their shape — a full-width answer costs a bit over twice a zero-width one.)
+        #
         # Game code divides to get a coordinate, a percentage, a share of a bar or an index,
-        # so its answers live in the first two rows — and the base sits between them, within
-        # about a seventh either way. Charging for a width nobody can see would make
+        # so its answers live in the first two rows — and the base sits just above the first
+        # and about a fifth below the second. Charging for a width nobody can see would make
         # ordinary code read dearer than it is, and an estimate crying wolf on a game that
         # fits is the failure this model can least afford.
         #
