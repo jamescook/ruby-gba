@@ -149,12 +149,80 @@ module RubyGBA
     # the hardware can wrap an index cheaply, and every backend enforces that same
     # ceiling, so a program overflows at the same point everywhere.
     #
+    # `estimate:` tells the COST ESTIMATE something it cannot work out for itself. It
+    # changes nothing about how the game runs — it is not part of the program, and no
+    # backend reads it — which is why it is nested rather than sitting beside `capacity:`.
+    #
+    # Today it takes one thing, `usually:`: how many items the list normally holds. A walk
+    # over a list can only be bounded by the capacity, and that is the only number a build
+    # can prove — a snake's body list is sized for every cell of the board and holds four
+    # cells for most of a game. So `rom.explain` counts a walk at what you say it usually
+    # holds for what a frame normally costs, and at the full capacity for the worst it
+    # could reach.
+    #
+    #   body  = list :body,  capacity: 256, estimate: { usually: 12 }
+    #   shots = list :shots, capacity: 32,  estimate: { usually: 3..6 }
+    #
+    # A RANGE says a length that moves, and the estimate counts its TOP — the dearest of
+    # the frames that usually happen. That is also why a range cannot talk the estimate
+    # down: a wider one always reads dearer, never cheaper.
+    #
     # @param name [Symbol] the list's name
     # @param capacity [Integer] the most items it can hold (rounded up to 2^n)
+    # @param estimate [Hash] what the estimate cannot know — today `usually:` (Integer or Range)
     # @return [List] a handle to the list
-    def list(name, capacity:)
-      record(Build.list_new(name, capacity))
+    def list(name, capacity:, estimate: nil)
+      record(Build.list_new(name, capacity, usually: usual_length(estimate, capacity)))
       List.new(self, name)
+    end
+
+    # What the `estimate:` hint says this list usually holds, as the one number a walk is
+    # counted at. A range gives its top; a number is already that; nothing said is nil, and
+    # then the estimate guesses and says so.
+    #
+    # A KEY IT DOES NOT KNOW IS AN ERROR rather than a shrug. A hint that quietly does
+    # nothing is worse than no hint at all: the report goes on calling the number a guess
+    # while the author believes they answered it.
+    ESTIMATE_HINTS = %i[usually].freeze
+
+    def usual_length(estimate, capacity)
+      return nil if estimate.nil?
+
+      unless estimate.is_a?(Hash)
+        raise ArgumentError, "`estimate:` takes a hint in braces. Write `estimate: { usually: 12 }`."
+      end
+
+      unknown = estimate.keys - ESTIMATE_HINTS
+      unless unknown.empty?
+        raise ArgumentError, "The hint `#{unknown.first}:` is not known. " \
+                             "`estimate:` knows these hints: #{ESTIMATE_HINTS.join(', ')}."
+      end
+
+      usual_top(estimate[:usually], capacity)
+    end
+
+    # The top of a range, or the number itself.
+    #
+    # A range wider than half the capacity is refused. Not because it is dangerous —
+    # counting the top means a vague range can only read dearer — but because it is not an
+    # answer: `0..255` of 256 says "somewhere between empty and full", which is what the
+    # estimate had to assume anyway, dressed up as a fact the author checked.
+    def usual_top(usually, capacity)
+      return usually unless usually.is_a?(Range)
+
+      top = usually.max
+      if top.nil?
+        raise ArgumentError, "`usually: #{usually}` contains no lengths. " \
+                             "Give a range that goes up, like 3..6."
+      end
+
+      if usually.min.negative? || (top - usually.min) * 2 > capacity
+        raise ArgumentError, "`usually: #{usually}` covers more than half of the capacity " \
+                             "#{capacity}. A range that wide does not give a usual length. " \
+                             "Give a narrower range, or one number."
+      end
+
+      top
     end
 
     # Ship a build-time array as a read-only ROM table, read at run time by a Value

@@ -113,7 +113,10 @@ module RubyGBA
           # #loop_pass_leaf. It is bookkeeping, so the tear measure (drawing only) skips it.
           when :repeat
             body = node.children.sum { |child| steady(child, drawing_only, worst: worst) }
-            repeat_factor(node).first * (body + (drawing_only ? 0 : loop_pass_cost))
+            # A walk over a list counts at what the list USUALLY holds here, where the tree
+            # above counts it at the capacity: this is the every-frame load, and no frame
+            # pays for a list it has not filled (see #repeat_factor).
+            repeat_factor(node, typical: true).first * (body + (drawing_only ? 0 : loop_pass_cost))
           # A timed trigger's steady per-frame cost follows from its kind: every(k)
           # runs one frame in k, so its body counts 1/k; after(n) fires once ever, so
           # it adds nothing to the every-frame load.
@@ -208,6 +211,7 @@ module RubyGBA
           @modes = resolve_modes(program)
           @funcs = {}
           @capacities = {}
+          @list_lengths = {}
           @table_lengths = {}
           @songs = {}
           @bitmaps = {}
@@ -216,6 +220,9 @@ module RubyGBA
           program.walk do |node|
             @funcs[node[:name]] = node if node.kind == :func
             @capacities[node[:name]] = node[:capacity] if node.kind == :list_new
+            # ...and how long the author says it usually is, which is a different question
+            # and the only one a frame's real cost turns on (see #list_length).
+            @list_lengths[node[:name]] = node[:usually] if node.kind == :list_new && node[:usually]
             # How long a table is decides what a read of it costs, so it is read once here
             # from the declaration rather than at every read (see Pricing#table_read_weight).
             @table_lengths[node[:name]] = node[:values].length if node.kind == :table
@@ -454,14 +461,61 @@ module RubyGBA
         # list's length up to its capacity (the most it can hold). An unknown count
         # (a plain variable) has no provable bound, so it contributes zero to the
         # estimate and is noted as unbounded rather than guessed.
-        def repeat_factor(node)
+        #
+        # +typical+ asks the other question about a list: not the most a walk over it could
+        # ever cost, but what it costs on the frames a game actually plays. The capacity is
+        # the only bound a build can prove, so it is the right ceiling and the wrong typical
+        # — a snake's body list is sized for every cell of the board and holds four cells
+        # for most of a game, so the two answers are a hundred times apart. Counting the
+        # ceiling as the every-frame load is what made a snake that measures 49 scanlines
+        # report 106 of its 228.
+        def repeat_factor(node, typical: false)
           count = node[:count]
           return [count[:value], "x#{count[:value]}"] if count.is_a?(Node) && count.kind == :int
           if count.is_a?(Node) && count.kind == :list_len && @capacities[count[:name]]
             cap = @capacities[count[:name]]
-            return [cap, "x<=#{cap} (#{count[:name]} capacity)"]
+            return [cap, "x<=#{cap} (#{count[:name]} capacity)"] unless typical && !@at_list_capacity
+
+            usual = list_length(count[:name])
+            return [usual, "x#{usual} (#{count[:name]} usually)"]
           end
           [0, "x? (unbounded)"]
+        end
+
+        # Ask the every-frame question about a list AS THOUGH IT WERE FULL, for the length
+        # of a block. One caller wants that: the guardrail that says at what length a
+        # growing list stops fitting in a frame (see Verdicts#budget_thresholds) is asking
+        # about the frames a game has not reached yet, which is the one question the typical
+        # length is the wrong answer to.
+        def at_list_capacity
+          was = @at_list_capacity
+          @at_list_capacity = true
+          yield
+        ensure
+          @at_list_capacity = was
+        end
+
+        # HOW LONG A LIST USUALLY IS, which nothing in a program says out loud.
+        #
+        # The author can say it (`list :body, capacity: 256, estimate: { usually: 12 }`) and
+        # then this is simply what they said. Where they have not, it is a guess and the
+        # report says so:
+        # a QUARTER of the capacity, because a capacity is picked as a ceiling the list must
+        # never pass and is then rounded up to a power of two, so it already sits above the
+        # biggest number the author had in mind. A quarter of it is still a real walk — it
+        # counts every pass — and it is nearer the truth than the ceiling for every list a
+        # game grows into.
+        #
+        # Guessing at all is a deliberate call. The alternative is to keep charging the
+        # ceiling, and that is not the safe direction here: it is not a couple of
+        # instructions over, it is a hundred times over on the one line that dominates the
+        # frame, and an estimate that cries wolf on a game which fits teaches an author to
+        # stop reading it. The worst case is still counted and still printed — see the tree,
+        # which keeps the capacity, and the line the report prints beside the verdict.
+        UNSAID_LIST_SHARE = 4
+
+        def list_length(name)
+          @list_lengths[name] || [@capacities[name] / UNSAID_LIST_SHARE, 1].max
         end
       end
     end

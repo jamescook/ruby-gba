@@ -162,7 +162,7 @@ module RubyGBA
         table:     { name: :name, values: :list, width: :option, signed: :flag }, # a build-time array of numbers
 
         # lists
-        list_new:  { name: :name, capacity: :int },
+        list_new:  { name: :name, capacity: :int, usually: :int },
         list_push: { name: :name, value: :value },
         list_drop: { name: :name, from: :option },
         list_set:  { name: :name, index: :value, value: :value },

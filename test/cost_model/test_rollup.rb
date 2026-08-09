@@ -45,6 +45,48 @@ class TestCostRollup < CostModelTest
     near loop_cost(8, dma_rows(8, 8)) + WEIGHTS[:op_step], Cost.new.frame_cost(prog)
   end
 
+  # ...THE WORST CASE. The every-frame load asks the other question, and the capacity is the
+  # wrong answer to it: a list is sized so it can never overflow, so it is nearly never full,
+  # and a snake's body list is sized for the whole board while holding four cells for most of
+  # a game. Counting the ceiling every frame made a snake that measures 49 scanlines report
+  # 106 of its 228 — and the walk is the biggest line in that frame, so it was not a rounding
+  # error, it was the answer.
+  def test_the_every_frame_load_counts_a_list_walk_at_what_it_usually_holds
+    prog = walking_game(capacity: 64, estimate: { usually: 4 })
+
+    near loop_cost(64, dma_rows(8, 8)), Cost.new.frame_cost(prog), "the worst it can reach"
+    near loop_cost(4, dma_rows(8, 8)), Cost.new.steady_cost(prog), "what a frame usually pays"
+  end
+
+  # Said nothing, and the estimate has to answer anyway. It guesses — a quarter of the
+  # capacity — because the alternative is to keep charging a ceiling nobody plays, and an
+  # estimate that cries wolf on a game that fits teaches an author to stop reading it. The
+  # report says which of the two numbers it used, so the guess is never silent.
+  def test_a_list_that_says_nothing_is_counted_at_a_quarter_of_its_capacity
+    prog = walking_game(capacity: 64)
+
+    near loop_cost(64, dma_rows(8, 8)), Cost.new.frame_cost(prog)
+    near loop_cost(16, dma_rows(8, 8)), Cost.new.steady_cost(prog)
+  end
+
+  # A range says a length that moves, and the TOP is what a frame is charged: the dearest of
+  # the frames that usually happen. It is also what stops a range being a way to talk the
+  # estimate down — a wider one always reads dearer.
+  def test_a_range_is_counted_at_its_top
+    top = Cost.new.steady_cost(walking_game(capacity: 64, estimate: { usually: 4..12 }))
+
+    near Cost.new.steady_cost(walking_game(capacity: 64, estimate: { usually: 12 })), top
+  end
+
+  # A game loop that walks a list of `capacity` items, drawing one rect each.
+  def walking_game(capacity:, estimate: nil)
+    program do
+      screen :bitmap
+      body = list :body, capacity: capacity, estimate: estimate
+      game_loop { repeat(body.length) { |_i| draw_rect_at 0, 0, 8, 8, :green } }
+    end
+  end
+
   # Inside a game loop, case_var runs exactly ONE scene per frame, so the per-frame
   # cost is the worst branch, not the sum of all branches.
   def test_case_var_costs_the_worst_branch_not_the_sum

@@ -105,6 +105,43 @@ class TestCostReport < CostModelTest
     assert_match(/box test/, io.string, "and says why a typical frame does not pay it")
   end
 
+  # THE ONE ASSUMPTION IN THE BUDGET AN AUTHOR CAN CORRECT. The every-frame figure turns on
+  # how long a list usually is, and nothing in a program says it — so the report says which
+  # number it used and where that number came from. Left silent, a reader would take the
+  # verdict for a fact about their game when half of it is an assumption about their list.
+  def test_the_estimate_says_what_it_took_a_list_to_hold
+    io = StringIO.new
+    Cost.new.render(list_walking_game(estimate: { usually: 6 }), out: io)
+
+    assert_match(/a list walk counts what the list usually holds/, io.string)
+    assert_match(/:body 6 of 64/, io.string, "the number it used, out of the capacity")
+    assert_match(/the length you gave/, io.string, "and that the author is the one who said it")
+  end
+
+  # ...and when nobody said, it says that it guessed, and how to answer it.
+  def test_a_guessed_length_says_so_and_says_how_to_answer_it
+    io = StringIO.new
+    Cost.new.render(list_walking_game, out: io)
+
+    assert_match(/:body 16 of 64, a guess/, io.string)
+    assert_match(/estimate: \{ usually: N \}/, io.string, "and how to say the real length")
+  end
+
+  def test_a_program_that_walks_no_list_says_nothing_about_one
+    io = StringIO.new
+    Cost.new.render(program { screen(:bitmap); game_loop { clear_screen :black } }, out: io)
+
+    refute_match(/list walk/, io.string)
+  end
+
+  def list_walking_game(estimate: nil)
+    program do
+      screen :bitmap
+      body = list :body, capacity: 64, estimate: estimate
+      game_loop { repeat(body.length) { |_i| draw_rect_at 0, 0, 8, 8, :green } }
+    end
+  end
+
   def test_a_program_with_no_collision_says_nothing_about_collision
     prog = program do
       screen :bitmap

@@ -298,6 +298,10 @@ module RubyGBA
         # the model, with no build behind it, gets. See Pricing#extra_var_address_steps.
         @var_addresses = var_addresses
         @in_fast_code = false
+        # Whether a walk over a list is being counted at the most it can hold rather than
+        # what it usually holds — the growth question, asked by one caller (see
+        # Rollup#at_list_capacity).
+        @at_list_capacity = false
       end
     end
   end
