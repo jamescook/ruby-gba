@@ -533,6 +533,74 @@ class TestCostPricing < CostModelTest
     near WEIGHTS[:op_mul_pow2], flipped - Cost.new.steady_cost(value_loop(Build.var_ref(:x)))
   end
 
+  # WHERE A VARIABLE SITS is part of what a statement costs, because reaching it begins by
+  # building its address and a bigger address takes another instruction to build. A list of 64
+  # claims the first 256 bytes of the console's quick memory before any variable gets a home,
+  # so in a game with a list every statement pays that at each end.
+  #
+  # The map comes from the build that placed them; without one every variable is priced as an
+  # ordinary one, which is what a program handed straight to the model gets.
+  ORDINARY_VAR = 0x03000010 # one of the sixty-three whose address takes two instructions
+  DISTANT_VAR = 0x03000110 # past the first 256 bytes, where it takes three
+
+  def test_a_statement_costs_more_when_its_variable_sits_further_out
+    near_cost = Cost.new(var_addresses: { x: ORDINARY_VAR }).steady_cost(assignment_loop)
+    far_cost = Cost.new(var_addresses: { x: DISTANT_VAR }).steady_cost(assignment_loop)
+
+    near WEIGHTS[:op_assign], near_cost, "an ordinary variable is what the weight was measured on"
+    # `x.set(x)` reaches x twice — once to read it, once to write it.
+    near WEIGHTS[:op_assign] + (2 * WEIGHTS[:var_address_step]), far_cost
+  end
+
+  # An `add` reaches its variable at both ends where a `set` only writes, so the same distance
+  # costs an `add` twice over.
+  def test_reaching_a_far_variable_is_charged_once_per_touch
+    changed = program do
+      screen :bitmap
+      x = var :x, 100
+      game_loop { x.add 1 }
+    end
+    far = Cost.new(var_addresses: { x: DISTANT_VAR })
+
+    near WEIGHTS[:op_step] + (2 * WEIGHTS[:var_address_step]), far.steady_cost(changed)
+  end
+
+  # No map, no charge — a program the model is handed with no build behind it has nothing to
+  # say where its variables went, and pricing them all as ordinary is what it did before.
+  def test_a_program_with_no_build_behind_it_prices_every_variable_the_same
+    near WEIGHTS[:op_assign], Cost.new.steady_cost(assignment_loop)
+    near WEIGHTS[:op_assign], Cost.new(var_addresses: {}).steady_cost(assignment_loop)
+  end
+
+  # The one variable that is NEARER than ordinary is charged the ordinary rate rather than
+  # credited. Exactly one variable in a program is like that, and over is the safe way to be
+  # wrong.
+  def test_the_one_variable_nearer_than_ordinary_is_not_credited
+    first = Cost.new(var_addresses: { x: 0x03000000 })
+
+    near WEIGHTS[:op_assign], first.steady_cost(assignment_loop)
+  end
+
+  # END TO END, because the map has to travel from the build to the estimate for any of the
+  # above to matter. The two programs do the same statement; one also declares a list, which
+  # claims the first 256 bytes of quick memory before any variable gets a home and so makes
+  # every one of them dearer to reach.
+  def test_a_built_rom_prices_its_statements_where_its_variables_landed
+    costs = [false, true].map do |with_list|
+      rom = RubyGBA.build("VARS", code: "VARS", maker: "01", err: StringIO.new) do
+        screen :bitmap
+        list(:xs, capacity: 64) if with_list
+        n = var :n, 0
+        m = var :m, 7
+        game_loop { n.set m }
+      end
+      rom.cost_model.steady_cost(rom.source_program)
+    end
+
+    near WEIGHTS[:op_assign], costs.first
+    near WEIGHTS[:op_assign] + (2 * WEIGHTS[:var_address_step]), costs.last
+  end
+
   # `set :out, <node>` once a frame. Built straight from the IR because the surface will not
   # let a comparison be assigned — there a comparison is a Condition, which belongs to
   # `.then` — and a branch around one would bring its own cost into the reading.

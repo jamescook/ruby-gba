@@ -249,8 +249,11 @@ module RubyGBA
       ].freeze
       # Reads that really are a load or two, and are already inside every op weight — those
       # were measured on statements that read one variable. An indexed read is NOT one of
-      # these: list_get and table_get are priced (see Pricing#own_cost).
-      FREE_VALUE_KINDS = %i[int var_ref data_byte list_len held pressed read_scanline timer_ticks].freeze
+      # these: list_get and table_get are priced (see Pricing#own_cost). Nor, quite, is a
+      # plain variable read: the load is inside the weights, but WHERE the variable sits is
+      # not, so var_ref has a case of its own and is left off this list — take the case away
+      # and the estimate says it could not account for it, rather than going quiet.
+      FREE_VALUE_KINDS = %i[int data_byte list_len held pressed read_scanline timer_ticks].freeze
 
       # Every costed op falls into one of three buckets, so a frame's work reads as
       # drawing vs sound vs logic — the sections the estimate rolls up into. DRAWING is
@@ -281,7 +284,7 @@ module RubyGBA
       # +placement+ is the whole picture for the report — which routines moved and how
       # much memory is used and left (see Backends::GBA::Placement#iwram_report).
       def initialize(fast_routines: nil, fast_frame: false, fast_interrupts: false,
-                     placement: nil, **weights)
+                     placement: nil, var_addresses: nil, **weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)
         # The same table with everything but the transfer engine's own work zeroed, so an op
         # can be priced twice over and the two answers differenced (see Pricing::ENGINE_WEIGHTS).
@@ -290,6 +293,10 @@ module RubyGBA
         @fast_frame = fast_frame
         @fast_interrupts = fast_interrupts
         @placement = placement
+        # Where each variable landed, from the build that placed it. Without it every
+        # variable is priced as an ordinary one — which is what a program handed straight to
+        # the model, with no build behind it, gets. See Pricing#extra_var_address_steps.
+        @var_addresses = var_addresses
         @in_fast_code = false
       end
     end

@@ -116,6 +116,18 @@ module RubyGBA
           # nothing moved.
           attr_reader :hot_base, :hot_bytes
 
+          # Where every variable ended up: name -> address. Valid after #lower.
+          #
+          # The cost model reads this, and the reason is not bookkeeping. Reaching a variable
+          # starts by building its address, and how many instructions that takes depends on
+          # the address — so two identical statements cost different amounts depending on
+          # which variable each touches. Nothing but this build knows where a variable
+          # landed: the order is first-touch, a list or a save-under buffer takes its whole
+          # size at once, and the framework's own counters and slots are in the queue too.
+          # Handing the map over is what lets the estimate price a statement where the
+          # variable actually is, instead of reproducing all of that and drifting from it.
+          def var_addresses = @vars.dup
+
           # How much of the quick memory this build used, and what is left — the numbers
           # `rom.explain` prints. Valid after #lower.
           def iwram_report

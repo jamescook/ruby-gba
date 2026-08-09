@@ -92,6 +92,15 @@ module RubyGBA
               end,
               note: "a comparison, priced on the answer that costs more (false, which jumps)")
 
+        # ...and on top of any of those, what reaching a variable costs where the variable
+        # happens to sit. The four above are measured on an ORDINARY variable — one of the
+        # sixty-three whose address takes two instructions to build. A variable past the first
+        # 256 bytes of the quick memory takes three, and a list of 64 items claims that whole
+        # 256 bytes on its own, so in a game with a list or a pool nearly every variable is
+        # the dearer kind and every statement touching one pays this at each end.
+        weigh(:var_address_step, @bench.per_var_address_step,
+              note: "the extra to reach a variable that sits past the first 256 bytes of quick memory")
+
         # What a pass of a `repeat` costs before its body does anything. Every weight around it
         # is measured with the trip count held FIXED, which cancels this — so it needs its own
         # case or it is never measured at all.
@@ -162,11 +171,19 @@ module RubyGBA
         # with a compare and a branch per bound — so the cheap one must not be charged for
         # both. Most tables a game writes by hand (a sine table of 360, a level of 60) are the
         # dearer kind.
-        weigh(:list_read, @bench.per_indexed_read(:list),
-              note: "reading one element of a list")
-        weigh(:table_read, @bench.per_indexed_read(:table),
+        #
+        # ONE STEP COMES BACK OUT of each. These are measured in a ROM that declares a list, so
+        # its 256 bytes are claimed before any variable gets a home and every variable there is
+        # one of the dear ones to reach. The reading and its baseline both store into the same
+        # variable, so that end cancels — what does not is the INDEX, which the read has and the
+        # baseline does not. The model charges the index's own reach where it finds it
+        # (Pricing#var_reach_cost), so it is taken out here rather than paid for twice.
+        index_reach = @weights[:var_address_step]
+        weigh(:list_read, @bench.per_indexed_read(:list) - index_reach,
+              note: "reading one element of a list, index in an ordinary variable")
+        weigh(:table_read, @bench.per_indexed_read(:table) - index_reach,
               note: "reading one element of a table whose length is a power of two (the index wraps)")
-        weigh(:table_read_clamped, @bench.per_indexed_read(:table_clamped),
+        weigh(:table_read_clamped, @bench.per_indexed_read(:table_clamped) - index_reach,
               note: "reading one element of a table of any other length (the index clamps)")
 
         # A divisor the game works out is the one case that still walks the answer a bit at a

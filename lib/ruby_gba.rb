@@ -115,6 +115,8 @@ module RubyGBA
                                      validate: builder.debug_halted? ? false : validate)
     rom.source_program = program # so the ROM can report on itself (rom.explain)
     rom.placement = backend.iwram_report # ...including which routines it kept in quick memory
+    # ...and where each variable landed, which decides what reaching it costs
+    rom.var_addresses = backend.var_addresses
 
     # Record how far asset packing shrank the cart (tile pictures, palettes, maps) so
     # a caller can read it back or a verbose build can show it. Building it into the

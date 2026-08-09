@@ -131,9 +131,18 @@ module RubyGBA
           # both ends, where `set :x, y` only reaches it at the writing end. Charging the
           # first for both read a `set` about a third over, on one of the two commonest
           # things a program does.
-          when :add, :sub, :negate, :abs, :negate_abs then @weights[:op_step]
-          when :set, :copy then @weights[:op_assign]
-          when :clamp then 2 * @weights[:op_step] # a low compare and a high compare
+          #
+          # On top of the weight, what REACHING this statement's variable costs where that
+          # variable happens to sit — nothing for most, an instruction per touch for one far
+          # enough out (see #var_reach_cost). A statement that reads and writes the same
+          # variable reaches it twice; one that only writes reaches it once.
+          when :add, :sub, :negate, :abs, :negate_abs
+            @weights[:op_step] + var_reach_cost(node[:var], 2)
+          when :set then @weights[:op_assign] + var_reach_cost(node[:var], 1)
+          when :copy
+            @weights[:op_assign] + var_reach_cost(node[:src], 1) + var_reach_cost(node[:dest], 1)
+          when :clamp
+            (2 * @weights[:op_step]) + var_reach_cost(node[:var], 2) # a low compare and a high compare
           when :list_push, :list_set, :list_drop then @weights[:op_step]
           # Every change to a save_var mirrors it back to save memory, right after the
           # change. Save memory sits on a slow bus and takes one byte at a time, so this
@@ -178,11 +187,53 @@ module RubyGBA
           0
         end
 
+        # WHAT REACHING A VARIABLE COSTS BEYOND ITS WEIGHT, which is not the same for every
+        # variable in a program.
+        #
+        # A variable lives in the console's quick memory, and every read or write of one
+        # begins by building its address. How many instructions that takes depends on the
+        # address itself: the very first variable's takes one, the next sixty-three take two,
+        # and anything past the first 256 bytes takes three. A list of 64 items claims that
+        # whole 256 bytes on its own — so in a game with a list, a pool or a grid, nearly
+        # every variable is in the third group and every statement touching one costs an
+        # instruction more at each end.
+        #
+        # Every weight in the model was measured on an ORDINARY variable, so this adds only
+        # the difference. A variable nearer than ordinary is charged the ordinary rate rather
+        # than credited: that is one variable per program, and over is the safe way to be
+        # wrong.
+        #
+        # Where each variable landed is the BUILD'S answer, handed over rather than worked
+        # out again here (Backends::GBA::Placement#var_addresses) — the order is first-touch,
+        # a list claims its whole size at once, and the framework's own counters are in the
+        # queue too, so nothing short of the build knows it. A program with no build behind
+        # it has no map, and then every variable is priced as ordinary.
+        ORDINARY_VAR_ADDRESS_STEPS = 2
+
+        def var_reach_cost(name, touches)
+          extra = extra_var_address_steps(name)
+          return 0 if extra.zero? # no map, or an ordinary variable — the common answer
+
+          touches * extra * @weights[:var_address_step]
+        end
+
+        # The steps this variable's address needs beyond an ordinary one, never fewer than
+        # none. The assembler is ASKED, the same way #extra_address_steps asks it for a
+        # pixel, so the rule is not restated here and the two cannot drift apart.
+        def extra_var_address_steps(name)
+          address = @var_addresses && @var_addresses[name]
+          return 0 unless address
+
+          steps = ASM.load_immediate(0, address).bytesize / ARM_INSTRUCTION_BYTES
+          [steps - ORDINARY_VAR_ADDRESS_STEPS, 0].max
+        end
+
         # The cost of evaluating a value expression: every operator it's built from,
-        # summed. A bare variable or literal is a load — effectively free — so the cost
-        # is in the operators, and a divide weighs far more than an add (see the op_*
-        # weights). This is why `(a * b) / c` in a per-frame loop isn't free, and why
-        # the chain of comparisons behind a collision test (overlaps?) has a real cost.
+        # summed. A bare literal is free and a bare variable costs only what reaching it
+        # where it sits costs, so the cost is in the operators, and a divide weighs far more
+        # than an add (see the op_* weights). This is why `(a * b) / c` in a per-frame loop
+        # isn't free, and why the chain of comparisons behind a collision test (overlaps?)
+        # has a real cost.
         #
         # Two parts, and the split is what keeps it honest: what this node's own operator
         # costs, plus what every operand hanging off it costs. Operands are found from the
@@ -221,6 +272,11 @@ module RubyGBA
           when :neg then @weights[:op_mul_pow2]
           when :chance then @weights[:op_compare] # it IS a compare: is the draw under the threshold
           when :pixels_overlap then worst ? pixels_overlap_cost(value) : 0
+          # Reading a plain variable is a load, and every weight here was measured on a
+          # statement that already does one — so the load is inside them all and must not be
+          # charged again. What is NOT inside them is where THIS variable sits: they were
+          # measured on an ordinary one, and one further out takes an instruction more.
+          when :var_ref then var_reach_cost(value[:name], 1)
           # Reading a list or a table element is NOT the single load a variable read is, and
           # pricing it as one hid the hottest thing a game does — a list element sits in a
           # ring, so reaching it means the head, the wrap, the scale to bytes and the base
