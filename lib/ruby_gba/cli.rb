@@ -41,7 +41,7 @@ module RubyGBA
       rom.write(path)
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
       say rom.compression.summary_line if options[:stats] && rom.compression&.any?
-      say placement_line(rom) if options[:stats] && rom.placement&.dig(:funcs)&.any?
+      say placement_line(rom) if options[:stats] && rom.placement&.funcs&.any?
       if options[:explain] || options[:scene].any? || options[:keys].any?
         rom.explain(measured: measured_verdicts(game))
       end

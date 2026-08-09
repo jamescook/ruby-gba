@@ -220,7 +220,7 @@ class TestBuilderIR < Minitest::Test
     end
     audio = Reference.new.run(got).audio
     assert_equal [:enabled], audio[0]
-    assert_equal 880, audio[1][1][:frequency] # :high resolves to 880 Hz
+    assert_equal 880, audio[1][1].frequency # :high resolves to 880 Hz
     assert_equal [:stop_music], audio.last
   end
 

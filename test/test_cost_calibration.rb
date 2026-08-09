@@ -395,7 +395,7 @@ class TestCostCalibration < Minitest::Test
   def test_a_frame_of_transfers_is_priced_right_wherever_its_routine_lives
     cold = frame_case(:frame, fast_code: false)
     hot = frame_case(:frame_hot, fast_code: true)
-    assert_includes rom_for(hot, true).placement[:funcs], :__frame,
+    assert_includes rom_for(hot, true).placement.funcs, :__frame,
                     "this test is about a frame whose loop moved; this one did not"
 
     [cold, hot].each do |standing|

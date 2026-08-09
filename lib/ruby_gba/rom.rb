@@ -172,7 +172,7 @@ module RubyGBA
       decided = { var_addresses: var_addresses, loop_shapes: loop_shapes }.compact
       return decided unless placement
 
-      names = placement[:funcs]
+      names = placement.funcs
       { fast_routines: names - [FRAME_ROUTINE, IRQ_ROUTINE],
         fast_frame: names.include?(FRAME_ROUTINE),
         fast_interrupts: names.include?(IRQ_ROUTINE),

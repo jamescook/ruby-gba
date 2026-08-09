@@ -16,25 +16,25 @@ class TestSoundModule < Minitest::Test
   # ---- musical resolution ----
 
   def test_named_preset_resolves_to_its_values
-    assert_equal({ frequency: 880, duty: :half, decay: :fast, volume: 15 },
-                 Sound.resolve_effect(:high))
+    assert_equal Sound::Effect.new(frequency: 880, duty: :half, decay: :fast, volume: 15),
+                 Sound.resolve_effect(:high)
   end
 
   def test_bare_frequency_uses_the_defaults
-    assert_equal({ frequency: 440, duty: :half, decay: :fast, volume: 15 },
-                 Sound.resolve_effect(440))
+    assert_equal Sound::Effect.new(frequency: 440, duty: :half, decay: :fast, volume: 15),
+                 Sound.resolve_effect(440)
   end
 
   def test_overrides_replace_only_what_they_name
     effect = Sound.resolve_effect(440, duty: :quarter, volume: 10)
-    assert_equal :quarter, effect[:duty]
-    assert_equal 10, effect[:volume]
-    assert_equal :fast, effect[:decay] # untouched
+    assert_equal :quarter, effect.duty
+    assert_equal 10, effect.volume
+    assert_equal :fast, effect.decay # untouched
   end
 
   def test_a_defined_sound_wins_over_a_built_in_of_the_same_name
     defined = { high: { frequency: 100, duty: :eighth, decay: :none, volume: 3 } }
-    assert_equal 100, Sound.resolve_effect(:high, defined: defined)[:frequency]
+    assert_equal 100, Sound.resolve_effect(:high, defined: defined).frequency
   end
 
   def test_unknown_preset_is_a_friendly_error
