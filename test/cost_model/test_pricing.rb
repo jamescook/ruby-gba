@@ -424,35 +424,68 @@ class TestCostPricing < CostModelTest
   # ...but not every divide is that. By a power of two the console shifts instead of
   # calling, so the estimate has to say so — otherwise it would send an author chasing a
   # cost that is not there. This is the same fact the lowering acts on.
-  def test_a_divide_by_a_power_of_two_is_priced_as_a_plain_step
-    adder = program do
-      screen :bitmap
-      x = var :x, 100
-      game_loop { x.set(x + 1) }
-    end
-    halver = program do
-      screen :bitmap
-      x = var :x, 100
-      game_loop { x.set(x / 256) }
-    end
+  #
+  # It is CHEAPER than an add, not equal to one, which is what this used to assert. A shift
+  # rounds down where `/` rounds toward zero, so a divide by a power of two is the shift plus
+  # the nudge that fixes a negative numerator — three instructions against an add's four.
+  def test_a_divide_by_a_power_of_two_costs_less_than_an_add
+    adder = arithmetic_loop { |x| x + 1 }
+    halver = arithmetic_loop { |x| x / 256 }
 
-    near Cost.new.steady_cost(adder), Cost.new.steady_cost(halver)
+    assert_operator Cost.new.steady_cost(halver), :<, Cost.new.steady_cost(adder)
+    near WEIGHTS[:op_div_pow2], Cost.new.steady_cost(halver) - Cost.new.steady_cost(assignment_loop)
   end
 
-  def test_multiplying_and_wrapping_by_a_power_of_two_are_priced_as_plain_steps
-    [->(x) { x * 64 }, ->(x) { x % 64 }].each do |cheap|
-      plain = program do
-        screen :bitmap
-        x = var :x, 100
-        game_loop { x.set(x + 1) }
-      end
-      shifted = program do
-        screen :bitmap
-        x = var :x, 100
-        game_loop { x.set(cheap.call(x)) }
-      end
+  # Multiplying by a power of two and wrapping onto one cost the SAME as each other and less
+  # than either — one instruction apiece. A shift is a shift, and keeping a number's low bits
+  # is already the answer to `% 64`, sign and all, so that is a mask. They are the two
+  # cheapest operators there are, and the model used to charge them a whole plain step.
+  def test_multiplying_and_wrapping_by_a_power_of_two_are_the_cheapest_operators
+    doubler = arithmetic_loop { |x| x * 64 }
+    wrapper = arithmetic_loop { |x| x % 64 }
 
-      near Cost.new.steady_cost(plain), Cost.new.steady_cost(shifted)
+    near Cost.new.steady_cost(doubler), Cost.new.steady_cost(wrapper)
+    near WEIGHTS[:op_mul_pow2], Cost.new.steady_cost(doubler) - Cost.new.steady_cost(assignment_loop)
+    assert_operator Cost.new.steady_cost(doubler), :<, Cost.new.steady_cost(arithmetic_loop { |x| x / 256 }),
+                    "a shift alone beats a shift that has to round"
+  end
+
+  # Dropping a fraction to get a whole number is the same single shift a multiply by a power
+  # of two is, and measures at the same price — so it is charged the same weight. This is
+  # what `.to_i` lowers to, and a game holding fractions writes it on every coordinate it
+  # draws, so charging it a whole plain step put six instructions where one runs.
+  def test_dropping_a_fraction_costs_the_same_as_a_shift
+    dropped = program do
+      screen :bitmap
+      p = var :px, 3.5
+      out = var :out, 0
+      game_loop { out.set p.to_i }
+    end
+    shifted = program do
+      screen :bitmap
+      x = var :x, 100
+      out = var :out, 0
+      game_loop { out.set(x * 8) }
+    end
+
+    near Cost.new.steady_cost(shifted), Cost.new.steady_cost(dropped)
+  end
+
+  # `x.set(<expr>)` once a frame, and the same assignment with nothing in the expression —
+  # so differencing the two leaves the operator alone.
+  def arithmetic_loop(&expr)
+    program do
+      screen :bitmap
+      x = var :x, 100
+      game_loop { x.set(expr.call(x)) }
+    end
+  end
+
+  def assignment_loop
+    program do
+      screen :bitmap
+      x = var :x, 100
+      game_loop { x.set(x) }
     end
   end
 
@@ -646,7 +679,8 @@ class TestCostPricing < CostModelTest
     plain = prog.call(Build.var_ref(:col))
     scaled = prog.call(Build.binop(:*, Build.var_ref(:col), Build.int(8)))
 
-    near WEIGHTS[:op_mul], Cost.new.frame_cost(scaled) - Cost.new.frame_cost(plain)
+    # `* 8` is the cheapest operator there is — and it is still charged, which is the point.
+    near WEIGHTS[:op_mul_pow2], Cost.new.frame_cost(scaled) - Cost.new.frame_cost(plain)
   end
 
   # Stamping a tiled background is one upload, priced per map cell. A background is a

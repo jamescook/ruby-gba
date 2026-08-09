@@ -89,11 +89,33 @@ module RubyGBA
         #                 game works out is now the only one that reaches the BIOS routine.
         #   / 100         that reduction — a multiply by a reciprocal, its own tier.
         #
-        # The reduced power-of-two case is priced as a plain step (see Pricing#op_weight).
         weigh(:op_mul,
               @weights[:op_step] +
               over_an_add(tag: "mul", against: "addm", passes: 300, lo: 2, hi: 6) { |b, xv| b.set :y, (xv * 100) },
               note: "a multiply by a number written in the program")
+
+        # THE POWER-OF-TWO CASES, which the lowering reduces and the model used to charge a
+        # whole plain step for. Measured, they are the cheapest operators there are — and
+        # they are three different prices, not one:
+        #
+        #   * 8     one instruction. The shift, and nothing else.
+        #   % 64    one. Keeping the low bits IS the answer, sign and all, so it is a mask.
+        #   / 8     three. A shift rounds DOWN and `/` rounds toward zero, so a negative
+        #           numerator is nudged up first — see emit_divide_by_power_of_two.
+        #
+        # Charged a plain step, `set :y, (x * 8)` read at twice what it costs. These are the
+        # operator's OWN cost, not a statement over again (see Benchmarks#per_operator), which
+        # is what makes them compose with the statement they sit in instead of doubling it.
+        #
+        # The wrap is measured at 64, which is the size a game actually wraps onto — an angle,
+        # a sine table's index. A mask too big to ride inside the instruction has to be loaded
+        # first, so wrapping onto 512 or more costs about two instructions more than this.
+        weigh(:op_mul_pow2, @bench.per_operator("mulp") { |b, xv| b.set :y, (xv * 8) },
+              note: "multiplying by a power of two written in the program — a shift")
+        weigh(:op_mod_pow2, @bench.per_operator("modp") { |b, xv| b.set :y, (xv % 64) },
+              note: "wrapping onto a power of two written in the program — a mask, measured at 64")
+        weigh(:op_div_pow2, @bench.per_operator("divp") { |b, xv| b.set :y, (xv / 8) },
+              note: "dividing by a power of two written in the program — a shift, and the rounding it needs")
 
         # Reading one element out of a list or a table. Both were priced at NOTHING — "a read
         # like t[i] is a single load" — and neither is a single load. A list element sits in a

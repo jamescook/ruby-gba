@@ -204,11 +204,12 @@ module RubyGBA
           when :binop then op_weight(value)
           when :mul_fix then @weights[:op_mul_fix]
           when :div_fix then div_fix_weight(value)
-          # One instruction, so it is priced at the cheapest tier. Measured against the
-          # same harness the weights come from, it is 0.019 scanlines where an add is
-          # 0.029 and the division it replaces is 0.177 — so this tier slightly
-          # over-charges it, which is the safe direction to be wrong in.
-          when :shift_right then @weights[:op_step]
+          # Dropping the low bits of a number is ONE instruction — the same shift a multiply
+          # by a power of two is, and measured at the same price. It used to be charged a
+          # whole plain step, six instructions for one, which mattered because this is what
+          # `.to_i` lowers to and a game holding fractions writes that on every coordinate it
+          # draws.
+          when :shift_right then @weights[:op_mul_pow2]
           when :neg then @weights[:op_step]
           when :chance then @weights[:op_step] # a random draw and a compare
           when :pixels_overlap then worst ? pixels_overlap_cost(value) : 0
@@ -292,8 +293,9 @@ module RubyGBA
         # that. Those are the same facts the lowering acts on; if one moves, both must.
         def op_weight(node)
           case node[:op]
-          when :* then power_of_two_operand?(node[:rhs]) ? @weights[:op_step] : @weights[:op_mul]
-          when :/, :% then divide_weight(numerator: const_side(node[:lhs]), divisor: const_side(node[:rhs]))
+          when :* then power_of_two_operand?(node[:rhs]) ? @weights[:op_mul_pow2] : @weights[:op_mul]
+          when :/, :% then divide_weight(op: node[:op], numerator: const_side(node[:lhs]),
+                                         divisor: const_side(node[:rhs]))
           else @weights[:op_step]
           end
         end
@@ -308,7 +310,7 @@ module RubyGBA
 
           # It lowers to an ordinary division of the WIDENED numerator, so that is the
           # number whose width bounds the answer — not the one written in the program.
-          divide_weight(numerator: const_side(node[:lhs]) << node[:fraction_bits],
+          divide_weight(op: :/, numerator: const_side(node[:lhs]) << node[:fraction_bits],
                         divisor: const_side(node[:rhs]))
         end
 
@@ -328,10 +330,17 @@ module RubyGBA
         # What one divide or wrap costs, from where its divisor comes from. A negative
         # divisor reduces the same way its size does, with the answer flipped after.
         # Both sides are given as build-time numbers, or nil where the game works one out.
-        def divide_weight(numerator:, divisor:)
+        #
+        # On a POWER OF TWO the two operators part company, which is why the op is asked for.
+        # Wrapping onto one is a mask — keeping a number's low bits is the answer already,
+        # sign and all — while dividing by one is a shift PLUS the rounding a shift does not
+        # do, since a shift rounds down and `/` rounds toward zero. Measured, the wrap is a
+        # third of the divide, so lumping them charged the common `angle % 64` at three times
+        # what it costs.
+        def divide_weight(op:, numerator:, divisor:)
           size = divisor&.abs
           return runtime_divide_weight(numerator) unless size && size > 1
-          return @weights[:op_step] if power_of_two?(size)
+          return @weights[op == :% ? :op_mod_pow2 : :op_div_pow2] if power_of_two?(size)
 
           @weights[:op_div_const]
         end
@@ -401,8 +410,9 @@ module RubyGBA
         end
 
         # Which divide a divisor gives, named rather than priced — the same split
-        # #divide_weight prices. A power of two is a shift, no dearer than an add, so it
-        # gets no line of its own.
+        # #divide_weight prices. A power of two reduces to a shift or a mask, which measure
+        # CHEAPER than an add, so it gets no line of its own: there is nothing an author
+        # could do about it that would help.
         def divide_kind(divisor)
           size = divisor&.abs
           return Arithmetic.new(op: :divide_worked_out, name: "divide (worked out)") unless size && size > 1
@@ -585,9 +595,10 @@ module RubyGBA
         # Both weights here are BORROWED from shapes measured elsewhere, because a fixed
         # rectangle is a third emitter again: its rows are unrolled with every address
         # settled while building, so its ends are not the moving rectangle's spliced ends
-        # and its fill is not the moving rectangle's. Measured, a row of one reads 1.12 at
-        # an even column and 0.91 at an odd one — inside the calibration band at both, and
-        # in opposite directions, so a whole rectangle is nearer than either.
+        # and its fill is not the moving rectangle's. Measured, a row of one reads a little
+        # OVER at an even column and a little UNDER at an odd one — inside the calibration
+        # band at both, and in opposite directions, so a whole rectangle is nearer than
+        # either of its rows.
         def tearfree_fill_row_cost(x, w)
           edges = x.odd? ? 2 * @weights[:tearfree_edge] : 0
           middle = x.odd? ? w - 2 : w
@@ -640,9 +651,9 @@ module RubyGBA
         # a row with one. That is what `tearfree_part` is, and leaving it out is what used
         # to make a rectangle at an odd column read at seven tenths of its cost: the two
         # ends' own address work, plus the near end's extra step to name its unit, went
-        # uncharged. Measured against the emulator, a row of this screen costs the same
-        # 0.0032 scanlines per instruction whatever shape it is, so counting the parts is
-        # the whole of getting it right.
+        # uncharged. Measured against the emulator, every shape of a row of this screen costs
+        # the SAME per instruction — narrow or wide, either column — so there is no timing
+        # here to model and counting the parts is the whole of getting it right.
         def tearfree_row_parity_cost(w, starts_odd)
           near = starts_odd ? 1 : 0
           far = (starts_odd ? w + 1 : w).odd? ? 1 : 0
