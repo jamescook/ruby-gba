@@ -111,6 +111,43 @@ module RubyGBA
     # second, lines a frame, how full a list gets. That is the same problem a query planner
     # calls cardinality, it has never been solved anywhere, and it is why a measurement
     # beats an estimate and the report says which one you are reading.
+    #
+    # FIXING ONE REGIME USUALLY TURNS UP TWO OR THREE MORE, and that is how this thing works
+    # rather than a sign that something is broken. It happens because the errors COMPOUND AND
+    # CANCEL: a count several times too big, times a body priced at half, reads about right.
+    # So a number that looks correct can be two mistakes holding each other up, and correcting
+    # one of them is what makes the other visible for the first time. Counting a list walk at
+    # the list's capacity was hiding a grid cell priced at half what it costs; splitting a
+    # rectangle row's two ends apart showed the block-fill engine being started far too early.
+    # Neither was findable while the other stood.
+    #
+    # WHY THERE IS SO MUCH OF IT TO FIND, which is worth knowing before spending a month on
+    # it: this model prices the SOURCE TREE, and the cost lives in the EMITTED CODE. Between
+    # them sits every decision the backend makes — which shape a row is built out of, whether
+    # a divisor folds, whether a run is worth handing to the transfer engine — and each of
+    # those decisions is written twice: once in the backend, where it is executed, and once
+    # here, where it is guessed at from the same facts. Every "if that moves, this must" in
+    # this file is one of those pairs, and a pair that can drift eventually does.
+    #
+    # The measurements say the duplication is even plainer than that. Thirty-four of the
+    # sixty-one weights are an exact whole number of instructions at ~0.0032 scanlines each —
+    # op_assign is 4, tearfree_edge_near is 6, blit_pixel is 11 — which is a number the
+    # backend already has exactly and this file measures approximately, one weight at a time.
+    # The other twenty-seven are the costs that genuinely are not instructions: a transfer's
+    # stall, a BIOS divide, an interrupt, a write to a slow bus, a jump that throws away the
+    # pipeline. Those are the ones a measurement is really for.
+    #
+    # So the direction of travel is to ASK rather than restate. #extra_address_steps and
+    # #extra_var_address_steps already do it — they ask the assembler how many instructions an
+    # address really takes instead of writing the rule down again — and nothing about those two
+    # has ever needed a fix. Everywhere else that names a backend decision is a candidate for
+    # the same treatment, and pricing a node from the instructions it actually emitted is where
+    # that ends.
+    #
+    # Until then: rank what you find by what it moves in a REAL frame, not by how wrong the
+    # ratio is. A regime three times out on an op no game does twice a frame matters less than
+    # one a tenth out on the op every game does a thousand times, and the corpus in examples/
+    # is the thing to ask (`rake emitted` prints it per example).
     class CostModel
       include Pricing
       include Rollup
