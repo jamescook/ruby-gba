@@ -21,10 +21,10 @@ class TestCostTreeBySource < Minitest::Test
     ]
     grouped = Cost.new.group_by_source(tree)
 
-    assert_equal %i[group group], grouped.map { |n| n[:op] }
-    assert_equal ["player.rb", "enemies.rb"], grouped.map { |n| n[:label] }
-    assert_equal [5, 9], grouped.map { |n| n[:cost] }, "each group carries its file's subtotal"
-    assert_equal 2, grouped.first[:children].length
+    assert_equal %i[group group], grouped.map(&:op)
+    assert_equal ["player.rb", "enemies.rb"], grouped.map(&:label)
+    assert_equal [5, 9], grouped.map(&:cost), "each group carries its file's subtotal"
+    assert_equal 2, grouped.first.children.length
   end
 
   def test_group_by_source_leaves_a_single_file_untouched
@@ -36,21 +36,21 @@ class TestCostTreeBySource < Minitest::Test
     tree = [leaf("a.rb:1", 2), leaf("b.rb:1", 3), leaf("b.rb:2", 4)]
     grouped = Cost.new.group_by_source(tree)
 
-    assert_equal :fill_rect, grouped[0][:op], "a lone node from a.rb isn't wrapped in a group of one"
-    assert_equal :group, grouped[1][:op]
-    assert_equal "b.rb", grouped[1][:label]
+    assert_equal :fill_rect, grouped[0].op, "a lone node from a.rb isn't wrapped in a group of one"
+    assert_equal :group, grouped[1].op
+    assert_equal "b.rb", grouped[1].label
   end
 
   # Grouping reaches nested siblings too — the collaborators of a game live under a
   # case_var branch, not at the top of the loop, so the transform recurses in.
   def test_group_by_source_recurses_into_children
-    tree = [{ op: :case, label: "case", cost: 5, source: "game.rb:1", children: [
+    tree = [Cost::Entry.new(op: :case, label: "case", cost: 5, source: "game.rb:1", children: [
       leaf("player.rb:1", 2), leaf("player.rb:2", 2),
       leaf("enemies.rb:1", 3), leaf("enemies.rb:2", 3)
-    ] }]
+    ])]
     grouped = Cost.new.group_by_source(tree)
-    inner = grouped.first[:children]
-    assert_equal ["player.rb", "enemies.rb"], inner.map { |n| n[:label] }
+    inner = grouped.first.children
+    assert_equal ["player.rb", "enemies.rb"], inner.map(&:label)
   end
 
   # --- end to end: two collaborator files, grouped in the real cost tree ---
@@ -84,6 +84,6 @@ class TestCostTreeBySource < Minitest::Test
   private
 
   def leaf(source, cost)
-    { op: :fill_rect, label: "fill", cost: cost, source: source, children: [] }
+    Cost::Entry.new(op: :fill_rect, label: "fill", cost: cost, source: source)
   end
 end

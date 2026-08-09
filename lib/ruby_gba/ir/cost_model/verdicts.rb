@@ -410,7 +410,7 @@ module RubyGBA
         def residual_note(program, measured)
           return nil unless measured && looping?(program)
 
-          estimate = category_tree(program).sum { |node| node[:cost] }
+          estimate = category_tree(program).sum(&:cost)
           # The tree is the heaviest frame the program can reach and the reading is the
           # worst frame found, so they answer the same question. Across scenes, take the
           # dearest — the tree costs a case_var at its heaviest branch too.

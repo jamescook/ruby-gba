@@ -23,12 +23,13 @@ module RubyGBA
         # row of identical cells) without losing the rolled-up cost.
         def aggregate(nodes)
           nodes.each_with_object([]) do |raw, out|
-            node = raw[:children].to_a.empty? ? raw.dup : raw.merge(children: aggregate(raw[:children]))
+            node = raw.children.empty? ? raw : raw.with(children: aggregate(raw.children))
             prev = out.last
-            if node[:children].to_a.empty? && prev && prev[:children].to_a.empty? &&
-               prev[:op] == node[:op] && prev[:w] == node[:w] && prev[:h] == node[:h]
-              out[-1] = prev.merge(count: (prev[:count] || 1) + 1, cost: prev[:cost] + node[:cost],
-                                   label: "#{name_of(node)} ×#{(prev[:count] || 1) + 1}")
+            if node.children.empty? && prev && prev.children.empty? &&
+               prev.op == node.op && prev.w == node.w && prev.h == node.h
+              seen = (prev.count || 1) + 1
+              out[-1] = prev.with(count: seen, cost: prev.cost + node.cost,
+                                  label: "#{name_of(node)} ×#{seen}")
             else
               out << node
             end
@@ -43,7 +44,7 @@ module RubyGBA
         # cost; its children show the block once. Recurses into children first.
         def collapse_repeats(nodes)
           folded = nodes.map do |node|
-            node[:children].to_a.empty? ? node : node.merge(children: collapse_repeats(node[:children]))
+            node.children.empty? ? node : node.with(children: collapse_repeats(node.children))
           end
 
           out = []
@@ -52,8 +53,8 @@ module RubyGBA
             period, count = longest_repeat(folded, i)
             if count >= 2
               run = folded[i, period * count]
-              out << { op: :group, label: "(repeated ×#{count})",
-                       cost: run.sum { |node| node[:cost] }, count: count, children: folded[i, period] }
+              out << Entry.new(op: :group, label: "(repeated ×#{count})",
+                               cost: run.sum(&:cost), count: count, children: folded[i, period])
               i += period * count
             else
               out << folded[i]
@@ -74,7 +75,7 @@ module RubyGBA
         # #collapse_repeats), and a lone node from a file isn't wrapped in a group of one.
         def group_by_source(nodes)
           folded = nodes.map do |node|
-            node[:children].to_a.empty? ? node : node.merge(children: group_by_source(node[:children]))
+            node.children.empty? ? node : node.with(children: group_by_source(node.children))
           end
           return folded if folded.map { |node| source_file(node) }.compact.uniq.length < 2
 
@@ -90,7 +91,7 @@ module RubyGBA
             j = i
             j += 1 while j < folded.length && source_file(folded[j]) == file
             run = folded[i...j]
-            out << (run.length > 1 ? { op: :group, label: file, cost: run.sum { |n| n[:cost] }, children: run } : run.first)
+            out << (run.length > 1 ? Entry.new(op: :group, label: file, cost: run.sum(&:cost), children: run) : run.first)
             i = j
           end
           out
@@ -99,8 +100,7 @@ module RubyGBA
         # The source file a cost node came from — the basename of its DSL call site
         # ("player.rb" from "player.rb:42"), or nil for a node with no recorded site.
         def source_file(node)
-          site = node[:source]
-          site && site.split(":").first
+          node.source&.split(":")&.first
         end
 
         # Which section an op belongs to: drawing, sound, or logic (the fallback).
@@ -115,8 +115,8 @@ module RubyGBA
         # :category a synthetic node declares), a container by where most of its cost
         # lives — a repeat that's mostly drawing counts as drawing.
         def node_category(node)
-          return node[:category] if node[:category]
-          return category_of(node[:op]) if node[:children].to_a.empty?
+          return node.category if node.category
+          return category_of(node.op) if node.children.empty?
 
           category_totals(node).max_by { |_cat, cost| cost }&.first || :logic
         end
@@ -124,10 +124,10 @@ module RubyGBA
         # Sum a subtree's leaf costs by section — used to place a container in the
         # section holding most of its work.
         def category_totals(node, sums = Hash.new(0))
-          if node[:children].to_a.empty?
-            sums[node[:category] || category_of(node[:op])] += node[:cost]
+          if node.children.empty?
+            sums[node.category || category_of(node.op)] += node.cost
           else
-            node[:children].each { |child| category_totals(child, sums) }
+            node.children.each { |child| category_totals(child, sums) }
           end
           sums
         end
@@ -144,8 +144,8 @@ module RubyGBA
             kids = buckets[cat]
             next if kids.nil? || kids.empty?
 
-            { op: :category, category: cat, label: cat.to_s, cost: kids.sum { |node| node[:cost] },
-              children: group_by_source(kids) }
+            Entry.new(op: :category, category: cat, label: cat.to_s, cost: kids.sum(&:cost),
+                      children: group_by_source(kids))
           end
         end
 
@@ -155,8 +155,8 @@ module RubyGBA
           v = mixer_verdict(program)
           return [] unless v
 
-          [{ op: :mixer, category: :sound, cost: v[:cost], children: [],
-             label: "software mixer — worst case, all #{v[:voices]} voices summed each frame" }]
+          [Entry.new(op: :mixer, category: :sound, cost: v[:cost],
+                     label: "software mixer — worst case, all #{v[:voices]} voices summed each frame")]
         end
 
         # A row-by-row bend as a cost leaf, or none when nothing bends. It belongs in the
@@ -173,8 +173,8 @@ module RubyGBA
           return [] unless v
 
           layers = v[:layers].map { |name| ":#{name}" }.join(", ")
-          [{ op: :bend, category: :logic, cost: v[:cost], children: [],
-             label: "bending #{layers} row by row — interrupted on each of #{v[:lines]} lines a frame" }]
+          [Entry.new(op: :bend, category: :logic, cost: v[:cost],
+                     label: "bending #{layers} row by row — interrupted on each of #{v[:lines]} lines a frame")]
         end
 
         # One leaf per timer that runs a tick handler, for the same reason: the body runs off
@@ -186,8 +186,8 @@ module RubyGBA
           return [] unless v
 
           v[:timers].map do |t|
-            { op: :tick, category: :logic, cost: t[:cost], children: [],
-              label: "timer :#{t[:name]} — its body runs #{tick_rate_phrase(t)}, off the timer itself" }
+            Entry.new(op: :tick, category: :logic, cost: t[:cost],
+                      label: "timer :#{t[:name]} — its body runs #{tick_rate_phrase(t)}, off the timer itself")
           end
         end
 
@@ -235,18 +235,18 @@ module RubyGBA
         # A structural fingerprint: two nodes match when their op, label, size, and
         # children all match — so only truly identical blocks fold together.
         def signature(node)
-          [node[:op], node[:label], node[:w], node[:h], node[:children].to_a.map { |child| signature(child) }]
+          [node.op, node.label, node.w, node.h, node.children.map { |child| signature(child) }]
         end
 
         # Collapse subtrees deeper than +max_depth+ into a leaf that remembers how many
         # ops it hid — the depth limit that keeps a big program's tree readable.
         def prune(nodes, max_depth, depth = 0)
           nodes.map do |node|
-            kids = node[:children].to_a
+            kids = node.children
             if kids.any? && depth >= max_depth
-              node.merge(children: [], collapsed: leaf_count(node))
+              node.with(children: [], collapsed: leaf_count(node))
             elsif kids.any?
-              node.merge(children: prune(kids, max_depth, depth + 1))
+              node.with(children: prune(kids, max_depth, depth + 1))
             else
               node
             end
@@ -265,17 +265,17 @@ module RubyGBA
         # what the name grouped alongside the op is for: the two shapes a loop can get cost
         # very different amounts, so rolling them together would report an average nobody has.
         def hot_ops(nodes, top = 5)
-          weigh_leaves(nodes).group_by { |leaf, _times| [leaf[:op], name_of(leaf)] }
+          weigh_leaves(nodes).group_by { |leaf, _times| [leaf.op, name_of(leaf)] }
                              .map { |(op, _name), rows| hot_row(op, rows) }
-                             .sort_by { |h| -h[:cost] }.first(top)
+                             .sort_by { |row| -row.cost }.first(top)
         end
 
         # One line of the hottest list, from every [leaf, times] pair sharing an op kind.
         def hot_row(op, rows)
           first, = rows.first
-          { op: op, name: name_of(first),
-            cost: rows.sum { |leaf, times| leaf[:cost] * times },
-            count: rows.sum { |leaf, times| (leaf[:count] || 1) * times } }
+          Entry.new(op: op, name: name_of(first),
+                    cost: rows.sum { |leaf, times| leaf.cost * times },
+                    count: rows.sum { |leaf, times| (leaf.count || 1) * times })
         end
 
         # Every leaf in the tree paired with how many times a frame reaches it: the loop
@@ -283,8 +283,8 @@ module RubyGBA
         # (only one scene runs a frame, and the cost is the heaviest) weighs nothing.
         def weigh_leaves(nodes, times = 1)
           nodes.flat_map do |node|
-            kids = node[:children].to_a
-            kids.empty? ? [[node, times]] : weigh_leaves(kids, times * (node[:factor] || 1))
+            kids = node.children
+            kids.empty? ? [[node, times]] : weigh_leaves(kids, times * node.passes)
           end
         end
 
@@ -293,13 +293,13 @@ module RubyGBA
         # are named by their kind; the ones whose kind is machinery rather than English
         # (a divide, a branch test) carry their own name, set where the leaf is made.
         def name_of(node)
-          node[:name] || node[:op]
+          node.name || node.op
         end
 
         private
 
         def leaf_count(node)
-          node[:children].to_a.empty? ? 1 : node[:children].sum { |child| leaf_count(child) }
+          node.children.empty? ? 1 : node.children.sum { |child| leaf_count(child) }
         end
 
         # A rect's size for the tree. A side the game works out as it runs shows as "?"

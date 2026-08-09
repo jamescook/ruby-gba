@@ -167,7 +167,7 @@ class TestCostVerdicts < CostModelTest
   # A silent program has no mixer cost and no sound section.
   def test_no_mixer_for_a_silent_program
     assert_nil Cost.new.mixer_verdict(silent_game)
-    assert_nil Cost.new.category_tree(silent_game).find { |c| c[:category] == :sound }
+    assert_nil Cost.new.category_tree(silent_game).find { |c| c.category == :sound }
   end
 
   # Its cost grows with the buffer it fills each frame — a higher sample rate means
@@ -257,10 +257,10 @@ class TestCostVerdicts < CostModelTest
 
   # And the tree gives it a line, so `hottest` can name it.
   def test_the_tree_gives_a_tick_handler_a_line
-    leaf = leaves(Cost.new.category_tree(ticking_game)).find { |node| node[:op] == :tick }
+    leaf = leaves(Cost.new.category_tree(ticking_game)).find { |node| node.op == :tick }
     refute_nil leaf, "a frame spent in a tick handler has to appear in the tree"
-    assert_match(/timer :beat/, leaf[:label])
-    assert_match(/67 times a frame/, leaf[:label])
+    assert_match(/timer :beat/, leaf.label)
+    assert_match(/67 times a frame/, leaf.label)
   end
 
   # Keeping the routine a tick lands in in faster memory makes it genuinely cheaper, and by
@@ -290,6 +290,6 @@ class TestCostVerdicts < CostModelTest
   def test_a_slow_timer_gets_no_budget_line
     prog = ticking_game(per_second: 2)
     refute_match(/timer :beat costs/, reported(prog))
-    refute_nil leaves(Cost.new.category_tree(prog)).find { |node| node[:op] == :tick }
+    refute_nil leaves(Cost.new.category_tree(prog)).find { |node| node.op == :tick }
   end
 end

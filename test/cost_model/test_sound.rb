@@ -57,10 +57,10 @@ class TestSoundCost < CostModelTest
 
   # The song shows up in the drill-down tree with its cost and note count.
   def test_the_song_appears_in_the_cost_tree
-    play = Cost.new.analyze(music_game(10)).find { |node| node[:op] == :play_song }
+    play = Cost.new.analyze(music_game(10)).find { |node| node.op == :play_song }
     refute_nil play, "play_song should appear as a costed leaf"
-    near song_frame_cost(10), play[:cost]
-    assert_match(/10 notes/, play[:label])
+    near song_frame_cost(10), play.cost
+    assert_match(/10 notes/, play.label)
   end
 
   # rom.explain's JSON carries a per-song breakdown, judged against the music budget.

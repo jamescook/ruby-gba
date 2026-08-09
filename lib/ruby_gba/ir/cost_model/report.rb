@@ -28,7 +28,7 @@ module RubyGBA
         def report(program, out: $stdout, color: :auto, measured: nil)
           printer = Printer.for(out, color: color)
           tree = category_tree(program)
-          frame_total = tree.sum { |node| node[:cost] }
+          frame_total = tree.sum(&:cost)
           emit_unpriced_banner(printer, program)
           emit_domain_banner(printer, program)
           emit_residual_banner(printer, program, measured)
@@ -45,7 +45,7 @@ module RubyGBA
         def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5, color: :auto, measured: nil)
           printer = Printer.for(out, color: color)
           tree = category_tree(program, focus: focus)
-          frame_total = tree.sum { |node| node[:cost] } # the reference for a node's share-of-frame heat
+          frame_total = tree.sum(&:cost) # the reference for a node's share-of-frame heat
           emit_unpriced_banner(printer, program)
           emit_domain_banner(printer, program) # loud, at the very top, before the estimate itself
           emit_residual_banner(printer, program, measured) unless focus # the tree below is one func, not the frame
@@ -143,7 +143,7 @@ module RubyGBA
             budget: budget_for(program),       # the drawing/tear budget (vblank, or the whole frame when buffered)
             buffered: buffered?(program),      # double-buffered? (drawing can't tear, over frame = a dropped frame)
             looping: looping?(program),
-            categories: category_tree(program).map { |c| { category: c[:category], cost: c[:cost] } }, # drawing/sound/logic subtotals
+            categories: category_tree(program).map { |c| { category: c.category, cost: c.cost } }, # drawing/sound/logic subtotals
             scenes: scene_verdicts(program),   # per-scene cost vs each scene's own budget
             songs: song_verdicts(program),     # per-song music cost vs the music budget
             mixer: mixer_verdict(program),     # the software mixer's per-frame CPU (nil if no sampled sound)
@@ -153,11 +153,20 @@ module RubyGBA
             # serialized output and a value object has no meaning once it is JSON
             glyphs: IR::GlyphUsage.footprint(program).map(&:to_h),
             unestimated: unpriced_kinds(program).sort,  # op kinds the model can't price (counted as free)
-            tree: category_tree(program),      # the frame's cost as drawing / sound / logic sections
+            # the frame's cost as drawing / sound / logic sections, flattened all the way down
+            # because this hash is the serialized output (see #entry_json)
+            tree: category_tree(program).map { |entry| entry_json(entry) },
           }
         end
 
         private
+
+        # One cost-tree entry as plain data, children and all. A field the entry has nothing
+        # to say about is dropped rather than serialized as null, which keeps the JSON the
+        # shape it has always been — an entry only carries the parts that apply to it.
+        def entry_json(entry)
+          entry.to_h.compact.merge(children: entry.children.map { |child| entry_json(child) })
+        end
 
         # Render the categorized tree: each section (drawing / sound / logic) as a
         # subtotal header, then its detail nested under it. No verdicts here — just where
@@ -165,7 +174,7 @@ module RubyGBA
         def render_category_tree(categories, printer, frame_total, max_depth)
           categories.each do |cat|
             category_line(cat, printer, frame_total)
-            detail = collapse_repeats(prune(aggregate(cat[:children]), max_depth))
+            detail = collapse_repeats(prune(aggregate(cat.children), max_depth))
             render_tree(detail, 3, printer, frame_total)
           end
         end
@@ -173,7 +182,7 @@ module RubyGBA
         # One section header: its name and rolled-up cost, tinted by its share of the
         # frame (like the rest of the tree). Shared by the full tree and the summary.
         def category_line(cat, printer, frame_total)
-          printer.puts "    #{cat[:category].to_s.ljust(9)}~ #{fmt(cat[:cost])}", severity: heat_for(cat[:cost], frame_total)
+          printer.puts "    #{cat.category.to_s.ljust(9)}~ #{fmt(cat.cost)}", severity: heat_for(cat.cost, frame_total)
         end
 
         # The costliest ops as a tight, aligned bullet list — "where the time really
@@ -185,9 +194,9 @@ module RubyGBA
           printer.puts "  hottest:"
           # The count is how many times a FRAME runs it — 30 wall divides, not one in a
           # body that happens to loop — which is often the number that explains the cost.
-          labels = hot.map { |h| h[:count] > 1 ? "#{h[:name]} ×#{h[:count]}" : h[:name].to_s }
+          labels = hot.map { |h| h.count > 1 ? "#{h.name} ×#{h.count}" : h.name.to_s }
           width = labels.map(&:length).max
-          hot.zip(labels) { |h, label| printer.puts "    • #{label.ljust(width)}  ~#{fmt(h[:cost])}" }
+          hot.zip(labels) { |h, label| printer.puts "    • #{label.ljust(width)}  ~#{fmt(h.cost)}" }
         end
 
         # The drawing section's cost from the categorized tree (0 if it draws nothing) —
@@ -430,10 +439,10 @@ module RubyGBA
         # subtotal — bold so the structure stands out from its leaves.
         def render_tree(nodes, depth, printer, frame_total)
           nodes.each do |node|
-            tag = node[:collapsed] ? "  (+#{node[:collapsed]} ops collapsed)" : ""
-            printer.cost_line(("  " * depth) + node[:label] + tag, fmt(node[:cost]),
-                              severity: heat_for(node[:cost], frame_total), group: node[:op] == :group)
-            render_tree(node[:children], depth + 1, printer, frame_total) unless node[:children].to_a.empty?
+            tag = node.collapsed ? "  (+#{node.collapsed} ops collapsed)" : ""
+            printer.cost_line(("  " * depth) + node.label + tag, fmt(node.cost),
+                              severity: heat_for(node.cost, frame_total), group: node.op == :group)
+            render_tree(node.children, depth + 1, printer, frame_total) unless node.children.empty?
           end
         end
 

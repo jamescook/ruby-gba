@@ -41,7 +41,7 @@ module RubyGBA
         # The total draw cost of one frame — the roll-up of #analyze. This is the
         # *full* cost of everything on the frame, ignoring how often it runs.
         def frame_cost(program)
-          analyze(program).sum { |node| node[:cost] }
+          analyze(program).sum(&:cost)
         end
 
         # The whole per-frame cost that actually recurs *every* frame (drawing, logic,
@@ -395,7 +395,7 @@ module RubyGBA
 
           collision = cond.walk.any? { |n| n.kind == :pixels_overlap }
           name = collision ? "collision test" : "test"
-          arithmetic + [{ op: collision ? :collision : :cond, name: name, label: name, cost: own, children: [] }]
+          arithmetic + [Entry.new(op: collision ? :collision : :cond, name: name, label: name, cost: own)]
         end
 
         # A drawing or compute op becomes a leaf, with the dear arithmetic it was handed
@@ -417,8 +417,8 @@ module RubyGBA
         def statement_leaf(node, cost)
           return [] unless cost.positive?
 
-          [{ op: node.kind, label: label_of(node), cost: cost, w: node[:w], h: node[:h],
-             source: node.source, children: [] }]
+          [Entry.new(op: node.kind, label: label_of(node), cost: cost, w: node[:w], h: node[:h],
+                     source: node.source)]
         end
 
         # The arithmetic a statement or a test does before it can run, as cost leaves of
@@ -435,8 +435,8 @@ module RubyGBA
           return out unless value.is_a?(Node)
 
           if (kind = arithmetic_kind(value))
-            out << { op: kind.op, name: kind.name, label: kind.name, cost: own_cost(value, true),
-                     category: category, source: source, children: [] }
+            out << Entry.new(op: kind.op, name: kind.name, label: kind.name,
+                             cost: own_cost(value, true), category: category, source: source)
           end
           value.attrs.each_value do |slot|
             items = slot.is_a?(Array) ? slot : [slot]
@@ -452,17 +452,18 @@ module RubyGBA
         def build_case(node)
           branches = node[:clauses].map do |value, target|
             kids = func_children(target)
-            { op: :branch, label: "#{value} -> :#{target}", cost: sum(kids), children: kids }
+            Entry.new(op: :branch, label: "#{value} -> :#{target}", cost: sum(kids), children: kids)
           end
-          worst = branches.max_by { |b| b[:cost] }
-          { op: :case, label: "case_var :#{node[:var]}", cost: worst ? worst[:cost] : 0, source: node.source,
-            children: branches.map { |b| b.merge(factor: b.equal?(worst) ? 1 : 0) } }
+          worst = branches.max_by(&:cost)
+          Entry.new(op: :case, label: "case_var :#{node[:var]}", cost: worst&.cost || 0, source: node.source,
+                    children: branches.map { |b| b.with(factor: b.equal?(worst) ? 1 : 0) })
         end
 
         # A call is its target func's body, inlined (guarding against a call cycle).
         def build_call(node)
           kids = func_children(node[:target])
-          { op: :call, label: "call :#{node[:target]}", cost: sum(kids), source: node.source, children: kids }
+          Entry.new(op: :call, label: "call :#{node[:target]}", cost: sum(kids), source: node.source,
+                    children: kids)
         end
 
         # A repeat runs its body count times, so its cost multiplies — and so does the
@@ -470,8 +471,8 @@ module RubyGBA
         def build_repeat(node)
           factor, note = repeat_factor(node)
           kids = loop_overhead_leaf(node, factor) + node.children.flat_map { |child| build(child) }
-          { op: :repeat, label: "repeat #{note}", cost: factor * sum(kids), factor: factor,
-            source: node.source, children: kids }
+          Entry.new(op: :repeat, label: "repeat #{note}", cost: factor * sum(kids), factor: factor,
+                    source: node.source, children: kids)
         end
 
         # WHAT A LOOP COSTS BESIDE ITS BODY, as one line, because it is one thing to a reader:
@@ -493,8 +494,8 @@ module RubyGBA
         # call moved out of a loop is worth three quarters of what the loop costs.
         def loop_overhead_leaf(node, factor)
           each = loop_pass_cost(node) + (factor.positive? ? loop_start_cost(node) / factor : 0)
-          [{ op: :loop_pass, name: loop_overhead_name(node), label: loop_overhead_label(node),
-             cost: each, children: [] }]
+          [Entry.new(op: :loop_pass, name: loop_overhead_name(node),
+                     label: loop_overhead_label(node), cost: each)]
         end
 
         # The name the hottest list groups on carries the SHAPE but not the per-loop reason.
@@ -548,7 +549,7 @@ module RubyGBA
         # (see #raw_steady). The label names the intent, e.g. "every 30".
         def build_timer(node, label)
           kids = node.children.flat_map { |child| build(child) }
-          { op: node.kind, label: label, cost: sum(kids), source: node.source, children: kids }
+          Entry.new(op: node.kind, label: label, cost: sum(kids), source: node.source, children: kids)
         end
 
         def func_children(name)
@@ -560,7 +561,7 @@ module RubyGBA
           kids
         end
 
-        def sum(nodes) = nodes.sum { |node| node[:cost] }
+        def sum(nodes) = nodes.sum(&:cost)
 
         # How many times a repeat runs, and a human note: a literal count exactly; a
         # list's length up to its capacity (the most it can hold). An unknown count
