@@ -247,12 +247,12 @@ module RubyGBA
         # it never lands on a frame's budget — like the declarations above it.
         save_init
       ].freeze
-      # Reads that really are a load or two, and are already inside every op weight — those
-      # were measured on statements that read one variable. An indexed read is NOT one of
-      # these: list_get and table_get are priced (see Pricing#own_cost). Nor, quite, is a
-      # plain variable read: the load is inside the weights, but WHERE the variable sits is
-      # not, so var_ref has a case of its own and is left off this list — take the case away
-      # and the estimate says it could not account for it, rather than going quiet.
+      # Reads that cost about what the weights already assume an operand costs: a number
+      # written into the program is one instruction, and every op weight was measured with one
+      # of those in its hand. The reads that are NOT like that are priced instead of listed
+      # here — a plain variable, a list element and a table element all cost more than a number
+      # does, and each has its own case in Pricing#own_cost. Take a case away and the estimate
+      # says it could not account for that kind, rather than going quiet.
       FREE_VALUE_KINDS = %i[int data_byte list_len held pressed read_scanline timer_ticks].freeze
 
       # Every costed op falls into one of three buckets, so a frame's work reads as

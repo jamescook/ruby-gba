@@ -36,6 +36,11 @@ module CostArith
       (lit_pixels * WEIGHTS[:blit_pixel]) + (wide * WEIGHTS[:blit_wide_color])
   end
   def dma_blob(pixels) = dma_start + (pixels * WEIGHTS[:dma_pixel])
+  # What reading a variable costs where a statement or an operator is handed one. Every
+  # weight assumes the plain NUMBER its own benchmark held in that place — one instruction,
+  # where a variable is three — so a program that reads a variable there pays this on top,
+  # once per read. A blit at a worked-out position reads two of them before it draws.
+  def var_reads(n = 1) = n * WEIGHTS[:var_operand]
   # The same whole-screen clear on the TEAR-FREE screen. It holds a pixel as one byte
   # where the direct-color screen holds the color itself in two, so one transfer covers
   # twice as many pixels — the same picture for half the work.

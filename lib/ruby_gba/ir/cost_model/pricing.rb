@@ -139,8 +139,12 @@ module RubyGBA
           when :add, :sub, :negate, :abs, :negate_abs
             @weights[:op_step] + var_reach_cost(node[:var], 2)
           when :set then @weights[:op_assign] + var_reach_cost(node[:var], 1)
+          # A copy reads a variable too, and names it rather than holding it as an expression —
+          # so the read has to be charged here, where a `set`'s is charged by the var_ref it
+          # holds (see #own_cost).
           when :copy
-            @weights[:op_assign] + var_reach_cost(node[:src], 1) + var_reach_cost(node[:dest], 1)
+            @weights[:op_assign] + @weights[:var_operand] +
+              var_reach_cost(node[:src], 1) + var_reach_cost(node[:dest], 1)
           when :clamp
             (2 * @weights[:op_step]) + var_reach_cost(node[:var], 2) # a low compare and a high compare
           when :list_push, :list_set, :list_drop then @weights[:op_step]
@@ -272,11 +276,16 @@ module RubyGBA
           when :neg then @weights[:op_mul_pow2]
           when :chance then @weights[:op_compare] # it IS a compare: is the draw under the threshold
           when :pixels_overlap then worst ? pixels_overlap_cost(value) : 0
-          # Reading a plain variable is a load, and every weight here was measured on a
-          # statement that already does one — so the load is inside them all and must not be
-          # charged again. What is NOT inside them is where THIS variable sits: they were
-          # measured on an ordinary one, and one further out takes an instruction more.
-          when :var_ref then var_reach_cost(value[:name], 1)
+          # Reading a plain variable, which is what an operand usually is. It is charged HERE,
+          # once per read, rather than inside the weight of whatever was handed it — because a
+          # statement can read two variables (`n.set(m + p)`) and a weight can only ever pay for
+          # the one its own benchmark read. Each weight that read one has it taken back out
+          # where it is measured, so a read is paid for exactly once, wherever it happens.
+          #
+          # Two parts, because two things decide it: what a read costs over the plain number the
+          # weights assume in its place, and where THIS variable sits — one far enough out takes
+          # an instruction more to reach (see #var_reach_cost).
+          when :var_ref then @weights[:var_operand] + var_reach_cost(value[:name], 1)
           # Reading a list or a table element is NOT the single load a variable read is, and
           # pricing it as one hid the hottest thing a game does — a list element sits in a
           # ring, so reaching it means the head, the wrap, the scale to bytes and the base

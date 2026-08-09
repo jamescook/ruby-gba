@@ -193,6 +193,32 @@ class TestCostCalibration < Minitest::Test
     game_loop { 200.times { (m > 1).then { n.set 1 } } if with }
   end
 
+  # THE SAME OPERATOR HANDED TWO DIFFERENT OPERANDS: a number written into the program, and a
+  # second variable. Reading a variable is three instructions where the number is one, and
+  # every weight in the model was measured with whichever of the two its own benchmark held —
+  # so a weight can pay for one read and never for two. These two fixtures differ in that
+  # operand and in nothing else, which is what makes their difference the read alone.
+  #
+  # THE SAME COUNT ON BOTH SIDES, and the spare `p` declared on both, so the two programs
+  # place their variables alike and nothing but the operand is left between them.
+  ONE_READ = lambda do |with|
+    screen :bitmap
+    var :first, 0
+    n = var :n, 0
+    m = var :m, 7
+    var :p, 3
+    game_loop { PLAIN_STATEMENTS.times { n.set(m + 1) } if with }
+  end
+
+  TWO_READS = lambda do |with|
+    screen :bitmap
+    var :first, 0
+    n = var :n, 0
+    m = var :m, 7
+    p = var :p, 3
+    game_loop { PLAIN_STATEMENTS.times { n.set(m + p) } if with }
+  end
+
   # A rectangle that starts on an ODD column of the tear-free screen. A pixel there is one
   # byte and video memory refuses to write a lone byte, so a rectangle whose first pixel is
   # the far half of a pair has that pixel — and the one at its far end — read, changed and
@@ -399,6 +425,30 @@ class TestCostCalibration < Minitest::Test
     assert_operator measure(written), :<, measure(changed),
                     "only writing a variable has to cost less than changing one, or these are " \
                     "not two weights and the split that made them is wrong"
+  end
+
+  # THE SECOND VARIABLE A STATEMENT READS, which the model charged nothing for. The claim here
+  # is the DIFFERENCE between the two fixtures rather than either of them on its own, and that
+  # is not a stylistic choice: two instructions in twelve sits well inside the band a single
+  # fixture is judged by, so a fixture reading a second variable would have passed while the
+  # model paid for one of them. Differenced, everything the pair shares — the statement, the
+  # operator, the loop, the first read — cancels, and what is left is the second read.
+  #
+  # This is not a CASE, for the reason the statement weights above are not: a variable read is
+  # an ingredient of nearly every other fixture here, so no fixture can watch it and leave the
+  # others alone, which is what the drift matrix wants.
+  def test_a_statement_is_charged_for_every_variable_it_reads
+    one = statement_case(:one_read, ONE_READ, :var_operand)
+    two = statement_case(:two_reads, TWO_READS, :var_operand)
+
+    predicted = predict(two) - predict(one)
+    measured = measure(two) - measure(one)
+    assert_operator measured, :>, SLACK, "reading a second variable has to be measurable work"
+    assert_in_delta predicted, measured, (predicted * BAND) + SLACK,
+                    "over #{PLAIN_STATEMENTS} statements the model says a second variable read " \
+                    "costs ~#{predicted.round(2)} scanlines and the emulator measures " \
+                    "#{measured.round(2)} — :var_operand has drifted from reality. " \
+                    "Re-run tools/calibrate_cost_model.rb and commit the diff."
   end
 
   # A COLUMN THE GAME WORKS OUT, WHOSE PARITY IS STILL PROVABLE. A game on a grid writes

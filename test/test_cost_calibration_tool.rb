@@ -179,6 +179,29 @@ class TestCostCalibrationTool < Minitest::Test
     assert_in_delta 0.1, calibration.weights[:loop_pass], 1e-9
   end
 
+  # A WEIGHT HANDS BACK THE VARIABLE ITS OWN BENCHMARK READ. Every weight is measured on a
+  # program that has to get its operands from somewhere — `set :y, x` reads a variable, three
+  # instructions of it — and the model charges a variable read where the read is, so a weight
+  # that kept its own would make a program pay for the same read twice.
+  #
+  # Canned readings make that exact. The assignment measures 0.003 a statement and a variable
+  # operand measures 0.002, so what op_assign is worth on its own is the difference. Take the
+  # subtraction out of the recipe and op_assign comes back 0.003 and this says so.
+  # ...and a DRAWING weight hands back as many as its benchmark read, which for a blit is two:
+  # the x and the y it is drawn at. Left in, every sprite a game moves would pay for reaching
+  # its own position twice — once inside the blit's weight and once for the position it holds.
+  def test_a_weight_whose_benchmark_read_a_variable_hands_that_read_back
+    calibration, = flat_calibration(busy: { "assign2" => 1.0, "assign8" => 10.0,    # over 500 x 6 ops
+                                            "varop2" => 1.0, "varop6" => 3.4,       # over 300 x 4 ops
+                                            "bltred4x8x3" => 1.02 })                # over 2 x 2 blits
+
+    assert_in_delta 0.002, calibration.weights[:var_operand], 1e-9
+    assert_in_delta 0.001, calibration.weights[:op_assign], 1e-9,
+                    "op_assign is what the statement costs once its operand's read is out of it"
+    assert_in_delta 0.001, calibration.weights[:blit_start], 1e-9,
+                    "a blit measures 0.005 before its rows, two of which are reaching its position"
+  end
+
   # And the domain it records is the sweep it actually ran, not a number typed beside it.
   def test_the_domain_records_the_sweep_the_recipe_ran
     calibration, = flat_calibration

@@ -189,9 +189,10 @@ class TestTearFreeDrawing < CostModelTest
 
     assert_operator Cost.new.steady_cost(moving), :>, Cost.new.steady_cost(fixed)
     # Two spliced ends taking the place of one of the pairs the even row wrote, and the
-    # two extra parts they make of the row.
-    near 100 * ((2 * WEIGHTS[:tearfree_part]) + WEIGHTS[:tearfree_edge_near] +
-                WEIGHTS[:tearfree_edge] - WEIGHTS[:tearfree_pair]),
+    # two extra parts they make of the row — plus reading the column, which the rectangle
+    # at a written-in one never does.
+    near var_reads + (100 * ((2 * WEIGHTS[:tearfree_part]) + WEIGHTS[:tearfree_edge_near] +
+                             WEIGHTS[:tearfree_edge] - WEIGHTS[:tearfree_pair])),
          Cost.new.steady_cost(moving) - Cost.new.steady_cost(fixed)
   end
 
