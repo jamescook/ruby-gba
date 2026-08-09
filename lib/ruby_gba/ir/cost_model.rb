@@ -113,13 +113,11 @@ module RubyGBA
     # beats an estimate and the report says which one you are reading.
     #
     # FIXING ONE REGIME USUALLY TURNS UP TWO OR THREE MORE, and that is how this thing works
-    # rather than a sign that something is broken. It happens because the errors COMPOUND AND
-    # CANCEL: a count several times too big, times a body priced at half, reads about right.
-    # So a number that looks correct can be two mistakes holding each other up, and correcting
-    # one of them is what makes the other visible for the first time. Counting a list walk at
-    # the list's capacity was hiding a grid cell priced at half what it costs; splitting a
-    # rectangle row's two ends apart showed the block-fill engine being started far too early.
-    # Neither was findable while the other stood.
+    # rather than a sign that something is broken. Its errors COMPOUND AND CANCEL: a count
+    # several times too big, times a body priced at half, reads about right. So a number that
+    # looks correct can be two mistakes holding each other up, and correcting one of them is
+    # what makes the other visible for the first time. Expect the queue to grow when you fix
+    # something, and do not read a number near 1.00 as proof that the parts behind it are.
     #
     # WHY THERE IS SO MUCH OF IT TO FIND, which is worth knowing before spending a month on
     # it: this model prices the SOURCE TREE, and the cost lives in the EMITTED CODE. Between
@@ -138,11 +136,11 @@ module RubyGBA
     # pipeline. Those are the ones a measurement is really for.
     #
     # So the direction of travel is to ASK rather than restate. #extra_address_steps and
-    # #extra_var_address_steps already do it — they ask the assembler how many instructions an
-    # address really takes instead of writing the rule down again — and nothing about those two
-    # has ever needed a fix. Everywhere else that names a backend decision is a candidate for
-    # the same treatment, and pricing a node from the instructions it actually emitted is where
-    # that ends.
+    # #extra_var_address_steps do it already — they ask the assembler how many instructions an
+    # address really takes rather than writing the rule down a second time, so there is no pair
+    # to drift. Everywhere else that names a backend decision is a candidate for the same
+    # treatment, and pricing a node from the instructions it actually emitted is where that
+    # ends.
     #
     # Until then: rank what you find by what it moves in a REAL frame, not by how wrong the
     # ratio is. A regime three times out on an op no game does twice a frame matters less than

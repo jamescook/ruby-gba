@@ -64,9 +64,8 @@ module RubyGBA
         # arithmetic ahead of one pixel puts that pixel on scanline 11, in the middle of the
         # visible picture.
         #
-        # This used to count the drawing alone, on the grounds that only drawing can tear.
-        # That is true of the WRITE and false of the DEADLINE, and it let a frame spend the
-        # whole window thinking and still be told it was safe.
+        # Counting the drawing alone would not do it. "Only drawing can tear" is true of the
+        # WRITE and false of the DEADLINE, and a frame can spend the whole window thinking.
         #
         # Work AFTER the last draw is left out, and that is not a rounding: nothing is drawn
         # after it, so it cannot push a write anywhere. A game that draws first and thinks
@@ -136,10 +135,10 @@ module RubyGBA
         # what it usually does — see #expr_cost. Differencing the two is how the estimate
         # names what the recurring load leaves out.
         #
-        # There is ONE sum here and it counts everything, where there used to be a second
-        # one that counted only the drawing. See #steady_tear_cost for why that second
-        # question was the wrong one: a frame's deadline is decided by when its last write
-        # lands, and every instruction before that write pushes it later, whatever it does.
+        # It counts EVERYTHING a node does, drawing and logic alike, because both deadlines a
+        # frame races are decided that way: the frame rate by the whole of it, and the tear
+        # risk by the whole of it up to the last draw (#steady_tear_cost). There is nothing
+        # here that sums the drawing on its own.
         def steady(node, worst: false)
           selectivity(node) * raw_steady(node, worst)
         end

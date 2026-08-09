@@ -83,6 +83,10 @@ class TestCostOverruns < Minitest::Test
   # The same rectangle on the tear-free screen, where a pixel is one byte that cannot be
   # written on its own — a different shape of drawing entirely. Double-buffered, so it cannot
   # tear and the deadline is the frame rate.
+  #
+  # Sixteen pixels wide is narrow enough that each row is written out as pairs rather than
+  # handed to the block-fill engine, which is most of twice as fast — so it takes a good
+  # many of them to fill a frame.
   MOVING_RECTS = lambda do |n|
     screen :bitmap, tear_free: true
     y = var :ry, 20
@@ -123,7 +127,7 @@ class TestCostOverruns < Minitest::Test
     Overrun.new(name: :blits, deadline: :tearing, shape: BLITS, fits: 20, over: 60),
     Overrun.new(name: :digits, deadline: :tearing, shape: DIGITS, fits: 8, over: 32),
     Overrun.new(name: :fills, deadline: :tearing, shape: FILLS, fits: 20, over: 140),
-    Overrun.new(name: :moving_rects, deadline: :frame_rate, shape: MOVING_RECTS, fits: 120, over: 240),
+    Overrun.new(name: :moving_rects, deadline: :frame_rate, shape: MOVING_RECTS, fits: 120, over: 440),
     Overrun.new(name: :list_walk, deadline: :tearing, shape: LIST_WALK, fits: 40, over: 400),
     Overrun.new(name: :mixer, deadline: :frame_rate, shape: MIXER, fits: 8_192, over: 65_536),
   ].freeze

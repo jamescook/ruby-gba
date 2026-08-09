@@ -83,12 +83,15 @@ class TestTearFreeDrawing < CostModelTest
 
   # A rectangle starting on an ODD column has, on every row, a first and last pixel
   # sharing their pair with a pixel outside it — so those two are read and spliced back
-  # one at a time while the engine fills the even middle.
+  # one at a time while the engine fills the even middle. Each is the same read-splice-write
+  # a moving row's near end is, and the two pixels they take out of the middle are two the
+  # engine no longer moves.
   def test_an_odd_column_costs_two_spliced_pixels_a_row
     even = tear_free { game_loop { dma_fill_rect 8, 8, 40, 40, :red } }
     odd  = tear_free { game_loop { dma_fill_rect 9, 8, 40, 40, :red } }
 
-    near 40 * 2 * WEIGHTS[:tearfree_edge], Cost.new.steady_cost(odd) - Cost.new.steady_cost(even)
+    near 40 * ((2 * WEIGHTS[:tearfree_edge_near]) - (2 * WEIGHTS[:tearfree_fill_pixel])),
+         Cost.new.steady_cost(odd) - Cost.new.steady_cost(even)
   end
 
   # --- a moving rectangle: pairs written straight out ---
@@ -107,7 +110,8 @@ class TestTearFreeDrawing < CostModelTest
 
   # A narrow run is written out pair by pair; a wide one is worth starting the block-fill
   # engine for. So the price per row climbs gently with width and then steps up at the
-  # width where the engine takes over.
+  # width where the engine takes over — past twenty-four pixels, which is where the console
+  # says the two cross on speed and on code size alike.
   def test_a_narrow_run_is_written_out_and_a_wide_one_is_block_filled
     per_row = lambda do |w|
       prog = tear_free { game_loop { draw_rect_at 40, 0, w, 100, :red } }
@@ -116,8 +120,10 @@ class TestTearFreeDrawing < CostModelTest
 
     assert_in_delta WEIGHTS[:tearfree_pair], per_row.call(4) - per_row.call(2), 1e-6,
                     "two more pixels written straight out is one more pair"
-    assert_operator per_row.call(16) - per_row.call(8), :>, 8 * WEIGHTS[:tearfree_pair],
-                    "past the narrow widths the engine is started instead, which costs more to begin"
+    assert_in_delta 4 * WEIGHTS[:tearfree_pair], per_row.call(24) - per_row.call(16), 1e-6,
+                    "and a row of twenty-four is still written out, eight pixels being four pairs"
+    assert_operator per_row.call(26) - per_row.call(24), :>, 8 * WEIGHTS[:tearfree_pair],
+                    "past there the engine is started instead, which costs more to begin"
   end
 
   # A moving rectangle STEPS its destination along; a fixed one rebuilds it every row. So a
