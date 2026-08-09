@@ -153,14 +153,15 @@ module RubyGBA
             expr_cost(node[:cond], worst: worst) +
               node.children.sum { |child| steady(child, worst: worst) } +
               (node[:else] ? steady(node[:else], worst: worst) : 0)
-          # A pass round a loop costs something before the body does anything — see
-          # #loop_pass_leaf.
+          # A loop costs a rate per pass AND a fixed amount for being entered — see
+          # #loop_overhead_leaf for what each of them is.
           when :repeat
             body = node.children.sum { |child| steady(child, worst: worst) }
             # A walk over a list counts at what the list USUALLY holds here, where the tree
             # above counts it at the capacity: this is the every-frame load, and no frame
             # pays for a list it has not filled (see #repeat_factor).
-            repeat_factor(node, typical: true).first * (body + loop_pass_cost)
+            passes = repeat_factor(node, typical: true).first
+            (passes * (body + loop_pass_cost)) + (passes.positive? ? loop_start_cost : 0)
           # A timed trigger's steady per-frame cost follows from its kind: every(k)
           # runs one frame in k, so its body counts 1/k; after(n) fires once ever, so
           # it adds nothing to the every-frame load.
@@ -467,24 +468,34 @@ module RubyGBA
         # cost of going round, which leads the body because that is when it happens.
         def build_repeat(node)
           factor, note = repeat_factor(node)
-          kids = loop_pass_leaf + node.children.flat_map { |child| build(child) }
+          kids = loop_overhead_leaf(factor) + node.children.flat_map { |child| build(child) }
           { op: :repeat, label: "repeat #{note}", cost: factor * sum(kids), factor: factor,
             source: node.source, children: kids }
         end
 
-        # What one pass round a loop costs before the body does anything: counting, testing
-        # the count, and jumping back. Small — about three plain steps — but it is paid
-        # once per pass like everything else in the body, so a loop that runs six hundred
-        # times pays it six hundred times. Shown as its own line so a reader can see that a
-        # loop is never free, and that a tight loop over a cheap body is mostly loop.
-        def loop_pass_leaf
+        # WHAT A LOOP COSTS BESIDE ITS BODY, as one line, because it is one thing to a reader:
+        # the work that is there because this is a loop.
+        #
+        # It is two costs that scale differently. Each PASS counts, tests the count and jumps
+        # back — small, about three plain steps, but paid once per pass, so a loop of six
+        # hundred pays it six hundred times. And ENTERING the loop costs about twenty
+        # instructions once: working the trip count out into the loop's hidden limit, zeroing
+        # its counter, and the branch that leaves.
+        #
+        # The entering is shared out over the passes here, so the container above can go on
+        # being the sum of its children times the trip count. That division is also what makes
+        # the line say the useful thing: a loop of four reads several times dearer a pass than
+        # a loop of four hundred, because it is — most of a short loop is being a loop.
+        def loop_overhead_leaf(factor)
+          each = loop_pass_cost + (factor.positive? ? loop_start_cost / factor : 0)
           [{ op: :loop_pass, name: "the loop itself", label: "the loop itself",
-             cost: loop_pass_cost, children: [] }]
+             cost: each, children: [] }]
         end
 
-        # Going round a loop is instructions like any other, so it is charged less where
-        # the code runs faster.
+        # Both halves are instructions like any other, so both are charged less where the code
+        # runs faster.
         def loop_pass_cost = @weights[:loop_pass] * fast_memory_factor
+        def loop_start_cost = @weights[:loop_start] * fast_memory_factor
 
         # A timed trigger (every/after) as a labeled container: it carries its body's
         # full cost — the cost of the frame it does fire — so the tree and the

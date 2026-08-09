@@ -44,55 +44,39 @@ class TestCostDomains < CostModelTest
 
   # --- the check at use ---
 
-  # A loop of +passes+ passes, run +outer+ times a frame.
-  def nested_loops(passes:, outer:)
-    program do
-      screen :bitmap
-      clear_screen :black
-      n = var :n, 0
-      game_loop { repeat(outer) { repeat(passes) { |i| n.add i } } }
-    end
-  end
+  # THE CASE THIS EXISTS FOR. overlap_pixel is measured on walks of 64 to 256 cells, and the
+  # rate leaves out whatever such a walk pays once. Asked about a walk an order of magnitude
+  # smaller, it is quietly light — so the estimate says so instead of answering confidently.
+  def test_a_walk_far_below_where_its_weight_was_measured_is_reported
+    notes = Cost.new.domain_notes(tiny_collisions)
 
-  # THE CASE THIS EXISTS FOR. loop_pass was measured on loops of 300..900 passes; a four-pass
-  # loop pays its setup over four passes and reads 0.87x of what the emulator measures. The
-  # estimate now says so instead of answering confidently.
-  def test_a_far_too_short_loop_is_reported
-    notes = Cost.new.domain_notes(nested_loops(passes: 4, outer: 60))
     assert_equal 1, notes.length
     note = notes.first
-    assert_equal :loop_pass, note[:weight]
-    assert_equal :passes, note[:varies]
-    assert_equal 4, note[:count]
-    assert_operator note[:cost], :>, 10, "it is a real part of the frame, which is why it is said"
+    assert_equal :overlap_pixel, note[:weight]
+    assert_equal :overlap_pixels, note[:varies]
+    assert_operator note[:count], :<, 64 * Cost::Domains::FAR_BELOW
   end
 
   # ...and the report says it out loud, at the top, in the same voice as an unpriced op.
   def test_the_report_says_it_at_the_top
-    out = reported(nested_loops(passes: 4, outer: 60))
-    assert_match(/loop_pass was measured over 300\.\.900 passes/, out.lines.first)
+    out = reported(tiny_collisions)
+
+    assert_match(/overlap_pixel was measured over 64\.\.256 overlap_pixels/, out.lines.first)
     assert_match(/reads LOW/, out.lines.first)
   end
 
-  # A loop only a little below the range is NOT reported. The excluded fixed cost is amortised
-  # over the passes, so the error scales as 1/n: at 40 passes the same program measures 0.95x,
-  # which is inside the model's usual band and not worth a word. Getting this wrong in the other
-  # direction would fire on almost every game and teach people to ignore the line.
-  def test_a_loop_just_below_the_range_is_left_alone
-    assert_empty Cost.new.domain_notes(nested_loops(passes: 40, outer: 6))
-  end
-
-  # Nor is a short loop that costs the frame nothing. Being a sixth wrong about a quarter of a
-  # scanline changes no decision.
-  def test_an_immaterial_short_loop_is_left_alone
-    assert_empty Cost.new.domain_notes(nested_loops(passes: 4, outer: 1))
-  end
-
-  # Nesting is followed and multiplied: a four-pass loop inside a sixty-pass one really makes 240
-  # passes a frame, and that is what makes it material. Counting it as four would hide it.
-  def test_nesting_is_multiplied_when_working_out_what_it_costs
-    note = Cost.new.domain_notes(nested_loops(passes: 4, outer: 60)).first
-    assert_in_delta 60 * 4 * Cost::DEFAULT_WEIGHTS[:loop_pass], note[:cost], 0.001
+  # Two sprites the size of a full stop, tested against each other. Small enough that the walk
+  # is far under where its weight was measured, and dear enough per cell that being wrong about
+  # six of them is still worth a scanline — both are needed before it is worth saying.
+  def tiny_collisions
+    program do
+      screen :bitmap
+      image(:dot, "#" => :red) { "##\n##\n##" } # 2 x 3, so a walk covers six cells
+      a = sprite :dot, at: [10, 10]
+      b = sprite :dot, at: [12, 10]
+      hits = var :hits, 0
+      game_loop { a.overlaps?(b).then { hits.add 1 } }
+    end
   end
 
   # A program well inside every range says nothing at all — which is the common case and the

@@ -300,6 +300,29 @@ module RubyGBA
         @m.busy(name, rom)
       end
 
+      # ...and what a loop costs ONCE, before its first pass: working the trip count out into
+      # the loop's hidden limit, zeroing its hidden counter, and the branch that leaves.
+      #
+      # +loops+ separate loops of the same length, so the trip count is fixed and only the
+      # number of ENTRIES moves. That is what the per-pass measurement above cannot see: it
+      # differences two trip counts inside one loop, which cancels the entering by
+      # construction — and then a short loop, which pays it over a handful of passes, is
+      # priced as though it were free.
+      LOOP_START_PASSES = 4 # short enough that entering is a real share, long enough to be a loop
+
+      def loop_start_busy(loops)
+        passes = LOOP_START_PASSES
+        name = "ls#{loops}"
+        rom = cartridge_build(name) do
+          screen :bitmap
+          clear_screen :black
+          var :x, 0
+          b = self
+          game_loop { b.wait_vblank; loops.times { b.repeat(passes) { nil } } }
+        end
+        @m.busy(name, rom)
+      end
+
       # A division worked out as the program runs walks the answer one bit at a time, so it is
       # not one price: the routine costs a fixed setup plus a step per bit of the ANSWER.
       # Holding the divisor at 1 and growing the numerator sweeps the answer's width.

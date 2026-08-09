@@ -193,6 +193,26 @@ class TestCostCalibration < Minitest::Test
     game_loop { 200.times { (m > 1).then { n.set 1 } } if with }
   end
 
+  # THE SAME WORK, DIVIDED INTO LOOPS TWO WAYS. Both do 240 passes of the same body a frame;
+  # one does it in sixty short loops and the other in six long ones. A loop costs a rate per
+  # pass AND a fixed amount for being entered, so the sixty-loop frame really is dearer — and
+  # a model that priced only the pass would say the two were the same.
+  SHORT_LOOPS = lambda do |with|
+    screen :bitmap
+    var :first, 0
+    n = var :n, 0
+    b = self
+    game_loop { 60.times { b.repeat(4) { n.add 1 } } if with }
+  end
+
+  LONG_LOOPS = lambda do |with|
+    screen :bitmap
+    var :first, 0
+    n = var :n, 0
+    b = self
+    game_loop { 6.times { b.repeat(40) { n.add 1 } } if with }
+  end
+
   # THE SAME OPERATOR HANDED TWO DIFFERENT OPERANDS: a number written into the program, and a
   # second variable. Reading a variable is three instructions where the number is one, and
   # every weight in the model was measured with whichever of the two its own benchmark held —
@@ -449,6 +469,30 @@ class TestCostCalibration < Minitest::Test
                     "costs ~#{predicted.round(2)} scanlines and the emulator measures " \
                     "#{measured.round(2)} — :var_operand has drifted from reality. " \
                     "Re-run tools/calibrate_cost_model.rb and commit the diff."
+  end
+
+  # A SHORT LOOP IS NOT A LONG ONE CUT DOWN. Entering a loop costs about twenty instructions —
+  # working the trip count out into a hidden limit, zeroing a hidden counter, the branch that
+  # leaves — and a loop of four pays that over four passes where a loop of four hundred spreads
+  # it to nothing. Charged per pass alone, the short frame here read an eighth light while the
+  # long one read true, which is the shape of a missing fixed cost.
+  #
+  # These are not CASES: loop_start is a sixth of a short-loop frame at most, so tripling it
+  # stays inside the band a single fixture is judged by and the drift matrix could not watch
+  # it. What guards the weight sharply is the model-level test that a loop of one costs the
+  # entering plus one pass; what this guards is that the two agree with the console at all.
+  def test_a_short_loop_and_a_long_one_are_both_priced_right
+    short = statement_case(:short_loops, SHORT_LOOPS, :loop_start)
+    long = statement_case(:long_loops, LONG_LOOPS, :loop_pass)
+
+    [short, long].each do |standing|
+      assert_in_delta predict(standing), measure(standing), (predict(standing) * BAND) + SLACK,
+                      "#{standing.name}: the same 240 passes a frame, in loops of " \
+                      "#{standing.name == :short_loops ? 'four' : 'forty'} — mispriced"
+    end
+    assert_operator measure(short), :>, measure(long),
+                    "sixty loops really do cost more than six of the same total length, or " \
+                    "there is nothing here to price"
   end
 
   # A COLUMN THE GAME WORKS OUT, WHOSE PARITY IS STILL PROVABLE. A game on a grid writes

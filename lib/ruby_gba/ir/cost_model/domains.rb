@@ -11,11 +11,10 @@ module RubyGBA
       # property worth understanding — it cancels everything the two ROMs share, INCLUDING
       # whatever the thing itself pays only once.
       #
-      # So `loop_pass` was measured on loops of 300 and 900 passes, and it describes a loop of
-      # 300 to 900 passes. A four-pass loop pays its setup over four passes instead of
-      # hundreds, and the rate says nothing about that: measured, an eighth of the cost is
-      # missing. Nothing in the model knew to mention it, because a weight was a bare number
-      # in a hash with no memory of how it came to be.
+      # So `mix_voice_sample` is measured with one voice sounding and with eight, and it
+      # describes a mixer of one to eight voices. Asked about a regime far outside that, a rate
+      # can be quietly wrong in a way no amount of re-reading the number would show — because a
+      # weight on its own is a bare number in a hash with no memory of how it came to be.
       #
       # THE ASYMMETRY THIS CLOSES. A missing op is loud — #unpriced_kinds collects it, the
       # report banners it above everything else, and a new IR kind fails the suite until it is
@@ -28,9 +27,8 @@ module RubyGBA
       #
       #   1. The weight has to have a COUNTABLE regime — a number a program chooses that
       #      changes the cost. About half do; an add costs what an add costs.
-      #   2. The model has to be able to read that number out of a program. Three can be:
-      #      a loop's trip count, a timer's ticks a frame, and how big a per-pixel collision
-      #      walk is.
+      #   2. The model has to be able to read that number out of a program. Two can be: a
+      #      timer's ticks a frame, and how big a per-pixel collision walk is.
       #
       # And two more before it is worth SAYING:
       #
@@ -38,11 +36,13 @@ module RubyGBA
       #      as r + F/n, where F is whatever the thing pays ONCE and n is the count. At the
       #      count it was measured, F/n was small enough to disappear into the rate; at a tenth
       #      of that count it is ten times bigger. So the error scales as 1/n, and an order of
-      #      magnitude below the measurement is where it stops being noise. On the one weight
-      #      we know is affected that lands exactly right: loop_pass reads 0.87x at 4 passes
-      #      (an order below its floor of 300) and 0.95x at 40 — the first is worth saying, the
-      #      second is inside the model's usual band. Extrapolating a linear rate UP is
-      #      harmless, so above the range says nothing.
+      #      magnitude below the measurement is where it stops being noise. Extrapolating a
+      #      linear rate UP is harmless, so above the range says nothing.
+      #
+      #      That reasoning also says what the real fix for such a weight is: measure F and
+      #      charge it. A loop is the worked example — loop_start is F, and once it is priced
+      #      the rate holds at one pass as well as at nine hundred, so a loop has no regime to
+      #      be warned about at all.
       #   4. Only when it is material. A weight a sixth wrong about 0.2 scanlines is not a
       #      finding, and a report that says so anyway teaches people to skip the section. That
       #      threshold is what keeps this from becoming noise.
@@ -59,7 +59,6 @@ module RubyGBA
         # reads it. The others' domains are recorded and never checked — either they have no
         # countable regime, or nothing in a program names their count.
         PROBES = {
-          loop_pass: :loop_pass_uses,
           tick_interrupt: :tick_uses,
           overlap_pixel: :overlap_uses,
         }.freeze
@@ -112,38 +111,6 @@ module RubyGBA
 
           { weight: weight, varies: domain[:varies], from: domain[:from], to: domain[:to],
             count: use[:count], cost: use[:cost], what: use[:what] }
-        end
-
-        # Every counted loop a frame runs, with how many passes it makes and what its
-        # BOOKKEEPING costs the frame — the counter, the compare and the jump back, which is
-        # the part `loop_pass` prices and the part whose weight has a floor.
-        #
-        # Nesting is followed and multiplied, so a four-pass loop inside a sixty-pass one is
-        # counted at the 240 passes a frame really makes. A loop inside a routine is counted
-        # once per entry to that routine rather than per call to it, which under-counts a
-        # routine called many times a frame — the safe direction, since it means fewer notes
-        # rather than notes about nothing.
-        def loop_pass_uses(program)
-          uses = []
-          gather_loops(steady_statements(program), 1, uses)
-          program.walk.each { |node| gather_loops(node.children, 1, uses) if node.kind == :func }
-          uses
-        end
-
-        def gather_loops(nodes, multiplier, uses)
-          nodes.each do |node|
-            unless node.kind == :repeat
-              gather_loops(node.children, multiplier, uses)
-              next
-            end
-
-            passes = repeat_factor(node).first
-            if passes.positive?
-              uses << { what: "a repeat of #{passes} #{passes == 1 ? 'pass' : 'passes'}",
-                        count: passes, cost: multiplier * passes * @weights[:loop_pass] }
-            end
-            gather_loops(node.children, multiplier * [passes, 1].max, uses)
-          end
         end
 
         # Every timer that runs a tick handler, with how many times a frame it ticks.

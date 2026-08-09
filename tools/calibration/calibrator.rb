@@ -115,17 +115,34 @@ module RubyGBA
         weigh(:var_address_step, @bench.per_var_address_step,
               note: "the extra to reach a variable that sits past the first 256 bytes of quick memory")
 
-        # What a pass of a `repeat` costs before its body does anything. Every weight around it
-        # is measured with the trip count held FIXED, which cancels this — so it needs its own
-        # case or it is never measured at all.
+        # A LOOP COSTS TWO THINGS, and they are measured apart because they scale apart: a
+        # rate per pass, and a fixed cost for being entered at all.
         #
-        # And that is exactly why its domain matters more than any other here. This is a
-        # marginal rate over trip count, so it cancels whatever a loop pays ONCE — setting up
-        # its hidden counter and limit. A loop of 300..900 passes spreads that to nothing; a
-        # loop of four does not.
+        # The pass first. Every weight around it is measured with the trip count held FIXED,
+        # which cancels it — so it needs a case of its own or it is never measured. Two trip
+        # counts differenced leave the counter, the compare and the branch back.
+        #
+        # Differencing trip counts also cancels the ENTERING, which is why that needs the
+        # second case below and why this one has no regime to be warned about: with the fixed
+        # part measured on its own, what is left here is a true rate, and it holds from one
+        # pass to hundreds.
         weigh(:loop_pass, Reductions.marginal(@bench.loop_busy(900), @bench.loop_busy(300), over: 600),
-              varies: :passes, from: 300, to: 900,
-              note: "one pass of a repeat, measured on loops of 300 and 900 passes")
+              note: "one pass of a repeat — the counter, the compare and the branch back")
+
+        # ...and the entering: working the trip count out into the loop's hidden limit, zeroing
+        # its hidden counter, and the branch that leaves. Measured over how many LOOPS a frame
+        # holds rather than how long one is, which is the only way to see it, then with the
+        # passes those loops do taken back out.
+        #
+        # It is worth about twenty ordinary instructions, so a loop of four passes spends a
+        # fifth of itself simply being entered — and a game reaches for a short loop often (a
+        # handful of rows, a few slots, a per-tick step).
+        weigh(:loop_start,
+              Reductions.residual(
+                Reductions.marginal(@bench.loop_start_busy(12), @bench.loop_start_busy(4), over: 8),
+                Benchmarks::LOOP_START_PASSES * @weights[:loop_pass]
+              ),
+              note: "entering a repeat, whatever it then does")
 
         # op_mul / op_div = op_plain + the operator's extra cost over an add (a `set :y,
         # (x <op> 100)` is a set plus the operator; differencing against `+` isolates it).
