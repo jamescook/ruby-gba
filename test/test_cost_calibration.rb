@@ -172,6 +172,17 @@ class TestCostCalibration < Minitest::Test
     game_loop { 60.times { out.set t[i] } if with }
   end
 
+  # A frame of the cheapest arithmetic there is: multiplying by a power of two, which the
+  # build turns into a shift. It was charged a whole plain step — six instructions for one —
+  # so `set :y, (x * 8)` read at twice what it costs. Nothing else here shifts, and the
+  # ARITHMETIC case above is adds, so this is the only thing watching that weight.
+  SHIFTS = lambda do |with|
+    screen :bitmap
+    x = var :x, 7
+    y = var :y, 0
+    game_loop { 500.times { y.set(x * 8) } if with }
+  end
+
   CASES = [
     Standing.new(name: :mixer, weight: :mix_voice_sample, fast_code: false, shape: MIXER,
                  predict: ->(model, program) { model.mixer_verdict(program)&.fetch(:cost) || 0 }),
@@ -194,6 +205,8 @@ class TestCostCalibration < Minitest::Test
     Standing.new(name: :list_reads, weight: :list_read, fast_code: false, shape: LIST_READS,
                  predict: ->(model, program) { model.frame_cost(program) }),
     Standing.new(name: :table_reads, weight: :table_read_clamped, fast_code: false, shape: TABLE_READS,
+                 predict: ->(model, program) { model.frame_cost(program) }),
+    Standing.new(name: :shifts, weight: :op_mul_pow2, fast_code: false, shape: SHIFTS,
                  predict: ->(model, program) { model.frame_cost(program) }),
   ].freeze
 

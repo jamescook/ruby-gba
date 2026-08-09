@@ -308,6 +308,18 @@ module RubyGBA
         @m.busy(name, rom)
       end
 
+      # What an OPERATOR itself adds, differenced against the same statement with a bare
+      # variable in place of the expression. That is the unit the model works in: a statement
+      # is charged for itself, and every operator inside it is charged on top — so an
+      # operator's weight has to be what it adds and not a whole statement over again.
+      #
+      # `set :y, x` is the baseline rather than `set :y, 0` because replacing a bare operand
+      # is exactly what writing an expression there does.
+      def per_operator(tag, repeat_n: 500, lo: 2, hi: 8, &one)
+        per_op(tag, repeat_n, lo, hi, &one) -
+          per_op("#{tag}b", repeat_n, lo, hi) { |b, xv| b.set :y, xv }
+      end
+
       # --- reading one element out of a list or a table ---
       #
       # Every op weight above was measured on a statement that already reads ONE plain
