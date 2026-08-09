@@ -146,6 +146,32 @@ class TestCostCalibration < Minitest::Test
     game_loop { 20.times { draw_rect_at 40, y, 8, 16, :red } if with }
   end
 
+  # Reading elements out of a list, which was priced at NOTHING until it was measured — on
+  # the grounds that a read is a single load. It is thirteen instructions: a list element
+  # sits in a ring, so reaching it means the head, the wrap, the scale to bytes and the base
+  # before anything is loaded. Nothing else here reads a list, so this case is the only thing
+  # watching that weight.
+  LIST_READS = lambda do |with|
+    screen :bitmap
+    xs = list :xs, capacity: 64
+    64.times { |i| xs << i }
+    out = var :out, 0
+    i = var :i, 3
+    game_loop { 60.times { out.set xs[i] } if with }
+  end
+
+  # And a TABLE read, at the length that makes it the DEARER of its two shapes: 60 is not a
+  # power of two, so an out-of-range index is clamped to the ends with a compare and a branch
+  # per bound rather than wrapped with one mask. That is the shape most hand-written tables
+  # have, and it costs twice the other one.
+  TABLE_READS = lambda do |with|
+    screen :bitmap
+    t = table :nums, (0...60).to_a
+    out = var :out, 0
+    i = var :i, 3
+    game_loop { 60.times { out.set t[i] } if with }
+  end
+
   CASES = [
     Standing.new(name: :mixer, weight: :mix_voice_sample, fast_code: false, shape: MIXER,
                  predict: ->(model, program) { model.mixer_verdict(program)&.fetch(:cost) || 0 }),
@@ -164,6 +190,10 @@ class TestCostCalibration < Minitest::Test
     Standing.new(name: :tearfree_odd, weight: :tearfree_edge_near, fast_code: false, shape: TEARFREE_ODD,
                  predict: ->(model, program) { model.frame_cost(program) }),
     Standing.new(name: :tearfree_even, weight: :tearfree_pair, fast_code: false, shape: TEARFREE_EVEN,
+                 predict: ->(model, program) { model.frame_cost(program) }),
+    Standing.new(name: :list_reads, weight: :list_read, fast_code: false, shape: LIST_READS,
+                 predict: ->(model, program) { model.frame_cost(program) }),
+    Standing.new(name: :table_reads, weight: :table_read_clamped, fast_code: false, shape: TABLE_READS,
                  predict: ->(model, program) { model.frame_cost(program) }),
   ].freeze
 

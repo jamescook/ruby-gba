@@ -510,12 +510,87 @@ class TestCostPricing < CostModelTest
     near c_one * 10, c_ten, "ten iterations cost about ten times one"
   end
 
+  # ---- reading one element of a list or a table ----
+
+  # Both were once priced at nothing, on the grounds that a read is a single load. Neither
+  # is. A list element sits in a ring, so reaching it means the head, the wrap, the scale to
+  # bytes and the base before anything is loaded — thirteen instructions, all charged at
+  # zero, in the middle of the loop a game spends its frame in.
+  def test_reading_a_list_element_is_not_free
+    bare = program do
+      screen :bitmap
+      list :xs, capacity: 64
+      var :out, 0
+      var :i, 3
+      game_loop { set :out, 0 }
+    end
+    read = program do
+      screen :bitmap
+      xs = list :xs, capacity: 64
+      out = var :out, 0
+      i = var :i, 3
+      game_loop { out.set xs[i] }
+    end
+
+    near WEIGHTS[:list_read], Cost.new.steady_cost(read) - Cost.new.steady_cost(bare)
+  end
+
+  # A TABLE read comes in two prices, and which one is settled by the table's LENGTH: a
+  # power-of-two table keeps an out-of-range index inside it with a single mask, and any
+  # other length clamps it to the ends with a compare and a branch per bound. Measured, the
+  # clamping one is twice the wrapping one — and it is the one most tables a game writes by
+  # hand are, so charging the cheap one for both would halve the price of the common case.
+  def test_a_table_read_is_priced_by_whether_its_length_lets_the_index_wrap
+    near WEIGHTS[:table_read], table_read_cost(64)
+    near WEIGHTS[:table_read_clamped], table_read_cost(60)
+    assert_operator WEIGHTS[:table_read_clamped], :>, WEIGHTS[:table_read] * 1.5,
+                    "clamping is a compare and a branch per bound, not a mask"
+  end
+
+  # A read of a table the walk never saw has no length to judge, so it is charged the dearer
+  # of the two — guessing the cheap one would under-estimate, which is the one direction
+  # this model must not be wrong in.
+  def test_a_table_that_was_never_declared_is_charged_the_dearer_read
+    orphan = Build.program(
+      Build.screen(:bitmap),
+      Build.loop_(Build.set(:out, Build.table_get(:missing, Build.int(0)))),
+    )
+    bare = Build.program(
+      Build.screen(:bitmap),
+      Build.loop_(Build.set(:out, Build.int(0))),
+    )
+
+    near WEIGHTS[:table_read_clamped], Cost.new.steady_cost(orphan) - Cost.new.steady_cost(bare)
+  end
+
+  # What one read of a +length+-long table costs, with the `set` around it cancelled by the
+  # same program without the read — so what is left is the read alone.
+  def table_read_cost(length)
+    with = program do
+      screen :bitmap
+      t = table :nums, (0...length).to_a
+      out = var :out, 0
+      i = var :i, 3
+      game_loop { out.set t[i] }
+    end
+    without = program do
+      screen :bitmap
+      table :nums, (0...length).to_a
+      var :out, 0
+      var :i, 3
+      game_loop { set :out, 0 }
+    end
+    Cost.new.steady_cost(with) - Cost.new.steady_cost(without)
+  end
+
   # ---- operands are priced wherever they are written ----
 
-  # A read like t[i] is a single load and free, but the arithmetic that works out i is
-  # arithmetic like any other. The brackets must make no difference: pricing an index at
-  # zero hid 840 of the raycaster's 930 divides a frame, since its hot ones all sit
-  # inside world[…].
+  # The arithmetic that works out an index is arithmetic like any other, and the brackets
+  # must make no difference to it: pricing an index at zero hid 840 of the raycaster's 930
+  # divides a frame, since its hot ones all sit inside world[…].
+  #
+  # The READ those brackets do has a price of its own — it is not the single load it was
+  # once taken for — so the two programs differ by exactly that and nothing else.
   def test_the_math_inside_an_index_costs_what_it_costs_outside
     outside = program do
       screen :bitmap
@@ -532,7 +607,8 @@ class TestCostPricing < CostModelTest
       game_loop { out.set t[((i / 5) * 8) + (i / 3)] }
     end
 
-    near Cost.new.frame_cost(outside), Cost.new.frame_cost(inside)
+    # 64 numbers long, so a read of it wraps an out-of-range index rather than clamping it.
+    near Cost.new.frame_cost(outside) + WEIGHTS[:table_read], Cost.new.frame_cost(inside)
     assert_operator Cost.new.frame_cost(inside), :>=, 2 * WEIGHTS[:op_div_const],
                     "two divides in that index, and neither of them is free"
   end

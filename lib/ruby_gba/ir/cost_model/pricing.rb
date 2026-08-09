@@ -212,15 +212,35 @@ module RubyGBA
           when :neg then @weights[:op_step]
           when :chance then @weights[:op_step] # a random draw and a compare
           when :pixels_overlap then worst ? pixels_overlap_cost(value) : 0
+          # Reading a list or a table element is NOT the single load a variable read is, and
+          # pricing it as one hid the hottest thing a game does — a list element sits in a
+          # ring, so reaching it means the head, the wrap, the scale to bytes and the base
+          # before anything is loaded, and a table read makes the index safe first. Thirteen
+          # instructions for a list read, and up to twenty-three for a table's, all charged
+          # at nothing.
+          when :list_get then @weights[:list_read]
+          when :table_get then table_read_weight(value)
           else note_unpriced(value.kind, FREE_VALUE_KINDS) # int/var_ref/held/… are free loads; anything else is unknown
           end
         end
 
-        # Every value operand a node holds, priced too. A read like `t[i]` is a single
-        # load and costs nothing, but whatever computes `i` is arithmetic like any other:
-        # charging an index nothing would hide a third of the raycaster's frame, whose hot
-        # divides all sit inside `world[…]`. Attributes that aren't nodes — a name, a
-        # width, a list of image names — aren't operands and add nothing.
+        # Reading one element of a table, which comes in two prices. A read can never reach
+        # outside the table, and HOW it is kept inside follows from the length: a
+        # power-of-two table wraps the index with a single mask, and any other length clamps
+        # it to the ends with a compare and a branch per bound. Most tables a game writes by
+        # hand are the second kind, so charging the cheap one for both would under-charge the
+        # common case. A table the walk never saw is charged the dearer of the two.
+        def table_read_weight(node)
+          length = @table_lengths && @table_lengths[node[:name]]
+          wraps = length && length.positive? && (length & (length - 1)).zero?
+          @weights[wraps ? :table_read : :table_read_clamped]
+        end
+
+        # Every value operand a node holds, priced too. Whatever computes an index is
+        # arithmetic like any other: charging an index nothing would hide a third of the
+        # raycaster's frame, whose hot divides all sit inside `world[…]`. Attributes that
+        # aren't nodes — a name, a width, a list of image names — aren't operands and add
+        # nothing.
         def raw_operand_cost(value, worst)
           value.attrs.each_value.sum do |slot|
             slot.is_a?(Array) ? slot.sum { |item| raw_expr_cost(item, worst) } : raw_expr_cost(slot, worst)
