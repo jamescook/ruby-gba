@@ -256,7 +256,48 @@ class TestCostCalibration < Minitest::Test
                     "factor, and the model has to keep charging it"
   end
 
+  # A COLUMN THE GAME WORKS OUT, WHOSE PARITY IS STILL PROVABLE. A game on a grid writes
+  # `cell * 8`, and eight times anything is even however the game works `cell` out — so the
+  # even row is the only one that can run, and both the backend and the model say so from
+  # the same proof (IR::Parity).
+  #
+  # This is a claim about the console, not about the model agreeing with itself: it is only
+  # worth making if a rectangle at a proved column really does cost what the written-in one
+  # costs. Charging the dearer row instead over-charged it by three. So the pair is measured
+  # here — the proof against the emulator, and the refusal beside it, which must still be
+  # charged the dearer row because three times a number is even or odd as that number is.
+  #
+  # These are not CASES: their prediction rests on the same weights the two written-in
+  # columns already watch, and the drift matrix above wants one watcher per weight.
+  def test_a_column_proved_even_costs_what_the_written_in_even_column_costs
+    proved = grid_case(:tf_grid, 8)
+    refused = grid_case(:tf_nogrid, 3)
+
+    [proved, refused].each do |standing|
+      assert_in_delta predict(standing), measure(standing), (predict(standing) * BAND) + SLACK,
+                      "#{standing.name}: a rectangle at `cell * #{standing.name == :tf_grid ? 8 : 3}` " \
+                      "is mispriced — the parity proof and the emulator disagree"
+    end
+    assert_operator measure(refused) / measure(proved), :>, 2.0,
+                    "an odd column really is several times an even one, which is what makes " \
+                    "proving it worth doing; if it is not, this fixture stopped being about parity"
+  end
+
   private
+
+  # The same rectangle a grid game draws, at `cell * times`. With an even multiplier the
+  # column is proved even; with an odd one nothing is proved and the game runs it at an odd
+  # column, so the pair covers the proof and the refusal on the same shape.
+  def grid_case(name, times)
+    shape = lambda do |with|
+      screen :bitmap, tear_free: true
+      cell = var :cell, 5
+      y = var :y, 10
+      game_loop { 20.times { draw_rect_at cell * times, y, 8, 16, :red } if with }
+    end
+    Standing.new(name: name, weight: :tearfree_pair, fast_code: false, shape: shape,
+                 predict: ->(model, program) { model.frame_cost(program) })
+  end
 
   def frame_case(name, fast_code:)
     Standing.new(name: name, weight: :dma_pixel, fast_code: fast_code, shape: FRAME,

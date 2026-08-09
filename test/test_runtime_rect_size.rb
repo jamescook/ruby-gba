@@ -88,6 +88,41 @@ class TestRuntimeRectSize < Minitest::Test
     assert_backends_agree(bar(12, tear_free: true, x: 41), frames: 2)
   end
 
+  # A column the game works out, whose parity the build can prove anyway. `cell * 8` is
+  # even however the game works `cell` out, so the backend emits the even shape alone
+  # instead of both shapes and a test between them (IR::Parity).
+  #
+  # Nothing about the picture may change, which is what these check across all 38,400
+  # pixels: proving it wrong would splice the rect's end pixels into the wrong halves of
+  # their pairs, painting a neighbour and missing an end.
+  def grid_bar(times, offset)
+    build do
+      screen :bitmap, tear_free: true
+      cell = var :cell, 5
+      var :h, 12
+      clear_screen :blue
+      draw_rect_at (cell * times) + offset, 20, 20, :h, Color.resolve(:red)
+      wait_vblank
+      halt
+    end
+  end
+
+  def test_the_console_draws_the_same_bar_at_a_column_proved_even
+    assert_backends_agree(grid_bar(8, 0), frames: 2) # 40
+  end
+
+  def test_the_console_draws_the_same_bar_at_a_column_proved_odd
+    assert_backends_agree(grid_bar(8, 1), frames: 2) # 41
+  end
+
+  # And the same picture again where nothing can be proved — three times a number is even
+  # or odd as that number is, so the backend keeps both shapes and picks as it runs. This
+  # one lands odd, so a proof that wrongly called it even would show up here as a painted
+  # neighbour.
+  def test_the_console_draws_the_same_bar_at_a_column_with_no_provable_parity
+    assert_backends_agree(grid_bar(3, 0), frames: 2) # 15
+  end
+
   # --- narrow columns: what a per-column renderer draws hundreds of ---
 
   # A column two pixels wide is the cheapest thing this screen can draw: both pixels sit
