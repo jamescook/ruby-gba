@@ -114,10 +114,65 @@ class TestCostCalibration < Minitest::Test
   # quick memory is worth. The frame above gains almost none of it, because a transfer is not
   # instructions — and getting that difference right is the whole of the pair of tests at the
   # bottom of this file.
+  #
+  # :first is declared and never used, here and in the two fixtures below it. Reaching a
+  # variable starts by building its address, and the FIRST variable of a program sits at an
+  # address the console builds in one instruction where every later one takes two — so a
+  # statement touching the first variable is an instruction cheaper at each end than the same
+  # statement anywhere else. Exactly one variable in a program is like that, so the weights are
+  # measured where the other variables are, and a fixture that used the first one would be
+  # checking the one case the model deliberately over-charges.
+  # HOW MANY, and it is not arbitrary — it is squeezed from both ends.
+  #
+  # From below: SLACK is there for the small fixed costs that survive the differencing, and in
+  # a fixture of a few scanlines it is most of what the check allows, so a weight a quarter out
+  # would still pass. Past about six hundred the band decides instead of the slack — and a
+  # quarter out is exactly what op_step was, measured on the program's FIRST variable (the one
+  # variable whose address the console builds in a single instruction rather than two).
+  #
+  # From above: the arithmetic fixture is also built HOT, and a routine only gains the quick
+  # memory if it fits there. Nine hundred of these no longer do.
+  PLAIN_STATEMENTS = 800
+
   ARITHMETIC = lambda do |with|
     screen :bitmap
+    var :first, 0
     n = var :n, 0
-    game_loop { 500.times { n.add 1 } if with }
+    game_loop { PLAIN_STATEMENTS.times { n.add 1 } if with }
+  end
+
+  # The OTHER shape of plain statement. An `add` reaches its variable at both ends — read it,
+  # change it, write it back — where a `set` only reaches it to write. Two thirds of the work,
+  # and one weight was charged for both until it was measured.
+  ASSIGNMENTS = lambda do |with|
+    screen :bitmap
+    var :first, 0
+    n = var :n, 0
+    m = var :m, 7
+    game_loop { PLAIN_STATEMENTS.times { n.set m } if with }
+  end
+
+  # An OPERATOR, which is charged beside the statement that holds it rather than instead of
+  # it. Building an operator's weight out of a statement charged the statement twice, and that
+  # is what made `n.set(m + 1)` — a shape every game writes — read a third over.
+  PLAIN_OPERATORS = lambda do |with|
+    screen :bitmap
+    var :first, 0
+    n = var :n, 0
+    m = var :m, 7
+    game_loop { 200.times { n.set(m + 1) } if with }
+  end
+
+  # A COMPARISON, which is dearer than an add and used to be charged the same. Adding two
+  # numbers IS the answer; comparing them only sets the console's flags, and turning those into
+  # a 1 or a 0 takes a jump over one of them. Nothing else here compares, so this case is the
+  # only thing watching that weight — and comparisons are not a corner: every `.then` has one.
+  COMPARISONS = lambda do |with|
+    screen :bitmap
+    var :first, 0
+    n = var :n, 0
+    m = var :m, 7
+    game_loop { 200.times { (m > 1).then { n.set 1 } } if with }
   end
 
   # A rectangle that starts on an ODD column of the tear-free screen. A pixel there is one
@@ -208,6 +263,10 @@ class TestCostCalibration < Minitest::Test
                  predict: ->(model, program) { model.frame_cost(program) }),
     Standing.new(name: :shifts, weight: :op_mul_pow2, fast_code: false, shape: SHIFTS,
                  predict: ->(model, program) { model.frame_cost(program) }),
+    Standing.new(name: :plain_ops, weight: :op_plain, fast_code: false, shape: PLAIN_OPERATORS,
+                 predict: ->(model, program) { model.frame_cost(program) }),
+    Standing.new(name: :comparisons, weight: :op_compare, fast_code: false, shape: COMPARISONS,
+                 predict: ->(model, program) { model.frame_cost(program) }),
   ].freeze
 
   def test_each_standing_cost_matches_what_the_emulator_measures
@@ -286,8 +345,7 @@ class TestCostCalibration < Minitest::Test
   # The other half: a frame of nothing but instructions still gains all of it. Getting the
   # transfer case right by simply charging less everywhere would break this one.
   def test_a_frame_of_arithmetic_still_gains_the_whole_speed_up
-    cold = Standing.new(name: :arith_cold, weight: :op_step, fast_code: false, shape: ARITHMETIC,
-                        predict: ->(model, program) { model.frame_cost(program) })
+    cold = statement_case(:arith_cold, ARITHMETIC, :op_step)
     hot = CASES.find { |c| c.name == :arithmetic }
 
     [cold, hot].each do |standing|
@@ -297,6 +355,30 @@ class TestCostCalibration < Minitest::Test
     assert_in_delta CostModel::DEFAULT_WEIGHTS[:fast_code_speedup], measure(cold) / measure(hot), 0.5,
                     "moving a frame of instructions into the quick memory is worth the measured " \
                     "factor, and the model has to keep charging it"
+  end
+
+  # THE TWO SHAPES OF PLAIN STATEMENT, which one weight was charged for until it was measured.
+  # `add :n, 1` reaches its variable at both ends; `set :n, m` only reaches it to write. So a
+  # frame of assignments has to measure LESS than a frame of the same many changes, and each
+  # has to be priced as what it is.
+  #
+  # These are not CASES: a statement weight is an ingredient of nearly every other fixture
+  # here — every read, every shift, every branch body is a statement — so no fixture can watch
+  # one and leave the others alone, which is what the drift matrix above wants. They get a test
+  # of their own instead, and it names the weight that moved just as clearly. The changing side
+  # is the same cold arithmetic frame the speed-up test above reads, measured once for both.
+  def test_a_statement_that_only_writes_costs_less_than_one_that_changes
+    changed = statement_case(:arith_cold, ARITHMETIC, :op_step)
+    written = statement_case(:assigns, ASSIGNMENTS, :op_assign)
+
+    [changed, written].each do |standing|
+      assert_in_delta predict(standing), measure(standing), (predict(standing) * BAND) + SLACK,
+                      "#{standing.name}: a frame of plain statements is mispriced — " \
+                      ":#{standing.weight} has drifted from reality"
+    end
+    assert_operator measure(written), :<, measure(changed),
+                    "only writing a variable has to cost less than changing one, or these are " \
+                    "not two weights and the split that made them is wrong"
   end
 
   # A COLUMN THE GAME WORKS OUT, WHOSE PARITY IS STILL PROVABLE. A game on a grid writes
@@ -344,6 +426,12 @@ class TestCostCalibration < Minitest::Test
 
   def frame_case(name, fast_code:)
     Standing.new(name: name, weight: :dma_pixel, fast_code: fast_code, shape: FRAME,
+                 predict: ->(model, program) { model.frame_cost(program) })
+  end
+
+  # A fixture priced by its whole frame, for the tests that stand outside CASES.
+  def statement_case(name, shape, weight)
+    Standing.new(name: name, weight: weight, fast_code: false, shape: shape,
                  predict: ->(model, program) { model.frame_cost(program) })
   end
 

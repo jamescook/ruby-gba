@@ -385,7 +385,7 @@ class TestCostPricing < CostModelTest
     end
     assert_equal costs.sort, costs, "a wider answer must not cost less"
     assert_operator costs.last, :>, costs.first * 1.5, "and the spread has to be worth pricing"
-    near WEIGHTS[:op_step] + WEIGHTS[:op_div] + (2 * WEIGHTS[:op_div_bit]), costs.first # 3 is 2 bits
+    near WEIGHTS[:op_assign] + WEIGHTS[:op_div] + (2 * WEIGHTS[:op_div_bit]), costs.first # 3 is 2 bits
   end
 
   # With nothing to bound the answer the price is the base alone — deliberately, because
@@ -399,7 +399,7 @@ class TestCostPricing < CostModelTest
       out = var :out, 0
       game_loop { out.set(n / d) }
     end
-    near WEIGHTS[:op_step] + WEIGHTS[:op_div], Cost.new.steady_cost(prog)
+    near WEIGHTS[:op_assign] + WEIGHTS[:op_div], Cost.new.steady_cost(prog)
   end
 
   # Dividing has three prices, because the lowering gives it three costs, and an author
@@ -469,6 +469,75 @@ class TestCostPricing < CostModelTest
     end
 
     near Cost.new.steady_cost(shifted), Cost.new.steady_cost(dropped)
+  end
+
+  # THE FOUR SHAPES OF PLAIN WORK, which used to be one weight — `add :x, 1`, measured once
+  # and then charged for a `set`, for an operator, and for a comparison. They are four
+  # prices, and the tests below pin each apart from the others.
+
+  # A statement that changes a variable it already holds has to reach that variable at both
+  # ends. One that only writes it reaches it once, so it is the cheaper of the two — about
+  # three quarters. Charging the first for both read every assignment a third over.
+  def test_changing_a_variable_costs_more_than_only_writing_one
+    changed = program do
+      screen :bitmap
+      x = var :x, 100
+      game_loop { x.add 1 }
+    end
+
+    assert_operator Cost.new.steady_cost(changed), :>, Cost.new.steady_cost(assignment_loop)
+    near WEIGHTS[:op_step], Cost.new.steady_cost(changed)
+    near WEIGHTS[:op_assign], Cost.new.steady_cost(assignment_loop)
+  end
+
+  # An operator is charged BESIDE the statement that holds it, so its weight has to be what
+  # it adds and not a statement over again. Building it out of a statement charged the
+  # statement twice, and that is what made `x.set(x + 1)` read a third over.
+  def test_a_plain_operator_costs_less_than_the_statement_that_holds_it
+    added = arithmetic_loop { |x| x + 1 }
+
+    near WEIGHTS[:op_plain], Cost.new.steady_cost(added) - Cost.new.steady_cost(assignment_loop)
+    assert_operator WEIGHTS[:op_plain], :<, WEIGHTS[:op_assign],
+                    "an operator inside a statement costs less than the statement around it"
+  end
+
+  # A comparison is dearer than an add, which nothing about `>` suggests. Adding two numbers
+  # IS the answer; comparing them only sets the console's flags, and the answer still has to
+  # be turned into a 1 or a 0 — which takes a jump over one of them. Comparisons are not
+  # rare, so getting this wrong is not a corner: every `.then` holds one.
+  def test_a_comparison_costs_more_than_a_plain_operator
+    compared = Cost.new.steady_cost(value_loop(Build.binop(:>, Build.var_ref(:x), Build.int(1))))
+    added = Cost.new.steady_cost(value_loop(Build.binop(:+, Build.var_ref(:x), Build.int(1))))
+    bare = Cost.new.steady_cost(value_loop(Build.var_ref(:x)))
+
+    assert_operator compared, :>, added
+    near WEIGHTS[:op_compare], compared - bare
+    near WEIGHTS[:op_plain], added - bare
+  end
+
+  # An operator the model has never heard of is charged the DEARER tier, not the cheaper —
+  # so an operator added later and forgotten here reads over rather than under, which is the
+  # only direction an estimate can afford to be wrong in.
+  def test_an_operator_with_no_tier_of_its_own_is_charged_the_dearer_one
+    unknown = Cost.new.steady_cost(value_loop(Build.binop(:nor, Build.var_ref(:x), Build.int(1))))
+
+    near WEIGHTS[:op_compare], unknown - Cost.new.steady_cost(value_loop(Build.var_ref(:x)))
+  end
+
+  # Turning a number round is one instruction — the same single instruction a shift is, and
+  # measured at the same price, so it shares that weight. It used to be charged a whole
+  # plain step: six instructions for one.
+  def test_turning_a_number_round_costs_what_a_shift_costs
+    flipped = Cost.new.steady_cost(value_loop(Build.neg(Build.var_ref(:x))))
+
+    near WEIGHTS[:op_mul_pow2], flipped - Cost.new.steady_cost(value_loop(Build.var_ref(:x)))
+  end
+
+  # `set :out, <node>` once a frame. Built straight from the IR because the surface will not
+  # let a comparison be assigned — there a comparison is a Condition, which belongs to
+  # `.then` — and a branch around one would bring its own cost into the reading.
+  def value_loop(node)
+    Build.program(Build.screen(:bitmap), Build.loop_(Build.set(:out, node)))
   end
 
   # `x.set(<expr>)` once a frame, and the same assignment with nothing in the expression —
@@ -725,7 +794,8 @@ class TestCostPricing < CostModelTest
   end
 
   # One node of the given kind, every value slot holding a divide, priced inside a loop.
-  # A value node needs a statement to live in, which costs one step of its own.
+  # A value node needs a statement to live in, and here that is a `set`, which costs an
+  # assignment of its own.
   def prices_its_operands?(kind, slots, divides)
     attrs = slots.to_h do |slot, type|
       [slot, type == :value ? Build.binop(:/, Build.var_ref(:a), Build.var_ref(:b)) : SLOT_FILLER[type]]
@@ -734,7 +804,7 @@ class TestCostPricing < CostModelTest
     statement = value?(kind) ? Build.set(:out, node) : node
     prog = Build.program(Build.screen(:bitmap), Build.loop_(statement))
 
-    charged = Cost.new.frame_cost(prog) - (value?(kind) ? WEIGHTS[:op_step] : 0)
+    charged = Cost.new.frame_cost(prog) - (value?(kind) ? WEIGHTS[:op_assign] : 0)
     charged >= (divides * WEIGHTS[:op_div]) - 1e-9
   end
 

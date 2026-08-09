@@ -66,10 +66,20 @@ module RubyGBA
 
       # Build a ROM whose game loop runs +body+ (given the builder and the value handles)
       # +repeat_n+ times a frame, and return the scanlines of CPU it burns per frame.
+      #
+      # :first is declared first and never used, and that is deliberate. Reaching a variable
+      # starts by building its address, and the FIRST variable of a program sits at an address
+      # the console can build in one instruction where every later one takes two — so a
+      # statement touching the first variable is an instruction cheaper, at each end, than the
+      # same statement anywhere else. Exactly one variable in a program is like that. Measuring
+      # a statement weight there would describe the one variable that is not typical and
+      # under-charge every other, so the spare takes that slot and the measured variables sit
+      # where a game's variables sit.
       def stable_busy(name, repeat_n, &body)
         rom = cartridge_build(name) do
           screen :bitmap
           clear_screen :black
+          var :first, 0
           xv = var :x, 7
           var :y, 0
           dv = var :d, 100   # a divisor the GAME works out, for the ops that need one
@@ -299,6 +309,7 @@ module RubyGBA
         rom = cartridge_build(name) do
           screen :bitmap
           clear_screen :black
+          var :first, 0 # the cheap first slot, kept clear — see #stable_busy
           n = var :n, numerator
           d = var :d, 1
           var :out, 0
@@ -314,30 +325,71 @@ module RubyGBA
       # operator's weight has to be what it adds and not a whole statement over again.
       #
       # `set :y, x` is the baseline rather than `set :y, 0` because replacing a bare operand
-      # is exactly what writing an expression there does.
+      # is exactly what writing an expression there does. It is also the shape op_assign is
+      # measured on, which is what makes the two compose: a statement plus its operators.
       def per_operator(tag, repeat_n: 500, lo: 2, hi: 8, &one)
         per_op(tag, repeat_n, lo, hi, &one) -
           per_op("#{tag}b", repeat_n, lo, hi) { |b, xv| b.set :y, xv }
       end
 
+      # --- a COMPARISON, which the DSL cannot put where the others go ---
+      #
+      # Every other operator above is measured inside `set :y, <expression>`. A comparison
+      # cannot be: on the surface a comparison is a Condition, which belongs to `.then` and
+      # cannot be assigned — and wrapping one in a branch to reach it would put the branch's
+      # own compare and jump into the reading. So this one is built straight from the IR,
+      # which has no such rule, exactly the way #digit_node_busy is.
+      #
+      # MEASURED ON A COMPARISON THAT ANSWERS FALSE, which is the dearer of its two answers.
+      # A comparison is the same four instructions either way, but one of them is a jump that
+      # is taken when the answer is false and stepped over when it is true, and a taken jump
+      # throws away the instructions being fetched behind it. So a comparison is not one price,
+      # and which one a frame pays is not knowable while building — the model takes the worst,
+      # the same call it makes for a live digit and a collision walk.
+      COMPARE_PASSES = 300 # low enough that the dearest shape stays well inside a frame
+      COMPARE_LO = 2
+      COMPARE_HI = 8
+
+      def compare_busy(name, copies, &value)
+        b = IR::Build
+        prog = b.program(
+          b.screen(:bitmap),
+          # :pad first, keeping the cheap first slot clear — the same reason #stable_busy has one.
+          b.set(:pad, b.int(0)), b.set(:y, b.int(0)), b.set(:d, b.int(100)),
+          b.loop_(b.wait_vblank,
+                  b.repeat(b.int(COMPARE_PASSES), :i, *Array.new(copies) { b.set(:y, value.call) })),
+        )
+        # fast_code: false for the same reason every other ROM here is built that way.
+        rom = ROM.assemble(IR::Backends::GBA.new(fast_code: false).lower(prog),
+                           title: name, code: code_for(name), maker: "01")
+        @m.busy(name, rom)
+      end
+
+      # The operator alone, differenced against the same statement holding a bare variable —
+      # the unit #per_operator works in, on the harness that can build this node.
+      def per_compare_operator(tag, &value)
+        compare_rate(tag, &value) - compare_rate("#{tag}b") { IR::Build.var_ref(:d) }
+      end
+
+      def compare_rate(tag, &value)
+        Reductions.marginal(compare_busy("#{tag}#{COMPARE_HI}", COMPARE_HI, &value),
+                            compare_busy("#{tag}#{COMPARE_LO}", COMPARE_LO, &value),
+                            over: COMPARE_PASSES * (COMPARE_HI - COMPARE_LO))
+      end
+
       # --- reading one element out of a list or a table ---
       #
-      # Every op weight above was measured on a statement that already reads ONE plain
-      # variable, so a variable read is inside all of them and must not be charged again.
-      # An indexed read is not that: reaching a list element works out where in the ring it
-      # sits (head, wrap, scale to bytes, base) before the load, and reaching a table
-      # element makes the index safe first. So what the model is missing is exactly the
-      # EXTRA over a plain variable read, and that is what this measures — the same
-      # statement three ways, differenced against the variable one.
-# MEASURED AGAINST SETTING A CONSTANT, so what is left is the WHOLE read. It is worth
-      # saying why, because the obvious alternative is wrong: the op weights above look as
-      # though they must already contain an operand read, and they do not. op_step is `add
-      # :x, 1`, which reads and writes its target and has no operand at all; op_mul and the
-      # rest are op_step plus the operator's cost over an add, and the variable both of those
-      # statements read cancels in the differencing. So nothing anywhere pays for reading an
-      # operand, and an indexed read has to carry its own whole cost. Charging only the extra
-      # over a variable read left every one of these estimating at three quarters of the
-      # truth.
+      # Reading a plain variable is a couple of instructions, and every statement weight above
+      # was measured on a statement that already does one. An indexed read is not that:
+      # reaching a list element works out where in the ring it sits (head, wrap, scale to
+      # bytes, base) before the load, and reaching a table element makes the index safe first.
+      #
+      # MEASURED AGAINST SETTING A CONSTANT, so what is left is the WHOLE read. The obvious
+      # alternative — charging only the EXTRA over a plain variable read — left every one of
+      # these estimating at three quarters of the truth, because the statement weight it is
+      # added to is the whole of `set :y, x` and cannot pay for a second read as well. Charging
+      # the whole read instead leaves the statement's own absorbed read paid for twice, which
+      # is a couple of instructions OVER, and over is the direction to be wrong in.
       #
       # A list's capacity is rounded up to a power of two, so its ring wraps an index with one
       # mask and there is only ever one shape of list read. A TABLE keeps the length it was
