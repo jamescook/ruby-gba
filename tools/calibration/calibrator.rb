@@ -430,18 +430,37 @@ module RubyGBA
       # Every one of these is measured on that screen, because the same verb emits something
       # else entirely on the direct-color one.
       def tearfree_screen
-        # A moving rectangle walks its rows, so a row is the address step plus its own pixels.
-        # Two widths of the same rectangle difference to the pixels, and one pixel wide (all
-        # edge, no pairs) gives the address step on its own.
+        # A moving rectangle walks its rows, and a row is built out of PARTS: a spliced near
+        # end, a middle, a spliced far end. Five shapes of one row separate them, because each
+        # shape adds exactly one thing to the one before it. Every rectangle here is 20 to a
+        # frame at two heights, so the once-per-rectangle preamble cancels and only rows are
+        # left. The columns are written into the program, so which parts a row has is settled.
+        #
+        #   even w=2   the row itself + one pair
+        #   even w=8   the row itself + four pairs         -> a pair
+        #   even w=1   the row itself + a FAR end          -> the far end
+        #   even w=3   the same + a second part            -> reaching a part
+        #   odd  w=1   the row itself + a NEAR end         -> the near end
+        #
+        # The two ends are not alike and neither is charged for the other: the near one has to
+        # clear a bit to name the pair its pixel sits in, which the far one gets for free.
+        # Charging one figure for both, and charging the address work once for a row however
+        # many parts it had, is what made a rectangle at an odd column read at seven tenths.
         row_w2 = @bench.tearfree_row_cost("tfr2", 20, 4, 20) { |b, xv, yv, h| b.draw_rect_at xv, yv, 2, h, :red }
         row_w8 = @bench.tearfree_row_cost("tfr8", 20, 4, 20) { |b, xv, yv, h| b.draw_rect_at xv, yv, 8, h, :red }
         row_w1 = @bench.tearfree_row_cost("tfr1", 20, 4, 20) { |b, xv, yv, h| b.draw_rect_at xv, yv, 1, h, :red }
+        row_w3 = @bench.tearfree_row_cost("tfr3", 20, 4, 20) { |b, xv, yv, h| b.draw_rect_at xv, yv, 3, h, :red }
+        row_odd = @bench.tearfree_row_cost("tfro", 20, 4, 20) { |b, _xv, yv, h| b.draw_rect_at 41, yv, 1, h, :red }
         weigh(:tearfree_pair, (row_w8 - row_w2) / 3.0, # 4 pairs against 1
               varies: :rect_rows, from: 4, to: 20, note: "a side-by-side pair of pixels written straight out")
         weigh(:tearfree_row, row_w2 - @weights[:tearfree_pair],
-              varies: :rect_rows, from: 4, to: 20, note: "one row of a moving rectangle, beyond its pixels")
+              varies: :rect_rows, from: 4, to: 20, note: "reaching one row of a moving rectangle, and its first part")
         weigh(:tearfree_edge, row_w1 - @weights[:tearfree_row],
-              varies: :rect_rows, from: 4, to: 20, note: "a lone pixel read and spliced back at a row's end")
+              varies: :rect_rows, from: 4, to: 20, note: "a lone pixel read and spliced back at a row's FAR end")
+        weigh(:tearfree_edge_near, row_odd - @weights[:tearfree_row],
+              varies: :rect_rows, from: 4, to: 20, note: "the same at the NEAR end, which must name its pair first")
+        weigh(:tearfree_part, Reductions.residual(row_w3, row_w2, @weights[:tearfree_edge]),
+              varies: :rect_rows, from: 4, to: 20, note: "reaching a second or later part of the same row")
 
         # What a rectangle costs before its first row. A moving one pays much more of this than a
         # fixed one: its position has to be worked out and its column's parity tested.
@@ -467,25 +486,30 @@ module RubyGBA
               varies: :fill_rows, from: 10, to: 80, note: "one pixel of a block fill, as engine stall")
 
         # A row of a MOVING rectangle whose middle is wide enough to hand to the engine. It gets
-        # its own pair of weights rather than borrowing the fixed rectangle's, because the two
-        # are not the same work: a moving rectangle steps its destination along where a fixed one
+        # its own start weight rather than borrowing the fixed rectangle's, because the two are
+        # not the same work: a moving rectangle steps its destination along where a fixed one
         # rebuilds it, and charging both the step and the rebuild paid for the address twice.
         #
-        # An even column splices neither end of the row. An odd column with an even width splices
-        # BOTH — its near end shares a pair with the pixel before it, and its far end with the one
-        # after. Measured, the two ends differ a little (the near one costs about a third more),
-        # and one figure between them is what is charged; that shows only on an odd width, which
-        # is the one case with exactly one spliced end.
+        # Measured at an EVEN column, which splices neither end, so nothing but the row and its
+        # fill is in the reading. The odd column needs no measurement of its own any more: its
+        # ends are the same emitted code as a written-out row's, so they are the weights above,
+        # and its extra parts are `tearfree_part`. That is what the fix to the odd column was —
+        # measure each piece once and count the pieces, rather than one averaged figure per shape.
+        #
+        # BOTH CLOCKS, split the way the other screen's transfer is: the register writes are the
+        # CPU's and get faster when the build moves the code, the copy is the engine's and never
+        # does. Reading only the total charged the engine's own moment as if it were code.
         w = Benchmarks::ENGINE_W
-        engine_even = @bench.tearfree_engine_row("tfee", 40, w, 4, 10, 40)
-        engine_odd = @bench.tearfree_engine_row("tfeo", 41, w, 4, 10, 40)
-        weigh(:tearfree_engine_row,
-              Reductions.residual(engine_even, w * @weights[:tearfree_fill_pixel]),
-              varies: :rect_rows, from: 10, to: 40, note: "one engine-fed row of a moving rectangle")
-        weigh(:tearfree_engine_edge,
-              Reductions.residual(engine_odd, (w - 2) * @weights[:tearfree_fill_pixel],
-                                  @weights[:tearfree_engine_row]) / 2.0,
-              varies: :rect_rows, from: 10, to: 40, note: "one spliced end of such a row")
+        weigh(:tearfree_engine_start,
+              Reductions.residual(@bench.tearfree_engine_row("tfee", 40, w, 4, 10, 40),
+                                  @weights[:tearfree_row]),
+              varies: :rect_rows, from: 10, to: 40,
+              note: "starting one row's block fill: the register writes, on the CPU")
+        weigh(:tearfree_engine_stall,
+              Reductions.residual(@bench.tearfree_engine_row("tfes", 40, w, 4, 10, 40, clock: :stall),
+                                  w * @weights[:tearfree_fill_pixel]),
+              varies: :rect_rows, from: 10, to: 40,
+              note: "the engine's own moment before that row's first pixel moves, as stall")
 
         # One pixel drawn on its own, and one lit pixel of a font glyph. Both are
         # read-modify-write here (a pixel shares its 16 bits with its neighbour); the lone one

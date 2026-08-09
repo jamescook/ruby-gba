@@ -362,9 +362,15 @@ module RubyGBA
       # Measured on the moving shape itself, and that is the point. A moving rectangle steps
       # its destination along where a fixed one rebuilds it, so a moving row assembled out of
       # the fixed rectangle's weight paid for the address work twice.
-      def tearfree_engine_row(tag, col, w, per_frame, lo, hi)
-        a = tearfree_total("#{tag}#{lo}", per_frame) { |b, _xv, yv| b.draw_rect_at col, yv, w, lo, :red }
-        z = tearfree_total("#{tag}#{hi}", per_frame) { |b, _xv, yv| b.draw_rect_at col, yv, w, hi, :red }
+      #
+      # +clock+ picks which half is wanted. The CPU's register writes and the engine's own
+      # copying are separate weights, for the same reason they are on the other screen: only
+      # the register writes get faster when the build moves the code.
+      def tearfree_engine_row(tag, col, w, per_frame, lo, hi, clock: :busy)
+        a = @m.public_send(clock, "#{tag}#{lo}",
+                           tearfree_rom("#{tag}#{lo}", per_frame) { |b, _xv, yv| b.draw_rect_at col, yv, w, lo, :red })
+        z = @m.public_send(clock, "#{tag}#{hi}",
+                           tearfree_rom("#{tag}#{hi}", per_frame) { |b, _xv, yv| b.draw_rect_at col, yv, w, hi, :red })
         Reductions.marginal(z, a, over: per_frame * (hi - lo))
       end
 

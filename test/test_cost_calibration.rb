@@ -120,6 +120,32 @@ class TestCostCalibration < Minitest::Test
     game_loop { 500.times { n.add 1 } if with }
   end
 
+  # A rectangle that starts on an ODD column of the tear-free screen. A pixel there is one
+  # byte and video memory refuses to write a lone byte, so a rectangle whose first pixel is
+  # the far half of a pair has that pixel — and the one at its far end — read, changed and
+  # written back one at a time, with the run between them reached past both.
+  #
+  # FOUR PIXELS WIDE ON PURPOSE. That makes a row all three of its pieces — an end, a pair,
+  # an end — where a wider one would be mostly run and a two-pixel one mostly ends. A third
+  # of what this row costs is in the ends' own work, so the fixture notices when that work
+  # goes missing. It used to: the two ends were charged one averaged figure, and finding
+  # each piece of a row cost nothing, and the rectangle read at seven tenths of its cost.
+  TEARFREE_ODD = lambda do |with|
+    screen :bitmap, tear_free: true
+    y = var :y, 10
+    game_loop { 20.times { draw_rect_at 41, y, 4, 16, :red } if with }
+  end
+
+  # The same rectangle one column left, which splices nothing: eight pixels starting on an
+  # even column are four whole pairs. The cheap case, and it has to STAY cheap — an odd
+  # column costs about three times an even one, so a fix that simply charged more everywhere
+  # would show up here.
+  TEARFREE_EVEN = lambda do |with|
+    screen :bitmap, tear_free: true
+    y = var :y, 10
+    game_loop { 20.times { draw_rect_at 40, y, 8, 16, :red } if with }
+  end
+
   CASES = [
     Standing.new(name: :mixer, weight: :mix_voice_sample, fast_code: false, shape: MIXER,
                  predict: ->(model, program) { model.mixer_verdict(program)&.fetch(:cost) || 0 }),
@@ -134,6 +160,10 @@ class TestCostCalibration < Minitest::Test
     Standing.new(name: :frame, weight: :dma_pixel, fast_code: false, shape: FRAME,
                  predict: ->(model, program) { model.frame_cost(program) }),
     Standing.new(name: :arithmetic, weight: :fast_code_speedup, fast_code: true, shape: ARITHMETIC,
+                 predict: ->(model, program) { model.frame_cost(program) }),
+    Standing.new(name: :tearfree_odd, weight: :tearfree_edge_near, fast_code: false, shape: TEARFREE_ODD,
+                 predict: ->(model, program) { model.frame_cost(program) }),
+    Standing.new(name: :tearfree_even, weight: :tearfree_pair, fast_code: false, shape: TEARFREE_EVEN,
                  predict: ->(model, program) { model.frame_cost(program) }),
   ].freeze
 
