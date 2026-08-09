@@ -205,10 +205,21 @@ class TestCostCalibrationTool < Minitest::Test
   # And the domain it records is the sweep it actually ran, not a number typed beside it.
   def test_the_domain_records_the_sweep_the_recipe_ran
     calibration, = flat_calibration
-    domain = calibration.domains[:loop_pass]
-    assert_equal :passes, domain.varies
-    assert_equal 300, domain.from
-    assert_equal 900, domain.to
+    domain = calibration.domains[:overlap_pixel]
+    assert_equal :overlap_pixels, domain.varies
+    assert_equal 8 * 8, domain.from
+    assert_equal 16 * 16, domain.to
+  end
+
+  # A weight with no countable regime records none. A loop is the worked example: its rate per
+  # pass and the cost of entering it are measured apart, so what is left in the rate holds at
+  # one pass as surely as at nine hundred and there is no range to record.
+  def test_a_weight_with_no_regime_records_no_range
+    calibration, = flat_calibration
+
+    assert_nil calibration.domains[:loop_pass].varies
+    assert calibration.domains[:loop_pass].note, "it still says what it is"
+    assert_nil calibration.domains[:loop_start].varies
   end
 
   # A reading nobody canned raises rather than answering zero. A test that quietly measured

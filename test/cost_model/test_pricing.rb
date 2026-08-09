@@ -356,7 +356,24 @@ class TestCostPricing < CostModelTest
       screen :bitmap
       game_loop { repeat(100) { |_i| nil } }
     end
-    near 100 * WEIGHTS[:loop_pass], Cost.new.steady_cost(empty)
+    near WEIGHTS[:loop_start] + (100 * WEIGHTS[:loop_pass]), Cost.new.steady_cost(empty)
+  end
+
+  # A LOOP IS TWO COSTS AND ONLY ONE OF THEM SCALES. Each pass counts, tests and jumps back;
+  # entering the loop works its trip count out into a hidden limit and zeroes a hidden counter,
+  # once, whatever it then does. So ten passes cost ten passes plus ONE entering — not ten
+  # times what one pass costs — and the shorter the loop the more of it is simply being a loop.
+  def test_entering_a_loop_costs_the_same_however_many_passes_it_makes
+    passes = lambda do |n|
+      Cost.new.steady_cost(program do
+        screen :bitmap
+        game_loop { repeat(n) { |_i| nil } }
+      end)
+    end
+
+    near WEIGHTS[:loop_pass], passes.call(11) - passes.call(10), "one more pass is one more pass"
+    near WEIGHTS[:loop_start] + WEIGHTS[:loop_pass], passes.call(1),
+         "and a loop of one is the entering, plus its single pass"
   end
 
   # IT IS BOOKKEEPING, AND IT STILL TEARS THE PICTURE. Going round a loop draws nothing, so
@@ -760,7 +777,9 @@ class TestCostPricing < CostModelTest
     c_ten = Cost.new.steady_cost(ten)
 
     assert_operator c_one, :>, 0, "a compute loop is not free"
-    near c_one * 10, c_ten, "ten iterations cost about ten times one"
+    # Ten passes cost ten passes — but only one entering, which the loop of one also paid.
+    near WEIGHTS[:loop_start] + (10 * (WEIGHTS[:op_step] + WEIGHTS[:loop_pass])), c_ten
+    assert_operator c_ten, :>, c_one * 5, "it still scales with the count"
   end
 
   # ---- reading one element of a list or a table ----

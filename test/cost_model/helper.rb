@@ -51,8 +51,11 @@ module CostArith
     WEIGHTS[:tearfree_rect_start] + (h * dma_start) + (w * h * WEIGHTS[:tearfree_fill_pixel])
   end
   # A repeat: each pass runs the body AND pays for going round (the count, the test, the
-  # jump back), which is real work and roughly three plain steps.
-  def loop_cost(passes, body) = passes * (body + WEIGHTS[:loop_pass])
+  # jump back), which is real work and roughly three plain steps — plus what the loop costs
+  # once for being entered at all, which a short loop pays over very few passes.
+  def loop_cost(passes, body)
+    WEIGHTS[:loop_start] + (passes * (body + WEIGHTS[:loop_pass]))
+  end
   # A glyph/text costs the pixels it lights, in the given font — a run of them, priced
   # like the pixels of a fill.
   def text_cost(text, font = :default) = RubyGBA::Fonts.get(font).text_pixels(text) * WEIGHTS[:plot_run_pixel]
