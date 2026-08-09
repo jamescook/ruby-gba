@@ -95,6 +95,27 @@ module RubyGBA
               over_an_add(tag: "mul", against: "addm", passes: 300, lo: 2, hi: 6) { |b, xv| b.set :y, (xv * 100) },
               note: "a multiply by a number written in the program")
 
+        # Reading one element out of a list or a table. Both were priced at NOTHING — "a read
+        # like t[i] is a single load" — and neither is a single load. A list element sits in a
+        # ring, so reaching it means the head, the wrap, the scale to bytes and the base before
+        # anything is loaded; a table read makes the index safe first. Measured, a list read is
+        # thirteen instructions and a table read is thirteen or twenty-three.
+        #
+        # It is the WHOLE read, not the extra over reading a plain variable, because nothing
+        # above pays for reading an operand either (see Benchmarks#indexed_read_busy).
+        #
+        # A table is TWO of them. Its length decides how an out-of-range index is made safe —
+        # a power-of-two table wraps it with one mask, any other size clamps it to the ends
+        # with a compare and a branch per bound — so the cheap one must not be charged for
+        # both. Most tables a game writes by hand (a sine table of 360, a level of 60) are the
+        # dearer kind.
+        weigh(:list_read, @bench.per_indexed_read(:list),
+              note: "reading one element of a list")
+        weigh(:table_read, @bench.per_indexed_read(:table),
+              note: "reading one element of a table whose length is a power of two (the index wraps)")
+        weigh(:table_read_clamped, @bench.per_indexed_read(:table_clamped),
+              note: "reading one element of a table of any other length (the index clamps)")
+
         # A divisor the game works out is the one case that still walks the answer a bit at a
         # time, so it is TWO numbers: a fixed setup, and a step for every bit of the answer. The
         # base is measured at an answer of no width at all, which is what op_div has always been

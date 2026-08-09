@@ -208,6 +208,7 @@ module RubyGBA
           @modes = resolve_modes(program)
           @funcs = {}
           @capacities = {}
+          @table_lengths = {}
           @songs = {}
           @bitmaps = {}
           @backing = {}
@@ -215,6 +216,9 @@ module RubyGBA
           program.walk do |node|
             @funcs[node[:name]] = node if node.kind == :func
             @capacities[node[:name]] = node[:capacity] if node.kind == :list_new
+            # How long a table is decides what a read of it costs, so it is read once here
+            # from the declaration rather than at every read (see Pricing#table_read_weight).
+            @table_lengths[node[:name]] = node[:values].length if node.kind == :table
             @songs[node[:name]] = node if node.kind == :song
             @bitmaps[node[:name]] = catalogue_bitmap(node) if node.kind == :bitmap
             @objects[node[:name]] = catalogue_object(node) if node.kind == :object

@@ -308,6 +308,76 @@ module RubyGBA
         @m.busy(name, rom)
       end
 
+      # --- reading one element out of a list or a table ---
+      #
+      # Every op weight above was measured on a statement that already reads ONE plain
+      # variable, so a variable read is inside all of them and must not be charged again.
+      # An indexed read is not that: reaching a list element works out where in the ring it
+      # sits (head, wrap, scale to bytes, base) before the load, and reaching a table
+      # element makes the index safe first. So what the model is missing is exactly the
+      # EXTRA over a plain variable read, and that is what this measures — the same
+      # statement three ways, differenced against the variable one.
+# MEASURED AGAINST SETTING A CONSTANT, so what is left is the WHOLE read. It is worth
+      # saying why, because the obvious alternative is wrong: the op weights above look as
+      # though they must already contain an operand read, and they do not. op_step is `add
+      # :x, 1`, which reads and writes its target and has no operand at all; op_mul and the
+      # rest are op_step plus the operator's cost over an add, and the variable both of those
+      # statements read cancels in the differencing. So nothing anywhere pays for reading an
+      # operand, and an indexed read has to carry its own whole cost. Charging only the extra
+      # over a variable read left every one of these estimating at three quarters of the
+      # truth.
+      #
+      # A list's capacity is rounded up to a power of two, so its ring wraps an index with one
+      # mask and there is only ever one shape of list read. A TABLE keeps the length it was
+      # given, and that decides how an out-of-range index is made safe: a power-of-two table
+      # wraps it with a mask, any other size CLAMPS it to the ends with a compare and a branch
+      # per bound. So a table read is two shapes, and they are told apart here — pricing the
+      # cheap one everywhere would under-charge a table whose length is not a power of two,
+      # which is most of the ones a game writes by hand.
+      INDEXED_CAPACITY = 64
+      CLAMPED_TABLE_LEN = 60 # not a power of two, so its reads clamp instead of wrapping
+
+      def indexed_read_busy(name, kind, copies, per_frame)
+        cap = INDEXED_CAPACITY
+        clamped_len = CLAMPED_TABLE_LEN
+        rom = cartridge_build(name) do
+          screen :bitmap
+          clear_screen :black
+          xs = list :xs, capacity: cap
+          cap.times { |n| xs << n }
+          wrapping = table :wrapping, (0...cap).to_a
+          clamping = table :clamping, (0...clamped_len).to_a
+          out = var :out, 0
+          idx = var :idx, 3
+          b = self
+          game_loop do
+            b.wait_vblank
+            b.repeat(per_frame) do
+              copies.times do
+                case kind
+                when :none then out.set(0)
+                when :list then out.set(xs[idx])
+                when :table then out.set(wrapping[idx])
+                when :table_clamped then out.set(clamping[idx])
+                end
+              end
+            end
+          end
+        end
+        @m.busy(name, rom)
+      end
+
+      # What one indexed read costs, with the loop and the `set` around it cancelled.
+      def per_indexed_read(kind, per_frame: 300, lo: 2, hi: 6)
+        tag = kind.to_s[0, 4].delete("_")
+        read = Reductions.marginal(indexed_read_busy("#{tag}#{hi}", kind, hi, per_frame),
+                                   indexed_read_busy("#{tag}#{lo}", kind, lo, per_frame),
+                                   over: per_frame * (hi - lo))
+        read - Reductions.marginal(indexed_read_busy("non#{hi}", :none, hi, per_frame),
+                                   indexed_read_busy("non#{lo}", :none, lo, per_frame),
+                                   over: per_frame * (hi - lo))
+      end
+
       # One division of a +bits+-wide answer, with the loop and the `set` around it cancelled.
       def per_divide(bits, repeat_n = 60)
         Reductions.marginal(divide_busy(bits, repeat_n, 6), divide_busy(bits, repeat_n, 2),

@@ -247,7 +247,10 @@ module RubyGBA
         # it never lands on a frame's budget — like the declarations above it.
         save_init
       ].freeze
-      FREE_VALUE_KINDS = %i[int var_ref data_byte list_get list_len table_get held pressed read_scanline timer_ticks].freeze
+      # Reads that really are a load or two, and are already inside every op weight — those
+      # were measured on statements that read one variable. An indexed read is NOT one of
+      # these: list_get and table_get are priced (see Pricing#own_cost).
+      FREE_VALUE_KINDS = %i[int var_ref data_byte list_len held pressed read_scanline timer_ticks].freeze
 
       # Every costed op falls into one of three buckets, so a frame's work reads as
       # drawing vs sound vs logic — the sections the estimate rolls up into. DRAWING is

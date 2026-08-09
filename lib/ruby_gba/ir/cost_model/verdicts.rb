@@ -203,6 +203,11 @@ module RubyGBA
         # nothing measurable at all.
         # Each entry: { layers:, lines:, cost:, budget:, over: }
         def bend_verdict(program)
+          # Pricing the block a bend runs needs what every other entry point catalogues
+          # first — a bend's offset is usually a table lookup, and what a table read costs
+          # depends on how long the table is. Without this the length is not known here and
+          # the read is charged at the dearer of its two prices.
+          index(program)
           bends = program.walk.select { |node| node.kind == :scroll_rows }
           return nil if bends.empty?
 
