@@ -333,8 +333,15 @@ module RubyGBA
 
             printer.puts format("    timer :%s costs ~%s a frame — it ticks %d times a second, so its body " \
                                 "runs %s (interrupts ~%s, the body ~%s)",
-                                t[:name], fmt(t[:cost]), t[:hz], tick_rate_phrase(t),
+                                t[:name], fmt(t[:cost]), t[:delivered], tick_rate_phrase(t),
                                 fmt(t[:interrupts]), fmt(t[:body]))
+            # Said here as well as in the guardrail, because this is the line where a reader
+            # is working out where the frame went and the answer is "not where you asked".
+            next if t[:delivered] >= t[:hz]
+
+            printer.puts format("    (:%s was asked for %d a second. Its handler cannot finish " \
+                                "between two ticks, so the console loses the rest.)",
+                                t[:name], t[:hz])
           end
         end
 

@@ -290,18 +290,39 @@ module RubyGBA
           { timers: entries, cost: cost, budget: FRAME_BUDGET, over: cost > FRAME_BUDGET }
         end
 
-        # One timer's share: how often it ticks a frame, times the interrupt plus its body.
-        # A handler on a timer that is never started has no rate and so no cost — it never
-        # runs.
+        # One timer's share: how often it really ticks a frame, times the interrupt plus its
+        # body. A handler on a timer that is never started has no rate and so no cost — it
+        # never runs.
         def tick_entry(program, node)
           hz = timer_rate(program, node[:timer])
           return nil unless hz
 
-          ticks = hz / FULL_FRAME_RATE.to_f
-          interrupts = ticks * tick_interrupt_weight
-          body = in_fast_interrupts { ticks * node.children.sum { |child| steady(child) } }
-          { name: node[:timer], hz: hz, ticks: ticks,
-            interrupts: interrupts, body: body, cost: interrupts + body }
+          each = tick_interrupt_weight + in_fast_interrupts { node.children.sum { |child| steady(child) } }
+          delivered = deliverable_rate(hz, each)
+          ticks = delivered / FULL_FRAME_RATE.to_f
+          { name: node[:timer], hz: hz, delivered: delivered, ticks: ticks,
+            each: each, interrupts: ticks * tick_interrupt_weight,
+            body: ticks * (each - tick_interrupt_weight), cost: ticks * each }
+        end
+
+        # HOW MANY OF THE TICKS ASKED FOR THE CONSOLE CAN ACTUALLY DELIVER, which is not
+        # always all of them and is never more.
+        #
+        # A tick is an interrupt, and an interrupt that arrives while the last one is still
+        # being answered is simply lost — there is no queue. So a handler that takes longer
+        # than the gap between ticks misses every tick that lands inside it and catches the
+        # next one after it finishes: at twice the gap it answers every second tick, at three
+        # times it answers every third. The rate degrades in whole steps, and this is that
+        # step.
+        #
+        # Measured on the console, a handler of eighty statements at 30,000 a second takes
+        # about one and three quarter gaps and delivers exactly half the ticks; the same
+        # handler at 4,000 fits inside its gap and delivers all of them. Priced at the rate
+        # ASKED, the estimate read twice what the console spent, and the AUTHOR was told
+        # nothing about getting half the ticks they wrote down (see the tick-rate guardrail).
+        def deliverable_rate(hz, each)
+          gap = FRAME_BUDGET * FULL_FRAME_RATE / hz.to_f # scanlines between two ticks
+          hz / [(each / gap).ceil, 1].max
         end
 
         # How many times a second the named timer was started at.
