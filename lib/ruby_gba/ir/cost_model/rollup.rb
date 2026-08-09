@@ -48,16 +48,61 @@ module RubyGBA
         # and sound) — the 60fps load. Cost hints scale work down: an every(k) body
         # counts 1/k, a transition-guarded body counts 0, and so on. Untagged work
         # weighs 1, so a program with no hints has steady_cost == frame_cost. For the
-        # tear risk (drawing only) use #steady_drawing_cost.
+        # tear risk use #steady_tear_cost.
         def steady_cost(program)
           in_fast_frame { steady_statements(program).sum { |node| steady(node) } }
         end
 
-        # The recurring drawing cost alone — the tear risk. Only drawing races the
-        # brief vblank window; logic and sound run through the visible frame and can't
-        # tear, so they're excluded here (they still count in #steady_cost's 60fps load).
-        def steady_drawing_cost(program)
-          in_fast_frame { steady_statements(program).sum { |node| steady(node, true) } }
+        # WHAT RACES THE SAFE WINDOW, which is the tear risk: everything the frame does from
+        # the moment the screen is ready up to and including the LAST thing it draws.
+        #
+        # The window is about sixty-eight lines, and a frame's body starts at the top of it.
+        # What tears the picture is a write to video memory landing after the window has
+        # closed — so what matters is not how much of the body DRAWS, it is how much of the
+        # body happens BEFORE the last draw. Work that draws nothing delays that draw exactly
+        # as surely as work that does, and the console agrees: a thousand passes of plain
+        # arithmetic ahead of one pixel puts that pixel on scanline 11, in the middle of the
+        # visible picture.
+        #
+        # This used to count the drawing alone, on the grounds that only drawing can tear.
+        # That is true of the WRITE and false of the DEADLINE, and it let a frame spend the
+        # whole window thinking and still be told it was safe.
+        #
+        # Work AFTER the last draw is left out, and that is not a rounding: nothing is drawn
+        # after it, so it cannot push a write anywhere. A game that draws first and thinks
+        # afterwards really is safer than one that does it the other way round, and this is
+        # the one number that says so.
+        def steady_tear_cost(program)
+          statements = steady_statements(program)
+          last = statements.rindex { |node| draws?(node) }
+          return 0 unless last
+
+          in_fast_frame { statements[0..last].sum { |node| steady(node) } }
+        end
+
+        # Whether anything in this statement draws, following a call or a scene dispatch into
+        # the routine it runs — a frame's drawing is nearly always behind one of those.
+        def draws?(node, seen = [])
+          return false if node.kind == :func
+          return true if DRAW_KINDS.include?(node.kind)
+
+          case node.kind
+          when :call then func_draws?(node[:target], seen)
+          when :case then node[:clauses].any? { |_value, target| func_draws?(target, seen) }
+          else
+            node.children.any? { |child| draws?(child, seen) } ||
+              (node[:else] ? draws?(node[:else], seen) : false)
+          end
+        end
+
+        def func_draws?(name, seen)
+          return false if seen.include?(name)
+
+          func = @funcs[name] or return false
+          seen.push(name)
+          func.children.any? { |child| draws?(child, seen) }
+        ensure
+          seen.pop if func
         end
 
         # The statements that make up a frame — a game loop's body, or a static
@@ -87,54 +132,54 @@ module RubyGBA
         # The selectivity-weighted cost of a subtree: how often the node's body
         # actually runs scales its cost, so what's left is the work that runs every
         # frame. A node that always runs weighs 1 (see #selectivity).
-        # `drawing_only` restricts the sum to drawing ops — the tear risk, since only
-        # drawing competes with the brief vblank window. Logic and sound run through the
-        # visible frame and can't tear, so they're excluded from the tear measure (but
-        # counted in the whole-frame 60fps measure). Default false = the full load.
         # +worst+ runs the same walk asking for everything a frame could cost rather than
         # what it usually does — see #expr_cost. Differencing the two is how the estimate
         # names what the recurring load leaves out.
-        def steady(node, drawing_only = false, worst: false)
-          selectivity(node) * raw_steady(node, drawing_only, worst)
+        #
+        # There is ONE sum here and it counts everything, where there used to be a second
+        # one that counted only the drawing. See #steady_tear_cost for why that second
+        # question was the wrong one: a frame's deadline is decided by when its last write
+        # lands, and every instruction before that write pushes it later, whatever it does.
+        def steady(node, worst: false)
+          selectivity(node) * raw_steady(node, worst)
         end
 
-        def raw_steady(node, drawing_only, worst)
+        def raw_steady(node, worst)
           case node.kind
-          when :program, :loop, :else then node.children.sum { |child| steady(child, drawing_only, worst: worst) }
+          when :program, :loop, :else then node.children.sum { |child| steady(child, worst: worst) }
           # The condition is tested every frame, whichever way it goes — that's where a
           # collision test's comparison chain lives — so it's priced here; only the branch
-          # bodies are scaled by how often they run. (Its cost is logic, so the
-          # drawing-only measure skips it.)
+          # bodies are scaled by how often they run.
           when :if
-            cond = drawing_only ? 0 : expr_cost(node[:cond], worst: worst)
-            cond + node.children.sum { |child| steady(child, drawing_only, worst: worst) } +
-              (node[:else] ? steady(node[:else], drawing_only, worst: worst) : 0)
+            expr_cost(node[:cond], worst: worst) +
+              node.children.sum { |child| steady(child, worst: worst) } +
+              (node[:else] ? steady(node[:else], worst: worst) : 0)
           # A pass round a loop costs something before the body does anything — see
-          # #loop_pass_leaf. It is bookkeeping, so the tear measure (drawing only) skips it.
+          # #loop_pass_leaf.
           when :repeat
-            body = node.children.sum { |child| steady(child, drawing_only, worst: worst) }
+            body = node.children.sum { |child| steady(child, worst: worst) }
             # A walk over a list counts at what the list USUALLY holds here, where the tree
             # above counts it at the capacity: this is the every-frame load, and no frame
             # pays for a list it has not filled (see #repeat_factor).
-            repeat_factor(node, typical: true).first * (body + (drawing_only ? 0 : loop_pass_cost))
+            repeat_factor(node, typical: true).first * (body + loop_pass_cost)
           # A timed trigger's steady per-frame cost follows from its kind: every(k)
           # runs one frame in k, so its body counts 1/k; after(n) fires once ever, so
           # it adds nothing to the every-frame load.
           when :every
-            Rational(1, node[:period]) * node.children.sum { |child| steady(child, drawing_only, worst: worst) }
+            Rational(1, node[:period]) * node.children.sum { |child| steady(child, worst: worst) }
           when :after then 0
-          when :case then node[:clauses].map { |_value, target| steady_func(target, drawing_only, worst: worst) }.max || 0
-          when :call then steady_func(node[:target], drawing_only, worst: worst)
+          when :case then node[:clauses].map { |_value, target| steady_func(target, worst: worst) }.max || 0
+          when :call then steady_func(node[:target], worst: worst)
           when :func then 0
-          else drawing_only && category_of(node.kind) != :drawing ? 0 : op_cost(node, worst: worst)
+          else op_cost(node, worst: worst)
           end
         end
 
-        def steady_func(name, drawing_only = false, worst: false)
+        def steady_func(name, worst: false)
           return 0 if @stack.include?(name)
           func = @funcs[name] or return 0
           @stack.push(name)
-          total = in_fast_memory(name) { func.children.sum { |child| steady(child, drawing_only, worst: worst) } }
+          total = in_fast_memory(name) { func.children.sum { |child| steady(child, worst: worst) } }
           @stack.pop
           total
         end
@@ -192,8 +237,8 @@ module RubyGBA
         # so out loud rather than just showing a bigger number further down.
         def collision_worst_case(program)
           statements = steady_statements(program)
-          everything = statements.sum { |node| steady(node, false, worst: true) }
-          everything - statements.sum { |node| steady(node, false) }
+          everything = statements.sum { |node| steady(node, worst: true) }
+          everything - statements.sum { |node| steady(node) }
         end
 
         # Catalogue the funcs (so a `call`/`case` can be costed), the list capacities
@@ -211,6 +256,7 @@ module RubyGBA
           @modes = resolve_modes(program)
           @funcs = {}
           @capacities = {}
+          @declared = {}
           @list_lengths = {}
           @table_lengths = {}
           @songs = {}
@@ -220,6 +266,10 @@ module RubyGBA
           program.walk do |node|
             @funcs[node[:name]] = node if node.kind == :func
             @capacities[node[:name]] = node[:capacity] if node.kind == :list_new
+            # ...and the length the AUTHOR asked for, which is the most the list can really
+            # reach. The ring rounds its size up to a power of two, and that headroom is for
+            # the mask rather than for the game (see Build#list_new).
+            @declared[node[:name]] = node[:declared] || node[:capacity] if node.kind == :list_new
             # ...and how long the author says it usually is, which is a different question
             # and the only one a frame's real cost turns on (see #list_length).
             @list_lengths[node[:name]] = node[:usually] if node.kind == :list_new && node[:usually]

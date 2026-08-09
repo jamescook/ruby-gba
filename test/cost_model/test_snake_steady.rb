@@ -15,8 +15,9 @@ class TestSnakeSteadyCost < CostModelTest
   def test_incremental_snake_steady_fits_though_a_transition_frame_does_not
     require_relative "../../examples/snake"
     model = Cost.new
-    assert_operator model.steady_drawing_cost(Snake.program), :<=, Cost::VBLANK_BUDGET,
-                    "steady per-frame drawing should fit the vblank window — the game plays tear-free"
+    assert_operator model.steady_tear_cost(Snake.program), :<=, Cost::VBLANK_BUDGET,
+                    "the steady per-frame work before the last draw should fit the vblank " \
+                    "window — the game plays tear-free"
     assert_operator model.frame_cost(Snake.program), :>, Cost::VBLANK_BUDGET,
                     "a transition frame (whole-board repaint) is heavy — that's the spike selectivity discounts"
   end
