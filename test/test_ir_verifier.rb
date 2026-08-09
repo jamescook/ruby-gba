@@ -17,17 +17,18 @@ class TestIRVerifier < Minitest::Test
   IR = RubyGBA::IR
   Node = RubyGBA::IR::Node
   Verifier = RubyGBA::IR::Verifier
+  Fields = RubyGBA::IR::Fields
 
   # ---- the coverage lock: the schema can't fall behind the node model ----
 
-  def test_every_node_kind_has_a_slots_row
-    missing = Node::CATEGORY.keys - Verifier::SLOTS.keys
-    assert_empty missing, "these kinds have no Verifier::SLOTS row (a new verb could slip the net): #{missing}"
+  def test_every_node_kind_has_a_fields_row
+    missing = Node::CATEGORY.keys - Fields::BY_KIND.keys
+    assert_empty missing, "these kinds have no IR::Fields row (a new verb could slip the net): #{missing}"
   end
 
   def test_the_schema_has_no_rows_for_unknown_kinds
-    stray = Verifier::SLOTS.keys - Node::CATEGORY.keys
-    assert_empty stray, "these SLOTS rows name kinds that aren't in Node::CATEGORY: #{stray}"
+    stray = Fields::BY_KIND.keys - Node::CATEGORY.keys
+    assert_empty stray, "these IR::Fields rows name kinds that aren't in Node::CATEGORY: #{stray}"
   end
 
   # ---- well-formed trees pass ----

@@ -271,4 +271,51 @@ class TestIRNode < Minitest::Test
     # And it really is inert data — to_h is a plain Hash, no ROM/ASM involved.
     assert_instance_of Hash, prog.to_h
   end
+
+  # ========================================================================
+  # a node answers only for what its kind has
+  #
+  # One class stands for every kind, and the operands live in a hash, so a read of a field
+  # the kind has not got used to come back nil — indistinguishable from an operand nobody
+  # set. The reader then treats "no answer" as an answer. The kind's fields are declared
+  # (IR::Fields), so the node can tell those two apart and refuse the first.
+
+  def test_reading_a_field_the_kind_has_not_got_is_refused
+    error = assert_raises(RubyGBA::IR::InvariantError) { pixel(int(1), int(2), :red)[:w] }
+
+    assert_match(/pixel has no :w field/, error.message)
+    assert_match(/:x, :y, :color/, error.message, "and it says what a pixel does have")
+  end
+
+  # The same at the line that writes it. The verifier catches this too, but only once the
+  # whole tree is built, by which time the verb that did it is not in the message.
+  def test_setting_a_field_the_kind_has_not_got_is_refused
+    error = assert_raises(RubyGBA::IR::InvariantError) { pixel(int(1), int(2), :red)[:colour] = :red }
+
+    assert_match(/pixel has no :colour field to set/, error.message)
+  end
+
+  # A field the kind DOES have but this node never set stays a plain nil — an `if` with no
+  # else is ordinary, not a mistake.
+  def test_a_field_the_kind_has_but_the_node_never_set_reads_as_nothing
+    assert_nil if_(int(1))[:else]
+  end
+
+  # What a node IS, for the code that walks every kind at once and cannot read a size off
+  # something that has no size.
+  def test_a_node_says_what_it_is
+    assert_predicate fill_rect(0, 0, 4, 4, :red), :sized?
+    refute_predicate pixel(int(1), int(2), :red), :sized?
+    assert_predicate pixel(int(1), int(2), :red), :colored?
+    refute_predicate add(:x, int(1)), :colored?
+    assert_predicate if_(int(1)), :branching?
+    refute_predicate add(:x, int(1)), :branching?
+  end
+
+  # An image declares width/height rather than w/h, and is not a rectangle to draw. The
+  # question is about the drawn shape, so it must not be answered by a name that merely
+  # looks similar.
+  def test_an_image_is_not_a_sized_shape
+    refute_predicate bitmap(:art, width: 2, height: 2, pixels: "\0\0\0\0"), :sized?
+  end
 end
