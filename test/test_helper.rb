@@ -23,6 +23,18 @@ module SharedConstants
   ROM = RubyGBA::ROM
 end
 
+# Every IR node class by its bare name, so a test that builds a tree by hand says
+# `Case.new(clauses: ...)` rather than spelling out the namespace each time.
+#
+# OPT-IN, like the other narrower helpers: there are eighty-odd of these and some of the
+# names are ones a test may want for something else (Table, Sample, Screen). A file that
+# builds nodes directly includes it; everything else never sees them.
+module NodeTypes
+  RubyGBA::IR::Nodes.constants.each do |name|
+    const_set(name, RubyGBA::IR::Nodes.const_get(name))
+  end
+end
+
 # Shared helpers for tests that exercise the emulator in-process. The emulator
 # backend (gemba-core, a headless libmgba probe) is reached through
 # RubyGBA::Emulator — the one seam — so nothing here names it directly.

@@ -7,6 +7,7 @@ require "test_helper"
 # the property under test as much as any individual assertion.
 class TestIRNode < Minitest::Test
   include RubyGBA::IR::Build
+  include NodeTypes
 
   Node = RubyGBA::IR::Node
 
@@ -18,7 +19,7 @@ class TestIRNode < Minitest::Test
     n = set(:x, 5)
     assert_equal :set, n.kind
     assert_equal :x, n[:var]
-    assert_instance_of Node, n[:value]
+    assert_kind_of Node, n[:value]
     assert_empty n.children
   end
 
@@ -69,8 +70,13 @@ class TestIRNode < Minitest::Test
     assert_equal :value,   int(1).category
   end
 
-  def test_unknown_kind_is_flagged_not_guessed
-    assert_equal :unknown, Node.new(:bogus_kind).category
+  # A kind nobody declared cannot be built at all now — there is no class to build. The old
+  # answer was a node whose category came back :unknown and travelled on; this is the same
+  # mistake caught where it is made.
+  def test_a_kind_nobody_declared_cannot_be_built
+    error = assert_raises(ArgumentError) { RubyGBA::IR::Nodes.build(:bogus_kind) }
+
+    assert_match(/no IR node kind :bogus_kind/, error.message)
   end
 
   def test_predicates
@@ -113,7 +119,7 @@ class TestIRNode < Minitest::Test
 
   def test_walk_descends_into_array_valued_attrs
     # a node whose attr is a list of value nodes is fully walked
-    n = Node.new(:case, clauses: [int(1), int(2)])
+    n = Case.new(clauses: [int(1), int(2)])
     assert_equal %i[case int int], n.walk.map(&:kind)
   end
 

@@ -2,217 +2,124 @@
 
 module RubyGBA
   module IR
-    # A single node in the intermediate representation (IR) — the op-tree the
-    # DSL builds *instead of* emitting target code directly.
+    # WHAT EVERY NODE OF THE INTERMEDIATE REPRESENTATION CAN DO — the op-tree the DSL builds
+    # *instead of* emitting target code directly.
     #
-    # A Node is plain Ruby data: no machine code, no output buffer, no
-    # interpreter. That is the whole point. The tree is built, walked, and
-    # checked (for footguns) entirely in memory, and only afterwards does a
-    # lowering pass turn it into code for a concrete target. The tree itself
-    # assumes nothing about that target — ARM/GBA is today's backend, but the
-    # same tree could equally be lowered to, say, JavaScript. Keep
-    # target-specific detail in the lowering pass, never in this model.
+    # A node is plain Ruby data: no machine code, no output buffer, no interpreter. That is
+    # the whole point. The tree is built, walked, and checked (for footguns) entirely in
+    # memory, and only afterwards does a lowering pass turn it into code for a concrete
+    # target. The tree itself assumes nothing about that target — ARM/GBA is today's backend,
+    # but the same tree could equally be lowered to, say, JavaScript. Keep target-specific
+    # detail in the lowering pass, never in this model.
     #
-    # Two shapes of node share this one class:
+    # Two shapes of node share this behaviour:
     #
-    #   * Statement nodes — the program itself: a variable op (+set+, +add+), a
-    #     draw op (+pixel+, +fill_rect+), or control flow (+if+, +loop+, +func+,
-    #     +call+). Control-flow statements hold their nested statements in
-    #     #children.
+    #   * Statement nodes — the program itself: a variable op (+set+, +add+), a draw op
+    #     (+pixel+, +fill_rect+), or control flow (+if+, +loop+, +func+, +call+). Control-flow
+    #     statements hold their nested statements in #children.
     #
-    #   * Value nodes — an expression operand: a literal +int+, a +var_ref+, or a
-    #     +binop+ combining two other value nodes. A value lives inside another
-    #     node's #attrs (e.g. the value a +set+ assigns), never in #children.
+    #   * Value nodes — an expression operand: a literal +int+, a +var_ref+, or a +binop+
+    #     combining two other value nodes. A value lives in another node's operands (e.g. the
+    #     value a +set+ assigns), never in #children.
     #
-    # Control flow is *structured* — nesting, not jumps — so there are no labels
-    # or gotos here. A +call+ names its +func+ target, and a consumer (an
-    # interpreter, or a backend that lowers to machine code) resolves that name,
-    # which is what lets a call refer to a func defined later. Labels and branch
-    # targets are only an artifact of flattening this structure into linear code,
-    # so they live in the backend that does the flattening, not in the IR.
-    class Node
-      # Every kind's category. Having one table means validation passes, the
-      # inspector, and the lowering pass can all ask a node its category instead
-      # of each carrying its own scattered case statement.
-      CATEGORY = {
-        program: :root,
-
-        # variable operations — read/modify a named variable
-        set: :var, add: :var, sub: :var, copy: :var, negate: :var,
-        abs: :var, negate_abs: :var, clamp: :var,
-        # persistence: a named variable whose value survives power-off, kept in the
-        # cartridge's battery-backed save memory. save_init loads them at boot (or
-        # writes their defaults on a fresh cartridge); save_store mirrors one back to
-        # save memory when it changes. Categorized as variable ops — that's what they are.
-        save_init: :var, save_store: :var,
-
-        # drawing / screen operations
-        screen: :draw, pixel: :draw, fill_rect: :draw, clear_screen: :draw,
-        draw_rect_at: :draw, draw_text: :draw, dma_fill_rect: :draw, blit: :draw,
-        draw_digit: :draw, # one run-time decimal digit, chosen and drawn at run time
-        blit_pose: :draw,  # one of a set of same-size images, chosen at run time (a facing/frame)
-        background: :draw, # a whole grid of tiles, drawn from a tileset and a map
-        scroll_background: :draw, # move the visible window over a background (scrolling)
-        # give each row of the picture its own sideways offset, so the picture bends
-        # (a wavy reflection, a heat haze) — its #children run before the offset is read
-        scroll_rows: :draw,
-        camera: :draw, # offset the whole displayed picture (a pan, or a shake)
-        fade: :draw,   # blend the whole displayed picture toward a color (a fade, a flash)
-        # a moving picture the display composites over the scene each frame: `object`
-        # declares one, `present_objects` draws the declared objects for a frame.
-        object: :draw, present_objects: :draw,
-        # save the pixels under a moving object, then paint them back — so it leaves
-        # no trail. They copy a screen patch to/from a backing_buffer (below).
-        save_region: :draw, restore_region: :draw,
-
-        # audio operations. define_sound and song are definitions (like func):
-        # named registries the audio triggers refer to. beep is a one-off effect,
-        # play_song advances a defined song, stop_music silences it.
-        enable_sound: :sound, define_sound: :sound, beep: :sound, noise: :sound,
-        wave: :sound, stop_wave: :sound,
-        song: :sound, play_song: :sound, stop_music: :sound,
-        # sampled (PCM) audio: play_sample/stop_sample trigger a recorded sound; the
-        # `sample` definition that names its data is a :data kind (below).
-        play_sample: :sound, stop_sample: :sound,
-
-        # control flow — these carry nested statements in #children
-        # (a scene is just a named func, so it needs no kind of its own; `case`
-        # is multi-way dispatch that each backend expands to a chain of ifs). An
-        # `if`'s optional else-branch is an `else` node held in its :else attr.
-        if: :control, loop: :control, func: :control, call: :control,
-        case: :control, else: :control, wait_vblank: :control, halt: :control,
-        repeat: :control,
-
-        # timed triggers — a body that runs on a schedule (every N frames) or once
-        # after a delay (after N frames). Each carries a hidden frame counter a
-        # backend ticks; kept as their own kinds so the tree preserves the intent
-        # (rather than baking in the counter+compare they lower to).
-        every: :control, after: :control,
-
-        # hardware timers — a counter that runs at a chosen rate (overflowing that
-        # many times a second), used for timed work and (later) to clock sampled
-        # audio. Starting and stopping one are statements; reading how many times it
-        # has overflowed since it started is a value (timer_ticks, below). `on_timer`
-        # carries a handler body (its #children) run each time the timer overflows —
-        # the timer raises an interrupt and the body runs off it.
-        timer_start: :control, timer_stop: :control, on_timer: :control,
-
-        # a raw escape hatch: pre-assembled target bytes appended verbatim. The
-        # one node that isn't portable — only a native backend can place it, and
-        # the interpreter refuses it (tagged hardware-only in IR::Portability).
-        raw: :control,
-
-        # named storage: a definition that reserves space and emits nothing on its
-        # own; a consumer refers to it by name. `data` is a format-agnostic blob of
-        # bytes in the ROM; `bitmap` is such a blob that also carries width/height,
-        # so a draw op knows its shape; `backing_buffer` is a width×height patch of
-        # writable RAM a moving object saves the pixels under itself into.
-        data: :data, bitmap: :data, backing_buffer: :data,
-        sample: :data, # named 8-bit PCM sound data, embedded and played by play_sample
-        table: :data,  # a build-time array of numbers, embedded and read by table_get
-
-        # list operations — a bounded, ordered collection whose size is decided at
-        # run time: create one (list_new), grow it (list_push), shrink it from
-        # either end (list_drop), or overwrite a slot (list_set). Reading it back —
-        # an element or its length — is a value (list_get/list_len, below).
-        list_new: :list, list_push: :list, list_drop: :list, list_set: :list,
-
-        # expression values — operands, live inside another node's #attrs
-        int: :value, var_ref: :value, binop: :value, neg: :value,
-        # multiply two numbers that each carry the same number of fraction bits,
-        # forming the product at full width so it can't overflow on the way (see
-        # Int32.mul_fix). Its own kind rather than a binop operator because it takes
-        # a third thing a binop has no room for: how many fraction bits they carry.
-        mul_fix: :value,
-        # divide one of those numbers by another, widening the numerator first so the
-        # answer keeps a fraction instead of dividing it back out (see Int32.div_fix).
-        # Its own kind for the same reason mul_fix is: it takes how far to widen, which
-        # a binop has no room for.
-        div_fix: :value,
-        # divide by a power of two, rounding DOWN (toward minus infinity) rather than
-        # toward zero the way `/` does. Its own kind because that rounding is a
-        # different operation, not a special case of division — and because dropping
-        # the low bits of a number is one instruction on most machines where a divide
-        # is a called routine.
-        shift_right: :value,
-        data_byte: :value, list_get: :value, list_len: :value,
-        table_get: :value, # read table[index] from a ROM table at a runtime index
-        timer_ticks: :value, # how many times a timer has overflowed since it started
-
-        # input reads — an operand whose value comes from the gamepad
-        held: :value, pressed: :value,
-
-        # a hardware-only value read: the scanline being drawn now (VCOUNT). Only a
-        # real console has it, so the interpreter refuses it (tagged hardware-only in
-        # IR::Portability); it's how a debug probe measures a frame's drawing time.
-        read_scanline: :value,
-
-        # a probability test as an operand — true a given percent of the time
-        chance: :value,
-
-        # do two posed sprites' solid pixels actually overlap? — the shape-accurate
-        # half of a collision test, read from each sprite's own picture
-        pixels_overlap: :value,
-      }.freeze
-
+    # Control flow is *structured* — nesting, not jumps — so there are no labels or gotos
+    # here. A +call+ names its +func+ target, and a consumer (an interpreter, or a backend
+    # that lowers to machine code) resolves that name, which is what lets a call refer to a
+    # func defined later. Labels and branch targets are only an artifact of flattening this
+    # structure into linear code, so they live in the backend that does the flattening.
+    #
+    # THIS IS A MIXIN, AND IT NAMES NO KIND. Each kind is its own class (see {Nodes}), which
+    # declares what it is and what operands it carries; this holds only what they all share.
+    # Nothing here knows a pixel from a func, so a new kind is a new class and nothing else.
+    module Node
       # The distinct categories, in a stable order (useful for coverage checks).
       CATEGORIES = %i[root var draw sound control data list value].freeze
 
-      attr_reader :kind, :attrs, :children
+      def self.included(base)
+        base.extend(Declarations)
+      end
+
+      # What a kind declares about itself. Three lines at the top of each class: its name on
+      # the wire, the section it belongs to, and its operands.
+      module Declarations
+        # This kind's name — the symbol the tree, the reports and the tests speak in.
+        def kind(name = nil)
+          name ? @kind = name : @kind
+        end
+
+        # Which section of a frame's work this kind belongs to (see CATEGORIES).
+        def category(name = nil)
+          name ? @category = name : @category
+        end
+
+        # The operands this kind carries, each with what it must hold. The names become real
+        # readers and writers; the tags are what {Verifier} checks. One declaration, so a
+        # field cannot be readable but unchecked, or checked but unreadable.
+        #
+        # A tag of +:value+ marks a value slot — a wrapped operand, which may be a number
+        # settled while authoring or one the game works out as it runs. Every other tag names
+        # an author-time literal of a stated type.
+        def operands(**tags)
+          @tags = tags
+          tags.each_key { |name| attr_accessor name }
+        end
+
+        def tags
+          @tags || {}
+        end
+      end
+
+      attr_reader :children
       attr_accessor :parent, :source
 
-      # @param kind [Symbol] the op kind (a key of CATEGORY)
       # @param children [Array<Node>] nested statements (control flow only)
       # @param source [String, nil] optional DSL call site, kept for diagnostics
-      # @param attrs [Hash] operands as plain Ruby values (or nested value Nodes)
-      def initialize(kind, children: [], source: nil, **attrs)
-        @kind = kind
-        @attrs = attrs
+      # @param operands [Hash] this kind's operands, as plain Ruby values (or nested nodes)
+      def initialize(children: [], source: nil, **operands)
         @children = []
         @parent = nil
         @source = source
-        children.each { |c| add_child(c) }
+        operands.each { |name, value| self[name] = value }
+        children.each { |child| add_child(child) }
       end
 
-      # The node's category (:root/:var/:draw/:control/:value), or
-      # :unknown for a kind we don't recognize — catching a typo'd kind here
-      # beats a mysterious failure two passes downstream.
-      def category
-        CATEGORY.fetch(@kind, :unknown)
-      end
+      def kind = self.class.kind
+      def category = self.class.category || :unknown
+      def value? = category == :value
+      def control? = category == :control
 
-      def value?
-        category == :value
-      end
-
-      def control?
-        category == :control
-      end
-
-      # A statement is anything that belongs in the program tree (as opposed to
-      # an operand value).
+      # A statement is anything that belongs in the program tree (as opposed to an operand).
       def statement?
         %i[root var draw sound control data list].include?(category)
       end
 
-      def leaf?
-        @children.empty?
+      def leaf? = @children.empty?
+
+      # The operands this node actually carries, and what each holds. Only the ones that were
+      # given: a kind may declare a field that a particular node leaves alone (an `if` with
+      # no `else`), and that is not the same as carrying it empty.
+      def attrs
+        self.class.tags.keys
+            .select { |name| instance_variable_defined?(:"@#{name}") }
+            .to_h { |name| [name, public_send(name)] }
       end
 
-      # Read an operand by name, e.g. node[:var].
-      #
-      # A field this KIND does not carry is refused rather than answered with nil. A hash
-      # answers nil for a name it has never heard of, which makes a misspelling and a stale
-      # field name indistinguishable from an operand that is genuinely unset — and the
-      # reader goes on to treat "no answer" as a real answer. A field the kind DOES carry
-      # but this node has not set is a legitimate nil (an `if` with no `else`), so that one
-      # comes back as it always did.
-      #
-      # Code that walks a whole tree meets every kind, so it asks what a node IS before
-      # reading what only some kinds have — see #sized?, #colored? and #branching?.
+      # Read an operand by name. A field this KIND does not have is refused rather than
+      # answered with nil — a hash answers nil for a name it never heard of, which makes a
+      # misspelling indistinguishable from an operand nobody set.
       def [](key)
-        refuse(key, "read") unless fields.key?(key)
-        @attrs[key]
+        refuse(key, "read") unless self.class.tags.key?(key)
+        public_send(key)
+      end
+
+      # Set an operand after construction — used to attach a branch built later, e.g. an
+      # `if` node's :else once `.else { ... }` runs. If the value is a child node, wire its
+      # parent back so the tree stays navigable.
+      def []=(key, value)
+        refuse(key, "set") unless self.class.tags.key?(key)
+        public_send(:"#{key}=", value)
+        value.parent = self if value.is_a?(Node)
+        value
       end
 
       # -- what a node is, for code that walks every kind --
@@ -220,50 +127,25 @@ module RubyGBA
       # A tree walk cannot read a size off a node that has no size, so it asks first. These
       # say what the node is in the words of the thing being asked about, rather than asking
       # after a field by name — the caller wants to know whether there is a rectangle here,
-      # not whether a :w exists. Each comes off the schema, so a kind that gains a size is
-      # sized without anything here changing.
+      # not whether a :w exists.
 
       # A rectangle: something with a width and a height of its own.
-      def sized?
-        fields.key?(:w) && fields.key?(:h)
-      end
+      def sized? = self.class.tags.key?(:w) && self.class.tags.key?(:h)
 
       # Something drawn in a color.
-      def colored?
-        fields.key?(:color)
-      end
+      def colored? = self.class.tags.key?(:color)
 
       # A test with a branch to take when it fails.
-      def branching?
-        fields.key?(:else)
-      end
-
-      # The fields this node's kind has, from the one table that says so.
-      def fields
-        Fields.of(@kind)
-      end
-
-      # Set an operand after construction — used to attach a branch built later,
-      # e.g. an `if` node's :else once `.else { ... }` runs. If the value is a
-      # child Node, wire its parent back so the tree stays navigable.
-      #
-      # Refuses a field the kind does not carry, here at the line that wrote it. The
-      # verifier catches this too, but not until the whole tree is built and checked, and
-      # by then the verb that did it is not in the message.
-      def []=(key, value)
-        refuse(key, "set") unless fields.key?(key)
-        @attrs[key] = value
-        value.parent = self if value.is_a?(Node)
-        value
-      end
+      def branching? = self.class.tags.key?(:else)
 
       # Attach a nested statement, wiring its parent back-reference so the tree
       # is navigable in both directions.
       # @return [Node] the child (so calls can chain)
       def add_child(node)
         unless node.is_a?(Node)
-          raise ArgumentError, "child must be an IR::Node, got #{node.class}"
+          raise ArgumentError, "child must be an IR node, got #{node.class}"
         end
+
         @children << node
         node.parent = self
         node
@@ -271,7 +153,7 @@ module RubyGBA
       alias << add_child
 
       # Depth-first, pre-order over this node and its statement #children. Does
-      # NOT descend into value operands in #attrs — use #walk for the whole tree.
+      # NOT descend into value operands — use #walk for the whole tree.
       def each(&block)
         return enum_for(:each) unless block
 
@@ -280,22 +162,23 @@ module RubyGBA
       end
 
       # Depth-first over the ENTIRE tree: statement children and any value nodes
-      # nested in #attrs (directly or inside arrays). This is what a validation
+      # nested in the operands (directly or inside arrays). This is what a validation
       # pass wants — "show me every node, statement or operand."
       def walk(&block)
         return enum_for(:walk) unless block
 
         yield self
         @children.each { |child| child.walk(&block) }
-        @attrs.each_value { |value| walk_attr(value, &block) }
+        attrs.each_value { |value| walk_attr(value, &block) }
       end
 
       # A plain nested Hash of the whole node — for asserting structure in tests
       # and for the inspector to pretty-print. Parent/source are intentionally
       # omitted so the hash captures shape, not identity.
       def to_h
-        result = { kind: @kind }
-        result[:attrs] = @attrs.transform_values { |v| hashify(v) } unless @attrs.empty?
+        carried = attrs
+        result = { kind: kind }
+        result[:attrs] = carried.transform_values { |v| hashify(v) } unless carried.empty?
         result[:children] = @children.map(&:to_h) unless @children.empty?
         result
       end
@@ -307,31 +190,29 @@ module RubyGBA
       end
       alias eql? ==
 
-      def hash
-        to_h.hash
-      end
+      def hash = to_h.hash
 
       def inspect
-        parts = [@kind.inspect]
-        parts.concat(@attrs.map { |k, v| "#{k}=#{v.inspect}" })
+        parts = [kind.inspect]
+        parts.concat(attrs.map { |k, v| "#{k}=#{v.inspect}" })
         suffix = @children.empty? ? "" : " {#{@children.size}}"
-        "#<IR::Node #{parts.join(' ')}#{suffix}>"
+        "#<IR::#{self.class.name.split('::').last} #{parts.join(' ')}#{suffix}>"
       end
 
       private
 
-      # A field this kind does not carry. Says what the kind DOES carry, because the answer
-      # is nearly always in that list — a typo, or a field that moved to another kind.
+      # A field this kind does not have. Says what the kind DOES have, because the answer is
+      # nearly always in that list — a typo, or a field that moved to another kind.
       def refuse(key, verb)
-        known = fields.keys
+        known = self.class.tags.keys
         raise InvariantError,
-              "#{@kind} has no #{key.inspect} field to #{verb}. It has: " \
+              "#{kind} has no #{key.inspect} field to #{verb}. It has: " \
               "#{known.empty? ? '(nothing)' : known.map(&:inspect).join(', ')}. " \
               "Code that walks every kind asks what a node is first (#sized?, #colored?, " \
-              "#branching?); declare the field in IR::Fields if this kind should have it."
+              "#branching?); declare the field with `operands` if this kind should have it."
       end
 
-      # Recurse #walk into an operand that may itself be a Node, or an array of
+      # Recurse #walk into an operand that may itself be a node, or an array of
       # them (e.g. a case node's clause list).
       def walk_attr(value, &block)
         case value

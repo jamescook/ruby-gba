@@ -15,13 +15,13 @@ class TestIRPortability < Minitest::Test
   # ---- the coverage lock: no kind may go untagged ----
 
   def test_every_node_kind_has_a_tier
-    missing = Node::CATEGORY.keys - Portability::TIER.keys
+    missing = RubyGBA::IR::Nodes.by_kind.keys - Portability::TIER.keys
     assert_empty missing, "these kinds have no portability tag (a new kind must be classified): #{missing}"
   end
 
   def test_the_tier_table_has_no_rows_for_unknown_kinds
-    stray = Portability::TIER.keys - Node::CATEGORY.keys
-    assert_empty stray, "these TIER rows name kinds that aren't in Node::CATEGORY: #{stray}"
+    stray = Portability::TIER.keys - RubyGBA::IR::Nodes.by_kind.keys
+    assert_empty stray, "these TIER rows name kinds that have no class in IR::Nodes: #{stray}"
   end
 
   def test_every_tag_is_a_known_tier

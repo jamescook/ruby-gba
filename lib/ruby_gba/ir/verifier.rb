@@ -77,7 +77,7 @@ module RubyGBA
 
         raise InvariantError,
               "unknown IR kind #{node.kind.inspect} — no IR::Fields row. If you added a new IR " \
-              "primitive, declare its fields in IR::Fields (and Node::CATEGORY); the verifier refuses " \
+              "primitive, give it a class in IR::Nodes; the verifier refuses " \
               "any node it hasn't been taught, so drift can't slip through silently."
       end
 

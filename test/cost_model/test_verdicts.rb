@@ -8,6 +8,15 @@ require_relative "../conformance_fixture"
 # Judging the total (lib/ruby_gba/ir/cost_model/verdicts.rb): which budget applies,
 # whether it fits, and what the estimate admits it cannot see.
 class TestCostVerdicts < CostModelTest
+  # A kind the model has never been taught. Every kind this library declares HAS a price, so
+  # the only way to have one that doesn't is a node class from outside — which is the case
+  # the unpriced banner exists for.
+  MysteryOp = Class.new do
+    include RubyGBA::IR::Node
+    kind :mystery_op
+    category :draw
+  end
+
   # Self-audit: the conformance fixture exercises every IR kind, so the model must have
   # an estimate (or a deliberate free classification) for each — nothing it touches
   # should be flagged unpriced. This is what catches a new op added without a cost.
@@ -21,7 +30,7 @@ class TestCostVerdicts < CostModelTest
   # keeps every kind above its game loop, so a frame walk saw `wait_vblank, halt` and had
   # nothing to report — while three real ops were being counted as free.
   def test_an_unpriced_op_outside_the_game_loop_is_still_found
-    mystery = RubyGBA::IR::Node.new(:mystery_op)
+    mystery = MysteryOp.new
     prog = Build.program(Build.screen(:bitmap), mystery, Build.loop_(Build.wait_vblank, Build.halt))
     assert_includes Cost.new.unpriced_kinds(prog), :mystery_op
   end
@@ -29,7 +38,7 @@ class TestCostVerdicts < CostModelTest
   # An op the model can't price is announced loudly at the very top of the estimate,
   # rather than silently counted as free.
   def test_an_unpriced_op_is_announced_at_the_top
-    mystery = RubyGBA::IR::Node.new(:mystery_op)
+    mystery = MysteryOp.new
     prog = Build.program(Build.screen(:bitmap), Build.loop_(Build.wait_vblank, mystery))
     cost = Cost.new
     assert_includes cost.unpriced_kinds(prog), :mystery_op

@@ -381,7 +381,7 @@ module RubyGBA
         # Control flow is skipped: it is costed by walking what it contains, never priced
         # on its own, so asking it would flag every `if` in the program.
         def audit_price(node)
-          case Node::CATEGORY[node.kind]
+          case node.category
           when :value then expr_cost(node)
           when :root, :control then nil
           else op_cost(node) # a statement — including a kind the table has never heard of

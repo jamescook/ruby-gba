@@ -3,8 +3,9 @@
 require_relative "ir/int32"
 require_relative "ir/buttons"
 require_relative "ir/screen"
-require_relative "ir/fields" # what each kind of node carries; the node model asks it
-require_relative "ir/node"
+require_relative "ir/node"  # what every node can do; names no kind
+require_relative "ir/nodes" # one class per kind, each declaring its own operands
+require_relative "ir/fields" # the operand tables, read off the classes
 require_relative "ir/assets" # what a declared image or recording is, for every backend
 require_relative "ir/build"
 require_relative "ir/parity"
