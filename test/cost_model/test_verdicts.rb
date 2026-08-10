@@ -160,8 +160,8 @@ class TestCostVerdicts < CostModelTest
   # the mixer is CPU work after wait_vblank and draws nothing.
   def test_the_mixer_is_priced_against_the_frame_budget
     v = Cost.new.mixer_verdict(sample_game)
-    assert_equal Cost::FRAME_BUDGET, v[:budget]
-    assert_equal Cost::MIXER_VOICES, v[:voices]
+    assert_equal Cost::FRAME_BUDGET, v.budget
+    assert_equal Cost::MIXER_VOICES, v.voices
   end
 
   # A silent program has no mixer cost and no sound section.
@@ -175,8 +175,8 @@ class TestCostVerdicts < CostModelTest
   def test_the_mixer_cost_grows_with_the_sample_rate
     low = Cost.new.mixer_verdict(sample_game(rate: 8000))
     high = Cost.new.mixer_verdict(sample_game(rate: 16000))
-    assert_operator high[:samples_per_frame], :>, low[:samples_per_frame]
-    assert_operator high[:cost], :>, low[:cost]
+    assert_operator high.samples_per_frame, :>, low.samples_per_frame
+    assert_operator high.cost, :>, low.cost
   end
 
   # --- a timer's tick handler: the other place a frame goes outside the loop ---
@@ -195,23 +195,23 @@ class TestCostVerdicts < CostModelTest
 
   def test_a_tick_handler_costs_the_frame_something
     v = Cost.new.tick_verdict(ticking_game)
-    assert_equal 1, v[:timers].length
-    assert_equal :beat, v[:timers].first[:name]
-    assert_in_delta 4000 / 60.0, v[:timers].first[:ticks], 0.01
-    assert_operator v[:cost], :>, 1, "67 ticks a frame is real work"
+    assert_equal 1, v.timers.length
+    assert_equal :beat, v.timers.first.name
+    assert_in_delta 4000 / 60.0, v.timers.first.ticks, 0.01
+    assert_operator v.cost, :>, 1, "67 ticks a frame is real work"
   end
 
   # It is judged against the WHOLE frame, like the mixer and a bend: it is CPU spread through
   # the frame that touches no video memory, so it can cost a frame its rate but never tear it.
   def test_a_tick_handler_is_priced_against_the_frame_budget
-    assert_equal Cost::FRAME_BUDGET, Cost.new.tick_verdict(ticking_game)[:budget]
+    assert_equal Cost::FRAME_BUDGET, Cost.new.tick_verdict(ticking_game).budget
   end
 
   # Twice the rate, twice the cost — the whole point, since the rate is the thing the reader
   # cannot see from the handler.
   def test_the_cost_follows_the_rate
-    slow = Cost.new.tick_verdict(ticking_game(per_second: 2000))[:cost]
-    fast = Cost.new.tick_verdict(ticking_game(per_second: 4000))[:cost]
+    slow = Cost.new.tick_verdict(ticking_game(per_second: 2000)).cost
+    fast = Cost.new.tick_verdict(ticking_game(per_second: 4000)).cost
     assert_in_delta slow * 2, fast, 0.001
   end
 
@@ -220,16 +220,16 @@ class TestCostVerdicts < CostModelTest
   def test_the_bodys_own_work_is_charged_per_tick
     one = Cost.new.tick_verdict(ticking_game(ops: 1))
     ten = Cost.new.tick_verdict(ticking_game(ops: 10))
-    assert_operator ten[:timers].first[:body], :>, one[:timers].first[:body] * 5
-    assert_in_delta one[:timers].first[:interrupts], ten[:timers].first[:interrupts], 0.001,
+    assert_operator ten.timers.first.body, :>, one.timers.first.body * 5
+    assert_in_delta one.timers.first.interrupts, ten.timers.first.interrupts, 0.001,
                     "the interrupt costs the same whatever the body does"
   end
 
   # ...but for a short body the interrupt is the bigger half, which is the shape a reader
   # guesses wrong: they shorten the body and most of the cost stays.
   def test_a_short_handler_is_mostly_interrupt
-    t = Cost.new.tick_verdict(ticking_game(ops: 1))[:timers].first
-    assert_operator t[:interrupts], :>, t[:body] * 4
+    t = Cost.new.tick_verdict(ticking_game(ops: 1)).timers.first
+    assert_operator t.interrupts, :>, t.body * 4
   end
 
   # A program with no timer handler pays nothing and says nothing.
@@ -267,8 +267,8 @@ class TestCostVerdicts < CostModelTest
   # LESS than ordinary code gains — part of an interrupt is the console's own work. Both
   # cases are measured.
   def test_the_estimate_follows_the_tick_into_quick_memory
-    cart = Cost.new.tick_verdict(ticking_game)[:cost]
-    quick = Cost.new(fast_interrupts: true).tick_verdict(ticking_game)[:cost]
+    cart = Cost.new.tick_verdict(ticking_game).cost
+    quick = Cost.new(fast_interrupts: true).tick_verdict(ticking_game).cost
     assert_operator quick, :<, cart
 
     gain = Cost::DEFAULT_WEIGHTS[:tick_interrupt] / Cost::DEFAULT_WEIGHTS[:tick_interrupt_fast]

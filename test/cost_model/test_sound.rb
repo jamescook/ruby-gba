@@ -65,6 +65,8 @@ class TestSoundCost < CostModelTest
 
   # rom.explain's JSON carries a per-song breakdown, judged against the music budget.
   def test_json_carries_the_song_breakdown
+    # Plain hashes here, not verdicts: this is the serialized output, and "over" is put back
+    # into it because a reader on the other side cannot work it out.
     song = Cost.new.as_json(music_game(10))[:songs].first
     assert_equal :theme, song[:name]
     assert_equal 10, song[:notes]
@@ -77,7 +79,7 @@ class TestSoundCost < CostModelTest
   def test_a_long_song_is_not_heavier_than_a_short_one
     long = Cost.new.song_verdicts(music_game(400)).first
     short = Cost.new.song_verdicts(music_game(50)).first
-    assert_equal short[:steady_cost], long[:steady_cost], "cost is per voice, so length doesn't change it"
-    refute long[:over], "a long song is still well under the music budget"
+    assert_equal short.steady_cost, long.steady_cost, "cost is per voice, so length doesn't change it"
+    refute_predicate long, :over?, "a long song is still well under the music budget"
   end
 end

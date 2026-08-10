@@ -293,8 +293,8 @@ class TestFastCodePlacement < Minitest::Test
   # read nearly twice over for every program that ripples.
   def test_the_estimate_follows_the_interrupt_into_quick_memory
     program = bending_program
-    cart = RubyGBA::IR::CostModel.new.bend_verdict(program)[:interrupts]
-    quick = RubyGBA::IR::CostModel.new(fast_interrupts: true).bend_verdict(program)[:interrupts]
+    cart = RubyGBA::IR::CostModel.new.bend_verdict(program).interrupts
+    quick = RubyGBA::IR::CostModel.new(fast_interrupts: true).bend_verdict(program).interrupts
     assert_operator quick, :<, cart
   end
 

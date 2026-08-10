@@ -322,11 +322,11 @@ class TestTearFreeDrawing < CostModelTest
     end
 
     verdicts = Cost.new.scene_verdicts(game)
-    title = verdicts.find { |s| s[:name] == "title" }
-    play  = verdicts.find { |s| s[:name] == "play" }
+    title = verdicts.find { |s| s.name == "title" }
+    play  = verdicts.find { |s| s.name == "play" }
 
-    near plot_rect(40, 40), title[:steady_cost]
-    near tearfree_fill(40, 40), play[:steady_cost]
+    near plot_rect(40, 40), title.steady_cost
+    near tearfree_fill(40, 40), play.steady_cost
   end
 
   # ...including a helper the scene calls, which draws on its caller's screen.

@@ -36,18 +36,18 @@ class TestPerSceneCost < CostModelTest
   # transfer covers twice as many) and is judged against a whole frame besides.
   def test_each_scene_is_judged_against_its_own_mode_budget
     verdicts = Cost.new.scene_verdicts(mixed(direct_clears: 3, buffered_clears: 3))
-    still  = verdicts.find { |s| s[:name] == "still" }
-    action = verdicts.find { |s| s[:name] == "action" }
+    still  = verdicts.find { |s| s.name == "still" }
+    action = verdicts.find { |s| s.name == "action" }
 
-    assert_equal :direct, still[:mode]
-    near 3 * dma_blob(240 * 160), still[:steady_cost]
-    assert_equal Cost::VBLANK_BUDGET, still[:budget]
-    assert still[:over], "a direct scene clearing 3x a frame overruns the safe window"
+    assert_equal :direct, still.mode
+    near 3 * dma_blob(240 * 160), still.steady_cost
+    assert_equal Cost::VBLANK_BUDGET, still.budget
+    assert still.over?, "a direct scene clearing 3x a frame overruns the safe window"
 
-    assert_equal :buffered, action[:mode]
-    near 3 * tearfree_clear, action[:steady_cost]
-    assert_equal Cost::FRAME_BUDGET, action[:budget]
-    refute action[:over], "the same code, tear-free, fits a whole frame"
+    assert_equal :buffered, action.mode
+    near 3 * tearfree_clear, action.steady_cost
+    assert_equal Cost::FRAME_BUDGET, action.budget
+    refute action.over?, "the same code, tear-free, fits a whole frame"
   end
 
   # Judging each scene against its OWN mode's budget is what catches a heavy direct
@@ -56,9 +56,9 @@ class TestPerSceneCost < CostModelTest
   # scene gets — so a single program-wide budget would miss it.
   def test_a_heavy_direct_scene_is_caught_even_beside_a_buffered_one
     still = Cost.new.scene_verdicts(mixed(direct_clears: 3, buffered_clears: 1))
-                    .find { |s| s[:name] == "still" }
-    assert still[:over], "the direct scene tears on its own budget"
-    assert_operator still[:steady_cost], :<, Cost::FRAME_BUDGET,
+                    .find { |s| s.name == "still" }
+    assert still.over?, "the direct scene tears on its own budget"
+    assert_operator still.steady_cost, :<, Cost::FRAME_BUDGET,
                     "yet it fits the wider whole-frame budget a buffered scene would get"
   end
 
@@ -72,6 +72,7 @@ class TestPerSceneCost < CostModelTest
 
   # The JSON carries the per-scene breakdown for tools, in dispatch order.
   def test_json_carries_the_per_scene_breakdown
+    # Plain hashes here, not verdicts: this is the serialized output.
     scenes = Cost.new.as_json(mixed(direct_clears: 3, buffered_clears: 3))[:scenes]
     assert_equal %w[still action], scenes.map { |s| s[:name] }
     assert_equal %i[direct buffered], scenes.map { |s| s[:mode] }

@@ -38,20 +38,20 @@ class TestTickRateGuardrail < Minitest::Test
 
   # A handler with room to spare is charged for every tick it was asked for.
   def test_a_handler_that_keeps_up_is_priced_at_the_rate_it_asked_for
-    timer = Cost.new(fast_interrupts: true).tick_verdict(timed_game(hz: 8_000, ops: 20))[:timers].first
+    timer = Cost.new(fast_interrupts: true).tick_verdict(timed_game(hz: 8_000, ops: 20)).timers.first
 
-    assert_equal 8_000, timer[:delivered]
-    assert_in_delta 8_000 / 60.0, timer[:ticks], 0.01
+    assert_equal 8_000, timer.delivered
+    assert_in_delta 8_000 / 60.0, timer.ticks, 0.01
   end
 
   # One that cannot is charged for the ticks the console can deliver, which is the rate
   # divided by whole steps: at a little under two gaps per tick it answers every second one.
   # Priced at the rate ASKED, the estimate read twice what the console spends.
   def test_a_handler_that_cannot_keep_up_is_priced_at_what_the_console_delivers
-    timer = Cost.new(fast_interrupts: true).tick_verdict(timed_game(hz: 30_000, ops: 80))[:timers].first
+    timer = Cost.new(fast_interrupts: true).tick_verdict(timed_game(hz: 30_000, ops: 80)).timers.first
 
-    assert_equal 15_000, timer[:delivered], "a handler over one gap long answers every second tick"
-    assert_operator timer[:cost], :<, 30_000 / 60.0 * timer[:each],
+    assert_equal 15_000, timer.delivered, "a handler over one gap long answers every second tick"
+    assert_operator timer.cost, :<, 30_000 / 60.0 * timer.each,
                     "and is charged for the ticks it answers, not the ticks it was sent"
   end
 
@@ -81,7 +81,7 @@ class TestTickRateGuardrail < Minitest::Test
     game = timed_game(hz: 30_000, ops: 20)
 
     assert_empty Check.new.detect(game)
-    assert_equal 30_000, Cost.new(fast_interrupts: true).tick_verdict(game)[:timers].first[:delivered]
+    assert_equal 30_000, Cost.new(fast_interrupts: true).tick_verdict(game).timers.first.delivered
   end
 
   # A timer with no handler cannot lose anything.
@@ -122,7 +122,7 @@ class TestTickRateGuardrail < Minitest::Test
         end
         game_loop { }
       end
-      predicted = rom.cost_model.tick_verdict(rom.source_program)[:timers].first[:ticks]
+      predicted = rom.cost_model.tick_verdict(rom.source_program).timers.first.ticks
 
       assert_in_delta predicted, ticks_a_frame(rom), predicted * 0.1,
                       "at #{hz} a second with a #{ops}-statement handler, the model predicts " \

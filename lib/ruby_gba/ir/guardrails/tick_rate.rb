@@ -40,9 +40,9 @@ module RubyGBA
             model = CostModel.new(fast_interrupts: true)
             verdict = model.tick_verdict(program) or return []
 
-            verdict[:timers].select { |timer| timer[:delivered] < timer[:hz] }.map do |timer|
+            verdict.timers.select { |timer| timer.delivered < timer.hz }.map do |timer|
               Finding.new(check: NAME, severity: :warning, message: message_for(timer),
-                          node: handler_for(program, timer[:name]))
+                          node: handler_for(program, timer.name))
             end
           end
 
@@ -56,10 +56,10 @@ module RubyGBA
           end
 
           def message_for(timer)
-            "The :#{timer[:name]} timer asks for #{timer[:hz]} ticks a second. Its handler is " \
+            "The :#{timer.name} timer asks for #{timer.hz} ticks a second. Its handler is " \
               "too long to finish between two ticks. So the console loses the ticks that " \
-              "arrive while it runs, and the handler gets about #{timer[:delivered].round} a " \
-              "second. To fix this, set `per_second: #{timer[:delivered].round}` or less. Or " \
+              "arrive while it runs, and the handler gets about #{timer.delivered.round} a " \
+              "second. To fix this, set `per_second: #{timer.delivered.round}` or less. Or " \
               "make the handler shorter: move work into the game loop, which has a whole " \
               "frame to do it in."
           end

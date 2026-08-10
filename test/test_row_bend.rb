@@ -250,8 +250,8 @@ class TestRowBend < Minitest::Test
   def test_the_report_names_what_bending_costs
     program = bars_program { |water| water.scroll_each_row { |row| row % 8 } }
     verdict = RubyGBA::IR::CostModel.new.bend_verdict(program)
-    assert_equal [:water], verdict[:layers]
-    assert_operator verdict[:interrupts], :>, 20, "228 interruptions a frame is the bulk of the cost"
+    assert_equal [:water], verdict.layers
+    assert_operator verdict.interrupts, :>, 20, "228 interruptions a frame is the bulk of the cost"
 
     io = StringIO.new
     RubyGBA::IR::CostModel.new.report(program, out: io, color: false)
@@ -274,9 +274,9 @@ class TestRowBend < Minitest::Test
   def test_the_blocks_own_work_is_charged_per_visible_row
     cheap = bars_program { |water| water.scroll_each_row { |_row| 3 } }
     dear = bars_program { |water| water.scroll_each_row { |row| (row * row) % 8 } }
-    assert_equal 0, RubyGBA::IR::CostModel.new.bend_verdict(cheap)[:offsets],
+    assert_equal 0, RubyGBA::IR::CostModel.new.bend_verdict(cheap).offsets,
                  "a number written in the program costs nothing to read"
-    assert_operator RubyGBA::IR::CostModel.new.bend_verdict(dear)[:offsets], :>, 0,
+    assert_operator RubyGBA::IR::CostModel.new.bend_verdict(dear).offsets, :>, 0,
                     "arithmetic in the block is paid on every row of every frame"
   end
 end

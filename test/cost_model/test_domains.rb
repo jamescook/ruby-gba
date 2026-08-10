@@ -52,9 +52,9 @@ class TestCostDomains < CostModelTest
 
     assert_equal 1, notes.length
     note = notes.first
-    assert_equal :overlap_pixel, note[:weight]
-    assert_equal :overlap_pixels, note[:varies]
-    assert_operator note[:count], :<, 64 * Cost::Domains::FAR_BELOW
+    assert_equal :overlap_pixel, note.weight
+    assert_equal :overlap_pixels, note.varies
+    assert_operator note.count, :<, 64 * Cost::Domains::FAR_BELOW
   end
 
   # ...and the report says it out loud, at the top, in the same voice as an unpriced op.

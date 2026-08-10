@@ -155,8 +155,8 @@ module RubyGBA
           v = mixer_verdict(program)
           return [] unless v
 
-          [Entry.new(op: :mixer, category: :sound, cost: v[:cost],
-                     label: "software mixer — worst case, all #{v[:voices]} voices summed each frame")]
+          [Entry.new(op: :mixer, category: :sound, cost: v.cost,
+                     label: "software mixer — worst case, all #{v.voices} voices summed each frame")]
         end
 
         # A row-by-row bend as a cost leaf, or none when nothing bends. It belongs in the
@@ -172,9 +172,9 @@ module RubyGBA
           v = bend_verdict(program)
           return [] unless v
 
-          layers = v[:layers].map { |name| ":#{name}" }.join(", ")
-          [Entry.new(op: :bend, category: :logic, cost: v[:cost],
-                     label: "bending #{layers} row by row — interrupted on each of #{v[:lines]} lines a frame")]
+          layers = v.layers.map { |name| ":#{name}" }.join(", ")
+          [Entry.new(op: :bend, category: :logic, cost: v.cost,
+                     label: "bending #{layers} row by row — interrupted on each of #{v.lines} lines a frame")]
         end
 
         # One leaf per timer that runs a tick handler, for the same reason: the body runs off
@@ -185,18 +185,18 @@ module RubyGBA
           v = tick_verdict(program)
           return [] unless v
 
-          v[:timers].map do |t|
-            Entry.new(op: :tick, category: :logic, cost: t[:cost],
-                      label: "timer :#{t[:name]} — its body runs #{tick_rate_phrase(t)}, off the timer itself")
+          v.timers.map do |t|
+            Entry.new(op: :tick, category: :logic, cost: t.cost,
+                      label: "timer :#{t.name} — its body runs #{tick_rate_phrase(t)}, off the timer itself")
           end
         end
 
         # How often a tick handler runs, said the way round that reads: several times a
         # frame, or once every so many frames.
         def tick_rate_phrase(entry)
-          return "#{entry[:ticks].round} times a frame" if entry[:ticks] >= 2
+          return "#{entry.ticks.round} times a frame" if entry.ticks >= 2
 
-          every = (1 / entry[:ticks]).round
+          every = (1 / entry.ticks).round
           every <= 1 ? "every frame" : "once every #{every} frames"
         end
 

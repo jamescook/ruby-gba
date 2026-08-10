@@ -144,11 +144,12 @@ module RubyGBA
             buffered: buffered?(program),      # double-buffered? (drawing can't tear, over frame = a dropped frame)
             looping: looping?(program),
             categories: category_tree(program).map { |c| { category: c.category, cost: c.cost } }, # drawing/sound/logic subtotals
-            scenes: scene_verdicts(program),   # per-scene cost vs each scene's own budget
-            songs: song_verdicts(program),     # per-song music cost vs the music budget
-            mixer: mixer_verdict(program),     # the software mixer's per-frame CPU (nil if no sampled sound)
-            bend: bend_verdict(program),       # a row-by-row bend's per-frame CPU (nil if nothing bends)
-            ticks: tick_verdict(program),      # each timer's tick handler per frame (nil if no timer runs one)
+            # The verdicts, flattened for the same reason the tree is (see #verdict_json).
+            scenes: scene_verdicts(program).map { |v| verdict_json(v) }, # per-scene cost vs its own budget
+            songs: song_verdicts(program).map { |v| verdict_json(v) },   # per-song music cost vs the music budget
+            mixer: verdict_json(mixer_verdict(program)), # the mixer's per-frame CPU (nil if no sampled sound)
+            bend: verdict_json(bend_verdict(program)),   # a bend's per-frame CPU (nil if nothing bends)
+            ticks: verdict_json(tick_verdict(program)),  # each timer's handler (nil if no timer runs one)
             # per-font reachable-glyph footprint, flattened here because this hash is the
             # serialized output and a value object has no meaning once it is JSON
             glyphs: IR::GlyphUsage.footprint(program).map(&:to_h),
@@ -160,6 +161,17 @@ module RubyGBA
         end
 
         private
+
+        # One verdict as plain data. Whether it is over its budget is worked out rather than
+        # stored, so it is put back here — it is part of the answer a reader of the JSON
+        # wants, and nothing on the other side of that boundary can work it out.
+        def verdict_json(verdict)
+          return nil unless verdict
+
+          json = verdict.to_h
+          json[:timers] = json[:timers].map { |timer| verdict_json(timer) } if json[:timers]
+          verdict.respond_to?(:over?) ? json.merge(over: verdict.over?) : json
+        end
 
         # One cost-tree entry as plain data, children and all. A field the entry has nothing
         # to say about is dropped rather than serialized as null, which keeps the JSON the
@@ -239,7 +251,7 @@ module RubyGBA
           end
 
           if (mv = mixer_verdict(program))
-            printer.puts "    (sound is the worst case — all #{mv[:voices]} mixer voices at once; a typical frame sounds fewer)"
+            printer.puts "    (sound is the worst case — all #{mv.voices} mixer voices at once; a typical frame sounds fewer)"
           end
 
           bend_line(program, printer)
@@ -272,8 +284,8 @@ module RubyGBA
           walks = list_walk_verdicts(program)
           return if walks.empty?
 
-          at = walks.map { |walk| ":#{walk[:name]} #{walk[:counted]} of #{walk[:capacity]}" }.join(", ")
-          if walks.all? { |walk| walk[:said] }
+          at = walks.map { |walk| ":#{walk.name} #{walk.counted} of #{walk.capacity}" }.join(", ")
+          if walks.all?(&:said)
             printer.puts "    (a list walk counts what the list usually holds — #{at}, the length you gave)"
           else
             printer.puts "    (a list walk counts what the list usually holds — #{at}, a guess. " \
@@ -315,11 +327,11 @@ module RubyGBA
         def bend_line(program, printer)
           verdict = bend_verdict(program) or return
 
-          layers = verdict[:layers].map { |name| ":#{name}" }.join(", ")
+          layers = verdict.layers.map { |name| ":#{name}" }.join(", ")
           printer.puts format("    bending %s costs ~%s a frame — the display is interrupted on all " \
                               "%d of its lines (~%s), and each row's own offset is worked out (~%s)",
-                              layers, fmt(verdict[:cost]), verdict[:lines],
-                              fmt(verdict[:interrupts]), fmt(verdict[:offsets]))
+                              layers, fmt(verdict.cost), verdict.lines,
+                              fmt(verdict.interrupts), fmt(verdict.offsets))
         end
 
         # Below this a timer's per-frame cost prints as "<0.1" anyway, so there is nothing to
@@ -339,20 +351,20 @@ module RubyGBA
         def tick_lines(program, printer)
           verdict = tick_verdict(program) or return
 
-          verdict[:timers].each do |t|
-            next if t[:cost] < TICK_WORTH_SAYING
+          verdict.timers.each do |t|
+            next if t.cost < TICK_WORTH_SAYING
 
             printer.puts format("    timer :%s costs ~%s a frame — it ticks %d times a second, so its body " \
                                 "runs %s (interrupts ~%s, the body ~%s)",
-                                t[:name], fmt(t[:cost]), t[:delivered], tick_rate_phrase(t),
-                                fmt(t[:interrupts]), fmt(t[:body]))
+                                t.name, fmt(t.cost), t.delivered, tick_rate_phrase(t),
+                                fmt(t.interrupts), fmt(t.body))
             # Said here as well as in the guardrail, because this is the line where a reader
             # is working out where the frame went and the answer is "not where you asked".
-            next if t[:delivered] >= t[:hz]
+            next if t.delivered >= t.hz
 
             printer.puts format("    (:%s was asked for %d a second. Its handler cannot finish " \
                                 "between two ticks, so the console loses the rest.)",
-                                t[:name], t[:hz])
+                                t.name, t.hz)
           end
         end
 
@@ -418,19 +430,19 @@ module RubyGBA
         def scene_verdict_lines(program, printer)
           blind = estimate_blind_spots(program)
           scene_verdicts(program).each do |s|
-            mode_label = s[:mode] == Modes::BUFFERED ? "tear-free" : "direct"
+            mode_label = s.mode == Modes::BUFFERED ? "tear-free" : "direct"
             note =
-              if s[:over]
-                s[:mode] == Modes::BUFFERED ? "! estimate over budget" : "! over budget — the screen tears"
+              if s.over?
+                s.mode == Modes::BUFFERED ? "! estimate over budget" : "! over budget — the screen tears"
               elsif blind.any?
                 "estimate can't tell — #{blind.join(' and ')} here isn't counted"
               else
-                s[:mode] == Modes::BUFFERED ? "estimate within budget" : "ok — fits the safe window"
+                s.mode == Modes::BUFFERED ? "estimate within budget" : "ok — fits the safe window"
               end
-            hedged = !s[:over] && blind.any?
-            printer.puts "  scene :#{s[:name]} (#{mode_label}) ~ #{fmt(s[:steady_cost])} of ~#{s[:budget]} scanlines " \
-                         "(#{pct(s[:steady_cost], s[:budget])})   #{note}",
-                         severity: hedged ? :warm : severity_for(s[:steady_cost], s[:budget])
+            hedged = !s.over? && blind.any?
+            printer.puts "  scene :#{s.name} (#{mode_label}) ~ #{fmt(s.steady_cost)} of ~#{s.budget} scanlines " \
+                         "(#{pct(s.steady_cost, s.budget)})   #{note}",
+                         severity: hedged ? :warm : severity_for(s.steady_cost, s.budget)
           end
         end
 
