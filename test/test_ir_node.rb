@@ -279,6 +279,55 @@ class TestIRNode < Minitest::Test
   end
 
   # ========================================================================
+  # copying a tree
+  #
+  # Anything that has to CHANGE a program to learn something about it works on a copy, so
+  # the two trees must share nothing — not a child, not a nested operand, not a list.
+
+  def test_a_copy_has_the_same_shape
+    original = program(screen(:bitmap), loop_(set(:x, binop(:+, var_ref(:x), int(1))), halt))
+
+    assert_equal original.to_h, original.copy.to_h
+  end
+
+  def test_changing_a_copy_leaves_the_original_alone
+    original = program(loop_(set(:x, int(1))))
+    copy = original.copy
+
+    copy.children.first.children << add(:x, int(1))
+    copy.children.first.children.first[:value] = int(99)
+
+    assert_equal 1, original.children.first.children.length, "a child added to the copy"
+    assert_equal 1, original.children.first.children.first[:value][:value], "an operand replaced in the copy"
+  end
+
+  # A nested operand is a node too, so a shallow copy would leave the two trees sharing it.
+  def test_a_copy_does_not_share_its_operands
+    original = program(set(:x, binop(:+, var_ref(:x), int(1))))
+    copy = original.copy
+
+    refute_same original.children.first[:value], copy.children.first[:value]
+  end
+
+  # A case node keeps its clauses in a list of pairs, which is the one operand shape that
+  # would survive a copy by reference.
+  def test_a_copy_does_not_share_a_list_operand
+    original = Case.new(clauses: [int(1), int(2)])
+    copy = original.copy
+
+    refute_same original[:clauses], copy[:clauses]
+    refute_same original[:clauses].first, copy[:clauses].first
+  end
+
+  def test_a_copy_wires_its_own_parents
+    copy = program(loop_(halt)).copy
+    inner = copy.children.first
+
+    assert_same copy, inner.parent
+    assert_same inner, inner.children.first.parent
+  end
+
+  # ========================================================================
   # a node answers only for what its kind has
   #
   # One class stands for every kind, and the operands live in a hash, so a read of a field

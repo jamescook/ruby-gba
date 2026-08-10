@@ -172,6 +172,19 @@ module RubyGBA
         attrs.each_value { |value| walk_attr(value, &block) }
       end
 
+      # A separate tree of the same shape: this node, its operands and everything under it,
+      # all new objects. Parents are rewired to the copy as it is built, so the two trees
+      # share nothing and changing one cannot show up in the other.
+      #
+      # For anything that has to CHANGE a program to learn about it — measuring a frame rate
+      # means adding a counter to count frames with — so the program it was handed is still
+      # the program afterwards.
+      def copy
+        self.class.new(source: source,
+                       children: @children.map(&:copy),
+                       **attrs.transform_values { |value| copy_operand(value) })
+      end
+
       # A plain nested Hash of the whole node — for asserting structure in tests
       # and for the inspector to pretty-print. Parent/source are intentionally
       # omitted so the hash captures shape, not identity.
@@ -210,6 +223,17 @@ module RubyGBA
               "#{known.empty? ? '(nothing)' : known.map(&:inspect).join(', ')}. " \
               "Code that walks every kind asks what a node is first (#sized?, #colored?, " \
               "#branching?); declare the field with `operands` if this kind should have it."
+      end
+
+      # An operand for #copy: a nested node is copied, a list is copied element by element
+      # (a case node's clauses are pairs, so this recurses), and anything else is a plain
+      # value that cannot be changed through the tree.
+      def copy_operand(value)
+        case value
+        when Node then value.copy
+        when Array then value.map { |element| copy_operand(element) }
+        else value
+        end
       end
 
       # Recurse #walk into an operand that may itself be a node, or an array of

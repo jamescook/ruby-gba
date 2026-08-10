@@ -136,15 +136,19 @@ module RubyGBA
     #
     # Overrides the LAST boot-time set of the selector, so a game that sets it more than
     # once at start still ends up in the chosen scene.
+    # Answers a COPY, for the same reason #instrument_frame_counter does: this rewrites where
+    # the game starts, and measuring one scene must not leave the caller's program booting
+    # into it — least of all when the next scene is about to be measured from the same tree.
     def boot_into(program, selector, value)
-      init = program.children.select { |node| node.kind == :set && node[:var] == selector }.last
+      booted = program.copy
+      init = booted.children.select { |node| node.kind == :set && node[:var] == selector }.last
       unless init
         raise ArgumentError,
               "cannot boot into a scene: this game never sets its scene variable #{selector.inspect} at " \
               "start. Declare it with `var #{selector.inspect}, 0` before the game loop."
       end
       init[:value] = IR::Build.int(value)
-      program
+      booted
     end
 
     # Measure a program and report its WORST frame — the reading a player would actually
@@ -261,9 +265,9 @@ module RubyGBA
     # pass met its frame. nil when there is no game loop to count.
     def measure_fps(program, options = {}, keys: [])
       counter = :__profile_frames
-      return nil unless instrument_frame_counter(program, counter)
+      counted = instrument_frame_counter(program, counter) or return nil
 
-      measuring = build_for_measuring(program, options)
+      measuring = build_for_measuring(counted, options)
       address = measuring[:vars][counter]
       in_temp_rom(measuring[:rom]) do |path|
         probe = Emulator.probe(path)
@@ -276,15 +280,20 @@ module RubyGBA
       end
     end
 
-    # Add a hidden counter that ticks once per game-loop iteration. Returns true if a
-    # game loop was there to instrument.
+    # A COPY of the program with a hidden counter that ticks once per game-loop iteration,
+    # or nil when there is no loop to count. Counting frames means adding something that
+    # counts them, and the caller's program is not the place to put it: the tree handed in
+    # is often the one a ROM reports on, so instrumenting it in place would leave that
+    # report describing a game with statements the shipped ROM does not have — and measuring
+    # twice would add the counter twice.
     def instrument_frame_counter(program, counter)
-      loop_node = program.walk.find { |node| node.kind == :loop }
-      return false unless loop_node
+      counted = program.copy
+      loop_node = counted.walk.find { |node| node.kind == :loop }
+      return nil unless loop_node
 
-      program.children.unshift(IR::Build.set(counter, IR::Build.int(0)))
+      counted.children.unshift(IR::Build.set(counter, IR::Build.int(0)))
       loop_node.children << IR::Build.add(counter, IR::Build.int(1))
-      true
+      counted
     end
 
     # A measuring ROM and where its variables live. The addresses come from the very
