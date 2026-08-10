@@ -306,7 +306,7 @@ module RubyGBA
         # rather than a number, so a reader can see which rect the estimate had to
         # leave out.
         def size_of(node)
-          [node[:w], node[:h]].map { |side| const_side(side) || "?" }.join("x")
+          [node.w, node.h].map { |side| const_side(side) || "?" }.join("x")
         end
 
         # How a frame's sprites read in the tree. Just a count while they only move; once
@@ -328,17 +328,17 @@ module RubyGBA
         def label_of(node)
           case node.kind
           when :fill_rect, :dma_fill_rect, :draw_rect_at then "#{node.kind} #{size_of(node)}"
-          when :draw_text then "draw_text #{node[:text].inspect}"
+          when :draw_text then "draw_text #{node.text.inspect}"
           when :draw_digit then "draw_digit"
-          when :blit then "blit :#{node[:name]}"
-          when :blit_pose then "blit_pose (#{node[:poses].length} poses)"
-          when :save_region then "save_region :#{node[:buffer]}"
-          when :restore_region then "restore_region :#{node[:buffer]}"
-          when :present_objects then "present_objects (#{sprite_tally(node[:names].to_a)})"
-          when :scroll_background then "scroll_background :#{node[:name]}"
-          when :background then "background :#{node[:name]}"
-          when :play_song then "play_song :#{node[:name]} (#{song_notes(node[:name])} notes)"
-          when :beep then "beep #{node[:tone].inspect}"
+          when :blit then "blit :#{node.name}"
+          when :blit_pose then "blit_pose (#{node.poses.length} poses)"
+          when :save_region then "save_region :#{node.buffer}"
+          when :restore_region then "restore_region :#{node.buffer}"
+          when :present_objects then "present_objects (#{sprite_tally(node.names.to_a)})"
+          when :scroll_background then "scroll_background :#{node.name}"
+          when :background then "background :#{node.name}"
+          when :play_song then "play_song :#{node.name} (#{song_notes(node.name)} notes)"
+          when :beep then "beep #{node.tone.inspect}"
           else node.kind.to_s
           end
         end

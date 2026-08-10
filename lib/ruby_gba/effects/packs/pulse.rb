@@ -97,11 +97,11 @@ module RubyGBA
           private
 
           def pulse_routine(program)
-            program.each.find { |node| node.kind == :func && node[:name].to_s.start_with?(ROUTINE_PREFIX) }
+            program.each.find { |node| node.kind == :func && node.name.to_s.start_with?(ROUTINE_PREFIX) }
           end
 
           def called?(program, routine)
-            program.each.any? { |node| node.kind == :call && node[:target] == routine[:name] }
+            program.each.any? { |node| node.kind == :call && node.target == routine.name }
           end
         end
 

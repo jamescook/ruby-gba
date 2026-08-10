@@ -99,18 +99,18 @@ module RubyGBA
           private
 
           def declared?(program)
-            program.each.any? { |node| node.kind == :func && node[:name] == ROUTINE }
+            program.each.any? { |node| node.kind == :func && node.name == ROUTINE }
           end
 
           def called?(program)
-            program.each.any? { |node| node.kind == :call && node[:target] == ROUTINE }
+            program.each.any? { |node| node.kind == :call && node.target == ROUTINE }
           end
 
           # Where the author wrote `shake_screen`. The routine itself is the
           # framework's and carries no line, but the counter it sets was recorded at
           # the call site, so that is the line to send them to.
           def trigger(program)
-            program.each.find { |node| node.kind == :set && node[:var] == LEFT }
+            program.each.find { |node| node.kind == :set && node.var == LEFT }
           end
         end
 

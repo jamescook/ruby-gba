@@ -76,7 +76,7 @@ module Differential
   # (a bitmap title handing off to a tiled game) has no single answer, so it has
   # to say which it wants.
   def console_frames_for(program, frames)
-    modes = program.walk.select { |n| n.kind == :screen }.map { |n| n[:mode] }.uniq
+    modes = program.walk.select { |n| n.kind == :screen }.map { |n| n.mode }.uniq
     if modes.length > 1
       raise ArgumentError,
             "this program uses more than one screen mode (#{modes.inspect}), so the frame offset " \

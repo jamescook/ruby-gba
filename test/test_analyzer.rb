@@ -84,8 +84,8 @@ class TestAnalyzer < Minitest::Test
     end
     b.emit_pending_functions
     program = Analyzer.boot_into(b.program, :state, 1)
-    last = program.children.select { |n| n.kind == :set && n[:var] == :state }.last
-    assert_equal 1, last[:value][:value], "the last boot set of the selector wins, at the target scene"
+    last = program.children.select { |n| n.kind == :set && n.var == :state }.last
+    assert_equal 1, last.value.value, "the last boot set of the selector wins, at the target scene"
   end
 
   def test_boot_into_without_a_selector_init_is_a_friendly_error

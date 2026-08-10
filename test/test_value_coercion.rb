@@ -17,13 +17,13 @@ class TestValueCoercion < Minitest::Test
   def test_an_integer_becomes_an_int_literal_node
     node = Value.node_for(5)
     assert_equal :int, node.kind
-    assert_equal 5, node[:value]
+    assert_equal 5, node.value
   end
 
   def test_a_symbol_becomes_a_variable_reference_node
     node = Value.node_for(:score)
     assert_equal :var_ref, node.kind
-    assert_equal :score, node[:name]
+    assert_equal :score, node.name
   end
 
   def test_a_value_contributes_its_own_node
@@ -102,6 +102,6 @@ class TestValueCoercion < Minitest::Test
 
     assert_predicate handle, :fraction?
     assert_equal 16, handle.fraction_bits
-    assert_equal 1.5 * (1 << 16), b.program.walk.find { |n| n.kind == :set }[:value][:value]
+    assert_equal 1.5 * (1 << 16), b.program.walk.find { |n| n.kind == :set }.value.value
   end
 end

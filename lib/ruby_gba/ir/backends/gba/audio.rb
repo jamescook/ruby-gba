@@ -26,8 +26,8 @@ module RubyGBA
           # values (a defined-sound name, a preset, or a raw frequency), then write
           # the channel-2 registers.
           def emit_beep(node)
-            effect = Sound.resolve_effect(node[:tone], duty: node[:duty], decay: node[:decay],
-                                                       volume: node[:volume], defined: @defined_sounds)
+            effect = Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,
+                                                       volume: node.volume, defined: @defined_sounds)
             emit_writes(Sound::Registers.channel2(**effect.to_h))
           end
 
@@ -35,16 +35,16 @@ module RubyGBA
           # Resolve the hit to concrete musical values (a preset name plus any
           # overrides), then write the channel-4 registers.
           def emit_noise(node)
-            hit = Sound.resolve_noise(node[:preset], pitch: node[:pitch], decay: node[:decay],
-                                                     volume: node[:volume], metallic: node[:metallic])
+            hit = Sound.resolve_noise(node.preset, pitch: node.pitch, decay: node.decay,
+                                                     volume: node.volume, metallic: node.metallic)
             emit_writes(Sound::Registers.channel4(**hit))
           end
 
           # Play a sustained wavetable tone on channel 3. Resolve the shape to its
           # sample table, then write the wave-RAM upload and channel-3 control.
           def emit_wave(node)
-            samples = Sound.wavetable(node[:shape])
-            emit_writes(Sound::Registers.wave_play(samples, frequency: node[:frequency], volume: node[:volume]))
+            samples = Sound.wavetable(node.shape)
+            emit_writes(Sound::Registers.wave_play(samples, frequency: node.frequency, volume: node.volume))
           end
 
           # Silence the wave voice.
@@ -78,22 +78,22 @@ module RubyGBA
           # Registers: r5 holds the frame counter for the whole update; r2/r3/r4 are
           # scratch for walking one voice's table (base, cursor address, value).
           def emit_play_song(node)
-            song = @songs.fetch(node[:name]) do
-              raise LoweringError, "play_song for undefined song #{node[:name].inspect}"
+            song = @songs.fetch(node.name) do
+              raise LoweringError, "play_song for undefined song #{node.name.inspect}"
             end
-            counter = :"_music_frame_#{node[:name]}"
-            cursors = build_song_tables(node[:name], song)
+            counter = :"_music_frame_#{node.name}"
+            cursors = build_song_tables(node.name, song)
             r_counter, r_base, r_entry, r_val = 5, 2, 3, 4
 
             load_var(r_counter, counter) # this frame's counter, held across every voice
 
             cursors.each_with_index do |cursor, index|
               regs = music_voice_regs(MUSIC_CHANNELS.fetch(index) do
-                raise LoweringError, "song #{node[:name].inspect} has more parts than this console can play"
+                raise LoweringError, "song #{node.name.inspect} has more parts than this console can play"
               end)
               skip = gensym
 
-              emit_load_data_address(r_base, :"_music_events_#{node[:name]}_#{index}") # &table
+              emit_load_data_address(r_base, :"_music_events_#{node.name}_#{index}") # &table
               load_var(r_entry, cursor)                        # this voice's cursor (an event index)
               emit(ASM.lsl_imm(r_entry, r_entry, 3))           # * 8 bytes per event
               emit(ASM.add_reg(r_entry, r_base, r_entry))      # &table[cursor]
@@ -120,7 +120,7 @@ module RubyGBA
 
             emit(ASM.add_imm(r_counter, r_counter, 1))         # counter += 1
             wrap = gensym                                      # loop the tune: at the end, rewind
-            emit(ASM.load_immediate(TMP, song[:total_frames]))
+            emit(ASM.load_immediate(TMP, song.total_frames))
             emit(ASM.cmp_reg(r_counter, TMP))
             emit_branch(:bcond, wrap, cond: :lt)               # not at the end yet
             emit(ASM.load_immediate(r_counter, 0))             # counter back to 0...
@@ -151,8 +151,8 @@ module RubyGBA
           # the counter never reaches mid-tune) sits after the last note so a finished
           # voice doesn't re-trigger before the song loops.
           def build_song_tables(name, song)
-            song[:voices].each_index.map do |index|
-              voice = song[:voices][index]
+            song.voices.each_index.map do |index|
+              voice = song.voices[index]
               regs = music_voice_regs(MUSIC_CHANNELS.fetch(index) do
                 raise LoweringError, "song #{name.inspect} has more parts than this console can play"
               end)
@@ -161,7 +161,7 @@ module RubyGBA
                                                        frequency: frequency, duty: voice[:duty], volume: voice[:volume])
                 [frame, note_reg_value(writes, regs[:reg_a]), note_reg_value(writes, regs[:reg_b])].pack("Vvv")
               end
-              rows << [song[:total_frames], 0, 0].pack("Vvv") # sentinel: never matches while the tune plays
+              rows << [song.total_frames, 0, 0].pack("Vvv") # sentinel: never matches while the tune plays
               @data_blobs[:"_music_events_#{name}_#{index}"] = rows.join
               :"_music_idx_#{name}_#{index}"
             end

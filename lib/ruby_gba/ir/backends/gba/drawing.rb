@@ -19,7 +19,7 @@ module RubyGBA
           def emit_screen(node)
             return if @manage_modes
 
-            mode = node[:mode]
+            mode = node.mode
             value = if mode == :tiled
                       # Tile mode turns on exactly the background layers the program declared,
                       # so a stack of two or three composites; a single background is just BG0.
@@ -175,18 +175,18 @@ module RubyGBA
           def emit_pixel(node)
             return emit_pixel_buffered(node) if @lower_mode == :buffered
 
-            color = Color.resolve(node[:color])
-            xi = const_int(node[:x])
-            yi = const_int(node[:y])
+            color = Color.resolve(node.color)
+            xi = const_int(node.x)
+            yi = const_int(node.y)
 
             if xi && yi
               return unless in_bounds?(xi, yi) # off-screen: clip, like the framebuffer
 
               write_reg16(VRAM_START + ((yi * SCREEN_WIDTH) + xi) * 2, color)
             else
-              eval_value(node[:y])            # r0 = y
+              eval_value(node.y)            # r0 = y
               emit(ASM.push(ACC))
-              eval_value(node[:x])            # r0 = x
+              eval_value(node.x)            # r0 = x
               emit(ASM.pop(TMP))              # r1 = y
               emit(ASM.load_immediate(2, SCREEN_WIDTH))
               emit(ASM.mul(3, TMP, 2))        # r3 = y * width
@@ -204,8 +204,8 @@ module RubyGBA
           def emit_fill_rect(node)
             return emit_fill_rect_buffered(node) if @lower_mode == :buffered
 
-            x, y, w, h = constant_ints!(node, :x, :y, :w, :h)
-            color = Color.resolve(node[:color])
+            x, y, w, h = constant_ints!(node, x: node.x, y: node.y, w: node.w, h: node.h)
+            color = Color.resolve(node.color)
             emit(ASM.load_immediate(ACC, color))
             h.times do |dy|
               row = y + dy
@@ -226,7 +226,7 @@ module RubyGBA
           def emit_clear_screen(node)
             return emit_clear_screen_buffered(node) if @lower_mode == :buffered
 
-            color = Color.resolve(node[:color])
+            color = Color.resolve(node.color)
             word = (color << 16) | color
             count = SCREEN_WIDTH * SCREEN_HEIGHT / 2
             scratch = var_addr(:_dma_scratch)
@@ -243,9 +243,9 @@ module RubyGBA
           def emit_dma_fill_rect(node)
             return emit_fill_rect_buffered(node) if @lower_mode == :buffered
 
-            x, y, w, h = constant_ints!(node, :x, :y, :w, :h)
+            x, y, w, h = constant_ints!(node, x: node.x, y: node.y, w: node.w, h: node.h)
             even_width!(w, :dma_fill_rect)
-            scratch = hold_fill_word(node[:color])
+            scratch = hold_fill_word(node.color)
             control = fill_control_for_column(x, w)
 
             h.times do |dy|
@@ -270,10 +270,10 @@ module RubyGBA
           def emit_draw_rect_at(node)
             return emit_draw_rect_at_buffered(node) if @lower_mode == :buffered
 
-            width = const_int(node[:w])
+            width = const_int(node.w)
             return if width && width < 1 # a rect with no width draws nothing
 
-            scratch = hold_fill_word(node[:color])
+            scratch = hold_fill_word(node.color)
             # x is computed at run time, so it can be an odd column on any given
             # frame — fill a pixel at a time so the rect lands where it was asked to.
             control = width ? fill_control_for_column(nil, width) : CONTROL_REG
@@ -295,7 +295,7 @@ module RubyGBA
               emit(ASM.orr_reg(CONTROL_REG, CONTROL_REG, TMP)) # ...now it is one
             end
 
-            height = const_int(node[:h])
+            height = const_int(node.h)
             if height
               height.times { |dy| emit_mode3_rect_row(dy, x_reg, y_reg, scratch, control) }
             else
@@ -348,16 +348,16 @@ module RubyGBA
           # The size registers are high enough that nothing evaluating an expression
           # reaches them, so those can be filled in place.
           def eval_rect_position(node, x_reg:, y_reg:, rows_reg:, width_reg: nil)
-            eval_value(node[:x])
+            eval_value(node.x)
             emit(ASM.push(ACC))
-            eval_value(node[:y])
+            eval_value(node.y)
             emit(ASM.push(ACC))
-            unless const_int(node[:h])
-              eval_value(node[:h])
+            unless const_int(node.h)
+              eval_value(node.h)
               emit(ASM.mov_reg(rows_reg, ACC))
             end
-            if width_reg && !const_int(node[:w])
-              eval_value(node[:w])
+            if width_reg && !const_int(node.w)
+              eval_value(node.w)
               emit(ASM.mov_reg(width_reg, ACC))
             end
             emit(ASM.pop(y_reg))
@@ -371,8 +371,8 @@ module RubyGBA
           # visible part, with nothing written past the framebuffer.
           def emit_blit(node)
             blit_unsupported_in_buffered! if @lower_mode == :buffered
-            bmp = @bitmaps.fetch(node[:name]) do
-              raise LoweringError, "blit of undefined image #{node[:name].inspect}"
+            bmp = @bitmaps.fetch(node.name) do
+              raise LoweringError, "blit of undefined image #{node.name.inspect}"
             end
             bmp.transparent ? emit_blit_transparent(node, bmp) : emit_blit_opaque(node, bmp)
           end
@@ -381,7 +381,7 @@ module RubyGBA
           # DMA — a run-time-positioned rectangle copy from a ROM buffer onto the
           # screen. The shared row engine below does the clipping.
           def emit_blit_opaque(node, bmp)
-            emit_rect_row_dma(node[:x], node[:y], bmp.width, bmp.height, node[:name], vram: :dest)
+            emit_rect_row_dma(node.x, node.y, bmp.width, bmp.height, node.name, vram: :dest)
           end
 
           # Draw a tiled background. In tile mode the console draws the whole layer
@@ -413,7 +413,7 @@ module RubyGBA
           # after that the hardware repaints the whole layer every frame for free, and
           # composites the layers by priority so nearer ones sit in front.
           def emit_background_hardware(node)
-            bg = @backgrounds.fetch(node[:name])
+            bg = @backgrounds.fetch(node.name)
             emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
             write_reg16(BG_CNT_REGS[bg.bg], bg.priority | BG_256_COLOR | (bg.screen_block << 8))
             write_reg16(BG_HOFS_REGS[bg.bg], 0) # start unscrolled
@@ -451,8 +451,8 @@ module RubyGBA
             write_reg16(REG_BG2PB, 0)
             write_reg16(REG_BG2PC, 0)
             write_reg16(REG_BG2PD, FIXED_ONE)
-            emit_camera_axis(node[:x], REG_BG2X)
-            emit_camera_axis(node[:y], REG_BG2Y)
+            emit_camera_axis(node.x, REG_BG2X)
+            emit_camera_axis(node.y, REG_BG2Y)
           end
 
           CAMERA_NEEDS_BITMAP =
@@ -479,13 +479,13 @@ module RubyGBA
           # number; an amount the game computes is scaled at run time, which is a
           # multiply and a divide once per call — nothing next to a frame.
           def emit_fade(node)
-            mode = node[:toward] == :white ? BLD_BRIGHTEN : BLD_DARKEN
+            mode = node.toward == :white ? BLD_BRIGHTEN : BLD_DARKEN
             write_reg16(REG_BLDCNT, mode | BLD_ALL_LAYERS)
 
-            if (amount = const_int(node[:amount]))
+            if (amount = const_int(node.amount))
               write_reg16(REG_BLDY, fade_steps(amount))
             else
-              eval_value(Build.binop(:/, Build.binop(:*, node[:amount], Build.int(BLD_MAX)),
+              eval_value(Build.binop(:/, Build.binop(:*, node.amount, Build.int(BLD_MAX)),
                                      Build.int(100)))
               store_halfword_acc(REG_BLDY)
             end
@@ -501,10 +501,10 @@ module RubyGBA
             # still declares a background) there's no tiled layer, so fall back to BG0 —
             # the scroll registers do nothing when that layer isn't on, matching the
             # interpreter's harmless handling.
-            bg_num = @backgrounds[node[:name]]&.bg || 0
-            eval_value(node[:x])          # r0 = scroll x (pixels)
+            bg_num = @backgrounds[node.name]&.bg || 0
+            eval_value(node.x)          # r0 = scroll x (pixels)
             store_halfword_acc(BG_HOFS_REGS[bg_num])
-            eval_value(node[:y])          # r0 = scroll y
+            eval_value(node.y)          # r0 = scroll y
             store_halfword_acc(BG_VOFS_REGS[bg_num])
           end
 
@@ -618,7 +618,7 @@ module RubyGBA
           # with no tearing. The console composites the sprites over the background for
           # free — there's nothing to erase, unlike a software sprite.
           def emit_present_objects(node)
-            node[:names].each { |name| emit_present_object(@objects.fetch(name)) }
+            node.names.each { |name| emit_present_object(@objects.fetch(name)) }
           end
 
           # Write one sprite's table entries from its live x/y/active variables. A hidden
@@ -793,10 +793,10 @@ module RubyGBA
           # Bitmap-mode background: no tile hardware, so stamp each non-empty cell with
           # the shared blit path — a positioned copy of the tile image onto the screen.
           def emit_background_blits(node)
-            tiles = node[:tiles]
-            tile_w = node[:tile_w]
-            tile_h = node[:tile_h]
-            node[:map].each_with_index do |row, r|
+            tiles = node.tiles
+            tile_w = node.tile_w
+            tile_h = node.tile_h
+            node.map.each_with_index do |row, r|
               row.each_with_index do |index, c|
                 next if index.nil?
 
@@ -810,9 +810,9 @@ module RubyGBA
           # which draws — the same shape as a run-time digit. Each guard reuses the
           # shared blit path, so a pose honors clipping and transparency like any image.
           def emit_blit_pose(node)
-            node[:poses].each_with_index do |name, k|
-              emit_statement(Build.if_(Build.binop(:==, node[:index], Build.int(k)),
-                                       Build.blit(name, node[:x], node[:y])))
+            node.poses.each_with_index do |name, k|
+              emit_statement(Build.if_(Build.binop(:==, node.index, Build.int(k)),
+                                       Build.blit(name, node.x, node.y)))
             end
           end
 
@@ -821,16 +821,16 @@ module RubyGBA
           # the other direction.
           def emit_save_region(node)
             backing_region_unsupported_in_buffered! if @lower_mode == :buffered
-            info = backing_info(node[:buffer])
-            emit_rect_row_dma(node[:x], node[:y], info[:width], info[:height], info[:base], vram: :src)
+            info = backing_info(node.buffer)
+            emit_rect_row_dma(node.x, node.y, info[:width], info[:height], info[:base], vram: :src)
           end
 
           # Put a saved patch back on the screen: stream the RAM buffer INTO VRAM, just
           # like a blit but sourced from the backing store instead of a ROM image.
           def emit_restore_region(node)
             backing_region_unsupported_in_buffered! if @lower_mode == :buffered
-            info = backing_info(node[:buffer])
-            emit_rect_row_dma(node[:x], node[:y], info[:width], info[:height], info[:base], vram: :dest)
+            info = backing_info(node.buffer)
+            emit_rect_row_dma(node.x, node.y, info[:width], info[:height], info[:base], vram: :dest)
           end
 
           # Copy the rows of a run-time-positioned width×height rectangle between the
@@ -954,9 +954,9 @@ module RubyGBA
 
             x_reg = 2
             y_reg = 3
-            eval_value(node[:x])
+            eval_value(node.x)
             emit(ASM.mov_reg(x_reg, ACC))
-            eval_value(node[:y])
+            eval_value(node.y)
             emit(ASM.mov_reg(y_reg, ACC))
 
             bmp.height.times do |row|
@@ -1027,10 +1027,10 @@ module RubyGBA
           def emit_draw_text(node)
             return emit_draw_text_buffered(node) if @lower_mode == :buffered
 
-            x, y = constant_ints!(node, :x, :y)
-            emit(ASM.load_immediate(ACC, Color.resolve(node[:color])))
+            x, y = constant_ints!(node, x: node.x, y: node.y)
+            emit(ASM.load_immediate(ACC, Color.resolve(node.color)))
 
-            Fonts.get(node[:font]).each_pixel(node[:text]) do |dx, dy|
+            Fonts.get(node.font).each_pixel(node.text) do |dx, dy|
               px = x + dx
               py = y + dy
               next unless in_bounds?(px, py)
@@ -1058,9 +1058,9 @@ module RubyGBA
           # digit, exactly one of which draws. Each is a draw_text that clips per pixel
           # and honors the screen mode.
           def emit_draw_digit(node)
-            font = Fonts.get(node[:font])
-            x = const_int(node[:x])
-            y = const_int(node[:y])
+            font = Fonts.get(node.font)
+            x = const_int(node.x)
+            y = const_int(node.y)
             digit_w = uniform_digit_width(font)
             if x && y && digit_w && digit_cell_on_screen?(x, y, digit_w, font.height)
               if @lower_mode == :buffered
@@ -1078,8 +1078,8 @@ module RubyGBA
           # statement paths, so it honors the current screen mode via draw_text.
           def emit_draw_digit_unrolled(node)
             10.times do |k|
-              emit_statement(Build.if_(Build.binop(:==, node[:value], Build.int(k)),
-                                       Build.draw_text(k.to_s, node[:x], node[:y], node[:color], font: node[:font])))
+              emit_statement(Build.if_(Build.binop(:==, node.value, Build.int(k)),
+                                       Build.draw_text(k.to_s, node.x, node.y, node.color, font: node.font)))
             end
           end
 
@@ -1087,7 +1087,7 @@ module RubyGBA
           # the chosen glyph and write the color straight to VRAM at each lit pixel — the
           # shared glyph loop does the walking; this supplies the direct-color plot.
           def emit_draw_digit_data(node, font, width, x, y)
-            color = Color.resolve(node[:color])
+            color = Color.resolve(node.color)
             emit_digit_glyph_loop(node, font, width) do |phase|
               case phase
               when :hold then emit(ASM.load_immediate(8, color)) # r8 = the fill color, held
@@ -1109,10 +1109,10 @@ module RubyGBA
           # the loop: r4 column, r5 row, r6 the glyph's row pointer, r7 the current row
           # byte; r0–r3 are per-pixel scratch and the plot owns r8 up.
           def emit_digit_glyph_loop(node, font, width)
-            table = ensure_digit_table(node[:font], font)
+            table = ensure_digit_table(node.font, font)
             top_bit = 1 << (width - 1)
 
-            eval_value(node[:value])              # r0 = the digit (0..9)
+            eval_value(node.value)              # r0 = the digit (0..9)
             emit_load_data_address(1, table)      # r1 = the glyph table's ROM address
             emit(ASM.load_immediate(2, font.height))
             emit(ASM.mul(3, 0, 2))                # r3 = digit * height (its row offset)

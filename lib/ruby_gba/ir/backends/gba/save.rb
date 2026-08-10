@@ -48,11 +48,11 @@ module RubyGBA
             saved = 7
 
             emit(ASM.load_immediate(base, SRAM_START))
-            emit(ASM.load_immediate(marker, Int32.wrap(node[:magic])))
+            emit(ASM.load_immediate(marker, Int32.wrap(node.magic)))
             emit_assemble_word(stored, base, 0, scratch: 2) # the marker actually in save memory
             emit(ASM.cmp_reg(stored, marker))               # equal? -> the save is real
 
-            node[:vars].each do |var|
+            node.vars.each do |var|
               offset = save_slot_offset(var[:slot])
               emit_assemble_word(saved, base, offset, scratch: 2)
               emit(ASM.mov_reg_cond(:eq, ACC, saved))       # real save -> take the saved value
@@ -68,8 +68,8 @@ module RubyGBA
           # Mirror one variable's current value back to its save slot — emitted right
           # after the variable changes, so the save always matches what the player sees.
           def emit_save_store(node)
-            offset = save_slot_offset(node[:slot])
-            load_var(ACC, node[:var])
+            offset = save_slot_offset(node.slot)
+            load_var(ACC, node.var)
             emit(ASM.load_immediate(TMP, SRAM_START + offset)) # the slot's address
             emit(ASM.strb(ACC, TMP))                           # low byte
             [8, 16, 24].each_with_index do |shift, i|

@@ -271,13 +271,13 @@ class TestRandom < Minitest::Test
     program = tree { roll :x, 0..9 }
     first = program.children.first
     assert_equal :set, first.kind
-    assert_equal Builder::RNG_STATE, first[:var]
-    assert_equal Builder::DEFAULT_SEED, first[:value][:value]
+    assert_equal Builder::RNG_STATE, first.var
+    assert_equal Builder::DEFAULT_SEED, first.value.value
   end
 
   def test_no_boot_seed_when_randomness_is_unused
     program = tree { set :x, 1 }
-    refute program.children.any? { |n| n.kind == :set && n[:var] == Builder::RNG_STATE },
+    refute program.children.any? { |n| n.kind == :set && n.var == Builder::RNG_STATE },
            "a game that never draws shouldn't carry the random stream at all"
   end
 

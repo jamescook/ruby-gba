@@ -212,7 +212,7 @@ module ConformanceFixture
   # if node's :else attr (that's how the DSL attaches a trailing `.else`).
   def self.if_else
     branch = B.if_(B.binop(:>, B.var_ref(:x), B.int(0)), B.set(:acc, 1))
-    branch[:else] = B.else_(B.set(:acc, 2))
+    branch.else = B.else_(B.set(:acc, 2))
     branch
   end
 end

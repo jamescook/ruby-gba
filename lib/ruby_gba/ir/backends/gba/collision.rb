@@ -46,8 +46,8 @@ module RubyGBA
             program.walk.each do |node|
               next unless node.kind == :pixels_overlap
 
-              register_pixel_mask(node[:a_poses])
-              register_pixel_mask(node[:b_poses])
+              register_pixel_mask(node.a_poses)
+              register_pixel_mask(node.b_poses)
             end
           end
 
@@ -85,13 +85,13 @@ module RubyGBA
           # addresses, work out the overlapping rectangle, and if it isn't empty walk it
           # row by row, stopping at the first pixel solid in both.
           def eval_pixels_overlap(node)
-            a = @pixel_masks.fetch(node[:a_poses])
-            b = @pixel_masks.fetch(node[:b_poses])
+            a = @pixel_masks.fetch(node.a_poses)
+            b = @pixel_masks.fetch(node.b_poses)
 
-            stash_position(node[:a_x], PO_AX, node[:a_y], PO_AY)
-            stash_position(node[:b_x], PO_BX, node[:b_y], PO_BY)
-            stash_mask_address(node[:a_pose], a, PO_A_MASK)
-            stash_mask_address(node[:b_pose], b, PO_B_MASK)
+            stash_position(node.a_x, PO_AX, node.a_y, PO_AY)
+            stash_position(node.b_x, PO_BX, node.b_y, PO_BY)
+            stash_mask_address(node.a_pose, a, PO_A_MASK)
+            stash_mask_address(node.b_pose, b, PO_B_MASK)
 
             # The overlapping rectangle: the later of the two left/top edges, the earlier
             # of the two right/bottom edges.

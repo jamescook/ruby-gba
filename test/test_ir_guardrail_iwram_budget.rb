@@ -49,7 +49,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
     findings = findings_for(prog)
     assert_equal 1, findings.size
     assert findings.first.error?, "over-budget IWRAM would break the ROM, so it's fatal, not advisory"
-    assert_equal :huge, findings.first.node[:name],
+    assert_equal :huge, findings.first.node.name,
                  "it blames the biggest user — the declaration whose capacity has to shrink"
   end
 

@@ -79,7 +79,7 @@ module RubyGBA
           # its bitmap drawing is correct where it sits, and judging one scene at a
           # time is a different check. Staying quiet beats blaming a valid program.
           def only_tiled?(program)
-            modes = program.each.filter_map { |node| node[:mode] if node.kind == :screen }
+            modes = program.each.filter_map { |node| node.mode if node.kind == :screen }
             !modes.empty? && modes.all?(:tiled.method(:==))
           end
 
@@ -95,7 +95,7 @@ module RubyGBA
           end
 
           def tiled_screen_node(program)
-            program.each.find { |node| node.kind == :screen && node[:mode] == :tiled }
+            program.each.find { |node| node.kind == :screen && node.mode == :tiled }
           end
         end
       end

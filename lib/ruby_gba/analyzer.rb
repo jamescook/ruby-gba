@@ -104,10 +104,10 @@ module RubyGBA
       node = program.walk.find { |n| n.kind == :case }
       return nil unless node
 
-      map = node[:clauses].each_with_object({}) do |(value, func), acc|
+      map = node.clauses.each_with_object({}) do |(value, func), acc|
         acc[func.to_s.delete_prefix("_scene_").to_sym] = value
       end
-      { selector: node[:var], scenes: map }
+      { selector: node.var, scenes: map }
     end
 
     # The scenes to profile: the named ones (raising on an unknown name), or all up to
@@ -141,13 +141,13 @@ module RubyGBA
     # into it — least of all when the next scene is about to be measured from the same tree.
     def boot_into(program, selector, value)
       booted = program.copy
-      init = booted.children.select { |node| node.kind == :set && node[:var] == selector }.last
+      init = booted.children.select { |node| node.kind == :set && node.var == selector }.last
       unless init
         raise ArgumentError,
               "cannot boot into a scene: this game never sets its scene variable #{selector.inspect} at " \
               "start. Declare it with `var #{selector.inspect}, 0` before the game loop."
       end
-      init[:value] = IR::Build.int(value)
+      init.value = IR::Build.int(value)
       booted
     end
 
@@ -254,7 +254,7 @@ module RubyGBA
 
     # The buttons this program reads, in the order it first reads them.
     def buttons_read(program)
-      program.walk.filter_map { |node| node[:button] if INPUT_KINDS.include?(node.kind) }.uniq
+      program.walk.filter_map { |node| node.button if INPUT_KINDS.include?(node.kind) }.uniq
     end
 
     # The counted frame rate, with +keys+ held throughout — the same buttons the winning

@@ -302,8 +302,8 @@ module RubyGBA
           # an instruction and is placed before anything the framework picked; `fast:
           # false` is taken as an instruction too and is never picked.
           def funcs_marked(program, want)
-            program.walk.select { |node| node.kind == :func && node[:fast] == want }
-                   .map { |node| node[:name] }.to_set
+            program.walk.select { |node| node.kind == :func && node.fast == want }
+                   .map { |node| node.name }.to_set
           end
 
           # How big each routine will be once moved. A routine measured in the throwaway
@@ -315,7 +315,7 @@ module RubyGBA
           def moved_sizes(program, measured)
             calls = Hash.new(0)
             program.walk.each do |node|
-              name = node.kind == :loop ? FRAME_ROUTINE : (node[:name] if node.kind == :func)
+              name = node.kind == :loop ? FRAME_ROUTINE : (node.name if node.kind == :func)
               calls[name] = node.walk.count { |child| child.kind == :call } if name
             end
             calls[IRQ_ROUTINE] = irq_bodies(program).sum { |node| node.walk.count { |c| c.kind == :call } }
@@ -334,9 +334,9 @@ module RubyGBA
           # The routines the author asked for by name, placed before anything the
           # framework picked and not held to its share of the room. Answers what is left.
           def place_insisted(program, insisted, sizes, room, chosen)
-            movable = program.walk.select { |node| node.kind == :func && insisted.include?(node[:name]) }
+            movable = program.walk.select { |node| node.kind == :func && insisted.include?(node.name) }
             movable.each do |node|
-              name = node[:name]
+              name = node.name
               guard_insisted_fits!(name, sizes[name], room)
               chosen << name
               room -= sizes[name]
@@ -367,7 +367,7 @@ module RubyGBA
             # The first loop only, matching the one #adopt_frame_body actually emits.
             when FRAME_ROUTINE then [program.walk.find { |node| node.kind == :loop }].compact
             when IRQ_ROUTINE   then irq_bodies(program)
-            else program.walk.select { |node| node.kind == :func && node[:name] == name }
+            else program.walk.select { |node| node.kind == :func && node.name == name }
             end
           end
 
@@ -384,7 +384,7 @@ module RubyGBA
           def ranked_by_frame_cost(program, sizes)
             model = CostModel.new
             costs = program.walk.select { |node| node.kind == :func }
-                           .to_h { |node| [node[:name], model.func_frame_cost(program, node[:name])] }
+                           .to_h { |node| [node.name, model.func_frame_cost(program, node.name)] }
             costs[FRAME_ROUTINE] = model.steady_cost(program) if sizes.key?(FRAME_ROUTINE)
             costs[IRQ_ROUTINE] = model.interrupt_frame_cost(program) if sizes.key?(IRQ_ROUTINE)
 

@@ -28,10 +28,10 @@ module RubyGBA
 
             program.each.filter_map do |node|
               next unless node.kind == :blit
-              next unless managed.include?(node[:name])
+              next unless managed.include?(node.name)
               next if framework_blits.include?(node.object_id) # the sprite's own draw, not a hand one
 
-              Finding.new(check: NAME, severity: :warning, message: message(node[:name]), node: node)
+              Finding.new(check: NAME, severity: :warning, message: message(node.name), node: node)
             end
           end
 
@@ -51,7 +51,7 @@ module RubyGBA
               siblings.each do |child|
                 next unless child.kind == :blit
 
-                managed << child[:name]
+                managed << child.name
                 framework_blits << child.object_id
               end
             end

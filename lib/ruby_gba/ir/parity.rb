@@ -38,16 +38,16 @@ module RubyGBA
 
       def self.of_node(node)
         case node.kind
-        when :int then of(node[:value])
-        when :neg then of(node[:operand]) # away from zero or toward it, it is the same number of ones
+        when :int then of(node.value)
+        when :neg then of(node.operand) # away from zero or toward it, it is the same number of ones
         when :binop then of_binop(node)
         end
       end
 
       def self.of_binop(node)
-        lhs = of(node[:lhs])
-        rhs = of(node[:rhs])
-        case node[:op]
+        lhs = of(node.lhs)
+        rhs = of(node.rhs)
+        case node.op
         when :+, :- then sum_parity(lhs, rhs)
         when :* then product_parity(lhs, rhs)
         # What is left over after taking whole multiples of an even number out of an

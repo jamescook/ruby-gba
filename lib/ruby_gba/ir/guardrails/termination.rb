@@ -49,7 +49,7 @@ module RubyGBA
           end
 
           def index_funcs(program)
-            program.each.select { |node| node.kind == :func }.to_h { |func| [func[:name], func] }
+            program.each.select { |node| node.kind == :func }.to_h { |func| [func.name, func] }
           end
 
           # Whether reaching +stmt+ means control never falls through to the next
@@ -60,7 +60,7 @@ module RubyGBA
           def never_returns?(stmt, funcs, seen)
             case stmt.kind
             when :halt, :loop, :raw then true
-            when :call then func_never_returns?(stmt[:target], funcs, seen)
+            when :call then func_never_returns?(stmt.target, funcs, seen)
             else false
             end
           end

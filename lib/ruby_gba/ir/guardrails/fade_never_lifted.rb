@@ -40,7 +40,7 @@ module RubyGBA
           private
 
           def message(node)
-            color = node[:toward]
+            color = node.toward
             "This game fades the screen fully to #{color} and never fades back. A full " \
               "fade covers everything, so the screen stays one flat color and the game " \
               "is not visible behind it. Anything drawn after the fade is covered too. " \
@@ -51,8 +51,8 @@ module RubyGBA
           # The fade's amount when it is a plain number, or nil when the game works it
           # out as it runs.
           def amount_of(node)
-            value = node[:amount]
-            value.is_a?(Node) && value.kind == :int ? value[:value] : nil
+            value = node.amount
+            value.is_a?(Node) && value.kind == :int ? value.value : nil
           end
         end
       end

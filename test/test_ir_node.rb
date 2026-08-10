@@ -18,8 +18,8 @@ class TestIRNode < Minitest::Test
   def test_node_holds_kind_and_attrs
     n = set(:x, 5)
     assert_equal :set, n.kind
-    assert_equal :x, n[:var]
-    assert_kind_of Node, n[:value]
+    assert_equal :x, n.var
+    assert_kind_of Node, n.value
     assert_empty n.children
   end
 
@@ -128,22 +128,22 @@ class TestIRNode < Minitest::Test
   # ========================================================================
 
   def test_wrap_coerces_bare_operands
-    assert_equal int(5),      binop(:+, :a, 5)[:rhs]
-    assert_equal var_ref(:a), binop(:+, :a, 5)[:lhs]
+    assert_equal int(5),      binop(:+, :a, 5).rhs
+    assert_equal var_ref(:a), binop(:+, :a, 5).lhs
   end
 
   def test_expression_trees_nest
     expr = binop(:+, var_ref(:cpu_y), binop(:/, :paddle_h, 2))
     assert_equal :binop, expr.kind
-    assert_equal :/, expr[:rhs][:op]
-    assert_equal 2, expr[:rhs][:rhs][:value]
+    assert_equal :/, expr.rhs.op
+    assert_equal 2, expr.rhs.rhs.value
   end
 
   def test_case_builds_a_dispatch_node
     n = case_(:state, 0 => :title, 1 => :playing)
     assert_equal :case, n.kind
-    assert_equal :state, n[:var]
-    assert_equal [[0, :title], [1, :playing]], n[:clauses]
+    assert_equal :state, n.var
+    assert_equal [[0, :title], [1, :playing]], n.clauses
   end
 
   def test_draw_ops_are_draw_category
@@ -156,21 +156,21 @@ class TestIRNode < Minitest::Test
     # position and size all flow through value nodes, so a variable coordinate and a
     # size the game works out both work — and a plain number becomes a literal node.
     n = draw_rect_at(:ball_x, 40, :width, :health, :white)
-    assert_equal var_ref(:ball_x), n[:x]
-    assert_equal int(40), n[:y]
-    assert_equal var_ref(:width), n[:w]
-    assert_equal var_ref(:health), n[:h]
+    assert_equal var_ref(:ball_x), n.x
+    assert_equal int(40), n.y
+    assert_equal var_ref(:width), n.w
+    assert_equal var_ref(:health), n.h
 
     fixed = draw_rect_at(:ball_x, 40, 4, 6, :white)
-    assert_equal int(4), fixed[:w]
-    assert_equal int(6), fixed[:h]
+    assert_equal int(4), fixed.w
+    assert_equal int(6), fixed.h
   end
 
   def test_abs_and_negate_abs_are_var_ops
     assert_equal :var, abs(:v).category
     assert_equal :var, negate_abs(:v).category
-    assert_equal :v, abs(:v)[:var]
-    assert_equal :v, negate_abs(:v)[:var]
+    assert_equal :v, abs(:v).var
+    assert_equal :v, negate_abs(:v).var
   end
 
   # ========================================================================
@@ -195,27 +195,27 @@ class TestIRNode < Minitest::Test
   def test_define_sound_captures_its_envelope
     n = define_sound(:paddle_hit, frequency: 880, duty: :quarter, decay: :fast, volume: 12)
     assert_equal :define_sound, n.kind
-    assert_equal :paddle_hit, n[:name]
-    assert_equal 880, n[:frequency]
-    assert_equal :quarter, n[:duty]
-    assert_equal 12, n[:volume]
+    assert_equal :paddle_hit, n.name
+    assert_equal 880, n.frequency
+    assert_equal :quarter, n.duty
+    assert_equal 12, n.volume
   end
 
   def test_beep_keeps_overrides_nil_until_resolved
     # A bare frequency with no overrides: the nils mean "use the defaults", and
     # resolving them is a backend's job, not the constructor's.
     n = beep(440)
-    assert_equal 440, n[:tone]
-    assert_nil n[:duty]
-    assert_nil n[:volume]
+    assert_equal 440, n.tone
+    assert_nil n.duty
+    assert_nil n.volume
   end
 
   def test_song_stores_a_resolved_score
     # A single-part song: events/duty/volume are taken as its one voice.
     n = song(:gameplay, events: [[0, 262], [30, 330]], total_frames: 60, volume: 10)
     assert_equal :song, n.kind
-    assert_equal [{ events: [[0, 262], [30, 330]], duty: :half, volume: 10 }], n[:voices]
-    assert_equal 60, n[:total_frames]
+    assert_equal [{ events: [[0, 262], [30, 330]], duty: :half, volume: 10 }], n.voices
+    assert_equal 60, n.total_frames
   end
 
   def test_a_song_node_survives_to_h_with_its_score_intact
@@ -295,10 +295,10 @@ class TestIRNode < Minitest::Test
     copy = original.copy
 
     copy.children.first.children << add(:x, int(1))
-    copy.children.first.children.first[:value] = int(99)
+    copy.children.first.children.first.value = int(99)
 
     assert_equal 1, original.children.first.children.length, "a child added to the copy"
-    assert_equal 1, original.children.first.children.first[:value][:value], "an operand replaced in the copy"
+    assert_equal 1, original.children.first.children.first.value.value, "an operand replaced in the copy"
   end
 
   # A nested operand is a node too, so a shallow copy would leave the two trees sharing it.
@@ -306,7 +306,7 @@ class TestIRNode < Minitest::Test
     original = program(set(:x, binop(:+, var_ref(:x), int(1))))
     copy = original.copy
 
-    refute_same original.children.first[:value], copy.children.first[:value]
+    refute_same original.children.first.value, copy.children.first.value
   end
 
   # A case node keeps its clauses in a list of pairs, which is the one operand shape that
@@ -315,8 +315,8 @@ class TestIRNode < Minitest::Test
     original = Case.new(clauses: [int(1), int(2)])
     copy = original.copy
 
-    refute_same original[:clauses], copy[:clauses]
-    refute_same original[:clauses].first, copy[:clauses].first
+    refute_same original.clauses, copy.clauses
+    refute_same original.clauses.first, copy.clauses.first
   end
 
   def test_a_copy_wires_its_own_parents
@@ -330,30 +330,25 @@ class TestIRNode < Minitest::Test
   # ========================================================================
   # a node answers only for what its kind has
   #
-  # One class stands for every kind, and the operands live in a hash, so a read of a field
-  # the kind has not got used to come back nil — indistinguishable from an operand nobody
-  # set. The reader then treats "no answer" as an answer. The kind's fields are declared
-  # (IR::Fields), so the node can tell those two apart and refuse the first.
+  # Each kind declares its own operands and gets a reader for each, so a field the kind has
+  # not got is not a method at all. Asking for one is a NoMethodError naming the class, at
+  # the line that asked.
 
-  def test_reading_a_field_the_kind_has_not_got_is_refused
-    error = assert_raises(RubyGBA::IR::InvariantError) { pixel(int(1), int(2), :red)[:w] }
+  def test_reading_a_field_the_kind_has_not_got_is_not_a_method
+    error = assert_raises(NoMethodError) { pixel(int(1), int(2), :red).w }
 
-    assert_match(/pixel has no :w field/, error.message)
-    assert_match(/:x, :y, :color/, error.message, "and it says what a pixel does have")
+    assert_match(/undefined method 'w'/, error.message)
+    assert_match(/Pixel/, error.message, "and it names the kind that has not got one")
   end
 
-  # The same at the line that writes it. The verifier catches this too, but only once the
-  # whole tree is built, by which time the verb that did it is not in the message.
-  def test_setting_a_field_the_kind_has_not_got_is_refused
-    error = assert_raises(RubyGBA::IR::InvariantError) { pixel(int(1), int(2), :red)[:colour] = :red }
-
-    assert_match(/pixel has no :colour field to set/, error.message)
+  def test_writing_a_field_the_kind_has_not_got_is_not_a_method
+    assert_raises(NoMethodError) { pixel(int(1), int(2), :red).colour = :red }
   end
 
   # A field the kind DOES have but this node never set stays a plain nil — an `if` with no
   # else is ordinary, not a mistake.
   def test_a_field_the_kind_has_but_the_node_never_set_reads_as_nothing
-    assert_nil if_(int(1))[:else]
+    assert_nil if_(int(1)).else
   end
 
   # What a node IS, for the code that walks every kind at once and cannot read a size off

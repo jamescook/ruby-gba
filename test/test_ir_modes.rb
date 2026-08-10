@@ -90,7 +90,7 @@ class TestIRModes < Minitest::Test
   # walks for colors, so a direct scene's colors never count toward it.
   def test_buffered_scopes_are_the_buffered_funcs_only
     m = Modes.resolve(game(title: :direct, play: :buffered))
-    names = m.buffered_scopes.map { |node| node[:name] }
+    names = m.buffered_scopes.map { |node| node.name }
     assert_includes names, :_scene_play
     refute_includes names, :_scene_title
   end

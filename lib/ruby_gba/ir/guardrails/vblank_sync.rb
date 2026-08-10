@@ -47,7 +47,7 @@ module RubyGBA
           end
 
           def index_funcs(program)
-            program.each.select { |node| node.kind == :func }.to_h { |func| [func[:name], func] }
+            program.each.select { |node| node.kind == :func }.to_h { |func| [func.name, func] }
           end
 
           # Whether a frame sync is reachable from +node+, following `call` and
@@ -58,8 +58,8 @@ module RubyGBA
             node.walk.any? do |n|
               case n.kind
               when :wait_vblank, :raw then true
-              when :call then follow?(n[:target], funcs, seen)
-              when :case then n[:clauses].any? { |(_value, target)| follow?(target, funcs, seen) }
+              when :call then follow?(n.target, funcs, seen)
+              when :case then n.clauses.any? { |(_value, target)| follow?(target, funcs, seen) }
               else false
               end
             end

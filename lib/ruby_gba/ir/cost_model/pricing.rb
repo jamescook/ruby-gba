@@ -93,19 +93,19 @@ module RubyGBA
           when :fill_rect
             tear_free? ? tearfree_fill_cost(node) : plot_rect_cost(node)
           when :dma_fill_rect
-            tear_free? ? tearfree_fill_cost(node) : dma_rows_cost(node[:w], node[:h])
+            tear_free? ? tearfree_fill_cost(node) : dma_rows_cost(node.w, node.h)
           when :draw_rect_at
-            tear_free? ? tearfree_moving_rect_cost(node) : dma_rows_cost(node[:w], node[:h])
+            tear_free? ? tearfree_moving_rect_cost(node) : dma_rows_cost(node.w, node.h)
           when :clear_screen then clear_screen_cost
-          when :draw_text then Fonts.get(node[:font]).text_pixels(node[:text]) * glyph_pixel_weight(node)
+          when :draw_text then Fonts.get(node.font).text_pixels(node.text) * glyph_pixel_weight(node)
           when :draw_digit then digit_cost(node)
-          when :blit then blit_cost(node[:name])
-          when :blit_pose then blit_cost(node[:poses].first)         # one pose draws; all are the same size
-          when :save_region, :restore_region then region_cost(node[:buffer])
+          when :blit then blit_cost(node.name)
+          when :blit_pose then blit_cost(node.poses.first)         # one pose draws; all are the same size
+          when :save_region, :restore_region then region_cost(node.buffer)
           # Tiled-mode per-frame upkeep: a rewrite per presented sprite (dearer for one
           # that turns or resizes — see #present_object_cost), and the two scroll-register
           # writes when a background moves.
-          when :present_objects then node[:names].to_a.sum { |name| present_object_cost(name) }
+          when :present_objects then node.names.to_a.sum { |name| present_object_cost(name) }
           when :scroll_background then @weights[:scroll_write]
           # Telling the display what to show, without redrawing a pixel: where the window
           # over the picture sits, and how far the whole picture is blended toward a color.
@@ -114,7 +114,7 @@ module RubyGBA
           when :camera then @weights[:camera_move]
           when :fade then fade_cost(node)
           when :background then dma_blob_cost(background_cells(node)) # one-time map stamp (boot, not per frame)
-          when :play_song then song_cost(node[:name])
+          when :play_song then song_cost(node.name)
           when :beep then BEEP_WRITES * @weights[:sound_write]
           when :noise then NOISE_WRITES * @weights[:sound_write]
           when :wave then WAVE_WRITES * @weights[:sound_write]
@@ -137,16 +137,16 @@ module RubyGBA
           # enough out (see #var_reach_cost). A statement that reads and writes the same
           # variable reaches it twice; one that only writes reaches it once.
           when :add, :sub, :negate, :abs, :negate_abs
-            @weights[:op_step] + var_reach_cost(node[:var], 2)
-          when :set then @weights[:op_assign] + var_reach_cost(node[:var], 1)
+            @weights[:op_step] + var_reach_cost(node.var, 2)
+          when :set then @weights[:op_assign] + var_reach_cost(node.var, 1)
           # A copy reads a variable too, and names it rather than holding it as an expression —
           # so the read has to be charged here, where a `set`'s is charged by the var_ref it
           # holds (see #own_cost).
           when :copy
             @weights[:op_assign] + @weights[:var_operand] +
-              var_reach_cost(node[:src], 1) + var_reach_cost(node[:dest], 1)
+              var_reach_cost(node.src, 1) + var_reach_cost(node.dest, 1)
           when :clamp
-            (2 * @weights[:op_step]) + var_reach_cost(node[:var], 2) # a low compare and a high compare
+            (2 * @weights[:op_step]) + var_reach_cost(node.var, 2) # a low compare and a high compare
           when :list_push, :list_set, :list_drop then @weights[:op_step]
           # Every change to a save_var mirrors it back to save memory, right after the
           # change. Save memory sits on a slow bus and takes one byte at a time, so this
@@ -178,7 +178,7 @@ module RubyGBA
         # (The conversion is built by the lowering, so it is not in the tree to be found;
         # Backends::GBA::Drawing#emit_fade is where it lives. If one moves, both must.)
         def fade_cost(node)
-          return @weights[:fade_set] if const_side(node[:amount])
+          return @weights[:fade_set] if const_side(node.amount)
 
           @weights[:fade_set] + @weights[:op_mul] + @weights[:op_div_const]
         end
@@ -283,7 +283,7 @@ module RubyGBA
           # Two parts, because two things decide it: what a read costs over the plain number the
           # weights assume in its place, and where THIS variable sits — one far enough out takes
           # an instruction more to reach (see #var_reach_cost).
-          when :var_ref then @weights[:var_operand] + var_reach_cost(value[:name], 1)
+          when :var_ref then @weights[:var_operand] + var_reach_cost(value.name, 1)
           # Reading a list or a table element is NOT the single load a variable read is, and
           # pricing it as one hid the hottest thing a game does — a list element sits in a
           # ring, so reaching it means the head, the wrap, the scale to bytes and the base
@@ -303,7 +303,7 @@ module RubyGBA
         # hand are the second kind, so charging the cheap one for both would under-charge the
         # common case. A table the walk never saw is charged the dearer of the two.
         def table_read_weight(node)
-          length = @table_lengths && @table_lengths[node[:name]]
+          length = @table_lengths && @table_lengths[node.name]
           wraps = length && length.positive? && (length & (length - 1)).zero?
           @weights[wraps ? :table_read : :table_read_clamped]
         end
@@ -339,8 +339,8 @@ module RubyGBA
         # How many cells that walk can cover at worst — the count {Domains} measures against
         # where overlap_pixel was calibrated.
         def overlap_cells(node)
-          aw, ah = mask_dims(node[:a_poses])
-          bw, bh = mask_dims(node[:b_poses])
+          aw, ah = mask_dims(node.a_poses)
+          bw, bh = mask_dims(node.b_poses)
           [aw, bw].min * [ah, bh].min
         end
 
@@ -376,10 +376,10 @@ module RubyGBA
         # costs about twice an add, and a divide by a variable costs three times
         # that again. Those are the same facts the lowering acts on; if one moves, both must.
         def op_weight(node)
-          case node[:op]
-          when :* then power_of_two_operand?(node[:rhs]) ? @weights[:op_mul_pow2] : @weights[:op_mul]
-          when :/, :% then divide_weight(op: node[:op], numerator: const_side(node[:lhs]),
-                                         divisor: const_side(node[:rhs]))
+          case node.op
+          when :* then power_of_two_operand?(node.rhs) ? @weights[:op_mul_pow2] : @weights[:op_mul]
+          when :/, :% then divide_weight(op: node.op, numerator: const_side(node.lhs),
+                                         divisor: const_side(node.rhs))
           when :+, :-, :and, :or then @weights[:op_plain]
           else @weights[:op_compare]
           end
@@ -395,8 +395,8 @@ module RubyGBA
 
           # It lowers to an ordinary division of the WIDENED numerator, so that is the
           # number whose width bounds the answer — not the one written in the program.
-          divide_weight(op: :/, numerator: const_side(node[:lhs]) << node[:fraction_bits],
-                        divisor: const_side(node[:rhs]))
+          divide_weight(op: :/, numerator: const_side(node.lhs) << node.fraction_bits,
+                        divisor: const_side(node.rhs))
         end
 
         # Whether a fraction divide's numerator is a number written into the program and
@@ -405,10 +405,10 @@ module RubyGBA
         # (The same test Backends::GBA::Divide#folds_to_plain_divide? makes; if one
         # moves, both must.)
         def div_fix_folds?(node)
-          numerator = const_side(node[:lhs])
+          numerator = const_side(node.lhs)
           return false unless numerator
 
-          widened = numerator << node[:fraction_bits]
+          widened = numerator << node.fraction_bits
           widened > Int32::MIN && widened <= Int32::MAX
         end
 
@@ -491,9 +491,9 @@ module RubyGBA
         end
 
         def binop_kind(value)
-          case value[:op]
-          when :* then Arithmetic.new(op: :multiply, name: "multiply") unless power_of_two_operand?(value[:rhs])
-          when :/, :% then divide_kind(const_side(value[:rhs]))
+          case value.op
+          when :* then Arithmetic.new(op: :multiply, name: "multiply") unless power_of_two_operand?(value.rhs)
+          when :/, :% then divide_kind(const_side(value.rhs))
           end
         end
 
@@ -523,7 +523,7 @@ module RubyGBA
         # How many map cells a background stamps — the map is rows of tile cells, so
         # this is their total, the size of the one-time upload to tile memory.
         def background_cells(node)
-          node[:map].to_a.sum { |row| row.respond_to?(:length) ? row.length : 1 }
+          node.map.to_a.sum { |row| row.respond_to?(:length) ? row.length : 1 }
         end
 
         # A rectangle written out pixel by pixel, which is what fill_rect does in direct
@@ -536,7 +536,7 @@ module RubyGBA
         # (see #run_pixel_weight). Each row is priced on its LAST pixel, the furthest into
         # the picture and so the dearest of them.
         def plot_rect_cost(node)
-          w, h, x, y = %i[w h x y].map { |slot| const_side(node[slot]) }
+          w, h, x, y = [node.w, node.h, node.x, node.y].map { |side| const_side(side) }
           return 0 unless w && h && x && y
 
           h.times.sum { |row| w * run_pixel_weight(x + w - 1, y + row) }
@@ -596,7 +596,7 @@ module RubyGBA
         # game runs — the same call the model makes wherever it cannot know which way a
         # frame will go.
         def digit_cost(node)
-          font = Fonts.get(node[:font])
+          font = Fonts.get(node.font)
           @weights[:digit_start] + (digit_box_cells(font) * @weights[:digit_cell]) +
             (font.max_glyph_pixels(DIGITS) * digit_stamp_weight)
         end
@@ -625,7 +625,7 @@ module RubyGBA
         def glyph_pixel_weight(node)
           return @weights[:tearfree_glyph] if tear_free?
 
-          run_pixel_weight(const_side(node[:x]), const_side(node[:y]))
+          run_pixel_weight(const_side(node.x), const_side(node.y))
         end
 
         # THE TEAR-FREE SCREEN DRAWS A RECTANGLE IN A DIFFERENT SHAPE, and that shape is
@@ -664,7 +664,7 @@ module RubyGBA
         # the whole thing goes in as ONE fill instead of one per row. For a sky or a floor
         # band that is the difference between two starts and a hundred and sixty.
         def tearfree_fill_cost(node)
-          x, y, w, h = %i[x y w h].map { |slot| const_side(node[slot]) }
+          x, y, w, h = [node.x, node.y, node.w, node.h].map { |side| const_side(side) }
           # Every side of this rectangle is settled while building. Anything the game
           # works out has no provable size, so — like a loop with no bound — it counts
           # as nothing rather than a guess, and the estimate says so out loud.
@@ -727,11 +727,11 @@ module RubyGBA
         # what `draw_rect_at` lowers to there. It walks down the rows stepping one address
         # along, so a row costs what its own pixels cost and almost nothing else.
         def tearfree_moving_rect_cost(node)
-          w = const_side(node[:w])
-          h = const_side(node[:h])
+          w = const_side(node.w)
+          h = const_side(node.h)
           return 0 unless w && h && w.positive?
 
-          @weights[:tearfree_moving_start] + (h * tearfree_moving_row_cost(w, node[:x]))
+          @weights[:tearfree_moving_start] + (h * tearfree_moving_row_cost(w, node.x))
         end
 
         # One row of a moving rectangle. Which pixels need an edge write follows from
@@ -813,7 +813,7 @@ module RubyGBA
         def const_side(side)
           case side
           when Integer then side
-          when Node then side[:value] if side.kind == :int
+          when Node then side.value if side.kind == :int
           end
         end
 
@@ -822,7 +822,7 @@ module RubyGBA
         def runtime_sized_rect?(node)
           return false unless %i[fill_rect dma_fill_rect draw_rect_at].include?(node.kind)
 
-          const_side(node[:w]).nil? || const_side(node[:h]).nil?
+          const_side(node.w).nil? || const_side(node.h).nil?
         end
 
         # A single DMA transfer of +pixels+ pixels in one shot (a whole-screen clear):
@@ -840,7 +840,7 @@ module RubyGBA
           song = @songs && @songs[name]
           return 0 unless song
 
-          song[:voices].length * @weights[:music_voice]
+          song.voices.length * @weights[:music_voice]
         end
 
         # How many notes a song holds — summed across its parts. Informational (shown in the
@@ -849,7 +849,7 @@ module RubyGBA
           song = @songs && @songs[name]
           return 0 unless song
 
-          song[:voices].sum { |voice| voice[:events].to_a.length }
+          song.voices.sum { |voice| voice[:events].to_a.length }
         end
 
         # A blit costs by how it is drawn, and the two ways are nothing alike.

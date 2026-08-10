@@ -179,7 +179,7 @@ class TestCameraShake < Minitest::Test
 
     assert_equal 1, findings.size
     assert_match(/game_loop/, findings.first.message)
-    assert_equal :__shake_left, findings.first.node[:var],
+    assert_equal :__shake_left, findings.first.node.var,
                  "it blames the line where shake_screen was written"
   end
 

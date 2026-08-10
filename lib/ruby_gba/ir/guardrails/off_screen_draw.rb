@@ -42,7 +42,7 @@ module RubyGBA
           def index_bitmaps(program)
             program.each
                    .select { |node| node.kind == :bitmap }
-                   .to_h { |node| [node[:name], [node[:width], node[:height]]] }
+                   .to_h { |node| [node.name, [node.width, node.height]] }
           end
 
           # [x, y, w, h] of a draw whose whole footprint is known at build time, or
@@ -55,24 +55,24 @@ module RubyGBA
             when :fill_rect, :dma_fill_rect, :draw_rect_at
               rect_bounds(node)
             when :draw_text
-              at(node) { |x, y| font = Fonts.get(node[:font]); [x, y, font.text_width(node[:text]), font.height] }
+              at(node) { |x, y| font = Fonts.get(node.font); [x, y, font.text_width(node.text), font.height] }
             when :draw_digit
-              at(node) { |x, y| font = Fonts.get(node[:font]); [x, y, font.width, font.height] } # one glyph
+              at(node) { |x, y| font = Fonts.get(node.font); [x, y, font.width, font.height] } # one glyph
             when :blit
               blit_bounds(node, bitmaps)
             end
           end
 
           def rect_bounds(node)
-            x = const_int(node[:x])
-            y = const_int(node[:y])
-            w = const_int(node[:w])
-            h = const_int(node[:h])
+            x = const_int(node.x)
+            y = const_int(node.y)
+            w = const_int(node.w)
+            h = const_int(node.h)
             [x, y, w, h] if x && y && w && h
           end
 
           def blit_bounds(node, bitmaps)
-            width, height = bitmaps[node[:name]]
+            width, height = bitmaps[node.name]
             return nil unless width
 
             at(node) { |x, y| [x, y, width, height] }
@@ -81,8 +81,8 @@ module RubyGBA
           # Yield the node's constant (x, y) to build its bounds, or nil if either
           # coordinate is a run-time value.
           def at(node)
-            x = const_int(node[:x])
-            y = const_int(node[:y])
+            x = const_int(node.x)
+            y = const_int(node.y)
             yield(x, y) if x && y
           end
 
@@ -91,7 +91,7 @@ module RubyGBA
           def const_int(operand)
             case operand
             when Integer then operand
-            when Node then operand[:value] if operand.kind == :int
+            when Node then operand.value if operand.kind == :int
             end
           end
 
@@ -117,9 +117,9 @@ module RubyGBA
             when :pixel then "A pixel"
             when :fill_rect, :dma_fill_rect then "A filled rectangle"
             when :draw_rect_at then "A rectangle"
-            when :draw_text then "The text #{node[:text].inspect}"
+            when :draw_text then "The text #{node.text.inspect}"
             when :draw_digit then "A digit"
-            when :blit then "The image #{node[:name].inspect}"
+            when :blit then "The image #{node.name.inspect}"
             end
           end
         end

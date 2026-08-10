@@ -40,7 +40,7 @@ class TestIRGuardrailScreenMode < Minitest::Test
 
     first = report.program.children.first
     assert_equal :screen, first.kind
-    assert_equal :bitmap, first[:mode]
+    assert_equal :bitmap, first.mode
     assert_equal :pixel, report.program.children[1].kind # original draw preserved
   end
 

@@ -51,7 +51,7 @@ module RubyGBA
           # program's own code runs.
           def register_row_bends(program)
             program.walk.each do |node|
-              @row_bends[node[:name]] = node if node.kind == :scroll_rows # last wins if repeated
+              @row_bends[node.name] = node if node.kind == :scroll_rows # last wins if repeated
             end
           end
 
@@ -64,8 +64,8 @@ module RubyGBA
           # background reads the same hidden variable, so any one of its scroll statements
           # names it; a background that never scrolls sits at 0.
           def row_bend_base(program, name)
-            node = program.walk.find { |n| n.kind == :scroll_background && n[:name] == name }
-            node ? node[:x] : Build.int(0)
+            node = program.walk.find { |n| n.kind == :scroll_background && n.name == name }
+            node ? node.x : Build.int(0)
           end
 
           def prepare_row_bends(program)
@@ -89,7 +89,7 @@ module RubyGBA
             emit_branch(:bcond, done, cond: :ge)           # below the picture: nothing to bend
             # Every bend is told the line first, because working one offset out needs the
             # accumulator the line number is sitting in.
-            @row_bends.each_value { |node| store_var(ACC, node[:row]) }
+            @row_bends.each_value { |node| store_var(ACC, node.row) }
             @row_bends.each_value { |node| emit_one_row_bend(node) }
             place_label(done)
           end
@@ -98,9 +98,9 @@ module RubyGBA
           # block, work the offset out, add the layer's own scroll, and write it. The write
           # is what the display reads as it draws the line.
           def emit_one_row_bend(node)
-            bg_num = @backgrounds[node[:name]]&.bg || 0
+            bg_num = @backgrounds[node.name]&.bg || 0
             node.children.each { |child| emit_statement(child) }
-            eval_value(Build.binop(:+, node[:offset], @row_bend_base[node[:name]]))
+            eval_value(Build.binop(:+, node.offset, @row_bend_base[node.name]))
             store_halfword_acc(Drawing::BG_HOFS_REGS[bg_num])
           end
         end

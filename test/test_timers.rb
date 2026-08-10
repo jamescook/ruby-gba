@@ -155,7 +155,7 @@ class TestTimers < Minitest::Test
     # The loop is the last top-level statement; a zero-clear must come before it.
     loop_index = program.children.index { |n| n.kind == :loop }
     before_loop = program.children[0...loop_index]
-    assert before_loop.any? { |n| n.kind == :set && n[:value].kind == :int && n[:value][:value].zero? },
+    assert before_loop.any? { |n| n.kind == :set && n.value.kind == :int && n.value.value.zero? },
            "a timer's counter should be zero-initialized before the game loop"
   end
 

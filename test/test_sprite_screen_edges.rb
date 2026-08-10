@@ -68,8 +68,8 @@ class TestSpriteScreenEdges < Minitest::Test
       s = sprite(:dot, at: [100, 80])
       s.move_to(px, py)
       s.clamp_to_screen
-      sx = s.x.node[:name]
-      sy = s.y.node[:name]
+      sx = s.x.node.name
+      sy = s.y.node.name
       halt
     end
     b.emit_pending_functions

@@ -139,8 +139,8 @@ module RubyGBA
           # slot is busy the play is dropped. Playing is main-thread, like the mix, so the
           # slots are never touched from two places at once.
           def emit_play_sample(node)
-            sample = sample_info(node[:name])
-            emit_load_data_address(4, node[:name]) # r4 = the sample's address in ROM
+            sample = sample_info(node.name)
+            emit_load_data_address(4, node.name) # r4 = the sample's address in ROM
             slot = find_free_slot                  # r0 = a free slot's address, or none -> skip
             done = gensym
             emit(ASM.cmp_imm(0, 0))                 # find_free_slot leaves r0 = 0 when full
@@ -151,9 +151,9 @@ module RubyGBA
             emit(ASM.str_offset(TMP, 0, SLOT_POS))          # slot.pos = 0
             emit(ASM.load_immediate(TMP, sample.length))
             emit(ASM.str_offset(TMP, 0, SLOT_LEN))          # slot.len = length
-            emit(ASM.load_immediate(TMP, node[:loop] ? 1 : 0))
+            emit(ASM.load_immediate(TMP, node.loop ? 1 : 0))
             emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # slot.loop
-            emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node[:volume], MIX_LEVELS[:full])))
+            emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node.volume, MIX_LEVELS[:full])))
             emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..64 gain)
             emit(ASM.load_immediate(TMP, voice_step(node, sample)))
             emit(ASM.str_offset(TMP, 0, SLOT_STEP))         # slot.step (pitch + rate, 16.16)
@@ -170,9 +170,9 @@ module RubyGBA
           # sample's recorded one reads it faster or slower). At least 1, so it never stalls.
           def voice_step(node, sample)
             ratio = 1.0
-            if node[:pitch]
+            if node.pitch
               notes = RubyGBA::Music::NOTE_FREQUENCIES
-              ratio = notes.fetch(node[:pitch]).to_f / notes.fetch(sample.note || :C4)
+              ratio = notes.fetch(node.pitch).to_f / notes.fetch(sample.note || :C4)
             end
             step = (sample.rate.to_f / @mixer_rate) * ratio
             [(step * STEP_ONE).round, 1].max
@@ -181,7 +181,7 @@ module RubyGBA
           # stop_sample: silence a sample by clearing every voice slot playing it (or every
           # slot, when no sample is named). Just flips each matching slot's "active" off.
           def emit_stop_sample(node = nil)
-            name = node && node[:name]
+            name = node && node.name
             emit_load_data_address(4, name) if name # r4 = the sample's address to match
 
             emit(ASM.load_immediate(1, @voice_base))            # r1 = slot pointer
@@ -427,7 +427,7 @@ module RubyGBA
           # The output rate to mix at: the rate most of the program's samples were recorded
           # at, so a single-rate game plays at its own pitch. Defaults to the usual rate.
           def common_sample_rate(program)
-            rates = program.walk.select { |n| n.kind == :sample }.map { |n| n[:rate] }
+            rates = program.walk.select { |n| n.kind == :sample }.map { |n| n.rate }
             return RubyGBA::Builder::SampledAudio::DEFAULT_SAMPLE_RATE if rates.empty?
 
             rates.group_by(&:itself).max_by { |_rate, list| list.size }.first

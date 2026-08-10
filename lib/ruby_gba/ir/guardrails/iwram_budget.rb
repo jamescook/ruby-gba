@@ -88,7 +88,7 @@ module RubyGBA
             program.walk do |node|
               next unless node.kind == :list_new
 
-              declarations[node[:name]] = [(node[:capacity] + 2) * WORD, node]
+              declarations[node.name] = [(node.capacity + 2) * WORD, node]
             end
             declarations
           end
@@ -105,17 +105,20 @@ module RubyGBA
           # The kinds that name a variable, and which of their attributes hold the name(s).
           # Every variable that reserves a word is reached by one of these — a read
           # (var_ref), a write (set/add/…), or a loop/timer's hidden counter.
-          VAR_NAME_ATTRS = {
-            set: %i[var], add: %i[var], sub: %i[var], negate: %i[var], abs: %i[var],
-            negate_abs: %i[var], clamp: %i[var], copy: %i[dest src], var_ref: %i[name],
-            repeat: %i[index], every: %i[counter], after: %i[counter]
+          VARIABLES_OF = {
+            set: ->(n) { [n.var] }, add: ->(n) { [n.var] }, sub: ->(n) { [n.var] },
+            negate: ->(n) { [n.var] }, abs: ->(n) { [n.var] }, negate_abs: ->(n) { [n.var] },
+            clamp: ->(n) { [n.var] }, copy: ->(n) { [n.dest, n.src] },
+            var_ref: ->(n) { [n.name] }, repeat: ->(n) { [n.index] },
+            every: ->(n) { [n.counter] }, after: ->(n) { [n.counter] }
           }.freeze
 
           # The distinct variable names the program uses — each is one word of IWRAM.
           def variable_names(program)
             names = {}
             program.walk do |node|
-              (VAR_NAME_ATTRS[node.kind] || []).each { |attr| names[node[attr]] = true }
+              reader = VARIABLES_OF[node.kind] or next
+              reader.call(node).each { |name| names[name] = true }
             end
             names.keys
           end
@@ -127,7 +130,7 @@ module RubyGBA
             program.walk do |node|
               next unless node.kind == :backing_buffer
 
-              sizes[node[:name]] = round_up_word(node[:width] * node[:height] * 2)
+              sizes[node.name] = round_up_word(node.width * node.height * 2)
             end
             sizes.values.sum
           end

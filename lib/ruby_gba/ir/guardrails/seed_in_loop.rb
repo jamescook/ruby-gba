@@ -57,11 +57,11 @@ module RubyGBA
           # the state outright and doesn't. "Sets the state without reading it" is
           # exactly a re-seed, and it's what tells the two apart on the tree.
           def seed?(node)
-            node.kind == :set && node[:var] == rng_state && !reads_rng?(node[:value])
+            node.kind == :set && node.var == rng_state && !reads_rng?(node.value)
           end
 
           def reads_rng?(value)
-            value.is_a?(Node) && value.walk.any? { |n| n.kind == :var_ref && n[:name] == rng_state }
+            value.is_a?(Node) && value.walk.any? { |n| n.kind == :var_ref && n.name == rng_state }
           end
 
           def message_for(container)

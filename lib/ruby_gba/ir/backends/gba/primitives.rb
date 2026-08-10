@@ -80,16 +80,19 @@ module RubyGBA
           # The integer value of a constant operand, or nil if it isn't a constant.
           def const_int(node)
             return Int32.wrap(node) if node.is_a?(Integer)
-            return Int32.wrap(node[:value]) if node.is_a?(Node) && node.kind == :int
+            return Int32.wrap(node.value) if node.is_a?(Node) && node.kind == :int
 
             nil
           end
 
-          def constant_ints!(node, *keys)
-            keys.map do |key|
-              const_int(node[key]) ||
+          # Each named operand as a number settled while building, in the order given. The
+          # caller passes the values along with what to call them, because the name is only
+          # wanted for the message if one of them turns out to be worked out as the game runs.
+          def constant_ints!(node, **sides)
+            sides.map do |name, value|
+              const_int(value) ||
                 raise(LoweringError,
-                      "the GBA backend needs a constant #{key} for #{node.kind} " \
+                      "the GBA backend needs a constant #{name} for #{node.kind} " \
                       "(a computed one is the runtime-rect work, tracked separately)")
             end
           end

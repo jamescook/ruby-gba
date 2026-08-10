@@ -65,7 +65,7 @@ class TestIRGuardrailVblankSync < Minitest::Test
     # Guards that reachability descends into the else-branch (held in :else, not
     # #children).
     branch = if_(binop(:>, var_ref(:x), int(0)), clear_screen(:black))
-    branch[:else] = else_(wait_vblank)
+    branch.else = else_(wait_vblank)
     prog = program(screen(:bitmap), set(:x, 1), loop_(branch))
 
     assert_empty vblank_warnings(prog)

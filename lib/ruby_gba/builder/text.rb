@@ -243,7 +243,7 @@ module RubyGBA
       # so it must be a plain variable (a Symbol, or a `var` handle), not a one-off
       # expression — there's no per-frame place to recompute an expression into.
       def hud_number_variable(value)
-        name = value.is_a?(Symbol) ? value : (value.node[:name] if value.node.kind == :var_ref)
+        name = value.is_a?(Symbol) ? value : (value.node.name if value.node.kind == :var_ref)
         return name if name
 
         raise ArgumentError,

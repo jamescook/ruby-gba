@@ -19,8 +19,8 @@ module RubyGBA
       # pixels themselves.
       Image = Data.define(:width, :height, :transparent, :pixels) do
         def self.of(node)
-          new(width: node[:width], height: node[:height],
-              transparent: node[:transparent], pixels: node[:pixels])
+          new(width: node.width, height: node.height,
+              transparent: node.transparent, pixels: node.pixels)
         end
       end
 
@@ -29,7 +29,7 @@ module RubyGBA
       # pitch is measured from).
       Sample = Data.define(:rate, :length, :note) do
         def self.of(node)
-          new(rate: node[:rate], length: node[:bytes].bytesize, note: node[:note])
+          new(rate: node.rate, length: node.bytes.bytesize, note: node.note)
         end
       end
     end
