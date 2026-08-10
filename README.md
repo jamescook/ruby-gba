@@ -206,7 +206,7 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Effect packs — register your own DSL verbs (and their guardrails); `camera` + `shake_screen` ship as the first pack
 - [x] Cost estimator + `rom.explain`
 - [x] IR + two backends (GBA lowering, Ruby interpreter) with a conformance fixture + portability tagging
-- [x] CLI — `ruby-gba build / inspect / new` (Thor): per-command help, typed options, friendly errors
+- [x] CLI — `ruby-gba build / explain / inspect / new` (Thor): per-command help, typed options, friendly errors
 
 **Planned**
 
