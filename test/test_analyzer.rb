@@ -152,4 +152,66 @@ class TestAnalyzer < Minitest::Test
     assert Analyzer::Result.new(scanlines: 220.0, fps: 20.0).saturated?
     assert_equal 50, Analyzer::Result.new(scanlines: 114.0, fps: nil).percent
   end
+
+  # ---- measuring a program must not change it ----
+  #
+  # Reading a frame rate means counting frames, which means adding something to count them.
+  # The tree handed in is usually the one a ROM reports on, so putting the counter there
+  # would leave `explain` describing a game the shipped ROM is not — and a second
+  # measurement would add a second counter, so the numbers would drift with every reading.
+
+  def test_measuring_a_frame_rate_leaves_the_program_alone
+    program = counting_program
+    before = program.to_h
+
+    Analyzer.measure_fps(program)
+
+    assert_equal before, program.to_h, "the program is the one that was handed in"
+  end
+
+  def test_measuring_twice_gives_the_same_program_as_measuring_once
+    program = counting_program
+    Analyzer.measure_fps(program)
+    once = program.to_h
+
+    Analyzer.measure_fps(program)
+
+    assert_equal once, program.to_h, "a counter added per reading would compound"
+  end
+
+  # Booting into a scene rewrites where the game starts, so it answers a copy too — else
+  # measuring one scene would leave the caller's program starting in it, and the next scene
+  # would be measured from a program that already moved.
+  def test_choosing_a_scene_to_measure_leaves_the_program_alone
+    program = scene_program
+    before = program.to_h
+
+    Analyzer.send(:boot_into, program, :state, 1)
+
+    assert_equal before, program.to_h
+  end
+
+  def counting_program
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      n = var :n, 0
+      game_loop { n.add 1 }
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  def scene_program
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      var :state, 0
+      scene(:title) { clear_screen :blue }
+      scene(:play) { clear_screen :red }
+      game_loop { case_var(:state) { when_val 0, :title; when_val 1, :play } }
+    end
+    b.emit_pending_functions
+    b.program
+  end
 end
