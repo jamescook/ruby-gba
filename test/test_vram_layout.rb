@@ -44,12 +44,12 @@ class TestVramLayout < Minitest::Test
     backend.lower(four_layer_program)
     backgrounds = backend.instance_variable_get(:@backgrounds)
 
-    blocks = backgrounds.values.map { |bg| bg[:screen_block] }
+    blocks = backgrounds.values.map(&:screen_block)
     assert_equal blocks.uniq, blocks, "two layers must never share a screen block"
     assert_equal GBA::FIRST_MAP_SCREENBLOCK, blocks.min, "maps start just past the tile pictures"
 
     backgrounds.each_value do |bg|
-      assert_equal GBA::SCREENBLOCK_BYTES, bg[:map_units] * 2,
+      assert_equal GBA::SCREENBLOCK_BYTES, bg.map_units * 2,
                    "a map fills exactly one screen block, so the next one starts clear of it"
     end
   end

@@ -98,7 +98,7 @@ module RubyGBA
           # block, work the offset out, add the layer's own scroll, and write it. The write
           # is what the display reads as it draws the line.
           def emit_one_row_bend(node)
-            bg_num = (@backgrounds[node[:name]] || {})[:bg] || 0
+            bg_num = @backgrounds[node[:name]]&.bg || 0
             node.children.each { |child| emit_statement(child) }
             eval_value(Build.binop(:+, node[:offset], @row_bend_base[node[:name]]))
             store_halfword_acc(Drawing::BG_HOFS_REGS[bg_num])

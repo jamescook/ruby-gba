@@ -60,12 +60,12 @@ module RubyGBA
               raise LoweringError, "read of undefined table #{node[:name].inspect}"
             end
             eval_value(node[:index])                               # r0 = index
-            if info[:pow2]
-              emit_and_const(ACC, ACC, info[:count] - 1, TMP)      # wrap: index & (count - 1)
+            if info.pow2
+              emit_and_const(ACC, ACC, info.count - 1, TMP)        # wrap: index & (count - 1)
             else
-              emit_clamp_acc(0, info[:count] - 1)                  # clamp: 0..count-1
+              emit_clamp_acc(0, info.count - 1)                    # clamp: 0..count-1
             end
-            shift = { 1 => 0, 2 => 1, 4 => 2 }.fetch(info[:elem_bytes])
+            shift = { 1 => 0, 2 => 1, 4 => 2 }.fetch(info.elem_bytes)
             emit(ASM.lsl_imm(ACC, ACC, shift)) unless shift.zero?  # r0 = index * elem_bytes
             emit_load_data_address(TMP, node[:name])               # r1 = table base
             emit(ASM.add_reg(ADDR, TMP, ACC))                      # r12 = &table[index]
@@ -76,7 +76,7 @@ module RubyGBA
           # the element width and signedness. The signed loads (ldrsb/ldrsh) sign-extend
           # into the whole register; a word already fills it.
           def emit_table_load(info)
-            case [info[:elem_bytes], info[:signed]]
+            case [info.elem_bytes, info.signed]
             when [1, false] then emit(ASM.ldrb_offset(ACC, ADDR, 0))
             when [1, true]  then emit(ASM.ldrsb(ACC, ADDR))
             when [2, false] then emit(ASM.load_halfword(ACC, ADDR))

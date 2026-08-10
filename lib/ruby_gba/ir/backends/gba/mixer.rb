@@ -149,7 +149,7 @@ module RubyGBA
             emit(ASM.str(4, 0))                             # slot.src = address (SLOT_SRC = 0)
             emit(ASM.load_immediate(TMP, 0))
             emit(ASM.str_offset(TMP, 0, SLOT_POS))          # slot.pos = 0
-            emit(ASM.load_immediate(TMP, sample[:length]))
+            emit(ASM.load_immediate(TMP, sample.length))
             emit(ASM.str_offset(TMP, 0, SLOT_LEN))          # slot.len = length
             emit(ASM.load_immediate(TMP, node[:loop] ? 1 : 0))
             emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # slot.loop
@@ -172,9 +172,9 @@ module RubyGBA
             ratio = 1.0
             if node[:pitch]
               notes = RubyGBA::Music::NOTE_FREQUENCIES
-              ratio = notes.fetch(node[:pitch]).to_f / notes.fetch(sample[:note] || :C4)
+              ratio = notes.fetch(node[:pitch]).to_f / notes.fetch(sample.note || :C4)
             end
-            step = (sample[:rate].to_f / @mixer_rate) * ratio
+            step = (sample.rate.to_f / @mixer_rate) * ratio
             [(step * STEP_ONE).round, 1].max
           end
 

@@ -79,6 +79,47 @@ class TestCrossBackendConformance < Minitest::Test
     assert_includes code, nop, "the GBA backend appends raw bytes verbatim"
   end
 
+  # ---- both backends describe a declared asset the same way ----
+  #
+  # An image and a recorded sound are facts about the program, not about a machine, and both
+  # backends have to know them. They each used to write that down for themselves, which is
+  # two descriptions of one thing in the two places whose whole contract is that they agree.
+  # Now IR::Assets reads the description off the declaring node, so the two cannot differ —
+  # this holds them to it.
+  def test_both_backends_describe_an_image_the_same_way
+    program = asset_program
+    Reference.new.run(program)
+    gba = GBA.new
+    gba.lower(program)
+
+    assert_equal registry(Reference.new.tap { |r| r.run(program) }, :@bitmaps),
+                 registry(gba, :@bitmaps)
+  end
+
+  def test_both_backends_describe_a_recorded_sound_the_same_way
+    program = asset_program
+    gba = GBA.new
+    gba.lower(program)
+
+    assert_equal registry(Reference.new.tap { |r| r.run(program) }, :@samples),
+                 registry(gba, :@samples)
+  end
+
+  # A program that declares one of each and then stops.
+  def asset_program
+    b = RubyGBA::IR::Build
+    b.program(
+      b.screen(:bitmap),
+      b.bitmap(:art, width: 2, height: 2, pixels: "\x1F\x00\x00\x00\x00\x7C\xFF\x03", transparent: 0),
+      b.sample(:clip, "\x00\x10\x20\x30", 8000, note: :E4),
+      b.halt,
+    )
+  end
+
+  def registry(backend, name)
+    backend.instance_variable_get(name)
+  end
+
   def test_hardware_only_kinds_are_the_only_ones_the_interpreter_skips
     # Guard the exemption itself: the hardware-only kinds today are raw and
     # read_scanline. This flows from the portability tags (via
