@@ -225,7 +225,7 @@ module RubyGBA
         # none. The assembler is ASKED, the same way #extra_address_steps asks it for a
         # pixel, so the rule is not restated here and the two cannot drift apart.
         def extra_var_address_steps(name)
-          address = @var_addresses && @var_addresses[name]
+          address = @var_addresses[name]
           return 0 unless address
 
           steps = ASM.load_immediate(0, address).bytesize / ARM_INSTRUCTION_BYTES

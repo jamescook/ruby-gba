@@ -529,7 +529,7 @@ module RubyGBA
         # or a guardrail asking before anything has been lowered, has no map — and then every
         # loop is priced as the safe shape, which is the dearer of the two and the right way to
         # be wrong.
-        def loop_shape(node) = @loop_shapes && @loop_shapes[node[:index]]
+        def loop_shape(node) = @loop_shapes[node[:index]]
 
         # A loop that keeps its counter in a register is four instructions a pass where one
         # through memory is sixteen, so the two are priced apart.
