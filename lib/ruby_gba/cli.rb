@@ -47,6 +47,21 @@ module RubyGBA
       end
     end
 
+    desc "explain GAME_FILE", "Print the per-frame cost report, without building a cartridge"
+    long_desc <<~TEXT
+      Print the per-frame cost report for the game declared in GAME_FILE — the same
+      report `build --explain` prints — without writing a .gba file.
+    TEXT
+    option :scene, type: :array, banner: "NAME", default: [],
+                   desc: "Measure only these scenes in the report (default: all scenes)"
+    option :keys, type: :array, banner: "BUTTON", default: [],
+                  desc: "Hold these buttons while measuring (default: hold each button the game reads, in turn)"
+    def explain(game_file)
+      game = load_game(game_file)
+      rom = game.build_rom
+      rom.explain(measured: measured_verdicts(game))
+    end
+
     desc "inspect ROM_FILE", "Show a built .gba's header and a disassembly"
     def inspect(rom_file)
       raise Thor::Error, "I cannot find the ROM file #{rom_file}." unless File.file?(rom_file)

@@ -168,4 +168,63 @@ class TestCLI < Minitest::Test
       assert_match(/Packed \d+ assets? with (LZ77|RLE)/, out)
     end
   end
+
+  # `explain` is `build --explain` without the cartridge: same report, no .gba on disk.
+  def test_explain_appears_in_the_command_list
+    out, status = cli("help", dir: Dir.tmpdir)
+    assert status.success?, out
+    assert_match(/ruby-gba explain GAME_FILE/, out)
+  end
+
+  def test_explain_prints_the_cost_report_without_building_a_cartridge
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = cli("explain", "demo.rb", dir: dir)
+      assert status.success?, out
+      assert_match(/per-frame cost/, out)
+      refute File.exist?(File.join(dir, "demo.gba")), "explain should not write a .gba"
+    end
+  end
+
+  def test_explain_a_missing_game_file_is_a_friendly_error_not_a_backtrace
+    Dir.mktmpdir do |dir|
+      out, status = cli("explain", "nope.rb", dir: dir)
+      refute status.success?, "a missing file should fail"
+      assert_match(/cannot find the game file/, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+    end
+  end
+
+  def test_explain_subcommand_measures_each_scene_by_booting_into_it
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "scened.rb"), SCENED)
+      out, status = cli("explain", "scened.rb", dir: dir)
+      assert status.success?, out
+      assert_match(/scene :title\s+measured/, out)
+      assert_match(/scene :play\s+measured/, out)
+    end
+  end
+
+  def test_explain_subcommand_scene_narrows_to_one_and_an_unknown_scene_is_friendly
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "scened.rb"), SCENED)
+      out, status = cli("explain", "scened.rb", "--scene", "play", dir: dir)
+      assert status.success?, out
+      assert_match(/scene :play\s+measured/, out)
+      refute_match(/scene :title\s+measured/, out)
+
+      bad, bad_status = cli("explain", "scened.rb", "--scene", "nope", dir: dir)
+      refute bad_status.success?, bad
+      assert_match(/no scene named nope/, bad)
+    end
+  end
+
+  def test_explain_subcommand_keys_holds_the_named_buttons_and_says_so
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "held.rb"), HELD)
+      out, status = cli("explain", "held.rb", "--keys", "left", "a", dir: dir)
+      assert status.success?, out
+      assert_match(/while LEFT\+A are held/, out)
+    end
+  end
 end
