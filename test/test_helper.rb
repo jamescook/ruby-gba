@@ -1,5 +1,20 @@
 # frozen_string_literal: true
 
+# Coverage measurement is opt-in (COVERAGE=1 rake test) — plain `rake test`
+# pays nothing for it. `rake test:parallel` runs the suite as several
+# processes with no shared memory, so each one only records its own slice
+# (SimpleCov.result, no report) and skips the HTML report; the Rakefile
+# collates every shard's slice into one report once they've all exited.
+if ENV["COVERAGE"] == "1"
+  require "simplecov"
+  require_relative "support/coverage"
+
+  sharded = ENV.key?("SHARD_FILES")
+  SimpleCov.command_name "shard-#{Process.pid}" if sharded
+  SimpleCov.start(&Coverage::FILTERS)
+  SimpleCov.at_exit { SimpleCov.result } if sharded
+end
+
 require "minitest/autorun"
 require_relative "../lib/ruby_gba"
 
