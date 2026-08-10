@@ -33,6 +33,17 @@ Rake::TestTask.new(test: :compile_gemba_core) do |t|
   t.description = 'Run the suite (rake test TEST=test/test_foo.rb TESTOPTS="--name=/pattern/")'
 end
 
+# Each rake test:parallel shard is its own process and only records its own
+# slice of coverage (see test/test_helper.rb); this stitches every slice back
+# into the one merged report a serial `COVERAGE=1 rake test` would have
+# produced directly. Required lazily so plain `rake test:parallel` never loads
+# simplecov at all.
+def collate_coverage
+  require "simplecov"
+  require_relative "test/support/coverage"
+  SimpleCov.collate(Dir["coverage/.resultset.json"], &Coverage::FILTERS)
+end
+
 namespace :test do
   # The same files as `rake test`, split across processes. Kept separate rather
   # than made the default because serial output is what you want the moment
@@ -41,6 +52,7 @@ namespace :test do
   desc "Run the suite across processes (rake test:parallel JOBS=8)"
   task parallel: :compile_gemba_core do
     ParallelTest.run(FileList["test/**/test_*.rb"].to_a)
+    collate_coverage if ENV["COVERAGE"] == "1"
   end
 
   # gemba-core has its OWN test suite (its C extension + probe, tested in
