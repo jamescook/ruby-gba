@@ -12,10 +12,18 @@ require "rbconfig"
 # the library (RubyGBA.game / RubyGBA.build) with no CLI involved.
 class TestCLI < Minitest::Test
   BIN = File.expand_path("../bin/ruby-gba", __dir__)
+  LIB = File.expand_path("../lib", __dir__)
 
   # Run the CLI in +dir+ and return [combined_output, Process::Status].
   def cli(*args, dir:)
     Open3.capture2e(RbConfig.ruby, BIN, *args, chdir: dir)
+  end
+
+  # Run an arbitrary Ruby file (e.g. something `build --format=ir` wrote) as its own
+  # process, with the checkout's lib/ on its load path — the way a user who cloned
+  # the repo, rather than installed the gem, would run it.
+  def run_ruby(path, dir:)
+    Open3.capture2e(RbConfig.ruby, "-I", LIB, path, chdir: dir)
   end
 
   def test_new_scaffolds_a_game_that_builds_and_runs
@@ -225,6 +233,108 @@ class TestCLI < Minitest::Test
       out, status = cli("explain", "held.rb", "--keys", "left", "a", dir: dir)
       assert status.success?, out
       assert_match(/while LEFT\+A are held/, out)
+    end
+  end
+
+  # `build --format=ir` emits the game's IR as a standalone Ruby class instead of a
+  # cartridge.
+  def test_format_ir_prints_a_standalone_class_and_builds_no_cartridge
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = cli("build", "demo.rb", "--format=ir", dir: dir)
+      assert status.success?, out
+      assert_match(/class DemoIR/, out)
+      assert_match(/RubyGBA::IR::Nodes\.build/, out)
+      assert_match(/DemoIR\.new\.lower if \$PROGRAM_NAME == __FILE__/, out)
+      refute File.exist?(File.join(dir, "demo.gba")), "--format=ir should not build a cartridge"
+    end
+  end
+
+  def test_format_ir_with_output_writes_a_file_that_runs_on_its_own
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = cli("build", "demo.rb", "--format=ir", "-o", "demo_ir.rb", dir: dir)
+      assert status.success?, out
+      assert_match(/Wrote demo_ir\.rb/, out)
+
+      written = File.join(dir, "demo_ir.rb")
+      assert_match(/class DemoIR/, File.read(written))
+
+      run_out, run_status = run_ruby(written, dir: dir)
+      assert run_status.success?, run_out
+      refute File.exist?(File.join(dir, "demo.gba")), "running the emitted class should not build a cartridge either"
+    end
+  end
+
+  def test_format_ir_rejects_an_unknown_format
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = cli("build", "demo.rb", "--format", "bogus", dir: dir)
+      refute status.success?, "an unknown format should fail"
+      assert_match(/"bogus" is not a build format/, out)
+      assert_match(/game, ir/, out)
+    end
+  end
+
+  # A game split across files the way examples/hero.rb's "scene as a class in its
+  # own file" pattern does — the dumped IR has to be one self-contained class
+  # regardless of how many source files built the tree it holds.
+  def test_format_ir_works_for_a_game_declared_across_multiple_files
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "extra_state.rb"), <<~RUBY)
+        module ExtraState
+          def self.declare(builder)
+            builder.instance_eval { var :score, 0 }
+          end
+        end
+      RUBY
+      File.write(File.join(dir, "multi.rb"), <<~RUBY)
+        require "ruby_gba"
+        require_relative "extra_state"
+
+        Multi = RubyGBA.game "MULTI", code: "BMLT", maker: "01" do
+          screen :bitmap
+          ExtraState.declare(self)
+          game_loop { add :score, 1 }
+        end
+      RUBY
+
+      out, status = cli("build", "multi.rb", "--format=ir", dir: dir)
+      assert status.success?, out
+      assert_match(/class MultiIR/, out)
+      assert_match(/var: :score/, out)
+    end
+  end
+
+  # A custom font (`font :name do ... end`) registers into RubyGBA::Fonts as a side
+  # effect, rather than living in the IR tree draw_text's `font:` operand just names
+  # by symbol — so the emitted class has to carry the font's own definition too, or
+  # lowering it in a fresh process fails looking the name up. This is the regression
+  # test for exactly that gap.
+  def test_format_ir_carries_a_custom_registered_font_along_with_the_tree
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "lettered.rb"), <<~RUBY)
+        require "ruby_gba"
+        Lettered = RubyGBA.game "LETTERED", code: "BLET", maker: "01" do
+          screen :bitmap
+          font :blocky do
+            glyph "A", <<~ART
+              ###
+              #.#
+              ###
+            ART
+          end
+          draw_text "A", 0, 0, :white, font: :blocky
+          halt
+        end
+      RUBY
+
+      out, status = cli("build", "lettered.rb", "--format=ir", "-o", "lettered_ir.rb", dir: dir)
+      assert status.success?, out
+      assert_match(/Fonts\.register\(:blocky, RubyGBA::Font\.new/, File.read(File.join(dir, "lettered_ir.rb")))
+
+      run_out, run_status = run_ruby(File.join(dir, "lettered_ir.rb"), dir: dir)
+      assert run_status.success?, run_out
     end
   end
 end

@@ -23,9 +23,17 @@ module RubyGBA
 
       The .gba is written next to the game file, named from the title, unless you pass
       --output.
+
+      --format=ir emits the game's intermediate representation instead of a cartridge:
+      a standalone Ruby class that reconstructs the IR and lowers it to machine code,
+      nothing more. It's paged to your terminal, or written to --output like the .gba
+      would be.
     TEXT
     option :output, aliases: "-o", banner: "PATH",
-                    desc: "Where to write the .gba (default: <name>.gba beside the game file)"
+                    desc: "Where to write the .gba, or the IR under --format=ir " \
+                          "(default: <name>.gba beside the game file, or the pager for IR)"
+    option :format, banner: "NAME", default: "game",
+                    desc: "What to emit: game (a .gba cartridge) or ir (a standalone Ruby class holding the IR)"
     option :explain, type: :boolean, default: false,
                      desc: "Print the per-frame cost report (verdict measured on the emulator when available)"
     option :stats, type: :boolean, default: false,
@@ -35,15 +43,11 @@ module RubyGBA
     option :keys, type: :array, banner: "BUTTON", default: [],
                   desc: "Hold these buttons while measuring (default: hold each button the game reads, in turn)"
     def build(game_file)
-      game = load_game(game_file)
-      rom = game.build_rom
-      path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename)
-      rom.write(path)
-      say "Built #{File.basename(path)} (#{rom.size} bytes)"
-      say rom.compression.summary_line if options[:stats] && rom.compression&.any?
-      say placement_line(rom) if options[:stats] && rom.placement&.funcs&.any?
-      if options[:explain] || options[:scene].any? || options[:keys].any?
-        rom.explain(measured: measured_verdicts(game))
+      case options[:format]
+      when "game" then build_cartridge(game_file)
+      when "ir" then build_ir(game_file)
+      else
+        raise Thor::Error, "#{options[:format].inspect} is not a build format. The formats are: game, ir."
       end
     end
 
@@ -82,6 +86,48 @@ module RubyGBA
     end
 
     private
+
+    # The "game" format (--format=game, the default): the .gba cartridge itself.
+    def build_cartridge(game_file)
+      game = load_game(game_file)
+      rom = game.build_rom
+      path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename)
+      rom.write(path)
+      say "Built #{File.basename(path)} (#{rom.size} bytes)"
+      say rom.compression.summary_line if options[:stats] && rom.compression&.any?
+      say placement_line(rom) if options[:stats] && rom.placement&.funcs&.any?
+      if options[:explain] || options[:scene].any? || options[:keys].any?
+        rom.explain(measured: measured_verdicts(game))
+      end
+    end
+
+    # The "ir" format (--format=ir): the game's IR as a standalone Ruby class, instead
+    # of a cartridge. Built through the same full pipeline as --format=game (so a
+    # guardrail error stops this exactly the way it stops a real build), then the
+    # finished ROM's own source tree (rom.source_program) is what gets dumped — the
+    # ROM bytes themselves are simply not written anywhere.
+    def build_ir(game_file)
+      game = load_game(game_file)
+      rom = game.build_rom
+      source = RubyGBA::IR::Dump.emit_class(rom.source_program, class_name: "#{constantize(game.title)}IR",
+                                            fonts: custom_fonts, **game.build_options)
+      if options[:output]
+        File.write(options[:output], source)
+        say "Wrote #{options[:output]}"
+      else
+        Pager.new.page(source)
+      end
+    end
+
+    # Fonts the game registered itself with `font :name do ... end` — everything
+    # BUT the two that ship built in, which the emitted class gets back for free
+    # just by requiring the library. {RubyGBA::Fonts} is process-global (a font
+    # once registered stays registered), so by the time this runs (after
+    # load_game/build_rom evaluated the DSL block) it already holds whichever ones
+    # this game defined.
+    def custom_fonts
+      (RubyGBA::Fonts.names - %i[default tiny]).to_h { |name| [name, RubyGBA::Fonts.get(name)] }
+    end
 
     # One line on what the build kept in the console's quick memory, for --stats. The
     # full list is in the cost report; this is the size of it.
@@ -147,8 +193,7 @@ module RubyGBA
       title = "GAME" if title.empty?
       letters = title.gsub(/[^A-Z0-9]/, "")
       code = "B#{letters}".ljust(4, "X")[0, 4]
-      const = name.split(/[^a-zA-Z0-9]+/).map(&:capitalize).join
-      const = "Game" unless const =~ /\A[A-Z]/
+      const = constantize(name)
 
       <<~RUBY
         # frozen_string_literal: true
@@ -170,6 +215,14 @@ module RubyGBA
 
         #{const}.write_if_main
       RUBY
+    end
+
+    # A CamelCase Ruby constant name from an arbitrary string (a file name, a game
+    # title) — "PONG" -> "Pong", "grid-cursor" -> "GridCursor". Falls back to "Game"
+    # for a string with nothing constant-safe in it (all punctuation, a leading digit).
+    def constantize(str)
+      const = str.to_s.split(/[^a-zA-Z0-9]+/).map(&:capitalize).join
+      const =~ /\A[A-Z]/ ? const : "Game"
     end
   end
 end

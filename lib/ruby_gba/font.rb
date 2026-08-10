@@ -33,6 +33,16 @@ module RubyGBA
       @max_width = @widths.values.max || 0
     end
 
+    # This font's own constructor arguments, for anything that needs to build an
+    # equivalent Font back up from nothing — `build --format=ir`'s dumped Ruby class,
+    # for a game that registered its own font with `font :name do ... end`. The
+    # built-in fonts never need this (the emitted class re-requires the library,
+    # which registers them itself); a custom one is process-local state a fresh
+    # process has to be handed back explicitly.
+    def to_definition
+      { glyphs: @glyphs, widths: @widths, height: @height, spacing: @spacing, fold: @fold }
+    end
+
     # The widest glyph in the font. For a fixed-width font this is the one width
     # every glyph shares; it's the natural worst-case box for a run-time glyph.
     def width
