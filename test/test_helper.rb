@@ -102,9 +102,3 @@ class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
   include SharedConstants
   include GembaSupport
 end
-
-# Where a value object is still being read like a hash. Running the suite is what produces
-# that list, so a whole conversion is worked off what actually ran rather than off a search
-# for a pattern. Set RUBY_GBA_MIGRATION to see it; the run's own exit skips at_exit, so it
-# is asked for here.
-Minitest.after_run { RubyGBA::MigratingHashReads.report } if ENV["RUBY_GBA_MIGRATION"]

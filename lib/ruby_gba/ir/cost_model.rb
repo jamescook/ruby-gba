@@ -198,6 +198,46 @@ module RubyGBA
       # lowering, and this file prices what a lowering produced. See Rollup#loop_shape.
       LoopShape = Data.define(:held, :blocked_by)
 
+      # WHAT THE BUILD WORKED OUT, keyed by a name out of the user's program — where each
+      # variable landed, which shape each loop got. The keys are the program's, not ours, so
+      # a Hash holds them; what needs saying is that there are two ways to have no answer and
+      # they are not the same thing.
+      #
+      # NO BUILD AT ALL is the first: a program handed straight to the model, priced without
+      # ever being lowered, which is most of this model's own tests and anything asking "what
+      # would this cost" before there is a ROM. Then nothing is known about any name.
+      #
+      # A NAME THE BUILD NEVER SAW is the second, and it is not a bug either: the map answers
+      # about the program the build was given, and a caller may be pricing a slightly
+      # different one. Both fall back to the ordinary reading, which is the safe way to be
+      # wrong — but a reader of the call site could not tell which was meant, and the same
+      # `map && map[key]` was written out at each of them.
+      class Decided
+        def initialize(answers)
+          @answers = answers
+          freeze
+        end
+
+        # Nothing was worked out — no build stands behind this program.
+        NOTHING = new(nil)
+
+        def self.for(answers)
+          answers ? new(answers) : NOTHING
+        end
+
+        # What the build said about this name, or nil if it said nothing about it — or if
+        # there was no build to say anything.
+        def [](name)
+          @answers&.[](name)
+        end
+
+        # Whether a build stands behind this at all. The question a caller asks when the
+        # answer changes what it reports rather than what it charges.
+        def known?
+          !@answers.nil?
+        end
+      end
+
       # What drawing one hardware sprite needs to be priced, likewise taken off its
       # DECLARATION rather than the per-frame draw. A sprite that only moves is a
       # position written into a table. One that TURNS is drawn through a small matrix
@@ -332,6 +372,8 @@ module RubyGBA
       # much memory is used and left (see Backends::GBA::Placement#iwram_report).
       # +loop_shapes+ says which loops kept their counter in a register, keyed by the loop's
       # index — the build's answer again, for the same reason (see {LoopShape}).
+      attr_reader :var_addresses, :loop_shapes
+
       def initialize(fast_routines: nil, fast_frame: false, fast_interrupts: false,
                      placement: nil, var_addresses: nil, loop_shapes: nil, **weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)
@@ -342,13 +384,14 @@ module RubyGBA
         @fast_frame = fast_frame
         @fast_interrupts = fast_interrupts
         @placement = placement
-        # Where each variable landed, from the build that placed it. Without it every
-        # variable is priced as an ordinary one — which is what a program handed straight to
-        # the model, with no build behind it, gets. See Pricing#extra_var_address_steps.
-        @var_addresses = var_addresses
-        # ...and which shape each loop got. Without it every loop is priced as the safe shape,
-        # which is the dearer one — the right way to be wrong.
-        @loop_shapes = loop_shapes
+        # Where each variable landed, and which shape each loop got — the build's answers,
+        # or {Decided::NOTHING} when no build stands behind this program. A name either
+        # answers with is priced as ordinary and a loop as the safe (dearer) shape, which is
+        # the right way to be wrong. See {Decided}.
+        @var_addresses = Decided.for(var_addresses)
+        @loop_shapes = Decided.for(loop_shapes)
+        # Readable so a caller can ask whether a build stands behind this estimate at all —
+        # a report says a different thing when the answer is "nothing was worked out".
         @in_fast_code = false
         # Whether a walk over a list is being counted at the most it can hold rather than
         # what it usually holds — the growth question, asked by one caller (see

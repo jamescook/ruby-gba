@@ -665,11 +665,28 @@ class TestCostPricing < CostModelTest
     near WEIGHTS[:op_step] + (2 * WEIGHTS[:var_address_step]), far.steady_cost(changed)
   end
 
-  # No map, no charge — a program the model is handed with no build behind it has nothing to
-  # say where its variables went, and pricing them all as ordinary is what it did before.
+  # THE TWO WAYS TO HAVE NO ANSWER, which price the same and mean different things.
+  #
+  # No build behind the program at all is the first: nothing was ever worked out, so every
+  # variable is ordinary. A build that simply never saw this name is the second — the map
+  # answers about the program it was given, and a caller may be pricing a slightly different
+  # one. Both fall back to ordinary, which is the safe way to be wrong; what the model can
+  # say is which of the two it is in.
   def test_a_program_with_no_build_behind_it_prices_every_variable_the_same
     near WEIGHTS[:op_assign] + var_reads, Cost.new.steady_cost(assignment_loop)
     near WEIGHTS[:op_assign] + var_reads, Cost.new(var_addresses: {}).steady_cost(assignment_loop)
+  end
+
+  def test_a_name_the_build_never_saw_is_priced_as_ordinary_too
+    built = Cost.new(var_addresses: { somewhere_else: 0x03007F00 })
+
+    near WEIGHTS[:op_assign] + var_reads, built.steady_cost(assignment_loop)
+  end
+
+  # ...and the two are told apart, which the fallback alone cannot say.
+  def test_the_model_says_whether_a_build_stands_behind_it
+    assert_predicate Cost.new(var_addresses: {}).var_addresses, :known?
+    refute_predicate Cost.new.var_addresses, :known?
   end
 
   # The one variable that is NEARER than ordinary is charged the ordinary rate rather than
