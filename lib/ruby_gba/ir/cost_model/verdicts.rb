@@ -128,8 +128,8 @@ module RubyGBA
             break_even = (@capacities[name] - ((steady - budget) / body)).floor
             next unless break_even.between?(0, cap - 1)
 
-            { list: name, break_even: break_even, cap: cap, budget: budget, steady: steady,
-              node: loops.first }
+            Verdict::ListWalk.new(list: name, break_even: break_even, cap: cap, budget: budget,
+                                  steady: steady, node: loops.first)
           end
         end
 
@@ -170,8 +170,8 @@ module RubyGBA
             mode = modes.mode_of(name)
             cost = steady_func(name)
             budget = mode_budget(mode)
-            { name: Modes.friendly_name(name), node: @funcs[name], mode: mode,
-              steady_cost: cost, budget: budget, over: cost > budget }
+            Verdict::Scene.new(name: Modes.friendly_name(name), node: @funcs[name], mode: mode,
+                               steady_cost: cost, budget: budget)
           end
         end
 
@@ -189,9 +189,8 @@ module RubyGBA
             next unless @songs[name]
 
             cost = song_cost(name)
-            { name: name, notes: song_notes(name), steady_cost: cost,
-              budget: MUSIC_STEADY_BUDGET, over: cost > MUSIC_STEADY_BUDGET,
-              source: @songs[name].source }
+            Verdict::Song.new(name: name, notes: song_notes(name), steady_cost: cost,
+                              budget: MUSIC_STEADY_BUDGET, source: @songs[name].source)
           end
         end
 
@@ -210,8 +209,8 @@ module RubyGBA
           mixing = MIXER_VOICES * spf * @weights[:mix_voice_sample]
           overhead = spf * @weights[:mix_overhead_sample]
           cost = mixing + overhead
-          { voices: MIXER_VOICES, samples_per_frame: spf, rate: rate,
-            cost: cost, budget: FRAME_BUDGET, over: cost > FRAME_BUDGET }
+          Verdict::Mixer.new(voices: MIXER_VOICES, samples_per_frame: spf, rate: rate,
+                             cost: cost, budget: FRAME_BUDGET)
         end
 
         # What bending backgrounds row by row costs per frame, or nil when nothing bends.
@@ -238,9 +237,9 @@ module RubyGBA
           interrupts = LINES_PER_FRAME * bend_line_weight
           offsets = in_fast_interrupts { bends.sum { |node| VISIBLE_LINES * bend_offset_cost(node) } }
           cost = interrupts + offsets
-          { layers: bends.map { |node| node[:name] }.uniq, lines: LINES_PER_FRAME,
-            interrupts: interrupts, offsets: offsets,
-            cost: cost, budget: FRAME_BUDGET, over: cost > FRAME_BUDGET }
+          Verdict::Bend.new(layers: bends.map { |node| node[:name] }.uniq, lines: LINES_PER_FRAME,
+                            interrupts: interrupts, offsets: offsets,
+                            cost: cost, budget: FRAME_BUDGET)
         end
 
         # What one line's interrupt costs. Keeping the routine it lands in in faster memory
@@ -263,7 +262,7 @@ module RubyGBA
         # The bend's per-frame cost as a plain number (0 when nothing bends), for adding to
         # a frame the way the mixer's is.
         def bend_cost(program)
-          bend_verdict(program)&.fetch(:cost) || 0
+          bend_verdict(program)&.cost || 0
         end
 
         # What a timer's tick handler costs per frame, one entry per timer that runs one, or
@@ -286,8 +285,8 @@ module RubyGBA
                            .filter_map { |node| tick_entry(program, node) }
           return nil if entries.empty?
 
-          cost = entries.sum { |entry| entry[:cost] }
-          { timers: entries, cost: cost, budget: FRAME_BUDGET, over: cost > FRAME_BUDGET }
+          cost = entries.sum(&:cost)
+          Verdict::Ticks.new(timers: entries, cost: cost, budget: FRAME_BUDGET)
         end
 
         # One timer's share: how often it really ticks a frame, times the interrupt plus its
@@ -300,9 +299,9 @@ module RubyGBA
           each = tick_interrupt_weight + in_fast_interrupts { node.children.sum { |child| steady(child) } }
           delivered = deliverable_rate(hz, each)
           ticks = delivered / FULL_FRAME_RATE.to_f
-          { name: node[:timer], hz: hz, delivered: delivered, ticks: ticks,
-            each: each, interrupts: ticks * tick_interrupt_weight,
-            body: ticks * (each - tick_interrupt_weight), cost: ticks * each }
+          Verdict::Timer.new(name: node[:timer], hz: hz, delivered: delivered, ticks: ticks,
+                             each: each, interrupts: ticks * tick_interrupt_weight,
+                             body: ticks * (each - tick_interrupt_weight), cost: ticks * each)
         end
 
         # HOW MANY OF THE TICKS ASKED FOR THE CONSOLE CAN ACTUALLY DELIVER, which is not
@@ -338,7 +337,7 @@ module RubyGBA
 
         # The tick handlers' per-frame cost as a plain number (0 when no timer runs one).
         def tick_cost(program)
-          tick_verdict(program)&.fetch(:cost) || 0
+          tick_verdict(program)&.cost || 0
         end
 
         # What a frame spends inside the routine the console jumps into when the display or
@@ -486,7 +485,7 @@ module RubyGBA
         # The software mixer's per-frame cost (0 when the program plays no samples) — it
         # runs every frame, so it's part of the recurring load, not the tree of ops.
         def mixer_cost(program)
-          mixer_verdict(program)&.fetch(:cost) || 0
+          mixer_verdict(program)&.cost || 0
         end
 
         # A measured reading in words.
@@ -565,10 +564,11 @@ module RubyGBA
             count = node[:count]
             next unless count.is_a?(Node) && count.kind == :list_len && @capacities[count[:name]]
 
-            { name: count[:name], counted: list_length(count[:name]),
-              capacity: @capacities[count[:name]], said: @list_lengths.key?(count[:name]) }
+            Verdict::ListLength.new(name: count[:name], counted: list_length(count[:name]),
+                                    capacity: @capacities[count[:name]],
+                                    said: @list_lengths.key?(count[:name]))
           end
-          walks.uniq { |walk| walk[:name] }
+          walks.uniq(&:name)
         end
 
         # Whether the program has a repeat whose trip count has no provable bound — not a

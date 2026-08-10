@@ -37,7 +37,7 @@ module RubyGBA
             # to the screen — the drawing, and whatever the frame did first, which pushed
             # that write later. A double-buffered game can't tear at all, so its risk is the
             # whole frame's recurring work (drawing + logic + sound) against the 60fps budget.
-            mixer = model.mixer_verdict(program)&.fetch(:cost) || 0
+            mixer = model.mixer_verdict(program)&.cost || 0
             steady = buffered ? model.steady_cost(program) + mixer : model.steady_tear_cost(program)
             return [] if steady <= budget
 
@@ -52,14 +52,14 @@ module RubyGBA
           # One warning per over-budget scene, phrased for that scene's mode and
           # blaming that scene, since only its own drawing is over.
           def per_scene(model, program)
-            model.scene_verdicts(program).select { |scene| scene[:over] }.map do |scene|
-              body = if scene[:mode] == IR::Modes::BUFFERED
-                       buffered_message(scene[:steady_cost], scene[:budget])
+            model.scene_verdicts(program).select(&:over?).map do |scene|
+              body = if scene.mode == IR::Modes::BUFFERED
+                       buffered_message(scene.steady_cost, scene.budget)
                      else
-                       message(scene[:steady_cost], scene[:budget])
+                       message(scene.steady_cost, scene.budget)
                      end
               Finding.new(check: NAME, severity: :warning,
-                          message: "Scene :#{scene[:name]}. #{body}", node: scene[:node])
+                          message: "Scene :#{scene.name}. #{body}", node: scene.node)
             end
           end
 

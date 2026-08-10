@@ -224,6 +224,6 @@ class TestCostReport < CostModelTest
     Cost.new.render(sample_game, out: io)
     assert_match(/software mixer/, io.string)
     assert_match(/estimate within budget/, io.string)
-    refute Cost.new.mixer_verdict(sample_game)[:over], "the mixer's worst case still fits the frame"
+    refute_predicate Cost.new.mixer_verdict(sample_game), :over?, "the mixer's worst case still fits the frame"
   end
 end

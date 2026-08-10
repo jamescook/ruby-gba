@@ -42,10 +42,10 @@ class TestBudgetThresholdGuardrail < Minitest::Test
   def test_the_break_even_count_is_below_the_cap
     threshold = Cost.new.budget_thresholds(growing_draw_game(cap: 64, cell: 20)).first
     refute_nil threshold
-    assert_equal :swarm, threshold[:list]
-    assert_equal 64, threshold[:cap]
-    assert_operator threshold[:break_even], :>=, 0
-    assert_operator threshold[:break_even], :<, threshold[:cap]
+    assert_equal :swarm, threshold.list
+    assert_equal 64, threshold.cap
+    assert_operator threshold.break_even, :>=, 0
+    assert_operator threshold.break_even, :<, threshold.cap
   end
 
   # A small per-item draw that fits even at full capacity says nothing.
@@ -68,8 +68,8 @@ class TestBudgetThresholdGuardrail < Minitest::Test
     threshold = Cost.new.budget_thresholds(growing_draw_game(cap: 33, cell: 30)).first
 
     refute_nil threshold
-    assert_equal 33, threshold[:cap], "the length the author asked for, not the 64 slots it got"
-    assert_operator threshold[:break_even], :<, 33
+    assert_equal 33, threshold.cap, "the length the author asked for, not the 64 slots it got"
+    assert_operator threshold.break_even, :<, 33
   end
 
   # No growing loop, nothing to warn about.

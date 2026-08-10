@@ -92,11 +92,11 @@ module RubyGBA
         # out what the thing pays once.
         def emit_domain_banner(printer, program)
           domain_notes(program).each do |note|
-            printer.puts "!! #{note[:what]}: #{note[:weight]} was measured over " \
-                         "#{fmt_count(note[:from])}..#{fmt_count(note[:to])} #{note[:varies]}, so " \
-                         "~#{fmt(note[:cost])} scanlines of this frame reads LOW. A marginal rate " \
-                         "leaves out what a thing pays once. Re-measure #{note[:weight]} near " \
-                         "#{fmt_count(note[:count])} to be sure.",
+            printer.puts "!! #{note.what}: #{note.weight} was measured over " \
+                         "#{fmt_count(note.from)}..#{fmt_count(note.to)} #{note.varies}, so " \
+                         "~#{fmt(note.cost)} scanlines of this frame reads LOW. A marginal rate " \
+                         "leaves out what a thing pays once. Re-measure #{note.weight} near " \
+                         "#{fmt_count(note.count)} to be sure.",
                          emphasis: :banner
           end
         end
@@ -106,18 +106,18 @@ module RubyGBA
         def fmt_count(count) = count.to_i == count ? count.to_i.to_s : format("%.1f", count)
 
         def note_for(weight, domain, use)
-          return nil unless use[:count] < domain[:from] * FAR_BELOW
-          return nil if use[:cost] < MATERIAL
+          return nil unless use.count < domain[:from] * FAR_BELOW
+          return nil if use.cost < MATERIAL
 
-          { weight: weight, varies: domain[:varies], from: domain[:from], to: domain[:to],
-            count: use[:count], cost: use[:cost], what: use[:what] }
+          Verdict::Unpriced.new(weight: weight, varies: domain[:varies], from: domain[:from],
+                                to: domain[:to], count: use.count, cost: use.cost, what: use.what)
         end
 
         # Every timer that runs a tick handler, with how many times a frame it ticks.
         def tick_uses(program)
-          (tick_verdict(program)&.fetch(:timers) || []).map do |timer|
-            { what: "timer :#{timer[:name]} at #{timer[:hz]} a second", count: timer[:ticks],
-              cost: timer[:interrupts] }
+          (tick_verdict(program)&.timers || []).map do |timer|
+            Verdict::Use.new(what: "timer :#{timer.name} at #{timer.hz} a second",
+                             count: timer.ticks, cost: timer.interrupts)
           end
         end
 
@@ -127,8 +127,8 @@ module RubyGBA
             cells = overlap_cells(node)
             next nil unless cells.positive?
 
-            { what: "a per-pixel collision over #{cells} cells", count: cells,
-              cost: cells * @weights[:overlap_pixel] }
+            Verdict::Use.new(what: "a per-pixel collision over #{cells} cells", count: cells,
+                             cost: cells * @weights[:overlap_pixel])
           end
         end
       end

@@ -165,7 +165,7 @@ class TestCostOverruns < Minitest::Test
     if standing.deadline == :tearing
       model.steady_tear_cost(program) > Cost::VBLANK_BUDGET
     else
-      mixer = model.mixer_verdict(program)&.fetch(:cost) || 0
+      mixer = model.mixer_verdict(program)&.cost || 0
       model.steady_cost(program) + mixer +
         model.bend_cost(program) + model.tick_cost(program) > Cost::FRAME_BUDGET
     end

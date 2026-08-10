@@ -304,7 +304,7 @@ class TestCostCalibration < Minitest::Test
 
   CASES = [
     Standing.new(name: :mixer, weight: :mix_voice_sample, fast_code: false, shape: MIXER,
-                 predict: ->(model, program) { model.mixer_verdict(program)&.fetch(:cost) || 0 }),
+                 predict: ->(model, program) { model.mixer_verdict(program)&.cost || 0 }),
     Standing.new(name: :bend, weight: :bend_line, fast_code: false, shape: BEND,
                  predict: ->(model, program) { model.bend_cost(program) }),
     Standing.new(name: :bend_fast, weight: :bend_line_fast, fast_code: true, shape: BEND,
