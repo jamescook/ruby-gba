@@ -139,6 +139,19 @@ module RubyGBA
         TMP = 1   # temporary / I/O address register
         ADDR = 12 # variable address scratch
 
+        # WHAT THIS BACKEND DECIDED ABOUT AN ASSET, as against what the asset IS (that is
+        # IR::Assets, shared with every backend). These are facts about the cartridge and
+        # the console, so they mean nothing anywhere else and belong here.
+
+        # A table, once packed into the cartridge: how many elements, how wide each is, and
+        # whether the count is a power of two — which decides whether an out-of-range index
+        # is wrapped (one instruction) or clamped against both ends.
+        TableLayout = Data.define(:count, :elem_bytes, :signed, :pow2)
+
+        # A background, once given hardware to live in: where its map sits, which of the
+        # console's layers draws it, and how far forward that layer is.
+        BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :priority)
+
         # Two more scratch registers, live only inside one arithmetic expression and
         # never across a statement. A 64-bit multiply needs both of them, because its
         # answer does not fit in one register.
@@ -527,8 +540,7 @@ module RubyGBA
             when :data
               @data_blobs[node[:name]] = node[:bytes]
             when :bitmap
-              @bitmaps[node[:name]] = { width: node[:width], height: node[:height],
-                                        transparent: node[:transparent], pixels: node[:pixels] }
+              @bitmaps[node[:name]] = Assets::Image.of(node)
               # An opaque bitmap streams from ROM via DMA, so embed its pixels. A
               # transparent one is drawn pixel-by-pixel with its colors baked into
               # the code (letting transparent pixels be skipped), so it needs no
@@ -561,10 +573,10 @@ module RubyGBA
           elem_bytes, directive = TABLE_ELEM.fetch(node[:width])
           @data_blobs[node[:name]] = node[:values].pack(directive)
           count = node[:values].length
-          @tables[node[:name]] = {
+          @tables[node[:name]] = TableLayout.new(
             count: count, elem_bytes: elem_bytes, signed: node[:signed],
             pow2: count.positive? && (count & (count - 1)).zero?
-          }
+          )
         end
 
         # Build the double-buffer color table and stash it as a ROM blob to be
@@ -644,7 +656,7 @@ module RubyGBA
           # right tiles.
           tile_base = char.bytesize / (TILE_PX * TILE_PX)
           tiles.each do |tile|
-            pixels = @bitmaps.fetch(tile)[:pixels]
+            pixels = @bitmaps.fetch(tile).pixels
             (TILE_PX * TILE_PX).times do |i|
               color = (pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
               char << shared_palette_index(palette, color).chr
@@ -668,12 +680,12 @@ module RubyGBA
 
           map_blob = :"__bg_map_#{name}"
           @data_blobs[map_blob] = entries.pack("v*")
-          @backgrounds[name] = {
+          @backgrounds[name] = BackgroundPlacement.new(
             map: map_blob, map_units: entries.size,
             bg: layer,                           # hardware layer (BG0..BG3), in declaration order
             screen_block: FIRST_MAP_SCREENBLOCK + layer,
-            priority: count - 1 - layer,         # first declared is backmost (higher priority number = drawn behind)
-          }
+            priority: count - 1 - layer          # first declared is backmost (higher priority number = drawn behind)
+          )
         end
 
         # This color's slot in the shared background palette, adding it if it's new.
@@ -719,11 +731,11 @@ module RubyGBA
             bmp = @bitmaps.fetch(tile) do
               raise LoweringError, "background :#{name} references undefined tile image #{tile.inspect}"
             end
-            next if bmp[:width] == TILE_PX && bmp[:height] == TILE_PX
+            next if bmp.width == TILE_PX && bmp.height == TILE_PX
 
             raise LoweringError,
                   "screen :tiled needs #{TILE_PX}x#{TILE_PX} tiles, but tile #{tile.inspect} is " \
-                  "#{bmp[:width]}x#{bmp[:height]} — resize it, or draw this background under screen :bitmap"
+                  "#{bmp.width}x#{bmp.height} — resize it, or draw this background under screen :bitmap"
           end
         end
 
@@ -865,9 +877,9 @@ module RubyGBA
         # Add every non-see-through color in a sprite picture to the shared palette,
         # each earning the next index the first time it's seen.
         def scan_object_colors(bmp, palette)
-          pixels = bmp[:pixels]
-          transparent = bmp[:transparent]
-          (bmp[:width] * bmp[:height]).times do |i|
+          pixels = bmp.pixels
+          transparent = bmp.transparent
+          (bmp.width * bmp.height).times do |i|
             color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
             next if transparent && color == transparent
 
@@ -915,7 +927,7 @@ module RubyGBA
         def object_pose_size!(name, poses)
           sizes = poses.map do |image|
             bmp = @bitmaps.fetch(image) # presence already checked while building the palette
-            [bmp[:width], bmp[:height]]
+            [bmp.width, bmp.height]
           end
           return sizes.first if sizes.uniq.size == 1
 
@@ -930,11 +942,11 @@ module RubyGBA
         # pixel becomes index 0. Because we use 1D mapping, the tiles simply sit one
         # after another in memory.
         def encode_object_tiles(bmp)
-          pixels = bmp[:pixels]
-          width = bmp[:width]
-          transparent = bmp[:transparent]
+          pixels = bmp.pixels
+          width = bmp.width
+          transparent = bmp.transparent
           bytes = (+"").b
-          (bmp[:height] / TILE_PX).times do |tile_row|
+          (bmp.height / TILE_PX).times do |tile_row|
             (width / TILE_PX).times do |tile_col|
               TILE_PX.times do |row|
                 TILE_PX.times do |col|

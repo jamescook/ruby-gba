@@ -61,7 +61,7 @@ module RubyGBA
               bytes = poses.each_with_object(+"".b) { |image, acc| acc << mask_bytes(@bitmaps.fetch(image)) }
               blob = :"__pixmask_#{@pixel_masks.size}"
               @data_blobs[blob] = bytes
-              { blob: blob, w: first[:width], h: first[:height] }
+              { blob: blob, w: first.width, h: first.height }
             end
           end
 
@@ -70,10 +70,10 @@ module RubyGBA
           # everywhere). Same "is this pixel drawn?" test the blit uses to skip
           # transparent pixels.
           def mask_bytes(bmp)
-            pixels = bmp[:pixels]
-            transparent = bmp[:transparent]
+            pixels = bmp.pixels
+            transparent = bmp.transparent
             out = (+"".b)
-            (bmp[:width] * bmp[:height]).times do |i|
+            (bmp.width * bmp.height).times do |i|
               color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
               out << ((transparent.nil? || color != transparent) ? 1 : 0).chr
             end

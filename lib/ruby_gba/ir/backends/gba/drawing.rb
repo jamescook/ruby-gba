@@ -374,14 +374,14 @@ module RubyGBA
             bmp = @bitmaps.fetch(node[:name]) do
               raise LoweringError, "blit of undefined image #{node[:name].inspect}"
             end
-            bmp[:transparent] ? emit_blit_transparent(node, bmp) : emit_blit_opaque(node, bmp)
+            bmp.transparent ? emit_blit_transparent(node, bmp) : emit_blit_opaque(node, bmp)
           end
 
           # Opaque bitmap: stream each row straight from the cartridge into VRAM by
           # DMA — a run-time-positioned rectangle copy from a ROM buffer onto the
           # screen. The shared row engine below does the clipping.
           def emit_blit_opaque(node, bmp)
-            emit_rect_row_dma(node[:x], node[:y], bmp[:width], bmp[:height], node[:name], vram: :dest)
+            emit_rect_row_dma(node[:x], node[:y], bmp.width, bmp.height, node[:name], vram: :dest)
           end
 
           # Draw a tiled background. In tile mode the console draws the whole layer
@@ -414,10 +414,10 @@ module RubyGBA
           # composites the layers by priority so nearer ones sit in front.
           def emit_background_hardware(node)
             bg = @backgrounds.fetch(node[:name])
-            emit_dma_blob(bg[:map], VRAM_START + (bg[:screen_block] * SCREENBLOCK_BYTES), bg[:map_units])
-            write_reg16(BG_CNT_REGS[bg[:bg]], bg[:priority] | BG_256_COLOR | (bg[:screen_block] << 8))
-            write_reg16(BG_HOFS_REGS[bg[:bg]], 0) # start unscrolled
-            write_reg16(BG_VOFS_REGS[bg[:bg]], 0)
+            emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
+            write_reg16(BG_CNT_REGS[bg.bg], bg.priority | BG_256_COLOR | (bg.screen_block << 8))
+            write_reg16(BG_HOFS_REGS[bg.bg], 0) # start unscrolled
+            write_reg16(BG_VOFS_REGS[bg.bg], 0)
           end
 
           # Scroll one layer: write the window's top-left offset into that layer's scroll
@@ -501,7 +501,7 @@ module RubyGBA
             # still declares a background) there's no tiled layer, so fall back to BG0 —
             # the scroll registers do nothing when that layer isn't on, matching the
             # interpreter's harmless handling.
-            bg_num = (@backgrounds[node[:name]] || {})[:bg] || 0
+            bg_num = @backgrounds[node[:name]]&.bg || 0
             eval_value(node[:x])          # r0 = scroll x (pixels)
             store_halfword_acc(BG_HOFS_REGS[bg_num])
             eval_value(node[:y])          # r0 = scroll y
@@ -949,8 +949,8 @@ module RubyGBA
           # r2/r3 hold x/y across the blit; r4/r6 are the per-row screen_y and row
           # base; r7/r8 are per-pixel scratch.
           def emit_blit_transparent(node, bmp)
-            width = bmp[:width]
-            colors = bmp[:pixels].unpack("v*")
+            width = bmp.width
+            colors = bmp.pixels.unpack("v*")
 
             x_reg = 2
             y_reg = 3
@@ -959,8 +959,8 @@ module RubyGBA
             eval_value(node[:y])
             emit(ASM.mov_reg(y_reg, ACC))
 
-            bmp[:height].times do |row|
-              lit = width.times.reject { |col| colors[(row * width) + col] == bmp[:transparent] }
+            bmp.height.times do |row|
+              lit = width.times.reject { |col| colors[(row * width) + col] == bmp.transparent }
               next if lit.empty? # a fully transparent row draws nothing
 
               skip_row = gensym

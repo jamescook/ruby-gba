@@ -45,6 +45,12 @@ module RubyGBA
       class Reference
         class ProgramError < StandardError; end
 
+        # A table as this backend needs it: the numbers themselves, because it reads them
+        # to run the program. What the asset IS lives in IR::Assets, shared with every
+        # backend; a table has no shared shape, since the one that lowers to a cartridge
+        # keeps where the numbers were packed instead of the numbers.
+        TableValues = Data.define(:values, :signed)
+
         # A generous cap so an accidental infinite loop can't hang a test forever.
         # It's the runaway guard, not the usual stop — see DEFAULT_FRAMES.
         DEFAULT_MAX_STEPS = 1_000_000
@@ -216,14 +222,14 @@ module RubyGBA
             when :song
               @songs[n[:name]] = n
             when :sample
-              @samples[n[:name]] = { rate: n[:rate], length: n[:bytes].bytesize, note: n[:note] }
+              @samples[n[:name]] = Assets::Sample.of(n)
             when :table
-              @tables[n[:name]] = { values: n[:values], signed: n[:signed] }
+              @tables[n[:name]] = TableValues.new(values: n[:values], signed: n[:signed])
             when :data
               @data[n[:name]] = n[:bytes]
             when :bitmap
               @data[n[:name]] = n[:pixels]
-              @bitmaps[n[:name]] = { width: n[:width], height: n[:height], transparent: n[:transparent] }
+              @bitmaps[n[:name]] = Assets::Image.of(n)
             when :backing_buffer
               # Reserve the patch. `pixels` stays nil until the first save_region
               # fills it — a restore before any save has nothing to put back.
@@ -527,8 +533,8 @@ module RubyGBA
 
           # A pitched voice reads its sample faster (higher notes) or slower (lower), so it
           # plays out in proportionally fewer or more frames.
-          ratio = pitch_ratio(node[:pitch], info[:note])
-          frames = [(info[:length].to_f / (info[:rate] * ratio) * FRAME_RATE).ceil, 1].max
+          ratio = pitch_ratio(node[:pitch], info.note)
+          frames = [(info.length.to_f / (info.rate * ratio) * FRAME_RATE).ceil, 1].max
           @voices << { name: node[:name], loop: node[:loop], volume: node[:volume], pitch: node[:pitch],
                        frames_left: frames, frames_total: frames }
           @peak_voices = [@peak_voices, @voices.size].max
@@ -781,7 +787,7 @@ module RubyGBA
           @tile_colors[name] ||= begin
             bmp = @bitmaps.fetch(name)
             pixels = @data.fetch(name)
-            Array.new(bmp[:width] * bmp[:height]) do |i|
+            Array.new(bmp.width * bmp.height) do |i|
               color = (pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
               color.zero? ? nil : color
             end
@@ -817,7 +823,7 @@ module RubyGBA
 
           bmp = @bitmaps.fetch(tiles[index])
           pixels = @data.fetch(tiles[index])
-          i = ((y * bmp[:width]) + x) * 2
+          i = ((y * bmp.width) + x) * 2
           (pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)) & 0x7FFF
         end
 
@@ -931,10 +937,10 @@ module RubyGBA
           obj = @objects.fetch(name)
           bmp = @bitmaps.fetch(obj[:poses].first)
           if object_transformed?(obj)
-            rx, ry, w, h = transformed_footprint(obj, x, y, bmp[:width], bmp[:height])
+            rx, ry, w, h = transformed_footprint(obj, x, y, bmp.width, bmp.height)
             restore_patch(scene, rx, ry, w, h)
           else
-            restore_patch(scene, x, y, bmp[:width], bmp[:height])
+            restore_patch(scene, x, y, bmp.width, bmp.height)
           end
         end
 
@@ -976,9 +982,9 @@ module RubyGBA
         def blit_image_transformed(name, x, y, degrees, scale)
           bmp = @bitmaps.fetch(name) { raise ProgramError, "blit of undefined image #{name.inspect}" }
           pixels = @data.fetch(name)
-          transparent = bmp[:transparent]
-          w = bmp[:width]
-          h = bmp[:height]
+          transparent = bmp.transparent
+          w = bmp.width
+          h = bmp.height
           pa, pb, pc, pd = Affine.matrix(degrees % 360, scale)
           left = x - (w / 2) # the double-size patch: half a picture out on every side
           top = y - (h / 2)
@@ -1048,11 +1054,11 @@ module RubyGBA
         def blit_image(name, x, y)
           bmp = @bitmaps.fetch(name) { raise ProgramError, "blit of undefined image #{name.inspect}" }
           pixels = @data.fetch(name)
-          transparent = bmp[:transparent]
+          transparent = bmp.transparent
 
-          bmp[:height].times do |row|
-            bmp[:width].times do |col|
-              i = ((row * bmp[:width]) + col) * 2
+          bmp.height.times do |row|
+            bmp.width.times do |col|
+              i = ((row * bmp.width) + col) * 2
               color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
               next if transparent && color == transparent
               @screen.set_pixel(x + col, y + row, color)
@@ -1088,8 +1094,8 @@ module RubyGBA
         def collision_sprite(poses, pose_node, x_node, y_node)
           name = poses[eval_value(pose_node)]
           bmp = @bitmaps.fetch(name)
-          { pixels: @data.fetch(name), w: bmp[:width], h: bmp[:height],
-            transparent: bmp[:transparent], x: eval_value(x_node), y: eval_value(y_node) }
+          { pixels: @data.fetch(name), w: bmp.width, h: bmp.height,
+            transparent: bmp.transparent, x: eval_value(x_node), y: eval_value(y_node) }
         end
 
         # Whether pixel (col, row) of a sprite's picture is drawn (not its see-through
@@ -1229,7 +1235,7 @@ module RubyGBA
           table = @tables.fetch(node[:name]) do
             raise ProgramError, "reference to undefined table #{node[:name].inspect}"
           end
-          values = table[:values]
+          values = table.values
           Int32.wrap(values[safe_table_index(eval_value(node[:index]), values.length)])
         end
 

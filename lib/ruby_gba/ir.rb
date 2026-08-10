@@ -5,6 +5,7 @@ require_relative "ir/buttons"
 require_relative "ir/screen"
 require_relative "ir/fields" # what each kind of node carries; the node model asks it
 require_relative "ir/node"
+require_relative "ir/assets" # what a declared image or recording is, for every backend
 require_relative "ir/build"
 require_relative "ir/parity"
 require_relative "ir/affine"
