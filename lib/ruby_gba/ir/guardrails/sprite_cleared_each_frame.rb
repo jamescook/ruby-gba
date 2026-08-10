@@ -60,7 +60,7 @@ module RubyGBA
             return true if node.kind == :clear_screen
             return false unless %i[fill_rect dma_fill_rect].include?(node.kind)
 
-            node[:w].to_i >= SCREEN_W && node[:h].to_i >= SCREEN_H
+            node.w.to_i >= SCREEN_W && node.h.to_i >= SCREEN_H
           end
         end
       end

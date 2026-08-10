@@ -39,7 +39,7 @@ module RubyGBA
           private
 
           def message_for(node, container)
-            "The list :#{node[:name]} is declared inside #{per_frame_where(container)}. So it is " \
+            "The list :#{node.name} is declared inside #{per_frame_where(container)}. So it is " \
               "re-created empty every frame. Whatever you push onto it is lost on the next frame, and " \
               "its length never grows. You declare a list one time. To fix this, declare it in setup, " \
               "above the loop or outside the scene. Then push to it and read it inside the loop."

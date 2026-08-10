@@ -55,7 +55,7 @@ module RubyGBA
           # game whose play scene is tiled.
           def scope_mode(node, modes)
             func = enclosing_func(node)
-            func ? modes.mode_of(func[:name]) : modes.default_mode
+            func ? modes.mode_of(func.name) : modes.default_mode
           end
 
           def enclosing_func(node)

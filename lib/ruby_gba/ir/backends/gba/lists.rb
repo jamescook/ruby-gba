@@ -94,10 +94,10 @@ module RubyGBA
           # register_list); this just zeroes head and length. The slot contents are
           # left as-is — nothing reads them until a push makes them live.
           def emit_list_new(node)
-            list_info(node[:name])
+            list_info(node.name)
             emit(ASM.load_immediate(ACC, 0))
-            store_var(ACC, head_var(node[:name]))
-            store_var(ACC, length_var(node[:name]))
+            store_var(ACC, head_var(node.name))
+            store_var(ACC, length_var(node.name))
           end
 
           # list_push: append at the tail — slot (head + length) & mask — then grow
@@ -105,8 +105,8 @@ module RubyGBA
           # overwriting the oldest item (hardware has no way to raise, so it stays
           # safe and quiet; the interpreter is what flags the overflow in testing).
           def emit_list_push(node)
-            info = list_info(node[:name])
-            length = length_var(node[:name])
+            info = list_info(node.name)
+            length = length_var(node.name)
 
             load_var(ACC, length)                        # r0 = length (the tail offset)
             emit(ASM.load_immediate(TMP, info[:capacity]))
@@ -114,9 +114,9 @@ module RubyGBA
             skip = gensym
             emit_branch(:bcond, skip, cond: :ge)         # full => drop the push
 
-            emit_slot_address(info, node[:name])         # r12 = &slot[(head+length)&mask]
+            emit_slot_address(info, node.name)         # r12 = &slot[(head+length)&mask]
             emit(ASM.push(ADDR))                         # hold the address across the value eval
-            eval_value(node[:value])                     # r0 = value
+            eval_value(node.value)                     # r0 = value
             emit(ASM.pop(TMP))                           # r1 = address
             emit(ASM.str(ACC, TMP))                      # slot = value
 
@@ -130,16 +130,16 @@ module RubyGBA
           # item; a pop (:back) just forgets the newest. Either way length shrinks by
           # one. An empty list is left untouched (length never goes negative).
           def emit_list_drop(node)
-            info = list_info(node[:name])
-            head = head_var(node[:name])
-            length = length_var(node[:name])
+            info = list_info(node.name)
+            head = head_var(node.name)
+            length = length_var(node.name)
 
             load_var(ACC, length)
             emit(ASM.cmp_imm(ACC, 0))
             skip = gensym
             emit_branch(:bcond, skip, cond: :eq)         # empty => nothing to drop
 
-            if node[:from] == :front
+            if node.from == :front
               load_var(ACC, head)                        # head = (head + 1) & mask
               emit(ASM.add_imm(ACC, ACC, 1))
               emit_and_const(ACC, ACC, info[:mask], TMP)
@@ -156,28 +156,28 @@ module RubyGBA
           # write to the list's own slots, so an out-of-range index scribbles a stale
           # slot at worst, never a neighbouring variable.
           def emit_list_set(node)
-            info = list_info(node[:name])
+            info = list_info(node.name)
 
-            eval_value(node[:index])                     # r0 = index
-            emit_slot_address(info, node[:name])         # r12 = &slot[(head+index)&mask]
+            eval_value(node.index)                     # r0 = index
+            emit_slot_address(info, node.name)         # r12 = &slot[(head+index)&mask]
             emit(ASM.push(ADDR))
-            eval_value(node[:value])                     # r0 = value
+            eval_value(node.value)                     # r0 = value
             emit(ASM.pop(TMP))                           # r1 = address
             emit(ASM.str(ACC, TMP))                      # slot = value
           end
 
           # list_get: read the item at an index into the accumulator (a value).
           def eval_list_get(node)
-            info = list_info(node[:name])
-            eval_value(node[:index])                     # r0 = index
-            emit_slot_address(info, node[:name])         # r12 = &slot[(head+index)&mask]
+            info = list_info(node.name)
+            eval_value(node.index)                     # r0 = index
+            emit_slot_address(info, node.name)         # r12 = &slot[(head+index)&mask]
             emit(ASM.ldr(ACC, ADDR))                     # r0 = slot
           end
 
           # list_len: read the length variable into the accumulator (a value).
           def eval_list_len(node)
-            list_info(node[:name])
-            load_var(ACC, length_var(node[:name]))
+            list_info(node.name)
+            load_var(ACC, length_var(node.name))
           end
 
           # Turn an offset-from-head (already in r0 — an index, or length for a push)
@@ -231,8 +231,8 @@ module RubyGBA
           # comparison reloads the variable from memory itself, so a scene call is free
           # to clobber every register without disturbing the dispatch.
           def emit_case(node)
-            node[:clauses].each do |value, target|
-              test = Build.binop(:==, Build.var_ref(node[:var]), Build.int(value))
+            node.clauses.each do |value, target|
+              test = Build.binop(:==, Build.var_ref(node.var), Build.int(value))
               emit_statement(Build.if_(test, Build.call(target)))
             end
           end

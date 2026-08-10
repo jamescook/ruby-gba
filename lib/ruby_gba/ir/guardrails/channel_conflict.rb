@@ -20,10 +20,10 @@ module RubyGBA
             return [] unless program.walk.any? { |node| node.kind == :beep }
 
             songs = program.walk.select { |node| node.kind == :song }
-                            .each_with_object({}) { |node, by_name| by_name[node[:name]] = node }
+                            .each_with_object({}) { |node, by_name| by_name[node.name] = node }
 
-            played = program.walk.select { |node| node.kind == :play_song }.map { |node| node[:name] }.uniq
-            layered = played.select { |name| (song = songs[name]) && song[:voices].length >= 2 }
+            played = program.walk.select { |node| node.kind == :play_song }.map { |node| node.name }.uniq
+            layered = played.select { |name| (song = songs[name]) && song.voices.length >= 2 }
 
             layered.map do |name|
               Finding.new(check: NAME, severity: :warning, message: message(name), node: songs[name])

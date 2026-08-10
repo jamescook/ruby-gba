@@ -270,7 +270,7 @@ module RubyGBA
           register_timers(program) # assign each named timer its hardware timer index(es)
           prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
           resolve_modes(program)
-          @tiled = program.walk.any? { |node| node.kind == :screen && node[:mode] == :tiled }
+          @tiled = program.walk.any? { |node| node.kind == :screen && node.mode == :tiled }
           prepare_backgrounds(program) if @tiled
           register_row_bends(program) # which layers bend row by row (armed at boot, run per line)
           prepare_row_bends(program)
@@ -527,36 +527,36 @@ module RubyGBA
           program.walk do |node|
             case node.kind
             when :func
-              @funcs[node[:name]] = node
+              @funcs[node.name] = node
             when :define_sound
-              @defined_sounds[node[:name]] = {
-                frequency: node[:frequency], duty: node[:duty],
-                decay: node[:decay], volume: node[:volume]
+              @defined_sounds[node.name] = {
+                frequency: node.frequency, duty: node.duty,
+                decay: node.decay, volume: node.volume
               }
             when :song
-              @songs[node[:name]] = node
+              @songs[node.name] = node
             when :table
               register_table(node)
             when :data
-              @data_blobs[node[:name]] = node[:bytes]
+              @data_blobs[node.name] = node.bytes
             when :bitmap
-              @bitmaps[node[:name]] = Assets::Image.of(node)
+              @bitmaps[node.name] = Assets::Image.of(node)
               # An opaque bitmap streams from ROM via DMA, so embed its pixels. A
               # transparent one is drawn pixel-by-pixel with its colors baked into
               # the code (letting transparent pixels be skipped), so it needs no
               # ROM copy.
-              @data_blobs[node[:name]] = node[:pixels] unless node[:transparent]
+              @data_blobs[node.name] = node.pixels unless node.transparent
             when :list_new
               # Reserve the list's IWRAM storage once, up front, so every op that
               # touches it (anywhere in the tree, including funcs emitted later)
               # already knows its base address and capacity. list_new *executing*
               # only resets it to empty; the storage itself is allocated here.
-              register_list(node[:name], node[:capacity])
+              register_list(node.name, node.capacity)
             when :backing_buffer
               # Reserve the save-under patch's RAM once, up front, so a save/restore
               # anywhere in the tree already knows its address. Nothing is emitted
               # when the declaration is reached inline — it's pure reservation.
-              register_backing(node[:name], node[:width], node[:height])
+              register_backing(node.name, node.width, node.height)
             end
           end
         end
@@ -570,11 +570,11 @@ module RubyGBA
         # Embed a table's values as a ROM blob and remember its shape, so a table_get
         # can index it. A power-of-two length lets the read wrap with a cheap mask.
         def register_table(node)
-          elem_bytes, directive = TABLE_ELEM.fetch(node[:width])
-          @data_blobs[node[:name]] = node[:values].pack(directive)
-          count = node[:values].length
-          @tables[node[:name]] = TableLayout.new(
-            count: count, elem_bytes: elem_bytes, signed: node[:signed],
+          elem_bytes, directive = TABLE_ELEM.fetch(node.width)
+          @data_blobs[node.name] = node.values.pack(directive)
+          count = node.values.length
+          @tables[node.name] = TableLayout.new(
+            count: count, elem_bytes: elem_bytes, signed: node.signed,
             pow2: count.positive? && (count & (count - 1)).zero?
           )
         end
@@ -645,10 +645,10 @@ module RubyGBA
         # +layer+ is its declaration order, which is also its hardware layer number
         # (BG0, BG1, ...) and decides its paint order: the first declared is the backmost.
         def prepare_one_background(node, layer, count, palette, char)
-          name = node[:name]
-          tiles = node[:tiles]
+          name = node.name
+          tiles = node.tiles
           validate_tile_sizes!(name, tiles)
-          validate_map_fits!(name, node[:map])
+          validate_map_fits!(name, node.map)
 
           # Append this layer's tiles after whatever earlier layers put in the shared
           # character block, rewriting each pixel as an index into the shared palette.
@@ -668,7 +668,7 @@ module RubyGBA
           # Cells outside the authored map, and blank cells, stay 0 — the shared blank
           # tile, transparent so a layer behind shows through.
           entries = Array.new(MAP_CELLS * MAP_CELLS, 0)
-          node[:map].each_with_index do |row, r|
+          node.map.each_with_index do |row, r|
             next if r >= MAP_CELLS
 
             row.each_with_index do |index, c|
@@ -793,7 +793,7 @@ module RubyGBA
           tile_unit = 0 # running offset into sprite tile memory, in 32-byte units
           nodes.each_with_index do |node, index|
             prepare_one_object(node, nodes.size - 1 - index, tile_unit)
-            tile_unit += @objects[node[:name]][:tile_units]
+            tile_unit += @objects[node.name][:tile_units]
           end
           prepare_affine(nodes)
           return unless tile_unit * 32 > OBJ_TILE_CAPACITY
@@ -817,7 +817,7 @@ module RubyGBA
                   "#{transformed.size} sprites turn or change size, but the console can do that to at " \
                   "most #{MAX_AFFINE_GROUPS} at once. Turn or resize fewer sprites at the same time."
           end
-          transformed.each_with_index { |node, group| @objects[node[:name]][:affine_slot] = group }
+          transformed.each_with_index { |node, group| @objects[node.name][:affine_slot] = group }
           @data_blobs[OBJ_SINE_BLOB] = build_sine_table
         end
 
@@ -830,12 +830,12 @@ module RubyGBA
         end
 
         def object_rotates?(node)
-          value = const_int(node[:angle])
+          value = const_int(node.angle)
           value.nil? || !value.zero?
         end
 
         def object_scales?(node)
-          const_int(node[:scale]) != Build::SCALE_ONE
+          const_int(node.scale) != Build::SCALE_ONE
         end
 
         # The sine lookup table as ROM bytes: sin(d°) in 8.8 fixed point for d in
@@ -853,10 +853,10 @@ module RubyGBA
         def build_shared_object_palette(nodes)
           @obj_palette = {} # 15-bit color -> palette index (1-based; 0 = see-through)
           nodes.each do |node|
-            node[:poses].each do |image|
+            node.poses.each do |image|
               bmp = @bitmaps.fetch(image) do
                 raise LoweringError,
-                      "sprite object #{node[:name].inspect} references undefined image #{image.inspect}"
+                      "sprite object #{node.name.inspect} references undefined image #{image.inspect}"
               end
               scan_object_colors(bmp, @obj_palette)
             end
@@ -888,8 +888,8 @@ module RubyGBA
         end
 
         def prepare_one_object(node, slot, tile_unit)
-          name = node[:name]
-          poses = node[:poses]
+          name = node.name
+          poses = node.poses
           width, height = object_pose_size!(name, poses)
           shape, size = OBJ_SIZES.fetch([width, height]) do
             raise LoweringError,
@@ -910,11 +910,11 @@ module RubyGBA
             tiles: tile_blob, tile_units: tiles.bytesize / 32, # sprite memory counts in 32-byte units
             tile_index: tile_unit, # this sprite's base tile number
             per_pose: per_pose,    # stride to the next pose's tiles
-            pose: node[:pose],     # the run-time pose selector (which pose to show)
+            pose: node.pose,     # the run-time pose selector (which pose to show)
             width: width, height: height,
-            x: node[:x], y: node[:y], active: node[:active], # the live position/visibility operands
-            angle: node[:angle],   # the rotation operand (a constant 0 unless the sprite turns)
-            scale: node[:scale],   # the size operand (the "as drawn" constant unless it resizes)
+            x: node.x, y: node.y, active: node.active, # the live position/visibility operands
+            angle: node.angle,   # the rotation operand (a constant 0 unless the sprite turns)
+            scale: node.scale,   # the size operand (the "as drawn" constant unless it resizes)
             transformed: object_transformed?(node), # draw it through an affine group rather than upright?
             scales: object_scales?(node),           # ...and does that group need a size worked out?
             attr0_base: OBJ_256_COLOR | (shape << 14),

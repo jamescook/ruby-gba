@@ -61,7 +61,19 @@ module RubyGBA
         # an author-time literal of a stated type.
         def operands(**tags)
           @tags = tags
-          tags.each_key { |name| attr_accessor name }
+          tags.each_key do |name|
+            attr_reader name
+
+            # Writing an operand that is itself a node wires its parent back, so the tree is
+            # navigable in both directions however it was assembled — a branch attached after
+            # the node it hangs from, a sprite given an angle once something turns it. The
+            # assignment maintains that, rather than whoever remembers to.
+            define_method(:"#{name}=") do |value|
+              instance_variable_set(:"@#{name}", value)
+              value.parent = self if value.is_a?(Node)
+              value
+            end
+          end
         end
 
         def tags
@@ -79,7 +91,7 @@ module RubyGBA
         @children = []
         @parent = nil
         @source = source
-        operands.each { |name, value| self[name] = value }
+        operands.each { |name, value| set_operand(name, value) }
         children.each { |child| add_child(child) }
       end
 
@@ -102,24 +114,6 @@ module RubyGBA
         self.class.tags.keys
             .select { |name| instance_variable_defined?(:"@#{name}") }
             .to_h { |name| [name, public_send(name)] }
-      end
-
-      # Read an operand by name. A field this KIND does not have is refused rather than
-      # answered with nil — a hash answers nil for a name it never heard of, which makes a
-      # misspelling indistinguishable from an operand nobody set.
-      def [](key)
-        refuse(key, "read") unless self.class.tags.key?(key)
-        public_send(key)
-      end
-
-      # Set an operand after construction — used to attach a branch built later, e.g. an
-      # `if` node's :else once `.else { ... }` runs. If the value is a child node, wire its
-      # parent back so the tree stays navigable.
-      def []=(key, value)
-        refuse(key, "set") unless self.class.tags.key?(key)
-        public_send(:"#{key}=", value)
-        value.parent = self if value.is_a?(Node)
-        value
       end
 
       # -- what a node is, for code that walks every kind --
@@ -214,15 +208,19 @@ module RubyGBA
 
       private
 
-      # A field this kind does not have. Says what the kind DOES have, because the answer is
-      # nearly always in that list — a typo, or a field that moved to another kind.
-      def refuse(key, verb)
-        known = self.class.tags.keys
-        raise InvariantError,
-              "#{kind} has no #{key.inspect} field to #{verb}. It has: " \
-              "#{known.empty? ? '(nothing)' : known.map(&:inspect).join(', ')}. " \
-              "Code that walks every kind asks what a node is first (#sized?, #colored?, " \
-              "#branching?); declare the field with `operands` if this kind should have it."
+      # Put an operand there while constructing, by name. A name the kind does not have is
+      # refused with what it DOES have — the answer is nearly always in that list, and the
+      # bare NoMethodError a writer would raise says nothing about the alternatives.
+      def set_operand(name, value)
+        unless self.class.tags.key?(name)
+          known = self.class.tags.keys
+          raise InvariantError,
+                "#{kind} has no #{name.inspect} field to set. It has: " \
+                "#{known.empty? ? '(nothing)' : known.map(&:inspect).join(', ')}. " \
+                "Declare it with `operands` if this kind should have it."
+        end
+
+        public_send(:"#{name}=", value)
       end
 
       # An operand for #copy: a nested node is copied, a list is copied element by element

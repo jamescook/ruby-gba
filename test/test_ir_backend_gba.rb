@@ -328,7 +328,7 @@ class TestIRBackendGBA < Minitest::Test
   def test_if_else_draws_the_else_branch_when_false
     # x = 1, so (x > 5) is false: the else-branch runs and draws blue, not red.
     taken = if_(binop(:>, var_ref(:x), int(5)), pixel(10, 10, :red))
-    taken[:else] = else_(pixel(20, 20, :blue))
+    taken.else = else_(pixel(20, 20, :blue))
 
     rom = lower(program(screen(:bitmap), clear_screen(:black), set(:x, 1), taken, halt))
     v = assert_gemba_loads_rom(rom)

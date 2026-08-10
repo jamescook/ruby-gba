@@ -108,9 +108,9 @@ module RubyGBA
         @program.walk do |node|
           case node.kind
           when :call
-            check_target_defined!(node[:target])
+            check_target_defined!(node.target)
           when :case
-            node[:clauses].each { |_value, target| check_target_defined!(target) }
+            node.clauses.each { |_value, target| check_target_defined!(target) }
           end
         end
       end

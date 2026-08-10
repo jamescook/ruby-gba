@@ -125,8 +125,8 @@ class TestTable < Minitest::Test
     assert_equal 16, t[0].fraction_bits
 
     stored = b.program.walk.find { |n| n.kind == :table }
-    assert_equal [0.5 * (1 << 16), -1.25 * (1 << 16)], stored[:values]
-    assert_equal :word, stored[:width], "a whole number plus 16 bits of fraction needs a word"
+    assert_equal [0.5 * (1 << 16), -1.25 * (1 << 16)], stored.values
+    assert_equal :word, stored.width, "a whole number plus 16 bits of fraction needs a word"
   end
 
   # --- Hardware (gemba): the lookup drives real pixels ---

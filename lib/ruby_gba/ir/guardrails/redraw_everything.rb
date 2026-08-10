@@ -57,14 +57,14 @@ module RubyGBA
           private
 
           def buffered?(program)
-            program.walk.any? { |node| node.kind == :screen && node[:buffered] }
+            program.walk.any? { |node| node.kind == :screen && node.buffered }
           end
 
           # A repeat over a list's length whose body paints — the unbounded redraw.
           def growing_list_redraw?(node)
             return false unless node.kind == :repeat
 
-            count = node[:count]
+            count = node.count
             return false unless count.is_a?(Node) && count.kind == :list_len
 
             node.each.any? { |n| PAINTS.include?(n.kind) }

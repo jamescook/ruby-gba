@@ -213,37 +213,37 @@ module RubyGBA
           node.walk do |n|
             case n.kind
             when :func
-              @funcs[n[:name]] = n
+              @funcs[n.name] = n
             when :define_sound
-              @defined_sounds[n[:name]] = {
-                frequency: n[:frequency], duty: n[:duty],
-                decay: n[:decay], volume: n[:volume]
+              @defined_sounds[n.name] = {
+                frequency: n.frequency, duty: n.duty,
+                decay: n.decay, volume: n.volume
               }
             when :song
-              @songs[n[:name]] = n
+              @songs[n.name] = n
             when :sample
-              @samples[n[:name]] = Assets::Sample.of(n)
+              @samples[n.name] = Assets::Sample.of(n)
             when :table
-              @tables[n[:name]] = TableValues.new(values: n[:values], signed: n[:signed])
+              @tables[n.name] = TableValues.new(values: n.values, signed: n.signed)
             when :data
-              @data[n[:name]] = n[:bytes]
+              @data[n.name] = n.bytes
             when :bitmap
-              @data[n[:name]] = n[:pixels]
-              @bitmaps[n[:name]] = Assets::Image.of(n)
+              @data[n.name] = n.pixels
+              @bitmaps[n.name] = Assets::Image.of(n)
             when :backing_buffer
               # Reserve the patch. `pixels` stays nil until the first save_region
               # fills it — a restore before any save has nothing to put back.
-              @backing[n[:name]] = { width: n[:width], height: n[:height], pixels: nil }
+              @backing[n.name] = { width: n.width, height: n.height, pixels: nil }
             when :object
               # Register the object, so present_objects can find its picture and the
               # variables holding where it is and whether it's shown.
-              @objects[n[:name]] = n
+              @objects[n.name] = n
             when :background
               # Remember every background so present_objects can redraw them under the
               # objects each frame (that clean redraw is what erases the previous frame),
               # and by name so scroll_background can re-window that one.
               @bg_nodes << n
-              @bg_by_name[n[:name]] = n
+              @bg_by_name[n.name] = n
             when :scroll_background
               # A program that scrolls even once can put its background at a non-zero
               # offset, so the whole scene has to be repainted every frame — the static
@@ -255,7 +255,7 @@ module RubyGBA
               # every frame, so the scene has to be repainted like a scrolled one.
               # Declared once and standing from then on (last wins if repeated), which is
               # why it is collected here rather than run as a statement.
-              @row_bends[n[:name]] = n
+              @row_bends[n.name] = n
               @scrolling = true
             end
           end
@@ -296,33 +296,33 @@ module RubyGBA
             # A func body runs only when something `call`s it, never inline here.
             nil
           when :set
-            @vars[node[:var]] = eval_value(node[:value])
+            @vars[node.var] = eval_value(node.value)
           when :add
-            @vars[node[:var]] = Int32.add(@vars[node[:var]], eval_value(node[:operand]))
+            @vars[node.var] = Int32.add(@vars[node.var], eval_value(node.operand))
           when :sub
-            @vars[node[:var]] = Int32.sub(@vars[node[:var]], eval_value(node[:operand]))
+            @vars[node.var] = Int32.sub(@vars[node.var], eval_value(node.operand))
           when :copy
-            @vars[node[:dest]] = @vars[node[:src]]
+            @vars[node.dest] = @vars[node.src]
           when :negate
-            @vars[node[:var]] = Int32.neg(@vars[node[:var]])
+            @vars[node.var] = Int32.neg(@vars[node.var])
           when :abs
             # |v|: flip it only when it's negative.
-            v = @vars[node[:var]]
-            @vars[node[:var]] = v.negative? ? Int32.neg(v) : v
+            v = @vars[node.var]
+            @vars[node.var] = v.negative? ? Int32.neg(v) : v
           when :negate_abs
             # -|v|: flip it only when it's positive.
-            v = @vars[node[:var]]
-            @vars[node[:var]] = v.positive? ? Int32.neg(v) : v
+            v = @vars[node.var]
+            @vars[node.var] = v.positive? ? Int32.neg(v) : v
           when :clamp
-            @vars[node[:var]] = clamp_value(@vars[node[:var]], eval_value(node[:min]),
-                                            eval_value(node[:max]))
+            @vars[node.var] = clamp_value(@vars[node.var], eval_value(node.min),
+                                            eval_value(node.max))
           when :save_init
             exec_save_init(node)
           when :save_store
             exec_save_store(node)
           when :if
-            if eval_value(node[:cond]).zero?
-              node[:else]&.children&.each { |child| exec(child) }
+            if eval_value(node.cond).zero?
+              node.else&.children&.each { |child| exec(child) }
             else
               node.children.each { |child| exec(child) }
             end
@@ -332,11 +332,11 @@ module RubyGBA
             # A counted loop: the index counts 0..count-1. Evaluate count once,
             # like a for-loop bound. tick! guards the step budget even when the
             # body is empty.
-            count = eval_value(node[:count])
+            count = eval_value(node.count)
             i = 0
             while i < count
               tick!
-              @vars[node[:index]] = i
+              @vars[node.index] = i
               node.children.each { |child| exec(child) }
               i += 1
             end
@@ -344,21 +344,21 @@ module RubyGBA
             # A repeating timer: tick the hidden frame counter, and each time it
             # reaches the period, reset it and run the body — so the body fires once
             # per interval.
-            @vars[node[:counter]] = Int32.add(@vars[node[:counter]], 1)
-            if @vars[node[:counter]] >= node[:period]
-              @vars[node[:counter]] = 0
+            @vars[node.counter] = Int32.add(@vars[node.counter], 1)
+            if @vars[node.counter] >= node.period
+              @vars[node.counter] = 0
               node.children.each { |child| exec(child) }
             end
           when :after
             # A one-shot timer: count up only until the target frame, running the
             # body on the single frame the counter lands exactly on it.
-            if @vars[node[:counter]] < node[:frames]
-              @vars[node[:counter]] = Int32.add(@vars[node[:counter]], 1)
-              node.children.each { |child| exec(child) } if @vars[node[:counter]] == node[:frames]
+            if @vars[node.counter] < node.frames
+              @vars[node.counter] = Int32.add(@vars[node.counter], 1)
+              node.children.each { |child| exec(child) } if @vars[node.counter] == node.frames
             end
           when :list_new
             # Create (or reset) the named list, empty, with its rounded capacity.
-            @lists[node[:name]] = ListValue.new(node[:capacity])
+            @lists[node.name] = ListValue.new(node.capacity)
           when :list_push
             exec_list_push(node)
           when :list_drop
@@ -374,7 +374,7 @@ module RubyGBA
           when :restore_region
             exec_restore_region(node)
           when :call
-            exec_call(node[:target])
+            exec_call(node.target)
           when :case
             exec_case(node)
           when :halt
@@ -384,7 +384,7 @@ module RubyGBA
             advance_frame
           when :screen
             # Remember the chosen mode; the fake screen already models the bitmap the
-            # draw ops assume. Double buffering (node[:buffered]) needs no different
+            # draw ops assume. Double buffering (node.buffered) needs no different
             # handling here: it only changes *when* a drawn frame becomes visible on
             # real hardware, and this oracle already reads the settled end-of-frame
             # image — so a torn mid-frame never existed to begin with.
@@ -398,28 +398,28 @@ module RubyGBA
             # bleed through under the new one. A switch that stays within the bitmap
             # family (single- vs double-buffered) keeps the same surface, so it doesn't
             # wipe — the existing per-scene bitmap-mode behavior is unchanged.
-            @screen.clear(0) if @screen_mode && tiled_mode?(node[:mode]) != tiled_mode?(@screen_mode)
-            @screen_mode = node[:mode]
-            @buffered = node[:buffered] || false
+            @screen.clear(0) if @screen_mode && tiled_mode?(node.mode) != tiled_mode?(@screen_mode)
+            @screen_mode = node.mode
+            @buffered = node.buffered || false
           when :clear_screen
-            @screen.clear(resolve_color(node[:color]))
+            @screen.clear(resolve_color(node.color))
           when :pixel
-            @screen.set_pixel(eval_value(node[:x]), eval_value(node[:y]), resolve_color(node[:color]))
+            @screen.set_pixel(eval_value(node.x), eval_value(node.y), resolve_color(node.color))
           when :fill_rect
-            @screen.fill_rect(eval_value(node[:x]), eval_value(node[:y]),
-                              eval_value(node[:w]), eval_value(node[:h]),
-                              resolve_color(node[:color]))
+            @screen.fill_rect(eval_value(node.x), eval_value(node.y),
+                              eval_value(node.w), eval_value(node.h),
+                              resolve_color(node.color))
           when :dma_fill_rect
             # Same picture as fill_rect — the "DMA" is only how a console fills it
             # fast; the pixels that land are identical.
-            @screen.fill_rect(eval_value(node[:x]), eval_value(node[:y]),
-                              eval_value(node[:w]), eval_value(node[:h]),
-                              resolve_color(node[:color]))
+            @screen.fill_rect(eval_value(node.x), eval_value(node.y),
+                              eval_value(node.w), eval_value(node.h),
+                              resolve_color(node.color))
           when :draw_rect_at
             # A rectangle whose position and size are all computed at run time. A width
             # or height of zero or less covers no pixels, so nothing is drawn.
-            @screen.fill_rect(eval_value(node[:x]), eval_value(node[:y]),
-                              eval_value(node[:w]), eval_value(node[:h]), resolve_color(node[:color]))
+            @screen.fill_rect(eval_value(node.x), eval_value(node.y),
+                              eval_value(node.w), eval_value(node.h), resolve_color(node.color))
           when :draw_text
             exec_draw_text(node)
           when :draw_digit
@@ -434,9 +434,9 @@ module RubyGBA
             # repaints, so a program that only bends still shows the bend.
             composite_scrolled_frame
           when :camera
-            @screen.camera_to(eval_value(node[:x]), eval_value(node[:y]))
+            @screen.camera_to(eval_value(node.x), eval_value(node.y))
           when :fade
-            @screen.fade_to(node[:toward], eval_value(node[:amount]))
+            @screen.fade_to(node.toward, eval_value(node.amount))
           when :present_objects
             exec_present_objects(node)
           when :enable_sound
@@ -450,11 +450,11 @@ module RubyGBA
           when :noise
             @audio << [:noise, resolve_noise(node)]
           when :wave
-            @audio << [:wave, { shape: node[:shape], frequency: node[:frequency], volume: node[:volume] }]
+            @audio << [:wave, { shape: node.shape, frequency: node.frequency, volume: node.volume }]
           when :stop_wave
             @audio << [:stop_wave]
           when :play_song
-            exec_play_song(node[:name])
+            exec_play_song(node.name)
           when :stop_music
             @audio << [:stop_music]
           when :play_sample
@@ -464,13 +464,13 @@ module RubyGBA
           when :timer_start
             # Start (or restart) a timer: it now runs at hz overflows/sec, its elapsed
             # count reset to zero (advance_frame accrues the overflows each frame).
-            @timers[node[:name]] = { hz: node[:hz], running: true, overflows: 0.0 }
+            @timers[node.name] = { hz: node.hz, running: true, overflows: 0.0 }
           when :timer_stop
-            @timers[node[:name]]&.[]=(:running, false)
+            @timers[node.name]&.[]=(:running, false)
           when :on_timer
             # Arm the handler: its body runs on each of the timer's overflows, which
             # advance_frame drives as the timer accrues them.
-            @timer_handlers[node[:timer]] = node
+            @timer_handlers[node.timer] = node
           else
             raise ProgramError,
                   "the reference backend cannot execute #{node.kind.inspect} " \
@@ -526,16 +526,16 @@ module RubyGBA
         # and rate) so a looping voice can re-trigger itself at the end. A one-shot voice
         # simply falls silent there. Past MAX_VOICES the new one is dropped.
         def start_sample(node)
-          info = @samples[node[:name]] ||
-                 raise(ProgramError, "play_sample of undefined sample #{node[:name].inspect}")
-          @audio << [:sample, node[:name]]
+          info = @samples[node.name] ||
+                 raise(ProgramError, "play_sample of undefined sample #{node.name.inspect}")
+          @audio << [:sample, node.name]
           return if @voices.size >= MAX_VOICES
 
           # A pitched voice reads its sample faster (higher notes) or slower (lower), so it
           # plays out in proportionally fewer or more frames.
-          ratio = pitch_ratio(node[:pitch], info.note)
+          ratio = pitch_ratio(node.pitch, info.note)
           frames = [(info.length.to_f / (info.rate * ratio) * FRAME_RATE).ceil, 1].max
-          @voices << { name: node[:name], loop: node[:loop], volume: node[:volume], pitch: node[:pitch],
+          @voices << { name: node.name, loop: node.loop, volume: node.volume, pitch: node.pitch,
                        frames_left: frames, frames_total: frames }
           @peak_voices = [@peak_voices, @voices.size].max
         end
@@ -552,7 +552,7 @@ module RubyGBA
 
         # Stop a sample: drop its voices from the mix (or every voice, if no name is given).
         def stop_sample(node)
-          @voices.reject! { |v| node[:name].nil? || v[:name] == node[:name] }
+          @voices.reject! { |v| node.name.nil? || v[:name] == node.name }
           @audio << [:stop_sample]
         end
 
@@ -603,10 +603,10 @@ module RubyGBA
         # glyph becomes one painted cell, offset from the text's top-left origin.
         # Off-screen cells clip away in set_pixel, just as they do on hardware.
         def exec_draw_text(node)
-          x = eval_value(node[:x])
-          y = eval_value(node[:y])
-          color = resolve_color(node[:color])
-          Fonts.get(node[:font]).each_pixel(node[:text]) do |dx, dy|
+          x = eval_value(node.x)
+          y = eval_value(node.y)
+          color = resolve_color(node.color)
+          Fonts.get(node.font).each_pixel(node.text) do |dx, dy|
             @screen.set_pixel(x + dx, y + dy, color)
           end
         end
@@ -615,12 +615,12 @@ module RubyGBA
         # that one glyph. A value outside 0..9 draws nothing (a digit column always
         # holds a single digit, so this only guards against misuse).
         def exec_draw_digit(node)
-          digit = eval_value(node[:value])
+          digit = eval_value(node.value)
           return unless (0..9).cover?(digit)
 
-          color = resolve_color(node[:color])
-          Fonts.get(node[:font]).each_pixel(digit.to_s) do |dx, dy|
-            @screen.set_pixel(node[:x] + dx, node[:y] + dy, color)
+          color = resolve_color(node.color)
+          Fonts.get(node.font).each_pixel(digit.to_s) do |dx, dy|
+            @screen.set_pixel(node.x + dx, node.y + dy, color)
           end
         end
 
@@ -628,16 +628,16 @@ module RubyGBA
         # played — the shared rule, so the interpreter and the ROM agree on what a
         # given beep means.
         def resolve_effect(node)
-          Sound.resolve_effect(node[:tone], duty: node[:duty], decay: node[:decay],
-                                            volume: node[:volume], defined: @defined_sounds)
+          Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,
+                                            volume: node.volume, defined: @defined_sounds)
         end
 
         # Resolve a noise hit's preset + overrides into the concrete musical values
         # that played — the shared rule, so the interpreter and the ROM agree on
         # what a given hit means.
         def resolve_noise(node)
-          Sound.resolve_noise(node[:preset], pitch: node[:pitch], decay: node[:decay],
-                                             volume: node[:volume], metallic: node[:metallic])
+          Sound.resolve_noise(node.preset, pitch: node.pitch, decay: node.decay,
+                                             volume: node.volume, metallic: node.metallic)
         end
 
         # Record any note that lands on the song's CURRENT frame (frequency 0 is a
@@ -650,27 +650,27 @@ module RubyGBA
         def exec_play_song(name)
           song = @songs[name] || raise(ProgramError, "play_song for undefined song #{name.inspect}")
           frame = @music_frames[name]
-          song[:voices].each do |voice|
+          song.voices.each do |voice|
             voice[:events].each do |offset, frequency|
               @audio << [:note, name, frequency] if offset == frame
             end
           end
-          total = song[:total_frames]
+          total = song.total_frames
           @music_frames[name] = total.zero? ? 0 : (frame + 1) % total
         end
 
         # Multi-way dispatch: call the scene/func for the clause whose value equals
         # the variable. Values are distinct, so this runs at most one scene.
         def exec_case(node)
-          value = @vars[node[:var]]
-          node[:clauses].each do |clause_value, target|
+          value = @vars[node.var]
+          node.clauses.each do |clause_value, target|
             exec_call(target) if value == clause_value
           end
         end
 
         # Copy a defined bitmap onto the fake screen at (x, y).
         def exec_blit(node)
-          blit_image(node[:name], eval_value(node[:x]), eval_value(node[:y]))
+          blit_image(node.name, eval_value(node.x), eval_value(node.y))
         end
 
         # Draw a tiled background by stamping each cell's tile onto the fake screen.
@@ -680,10 +680,10 @@ module RubyGBA
         # composites stacked layers: the backmost paints first, and each layer in front
         # only covers where it has solid pixels, letting the layers behind fill its gaps.
         def exec_background(node)
-          tiles = node[:tiles]
-          tile_w = node[:tile_w]
-          tile_h = node[:tile_h]
-          node[:map].each_with_index do |row, r|
+          tiles = node.tiles
+          tile_w = node.tile_w
+          tile_h = node.tile_h
+          node.map.each_with_index do |row, r|
             row.each_with_index do |index, c|
               next if index.nil?
 
@@ -710,8 +710,8 @@ module RubyGBA
         # for free; here we reproduce that by repainting the scrolled scene and drawing
         # the sprites back over it (see #composite_scrolled_frame).
         def exec_scroll_background(node)
-          @bg_by_name.fetch(node[:name]) { raise ProgramError, "scroll of undeclared background #{node[:name].inspect}" }
-          @bg_scroll[node[:name]] = [eval_value(node[:x]), eval_value(node[:y])]
+          @bg_by_name.fetch(node.name) { raise ProgramError, "scroll of undeclared background #{node.name.inspect}" }
+          @bg_scroll[node.name] = [eval_value(node.x), eval_value(node.y)]
           composite_scrolled_frame
         end
 
@@ -726,18 +726,18 @@ module RubyGBA
         # painted as a run. A scrolling scene is repainted in full every frame, so this
         # inner loop is where a whole run's time goes.
         def paint_background_window(bg)
-          tiles = bg[:tiles]
-          map = bg[:map]
-          tile_w = bg[:tile_w]
-          tile_h = bg[:tile_h]
+          tiles = bg.tiles
+          map = bg.map
+          tile_w = bg.tile_w
+          tile_h = bg.tile_h
           # Wrap over the console's whole 32x32 cell grid, not over the rows the
           # author wrote (see MAP_CELLS). Sampling a cell past those rows finds no
           # tile there, and an absent tile reads as the backdrop.
           map_w = MAP_CELLS * tile_w
           map_h = MAP_CELLS * tile_h
-          base_x, off_y = @bg_scroll[bg[:name]] || [0, 0]
+          base_x, off_y = @bg_scroll[bg.name] || [0, 0]
           off_y %= map_h
-          bend = @row_bends[bg[:name]]
+          bend = @row_bends[bg.name]
           width = @screen.width
 
           @screen.height.times do |py|
@@ -770,9 +770,9 @@ module RubyGBA
         def row_bend_offset(bend, py)
           return 0 unless bend
 
-          @vars[bend[:row]] = py
+          @vars[bend.row] = py
           bend.children.each { |child| exec(child) }
-          eval_value(bend[:offset])
+          eval_value(bend.offset)
         end
 
         # A tile's pixels as colors, ready to paint, row after row in one flat list —
@@ -846,20 +846,20 @@ module RubyGBA
           end
 
           scene = scene_framebuffer
-          node[:names].each do |name|
+          node.names.each do |name|
             prev = @obj_prev[name]
             restore_scene_rect(scene, name, prev) if prev
           end
-          node[:names].each do |name|
+          node.names.each do |name|
             obj = @objects.fetch(name) { raise ProgramError, "present of undeclared object #{name.inspect}" }
             @obj_prev[name] = nil
-            next unless eval_value(obj[:active]) == 1
+            next unless eval_value(obj.active) == 1
 
             image = object_pose_image(obj)
             next if image.nil? # a pose index out of range shows nothing this frame
 
-            x = eval_value(obj[:x])
-            y = eval_value(obj[:y])
+            x = eval_value(obj.x)
+            y = eval_value(obj.y)
             draw_object(obj, image, x, y)
             @obj_prev[name] = [x, y]
           end
@@ -879,16 +879,16 @@ module RubyGBA
         # turn/face_angle/scale keeps them and draws straight, so we take the cheaper
         # blit path for it.
         def object_transformed?(obj)
-          !(constant?(obj[:angle], 0) && constant?(obj[:scale], Build::SCALE_ONE))
+          !(constant?(obj.angle, 0) && constant?(obj.scale, Build::SCALE_ONE))
         end
 
         def constant?(node, value)
-          node.kind == :int && node[:value] == value
+          node.kind == :int && node.value == value
         end
 
         # This frame's angle and size for a transformed object.
         def object_transform(obj)
-          [eval_value(obj[:angle]), eval_value(obj[:scale])]
+          [eval_value(obj.angle), eval_value(obj.scale)]
         end
 
         # Capture the objects that are on screen this frame — their current pose picture
@@ -896,14 +896,14 @@ module RubyGBA
         # paints over the scrolled scene. A hidden object, or one whose pose index is out
         # of range, simply isn't in the layer this frame.
         def snapshot_object_layer(node)
-          @obj_layer = node[:names].filter_map do |name|
+          @obj_layer = node.names.filter_map do |name|
             obj = @objects.fetch(name) { raise ProgramError, "present of undeclared object #{name.inspect}" }
-            next unless eval_value(obj[:active]) == 1
+            next unless eval_value(obj.active) == 1
 
             image = object_pose_image(obj)
             next if image.nil?
 
-            snap = { image: image, x: eval_value(obj[:x]), y: eval_value(obj[:y]) }
+            snap = { image: image, x: eval_value(obj.x), y: eval_value(obj.y) }
             snap[:transform] = object_transform(obj) if object_transformed?(obj)
             snap
           end
@@ -913,8 +913,8 @@ module RubyGBA
         # of its same-size pictures (facing a direction, or an animation frame). An
         # index outside the set selects nothing.
         def object_pose_image(obj)
-          poses = obj[:poses]
-          index = eval_value(obj[:pose])
+          poses = obj.poses
+          index = eval_value(obj.pose)
           poses[index] if index >= 0 && index < poses.length
         end
 
@@ -935,7 +935,7 @@ module RubyGBA
         # the bigger square a turning object can cover at any angle.
         def restore_scene_rect(scene, name, (x, y))
           obj = @objects.fetch(name)
-          bmp = @bitmaps.fetch(obj[:poses].first)
+          bmp = @bitmaps.fetch(obj.poses.first)
           if object_transformed?(obj)
             rx, ry, w, h = transformed_footprint(obj, x, y, bmp.width, bmp.height)
             restore_patch(scene, rx, ry, w, h)
@@ -1020,7 +1020,7 @@ module RubyGBA
         def transformed_footprint(obj, x, y, w, h)
           cx = x + (w / 2)
           cy = y + (h / 2)
-          return [cx - w, cy - h, w * 2, h * 2] unless constant?(obj[:scale], Build::SCALE_ONE)
+          return [cx - w, cy - h, w * 2, h * 2] unless constant?(obj.scale, Build::SCALE_ONE)
 
           side = Integer.sqrt((w * w) + (h * h)) + 2
           [cx - (side / 2), cy - (side / 2), side, side]
@@ -1040,11 +1040,11 @@ module RubyGBA
         # it moves, or a frame of an animation. An index outside the set draws
         # nothing (the selector is always within range in practice).
         def exec_blit_pose(node)
-          index = eval_value(node[:index])
-          poses = node[:poses]
+          index = eval_value(node.index)
+          poses = node.poses
           return unless index >= 0 && index < poses.length
 
-          blit_image(poses[index], eval_value(node[:x]), eval_value(node[:y]))
+          blit_image(poses[index], eval_value(node.x), eval_value(node.y))
         end
 
         # Copy a defined bitmap onto the fake screen with its top-left at (x, y). Each
@@ -1073,8 +1073,8 @@ module RubyGBA
         # its poses and run-time pose), and where it sits; we walk only the rectangle
         # where their boxes overlap and stop at the first pixel solid in both.
         def pixels_overlap?(node)
-          a = collision_sprite(node[:a_poses], node[:a_pose], node[:a_x], node[:a_y])
-          b = collision_sprite(node[:b_poses], node[:b_pose], node[:b_x], node[:b_y])
+          a = collision_sprite(node.a_poses, node.a_pose, node.a_x, node.a_y)
+          b = collision_sprite(node.b_poses, node.b_pose, node.b_x, node.b_y)
           x0 = [a[:x], b[:x]].max
           y0 = [a[:y], b[:y]].max
           x1 = [a[:x] + a[:w], b[:x] + b[:w]].min
@@ -1117,27 +1117,27 @@ module RubyGBA
         # otherwise (a fresh cartridge) each takes its default, and the defaults plus
         # the marker are written so the next boot loads them. Mirrors the GBA lowering.
         def exec_save_init(node)
-          if @save[:magic] == node[:magic]
-            node[:vars].each { |v| @vars[v[:name]] = Int32.wrap(@save[v[:slot]]) }
+          if @save[:magic] == node.magic
+            node.vars.each { |v| @vars[v[:name]] = Int32.wrap(@save[v[:slot]]) }
           else
-            node[:vars].each do |v|
+            node.vars.each do |v|
               value = Int32.wrap(v[:default])
               @vars[v[:name]] = value
               @save[v[:slot]] = value
             end
-            @save[:magic] = node[:magic]
+            @save[:magic] = node.magic
           end
         end
 
         # Mirror one persisted variable's current value into its save slot.
         def exec_save_store(node)
-          @save[node[:slot]] = @vars[node[:var]]
+          @save[node.slot] = @vars[node.var]
         end
 
         def exec_save_region(node)
-          buf = backing_for(node[:buffer])
-          x = eval_value(node[:x])
-          y = eval_value(node[:y])
+          buf = backing_for(node.buffer)
+          x = eval_value(node.x)
+          y = eval_value(node.y)
           w = buf[:width]
           h = buf[:height]
           cells = Array.new(w * h)
@@ -1151,12 +1151,12 @@ module RubyGBA
         # save has nothing to put back (pixels still nil). Cells that were off-screen
         # when saved (nil) are skipped rather than painted with a guessed color.
         def exec_restore_region(node)
-          buf = backing_for(node[:buffer])
+          buf = backing_for(node.buffer)
           cells = buf[:pixels]
           return if cells.nil?
 
-          x = eval_value(node[:x])
-          y = eval_value(node[:y])
+          x = eval_value(node.x)
+          y = eval_value(node.y)
           w = buf[:width]
           h = buf[:height]
           h.times do |row|
@@ -1192,37 +1192,37 @@ module RubyGBA
         end
 
         def exec_list_push(node)
-          list = list_for(node[:name])
+          list = list_for(node.name)
           if list.full?
             raise ProgramError,
-                  "list #{node[:name].inspect} is full (capacity #{list.capacity}) — " \
+                  "list #{node.name.inspect} is full (capacity #{list.capacity}) — " \
                   "drop an item first (shift/pop) or create it with a larger capacity"
           end
-          list.push(eval_value(node[:value]))
+          list.push(eval_value(node.value))
         end
 
         def exec_list_drop(node)
-          list = list_for(node[:name])
-          from = node[:from] # :front (a shift) or :back (a pop)
+          list = list_for(node.name)
+          from = node.from # :front (a shift) or :back (a pop)
           if list.empty?
             raise ProgramError,
-                  "list #{node[:name].inspect} is empty — " \
+                  "list #{node.name.inspect} is empty — " \
                   "there is nothing to #{from == :front ? 'shift' : 'pop'}"
           end
           from == :front ? list.shift : list.pop
         end
 
         def exec_list_set(node)
-          list = list_for(node[:name])
-          index = eval_value(node[:index])
-          check_list_index!(list, node[:name], index)
-          list.set(index, eval_value(node[:value]))
+          list = list_for(node.name)
+          index = eval_value(node.index)
+          check_list_index!(list, node.name, index)
+          list.set(index, eval_value(node.value))
         end
 
         def eval_list_get(node)
-          list = list_for(node[:name])
-          index = eval_value(node[:index])
-          check_list_index!(list, node[:name], index)
+          list = list_for(node.name)
+          index = eval_value(node.index)
+          check_list_index!(list, node.name, index)
           list.get(index)
         end
 
@@ -1232,11 +1232,11 @@ module RubyGBA
         # lands on a real element. The value comes back exactly as authored (the table's
         # signedness only decides how the console stores/sign-extends it).
         def eval_table_get(node)
-          table = @tables.fetch(node[:name]) do
-            raise ProgramError, "reference to undefined table #{node[:name].inspect}"
+          table = @tables.fetch(node.name) do
+            raise ProgramError, "reference to undefined table #{node.name.inspect}"
           end
           values = table.values
-          Int32.wrap(values[safe_table_index(eval_value(node[:index]), values.length)])
+          Int32.wrap(values[safe_table_index(eval_value(node.index), values.length)])
         end
 
         # Clamp/wrap an index into a table's bounds (the shared out-of-range rule).
@@ -1283,26 +1283,26 @@ module RubyGBA
           end
 
           case node.kind
-          when :int then Int32.wrap(node[:value])
-          when :var_ref then @vars[node[:name]]
-          when :neg then Int32.neg(eval_value(node[:operand]))
-          when :binop then eval_binop(node[:op], eval_value(node[:lhs]), eval_value(node[:rhs]))
+          when :int then Int32.wrap(node.value)
+          when :var_ref then @vars[node.name]
+          when :neg then Int32.neg(eval_value(node.operand))
+          when :binop then eval_binop(node.op, eval_value(node.lhs), eval_value(node.rhs))
           when :mul_fix
-            Int32.mul_fix(eval_value(node[:lhs]), eval_value(node[:rhs]), node[:fraction_bits])
+            Int32.mul_fix(eval_value(node.lhs), eval_value(node.rhs), node.fraction_bits)
           when :div_fix
-            Int32.div_fix(eval_value(node[:lhs]), eval_value(node[:rhs]), node[:fraction_bits])
+            Int32.div_fix(eval_value(node.lhs), eval_value(node.rhs), node.fraction_bits)
           when :shift_right
-            Int32.shift_right(eval_value(node[:operand]), node[:bits])
-          when :held then bool(button_held?(node[:button]))
-          when :pressed then bool(button_pressed?(node[:button]))
+            Int32.shift_right(eval_value(node.operand), node.bits)
+          when :held then bool(button_held?(node.button))
+          when :pressed then bool(button_pressed?(node.button))
           # A chance holds when the random draw lands below the threshold.
-          when :chance then bool(eval_value(node[:draw]) < node[:percent])
+          when :chance then bool(eval_value(node.draw) < node.percent)
           when :pixels_overlap then bool(pixels_overlap?(node))
-          when :data_byte then data_byte(node[:name], node[:index])
+          when :data_byte then data_byte(node.name, node.index)
           when :table_get then eval_table_get(node)
           when :list_get then eval_list_get(node)
-          when :list_len then list_for(node[:name]).length
-          when :timer_ticks then timer_ticks(node[:name])
+          when :list_len then list_for(node.name).length
+          when :timer_ticks then timer_ticks(node.name)
           else raise ProgramError, "not a value node: #{node.kind.inspect}"
           end
         end

@@ -24,7 +24,7 @@ module RubyGBA
 
         # name -> func node, so the steady walk can follow a call into its body.
         def index_funcs(program)
-          program.each.select { |node| node.kind == :func }.to_h { |func| [func[:name], func] }
+          program.each.select { |node| node.kind == :func }.to_h { |func| [func.name, func] }
         end
 
         # Every statement reachable each frame from +node+, following call/case into
@@ -34,8 +34,8 @@ module RubyGBA
 
           acc << node
           case node.kind
-          when :call then follow(node[:target], funcs, seen, acc)
-          when :case then node[:clauses].each { |(_value, target)| follow(target, funcs, seen, acc) }
+          when :call then follow(node.target, funcs, seen, acc)
+          when :case then node.clauses.each { |(_value, target)| follow(target, funcs, seen, acc) }
           end
           node.children.each { |child| steady_statements(child, funcs, seen, acc) }
           acc
@@ -51,7 +51,7 @@ module RubyGBA
 
         # A body gated on a `pressed` edge runs once in a while, not every frame.
         def transition?(node)
-          node.kind == :if && node[:cond]&.kind == :pressed
+          node.kind == :if && node.cond&.kind == :pressed
         end
       end
     end

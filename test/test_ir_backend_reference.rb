@@ -87,7 +87,7 @@ class TestIRBackendReference < Minitest::Test
   def test_if_else_runs_the_else_branch_when_false
     # x = 1: the > 5 test is false, so only the else branch runs.
     taken = if_(binop(:>, var_ref(:x), int(5)), set(:hi, 1))
-    taken[:else] = else_(set(:lo, 1))
+    taken.else = else_(set(:lo, 1))
 
     i = run_ir(program(set(:x, 1), taken))
     assert_equal 0, i[:hi], "the then-branch must not run when the condition is false"
@@ -96,7 +96,7 @@ class TestIRBackendReference < Minitest::Test
 
   def test_if_else_runs_the_then_branch_when_true
     taken = if_(binop(:>, var_ref(:x), int(5)), set(:hi, 1))
-    taken[:else] = else_(set(:lo, 1))
+    taken.else = else_(set(:lo, 1))
 
     i = run_ir(program(set(:x, 9), taken))
     assert_equal 1, i[:hi]

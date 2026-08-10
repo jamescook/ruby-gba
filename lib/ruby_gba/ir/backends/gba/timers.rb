@@ -33,11 +33,11 @@ module RubyGBA
           # registers to touch. A timer whose overflow count is read also gets a cascade
           # partner in the very next slot. Runs during the definitions pass.
           def register_timers(program)
-            counted = program.walk.select { |n| n.kind == :timer_ticks }.map { |n| n[:name] }.to_set
+            counted = program.walk.select { |n| n.kind == :timer_ticks }.map { |n| n.name }.to_set
             handlers = {}
-            program.walk.each { |n| handlers[n[:timer]] = n if n.kind == :on_timer } # last wins if repeated
+            program.walk.each { |n| handlers[n.timer] = n if n.kind == :on_timer } # last wins if repeated
             program.walk.select { |n| n.kind == :timer_start }.each do |node|
-              register_timer(node[:name], counted.include?(node[:name]), handlers[node[:name]])
+              register_timer(node.name, counted.include?(node.name), handlers[node.name])
             end
           end
 
@@ -67,8 +67,8 @@ module RubyGBA
           # restart-from-zero the interpreter also models. If its overflow count is read,
           # its cascade partner is (re)started from zero alongside it.
           def emit_timer_start(node)
-            info = timer_info(node[:name])
-            prescaler, reload = timer_config(node[:hz])
+            info = timer_info(node.name)
+            prescaler, reload = timer_config(node.hz)
             # A timer with an on_tick handler also raises an interrupt on each overflow,
             # which the dispatcher services.
             rate_ctrl = TIMER_ENABLE | prescaler
@@ -86,7 +86,7 @@ module RubyGBA
           # Stop a timer (and its cascade partner): clear the enable bit; the counter
           # freezes at its current value.
           def emit_timer_stop(node)
-            info = timer_info(node[:name])
+            info = timer_info(node.name)
             write_reg16(timer_reg_h(info[:rate]), 0)
             write_reg16(timer_reg_h(info[:count]), 0) if info[:count]
           end
@@ -94,7 +94,7 @@ module RubyGBA
           # Read a timer's overflow count into the accumulator — the cascade partner's
           # live counter (a 16-bit halfword load, like reading any hardware register).
           def eval_timer_ticks(node)
-            info = timer_info(node[:name])
+            info = timer_info(node.name)
             emit(ASM.load_immediate(TMP, timer_reg_l(info[:count])))
             emit(ASM.load_halfword(ACC, TMP))
           end

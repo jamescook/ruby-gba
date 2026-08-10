@@ -16,23 +16,23 @@ class TestImage < Minitest::Test
   end
 
   def bitmap_of(program, name)
-    program.each.find { |n| n.kind == :bitmap && n[:name] == name }
+    program.each.find { |n| n.kind == :bitmap && n.name == name }
   end
 
   def test_array_form_packs_pixels_as_bgr555_halfwords
     prog = build { image :duo, width: 2, height: 1, data: [:red, :blue] }
     node = bitmap_of(prog, :duo)
 
-    assert_equal 2, node[:width]
-    assert_equal 1, node[:height]
+    assert_equal 2, node.width
+    assert_equal 1, node.height
     # red = 0x001F, blue = 0x7C00, stored as little-endian 16-bit halfwords.
-    assert_equal "\x1F\x00\x00\x7C".b, node[:pixels]
+    assert_equal "\x1F\x00\x00\x7C".b, node.pixels
   end
 
   def test_accepts_raw_bgr555_integers_too
     # The importer emits resolved BGR555 ints; they pass straight through.
     prog = build { image :one, width: 1, height: 1, data: [0x7C00] }
-    assert_equal "\x00\x7C".b, bitmap_of(prog, :one)[:pixels]
+    assert_equal "\x00\x7C".b, bitmap_of(prog, :one).pixels
   end
 
   def test_rejects_nonpositive_dimensions
@@ -61,12 +61,12 @@ class TestImage < Minitest::Test
     end
     node = bitmap_of(prog, :bar)
 
-    assert_equal 3, node[:width]
-    assert_equal 2, node[:height]
+    assert_equal 3, node.width
+    assert_equal 2, node.height
     black = Color.resolve(:black)
     red = Color.resolve(:red)
-    assert_equal [black, red, black, red, red, red].pack("v*"), node[:pixels]
-    assert_nil node[:transparent], "no :transparent char means an opaque bitmap"
+    assert_equal [black, red, black, red, red, red].pack("v*"), node.pixels
+    assert_nil node.transparent, "no :transparent char means an opaque bitmap"
   end
 
   def test_ascii_form_marks_transparent_pixels
@@ -79,11 +79,11 @@ class TestImage < Minitest::Test
     end
     node = bitmap_of(prog, :dot)
 
-    refute_nil node[:transparent]
-    lo, mid, hi = node[:pixels].unpack("v3")
-    assert_equal node[:transparent], lo, "'.' is transparent, not a color"
+    refute_nil node.transparent
+    lo, mid, hi = node.pixels.unpack("v3")
+    assert_equal node.transparent, lo, "'.' is transparent, not a color"
     assert_equal Color.resolve(:red), mid
-    assert_equal node[:transparent], hi
+    assert_equal node.transparent, hi
   end
 
   def test_ascii_form_rejects_ragged_rows

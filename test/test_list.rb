@@ -238,8 +238,8 @@ class TestList < Minitest::Test
     Build = RubyGBA::IR::Build
 
     def test_list_new_stores_the_rounded_capacity
-      assert_equal 4, Build.list_new(:x, 3)[:capacity]
-      assert_equal 128, Build.list_new(:x, 100)[:capacity]
+      assert_equal 4, Build.list_new(:x, 3).capacity
+      assert_equal 128, Build.list_new(:x, 100).capacity
     end
 
     def test_round_up_capacity_covers_the_boundaries
@@ -295,7 +295,7 @@ class TestList < Minitest::Test
     builder = Builder.new
     builder.instance_eval { list :body, capacity: 64, estimate: { usually: 4..12 } }
 
-    assert_equal 12, builder.program.walk.find { |n| n.kind == :list_new }[:usually]
+    assert_equal 12, builder.program.walk.find { |n| n.kind == :list_new }.usually
   end
 
   # A hint the surface does not know is an ERROR, not a shrug. A misspelled key that
@@ -321,6 +321,6 @@ class TestList < Minitest::Test
   def test_a_length_bigger_than_the_capacity_is_refused
     assert_raises(ArgumentError) { Build.list_new(:x, 8, usually: 9) }
     assert_raises(ArgumentError) { Build.list_new(:x, 8, usually: 0) }
-    assert_equal 8, Build.list_new(:x, 8, usually: 8)[:usually]
+    assert_equal 8, Build.list_new(:x, 8, usually: 8).usually
   end
 end

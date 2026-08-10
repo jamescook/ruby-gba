@@ -106,7 +106,7 @@ module RubyGBA
       def initialize(program)
         @program = program
         @funcs = {}
-        program.walk { |node| @funcs[node[:name]] = node if node.kind == :func }
+        program.walk { |node| @funcs[node.name] = node if node.kind == :func }
         @func_mode = {}
         @scene_funcs = []
         @default_mode = declared_mode(main_body) || DIRECT
@@ -141,9 +141,9 @@ module RubyGBA
         statements.each do |node|
           next unless node.kind == :screen
 
-          return TILED if node[:mode] == :tiled
+          return TILED if node.mode == :tiled
 
-          return node[:buffered] ? BUFFERED : DIRECT
+          return node.buffered ? BUFFERED : DIRECT
         end
         nil
       end
@@ -165,8 +165,8 @@ module RubyGBA
       def call_targets(node)
         targets = []
         node.walk do |n|
-          targets << n[:target] if n.kind == :call
-          n[:clauses].each { |_value, target| targets << target } if n.kind == :case
+          targets << n.target if n.kind == :call
+          n.clauses.each { |_value, target| targets << target } if n.kind == :case
         end
         targets
       end

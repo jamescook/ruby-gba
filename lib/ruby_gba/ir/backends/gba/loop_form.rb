@@ -62,7 +62,7 @@ module RubyGBA
             blocker = blocker_in(node)
             return "it holds something that needs the registers" unless blocker
 
-            phrase_for(blocker, node[:index])
+            phrase_for(blocker, node.index)
           end
 
           # The first thing anywhere inside this loop that needs the registers, or nil.
@@ -74,7 +74,7 @@ module RubyGBA
           # rather than under it, so a walk of statements alone strolls past a loop or a call
           # sitting in an else. That is not a wrong price, it is a wrong answer.
           def blocker_in(node)
-            index = node[:index]
+            index = node.index
             body_of(node).find { |inner| takes_the_registers?(inner) || writes?(inner, index) }
           end
 
@@ -97,7 +97,7 @@ module RubyGBA
           # rather than handled, and it says so.
           def phrase_for(node, index)
             case node.kind
-            when :call then "the body calls :#{node[:target]}"
+            when :call then "the body calls :#{node.target}"
             when :case then "the body picks a scene"
             when :repeat then "a loop inside it"
             when :on_timer then "a timer's handler inside it"
@@ -114,15 +114,15 @@ module RubyGBA
           # routine. One by a number written into the program does not — the lowering turns it
           # into a multiply or a shift (see Expressions#emit_constant_binop).
           def runtime_divide?(node)
-            return false unless node.kind == :binop && %i[/ %].include?(node[:op])
+            return false unless node.kind == :binop && %i[/ %].include?(node.op)
 
-            !(node[:rhs].is_a?(Node) && node[:rhs].kind == :int)
+            !(node.rhs.is_a?(Node) && node.rhs.kind == :int)
           end
 
           # Whether this statement assigns to +name+.
           def writes?(node, name)
-            %i[set add sub negate abs negate_abs clamp].include?(node.kind) && node[:var] == name ||
-              (node.kind == :copy && node[:dest] == name)
+            %i[set add sub negate abs negate_abs clamp].include?(node.kind) && node.var == name ||
+              (node.kind == :copy && node.dest == name)
           end
         end
       end

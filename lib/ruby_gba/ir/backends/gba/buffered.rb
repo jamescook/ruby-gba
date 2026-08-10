@@ -22,7 +22,7 @@ module RubyGBA
           # Clear the hidden page to a solid color: one DMA that repeats the packed
           # index word across the whole page.
           def emit_clear_screen_buffered(node)
-            scratch = hold_index_word(node[:color])
+            scratch = hold_index_word(node.color)
             store_word_immediate(scratch, REG_DMA3SAD)
             point_dma_dest_at_backbuf
             count = SCREEN_WIDTH * SCREEN_HEIGHT / 4 # 32-bit words, 4 indices each
@@ -40,10 +40,10 @@ module RubyGBA
           # DMA fills the even middle between them. The column is known while
           # building, so which of the two shapes a row takes is settled here.
           def emit_fill_rect_buffered(node)
-            x, y, w, h = constant_ints!(node, :x, :y, :w, :h)
+            x, y, w, h = constant_ints!(node, x: node.x, y: node.y, w: node.w, h: node.h)
             even_width!(w, node.kind)
-            scratch = hold_index_word(node[:color])
-            index = @palette.index_of(node[:color])
+            scratch = hold_index_word(node.color)
+            index = @palette.index_of(node.color)
             edges = x.odd?
             middle_x = edges ? x + 1 : x
             middle_w = edges ? w - 2 : w # a two-pixel rect at an odd column is all edge
@@ -127,17 +127,17 @@ module RubyGBA
           # even column keeps costing exactly what it did. r2/r3 hold x/y across both
           # copies.
           def emit_draw_rect_at_buffered(node)
-            w = const_int(node[:w])
+            w = const_int(node.w)
             return emit_buffered_rect_computed_width(node) unless w
             return if w < 1 # a rect with no width draws nothing
 
-            scratch = hold_index_word(node[:color])
-            index = @palette.index_of(node[:color])
-            rows = { w: w, h: const_int(node[:h]), scratch: scratch, index: index }
+            scratch = hold_index_word(node.color)
+            index = @palette.index_of(node.color)
+            rows = { w: w, h: const_int(node.h), scratch: scratch, index: index }
 
             eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y, rows_reg: RECT_ROWS_LEFT)
 
-            parity = Parity.of(node[:x])
+            parity = Parity.of(node.x)
             return emit_buffered_rect_rows(**rows, starts_odd: parity == :odd) if parity
 
             odd_column = gensym
@@ -265,8 +265,8 @@ module RubyGBA
           # A width of one is not a special case under that rule — it is a rect whose
           # single pixel is spliced by one end or the other, and no middle at all.
           def emit_buffered_rect_computed_width(node)
-            scratch = hold_index_word(node[:color])
-            index = @palette.index_of(node[:color])
+            scratch = hold_index_word(node.color)
+            index = @palette.index_of(node.color)
 
             eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y,
                                      rows_reg: RECT_ROWS_LEFT, width_reg: RECT_MIDDLE)
@@ -294,7 +294,7 @@ module RubyGBA
             emit(ASM.orr_reg(RECT_MIDDLE, RECT_MIDDLE, TMP))
             place_label(no_middle)
 
-            height = const_int(node[:h])
+            height = const_int(node.h)
             emit(ASM.load_immediate(RECT_ROWS_LEFT, height)) if height
             emit_row_address_setup
             emit_row_loop(RECT_ROWS_LEFT) do
@@ -459,12 +459,12 @@ module RubyGBA
           # glyph positions are known while building, so which half each pixel lands in
           # is settled here, not at run time. Off-screen pixels are dropped.
           def emit_draw_text_buffered(node)
-            x, y = constant_ints!(node, :x, :y)
-            index = @palette.index_of(node[:color])
+            x, y = constant_ints!(node, x: node.x, y: node.y)
+            index = @palette.index_of(node.color)
             base = 6
             load_var(base, BACKBUF) # the hidden page base, held for the whole line
 
-            Fonts.get(node[:font]).each_pixel(node[:text]) do |dx, dy|
+            Fonts.get(node.font).each_pixel(node.text) do |dx, dy|
               px = x + dx
               py = y + dy
               next unless in_bounds?(px, py)
@@ -479,7 +479,7 @@ module RubyGBA
           # instead of a color. The hidden page base flips each frame, so it's held live
           # in r9 for the whole glyph; the index is a build-time constant.
           def emit_draw_digit_data_buffered(node, font, width, x, y)
-            index = @palette.index_of(node[:color])
+            index = @palette.index_of(node.color)
             emit_digit_glyph_loop(node, font, width) do |phase|
               case phase
               when :hold then load_var(9, BACKBUF)         # r9 = the hidden page base, held
@@ -521,9 +521,9 @@ module RubyGBA
           # half is known while building; with a computed coordinate it's found from
           # the live x at run time.
           def emit_pixel_buffered(node)
-            index = @palette.index_of(node[:color])
-            xi = const_int(node[:x])
-            yi = const_int(node[:y])
+            index = @palette.index_of(node.color)
+            xi = const_int(node.x)
+            yi = const_int(node.y)
 
             if xi && yi
               return unless in_bounds?(xi, yi)
@@ -551,9 +551,9 @@ module RubyGBA
           # address and which half to touch both come from the live x/y. r2/r3 hold
           # x/y; r1 the unit address; r0 the value being spliced; r4/r5 scratch.
           def emit_pixel_buffered_runtime(node, index)
-            eval_value(node[:x])
+            eval_value(node.x)
             emit(ASM.mov_reg(2, ACC))
-            eval_value(node[:y])
+            eval_value(node.y)
             emit(ASM.mov_reg(3, ACC))
 
             emit(ASM.load_immediate(4, SCREEN_WIDTH))

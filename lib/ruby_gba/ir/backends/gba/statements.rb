@@ -16,8 +16,8 @@ module RubyGBA
             when :sub then emit_accumulate(node, :sub_reg)
             when :copy then emit_copy(node)
             when :negate then emit_negate(node)
-            when :abs then emit_conditional_negate(node[:var], skip_when: :ge)
-            when :negate_abs then emit_conditional_negate(node[:var], skip_when: :le)
+            when :abs then emit_conditional_negate(node.var, skip_when: :ge)
+            when :negate_abs then emit_conditional_negate(node.var, skip_when: :le)
             when :clamp then emit_clamp(node)
             when :save_init then emit_save_init(node)
             when :save_store then emit_save_store(node)
@@ -30,9 +30,9 @@ module RubyGBA
             when :list_push then emit_list_push(node)
             when :list_drop then emit_list_drop(node)
             when :list_set then emit_list_set(node)
-            when :call then emit_call_func(node[:target])
+            when :call then emit_call_func(node.target)
             when :case then emit_case(node)
-            when :raw then emit(node[:bytes]) # escape hatch: pre-assembled bytes, verbatim
+            when :raw then emit(node.bytes) # escape hatch: pre-assembled bytes, verbatim
             when :halt then emit(ASM.loop_forever)
             when :wait_vblank then emit_wait_vblank
             when :screen then emit_screen(node)
@@ -73,28 +73,28 @@ module RubyGBA
           end
 
           def emit_set(node)
-            eval_value(node[:value])
-            store_var(ACC, node[:var])
+            eval_value(node.value)
+            store_var(ACC, node.var)
           end
 
           # add/sub: new value = var (op) operand. Evaluate the operand into the
           # accumulator, load the variable alongside it, combine, store back.
           def emit_accumulate(node, op)
-            eval_value(node[:operand])       # r0 = operand
-            load_var(TMP, node[:var])        # r1 = current value
+            eval_value(node.operand)       # r0 = operand
+            load_var(TMP, node.var)        # r1 = current value
             emit(ASM.send(op, ACC, TMP, ACC)) # r0 = r1 (op) r0
-            store_var(ACC, node[:var])
+            store_var(ACC, node.var)
           end
 
           def emit_copy(node)
-            load_var(ACC, node[:src])
-            store_var(ACC, node[:dest])
+            load_var(ACC, node.src)
+            store_var(ACC, node.dest)
           end
 
           def emit_negate(node)
-            load_var(ACC, node[:var])
+            load_var(ACC, node.var)
             emit(ASM.rsb_imm(ACC, ACC, 0))   # r0 = 0 - r0
-            store_var(ACC, node[:var])
+            store_var(ACC, node.var)
           end
 
           # Negate a variable only when it sits on one side of zero — the shared
@@ -119,10 +119,10 @@ module RubyGBA
           # that and loads straight into a register, so a program with fixed bounds
           # emits exactly what it always did.
           def emit_clamp(node)
-            load_var(ACC, node[:var])
-            clamp_acc_to(node[:min], cond: :ge) # below the floor? take the floor
-            clamp_acc_to(node[:max], cond: :le) # above the ceiling? take the ceiling
-            store_var(ACC, node[:var])
+            load_var(ACC, node.var)
+            clamp_acc_to(node.min, cond: :ge) # below the floor? take the floor
+            clamp_acc_to(node.max, cond: :le) # above the ceiling? take the ceiling
+            store_var(ACC, node.var)
           end
 
           # Replace r0 with +bound+ unless the comparison against it already holds.
@@ -147,9 +147,9 @@ module RubyGBA
           # false condition jumps past the body. With an else, a false condition
           # jumps to the else-body, and the then-body jumps over it to the end.
           def emit_if(node)
-            eval_value(node[:cond])
+            eval_value(node.cond)
             emit(ASM.cmp_imm(ACC, 0))
-            else_node = node[:else]
+            else_node = node.else
 
             if else_node
               else_label = gensym
@@ -204,7 +204,7 @@ module RubyGBA
           def emit_repeat(node)
             held = LoopForm.registers?(node)
             @loop_shapes ||= {}
-            @loop_shapes[node[:index]] =
+            @loop_shapes[node.index] =
               CostModel::LoopShape.new(held: held, blocked_by: held ? nil : LoopForm.reason(node))
             return emit_repeat_held(node) if held
 
@@ -217,10 +217,10 @@ module RubyGBA
           #
           # It costs sixteen instructions a pass, twelve of them reaching those two numbers.
           def emit_repeat_in_memory(node)
-            index = node[:index]
+            index = node.index
             limit = :"#{index}__limit"
 
-            eval_value(node[:count])        # r0 = count
+            eval_value(node.count)        # r0 = count
             store_var(ACC, limit)           # limit = count (once)
             emit(ASM.load_immediate(ACC, 0))
             store_var(ACC, index)           # counter = 0
@@ -252,8 +252,8 @@ module RubyGBA
           # written back to its memory once on the way out, so anything after the loop sees
           # the value it would have seen anyway.
           def emit_repeat_held(node)
-            index = node[:index]
-            eval_value(node[:count])
+            index = node.index
+            eval_value(node.count)
             emit(ASM.mov_reg(LoopForm::LIMIT, ACC))
             emit(ASM.load_immediate(LoopForm::COUNTER, 0))
 
@@ -279,8 +279,8 @@ module RubyGBA
           # (rather than hand-written instructions), so it reuses the tested add/if
           # lowering.
           def emit_every(node)
-            counter = node[:counter]
-            reached = Build.binop(:>=, Build.var_ref(counter), Build.int(node[:period]))
+            counter = node.counter
+            reached = Build.binop(:>=, Build.var_ref(counter), Build.int(node.period))
             gate = Build.if_(reached, Build.set(counter, Build.int(0)), *node.children)
             emit_statement(Build.add(counter, 1))
             emit_statement(gate)
@@ -291,8 +291,8 @@ module RubyGBA
           # body on the one frame it lands on. Built as a sub-tree emitted through the
           # shared statement emitters, reusing the tested add/if lowering.
           def emit_after(node)
-            counter = node[:counter]
-            frames = node[:frames]
+            counter = node.counter
+            frames = node.frames
             lands = Build.if_(Build.binop(:==, Build.var_ref(counter), Build.int(frames)), *node.children)
             not_yet = Build.if_(Build.binop(:<, Build.var_ref(counter), Build.int(frames)),
                                 Build.add(counter, 1), lands)

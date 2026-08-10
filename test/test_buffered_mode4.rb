@@ -70,7 +70,7 @@ class TestBufferedMode4 < Minitest::Test
   def test_the_displayed_page_reflects_the_latest_drawn_frame
     # tick toggles 0/1 each frame; even frames clear red, odd clear green.
     branch = if_(binop(:==, var_ref(:tick), int(0)), clear_screen(:red), set(:tick, 1))
-    branch[:else] = else_(clear_screen(:green), set(:tick, 0))
+    branch.else = else_(clear_screen(:green), set(:tick, 0))
     prog = program(
       screen(:bitmap, buffered: true),
       set(:tick, 0),

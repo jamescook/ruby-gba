@@ -27,7 +27,7 @@ module RubyGBA
           # being mistaken for per-frame setup.
           def per_frame_func_names(program)
             funcs = {}
-            program.walk { |n| funcs[n[:name]] = n if n.kind == :func }
+            program.walk { |n| funcs[n.name] = n if n.kind == :func }
 
             reached = {}
             queue = []
@@ -50,7 +50,7 @@ module RubyGBA
 
             case container.kind
             when :loop, :repeat, :every then true
-            when :func then per_frame_funcs.include?(container[:name])
+            when :func then per_frame_funcs.include?(container.name)
             else false
             end
           end
@@ -62,7 +62,7 @@ module RubyGBA
             when :repeat then "a repeat loop"
             when :every then "an every(...) timer"
             when :func
-              name = container[:name].to_s
+              name = container.name.to_s
               name.start_with?("_scene_") ? "the scene :#{name.sub('_scene_', '')}" : "the :#{name} routine (it runs every frame)"
             end
           end
@@ -75,8 +75,8 @@ module RubyGBA
           def direct_call_targets(node)
             targets = []
             node.children.each do |child|
-              targets << child[:target] if child.kind == :call
-              child[:clauses].each { |_value, target| targets << target } if child.kind == :case
+              targets << child.target if child.kind == :call
+              child.clauses.each { |_value, target| targets << target } if child.kind == :case
             end
             targets
           end

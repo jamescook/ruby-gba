@@ -52,7 +52,7 @@ module RubyGBA
           # `timer` line: the rate is what has to change, but the body is what makes it too
           # much, and the body is what an author reads to see why.
           def handler_for(program, name)
-            program.walk.find { |node| node.kind == :on_timer && node[:timer] == name }
+            program.walk.find { |node| node.kind == :on_timer && node.timer == name }
           end
 
           def message_for(timer)

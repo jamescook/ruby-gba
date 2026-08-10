@@ -27,8 +27,8 @@ module RubyGBA
         usage = Hash.new { |hash, key| hash[key] = Set.new }
         program.walk do |node|
           case node.kind
-          when :draw_text then usage[node[:font]].merge(Fonts.get(node[:font]).keys_used(node[:text]))
-          when :draw_digit then usage[node[:font]].merge(Fonts.get(node[:font]).keys_used(DIGITS.join))
+          when :draw_text then usage[node.font].merge(Fonts.get(node.font).keys_used(node.text))
+          when :draw_digit then usage[node.font].merge(Fonts.get(node.font).keys_used(DIGITS.join))
           end
         end
         usage.transform_values { |set| set.to_a.sort }

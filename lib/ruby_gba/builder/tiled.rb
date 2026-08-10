@@ -188,7 +188,7 @@ module RubyGBA
         node = Build.scroll_rows(name, row: row_var, offset: Build.int(0))
         offset = nil
         push_container(node) { offset = block.call(Value.new(self, Build.var_ref(row_var))) }
-        node[:offset] = Value.node_for(offset)
+        node.offset = Value.node_for(offset)
         node
       end
 

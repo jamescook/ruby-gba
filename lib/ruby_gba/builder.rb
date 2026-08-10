@@ -415,7 +415,7 @@ module RubyGBA
       ensure
         @container_stack.pop
       end
-      if_node[:else] = else_node
+      if_node.else = else_node
     end
 
     private
@@ -478,7 +478,7 @@ module RubyGBA
       @program.walk do |node|
         next unless node.kind == :case
 
-        node[:clauses].each { |value, target| gates[target] ||= [node[:var], value] }
+        node.clauses.each { |value, target| gates[target] ||= [node.var, value] }
       end
       gates
     end
@@ -504,7 +504,7 @@ module RubyGBA
         if names.empty?
           node.parent&.children&.delete(node)
         else
-          node[:names] = names
+          node.names = names
         end
       end
     end

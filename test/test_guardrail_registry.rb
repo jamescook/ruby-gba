@@ -19,7 +19,7 @@ class TestGuardrailRegistry < Minitest::Test
   # :boom — a stand-in for a pack check that inspects the built IR.
   class BoomCheck
     def detect(program)
-      hit = program.each.find { |node| node.kind == :set && node[:var] == :boom }
+      hit = program.each.find { |node| node.kind == :set && node.var == :boom }
       return [] unless hit
 
       [Guardrails::Finding.new(check: :boom, severity: :error, message: "boom found", node: hit)]

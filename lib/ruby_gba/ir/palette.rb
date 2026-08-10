@@ -101,8 +101,8 @@ module RubyGBA
           root.walk do |node|
             if node.kind == :bitmap
               collect_bitmap(node, values)
-            elsif node.colored? && node[:color]
-              values << Color.resolve(node[:color])
+            elsif node.colored? && node.color
+              values << Color.resolve(node.color)
             end
           end
         end
@@ -114,8 +114,8 @@ module RubyGBA
       # skip them before masking (the transparent marker sets a bit a real color
       # never has, so masking it would turn it into a real color).
       def collect_bitmap(node, values)
-        transparent = node[:transparent]
-        node[:pixels].unpack("v*").each do |value|
+        transparent = node.transparent
+        node.pixels.unpack("v*").each do |value|
           next if transparent && value == transparent
 
           values << (value & 0x7FFF)

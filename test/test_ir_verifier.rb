@@ -66,7 +66,7 @@ class TestIRVerifier < Minitest::Test
   def test_a_buffered_screen_verifies_clean
     prog = program(screen(:bitmap, buffered: true), halt)
     assert_same prog, Verifier.verify!(prog)
-    assert_equal true, prog.children.first[:buffered]
+    assert_equal true, prog.children.first.buffered
     refute screen(:bitmap).attrs.key?(:buffered), "the flag is absent (not false) when off"
   end
 
@@ -75,7 +75,7 @@ class TestIRVerifier < Minitest::Test
     # satisfies the value slot exactly like a runtime var does.
     prog = program(set(:x, 12)) # 12 -> int(12), a value node
     assert_same prog, Verifier.verify!(prog)
-    assert_equal :int, prog.children.first[:value].kind
+    assert_equal :int, prog.children.first.value.kind
   end
 
   # ---- value slots must hold value nodes ----

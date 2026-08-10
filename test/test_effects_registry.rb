@@ -58,7 +58,7 @@ class TestEffectsRegistry < Minitest::Test
 
     class BoomCheck
       def detect(program)
-        hit = program.each.find { |node| node.kind == :set && node[:var] == :boom }
+        hit = program.each.find { |node| node.kind == :set && node.var == :boom }
         return [] unless hit
 
         [RubyGBA::IR::Guardrails::Finding.new(check: :boom, severity: :error,

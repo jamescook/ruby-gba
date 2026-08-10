@@ -86,11 +86,11 @@ module RubyGBA
           return true if DRAW_KINDS.include?(node.kind)
 
           case node.kind
-          when :call then func_draws?(node[:target], seen)
-          when :case then node[:clauses].any? { |_value, target| func_draws?(target, seen) }
+          when :call then func_draws?(node.target, seen)
+          when :case then node.clauses.any? { |_value, target| func_draws?(target, seen) }
           else
             node.children.any? { |child| draws?(child, seen) } ||
-              (node.branching? && !node[:else].nil? && draws?(node[:else], seen))
+              (node.branching? && !node.else.nil? && draws?(node.else, seen))
           end
         end
 
@@ -150,9 +150,9 @@ module RubyGBA
           # collision test's comparison chain lives — so it's priced here; only the branch
           # bodies are scaled by how often they run.
           when :if
-            expr_cost(node[:cond], worst: worst) +
+            expr_cost(node.cond, worst: worst) +
               node.children.sum { |child| steady(child, worst: worst) } +
-              (node[:else] ? steady(node[:else], worst: worst) : 0)
+              (node.else ? steady(node.else, worst: worst) : 0)
           # A loop costs a rate per pass AND a fixed amount for being entered — see
           # #loop_overhead_leaf for what each of them is.
           when :repeat
@@ -167,10 +167,10 @@ module RubyGBA
           # runs one frame in k, so its body counts 1/k; after(n) fires once ever, so
           # it adds nothing to the every-frame load.
           when :every
-            Rational(1, node[:period]) * node.children.sum { |child| steady(child, worst: worst) }
+            Rational(1, node.period) * node.children.sum { |child| steady(child, worst: worst) }
           when :after then 0
-          when :case then node[:clauses].map { |_value, target| steady_func(target, worst: worst) }.max || 0
-          when :call then steady_func(node[:target], worst: worst)
+          when :case then node.clauses.map { |_value, target| steady_func(target, worst: worst) }.max || 0
+          when :call then steady_func(node.target, worst: worst)
           when :func then 0
           else op_cost(node, worst: worst)
           end
@@ -226,9 +226,9 @@ module RubyGBA
         def selectivity(node)
           return 1 unless node.kind == :if
 
-          case node[:cond]&.kind
+          case node.cond&.kind
           when :pressed then 0
-          when :chance then Rational(node[:cond][:percent], 100)
+          when :chance then Rational(node.cond.percent, 100)
           else 1
           end
         end
@@ -265,22 +265,22 @@ module RubyGBA
           @backing = {}
           @objects = {}
           program.walk do |node|
-            @funcs[node[:name]] = node if node.kind == :func
-            @capacities[node[:name]] = node[:capacity] if node.kind == :list_new
+            @funcs[node.name] = node if node.kind == :func
+            @capacities[node.name] = node.capacity if node.kind == :list_new
             # ...and the length the AUTHOR asked for, which is the most the list can really
             # reach. The ring rounds its size up to a power of two, and that headroom is for
             # the mask rather than for the game (see Build#list_new).
-            @declared[node[:name]] = node[:declared] || node[:capacity] if node.kind == :list_new
+            @declared[node.name] = node.declared || node.capacity if node.kind == :list_new
             # ...and how long the author says it usually is, which is a different question
             # and the only one a frame's real cost turns on (see #list_length).
-            @list_lengths[node[:name]] = node[:usually] if node.kind == :list_new && node[:usually]
+            @list_lengths[node.name] = node.usually if node.kind == :list_new && node.usually
             # How long a table is decides what a read of it costs, so it is read once here
             # from the declaration rather than at every read (see Pricing#table_read_weight).
-            @table_lengths[node[:name]] = node[:values].length if node.kind == :table
-            @songs[node[:name]] = node if node.kind == :song
-            @bitmaps[node[:name]] = catalogue_bitmap(node) if node.kind == :bitmap
-            @objects[node[:name]] = catalogue_object(node) if node.kind == :object
-            @backing[node[:name]] = [node[:width], node[:height]] if node.kind == :backing_buffer
+            @table_lengths[node.name] = node.values.length if node.kind == :table
+            @songs[node.name] = node if node.kind == :song
+            @bitmaps[node.name] = catalogue_bitmap(node) if node.kind == :bitmap
+            @objects[node.name] = catalogue_object(node) if node.kind == :object
+            @backing[node.name] = [node.width, node.height] if node.kind == :backing_buffer
           end
         end
 
@@ -289,14 +289,14 @@ module RubyGBA
         # settled on the declaration — a sprite that never turns keeps a fixed angle
         # there — so they are read once here rather than at every frame's draw.
         def catalogue_object(node)
-          turns = !constant_operand?(node[:angle], 0)
+          turns = !constant_operand?(node.angle, 0)
           Sprite.new(turns: turns || resizes?(node), resizes: resizes?(node))
         end
 
-        def resizes?(node) = !constant_operand?(node[:scale], Build::SCALE_ONE)
+        def resizes?(node) = !constant_operand?(node.scale, Build::SCALE_ONE)
 
         def constant_operand?(node, value)
-          node.kind == :int && node[:value] == value
+          node.kind == :int && node.value == value
         end
 
         # What an image costs to draw, worked out once here rather than at every blit of
@@ -313,16 +313,16 @@ module RubyGBA
         # Counting them is what stops a sprite that is mostly cut-out background from being
         # priced as a solid rectangle.
         def catalogue_bitmap(node)
-          see_through = node[:transparent]
-          width = node[:width]
-          height = node[:height]
+          see_through = node.transparent
+          width = node.width
+          height = node.height
           unless see_through
             return Bitmap.new(width: width, height: height, transparent: false,
                               lit_pixels: width * height, wide_color_pixels: 0, lit_rows: height)
           end
 
           # The pixels arrive as a run of 16-bit colors, row after row.
-          rows = node[:pixels].unpack("v*").each_slice(width).map { |row| row.reject { |px| px == see_through } }
+          rows = node.pixels.unpack("v*").each_slice(width).map { |row| row.reject { |px| px == see_through } }
           Bitmap.new(width: width, height: height, transparent: true,
                      lit_pixels: rows.sum(&:length),
                      wide_color_pixels: rows.sum { |row| row.count { |px| wide_color?(px) } },
@@ -369,13 +369,13 @@ module RubyGBA
             # The test itself runs every frame, whichever way it branches, so its cost is
             # real per-frame work and shown as its own leaf — a per-pixel collision test
             # especially is not free. Then the branches.
-            condition_leaf(node[:cond]) + (node.children + [node[:else]].compact).flat_map { |child| build(child) }
+            condition_leaf(node.cond) + (node.children + [node.else].compact).flat_map { |child| build(child) }
           when :else then node.children.flat_map { |child| build(child) }
           when :case then [build_case(node)]
           when :call then [build_call(node)]
           when :repeat then [build_repeat(node)]
-          when :every then [build_timer(node, "every #{node[:period]}")]
-          when :after then [build_timer(node, "after #{node[:frames]}")]
+          when :every then [build_timer(node, "every #{node.period}")]
+          when :after then [build_timer(node, "after #{node.frames}")]
           when :func then [] # a definition: it costs only where it's called
           else build_leaf(node)
           end
@@ -419,7 +419,7 @@ module RubyGBA
 
           # A rectangle's size rides along so aggregation can tell a 33x60 stripe from a 4x4
           # corner; a pixel, a clear or a text draw has no size and they all fold together.
-          size = node.sized? ? { w: node[:w], h: node[:h] } : {}
+          size = node.sized? ? { w: node.w, h: node.h } : {}
           [Entry.new(op: node.kind, label: label_of(node), cost: cost, source: node.source, **size)]
         end
 
@@ -452,19 +452,19 @@ module RubyGBA
         # the heaviest carries a frame's worth of work, which is what `factor` says (see
         # Tree#weigh_leaves).
         def build_case(node)
-          branches = node[:clauses].map do |value, target|
+          branches = node.clauses.map do |value, target|
             kids = func_children(target)
             Entry.new(op: :branch, label: "#{value} -> :#{target}", cost: sum(kids), children: kids)
           end
           worst = branches.max_by(&:cost)
-          Entry.new(op: :case, label: "case_var :#{node[:var]}", cost: worst&.cost || 0, source: node.source,
+          Entry.new(op: :case, label: "case_var :#{node.var}", cost: worst&.cost || 0, source: node.source,
                     children: branches.map { |b| b.with(factor: b.equal?(worst) ? 1 : 0) })
         end
 
         # A call is its target func's body, inlined (guarding against a call cycle).
         def build_call(node)
-          kids = func_children(node[:target])
-          Entry.new(op: :call, label: "call :#{node[:target]}", cost: sum(kids), source: node.source,
+          kids = func_children(node.target)
+          Entry.new(op: :call, label: "call :#{node.target}", cost: sum(kids), source: node.source,
                     children: kids)
         end
 
@@ -529,7 +529,7 @@ module RubyGBA
         # or a guardrail asking before anything has been lowered, has no map — and then every
         # loop is priced as the safe shape, which is the dearer of the two and the right way to
         # be wrong.
-        def loop_shape(node) = @loop_shapes[node[:index]]
+        def loop_shape(node) = @loop_shapes[node.index]
 
         # A loop that keeps its counter in a register is four instructions a pass where one
         # through memory is sixteen, so the two are priced apart.
@@ -578,14 +578,14 @@ module RubyGBA
         # ceiling as the every-frame load is what made a snake that measures 49 scanlines
         # report 106 of its 228.
         def repeat_factor(node, typical: false)
-          count = node[:count]
-          return [count[:value], "x#{count[:value]}"] if count.is_a?(Node) && count.kind == :int
-          if count.is_a?(Node) && count.kind == :list_len && @capacities[count[:name]]
-            cap = @capacities[count[:name]]
-            return [cap, "x<=#{cap} (#{count[:name]} capacity)"] unless typical && !@at_list_capacity
+          count = node.count
+          return [count.value, "x#{count.value}"] if count.is_a?(Node) && count.kind == :int
+          if count.is_a?(Node) && count.kind == :list_len && @capacities[count.name]
+            cap = @capacities[count.name]
+            return [cap, "x<=#{cap} (#{count.name} capacity)"] unless typical && !@at_list_capacity
 
-            usual = list_length(count[:name])
-            return [usual, "x#{usual} (#{count[:name]} usually)"]
+            usual = list_length(count.name)
+            return [usual, "x#{usual} (#{count.name} usually)"]
           end
           [0, "x? (unbounded)"]
         end

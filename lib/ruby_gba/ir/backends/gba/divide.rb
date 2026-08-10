@@ -74,8 +74,8 @@ module RubyGBA
           def needs_divide_routine?(program)
             program.walk.any? do |node|
               case node.kind
-              when :binop then %i[/ %].include?(node[:op]) && divisor_needs_routine?(node[:rhs])
-              when :div_fix then folds_to_plain_divide?(node) && divisor_needs_routine?(node[:rhs])
+              when :binop then %i[/ %].include?(node.op) && divisor_needs_routine?(node.rhs)
+              when :div_fix then folds_to_plain_divide?(node) && divisor_needs_routine?(node.rhs)
               when :object then object_scales?(node)
               else false
               end
@@ -109,10 +109,10 @@ module RubyGBA
           # CostModel::Pricing#div_fix_weight decides the same thing for the estimate; if
           # this moves, that must too.
           def folds_to_plain_divide?(node)
-            numerator = const_int(node[:lhs])
+            numerator = const_int(node.lhs)
             return false unless numerator
 
-            widened = numerator << node[:fraction_bits]
+            widened = numerator << node.fraction_bits
             widened > Int32::MIN && widened <= Int32::MAX
           end
 

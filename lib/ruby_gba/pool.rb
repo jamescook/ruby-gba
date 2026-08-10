@@ -149,7 +149,7 @@ module RubyGBA
     def spawn_recycling(values)
       slot = Build.var_ref(slot_var)
       choose = Build.if_(free_available, *claim_free_slot(slot))
-      choose[:else] = Build.else_(*take_oldest_slot)
+      choose.else = Build.else_(*take_oldest_slot)
       record(choose)
       assign_fields(slot, values).each { |node| record(node) }
       record(Build.list_set(born_list, slot, Build.var_ref(seq_var)))

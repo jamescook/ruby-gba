@@ -168,11 +168,11 @@ module RubyGBA
       # already there and return. An object that never turns keeps the constant 0 and
       # pays nothing for rotation. Called by the HardwareSprite handle, so it's public.
       def make_object_rotatable(object_node, angle_var)
-        return unless object_node[:angle].kind == :int # already turning (a variable angle)
+        return unless object_node.angle.kind == :int # already turning (a variable angle)
 
         at_boot(Build.set(angle_var, Build.int(0)))
         ensure_var(angle_var)
-        object_node[:angle] = Build.var_ref(angle_var)
+        object_node.angle = Build.var_ref(angle_var)
       end
 
       # Make a hardware sprite able to change size (see HardwareSprite#scale): allocate
@@ -181,13 +181,13 @@ module RubyGBA
       # #make_object_rotatable, and for the same reason — a sprite that never resizes
       # keeps the constant and pays nothing. Called by the HardwareSprite handle.
       def make_object_scalable(object_node, scale_var)
-        return unless object_node[:scale].kind == :int # already resizing (a variable size)
+        return unless object_node.scale.kind == :int # already resizing (a variable size)
 
         # Declared with a Float, which is how a program says "this holds a fraction" —
         # so the size variable carries its scale like any other, and 1.0 boots it to
         # exactly the constant it is replacing.
         var(scale_var, 1.0)
-        object_node[:scale] = Build.var_ref(scale_var)
+        object_node.scale = Build.var_ref(scale_var)
       end
 
       private

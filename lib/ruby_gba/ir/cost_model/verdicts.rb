@@ -58,7 +58,7 @@ module RubyGBA
         # This decides which budget applies and how going over it reads: a torn
         # picture (single-buffer) versus a dropped frame (double-buffer).
         def buffered?(program)
-          program.walk.any? { |node| node.kind == :screen && node[:buffered] }
+          program.walk.any? { |node| node.kind == :screen && node.buffered }
         end
 
         # The per-frame draw budget that applies to this program: the whole frame
@@ -113,7 +113,7 @@ module RubyGBA
           # item — so what capping the list saves is the sum of them. Solved one loop at a
           # time, no single walk over a list a game walks repeatedly is big enough on its own
           # to be worth capping, and the list goes unwarned.
-          capacity_bounded_loops(program).group_by { |node| node[:count][:name] }.filter_map do |name, loops|
+          capacity_bounded_loops(program).group_by { |node| node.count.name }.filter_map do |name, loops|
             # THE LENGTH THE AUTHOR ASKED FOR, not the power of two the ring rounded it up
             # to. Whether this warning is worth making turns on whether the list can really
             # get that long, and the rounding is headroom for the mask rather than for the
@@ -148,8 +148,8 @@ module RubyGBA
           program.walk.select do |node|
             next false unless node.kind == :repeat
 
-            count = node[:count]
-            count.is_a?(Node) && count.kind == :list_len && @capacities[count[:name]]
+            count = node.count
+            count.is_a?(Node) && count.kind == :list_len && @capacities[count.name]
           end
         end
 
@@ -184,7 +184,7 @@ module RubyGBA
         # entry: { name:, notes:, steady_cost:, budget:, over: }
         def song_verdicts(program)
           index(program)
-          names = program.walk.select { |node| node.kind == :play_song }.map { |node| node[:name] }.uniq
+          names = program.walk.select { |node| node.kind == :play_song }.map { |node| node.name }.uniq
           names.filter_map do |name|
             next unless @songs[name]
 
@@ -237,7 +237,7 @@ module RubyGBA
           interrupts = LINES_PER_FRAME * bend_line_weight
           offsets = in_fast_interrupts { bends.sum { |node| VISIBLE_LINES * bend_offset_cost(node) } }
           cost = interrupts + offsets
-          Verdict::Bend.new(layers: bends.map { |node| node[:name] }.uniq, lines: LINES_PER_FRAME,
+          Verdict::Bend.new(layers: bends.map { |node| node.name }.uniq, lines: LINES_PER_FRAME,
                             interrupts: interrupts, offsets: offsets,
                             cost: cost, budget: FRAME_BUDGET)
         end
@@ -256,7 +256,7 @@ module RubyGBA
         # it put in the block before it. The register write and the row bookkeeping are
         # already in the per-line weight.
         def bend_offset_cost(node)
-          expr_cost(node[:offset]) + node.children.sum { |child| op_cost(child) }
+          expr_cost(node.offset) + node.children.sum { |child| op_cost(child) }
         end
 
         # The bend's per-frame cost as a plain number (0 when nothing bends), for adding to
@@ -293,13 +293,13 @@ module RubyGBA
         # body. A handler on a timer that is never started has no rate and so no cost — it
         # never runs.
         def tick_entry(program, node)
-          hz = timer_rate(program, node[:timer])
+          hz = timer_rate(program, node.timer)
           return nil unless hz
 
           each = tick_interrupt_weight + in_fast_interrupts { node.children.sum { |child| steady(child) } }
           delivered = deliverable_rate(hz, each)
           ticks = delivered / FULL_FRAME_RATE.to_f
-          Verdict::Timer.new(name: node[:timer], hz: hz, delivered: delivered, ticks: ticks,
+          Verdict::Timer.new(name: node.timer, hz: hz, delivered: delivered, ticks: ticks,
                              each: each, interrupts: ticks * tick_interrupt_weight,
                              body: ticks * (each - tick_interrupt_weight), cost: ticks * each)
         end
@@ -326,7 +326,7 @@ module RubyGBA
 
         # How many times a second the named timer was started at.
         def timer_rate(program, name)
-          program.walk.find { |node| node.kind == :timer_start && node[:name] == name }&.[](:hz)
+          program.walk.find { |node| node.kind == :timer_start && node.name == name }&.hz
         end
 
         # What one tick's interrupt costs — two weights, cartridge and faster memory, for
@@ -354,7 +354,7 @@ module RubyGBA
         # The rate the mixer runs at — the one most of the program's samples were recorded
         # at (matching the backend), so the buffer size is right. Defaults when none say.
         def mixer_rate(program)
-          rates = program.walk.select { |node| node.kind == :sample }.filter_map { |node| node[:rate] }
+          rates = program.walk.select { |node| node.kind == :sample }.filter_map { |node| node.rate }
           return DEFAULT_MIXER_RATE if rates.empty?
 
           rates.group_by(&:itself).max_by { |_rate, list| list.size }.first
@@ -561,12 +561,12 @@ module RubyGBA
           walks = program.walk.filter_map do |node|
             next unless node.kind == :repeat
 
-            count = node[:count]
-            next unless count.is_a?(Node) && count.kind == :list_len && @capacities[count[:name]]
+            count = node.count
+            next unless count.is_a?(Node) && count.kind == :list_len && @capacities[count.name]
 
-            Verdict::ListLength.new(name: count[:name], counted: list_length(count[:name]),
-                                    capacity: @capacities[count[:name]],
-                                    said: @list_lengths.key?(count[:name]))
+            Verdict::ListLength.new(name: count.name, counted: list_length(count.name),
+                                    capacity: @capacities[count.name],
+                                    said: @list_lengths.key?(count.name))
           end
           walks.uniq(&:name)
         end

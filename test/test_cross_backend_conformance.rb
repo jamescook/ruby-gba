@@ -27,7 +27,7 @@ class TestCrossBackendConformance < Minitest::Test
 
   def test_fixture_exercises_every_binary_operator
     ops = ConformanceFixture.program.walk
-                            .select { |n| n.kind == :binop }.map { |n| n[:op] }.uniq.to_set
+                            .select { |n| n.kind == :binop }.map { |n| n.op }.uniq.to_set
     missing = ConformanceFixture::OPERATORS.to_set - ops
 
     assert_empty missing,

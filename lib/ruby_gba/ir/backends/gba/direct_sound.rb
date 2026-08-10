@@ -28,8 +28,8 @@ module RubyGBA
             program.walk.each do |node|
               case node.kind
               when :sample
-                @data_blobs[node[:name]] = node[:bytes] # embed the PCM data as a ROM blob
-                @samples[node[:name]] = Assets::Sample.of(node)
+                @data_blobs[node.name] = node.bytes # embed the PCM data as a ROM blob
+                @samples[node.name] = Assets::Sample.of(node)
               when :play_sample
                 @plays_samples = true
               end
