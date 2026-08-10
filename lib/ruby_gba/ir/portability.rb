@@ -36,9 +36,9 @@ module RubyGBA
       # +:hardware_only+ dominates +:portable+.
       TIERS = %i[hardware_only portable].freeze
 
-      # Every kind's tier — the single source of truth, coverage-locked against
-      # Node::CATEGORY so a new kind can't be added without a conscious choice.
-      # Grouped to mirror CATEGORY. Today only +raw+ is hardware-only; the framebuffer
+      # Every kind's tier — the single source of truth, coverage-locked against the declared
+      # kinds so a new one can't be added without a conscious choice. Grouped by category.
+      # Today only +raw+ is hardware-only; the framebuffer
       # draws, text, and PSG sound are all portable (a canvas / web-audio backend can
       # realize them), as are vars, arithmetic, control flow, lists, and embedded data.
       TIER = {

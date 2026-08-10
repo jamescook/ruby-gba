@@ -16,19 +16,26 @@ class TestIRVerifier < Minitest::Test
 
   IR = RubyGBA::IR
   Node = RubyGBA::IR::Node
+  Nodes = RubyGBA::IR::Nodes
   Verifier = RubyGBA::IR::Verifier
   Fields = RubyGBA::IR::Fields
 
-  # ---- the coverage lock: the schema can't fall behind the node model ----
+  # ---- every kind says what it is ----
+  #
+  # The operands a kind carries and the category it belongs to are declared on the class, so
+  # there is no table to fall behind. What can still go wrong is a class that forgets to say
+  # one of them.
 
-  def test_every_node_kind_has_a_fields_row
-    missing = Node::CATEGORY.keys - Fields::BY_KIND.keys
-    assert_empty missing, "these kinds have no IR::Fields row (a new verb could slip the net): #{missing}"
+  def test_every_kind_declares_a_category
+    silent = RubyGBA::IR::Nodes.by_kind.reject { |_, type| type.category }.keys
+
+    assert_empty silent, "these kinds declare no category (add `category :...` to the class): #{silent}"
   end
 
-  def test_the_schema_has_no_rows_for_unknown_kinds
-    stray = Fields::BY_KIND.keys - Node::CATEGORY.keys
-    assert_empty stray, "these IR::Fields rows name kinds that aren't in Node::CATEGORY: #{stray}"
+  def test_every_declared_category_is_a_real_one
+    stray = RubyGBA::IR::Nodes.by_kind.values.map(&:category).uniq - Node::CATEGORIES
+
+    assert_empty stray, "these kinds name a category that does not exist: #{stray}"
   end
 
   # ---- well-formed trees pass ----
@@ -74,19 +81,19 @@ class TestIRVerifier < Minitest::Test
   # ---- value slots must hold value nodes ----
 
   def test_a_raw_literal_in_a_value_slot_is_caught
-    bad = program(Node.new(:set, var: :x, value: 5)) # 5 not wrapped to int(5)
+    bad = program(Nodes::Set.new(var: :x, value: 5)) # 5 not wrapped to int(5)
     err = assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
     assert_match(/set\.value must be a value node/, err.message)
   end
 
   def test_a_missing_value_slot_is_caught
-    bad = program(Node.new(:add, var: :x)) # no operand at all
+    bad = program(Nodes::Add.new(var: :x)) # no operand at all
     err = assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
     assert_match(/add\.operand is missing/, err.message)
   end
 
   def test_a_statement_node_in_a_value_slot_is_caught
-    bad = program(Node.new(:set, var: :x, value: Node.new(:halt))) # halt is a statement, not a value
+    bad = program(Nodes::Set.new(var: :x, value: Nodes::Halt.new)) # halt is a statement, not a value
     err = assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
     assert_match(/set\.value must be a value node/, err.message)
   end
@@ -95,14 +102,14 @@ class TestIRVerifier < Minitest::Test
 
   def test_a_value_node_in_a_structural_slot_is_caught
     # An `every`'s period is fixed as the program is written; a value node there is a leak.
-    bad = program(Node.new(:every, counter: :t, period: int(30)))
+    bad = program(Nodes::Every.new(counter: :t, period: int(30)))
     err = assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
     assert_match(/every\.period must be an author-time int/, err.message)
     assert_match(/value node/, err.message)
   end
 
   def test_a_wrong_literal_type_in_a_structural_slot_is_caught
-    bad = program(Node.new(:every, counter: :t, period: :nope)) # period must be an Integer
+    bad = program(Nodes::Every.new(counter: :t, period: :nope)) # period must be an Integer
     err = assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
     assert_match(/every\.period must be an author-time int/, err.message)
   end
@@ -111,8 +118,8 @@ class TestIRVerifier < Minitest::Test
 
   def test_optional_structural_fields_may_be_nil
     prog = program(
-      Node.new(:bitmap, name: :s, width: 2, height: 2, pixels: "abcd".b, transparent: nil),
-      Node.new(:beep, tone: :blip, duty: nil, decay: nil, volume: nil),
+      Nodes::Bitmap.new(name: :s, width: 2, height: 2, pixels: "abcd".b, transparent: nil),
+      Nodes::Beep.new(tone: :blip, duty: nil, decay: nil, volume: nil),
     )
     assert_same prog, Verifier.verify!(prog)
   end
@@ -120,20 +127,34 @@ class TestIRVerifier < Minitest::Test
   # ---- structural integrity of the tree ----
 
   def test_a_value_node_wired_as_a_child_is_caught
-    bad = program(Node.new(:loop, children: [int(5)])) # a value node can't be a statement
+    bad = program(Nodes::Loop.new(children: [int(5)])) # a value node can't be a statement
     err = assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
     assert_match(/as a child/, err.message)
   end
 
-  def test_an_undeclared_field_is_caught
-    bad = program(Node.new(:set, var: :x, value: int(1), bogus: 3))
-    err = assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
-    assert_match(/set\.bogus is not a declared field/, err.message)
+  # A field the kind does not have never reaches the verifier now: the node refuses it at
+  # the line that set it, which is where the verb that got it wrong is.
+  def test_an_undeclared_field_is_refused_where_it_is_set
+    err = assert_raises(IR::InvariantError) { Nodes::Set.new(var: :x, value: int(1), bogus: 3) }
+
+    assert_match(/set has no :bogus field to set/, err.message)
   end
 
-  def test_an_unknown_kind_is_caught
-    bad = program(Node.new(:frobnicate, whatever: 1))
+  # A kind the model has not been taught. It cannot come from IR::Nodes.build, which has no
+  # class to build — so the shape that reaches here is a node class declared somewhere else,
+  # which is how a library outside this one would add a kind. The verifier is what tells such
+  # a program that nothing downstream knows the kind.
+  def test_a_kind_declared_outside_the_model_is_caught
+    outsider = Class.new do
+      include RubyGBA::IR::Node
+      kind :frobnicate
+      category :draw
+      operands whatever: :int
+    end
+
+    bad = program(outsider.new(whatever: 1))
     err = assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
+
     assert_match(/unknown IR kind :frobnicate/, err.message)
   end
 
@@ -142,7 +163,7 @@ class TestIRVerifier < Minitest::Test
   def test_it_raises_rather_than_returning_findings
     # No Finding/severity/fix surface — a malformed tree is a hard error aimed at
     # the library authors, distinct from the developer-facing Guardrails.
-    bad = program(Node.new(:set, var: :x, value: 5))
+    bad = program(Nodes::Set.new(var: :x, value: 5))
     assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
   end
 end

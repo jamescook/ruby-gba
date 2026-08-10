@@ -952,10 +952,10 @@ class TestCostPricing < CostModelTest
   # estimate charges for it. A kind added later that can hold arithmetic cannot go
   # unpriced without failing here.
   def test_every_kind_prices_the_operands_it_holds
-    unpriced = RubyGBA::IR::Fields::BY_KIND.filter_map do |kind, slots|
+    unpriced = RubyGBA::IR::Fields.by_kind.filter_map do |kind, slots|
       slots_holding_values = slots.select { |_, type| type == :value }.keys
       next if slots_holding_values.empty?
-      next if Node::CATEGORY[kind] == :control # loop/if/case are priced in #build, not #op_cost
+      next if category_of(kind) == :control # loop/if/case are priced in #build, not #op_cost
 
       kind unless prices_its_operands?(kind, slots, slots_holding_values.length)
     end
@@ -972,7 +972,7 @@ class TestCostPricing < CostModelTest
     attrs = slots.to_h do |slot, type|
       [slot, type == :value ? Build.binop(:/, Build.var_ref(:a), Build.var_ref(:b)) : SLOT_FILLER[type]]
     end
-    node = Node.new(kind, **attrs)
+    node = RubyGBA::IR::Nodes.build(kind, **attrs)
     statement = value?(kind) ? Build.set(:out, node) : node
     prog = Build.program(Build.screen(:bitmap), Build.loop_(statement))
 
@@ -980,7 +980,9 @@ class TestCostPricing < CostModelTest
     charged >= (divides * WEIGHTS[:op_div]) - 1e-9
   end
 
-  def value?(kind) = Node::CATEGORY[kind] == :value
+  def value?(kind) = category_of(kind) == :value
+
+  def category_of(kind) = RubyGBA::IR::Nodes.by_kind.fetch(kind).category
 
   # Weights are configurable (Postgres-GUC style): a dev can tune them or weight an
   # op up to discourage it. Doubling the DMA weights doubles a DMA-fill's cost.

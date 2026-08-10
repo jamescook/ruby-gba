@@ -130,9 +130,9 @@ class TestIRParity < Minitest::Test
   # of their own above are the only ones that answer.
   def test_every_other_kind_of_value_answers_unknown
     proven = %i[int binop neg]
-    kinds = RubyGBA::IR::Node::CATEGORY.select { |_, cat| cat == :value }.keys - proven
+    kinds = RubyGBA::IR::Nodes.by_kind.select { |_, type| type.category == :value }.keys - proven
     kinds.each do |kind|
-      assert_nil Parity.of(RubyGBA::IR::Node.new(kind)),
+      assert_nil Parity.of(RubyGBA::IR::Nodes.build(kind)),
                  "#{kind} has no parity rule, so it must not claim one"
     end
     refute_empty kinds

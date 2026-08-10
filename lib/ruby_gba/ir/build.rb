@@ -37,7 +37,7 @@ module RubyGBA
       # --- program root ---
 
       def program(*statements)
-        Node.new(:program, children: statements)
+        Nodes.build(:program, children: statements)
       end
 
       # --- variable operations ---
@@ -45,41 +45,41 @@ module RubyGBA
       # #wrap) or an already-built value node.
 
       def set(var, value)
-        Node.new(:set, var: var, value: wrap(value))
+        Nodes.build(:set, var: var, value: wrap(value))
       end
 
       def add(var, operand)
-        Node.new(:add, var: var, operand: wrap(operand))
+        Nodes.build(:add, var: var, operand: wrap(operand))
       end
 
       def sub(var, operand)
-        Node.new(:sub, var: var, operand: wrap(operand))
+        Nodes.build(:sub, var: var, operand: wrap(operand))
       end
 
       def copy(dest, src)
-        Node.new(:copy, dest: dest, src: src)
+        Nodes.build(:copy, dest: dest, src: src)
       end
 
       def negate(var)
-        Node.new(:negate, var: var)
+        Nodes.build(:negate, var: var)
       end
 
       # Absolute value: var = |var| (negates it only when it's negative).
       def abs(var)
-        Node.new(:abs, var: var)
+        Nodes.build(:abs, var: var)
       end
 
       # Force negative: var = -|var| (negates it only when it's positive). Handy
       # for pinning a direction, e.g. making a velocity point one specific way.
       def negate_abs(var)
-        Node.new(:negate_abs, var: var)
+        Nodes.build(:negate_abs, var: var)
       end
 
       # Hold a variable inside a range. The bounds are value operands, so they may be
       # fixed as the program is written or worked out while it runs (a limit that
       # depends on the level, a speed the game changes).
       def clamp(var, min, max)
-        Node.new(:clamp, var: var, min: wrap(min), max: wrap(max))
+        Nodes.build(:clamp, var: var, min: wrap(min), max: wrap(max))
       end
 
       # --- persistence (variables that survive power-off) ---
@@ -96,13 +96,13 @@ module RubyGBA
       # already there the saved values are loaded, otherwise the defaults are
       # written (so a fresh cartridge starts clean instead of loading garbage).
       def save_init(vars:, magic:)
-        Node.new(:save_init, vars: vars, magic: magic)
+        Nodes.build(:save_init, vars: vars, magic: magic)
       end
 
       # Write one persisted variable's current value back to its save slot — done
       # right after it changes, so what's saved always matches what's on screen.
       def save_store(name, slot)
-        Node.new(:save_store, var: name, slot: slot)
+        Nodes.build(:save_store, var: name, slot: slot)
       end
 
       # --- drawing / screen operations ---
@@ -116,25 +116,25 @@ module RubyGBA
       def screen(mode, buffered: false)
         attrs = { mode: mode }
         attrs[:buffered] = true if buffered
-        Node.new(:screen, **attrs)
+        Nodes.build(:screen, **attrs)
       end
 
       def pixel(x, y, color)
-        Node.new(:pixel, x: wrap(x), y: wrap(y), color: color)
+        Nodes.build(:pixel, x: wrap(x), y: wrap(y), color: color)
       end
 
       def fill_rect(x, y, w, h, color)
-        Node.new(:fill_rect, x: x, y: y, w: w, h: h, color: color)
+        Nodes.build(:fill_rect, x: x, y: y, w: w, h: h, color: color)
       end
 
       def clear_screen(color)
-        Node.new(:clear_screen, color: color)
+        Nodes.build(:clear_screen, color: color)
       end
 
       # Write a line of text at a fixed top-left origin, drawn with a named font
       # (+font+, a key in the Fonts registry). +x+/+y+ are compile-time constants.
       def draw_text(text, x, y, color, font: :default)
-        Node.new(:draw_text, text: text, x: x, y: y, color: color, font: font)
+        Nodes.build(:draw_text, text: text, x: x, y: y, color: color, font: font)
       end
 
       # Draw the single decimal digit of +value+ (a run-time 0..9) at the fixed
@@ -143,7 +143,7 @@ module RubyGBA
       # the tree (a backend may render it however it likes — a lookup and one blit,
       # or a fan-out).
       def draw_digit(value, x, y, color, font: :default)
-        Node.new(:draw_digit, value: value, x: x, y: y, color: color, font: font)
+        Nodes.build(:draw_digit, value: value, x: x, y: y, color: color, font: font)
       end
 
       # Fill a rectangle whose position AND size are decided at run time: +x+, +y+,
@@ -155,14 +155,14 @@ module RubyGBA
       # that empties sideways, a wall column in a first-person view, a tower rising
       # out of the ground. A width or height of zero or less draws nothing.
       def draw_rect_at(x, y, w, h, color)
-        Node.new(:draw_rect_at, x: wrap(x), y: wrap(y), w: wrap(w), h: wrap(h), color: color)
+        Nodes.build(:draw_rect_at, x: wrap(x), y: wrap(y), w: wrap(w), h: wrap(h), color: color)
       end
 
       # Fill a rectangle at a fixed position and size — same picture as
       # +fill_rect+, but a backend is free to blast it in with a block transfer.
       # Everything (+x+/+y+/+w+/+h+) is a compile-time constant.
       def dma_fill_rect(x, y, w, h, color)
-        Node.new(:dma_fill_rect, x: x, y: y, w: w, h: h, color: color)
+        Nodes.build(:dma_fill_rect, x: x, y: y, w: w, h: h, color: color)
       end
 
       # --- audio ---
@@ -174,14 +174,14 @@ module RubyGBA
 
       # Power on the audio hardware. Nothing is audible until this runs.
       def enable_sound
-        Node.new(:enable_sound)
+        Nodes.build(:enable_sound)
       end
 
       # Name a reusable sound effect: a tone at +frequency+ Hz with a wave shape
       # (+duty+), fade speed (+decay+), and starting +volume+ (0–15). A later
       # +beep(name)+ plays it.
       def define_sound(name, frequency:, duty: :half, decay: :fast, volume: 15)
-        Node.new(:define_sound, name: name, frequency: frequency,
+        Nodes.build(:define_sound, name: name, frequency: frequency,
                                 duty: duty, decay: decay, volume: volume)
       end
 
@@ -189,14 +189,14 @@ module RubyGBA
       # raw frequency in Hz. The keyword overrides default to the named sound's
       # values (or to the built-in defaults for a raw frequency) when left nil.
       def beep(tone, duty: nil, decay: nil, volume: nil)
-        Node.new(:beep, tone: tone, duty: duty, decay: decay, volume: volume)
+        Nodes.build(:beep, tone: tone, duty: duty, decay: decay, volume: volume)
       end
 
       # Play a percussion / explosion hit on the noise voice now. +preset+ names a
       # built-in noise sound (or is nil for a plain hit); the keyword overrides
       # default to the preset's values when left nil, resolved by a backend.
       def noise(preset = nil, pitch: nil, decay: nil, volume: nil, metallic: nil)
-        Node.new(:noise, preset: preset, pitch: pitch, decay: decay,
+        Nodes.build(:noise, preset: preset, pitch: pitch, decay: decay,
                          volume: volume, metallic: metallic)
       end
 
@@ -204,12 +204,12 @@ module RubyGBA
       # timbre) at +frequency+ Hz and a fixed +volume+ level. It holds until
       # replaced or stopped — the wave voice has no envelope.
       def wave(shape:, frequency:, volume:)
-        Node.new(:wave, shape: shape, frequency: frequency, volume: volume)
+        Nodes.build(:wave, shape: shape, frequency: frequency, volume: volume)
       end
 
       # Silence the wave voice.
       def stop_wave
-        Node.new(:stop_wave)
+        Nodes.build(:stop_wave)
       end
 
       # Define a named tune. A song is one or more parts (voices) played together.
@@ -224,17 +224,17 @@ module RubyGBA
       # directly instead of a +voices:+ list — it's taken as the single part.
       def song(name, total_frames:, voices: nil, events: nil, duty: :half, volume: 12)
         voices ||= [{ events: events, duty: duty, volume: volume }]
-        Node.new(:song, name: name, voices: voices, total_frames: total_frames)
+        Nodes.build(:song, name: name, voices: voices, total_frames: total_frames)
       end
 
       # Advance the named tune by one frame — call once per frame in the loop.
       def play_song(name)
-        Node.new(:play_song, name: name)
+        Nodes.build(:play_song, name: name)
       end
 
       # Silence the music.
       def stop_music
-        Node.new(:stop_music)
+        Nodes.build(:stop_music)
       end
 
       # --- sampled (PCM) audio ---
@@ -248,7 +248,7 @@ module RubyGBA
       # +rate+ how many of them play per second (its recording rate in Hz). +note+ is the
       # musical pitch it was recorded at — the reference `play(pitch:)` shifts from.
       def sample(name, bytes, rate, note: :C4)
-        Node.new(:sample, name: name, bytes: bytes, rate: rate, note: note)
+        Nodes.build(:sample, name: name, bytes: bytes, rate: rate, note: note)
       end
 
       # Play the named sample from the start. +loop+ true replays it seamlessly on a
@@ -257,29 +257,29 @@ module RubyGBA
       # +pitch+ is a note name to play it at (shifted from the sample's own note); nil plays
       # it at its recorded pitch.
       def play_sample(name, loop: false, volume: :full, pitch: nil)
-        Node.new(:play_sample, name: name, loop: loop, volume: volume, pitch: pitch)
+        Nodes.build(:play_sample, name: name, loop: loop, volume: volume, pitch: pitch)
       end
 
       # Stop a playing sample. With +name+, silences that sample's voices; without one,
       # stops everything on the sampled-audio output.
       def stop_sample(name = nil)
-        Node.new(:stop_sample, name: name)
+        Nodes.build(:stop_sample, name: name)
       end
 
       # --- control flow ---  (bodies are nested statements)
 
       def if_(cond, *body)
-        Node.new(:if, children: body, cond: cond)
+        Nodes.build(:if, children: body, cond: cond)
       end
 
       # The else-branch of an `if`: its statements run when the condition is
       # false. Held in the if node's :else attr, not built standalone.
       def else_(*body)
-        Node.new(:else, children: body)
+        Nodes.build(:else, children: body)
       end
 
       def loop_(*body)
-        Node.new(:loop, children: body)
+        Nodes.build(:loop, children: body)
       end
 
       # A counted loop: run +body+ +count+ times, with +index+ (a variable name)
@@ -288,7 +288,7 @@ module RubyGBA
       # plain Integer, this emits one loop whose count and counter live on the
       # console. +count+ is a value operand.
       def repeat(count, index, *body)
-        Node.new(:repeat, children: body, count: wrap(count), index: index)
+        Nodes.build(:repeat, children: body, count: wrap(count), index: index)
       end
 
       # A repeating timer: run +body+ once every +period+ frames. +counter+ names
@@ -297,7 +297,7 @@ module RubyGBA
       # node — not the counter+compare it lowers to — is that the tree still says
       # "every N frames", so the cost model and rom.explain read the intent.
       def every(counter, period, *body)
-        Node.new(:every, children: body, counter: counter, period: period)
+        Nodes.build(:every, children: body, counter: counter, period: period)
       end
 
       # A one-shot timer: run +body+ exactly once, +frames+ frames in, then never
@@ -305,7 +305,7 @@ module RubyGBA
       # counts up only until it lands on the target. Like +every+, kept as a node so
       # the tree still says "after N frames".
       def after(counter, frames, *body)
-        Node.new(:after, children: body, counter: counter, frames: frames)
+        Nodes.build(:after, children: body, counter: counter, frames: frames)
       end
 
       # A named routine. +fast+ is a HINT about where the routine should live, for a
@@ -321,7 +321,7 @@ module RubyGBA
       # DOES changes either way, which is why this can sit on the node without making the
       # IR describe a machine.
       def func(name, *body, fast: nil)
-        Node.new(:func, children: body, name: name, fast: fast)
+        Nodes.build(:func, children: body, name: name, fast: fast)
       end
 
       # --- hardware timers ---
@@ -337,44 +337,44 @@ module RubyGBA
         unless hz.is_a?(Integer) && hz.positive?
           raise ArgumentError, "a timer's rate must be a positive whole number of Hz, got #{hz.inspect}"
         end
-        Node.new(:timer_start, name: name, hz: hz)
+        Nodes.build(:timer_start, name: name, hz: hz)
       end
 
       # Stop the named timer (it stops counting; its last count is frozen).
       def timer_stop(name)
-        Node.new(:timer_stop, name: name)
+        Nodes.build(:timer_stop, name: name)
       end
 
       # Run +body+ every time the named timer overflows — a handler driven by the timer
       # itself, so it runs at the timer's rate independent of the frame loop (where every/
       # after are frame-paced). The body's statements are the node's children.
       def on_timer(timer, *body)
-        Node.new(:on_timer, children: body, timer: timer)
+        Nodes.build(:on_timer, children: body, timer: timer)
       end
 
       # How many times the named timer has overflowed since it started — a value, so it
       # can drive an operand. Wraps at 65536 (a 16-bit count), like the hardware counter.
       def timer_ticks(name)
-        Node.new(:timer_ticks, name: name)
+        Nodes.build(:timer_ticks, name: name)
       end
 
       def call(name)
-        Node.new(:call, target: name)
+        Nodes.build(:call, target: name)
       end
 
       # Multi-way dispatch on a variable: run the scene/func whose value matches.
       # A scene is just a func, so the targets are func names. +clauses+ maps each
       # value to a target name, e.g. case_(:state, 0 => :title, 1 => :playing).
       def case_(var, clauses)
-        Node.new(:case, var: var, clauses: clauses.to_a)
+        Nodes.build(:case, var: var, clauses: clauses.to_a)
       end
 
       def wait_vblank
-        Node.new(:wait_vblank)
+        Nodes.build(:wait_vblank)
       end
 
       def halt
-        Node.new(:halt)
+        Nodes.build(:halt)
       end
 
       # A raw escape hatch: pre-assembled target bytes a native backend appends
@@ -383,7 +383,7 @@ module RubyGBA
       # aim is that a developer never needs it, so grow a real node the backends
       # can lower and model rather than settling here.
       def raw(bytes)
-        Node.new(:raw, bytes: bytes)
+        Nodes.build(:raw, bytes: bytes)
       end
 
       # --- embedded data ---
@@ -392,13 +392,13 @@ module RubyGBA
       # song's score, ...): +bytes+ is a binary String. A definition — it emits
       # nothing on its own; a consumer reads it by name.
       def data(name, bytes)
-        Node.new(:data, name: name, bytes: bytes)
+        Nodes.build(:data, name: name, bytes: bytes)
       end
 
       # Read one byte (0..255) of a named blob at a fixed index — a value, so it
       # can drive an operand or a coordinate.
       def data_byte(name, index)
-        Node.new(:data_byte, name: name, index: index)
+        Nodes.build(:data_byte, name: name, index: index)
       end
 
       # An embedded bitmap: +pixels+ is a binary String of width*height 15-bit
@@ -407,7 +407,7 @@ module RubyGBA
       # means "don't draw" (so the background shows through); nil means opaque. A
       # definition — a later blit references it by name.
       def bitmap(name, width:, height:, pixels:, transparent: nil)
-        Node.new(:bitmap, name: name, width: width, height: height,
+        Nodes.build(:bitmap, name: name, width: width, height: height,
                           pixels: pixels, transparent: transparent)
       end
 
@@ -415,7 +415,7 @@ module RubyGBA
       # variables (a moving object). A part pushed off a screen edge is clipped, not
       # wrapped.
       def blit(name, x, y)
-        Node.new(:blit, name: name, x: wrap(x), y: wrap(y))
+        Nodes.build(:blit, name: name, x: wrap(x), y: wrap(y))
       end
 
       # Draw one of a set of same-size images, chosen by a run-time index — a sprite
@@ -423,7 +423,7 @@ module RubyGBA
       # +poses+ is a list of defined image names; +index+ selects one (0-based) at
       # run time. Like a run-time-selected blit: costs one draw, not the whole set.
       def blit_pose(poses, index, x, y)
-        Node.new(:blit_pose, poses: poses, index: wrap(index), x: wrap(x), y: wrap(y))
+        Nodes.build(:blit_pose, poses: poses, index: wrap(index), x: wrap(x), y: wrap(y))
       end
 
       # A run-time test: do the visible (non-transparent) pixels of two posed things
@@ -434,7 +434,7 @@ module RubyGBA
       # gates it, so this only runs for things already close). A backend reads each
       # side's own picture to know which pixels are solid, so both agree on the shape.
       def pixels_overlap(a_poses:, a_pose:, a_x:, a_y:, b_poses:, b_pose:, b_x:, b_y:)
-        Node.new(:pixels_overlap,
+        Nodes.build(:pixels_overlap,
                  a_poses: a_poses, a_pose: wrap(a_pose), a_x: wrap(a_x), a_y: wrap(a_y),
                  b_poses: b_poses, b_pose: wrap(b_pose), b_x: wrap(b_x), b_y: wrap(b_y))
       end
@@ -447,7 +447,7 @@ module RubyGBA
       # stamps the tiles pixel by pixel, another can hand the grid to tile hardware,
       # but the picture is the same.
       def background(name, tiles:, map:, tile_w:, tile_h:)
-        Node.new(:background, name: name, tiles: tiles, map: map, tile_w: tile_w, tile_h: tile_h)
+        Nodes.build(:background, name: name, tiles: tiles, map: map, tile_w: tile_w, tile_h: tile_h)
       end
 
       # Show the named background scrolled to the offset (+x+, +y+) in pixels — the
@@ -457,7 +457,7 @@ module RubyGBA
       # machine scrolls: one backend re-renders the window, another nudges the tile
       # hardware's scroll offset.
       def scroll_background(name, x:, y:)
-        Node.new(:scroll_background, name: name, x: wrap(x), y: wrap(y))
+        Nodes.build(:scroll_background, name: name, x: wrap(x), y: wrap(y))
       end
 
       # Give every ROW of the picture its own sideways offset on top of the named
@@ -471,7 +471,7 @@ module RubyGBA
       # paints; a backend with display hardware that re-reads its scroll position for
       # every row it draws can hand the whole thing over and pay nothing per pixel.
       def scroll_rows(name, row:, offset:, body: [])
-        Node.new(:scroll_rows, children: body, name: name, row: row, offset: wrap(offset))
+        Nodes.build(:scroll_rows, children: body, name: name, row: row, offset: wrap(offset))
       end
 
       # Move the whole displayed picture. x/y are where the visible window's top-left
@@ -483,7 +483,7 @@ module RubyGBA
       # window onto it. Where the window falls outside the drawn image there is nothing
       # to show, so the backdrop appears along that edge.
       def camera(x:, y:)
-        Node.new(:camera, x: wrap(x), y: wrap(y))
+        Nodes.build(:camera, x: wrap(x), y: wrap(y))
       end
 
       # Blend the whole displayed picture toward a color. +toward+ is :black or :white
@@ -496,7 +496,7 @@ module RubyGBA
       # nothing that was drawn is changed, so the cost is the same whatever is on
       # screen. One backend leans on blend hardware, another blends as it reads.
       def fade(toward:, amount:)
-        Node.new(:fade, toward: toward, amount: wrap(amount))
+        Nodes.build(:fade, toward: toward, amount: wrap(amount))
       end
 
       # --- display objects (a moving picture the display composites over the scene) ---
@@ -531,7 +531,7 @@ module RubyGBA
       # realizes both at once.
       # Reserves the object; #present_objects is what actually draws it for a frame.
       def object(name, poses:, pose:, x:, y:, active:, angle: 0, scale: SCALE_ONE)
-        Node.new(:object, name: name, poses: poses, pose: wrap(pose),
+        Nodes.build(:object, name: name, poses: poses, pose: wrap(pose),
                           x: wrap(x), y: wrap(y), active: wrap(active),
                           angle: wrap(angle), scale: wrap(scale))
       end
@@ -542,7 +542,7 @@ module RubyGBA
       # frame from its current position with no trail. +names+ lists the objects to
       # present (each declared by #object).
       def present_objects(names)
-        Node.new(:present_objects, names: names)
+        Nodes.build(:present_objects, names: names)
       end
 
       # --- backing store (remembering the pixels under a moving object) ---
@@ -552,7 +552,7 @@ module RubyGBA
       # the pixels it's about to cover; when it moves away, paint them back. A
       # definition — it reserves the buffer but draws nothing on its own.
       def backing_buffer(name, width:, height:)
-        Node.new(:backing_buffer, name: name, width: width, height: height)
+        Nodes.build(:backing_buffer, name: name, width: width, height: height)
       end
 
       # Copy the buffer-sized patch of the screen at (x, y) INTO the named backing
@@ -560,14 +560,14 @@ module RubyGBA
       # constants or variables; a part off a screen edge is skipped (nothing to
       # remember out there).
       def save_region(buffer, x, y)
-        Node.new(:save_region, buffer: buffer, x: wrap(x), y: wrap(y))
+        Nodes.build(:save_region, buffer: buffer, x: wrap(x), y: wrap(y))
       end
 
       # Paint a saved patch back onto the screen at (x, y) — restore what a moving
       # object had covered, so it leaves no trace. Pairs with {save_region}; restore
       # at the same spot it was saved. A part off a screen edge is clipped.
       def restore_region(buffer, x, y)
-        Node.new(:restore_region, buffer: buffer, x: wrap(x), y: wrap(y))
+        Nodes.build(:restore_region, buffer: buffer, x: wrap(x), y: wrap(y))
       end
 
       # --- lists (a bounded, ordered collection) ---
@@ -604,13 +604,13 @@ module RubyGBA
         # program 172 slots nobody planned for. Anything asking how full a list can really
         # GET wants the number the author wrote — see the growth guardrail, which warned a
         # snake about a body length its board cannot hold.
-        Node.new(:list_new, name: name, capacity: round_up_capacity(capacity),
+        Nodes.build(:list_new, name: name, capacity: round_up_capacity(capacity),
                             declared: capacity, usually: usually)
       end
 
       # Append a value at the end of the list (grows its length by one).
       def list_push(name, value)
-        Node.new(:list_push, name: name, value: wrap(value))
+        Nodes.build(:list_push, name: name, value: wrap(value))
       end
 
       # Remove one item from an end of the list: `from: :front` (a shift, dropping
@@ -619,24 +619,24 @@ module RubyGBA
         unless %i[front back].include?(from)
           raise ArgumentError, "a list drop is from: :front or :back, got #{from.inspect}"
         end
-        Node.new(:list_drop, name: name, from: from)
+        Nodes.build(:list_drop, name: name, from: from)
       end
 
       # Overwrite the item at `index` with a new value (the slot must already hold
       # one). `index` is a value operand.
       def list_set(name, index, value)
-        Node.new(:list_set, name: name, index: wrap(index), value: wrap(value))
+        Nodes.build(:list_set, name: name, index: wrap(index), value: wrap(value))
       end
 
       # Read the item at `index` — a value, so it can drive an operand or a
       # coordinate. `index` is itself a value operand.
       def list_get(name, index)
-        Node.new(:list_get, name: name, index: wrap(index))
+        Nodes.build(:list_get, name: name, index: wrap(index))
       end
 
       # How many items the list holds right now — a value.
       def list_len(name)
-        Node.new(:list_len, name: name)
+        Nodes.build(:list_len, name: name)
       end
 
       # Embed a build-time array as a read-only ROM table. +values+ is a Ruby array
@@ -645,7 +645,7 @@ module RubyGBA
       # the values are signed (a read sign-extends). A definition — it emits nothing on
       # its own; table_get reads it.
       def table(name, values, width:, signed:)
-        Node.new(:table, name: name, values: values, width: width, signed: signed)
+        Nodes.build(:table, name: name, values: values, width: width, signed: signed)
       end
 
       # Read table[index] at run time — a value, so it can drive an operand or a
@@ -653,21 +653,21 @@ module RubyGBA
       # safe by the read: a power-of-two table wraps it (a free mask), any other size
       # clamps it, so a read never reaches outside the table.
       def table_get(name, index)
-        Node.new(:table_get, name: name, index: wrap(index))
+        Nodes.build(:table_get, name: name, index: wrap(index))
       end
 
       # --- expression values (the AST an assignment or condition is built from) ---
 
       def int(number)
-        Node.new(:int, value: number)
+        Nodes.build(:int, value: number)
       end
 
       def var_ref(name)
-        Node.new(:var_ref, name: name)
+        Nodes.build(:var_ref, name: name)
       end
 
       def binop(op, lhs, rhs)
-        Node.new(:binop, op: op, lhs: wrap(lhs), rhs: wrap(rhs))
+        Nodes.build(:binop, op: op, lhs: wrap(lhs), rhs: wrap(rhs))
       end
 
       # Multiply two numbers that each carry +fraction_bits+ fraction bits, giving a
@@ -682,7 +682,7 @@ module RubyGBA
           raise ArgumentError, "fraction_bits must be a whole number from 0 to 32, got #{fraction_bits.inspect}"
         end
 
-        Node.new(:mul_fix, lhs: wrap(lhs), rhs: wrap(rhs), fraction_bits: fraction_bits)
+        Nodes.build(:mul_fix, lhs: wrap(lhs), rhs: wrap(rhs), fraction_bits: fraction_bits)
       end
 
       # Divide one number carrying a fraction by another, giving a number carrying one
@@ -696,7 +696,7 @@ module RubyGBA
           raise ArgumentError, "fraction_bits must be a whole number from 0 to 32, got #{fraction_bits.inspect}"
         end
 
-        Node.new(:div_fix, lhs: wrap(lhs), rhs: wrap(rhs), fraction_bits: fraction_bits)
+        Nodes.build(:div_fix, lhs: wrap(lhs), rhs: wrap(rhs), fraction_bits: fraction_bits)
       end
 
       # Divide +operand+ by 2**bits, rounding down (see Int32.shift_right for why down
@@ -706,26 +706,26 @@ module RubyGBA
           raise ArgumentError, "shift_right's bits must be a whole number from 0 to 31, got #{bits.inspect}"
         end
 
-        Node.new(:shift_right, operand: wrap(operand), bits: bits)
+        Nodes.build(:shift_right, operand: wrap(operand), bits: bits)
       end
 
       # Arithmetic negation of a value operand: -operand. This is the value-node
       # form (it produces a new value inside an expression), as opposed to the
       # `negate` statement, which flips a stored variable in place.
       def neg(operand)
-        Node.new(:neg, operand: wrap(operand))
+        Nodes.build(:neg, operand: wrap(operand))
       end
 
       # --- input reads (value operands, e.g. inside an `if_` condition) ---
 
       # 1 while +button+ is down, else 0.
       def held(button)
-        Node.new(:held, button: button)
+        Nodes.build(:held, button: button)
       end
 
       # 1 only on the frame +button+ first goes down (a fresh press), else 0.
       def pressed(button)
-        Node.new(:pressed, button: button)
+        Nodes.build(:pressed, button: button)
       end
 
       # The scanline the display is drawing right now (0..227) — a hardware-only
@@ -733,7 +733,7 @@ module RubyGBA
       # such thing off-console (the headless interpreter has no real timing and
       # refuses it), so this only appears in debug/probe programs run on hardware.
       def read_scanline
-        Node.new(:read_scanline)
+        Nodes.build(:read_scanline)
       end
 
       # 1 +percent+% of the time, else 0 — a probability test as a value operand,
@@ -741,7 +741,7 @@ module RubyGBA
       # A value node in its own right (like +held+/+pressed+) so a reader — the cost
       # model, a diagnostic — can see it's a chance, not a bare comparison.
       def chance(draw, percent)
-        Node.new(:chance, draw: draw, percent: percent)
+        Nodes.build(:chance, draw: draw, percent: percent)
       end
 
       # Coerce a bare operand into a value node so every operand is uniform: an

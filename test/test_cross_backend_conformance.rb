@@ -17,7 +17,7 @@ class TestCrossBackendConformance < Minitest::Test
 
   def test_fixture_touches_every_ir_node_kind
     used = ConformanceFixture.program.walk.map(&:kind).uniq.to_set
-    expected = Node::CATEGORY.keys.to_set
+    expected = RubyGBA::IR::Nodes.by_kind.keys.to_set
     missing = expected - used
 
     assert_empty missing,
