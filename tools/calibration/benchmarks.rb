@@ -267,14 +267,36 @@ module RubyGBA
         @m.busy(name, rom)
       end
 
-      def scroll_busy(per_frame)
-        name = "scr#{per_frame}"
+      # Per-frame cost of +n+ backgrounds that SCROLL. What varies is how many backgrounds
+      # move, not how often a game moves one, and that is the whole recipe.
+      #
+      # Where the window over a background sits is a pair of display registers, and the
+      # display reads them again for every line it draws — so writing them while the picture
+      # is being drawn moves the lines below that point and tears the screen in half. The
+      # framework writes them once a frame instead, in the gap between frames, whatever the
+      # game did during the frame. So a game that scrolls forty times a frame writes them
+      # once, exactly like a game that scrolls once, and counting scroll CALLS measures the
+      # loop and the statements around them rather than the writes.
+      #
+      # Which is why `scroll_to` is called ONCE, at boot, and never again: calling it is what
+      # tells the build this background is one that moves, and from there the write is made
+      # every frame wherever the window happens to sit. The frame under measurement therefore
+      # holds the writes and nothing else — no loop, and no statement of the game's own.
+      #
+      # ONE TO FOUR is not a sample of a range, it is the range: four backgrounds is as many
+      # as the display has, and a game that scrolls none pays nothing here. The first
+      # background is in both ROMs and cancels, which also keeps the one variable a program
+      # has that is cheaper to reach (see #stable_busy) out of the difference.
+      def scroll_busy(n)
+        name = "scr#{n}"
         rom = cartridge_build(name) do
           screen :tiled
           image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
           tiles :ts, "#" => :t
-          bg = background :bg, tiles: :ts, map: Array.new(20, "#" * 30)
-          game_loop { wait_vblank; repeat(per_frame) { bg.scroll_by 1, 0 } }
+          n.times do |i|
+            background(:"bg#{i}", tiles: :ts, map: Array.new(20, "#" * 30)).scroll_to 0, 0
+          end
+          game_loop { wait_vblank }
         end
         @m.busy(name, rom)
       end

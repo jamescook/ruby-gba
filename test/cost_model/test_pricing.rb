@@ -250,6 +250,21 @@ class TestCostPricing < CostModelTest
     near WEIGHTS[:scroll_write], Cost.new.steady_cost(prog)
   end
 
+  # ...and a REAL one reads where the window sits out of the two variables the framework keeps
+  # it in, which is charged where the read is rather than inside the weight. The weight is
+  # measured with those two taken back out, so the two halves have to meet here: miss the reads
+  # and every scrolling game is under-charged, leave them inside the weight as well and a
+  # scrolling game pays for reaching its own position twice.
+  def test_a_scrolling_background_also_pays_for_reading_where_its_window_sits
+    prog = Build.program(
+      Build.screen(:tiled),
+      Build.set(:sx, Build.int(0)), Build.set(:sy, Build.int(0)),
+      Build.loop_(Build.wait_vblank,
+                  Build.scroll_background(:world, x: Build.var_ref(:sx), y: Build.var_ref(:sy))),
+    )
+    near WEIGHTS[:scroll_write] + var_reads(2), Cost.new.steady_cost(prog)
+  end
+
   # Moving the camera and setting the fade redraw nothing, so they are cheap — but not
   # free, and `shake_screen` moves the camera on every frame it runs. Counting them as
   # free made the estimate announce it could not price them and hedge every verdict on

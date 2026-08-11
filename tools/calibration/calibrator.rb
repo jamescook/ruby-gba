@@ -521,9 +521,20 @@ module RubyGBA
         weigh(:obj_write, Reductions.marginal(@bench.sprites_busy(64), @bench.sprites_busy(8), over: 64 - 8),
               varies: :sprites, from: 8, to: 64,
               note: "rewriting one sprite's position each frame")
-        weigh(:scroll_write, Reductions.marginal(@bench.scroll_busy(40), @bench.scroll_busy(8), over: 40 - 8),
-              varies: :scrolls_per_frame, from: 8, to: 40,
-              note: "one background scroll")
+        # MOVING ONE BACKGROUND'S WINDOW, which is two register writes and nothing else.
+        # Measured over how many backgrounds scroll rather than how often a game scrolls one,
+        # because the write is made once a frame per background however often it was asked for
+        # — see Benchmarks#scroll_busy, where that is the whole point of the recipe.
+        #
+        # MINUS the two variables it reads. The window's left edge and its top edge are kept in
+        # a variable each, and the model charges a variable read where it finds the read (see
+        # #operand_read), so a background that scrolls would otherwise pay for reaching its own
+        # position twice.
+        weigh(:scroll_write,
+              Reductions.marginal(@bench.scroll_busy(4), @bench.scroll_busy(1), over: 4 - 1) -
+                (2 * operand_read),
+              varies: :scrolling_backgrounds, from: 1, to: 4,
+              note: "moving one background's window, apart from reading where it sits")
       end
 
       # A sprite that turns, or changes size, is drawn through one of the display's 32

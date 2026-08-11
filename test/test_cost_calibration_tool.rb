@@ -207,6 +207,72 @@ class TestCostCalibrationTool < Minitest::Test
                     "a blit measures 0.005 before its rows, two of which are reaching its position"
   end
 
+  # A BACKGROUND'S SCROLL IS MEASURED OVER BACKGROUNDS AND NOT OVER SCROLL CALLS, which is the
+  # whole recipe rather than a detail of it. The write that moves a background's window is made
+  # once a frame however often the game asked for it — that is what stops scrolling tearing — so
+  # a sweep over calls measures the loop around them and the statements in it, and names the
+  # answer after the writes. It read a scrolling background at twice its cost.
+  #
+  # Canned, four scrolling backgrounds cost 0.015 more than one, so one background's scroll is
+  # 0.005 — of which two are the variables the window's position is kept in, handed back the way
+  # every weight hands back what its own benchmark read.
+  def test_a_backgrounds_scroll_is_measured_over_backgrounds_and_hands_its_reads_back
+    calibration, = flat_calibration(busy: { "varop2" => 1.0, "varop6" => 3.4,     # var_operand 0.002
+                                            "scr1" => 1.0, "scr4" => 1.015 })     # over 3 backgrounds
+
+    assert_in_delta 0.001, calibration.weights[:scroll_write], 1e-9,
+                    "0.005 a background, less the two variables it reads to know where it sits"
+
+    domain = calibration.domains[:scroll_write]
+    assert_equal :scrolling_backgrounds, domain.varies,
+                 "the sweep is over how many backgrounds scroll, not over how often one is scrolled"
+    assert_equal [1, 4], [domain.from, domain.to],
+                 "and one to four is the whole range there is — four backgrounds is as many as " \
+                 "the display has, and a game that scrolls none pays nothing"
+  end
+
+  # ...AND THE TWO CARTRIDGES REALLY DO DIFFER BY THE WRITES ALONE, which the test above cannot
+  # see: a canned reading is keyed by name and never opens the cartridge it is handed. So this
+  # one opens them. Each frame is the wait for the screen and one write per scrolling background
+  # — no loop, and no statement of the program's own — and that is what makes their difference
+  # the writes rather than whatever was arranged around them.
+  #
+  # This is the guard the weight was missing. A sweep over how often a game SCROLLS builds two
+  # frames that differ by a loop and two statements a pass, both of which the model already
+  # prices where they are written, and calls the answer a scroll.
+  def test_the_two_scroll_cartridges_differ_by_the_writes_and_nothing_else
+    catcher = RomCatcher.new(default: 1.0)
+    bench = Calibration::Benchmarks.new(catcher)
+    bench.scroll_busy(1)
+    bench.scroll_busy(4)
+
+    assert_equal({ "scr1" => %i[wait_vblank scroll_background],
+                   "scr4" => %i[wait_vblank] + ([:scroll_background] * 4) },
+                 catcher.roms.transform_values { |rom| frame_body(rom) },
+                 "each frame is the wait and one write per scrolling background, and nothing more")
+  end
+
+  # A canned measurer that also KEEPS the cartridges it was handed, so a test can ask what a
+  # benchmark's two ROMs differ by rather than only what it was told they cost.
+  class RomCatcher < Calibration::FakeMeasurer
+    attr_reader :roms
+
+    def initialize(**kwargs)
+      super
+      @roms = {}
+    end
+
+    def busy(name, rom)
+      @roms[name] = rom
+      super
+    end
+  end
+
+  # What one frame of this cartridge does, as the kinds of its statements in order.
+  def frame_body(rom)
+    rom.source_program.walk.find { |node| node.kind == :loop }.children.map(&:kind)
+  end
+
   # And the domain it records is the sweep it actually ran, not a number typed beside it.
   def test_the_domain_records_the_sweep_the_recipe_ran
     calibration, = flat_calibration

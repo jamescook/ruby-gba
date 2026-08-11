@@ -291,6 +291,27 @@ class TestCostCalibration < Minitest::Test
     game_loop { 60.times { out.set t[i] } if with }
   end
 
+  # A FRAME THAT SCROLLS HARD: the window over a background is moved this many times, and the
+  # write that moves it is made ONCE — in the gap between frames, which is what stops scrolling
+  # tearing. So nearly all of this frame is the game's own statements and the loop around them,
+  # priced where they are written, and the write is a fortieth of a scanline on top of that.
+  #
+  # ENOUGH OF THEM THAT THE BAND DECIDES. A single fixture is judged by a quarter of its
+  # prediction PLUS a scanline of slack, and in a small frame the slack is nearly all of that —
+  # so a few scrolls would pass whatever the model said about them. At this many the quarter is
+  # what the check turns on, and a frame charged a write per CALL reads half again too dear and
+  # fails.
+  SCROLLS_PER_FRAME = 200
+
+  SCROLLING = lambda do |with|
+    screen :tiled
+    image(:tile, "#" => :red) { (["#" * 8] * 8).join("\n") }
+    tiles :set, "#" => :tile
+    world = background :world, tiles: :set, map: Array.new(20) { "#" * 30 }
+    b = self
+    game_loop { b.repeat(SCROLLS_PER_FRAME) { world.scroll_by 1, 0 } if with }
+  end
+
   # A frame of the cheapest arithmetic there is: multiplying by a power of two, which the
   # build turns into a shift. It was charged a whole plain step — six instructions for one —
   # so `set :y, (x * 8)` read at twice what it costs. Nothing else here shifts, and the
@@ -493,6 +514,30 @@ class TestCostCalibration < Minitest::Test
     assert_operator measure(short), :>, measure(long),
                     "sixty loops really do cost more than six of the same total length, or " \
                     "there is nothing here to price"
+  end
+
+  # A FRAME OF SCROLLING ADDS UP, which is a different claim from the two above and needs its
+  # own shape. Moving a background's window costs two register writes a frame — a fortieth of a
+  # scanline — so no fixture the emulator can read will ever notice that weight moving: a
+  # single frame is judged with a whole scanline of slack. That number is guarded exactly
+  # instead, against canned readings, in test_cost_calibration_tool.rb.
+  #
+  # What the console can say is that the frame AROUND it is right. A game that scrolls two
+  # hundred times pays two hundred passes and four hundred statements and ONE write, and the
+  # first two are priced where they are written — so a scroll charged per call would be paying
+  # for that loop twice, once as itself and once as the write. Here the sum has to land.
+  #
+  # It is not a CASE for the same reason the statement weights are not: what it leans on is the
+  # loop and the plain statements every other fixture leans on too, and the drift matrix wants
+  # one watcher per weight.
+  def test_a_frame_that_scrolls_hard_adds_up
+    scrolling = statement_case(:scrolling, SCROLLING, :scroll_write)
+
+    assert_operator measure(scrolling), :>, SLACK, "the fixture has to do measurable work"
+    assert_in_delta predict(scrolling), measure(scrolling), (predict(scrolling) * BAND) + SLACK,
+                    "a frame of #{SCROLLS_PER_FRAME} scrolls is mispriced — the model predicts " \
+                    "~#{predict(scrolling).round(2)} scanlines and the emulator measures " \
+                    "#{measure(scrolling).round(2)}"
   end
 
   # A COLUMN THE GAME WORKS OUT, WHOSE PARITY IS STILL PROVABLE. A game on a grid writes
