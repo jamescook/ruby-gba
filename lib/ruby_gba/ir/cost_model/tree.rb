@@ -138,7 +138,7 @@ module RubyGBA
         # — so it stops being a bolt-on and rolls up with everything else. Within a
         # section the per-file / repeat folding still applies.
         def group_by_category(nodes, program)
-          nodes += mixer_nodes(program) + bend_nodes(program) + tick_nodes(program)
+          nodes += mixer_nodes(program) + bend_nodes(program) + tick_nodes(program) + kept_nodes(program)
           buckets = nodes.group_by { |node| node_category(node) }
           CATEGORY_ORDER.filter_map do |cat|
             kids = buckets[cat]
@@ -189,6 +189,22 @@ module RubyGBA
             Entry.new(op: :tick, category: :logic, cost: t.cost,
                       label: "timer :#{t.name} — its body runs #{tick_rate_phrase(t)}, off the timer itself")
           end
+        end
+
+        # Keeping sprites out of a placed fade, as a cost leaf of its own — DRAWING, since
+        # what it costs is a sprite written into the display's table on every frame, in the
+        # same gap the rest of the drawing races. It gets its own line rather than joining
+        # the present_objects tally beside it, because the reader's question here is "what
+        # is the fade costing me", and a bigger sprite count answers a different one. Its
+        # cost model lives in #kept_sprites_verdict.
+        def kept_nodes(program)
+          v = kept_sprites_verdict(program)
+          return [] unless v
+
+          layers = v.layers.map { |name| ":#{name}" }.join(", ")
+          [Entry.new(op: :keeping, category: :drawing, cost: v.cost,
+                     label: "keeping #{v.sprites} sprite#{'s' unless v.sprites == 1} out of the " \
+                            "fade under #{layers}")]
         end
 
         # How often a tick handler runs, said the way round that reads: several times a

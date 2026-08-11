@@ -167,6 +167,14 @@ module RubyGBA
     REG_WININ   = 0x04000048  # Which layers show inside windows
     REG_WINOUT  = 0x0400004A  # Which layers show outside windows
 
+    # WININ/WINOUT hold one 6-bit field per region: which layers show there, and
+    # whether the blend below applies there. The OBJECT WINDOW is the interesting
+    # one — its region isn't a rectangle at all, it's the shape of the pixels that
+    # sprites marked "window" paint, so a region can be the shape of a letter.
+    WIN_ALL_LAYERS = 0x001F # BG0 | BG1 | BG2 | BG3 | OBJ
+    WIN_EFFECT     = 0x0020 # ...and the color effect applies here
+    WINOUT_OBJ_SHIFT = 8    # the object window's field starts here
+
     # ========================================================================
     # Blend Registers — fading the whole screen toward black or white
     #
@@ -187,6 +195,13 @@ module RubyGBA
     # covers the whole screen and doesn't leave the backdrop showing through at
     # full strength.
     BLD_ALL_LAYERS = 0x003F # BG0 | BG1 | BG2 | BG3 | OBJ | backdrop
+
+    # ...and one bit at a time, for a fade that covers only part of the stack. Note
+    # the asymmetry that shapes everything built on this: each background layer has
+    # a bit of its own, and every sprite on screen shares the single OBJ bit.
+    BLD_BG0      = 0x0001
+    BLD_OBJ      = 0x0010
+    BLD_BACKDROP = 0x0020
 
     # The effect, in bits 6-7 of BLDCNT.
     BLD_OFF      = 0x0000

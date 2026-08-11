@@ -76,6 +76,23 @@ class TestShmupExample < Minitest::Test
     refute_equal WHITE, s.pixel(9, 4), "the playing HUD is gone on the game-over screen"
   end
 
+  # The last ship is lost and the field dims away, but the score stays readable — the fade
+  # is placed under :ui, so it reaches the field and everything moving in it and stops
+  # there. Caught mid-dim, before the scene actually switches.
+  def test_the_score_stays_readable_while_the_field_fades_out
+    dimming = []
+    i = Reference.new
+    # The pixels, not the screen: the screen is one object the run keeps painting over.
+    i.each_vblank do |_f|
+      dimming << [i.screen.pixel(9, 4), i.screen.pixel(119, 132)] if i[:leaving] == 1
+    end
+    i.run(Shmup.program, max_steps: TO_GAME_OVER)
+
+    refute_empty dimming, "the game reached the dip to black"
+    assert dimming.all? { |score, _ship| score == WHITE }, "the score stays lit all the way down"
+    assert_operator dimming.last[1], :<, dimming.first[1], "and the ship dims behind it"
+  end
+
   # START on the game-over screen begins a fresh game — full ships again. (A brief START
   # tap every 40 frames: ignored while playing, and the first tap after game over restarts.)
   def test_start_restarts_a_fresh_game_after_game_over

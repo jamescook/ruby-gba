@@ -31,6 +31,10 @@ module Shmup
 
   GAME = RubyGBA.game("SHMUP", code: "BSMP", maker: "01") do
     screen :tiled
+    # The stack, back to front. Only the HUD names a layer here, and that is enough: the
+    # fade below sits UNDER :ui, so it reaches the field and everything that moves in it
+    # and leaves the score alone. Anything that named no layer keeps the place it had.
+    layers :field, :ui
     seed 0xC0DE # a fixed stream once at boot, so enemy respawns are reproducible
     var :state, PLAYING
     new_game = var :new_game, 0 # 1 asks the playing scene to start over
@@ -41,7 +45,7 @@ module Shmup
     scene :playing do
       enemies = Enemies.new(self) # declared first, so they draw behind the ship
       player  = Player.new(self)
-      hud     = Hud.new(self)
+      hud     = layer(:ui) { Hud.new(self) } # ...and the score sits above the lot
 
       # Start a fresh game when the game-over screen asked for one: everything back to
       # its opening position, then clear the request.
@@ -62,7 +66,14 @@ module Shmup
       # what reading `fade_level` is for: 0 is the picture as drawn, 100 is nothing but the
       # color, so `== 100` is "it has arrived". Then swap screens while nobody can see it
       # and bring the new one up. The player sees one smooth dip to black and back.
-      ((hud.lives <= 0) & (leaving == 0)).then { fade_out :black, frames: 12; leaving.set 1 }
+      #
+      # `under: :ui` puts the fade below the score, so the field and the ships in it go
+      # dark and the numbers stay readable all the way down — the arcade thing where the
+      # game disappears and the score you just got does not.
+      ((hud.lives <= 0) & (leaving == 0)).then do
+        fade_out :black, frames: 12, under: :ui
+        leaving.set 1
+      end
       (leaving == 1).then do
         (fade_level == 100).then do
           set :state, GAME_OVER

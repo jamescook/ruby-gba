@@ -138,6 +138,34 @@ module RubyGBA
         at || absent
       end
 
+      # --- placing an effect in the stack ---
+      #
+      # An effect (a fade, and in time a tint or a blend) can be placed UNDER a layer
+      # instead of covering everything: what is behind it changes, what is at that layer
+      # or in front of it is left alone. "Fade the game out and keep the score showing"
+      # is that, and it is the reason a stack is worth naming at all.
+
+      # Everything at +layer+ and in front of it, scenery and objects together — what an
+      # effect placed under that layer leaves alone.
+      #
+      # Read off the STACK and not the levels, and the difference matters: a background
+      # and the sprites over it share one level, so a line drawn between levels could not
+      # separate them. A line drawn between layers can, and each side then gets whichever
+      # mechanism its machine has for it.
+      #
+      # Something that named no layer is never on the kept side. There is no place in the
+      # stack to read for it, and the answer that surprises nobody is that an effect
+      # reaches what you did not say to keep.
+      def at_or_above(picture, layer)
+        line = picture.stack.index(layer)
+        return [] if line.nil?
+
+        (picture.scenery + picture.objects).select do |node|
+          place = picture.stack.index(node.layer)
+          place && place >= line
+        end
+      end
+
       # Does the stack put any scenery IN FRONT OF an object? That is the one arrangement
       # a picture cannot fall into by accident, and it is where "it named no layer, so
       # leave it where it was" stops having an answer: once the levels are no longer

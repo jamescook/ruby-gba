@@ -215,7 +215,7 @@ module RubyGBA
         include Node
         kind :fade
         category :draw
-        operands toward: :option, amount: :value
+        operands toward: :option, amount: :value, under: :name
       end
 
       class FillRect

@@ -41,11 +41,25 @@ module RubyGBA
 
           def message(node)
             color = node.toward
-            "This game fades the screen fully to #{color} and never fades back. A full " \
-              "fade covers everything, so the screen stays one flat color and the game " \
-              "is not visible behind it. Anything drawn after the fade is covered too. " \
-              "To fix this, use `fade :#{color}, 0` when the fade is finished. For a fade " \
-              "over time, move a variable from 0 to 100 and give it to `fade`."
+            "This game fades the screen fully to #{color} and never fades back. " \
+              "#{what_it_covers(node)} To fix this, use `fade :#{color}, 0` when the fade " \
+              "is finished. For a fade over time, move a variable from 0 to 100 and give " \
+              "it to `fade`."
+          end
+
+          # A fade placed in the stack is still this bug, and the screen it leaves is not
+          # the same one — the kept layer is still there, floating over a game that is
+          # gone. Say the one that happened, or the reader looks for a flat screen and
+          # sees their HUD.
+          def what_it_covers(node)
+            unless node.under
+              return "A full fade covers everything, so the screen stays one flat color " \
+                     "and the game is not visible behind it. Anything drawn after the " \
+                     "fade is covered too."
+            end
+
+            "A full fade under :#{node.under} covers everything behind that layer, so the " \
+              "game is not visible. Only :#{node.under} and what is in front of it still show."
           end
 
           # The fade's amount when it is a plain number, or nil when the game works it
