@@ -53,7 +53,7 @@ class TestLoopForm < Minitest::Test
 
   # A CALL is the plainest reason it cannot: the routine may use any register it likes, and
   # this loop does not get to see inside it.
-  def test_a_body_that_calls_goes_through_memory
+  def test_a_body_that_calls_keeps_the_registers_by_saving_them_around_the_call
     _, shapes = shapes_of do
       screen :bitmap
       moved = var :moved, 0
@@ -63,8 +63,27 @@ class TestLoopForm < Minitest::Test
     end
     shape = shapes.values.first
 
-    refute shape.held
+    assert_equal :spilled, shape.shape, "one statement to save around is worth saving around"
+    assert_equal 1, shape.spills
     assert_equal "the body calls :bump", shape.blocked_by, "and it says which call"
+  end
+
+  # ...but only while saving is the cheaper of the two. Each save costs, so a body with enough
+  # of them to cost more than it saves goes through memory after all — the build works out
+  # which side of that line the loop is on, and the author writes the same `repeat` either way.
+  def test_a_body_with_too_much_to_save_around_goes_through_memory
+    _, shapes = shapes_of do
+      screen :bitmap
+      moved = var :moved, 0
+      b = self
+      func(:bump) { moved.add 1 }
+      game_loop { b.repeat(4) { 3.times { b.call :bump } } }
+    end
+    shape = shapes.values.first
+
+    assert_equal :memory, shape.shape
+    refute shape.held
+    assert_equal "the body calls :bump", shape.blocked_by
   end
 
   # The other blockers, each for its own reason: a divide the game works out reaches the
@@ -115,7 +134,7 @@ class TestLoopForm < Minitest::Test
   # sit anywhere in it — under an `if`, or under its `else`, which an IR node keeps somewhere
   # different from the rest of its body. Missing one is not a wrong price, it is a wrong
   # answer: the call would land on the register the loop is counting in.
-  def test_a_blocker_buried_in_a_branch_still_goes_through_memory
+  def test_a_blocker_buried_in_a_branch_is_still_found
     _, shapes = shapes_of do
       screen :bitmap
       n = var :n, 0
@@ -127,7 +146,9 @@ class TestLoopForm < Minitest::Test
     end
     shape = shapes.values.first
 
-    refute shape.held, "the call is in the else branch, and it still owns the registers"
+    refute_equal :registers, shape.shape,
+                 "the call is in the else branch, and it still owns the registers while it runs"
+    assert_equal :spilled, shape.shape, "so the pair is saved around the branch holding it"
     assert_equal "the body calls :bump", shape.blocked_by
   end
 
@@ -292,6 +313,54 @@ class TestLoopForm < Minitest::Test
     end
 
     assert_equal 20, read_var(rom, :total)
+  end
+
+  # THE READ THE SAVING EXISTS FOR. A spilled loop lends its counter register out for the
+  # length of one statement, so a body that reads the loop's index INSIDE that statement
+  # cannot read it from the register — the count is written out to its variable first and the
+  # read comes from there. Get it wrong and the index reads as whatever the borrower left in
+  # the register, which is a wrong answer rather than a slow one.
+  def test_a_spilled_loop_reads_its_index_inside_the_saved_statement
+    rom = RubyGBA.build("LOOPIDX", code: "BLIX", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      seen = var :seen, 0
+      hits = var :hits, 0
+      b = self
+      func(:bump) { hits.add 1 }
+      game_loop do
+        seen.set 0
+        hits.set 0
+        b.repeat(10) do |i|
+          (i > 5).then do
+            seen.add i     # read while the register is lent out
+            b.call :bump
+            seen.add i     # and again before it comes back
+          end
+        end
+      end
+    end
+
+    assert_equal :spilled, rom.loop_shapes.values.first.shape
+    assert_equal 4, read_var(rom, :hits), "the loop still runs its ten passes"
+    assert_equal 60, read_var(rom, :seen), "6+7+8+9, read twice a pass"
+    assert_equal 60, RubyGBA::IR::Backends::Reference.new.run(rom.source_program)[:seen],
+                 "and the interpreter says the same"
+  end
+
+  # The saving is really in the emitted code, both halves of it. A loop that reported the fast
+  # shape without them would count in a register the call had already written.
+  def test_a_spilled_loop_emits_the_save_and_the_restore
+    rom = RubyGBA.build("LOOPSAVE", code: "BLSV", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      n = var :n, 0
+      b = self
+      func(:bump) { n.add 1 }
+      game_loop { b.repeat(4) { b.call :bump } }
+    end
+    pair = [LoopForm::COUNTER, LoopForm::LIMIT]
+
+    assert_includes rom.buffer, RubyGBA::ASM.push(*pair), "the pair is saved"
+    assert_includes rom.buffer, RubyGBA::ASM.pop(*pair), "and put back"
   end
 
   SETTLE = 12

@@ -196,7 +196,23 @@ module RubyGBA
       #
       # It is HANDED OVER, never worked out here: which registers are free is a fact about a
       # lowering, and this file prices what a lowering produced. See Rollup#loop_shape.
-      LoopShape = Data.define(:held, :blocked_by)
+      # WHICH OF THE THREE SHAPES A LOOP GOT, and what that shape has to be charged for.
+      #
+      # +shape+ is :registers (the count stays in two registers the whole way), :spilled (it
+      # stays there, and the pair is saved around the few statements that would land in them),
+      # or :memory (the count lives in the console's quick memory and is fetched every pass).
+      # +spills+ is how many statements a spilled loop brackets, since each is charged.
+      # +blocked_by+ is what in the body made it more than the plain fast shape, in the words
+      # the report says it in.
+      #
+      # Whether the count is in registers is DERIVED: a spilled loop keeps it there too, and
+      # storing that separately is how the two answers drift apart.
+      LoopShape = Data.define(:shape, :blocked_by, :spills) do
+        def initialize(shape:, blocked_by: nil, spills: 0) = super
+
+        def held = shape != :memory
+        def spilled? = shape == :spilled
+      end
 
       # WHAT THE BUILD WORKED OUT, keyed by a name out of the user's program — where each
       # variable landed, which shape each loop got. The keys are the program's, not ours, so

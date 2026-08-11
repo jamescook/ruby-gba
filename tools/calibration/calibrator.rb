@@ -138,6 +138,21 @@ module RubyGBA
               Reductions.marginal(@bench.loop_busy(900), @bench.loop_busy(300), over: 600),
               note: "one pass of a repeat whose counter stays in a register")
 
+        # ...and what SAVING the pair around one statement costs, which is what lets a loop keep
+        # the fast shape while its body calls a routine. Both ROMs hold the same call, so its
+        # cost cancels between them and what is left is the two pass weights — the bracket is
+        # the difference between them, less the difference the two shapes already have.
+        #
+        # Measured, one bracket is worth about two fifths of what a pass through memory costs
+        # over a pass in registers. So one bracket is a clear saving, two is a small one, and
+        # three would cost more than it saved — which is where LoopForm::SPILL_LIMIT is set.
+        weigh(:loop_spill,
+              Reductions.marginal(@bench.loop_spill_busy(900), @bench.loop_spill_busy(300), over: 600) -
+              Reductions.marginal(@bench.loop_spill_busy(900, blocked: true),
+                                  @bench.loop_spill_busy(300, blocked: true), over: 600) +
+              @weights[:loop_pass] - @weights[:loop_pass_held],
+              note: "saving and putting back a loop's registers around one statement")
+
         # ...and the entering, in both shapes too: working the trip count out into the loop's
         # limit, zeroing its counter, and the branch that leaves. Measured over how many LOOPS
         # a frame holds rather than how long one is, which is the only way to see it, then with

@@ -140,21 +140,23 @@ class TestCostReport < CostModelTest
       b = self
       func(:bump) { total.add 1 }
       game_loop do
-        b.repeat(8) { total.add 1 }
-        b.repeat(8) { b.call :bump }
+        b.repeat(8) { total.add 1 }              # nothing in the way
+        b.repeat(8) { b.call :bump }             # one statement to save the registers around
+        b.repeat(8) { 3.times { b.call :bump } } # too many to be worth saving around
       end
     end
     io = StringIO.new
     rom.cost_model.render(rom.source_program, out: io, color: false)
 
     assert_match(/the loop itself \(in registers\)/, io.string)
+    assert_match(/the loop itself \(in registers, saved and put back — the body calls :bump\)/, io.string)
     assert_match(/the loop itself \(through memory — the body calls :bump\)/, io.string)
   end
 
   # ...and the hottest list splits the two shapes apart, because that is the line a reader
   # reaches for and a hot loop's tree row is often collapsed behind a call. It groups on the
   # shape alone — the reason belongs to one loop, the total to all of them.
-  def test_the_hottest_list_counts_the_two_shapes_apart
+  def test_the_hottest_list_counts_the_shapes_apart
     rom = RubyGBA.build("LOOPS", code: "BLPH", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       total = var :total, 0
@@ -163,6 +165,7 @@ class TestCostReport < CostModelTest
       game_loop do
         b.repeat(64) { total.add 1 }
         b.repeat(64) { b.call :bump }
+        b.repeat(64) { 3.times { b.call :bump } }
       end
     end
     io = StringIO.new
@@ -170,6 +173,7 @@ class TestCostReport < CostModelTest
     hottest = io.string[/hottest:.*/m]
 
     assert_match(/the loop itself \(in registers\) ×64/, hottest)
+    assert_match(/the loop itself \(in registers, saved and put back\) ×64/, hottest)
     assert_match(/the loop itself \(through memory\) ×64/, hottest)
     refute_match(/calls :bump/, hottest, "the reason belongs to the one loop, not the total")
   end
