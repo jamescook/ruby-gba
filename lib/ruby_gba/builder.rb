@@ -514,7 +514,7 @@ module RubyGBA
     # the game loop), so the list isn't known when wait_vblank records the node. A frame
     # that ends up with no objects drops the node, so an object-free program is unchanged.
     def finalize_present_lists
-      names = @hw_sprites.map(&:object_name) + @pool_objects + @hud_objects
+      names = in_stack_order(@hw_sprites.map(&:object_name) + @pool_objects + @hud_objects)
       @present_nodes.each do |node|
         if names.empty?
           node.parent&.children&.delete(node)
@@ -522,6 +522,20 @@ module RubyGBA
           node.names = names
         end
       end
+    end
+
+    # The objects to draw, arranged the way the declared layers ask for. This is the
+    # one place a frame's drawing order is settled: the list every backend is handed
+    # already says what goes in front of what, so no backend works it out for itself
+    # and two of them cannot come to different answers.
+    #
+    # The layer is read back off the objects in the tree rather than kept beside them
+    # here, because the tree is where a backend will read it too — one fact, one place.
+    def in_stack_order(names)
+      layer_of = @program.walk.each_with_object({}) do |node, found|
+        found[node.name] = node.layer if node.kind == :object
+      end
+      IR::Stacking.order(names, @layer_stack) { |name| layer_of[name] }
     end
 
     # Move every background's scroll write to the frame boundary.

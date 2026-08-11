@@ -620,7 +620,11 @@ module RubyGBA
         # front (after every tile image is collected) so the addresses exist before the
         # code refers to them. emit_background (in Drawing) is the run-time half.
         def prepare_backgrounds(program)
-          nodes = program.walk.select { |node| node.kind == :background }
+          # Back to front. A layer can put a background behind one declared before it,
+          # and this order becomes the hardware layer number, which IS the paint order —
+          # so it has to be settled here, before any layer is given a number.
+          nodes = IR::Stacking.order(program.walk.select { |node| node.kind == :background },
+                                     @layer_stack, &:layer)
           if nodes.size > MAX_BG_LAYERS
             raise LoweringError,
                   "#{nodes.size} background layers were declared, but the console stacks #{MAX_BG_LAYERS} " \
@@ -648,8 +652,8 @@ module RubyGBA
         end
 
         # Fold one layer into the shared palette and character block, and build its map.
-        # +layer+ is its declaration order, which is also its hardware layer number
-        # (BG0, BG1, ...) and decides its paint order: the first declared is the backmost.
+        # +layer+ is its place in the stack, which is also its hardware layer number
+        # (BG0, BG1, ...) and decides its paint order: the first one is the backmost.
         def prepare_one_background(node, layer, count, palette, char)
           name = node.name
           tiles = node.tiles
@@ -782,14 +786,21 @@ module RubyGBA
         # the boot upload (emit_boot_objects) and the per-frame draw
         # (emit_present_objects) are the run-time halves.
         #
-        # Slots run backwards: the last-declared sprite takes the lowest table slot, and
-        # a lower slot draws in front — so a sprite declared later sits on top of one
-        # declared earlier, the same front-to-back order the interpreter and the
-        # software sprites use. That ordering is fixed at build time, which is what lets
-        # hardware sprites hold a stable stack (one reliably in front of another) that
-        # software save-under sprites can't.
+        # Slots run backwards: the sprite drawn last takes the lowest table slot, and a
+        # lower slot draws in front — so the last one in the frame's draw order sits on
+        # top, the same front-to-back order the interpreter and the software sprites
+        # use. That ordering is fixed at build time, which is what lets hardware sprites
+        # hold a stable stack (one reliably in front of another) that software
+        # save-under sprites can't.
+        #
+        # The order comes from the frame's own draw list, not from where the sprites
+        # happen to sit in the tree. The two are usually the same and are not always:
+        # a HUD is drawn after the game whatever order it was written in, and a layer
+        # can put a sprite in front of one declared later. Reading the list the frame
+        # actually draws is what keeps this console agreeing with every other backend
+        # about which sprite is on top.
         def prepare_objects(program)
-          nodes = program.walk.select { |node| node.kind == :object }
+          nodes = objects_in_draw_order(program)
           if nodes.size > MAX_SPRITES
             raise LoweringError,
                   "#{nodes.size} sprites declared, but the console draws at most #{MAX_SPRITES} at once"
@@ -807,6 +818,20 @@ module RubyGBA
           raise LoweringError,
                 "the sprites' tiles need #{tile_unit * 32} bytes — sprite tile memory holds #{OBJ_TILE_CAPACITY}. " \
                 "Use fewer or smaller sprites."
+        end
+
+        # Every declared sprite, in the order a frame draws them (later = in front). The
+        # frame's own draw list leads; a sprite that list never mentions — one declared
+        # in a program with no frame to draw it — keeps its place in the tree, after the
+        # ones that are drawn.
+        def objects_in_draw_order(program)
+          declared = program.walk.select { |node| node.kind == :object }
+          by_name = declared.to_h { |node| [node.name, node] }
+          drawn = program.walk.find { |node| node.kind == :present_objects }
+          return declared unless drawn
+
+          ordered = drawn.names.filter_map { |name| by_name[name] }
+          ordered + (declared - ordered)
         end
 
         # Set up the sprites that turn or change size. Each is given one of the console's

@@ -125,6 +125,7 @@ module RubyGBA
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @layer_stack = []        # the layers the program declared, backmost first
+          @bg_shown = []           # the backgrounds painted onto the screen so far, in that order
           @tables = {}             # name -> { values:, signed: } (a read-only ROM table)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @samples = {}           # name -> { rate:, length: } (a defined PCM sample)
@@ -239,6 +240,11 @@ module RubyGBA
               # Register the object, so present_objects can find its picture and the
               # variables holding where it is and whether it's shown.
               @objects[n.name] = n
+            when :layers
+              # The stack of depths, known before anything is drawn: a background can
+              # name a layer that puts it behind one declared earlier, and the painting
+              # has to know that when it starts rather than halfway through.
+              @layer_stack = n.names
             when :background
               # Remember every background so present_objects can redraw them under the
               # objects each frame (that clean redraw is what erases the previous frame),
@@ -358,9 +364,7 @@ module RubyGBA
               node.children.each { |child| exec(child) } if @vars[node.counter] == node.frames
             end
           when :layers
-            # The stack of depths this picture is built from, backmost first. A
-            # declaration, so reaching it settles the order rather than doing anything.
-            @layer_stack = node.names
+            nil # a declaration, gathered up front (collect_definitions) — nothing to run
           when :list_new
             # Create (or reset) the named list, empty, with its rounded capacity.
             @lists[node.name] = ListValue.new(node.capacity)
@@ -685,6 +689,19 @@ module RubyGBA
         # composites stacked layers: the backmost paints first, and each layer in front
         # only covers where it has solid pixels, letting the layers behind fill its gaps.
         def exec_background(node)
+          # A layer can put this background BEHIND one that is already on screen, and a
+          # stamp only covers where it has solid pixels — so painting it now would leave
+          # it in front. Painting the ones it belongs behind back over it settles the
+          # stack again. Nothing is repainted in a program whose backgrounds sit in the
+          # order they were declared, which is every program that names no layers.
+          over = @bg_shown.select { |bg| behind?(node, bg) }
+          @bg_shown << node
+          stamp_background(node)
+          in_stack_order(over).each { |bg| stamp_background(bg) }
+        end
+
+        # Paint one background's whole map onto the screen, cell by cell.
+        def stamp_background(node)
           tiles = node.tiles
           tile_w = node.tile_w
           tile_h = node.tile_h
@@ -695,6 +712,19 @@ module RubyGBA
               stamp_tile(tiles, index, c * tile_w, r * tile_h, tile_w, tile_h)
             end
           end
+        end
+
+        # +nodes+ in the order the declared stack asks for (see IR::Stacking).
+        def in_stack_order(nodes)
+          IR::Stacking.order(nodes, @layer_stack, &:layer)
+        end
+
+        # Does +a+ sit further back in the stack than +b+? Only when both named a layer:
+        # something that named none keeps the place it had, and has no answer here.
+        def behind?(a, b)
+          depth_a = @layer_stack.index(a.layer)
+          depth_b = @layer_stack.index(b.layer)
+          depth_a && depth_b && depth_a < depth_b
         end
 
         # Paint one tile at (x0, y0), skipping its backdrop-colored (transparent) pixels
@@ -808,7 +838,7 @@ module RubyGBA
         # settled, correct image regardless of their order.
         def composite_scrolled_frame
           @screen.clear(0) # the backdrop the layers' transparent pixels reveal
-          @bg_nodes.each { |bg| paint_background_window(bg) }
+          in_stack_order(@bg_nodes).each { |bg| paint_background_window(bg) }
           @obj_layer.each do |obj|
             if obj[:transform]
               blit_image_transformed(obj[:image], obj[:x], obj[:y], *obj[:transform])
