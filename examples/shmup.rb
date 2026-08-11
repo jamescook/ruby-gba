@@ -34,6 +34,7 @@ module Shmup
     seed 0xC0DE # a fixed stream once at boot, so enemy respawns are reproducible
     var :state, PLAYING
     new_game = var :new_game, 0 # 1 asks the playing scene to start over
+    leaving  = var :leaving, 0  # 1 while the field dims on the way to the game-over screen
 
     # The playing scene owns the whole field — declaring the parts here makes their
     # sprites and HUD belong to this scene, so they vanish on the game-over screen.
@@ -54,8 +55,21 @@ module Shmup
       player.update
       enemies.update(player, hud)
 
-      # Out of ships: hand over to the game-over screen.
-      (hud.lives <= 0).then { set :state, GAME_OVER }
+      # Out of ships: dim the field away, and hand over only once it is properly dark.
+      #
+      # Fading out leaves the screen black on purpose, so anything drawn next is invisible
+      # until something lifts it — which means the switch has to WAIT for the fade. That's
+      # what reading `fade_level` is for: 0 is the picture as drawn, 100 is nothing but the
+      # color, so `== 100` is "it has arrived". Then swap screens while nobody can see it
+      # and bring the new one up. The player sees one smooth dip to black and back.
+      ((hud.lives <= 0) & (leaving == 0)).then { fade_out :black, frames: 12; leaving.set 1 }
+      (leaving == 1).then do
+        (fade_level == 100).then do
+          set :state, GAME_OVER
+          fade_in frames: 12
+          leaving.set 0
+        end
+      end
     end
 
     # The game-over screen: its own text, shown only while this scene is active. START
