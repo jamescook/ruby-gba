@@ -20,7 +20,7 @@ module RubyGBA
       # @return [Timer]
       def timer(name, per_second:)
         raise ArgumentError, "A timer name must be a Symbol. Got #{name.inspect}. Use a name like :beat." unless name.is_a?(Symbol)
-        unless per_second.is_a?(Integer) && per_second.positive?
+        unless Whole.positive?(per_second)
           raise ArgumentError,
                 "timer :#{name} needs per_second to be a positive whole number of ticks a second. " \
                 "Got #{per_second.inspect}. " \

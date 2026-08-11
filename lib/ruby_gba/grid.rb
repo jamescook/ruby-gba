@@ -87,7 +87,7 @@ module RubyGBA
     end
 
     def whole_positive!(value, field)
-      return value if value.is_a?(Integer) && value.positive?
+      return value if Whole.positive?(value)
 
       raise ArgumentError, "grid :#{@name} needs a positive #{field}, got #{value.inspect}"
     end
@@ -110,7 +110,7 @@ module RubyGBA
     # A cell must be an even number of pixels: the fast rectangle fill writes two
     # pixels at a time, so an odd width can't be filled that way.
     def even_cell!(cell)
-      unless cell.is_a?(Integer) && cell.positive?
+      unless Whole.positive?(cell)
         raise ArgumentError, "grid :#{@name} needs a positive cell size, got #{cell.inspect}"
       end
       return cell if cell.even?

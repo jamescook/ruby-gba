@@ -2,6 +2,7 @@
 
 require_relative "ruby_gba/version"
 require_relative "ruby_gba/constants"
+require_relative "ruby_gba/whole"
 require_relative "ruby_gba/color"
 require_relative "ruby_gba/sound"
 require_relative "ruby_gba/asm"

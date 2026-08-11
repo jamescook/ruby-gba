@@ -72,7 +72,7 @@ module RubyGBA
 
       def validate_pool!(name, capacity, fields)
         raise ArgumentError, "A pool needs a name that is a Symbol. Got #{name.inspect}." unless name.is_a?(Symbol)
-        unless capacity.is_a?(Integer) && capacity.positive?
+        unless Whole.positive?(capacity)
           raise ArgumentError, "pool :#{name} needs a positive capacity. Got #{capacity.inspect}."
         end
 

@@ -97,7 +97,7 @@ module RubyGBA
       # @param color [Symbol, String, Integer] digit color
       # @param digits [Integer] how many digit columns to reserve
       def draw_number(value, x, y, color, digits: DEFAULT_DIGITS, font: :default)
-        unless digits.is_a?(Integer) && digits.positive?
+        unless Whole.positive?(digits)
           raise ArgumentError, "draw_number needs a positive number of digits. Got #{digits.inspect}."
         end
 
