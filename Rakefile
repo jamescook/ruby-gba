@@ -25,7 +25,17 @@ end
 desc "Build gemba-core's C extension if its sources changed (required for the tests)"
 task compile_gemba_core: GEMBA_CORE_BINARY
 
-Rake::TestTask.new(test: :compile_gemba_core) do |t|
+# SimpleCov merges every result it finds in coverage/.resultset.json that is younger
+# than its merge timeout, and each parallel shard files its slice under a name of its
+# own — so without this a second run within a few minutes reports the UNION of both
+# runs, and a line that stopped being covered still reads as covered. Every slice this
+# run produces is written after this point, so clearing here loses nothing and keeps
+# the report about the run that produced it.
+task :clear_coverage do
+  rm_f "coverage/.resultset.json" if ENV["COVERAGE"] == "1"
+end
+
+Rake::TestTask.new(test: %i[compile_gemba_core clear_coverage]) do |t|
   t.libs << "test" << "lib"
   t.test_files = FileList["test/**/test_*.rb"]
   # `test` on the load path is what lets every test file open with the one line
@@ -50,7 +60,7 @@ namespace :test do
   # something fails — and because the compile above has to finish before any
   # worker starts, which the dependency here guarantees.
   desc "Run the suite across processes (rake test:parallel JOBS=8)"
-  task parallel: :compile_gemba_core do
+  task parallel: %i[compile_gemba_core clear_coverage] do
     ParallelTest.run(FileList["test/**/test_*.rb"].to_a)
     collate_coverage if ENV["COVERAGE"] == "1"
   end
