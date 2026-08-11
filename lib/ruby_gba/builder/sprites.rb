@@ -384,7 +384,7 @@ module RubyGBA
         # A directional animation (facing: with a list of frames per direction) cycles
         # its frames, so it needs a rate the same way a plain frames: animation does.
         if facing && facing.values.any? { |v| v.is_a?(Array) && v.length >= 2 }
-          return if rate.is_a?(Integer) && rate.positive?
+          return if Whole.positive?(rate)
 
           raise ArgumentError,
                 "sprite :#{name} needs a positive rate: (how many game frames each picture is shown). Got #{rate.inspect}."
@@ -395,7 +395,7 @@ module RubyGBA
         unless frames.is_a?(Array) && frames.length >= 2
           raise ArgumentError, "sprite :#{name} #{source}"
         end
-        return if rate.is_a?(Integer) && rate.positive?
+        return if Whole.positive?(rate)
 
         raise ArgumentError,
               "sprite :#{name} needs a positive rate: (how many frames each picture is shown). Got #{rate.inspect}."

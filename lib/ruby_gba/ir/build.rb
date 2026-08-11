@@ -334,7 +334,7 @@ module RubyGBA
       # Start (or restart) the named timer running at +hz+ overflows per second. Restart
       # resets its elapsed-overflow count to zero.
       def timer_start(name, hz)
-        unless hz.is_a?(Integer) && hz.positive?
+        unless Whole.positive?(hz)
           raise ArgumentError, "a timer's rate must be a positive whole number of Hz, got #{hz.inspect}"
         end
         Nodes.build(:timer_start, name: name, hz: hz)
@@ -589,11 +589,11 @@ module RubyGBA
       # snake's body list holds every cell of the board and holds four of them for most
       # of a game, so the two questions have answers 128 times apart.
       def list_new(name, capacity, usually: nil)
-        unless capacity.is_a?(Integer) && capacity.positive?
+        unless Whole.positive?(capacity)
           raise ArgumentError,
                 "a list's capacity must be a positive whole number, got #{capacity.inspect}"
         end
-        if usually && !(usually.is_a?(Integer) && usually.positive? && usually <= capacity)
+        if usually && !Whole.within?(usually, 1..capacity)
           raise ArgumentError,
                 "`usually:` must be between 1 and the capacity of #{capacity}. " \
                 "You gave #{usually.inspect}."

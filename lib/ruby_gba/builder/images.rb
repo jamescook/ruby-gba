@@ -173,7 +173,7 @@ module RubyGBA
       end
 
       def positive_dims!(name, width, height)
-        return if width.is_a?(Integer) && width.positive? && height.is_a?(Integer) && height.positive?
+        return if Whole.positive?(width) && Whole.positive?(height)
 
         raise ArgumentError, "image :#{name} needs a width and height above 0. Got #{width}x#{height}."
       end

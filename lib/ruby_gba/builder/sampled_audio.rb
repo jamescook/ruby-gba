@@ -29,7 +29,7 @@ module RubyGBA
         raise ArgumentError, "A sample name must be a Symbol. You gave #{name.inspect}." unless name.is_a?(Symbol)
 
         bytes, rate = sample_data(name, pcm, from, rate)
-        unless rate.is_a?(Integer) && rate.positive?
+        unless Whole.positive?(rate)
           raise ArgumentError, "sample :#{name} must have a positive rate. The rate is how many samples play in one second. You gave #{rate.inspect}."
         end
         raise ArgumentError, "sample :#{name} has no sound data. The samples or the .wav file are empty." if bytes.empty?

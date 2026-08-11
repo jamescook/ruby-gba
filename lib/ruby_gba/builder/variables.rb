@@ -174,8 +174,11 @@ module RubyGBA
       # @param target [Integer, Symbol, Value] where it's heading
       # @param step [Integer, Symbol, Value] the most it may move per call
       def approach(name, target, step)
-        if step.is_a?(Integer) && !step.positive?
-          raise ArgumentError, "approach's step must be positive. You gave #{step}."
+        # A step the author fixed has to be positive. One the game works out is read as a
+        # distance instead (see #approach_bounds), so there is nothing to check here.
+        fixed_step = Value.fixed_number(step)
+        if fixed_step && !fixed_step.positive?
+          raise ArgumentError, "approach's step must be positive. You gave #{fixed_step}."
         end
 
         ensure_var(name)
