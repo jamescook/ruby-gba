@@ -41,7 +41,8 @@ module RubyGBA
         include Node
         kind :background
         category :draw
-        operands name: :name, tiles: :list, map: :list, tile_w: :int, tile_h: :int
+        operands name: :name, tiles: :list, map: :list, tile_w: :int, tile_h: :int,
+                 layer: :name
       end
 
       class BackingBuffer
@@ -261,6 +262,13 @@ module RubyGBA
         operands value: :int
       end
 
+      class Layers
+        include Node
+        kind :layers
+        category :data
+        operands names: :list
+      end
+
       class ListDrop
         include Node
         kind :list_drop
@@ -351,7 +359,7 @@ module RubyGBA
         operands name: :name,
                  poses: :list, pose: :value, x: :value,
                  y: :value, active: :value, angle: :value,
-                 scale: :value
+                 scale: :value, layer: :name
       end
 
       class OnTimer

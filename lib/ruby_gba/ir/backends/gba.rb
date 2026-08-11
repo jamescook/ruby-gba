@@ -208,6 +208,7 @@ module RubyGBA
           @tables = {}           # name -> { count:, elem_bytes:, signed:, pow2: } (a ROM lookup table)
           @backing = {}          # name -> { width:, height:, base: } (a sprite's save-under RAM)
           @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)
+          @layer_stack = []      # the layers the program declared, backmost first
           @samples = {}          # name -> { rate:, length: } (a Direct Sound PCM sample)
           @plays_samples = false # does the program play any sample (uses Direct Sound)?
           @timers = {}           # name -> { rate:, count: } (which hardware timer(s) back it)
@@ -557,6 +558,11 @@ module RubyGBA
               # anywhere in the tree already knows its address. Nothing is emitted
               # when the declaration is reached inline — it's pure reservation.
               register_backing(node.name, node.width, node.height)
+            when :layers
+              # The stack of depths the picture is built from, backmost first. Things
+              # name a layer wherever they're declared, so the order has to be known
+              # before any of them is placed.
+              @layer_stack = node.names
             end
           end
         end

@@ -454,6 +454,23 @@ module RubyGBA
                  b_poses: b_poses, b_pose: wrap(b_pose), b_x: wrap(b_x), b_y: wrap(b_y))
       end
 
+      # --- the stack (what sits in front of what) ---
+      #
+      # A picture is made of things at different depths: the scenery behind, the
+      # characters over it, the score on top. The program names those depths once, and
+      # anything it draws says which one it belongs to (see the +layer+ field on
+      # +background+ and +object+). A layer is nothing but a name and its place in the
+      # order — what a machine turns that into is the backend's business, and the
+      # answers differ wildly (dedicated stacking hardware, or simply painting in that
+      # order).
+
+      # Declare the program's stack: +names+ in order, backmost first. A thing that
+      # names a layer sits at that layer's place in this list, and two things in the
+      # same layer keep the order they were declared in.
+      def layers(names)
+        Nodes.build(:layers, names: names)
+      end
+
       # A tiled background: a whole grid drawn from a small set of reusable tiles.
       # +tiles+ is an ordered list of defined image names (the distinct tiles);
       # +map+ is the grid — an array of rows, each an array of indices into +tiles+
@@ -461,8 +478,9 @@ module RubyGBA
       # This says *what* the background is, not how a machine draws it: one backend
       # stamps the tiles pixel by pixel, another can hand the grid to tile hardware,
       # but the picture is the same.
-      def background(name, tiles:, map:, tile_w:, tile_h:)
-        Nodes.build(:background, name: name, tiles: tiles, map: map, tile_w: tile_w, tile_h: tile_h)
+      def background(name, tiles:, map:, tile_w:, tile_h:, layer: nil)
+        Nodes.build(:background, name: name, tiles: tiles, map: map,
+                                 tile_w: tile_w, tile_h: tile_h, **in_layer(layer))
       end
 
       # Show the named background scrolled to the offset (+x+, +y+) in pixels — the
@@ -545,10 +563,10 @@ module RubyGBA
       # an object may turn, or resize, or both, and a backend that realizes either
       # realizes both at once.
       # Reserves the object; #present_objects is what actually draws it for a frame.
-      def object(name, poses:, pose:, x:, y:, active:, angle: 0, scale: SCALE_ONE)
+      def object(name, poses:, pose:, x:, y:, active:, angle: 0, scale: SCALE_ONE, layer: nil)
         Nodes.build(:object, name: name, poses: poses, pose: wrap(pose),
                           x: wrap(x), y: wrap(y), active: wrap(active),
-                          angle: wrap(angle), scale: wrap(scale))
+                          angle: wrap(angle), scale: wrap(scale), **in_layer(layer))
       end
 
       # Draw the named objects for this frame, on top of the background, in order
@@ -775,6 +793,14 @@ module RubyGBA
                 "can't use #{operand.inspect} as a value — expected a whole number, a " \
                 "variable name (a Symbol), or a value expression"
         end
+      end
+
+      # The layer operand, as something to splat into a node's fields: the name when the
+      # thing belongs to a layer, nothing at all when it doesn't. A field that was never
+      # set doesn't appear on the node, so a program that names no layers builds exactly
+      # the tree it built before layers existed.
+      def in_layer(name)
+        name ? { layer: name } : {}
       end
 
       # Round a list's capacity up to the next power of two (4 stays 4, 5 becomes

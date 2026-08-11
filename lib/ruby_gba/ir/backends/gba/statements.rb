@@ -54,7 +54,8 @@ module RubyGBA
             when :save_region then emit_save_region(node)
             when :restore_region then emit_restore_region(node)
             when :enable_sound then emit_enable_sound
-            when :define_sound, :song, :data, :bitmap, :backing_buffer, :object, :table then nil # definitions: collected, nothing to emit
+            when :define_sound, :song, :data, :bitmap, :backing_buffer, :object, :table,
+                 :layers then nil # definitions: collected, nothing to emit
             when :beep then emit_beep(node)
             when :noise then emit_noise(node)
             when :wave then emit_wave(node)

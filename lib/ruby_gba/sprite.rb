@@ -60,11 +60,13 @@ module RubyGBA
     #   relative to the sprite's top-left (by default the box around its visible pixels)
     # @param pixel_perfect [Boolean] collide on the drawn pixels (true) or just the box (false,
     #   set when the sprite was given an explicit hitbox:)
+    # @param layer [Symbol, nil] the layer it was declared in — its place in the stack
     def initialize(builder, x:, y:, old_x:, old_y:, active:, buffer:, hitbox:, pixel_perfect: true,
                    image: nil, poses: nil, facing_var: nil, facing_dirs: nil,
                    frame_var: nil, frames_per_dir: 1,
-                   clips: nil, clip_off_var: nil, clip_len_var: nil)
+                   clips: nil, clip_off_var: nil, clip_len_var: nil, layer: nil)
       @builder = builder
+      @layer = layer             # the layer it was declared in, or nil if the game names none
       @image = image             # a plain sprite draws this one image
       @poses = poses             # a faceted sprite draws poses[pose index] instead
       @pixel_perfect = pixel_perfect
@@ -83,6 +85,12 @@ module RubyGBA
       @buffer = buffer
       @hit_x, @hit_y, @hit_w, @hit_h = hitbox # collision box, offset from the sprite's top-left
     end
+
+    # Where this sprite sits in the stack — the layer it was declared in, or nil in a
+    # game that names no layers. A software sprite is painted into the one framebuffer
+    # rather than handed to stacking hardware, so its layer is the order it is painted
+    # in; the name is what says what that order has to be.
+    attr_reader :layer
 
     # What per-pixel collision (see {PixelBounds}) reads off this sprite: the build to
     # record into, its picture set, the pose it's showing now, and whether it collides

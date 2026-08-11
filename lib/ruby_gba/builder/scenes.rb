@@ -26,10 +26,8 @@ module RubyGBA
       # @param name [Symbol] function name
       # @param fast [Boolean, nil] keep it in the quick memory (nil = let the framework decide)
       def func(name, fast: nil, &block)
-        raise ArgumentError, "The function :#{name} is already defined. Use a different name for each function." if @functions.key?(name)
-
-        @functions[name] = block
-        @func_fast[name] = fast unless fast.nil?
+        refuse_routine_in_layer!(:func)
+        declare_func(name, fast: fast, &block)
       end
 
       # Call a named subroutine. The target is resolved by name when the tree is
@@ -61,7 +59,8 @@ module RubyGBA
       #
       # @param name [Symbol] scene name
       def scene(name, &block)
-        func(:"_scene_#{name}", &block)
+        refuse_routine_in_layer!(:scene)
+        declare_func(:"_scene_#{name}", &block)
       end
 
       # Dispatch to a scene based on a variable's value.
@@ -100,6 +99,18 @@ module RubyGBA
       end
 
       private
+
+      # Register a routine's body, with none of the rules that apply to a `func` an
+      # author writes. This is what the framework declares its own routines through —
+      # an effect's per-frame body, a hidden helper — because those are behavior rather
+      # than things in the picture, and a game says `pulse coin` on the line after it
+      # declares the coin, layer block and all.
+      def declare_func(name, fast: nil, &block)
+        raise ArgumentError, "The function :#{name} is already defined. Use a different name for each function." if @functions.key?(name)
+
+        @functions[name] = block
+        @func_fast[name] = fast unless fast.nil?
+      end
 
       # Every call and case target must name a defined function. Check that here, so
       # a missing target surfaces as a clear error at build time. Walking the whole
