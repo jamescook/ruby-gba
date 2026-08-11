@@ -162,6 +162,30 @@ module RubyGBA
         end
       end
 
+      # A picture is normally scenery at the back and everything that moves in front of
+      # it, and something that named no layer is left in that arrangement. Put a
+      # background IN FRONT of a sprite and the arrangement is gone, and with it the
+      # answer for anything that named no layer — there is no longer a "where it always
+      # was" to leave it in. So that picture has to place everything.
+      def verify_stack_fits!
+        return if @layer_stack.empty?
+
+        picture = IR::Stacking.picture(@program)
+        return unless IR::Stacking.scenery_over_objects?(picture.depths,
+                                                         scenery: picture.scenery,
+                                                         objects: picture.objects)
+
+        homeless = (picture.scenery + picture.objects).reject { |node| @layer_stack.include?(node.layer) }
+        return if homeless.empty?
+
+        raise ArgumentError,
+              "This picture puts a background in front of a sprite, and #{homeless.length} thing" \
+              "#{'s' if homeless.length > 1} in it name no layer. When a background is in front of " \
+              "a sprite, every background and every sprite must say where it sits, or there is no " \
+              "way to know what is in front of it. To fix this, put each one in a `layer` block. " \
+              "The stack is #{list_of(@layer_stack)}, back to front."
+      end
+
       def check_stack_not_declared!
         return if @layer_stack.empty?
 

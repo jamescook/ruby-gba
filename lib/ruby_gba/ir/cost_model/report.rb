@@ -58,6 +58,7 @@ module RubyGBA
           render_category_tree(tree, printer, frame_total, max_depth)
           render_hottest(tree, printer, top)
           glyph_footprint_lines(program, printer)
+          stack_lines(program, printer) unless focus
           fast_memory_lines(program, printer) unless focus
           budget_summary_lines(program, printer, frame_total, measured: measured) unless focus
         end
@@ -72,6 +73,46 @@ module RubyGBA
           else
             "per-frame cost estimate (scanlines):"
           end
+        end
+
+        # What each declared layer turned out to hold, and how deep the picture goes.
+        #
+        # A layer is a name an author writes; a LEVEL is what the console actually keeps,
+        # and it has only four of them. Several layers landing on one level is the normal,
+        # wanted answer rather than a compromise — so the report shows the levels, with
+        # the layers that share each, and says how many are left. Same bargain as the
+        # quick memory above: the framework picks, this says what it picked.
+        def stack_lines(program, printer)
+          picture = Stacking.picture(program)
+          return if picture.stack.empty?
+
+          levels = Backends::GBA::MAX_LEVELS
+          printer.puts "  the stack, back to front (the console keeps #{levels} levels):"
+          picture.stack.each do |layer|
+            held = picture.in_layer(layer)
+            next if held.empty?
+
+            printer.puts "    #{layer_level(picture, held).ljust(9)}:#{layer.to_s.ljust(12)} #{layer_holds(picture, layer)}"
+          end
+          used = picture.depths.count
+          printer.puts "    #{used} of #{levels} levels used, #{levels - used} free"
+        end
+
+        # Which level a layer landed on. Nearly always one — a layer holding two
+        # backgrounds is the exception, since scenery is the one thing that has to have a
+        # level to itself.
+        def layer_level(picture, held)
+          at = held.map { |name| picture.depths[name] + 1 }.uniq.sort
+          at.length == 1 ? "level #{at.first}" : "levels #{at.first}-#{at.last}"
+        end
+
+        # What a layer turned out to hold. Backgrounds are named, because an author named
+        # them; sprites are counted, because their names are the framework's own.
+        def layer_holds(picture, layer)
+          scenery = picture.scenery.select { |node| node.layer == layer }.map { |node| "background :#{node.name}" }
+          sprites = picture.objects.count { |node| node.layer == layer }
+          scenery.push("#{sprites} sprite#{'s' if sprites > 1}") if sprites.positive?
+          scenery.join(", ")
         end
 
         # What the build kept in the console's quick memory, and how much of it is left.

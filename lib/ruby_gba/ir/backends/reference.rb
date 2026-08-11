@@ -119,7 +119,7 @@ module RubyGBA
           @bg_by_name = {}         # name -> :background node (for scrolling that background's window)
           @scene_fb = nil          # the settled scene (backdrop + backgrounds), built once, to restore under objects
           @obj_prev = {}           # object name -> [x, y] it was last drawn at (to erase before redrawing)
-          @scrolling = false       # does this program scroll a background? (decided in collect_definitions)
+          @repaints = false        # must the whole view be rebuilt every frame? (decided in collect_definitions)
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
           @row_bends = {}          # background name -> :scroll_rows node giving each row its own offset
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
@@ -164,6 +164,15 @@ module RubyGBA
           @over_budget = false
           @uses_frames = false # set once the program reaches its first vblank (advance_frame)
           collect_definitions(node)
+          # How the picture stacks: what scenery and objects there are, in what order,
+          # and how deep each sits. Scenery in FRONT of an object means the save-under
+          # trick cannot hold — what was saved from under an object is no longer what
+          # ends up over it — so the whole view is rebuilt each frame instead, the same
+          # way a scrolling scene is.
+          @picture = IR::Stacking.picture(node)
+          @repaints ||= IR::Stacking.scenery_over_objects?(@picture.depths,
+                                                           scenery: @picture.scenery,
+                                                           objects: @picture.objects)
           catch(:halt) { exec(node) }
           self
         end
@@ -256,14 +265,14 @@ module RubyGBA
               # offset, so the whole scene has to be repainted every frame — the static
               # save-under trick objects normally ride on no longer holds. Remember that
               # here so present_objects and scroll_background take the repaint path.
-              @scrolling = true
+              @repaints = true
             when :scroll_rows
               # A bending background is a moving background: each row sits somewhere new
               # every frame, so the scene has to be repainted like a scrolled one.
               # Declared once and standing from then on (last wins if repeated), which is
               # why it is collected here rather than run as a statement.
               @row_bends[n.name] = n
-              @scrolling = true
+              @repaints = true
             end
           end
         end
@@ -838,14 +847,21 @@ module RubyGBA
         # settled, correct image regardless of their order.
         def composite_scrolled_frame
           @screen.clear(0) # the backdrop the layers' transparent pixels reveal
-          in_stack_order(@bg_nodes).each { |bg| paint_background_window(bg) }
-          @obj_layer.each do |obj|
-            if obj[:transform]
-              blit_image_transformed(obj[:image], obj[:x], obj[:y], *obj[:transform])
-            else
-              blit_image(obj[:image], obj[:x], obj[:y])
-            end
+          levels = @picture.depths
+          (0...levels.count).each do |level|
+            # Scenery first, then the objects that share this level — an object is drawn
+            # over the scenery it sits with, which is what lets a picture put scenery in
+            # front of one object and behind another.
+            @picture.scenery.each { |bg| paint_background_window(bg) if levels[bg.name] == level }
+            @obj_layer.each { |obj| paint_object_layer(obj) if obj[:level] == level }
           end
+        end
+
+        # Draw one snapshotted object from the layer captured this frame.
+        def paint_object_layer(obj)
+          return blit_image_transformed(obj[:image], obj[:x], obj[:y], *obj[:transform]) if obj[:transform]
+
+          blit_image(obj[:image], obj[:x], obj[:y])
         end
 
         # The color of a background cell's pixel: the tile's pixel there, or the black
@@ -874,7 +890,7 @@ module RubyGBA
         # screen this frame and recomposite the whole view (scrolled scene, then these
         # objects on top). See #composite_scrolled_frame.
         def exec_present_objects(node)
-          if @scrolling
+          if @repaints
             snapshot_object_layer(node)
             composite_scrolled_frame
             return
@@ -938,7 +954,8 @@ module RubyGBA
             image = object_pose_image(obj)
             next if image.nil?
 
-            snap = { image: image, x: eval_value(obj.x), y: eval_value(obj.y) }
+            snap = { image: image, x: eval_value(obj.x), y: eval_value(obj.y),
+                     level: @picture.depths[name] }
             snap[:transform] = object_transform(obj) if object_transformed?(obj)
             snap
           end
@@ -959,7 +976,7 @@ module RubyGBA
         def scene_framebuffer
           @scene_fb ||= begin
             fb = Framebuffer.new(fill: 0) # 0 = the backdrop the empty parts of the scene show
-            drawing_into(fb) { @bg_nodes.each { |bg| exec_background(bg) } }
+            drawing_into(fb) { @picture.scenery.each { |bg| stamp_background(bg) } }
             fb
           end
         end
