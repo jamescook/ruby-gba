@@ -215,6 +215,7 @@ module Breakout
         (bricks_left <= 0).then do # wall cleared — you win
           (score > high).then { high.set score } # record a new best (saved automatically)
           state.set 2
+          flash_screen :black, frames: 18 # cut to black, then bring the new screen up
         end
       end
 
@@ -223,10 +224,18 @@ module Breakout
       (ball_y >= SCREEN_H).then do
         lives.sub 1
         beep :lose
-        shake_screen intensity: 5, duration: 0.25 # losing a life hits harder, and lasts
+        # Losing a life hits harder, and it hits three ways at once: heard, felt, and
+        # seen. Each of these is one call at the moment of the miss — the framework runs
+        # all three over the frames that follow.
+        shake_screen intensity: 5, duration: 0.25
+        flash_screen :white, frames: 6
         (lives <= 0).then do
           (score > high).then { high.set score } # record a new best (saved automatically)
           state.set 3
+          # A flash toward BLACK is a scene change: the screen cuts to black and the
+          # game-over screen rises out of it over the next few frames. Same verb as the
+          # white one above, same machinery — a fade held at full and let go.
+          flash_screen :black, frames: 18
         end.else { call :serve }
       end
     end
