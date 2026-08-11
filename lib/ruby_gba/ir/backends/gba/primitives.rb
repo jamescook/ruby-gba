@@ -40,6 +40,11 @@ module RubyGBA
           # the entry back the way it found it.
           def held_register(name) = (@held_registers ||= {})[name]
 
+          # For a moment, read this variable from its memory rather than from the register that
+          # was holding it — because the register is about to be lent to something else and put
+          # back afterwards (see Statements#emit_bracketed).
+          def not_holding(name, &block) = holding(name, nil, &block)
+
           def holding(name, reg)
             @held_registers ||= {}
             was = @held_registers[name]

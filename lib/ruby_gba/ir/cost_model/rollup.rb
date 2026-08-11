@@ -509,15 +509,22 @@ module RubyGBA
           shape = loop_shape(node)
           return "the loop itself" unless shape
 
-          shape.held ? "the loop itself (in registers)" : "the loop itself (through memory)"
+          "the loop itself (#{SHAPE_NAMES.fetch(shape.shape)})"
         end
 
+        SHAPE_NAMES = { registers: "in registers", spilled: "in registers, saved and put back",
+                        memory: "through memory" }.freeze
+
+        # The tree line says the shape AND what in the body made it that shape, because that is
+        # the one thing an author can act on. A spilled loop names it too: the statement it has
+        # to save the registers around is the statement to move out of the loop, and doing so
+        # takes the saving away as well.
         def loop_overhead_label(node)
           shape = loop_shape(node)
           return "the loop itself" unless shape
-          return "the loop itself (in registers)" if shape.held
+          return "the loop itself (in registers)" if shape.shape == :registers
 
-          "the loop itself (through memory — #{shape.blocked_by})"
+          "the loop itself (#{SHAPE_NAMES.fetch(shape.shape)} — #{shape.blocked_by})"
         end
 
         # WHICH SHAPE THIS LOOP GOT, which is the BUILD'S answer and is handed over rather than
@@ -537,8 +544,20 @@ module RubyGBA
 
         # Both halves are instructions like any other, so both are charged less where the code
         # runs faster.
+        #
+        # A loop that keeps its count in registers by SAVING the pair around what would land in
+        # them pays for each save, every pass — that is the whole trade, and leaving it out
+        # would make the shape look free and the build's choice look better than it is.
         def loop_pass_cost(node)
-          @weights[held_loop?(node) ? :loop_pass_held : :loop_pass] * fast_memory_factor
+          (@weights[held_loop?(node) ? :loop_pass_held : :loop_pass] + spill_cost(node)) *
+            fast_memory_factor
+        end
+
+        def spill_cost(node)
+          shape = loop_shape(node)
+          return 0 unless shape&.spilled?
+
+          shape.spills * @weights[:loop_spill]
         end
 
         def loop_start_cost(node)

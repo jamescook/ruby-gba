@@ -202,13 +202,21 @@ module RubyGBA
           # registers are free is this file's business. #loop_shapes hands it over the way
           # #var_addresses hands over where a variable landed.
           def emit_repeat(node)
-            held = LoopForm.registers?(node)
             @loop_shapes ||= {}
-            @loop_shapes[node.index] =
-              CostModel::LoopShape.new(held: held, blocked_by: held ? nil : LoopForm.reason(node))
-            return emit_repeat_held(node) if held
+            return emit_shape(node, :registers) { emit_repeat_held(node) } if LoopForm.registers?(node)
+            return emit_shape(node, :spilled) { emit_repeat_spilled(node) } if LoopForm.spills?(node)
 
-            emit_repeat_in_memory(node)
+            emit_shape(node, :memory) { emit_repeat_in_memory(node) }
+          end
+
+          # Remember which shape this loop got before emitting it, so the cost estimate charges
+          # for the code that will really run. The build decides; the estimate is told.
+          def emit_shape(node, shape)
+            @loop_shapes[node.index] =
+              CostModel::LoopShape.new(shape: shape,
+                                       blocked_by: shape == :registers ? nil : LoopForm.reason(node),
+                                       spills: shape == :spilled ? LoopForm.blocking_children(node).size : 0)
+            yield
           end
 
           # THE SAFE SHAPE: the counter and the limit live in the console's quick memory, so
@@ -252,7 +260,52 @@ module RubyGBA
           # written back to its memory once on the way out, so anything after the loop sees
           # the value it would have seen anyway.
           def emit_repeat_held(node)
+            emit_repeat_loop(node) do
+              node.children.each { |stmt| emit_statement(stmt) }
+            end
+          end
+
+          # THE THIRD SHAPE: the counter and the limit stay in registers, and the few statements
+          # that would land in those registers are bracketed — the pair saved before and put
+          # back after.
+          #
+          # This is what lets a loop keep the fast shape while its body does the thing the
+          # framework asks for: behaviour in a func, called once per instance. A routine may
+          # use any register it likes, which is why a call gives up the registers for the whole
+          # body otherwise — but it can only do that WHILE IT RUNS, so saving the pair across
+          # it is enough.
+          #
+          # A bracket is four instructions: the count written out to its variable, so a body
+          # that reads the loop's index inside the bracket reads the true one (the fast shape
+          # only writes it back on the way out, so its memory is stale until then), and the
+          # pair saved and restored around the statement. Against the twelve a pass through
+          # memory spends, two brackets still pay — which is what LoopForm::SPILL_LIMIT says.
+          def emit_repeat_spilled(node)
             index = node.index
+            bracketed = LoopForm.blocking_children(node).to_set
+
+            emit_repeat_loop(node) do
+              node.children.each do |statement|
+                next emit_statement(statement) unless bracketed.include?(statement)
+
+                emit_bracketed(index) { emit_statement(statement) }
+              end
+            end
+          end
+
+          # One statement run with the loop's pair kept safe across it. The index is written to
+          # its variable first and read from there while the bracket is open, since the register
+          # holding it is about to be somebody else's.
+          def emit_bracketed(index)
+            store_var(LoopForm::COUNTER, index)
+            emit(ASM.push(LoopForm::COUNTER, LoopForm::LIMIT))
+            not_holding(index) { yield }
+            emit(ASM.pop(LoopForm::COUNTER, LoopForm::LIMIT))
+          end
+
+          # The counting the two register shapes share: set up, test, run the body, step on.
+          # Only what happens to the body differs between them, so only that is passed in.
+          def emit_repeat_loop(node)
             eval_value(node.count)
             emit(ASM.mov_reg(LoopForm::LIMIT, ACC))
             emit(ASM.load_immediate(LoopForm::COUNTER, 0))
@@ -263,14 +316,12 @@ module RubyGBA
             emit(ASM.cmp_reg(LoopForm::COUNTER, LoopForm::LIMIT))
             emit_branch(:bcond, done, cond: :ge)
 
-            holding(index, LoopForm::COUNTER) do
-              node.children.each { |stmt| emit_statement(stmt) }
-            end
+            holding(node.index, LoopForm::COUNTER) { yield }
 
             emit(ASM.add_imm(LoopForm::COUNTER, LoopForm::COUNTER, 1))
             emit_branch(:b, top)
             place_label(done)
-            store_var(LoopForm::COUNTER, index)
+            store_var(LoopForm::COUNTER, node.index)
           end
 
           # every: run the body once every `period` frames. Tick the hidden frame

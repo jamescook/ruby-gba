@@ -50,9 +50,57 @@ module RubyGBA
           # they run.
           CALLS_A_ROUTINE = %i[div_fix pixels_overlap].freeze
 
-          # Whether this repeat can keep its counter in a register.
+          # HOW MANY STATEMENTS ARE WORTH BRACKETING before giving up the registers is cheaper.
+          # A bracket is four instructions — the count written out to its variable, then the
+          # pair saved and restored around the statement — against the twelve a pass through
+          # memory spends over one in registers. So two brackets still pay, and three do not.
+          SPILL_LIMIT = 2
+
+          # A blocker that cannot be bracketed. `raw` is instructions the author wrote, and
+          # nothing here can say whether they leave the stack as they found it. A body that
+          # writes the loop's own count would have to write the register too, and nothing in
+          # the surface does that — so it is refused rather than handled.
+          def unbracketable?(node, index)
+            node.kind == :raw || writes?(node, index)
+          end
+
+          # Whether this repeat can keep its counter in a register with nothing saved.
           def registers?(node)
-            node.kind == :repeat && blocker_in(node).nil?
+            node.kind == :repeat && blocking_children(node).empty?
+          end
+
+          # Whether it can keep the counter in registers by saving the pair around the few
+          # statements that would otherwise land in them.
+          def spills?(node)
+            return false unless node.kind == :repeat
+
+            blocking = blocking_children(node)
+            blocking.any? && blocking.size <= SPILL_LIMIT &&
+              blocking.none? { |child| unbracketable_within?(child, node.index) }
+          end
+
+          # The loop's own statements that hold something needing the registers — the ones a
+          # spilling loop brackets.
+          #
+          # ITS COUNT IS NOT AMONG THEM, and that is why this asks the children rather than
+          # walking everything under the node: the count is worked out before either register
+          # is loaded (see Statements#emit_repeat_held), so whatever it takes, it takes while
+          # there is nothing yet to lose.
+          def blocking_children(node)
+            node.children.select { |child| blocker_within(child, node.index) }
+          end
+
+          # The first thing inside one statement that needs the registers, or nil. A full walk
+          # of it rather than a walk of the statements under it, because a statement holds
+          # parts of itself off to the side — the branch an `if` runs when its test fails is
+          # kept beside the node rather than under it, so a walk of statements alone strolls
+          # past a call sitting in an else.
+          def blocker_within(statement, index)
+            statement.walk.find { |inner| takes_the_registers?(inner) || writes?(inner, index) }
+          end
+
+          def unbracketable_within?(statement, index)
+            statement.walk.any? { |inner| unbracketable?(inner, index) }
           end
 
           # WHAT STOPPED IT, in the words an author would use, for the one report that says so.
@@ -65,22 +113,12 @@ module RubyGBA
             phrase_for(blocker, node.index)
           end
 
-          # The first thing anywhere inside this loop that needs the registers, or nil.
-          #
-          # ONE traversal answers both questions, so "it cannot" and "here is why" can never
-          # disagree — and it is a full walk of the body rather than a walk of the statements
-          # under it, because a statement holds parts of itself off to the side. The branch an
-          # `if` runs when its test fails is the one that bites: it is kept beside the node
-          # rather than under it, so a walk of statements alone strolls past a loop or a call
-          # sitting in an else. That is not a wrong price, it is a wrong answer.
+          # The first thing in this loop's body that needs the registers, or nil. Read off the
+          # same statements the shape is decided from, so "it cannot" and "here is why" can
+          # never disagree.
           def blocker_in(node)
             index = node.index
-            body_of(node).find { |inner| takes_the_registers?(inner) || writes?(inner, index) }
-          end
-
-          # Everything inside this loop, the loop itself excepted.
-          def body_of(node)
-            node.walk.reject { |inner| inner.equal?(node) }
+            blocking_children(node).filter_map { |child| blocker_within(child, index) }.first
           end
 
           # Whether this one node needs the two registers for itself, either because it can

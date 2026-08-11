@@ -311,6 +311,31 @@ module RubyGBA
         @m.busy(name, loop_rom(name, Array.new(loops) { [LOOP_START_PASSES, blocked] }))
       end
 
+      # ...and the THIRD shape: the counter stays in registers and the pair is saved around the
+      # one statement that would land in them. The body is a call, which is what asks for that
+      # shape and is also the reason it exists — behaviour in a func, called once per instance,
+      # is what the framework tells people to write.
+      #
+      # +blocked+ puts the empty escape hatch beside the same call, which cannot be bracketed
+      # and so sends the loop to memory. So the two ROMs hold the SAME body and differ only in
+      # the shape the loop got — the call's own cost is in both and cancels, leaving the two
+      # pass weights, out of which the calibrator takes the bracket.
+      def loop_spill_busy(per_frame, blocked: false)
+        name = "sp#{blocked ? 'm' : 'r'}#{per_frame}"
+        @m.busy(name, loop_call_rom(name, per_frame, blocked))
+      end
+
+      def loop_call_rom(name, passes, blocked)
+        b = IR::Build
+        body = [b.call(:__noop)]
+        body << b.raw("") if blocked
+        prog = b.program(b.screen(:bitmap), b.set(:x, b.int(0)),
+                         b.func(:__noop, b.add(:x, b.int(1))),
+                         b.loop_(b.wait_vblank, b.repeat(b.int(passes), :__lp, *body)))
+        ROM.assemble(IR::Backends::GBA.new(fast_code: false).lower(prog),
+                     title: name, code: code_for(name), maker: "01")
+      end
+
       # A frame holding the given loops, built straight from the IR: the surface has no way to
       # write an empty escape hatch, and that is what asks for the memory shape.
       def loop_rom(name, loops)
