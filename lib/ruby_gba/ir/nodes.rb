@@ -248,7 +248,10 @@ module RubyGBA
         include Node
         kind :if
         category :control
-        operands cond: :value, else: :branch
+        # over/usually/of are the estimate's, not the program's — a test that guards one
+        # slot of a walk over `of` of them says how many are usually in use, and which set
+        # they belong to. Nothing runs differently; see Build#if_.
+        operands cond: :value, else: :branch, over: :name, usually: :int, of: :int
       end
 
       class Int

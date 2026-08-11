@@ -35,7 +35,9 @@ module RubyGBA
     #   [x, y, w, h] relative to an instance's top-left, from the image (nil = no size)
     # @param on_full [Symbol] what spawn does when there's no free slot — :drop (ignore
     #   it, a safe no-op) or :recycle_oldest (reuse the longest-lived instance)
-    def initialize(builder, name, fields, capacity, image: nil, hitbox: nil, on_full: :drop)
+    # @param usually [Integer, nil] how many instances are normally live — for the cost
+    #   estimate only (see Builder#pool), never for anything the program does
+    def initialize(builder, name, fields, capacity, image: nil, hitbox: nil, on_full: :drop, usually: nil)
       @builder = builder
       @name = name
       @fields = fields
@@ -43,6 +45,7 @@ module RubyGBA
       @image = image
       @hitbox = hitbox
       @on_full = on_full
+      @usually = usually
     end
 
     # The sprite image live instances draw (nil for a pure-data pool), and the collision
@@ -107,7 +110,14 @@ module RubyGBA
       pool = self
       active = List.new(@builder, active_list)
       @builder.repeat(@capacity) do |i|
-        (active[i] == 1).then { block.call(Instance.new(pool, i)) }
+        # Recorded through the builder rather than with `.then` so the guard can carry what
+        # the cost estimate needs — the walk is over every slot, the body is only for a live
+        # one — without that hint becoming something an author can write on any `.then`.
+        live = active[i] == 1
+        @builder.consume_condition(live)
+        @builder.record_conditional(live.node, over: @name, usually: @usually, of: @capacity) do
+          block.call(Instance.new(pool, i))
+        end
       end
       self
     end

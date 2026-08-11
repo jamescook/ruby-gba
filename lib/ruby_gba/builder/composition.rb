@@ -52,17 +52,30 @@ module RubyGBA
       #
       #   sparks = pool :spark, x: 0, y: 0, life: 0, capacity: 32, on_full: :recycle_oldest
       #
+      # `estimate:` tells the COST ESTIMATE something it cannot work out for itself, the same
+      # hint a {Builder#list} takes and with the same words. `usually:` is how many instances
+      # are normally live. `each` walks every slot whatever happens — that part is real work
+      # and is counted whole — but the BODY only runs for a live one, and a pool is sized for
+      # the worst moment of a game rather than a normal one:
+      #
+      #   bullets = pool :bullet, x: 0, y: 0, vy: 0, capacity: 64, estimate: { usually: 6 }
+      #
+      # So `rom.explain` counts the body six times a frame instead of sixty-four, and says
+      # which number it used. A range (`usually: 4..8`) counts at its top.
+      #
       # @param name [Symbol] the pool's name
       # @param capacity [Integer] the most instances that can be live at once
       # @param image [Symbol, nil] the sprite image each live instance draws
       # @param on_full [Symbol] :drop (default) or :recycle_oldest — see above
+      # @param estimate [Hash, nil] what the estimate cannot know — today `usually:` (Integer or Range)
       # @param fields [Hash{Symbol=>Object}] field name => default value
       # @return [Pool]
-      def pool(name, capacity:, image: nil, on_full: :drop, **fields)
+      def pool(name, capacity:, image: nil, on_full: :drop, estimate: nil, **fields)
         validate_pool!(name, capacity, fields)
         validate_on_full!(name, on_full)
         hitbox = image && spriteful_hitbox!(name, image, fields)
-        handle = Pool.new(self, name, fields, capacity, image: image, hitbox: hitbox, on_full: on_full)
+        handle = Pool.new(self, name, fields, capacity, image: image, hitbox: hitbox, on_full: on_full,
+                                                        usually: usual_length(estimate, capacity))
         setup_pool_storage(handle, capacity, fields)
         setup_pool_sprites(handle, capacity) if image
         handle

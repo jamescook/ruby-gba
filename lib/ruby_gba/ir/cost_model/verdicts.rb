@@ -91,11 +91,12 @@ module RubyGBA
         #   { list:, break_even:, cap:, budget:, steady: }
         #
         # AT CAPACITY THROUGHOUT, which is the one place in the model that asks for that.
-        # Everywhere else a walk over a list is counted at what the list usually holds,
-        # because that is what a frame really pays. This question is the other one — how
-        # long can the list get before a frame stops fitting — and its answer is only
-        # interesting for a game that fits today. Asked of the typical length, it would go
-        # quiet for exactly the games it is for.
+        # Everywhere else a walk over a list, and a pool's body, are counted at what those
+        # usually hold, because that is what a frame really pays. This question is the other
+        # one — how long can the list get before a frame stops fitting — and its answer is
+        # only interesting for a game that fits today. Asked of the typical figures, it would
+        # go quiet for exactly the games it is for. A pool alongside is held full for the same
+        # reason: the list's break-even has to be solved against the rest of a full frame.
         def budget_thresholds(program)
           index(program)
           return [] unless looping?(program)
@@ -105,7 +106,7 @@ module RubyGBA
           # On a single screen the risk is tearing, and what races the brief safe window is
           # everything the frame does up to its last write to the screen. A double-buffered
           # game cannot tear at all, so its risk is the whole frame's work against 60fps.
-          steady = at_list_capacity { frame_load(program) }
+          steady = at_full_capacity { frame_load(program) }
           return [] if steady <= budget # fits even at full capacity — nothing tips it over
 
           # ONE ANSWER PER LIST, not per loop, and the walks over a list are summed to get
@@ -119,7 +120,7 @@ module RubyGBA
             # get that long, and the rounding is headroom for the mask rather than for the
             # game: a snake whose board holds 340 cells was told its frame gives out at 459.
             cap = @declared[name]
-            body = at_list_capacity do
+            body = at_full_capacity do
               loops.sum { |node| node.children.sum { |child| steady(child) } }
             end
             next unless body.positive? # what one item of the list costs the frame
@@ -425,12 +426,12 @@ module RubyGBA
         # frame than the emulator measured.
         #
         # It says the share is a NET and that is not a hedge, it is the arithmetic. The
-        # estimate is deliberately not a point prediction: it counts a list-driven loop at
-        # its capacity, counts a `pressed` body at zero, and holds the collision worst case
-        # out of the recurring load. Over-counts and under-counts land in the same total, so
-        # a program can read 100% with two real errors in it that happen to cancel. A LOW
-        # share is strong evidence of a problem; a high one is weak evidence of correctness,
-        # and saying only the first half would mislead.
+        # estimate is deliberately not a point prediction: it counts a list walk and a pool's
+        # bodies at what those usually hold, counts a `pressed` body at zero, and holds the
+        # collision worst case out of the recurring load. An over-count and an under-count
+        # land in the same total, so a program can read 100% with two real errors in it that
+        # happen to cancel. A LOW share is strong evidence of a problem; a high one is weak
+        # evidence of correctness, and saying only the first half would mislead.
         #
         # IT IS RED, like the other two banners, and that does not break the rule that red
         # means a frame is over budget. A banner sits ABOVE the report and is a statement
@@ -569,6 +570,24 @@ module RubyGBA
                                     said: @list_lengths.key?(count.name))
           end
           walks.uniq(&:name)
+        end
+
+        # WHAT EVERY WALK OVER A SET OF SLOTS COUNTED AS IN USE — one entry per set walked,
+        # as { name:, counted:, slots:, said: }.
+        #
+        # The sibling of the line above, and the difference is what is being counted. A list
+        # walk goes round as many times as the list is long, so the LENGTH decides the passes.
+        # A pool's walk goes round for every slot however few are live — those passes are real
+        # and are counted whole — and what the guess decides is how many times the BODY runs.
+        def live_slot_verdicts(program)
+          index(program)
+          guards = program.walk.filter_map do |node|
+            next unless node.kind == :if && node.of
+
+            Verdict::LiveSlots.new(name: node.over, counted: node.usually || unsaid_share(node.of),
+                                   slots: node.of, said: !node.usually.nil?)
+          end
+          guards.uniq(&:name)
         end
 
         # Whether the program has a repeat whose trip count has no provable bound — not a

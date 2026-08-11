@@ -87,6 +87,77 @@ class TestCostRollup < CostModelTest
     end
   end
 
+  # A POOL ASKS THE SAME QUESTION AND WANTS A DIFFERENT ANSWER. Its walk really does go
+  # round every slot, so those passes are real and are counted whole — what is not real is
+  # running the BODY sixty-four times. It sits behind a test on whether the slot is live,
+  # and a pool is sized for the worst moment of a game rather than a normal one.
+  #
+  # So the two are separated here, and the shape says it: whatever the pool usually holds,
+  # taking one body per live slot back off leaves the SAME walk every time.
+  def test_a_pool_walks_every_slot_and_runs_its_body_only_for_the_live_ones
+    body = dma_rows(8, 8)
+    walks = [1, 4, 16, 64].map do |live|
+      Cost.new.steady_cost(shooting_game(capacity: 64, estimate: { usually: live })) - (live * body)
+    end
+
+    assert_in_delta walks.first, walks.last, 1e-6,
+                    "the walk over the slots is the same work however few of them are live"
+    assert_equal 1, walks.map { |w| w.round(6) }.uniq.length, "and it does not drift in between"
+    assert_operator walks.first, :>, 64 * WEIGHTS[:loop_pass_held],
+                    "it is a real cost: sixty-four passes, each asking whether its slot is live"
+  end
+
+  # The worst case is untouched: every slot CAN be live, so the frame that has them all
+  # counts them all. That is the number "a heavier frame reaches" reports, and it does not
+  # move when the author says what a normal frame holds.
+  def test_a_pools_worst_case_still_counts_every_slot
+    few = shooting_game(capacity: 64, estimate: { usually: 4 })
+    many = shooting_game(capacity: 64, estimate: { usually: 64 })
+
+    near Cost.new.frame_cost(many), Cost.new.frame_cost(few)
+    near Cost.new.frame_cost(many), Cost.new.steady_cost(many),
+         "and saying every slot is live reads exactly what a pool read before it could say"
+  end
+
+  # Said nothing, and the estimate answers anyway — a quarter of the slots, the same guess
+  # a list's unsaid length gets and for the same reason. The report says which number it
+  # used, so the guess is never silent.
+  def test_a_pool_that_says_nothing_counts_a_quarter_of_its_slots_live
+    guessed = Cost.new.steady_cost(shooting_game(capacity: 64))
+
+    near Cost.new.steady_cost(shooting_game(capacity: 64, estimate: { usually: 16 })), guessed
+    assert_operator guessed, :<, Cost.new.steady_cost(shooting_game(capacity: 64, estimate: { usually: 64 })),
+                    "a guess is still an answer — it must not fall back to charging every slot"
+  end
+
+  # A range works here for the same reason it works on a list — it is the same hint, read
+  # by the same code — and it is charged at its top.
+  def test_a_pools_range_is_counted_at_its_top
+    top = Cost.new.steady_cost(shooting_game(capacity: 64, estimate: { usually: 4..12 }))
+
+    near Cost.new.steady_cost(shooting_game(capacity: 64, estimate: { usually: 12 })), top
+    assert_operator Cost.new.steady_cost(shooting_game(capacity: 64, estimate: { usually: 4 })), :<, top,
+                    "the top and not the bottom — a wider range must never read cheaper"
+  end
+
+  # More live slots than the pool has is not an estimate, it is a mistake, and it would
+  # read CHEAPER than the truth if it were let through — the one direction that matters.
+  def test_a_pool_refuses_to_usually_hold_more_than_it_can
+    error = assert_raises(ArgumentError) { shooting_game(capacity: 8, estimate: { usually: 20 }) }
+
+    assert_match(/8 slots/, error.message)
+    assert_raises(ArgumentError) { shooting_game(capacity: 8, estimate: { usually: 0 }) }
+  end
+
+  # A game loop that walks a pool of `capacity` bullets, drawing one rect per live one.
+  def shooting_game(capacity:, estimate: nil)
+    program do
+      screen :bitmap
+      bullets = pool :bullet, x: 0, y: 0, capacity: capacity, estimate: estimate
+      game_loop { bullets.each { |_b| draw_rect_at 0, 0, 8, 8, :green } }
+    end
+  end
+
   # Inside a game loop, case_var runs exactly ONE scene per frame, so the per-frame
   # cost is the worst branch, not the sum of all branches.
   def test_case_var_costs_the_worst_branch_not_the_sum
