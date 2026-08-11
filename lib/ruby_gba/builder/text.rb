@@ -223,8 +223,9 @@ module RubyGBA
       # from the variable, with leading zeros left blank so it reads naturally.
       def draw_number_tiled(value, x, y, color, digits, font)
         cell = Fonts.get(font).cell_w
-        if value.is_a?(Integer)
-          text = value.to_s
+        fixed = Value.fixed_number(value)
+        if fixed
+          text = fixed.to_s
           pad = [digits - text.length, 0].max # right-align in the field
           return draw_text_tiled(text, x + pad * cell, y, color, font)
         end

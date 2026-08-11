@@ -68,21 +68,22 @@ module RubyGBA
     # A cell coordinate as a pixel position. A constant folds to a plain number; a
     # run-time coordinate becomes `coord * cell`, multiplied on the console.
     def pixel(coord)
-      return coord * @cell if coord.is_a?(Integer)
+      fixed = Value.fixed_number(coord)
+      return fixed * @cell if fixed
 
       Build.binop(:*, Value.node_for(coord), Build.int(@cell))
     end
 
-    # Only a literal coordinate can be range-checked as the program is written; a
-    # run-time coordinate is trusted (and clips at the screen edge if it strays,
-    # like any other draw). Catching the common typo — a constant off the board —
-    # here turns a silent bad write into a plain-language error.
+    # Only a coordinate the author fixed can be range-checked as the program is
+    # written; one the game works out is trusted (and clips at the screen edge if it
+    # strays, like any other draw). Catching the common typo — a constant off the
+    # board — here turns a silent bad write into a plain-language error.
     def in_range!(coord, axis, count)
-      return unless coord.is_a?(Integer)
-      return if (0...count).cover?(coord)
+      fixed = Value.fixed_number(coord)
+      return if fixed.nil? || (0...count).cover?(fixed)
 
       raise ArgumentError,
-            "#{axis} #{coord} is off the #{@name.inspect} grid — valid #{axis}s are 0..#{count - 1}"
+            "#{axis} #{fixed} is off the #{@name.inspect} grid — valid #{axis}s are 0..#{count - 1}"
     end
 
     def whole_positive!(value, field)

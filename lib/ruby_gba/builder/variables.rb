@@ -244,7 +244,8 @@ module RubyGBA
       # its target for ever, which is silent and looks like a physics bug. Taking the
       # size of it means the step says how fast, and the target says which way.
       def approach_bounds(step)
-        return [-step, step] if step.is_a?(Integer)
+        fixed = Value.fixed_number(step)
+        return [-fixed, fixed] if fixed
 
         limit = next_approach_var
         ensure_var(limit)

@@ -42,6 +42,36 @@ class TestValueCoercion < Minitest::Test
     assert_raises(ArgumentError) { Value.node_for("nope") }
   end
 
+  # ---- the other question: is this number fixed, or worked out as it runs? ---
+
+  # The same interchangeability, asked the other way round. A number the author wrote is
+  # the same fact however far it has been wrapped on its way here — bare, wrapped for the
+  # tree, or held in a handle — so all three answer with the number.
+  def test_a_number_the_author_wrote_is_fixed_however_it_is_wrapped
+    assert_equal 5, Value.fixed_number(5)
+    assert_equal 5, Value.fixed_number(int(5)), "already wrapped for the tree"
+    assert_equal 5, Value.fixed_number(Value.new(nil, int(5))), "held in a handle"
+  end
+
+  # ...and everything the game works out answers nil, which is what a caller branches on.
+  def test_a_number_the_game_works_out_is_not_fixed
+    assert_nil Value.fixed_number(:score), "a variable by name"
+    assert_nil Value.fixed_number(var_ref(:score))
+    assert_nil Value.fixed_number(Value.new(nil, var_ref(:score), name: :score))
+    assert_nil Value.fixed_number(binop(:+, var_ref(:score), int(1))), "an expression"
+  end
+
+  # THE ONE THAT ASKING AFTER THE CLASS GOT WRONG. `is_a?(Integer)` is false for a literal
+  # that has already been wrapped, so a caller handed one took the run-time path for a
+  # number that was sitting right there. The two readings have to agree, because the
+  # surface and the backend both ask this and they must not answer differently.
+  def test_a_wrapped_literal_is_fixed_even_though_it_is_not_an_Integer
+    wrapped = int(7)
+
+    refute_kind_of Integer, wrapped
+    assert_equal 7, Value.fixed_number(wrapped)
+  end
+
   # ---- the property: a Value and its :symbol are interchangeable at verbs ---
 
   # Exercise every runtime value-verb with bare symbols/ints, then again with

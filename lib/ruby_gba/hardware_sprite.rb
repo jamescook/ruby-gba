@@ -233,8 +233,9 @@ module RubyGBA
     # 270. Only a `screen :tiled` sprite can turn (the console rotates it in hardware).
     def face_angle(degrees)
       ensure_rotatable
-      if degrees.is_a?(Integer)
-        record(Build.set(@angle_var, Build.int(degrees % 360)))
+      fixed = Value.fixed_number(degrees)
+      if fixed
+        record(Build.set(@angle_var, Build.int(fixed % 360)))
       else
         angle.set(degrees)
         wrap_angle
