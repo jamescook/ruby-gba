@@ -18,23 +18,34 @@
 # This file is only the driver. The work lives in tools/calibration/, split so that the parts
 # which are not measurement can be tested without an emulator:
 #
-#   Benchmarks      builds the ROMs — one method per scenario
-#   Measurer        the one seam to the emulator (FakeMeasurer stands in, in tests)
-#   Reductions      the arithmetic that turns readings into a rate — pure functions
-#   Calibrator      the recipes: which readings make which weight, and its Domain
-#   WeightsFixture  renders the result as the Ruby source of the fixture
+#   Benchmarks         builds the ROMs — one method per scenario
+#   Measurer           the one seam to the emulator (FakeMeasurer stands in, in tests)
+#   Reductions         the arithmetic that turns readings into a rate — pure functions
+#   Calibrator         the recipes: which readings make which weight, and its Domain
+#   Provenance         records WHAT each reading was taken on, so a later tree can be asked
+#                      whether the committed weights still describe it
+#   WeightsFixture     renders the result as the Ruby source of the fixture
+#   CartridgesFixture  the same for the provenance
 #
 # Run it after changing the lowering of a priced op, then commit the diff:
 #   ruby tools/calibrate_cost_model.rb
+#
+# You do not have to remember to: the suite rebuilds every cartridge and fails when they are
+# no longer the ones the committed weights were measured on.
 
 require_relative "../lib/ruby_gba"
 require_relative "calibration/measurer"
 require_relative "calibration/calibrator"
+require_relative "calibration/provenance"
 require_relative "calibration/weights_fixture"
+require_relative "calibration/cartridges_fixture"
 
 FIXTURE = File.expand_path("../lib/ruby_gba/ir/measured_weights.rb", __dir__)
+CARTRIDGES = File.expand_path("calibration/measured_cartridges.rb", __dir__)
 
-calibration = RubyGBA::Calibration::Calibrator.new(RubyGBA::Calibration::Measurer.new).run
+# The measurer, wrapped so that every cartridge it is handed is hashed on the way past.
+log = RubyGBA::Calibration::Provenance::Log.new(RubyGBA::Calibration::Measurer.new)
+calibration = RubyGBA::Calibration::Calibrator.new(log).run
 
 # --- report what moved, against what is committed ---
 current = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
@@ -50,5 +61,10 @@ end
 
 File.write(FIXTURE, RubyGBA::Calibration::WeightsFixture.new(weights: calibration.weights,
                                                              domains: calibration.domains).render)
+File.write(CARTRIDGES,
+           RubyGBA::Calibration::CartridgesFixture.new(
+             digests: log.digests, emulator: RubyGBA::Calibration::Provenance.emulator_digest
+           ).render)
 puts
 puts "wrote #{calibration.weights.size} weights to #{FIXTURE.sub("#{Dir.pwd}/", '')}"
+puts "wrote #{log.digests.size} cartridges to #{CARTRIDGES.sub("#{Dir.pwd}/", '')}"
