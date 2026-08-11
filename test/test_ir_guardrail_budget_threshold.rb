@@ -72,6 +72,37 @@ class TestBudgetThresholdGuardrail < Minitest::Test
     assert_operator threshold.break_even, :<, 33
   end
 
+  # A POOL BESIDE THE LIST IS HELD FULL WHILE THIS QUESTION IS ASKED, and it has to be. The
+  # every-frame figure counts a pool's body for the slots usually live, which is right for
+  # "what does this frame cost" and wrong for this one: the list's tip-over is solved against
+  # the REST of the frame, and the rest of a frame that has given out is a full one. Discount
+  # the pool here and the list gets told it has more room than it has.
+  def test_a_pool_beside_a_growing_list_is_counted_full_while_the_list_is_solved
+    quiet = Cost.new.budget_thresholds(pool_and_list_game(usually: 1)).first
+    busy = Cost.new.budget_thresholds(pool_and_list_game(usually: 32)).first
+    alone = Cost.new.budget_thresholds(growing_draw_game(cap: 64, cell: 20)).first
+
+    refute_nil quiet, "the list still tips over"
+    assert_equal busy.break_even, quiet.break_even,
+                 "what the pool usually holds cannot move the length at which the list gives out"
+    assert_operator quiet.break_even, :<, alone.break_even - 20,
+                    "a frame already full of pool bodies leaves the list far less room"
+  end
+
+  # The same growing list, with a pool of equally dear bodies beside it.
+  def pool_and_list_game(usually:)
+    build_program do
+      screen :bitmap
+      swarm = list :swarm, capacity: 64
+      shots = pool :shot, x: 0, y: 0, capacity: 32, estimate: { usually: usually }
+      game_loop do
+        wait_vblank
+        shots.each { |_s| draw_rect_at 0, 0, 20, 20, :blue }
+        repeat(swarm.length) { |_i| draw_rect_at 0, 0, 20, 20, :red }
+      end
+    end
+  end
+
   # No growing loop, nothing to warn about.
   def test_a_game_without_a_growing_loop_is_quiet
     prog = build_program do

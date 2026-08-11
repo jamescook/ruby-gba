@@ -409,10 +409,10 @@ module RubyGBA
         # Readable so a caller can ask whether a build stands behind this estimate at all —
         # a report says a different thing when the answer is "nothing was worked out".
         @in_fast_code = false
-        # Whether a walk over a list is being counted at the most it can hold rather than
-        # what it usually holds — the growth question, asked by one caller (see
-        # Rollup#at_list_capacity).
-        @at_list_capacity = false
+        # Whether a list and a pool are being counted at the most they can hold rather than
+        # what they usually hold — the growth question, asked by one caller (see
+        # Rollup#at_full_capacity).
+        @at_full_capacity = false
       end
     end
   end

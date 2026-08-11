@@ -203,6 +203,43 @@ class TestCostReport < CostModelTest
     end
   end
 
+  # THE SECOND ASSUMPTION IN THE BUDGET, and the line has to say which of a pool's two
+  # numbers it is talking about: the walk goes round every slot, and the body only runs for
+  # the live ones. A reader who took "6 of 64" for the whole story would think a pool with
+  # nothing live were free, and it is not.
+  def test_the_estimate_says_how_many_of_a_pools_slots_it_took_to_be_live
+    io = StringIO.new
+    Cost.new.render(pool_walking_game(estimate: { usually: 6 }), out: io)
+
+    assert_match(/a pool walks every slot, and runs its body for the live ones/, io.string)
+    assert_match(/:bullet 6 of 64/, io.string, "the number it used, out of the slots there are")
+    assert_match(/the number you gave/, io.string, "and that the author is the one who said it")
+  end
+
+  # ...and when nobody said, it says that it guessed, and how to answer it.
+  def test_a_guessed_live_count_says_so_and_says_how_to_answer_it
+    io = StringIO.new
+    Cost.new.render(pool_walking_game, out: io)
+
+    assert_match(/:bullet 16 of 64, a guess/, io.string)
+    assert_match(/estimate: \{ usually: N \} on the pool/, io.string, "and how to say the real number")
+  end
+
+  def test_a_program_with_no_pool_says_nothing_about_one
+    io = StringIO.new
+    Cost.new.render(program { screen(:bitmap); game_loop { clear_screen :black } }, out: io)
+
+    refute_match(/pool walks/, io.string)
+  end
+
+  def pool_walking_game(estimate: nil)
+    program do
+      screen :bitmap
+      bullets = pool :bullet, x: 0, y: 0, capacity: 64, estimate: estimate
+      game_loop { bullets.each { |_b| draw_rect_at 0, 0, 8, 8, :green } }
+    end
+  end
+
   def test_a_program_with_no_collision_says_nothing_about_collision
     prog = program do
       screen :bitmap

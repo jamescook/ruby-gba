@@ -268,8 +268,23 @@ module RubyGBA
 
       # --- control flow ---  (bodies are nested statements)
 
-      def if_(cond, *body)
-        Nodes.build(:if, children: body, cond: cond)
+      # A test, and the statements that run when it holds.
+      #
+      # `over`/`usually`/`of` are for the COST ESTIMATE and change nothing about what the
+      # program does — no backend reads them. They describe a walk over a fixed set of
+      # slots that acts on the ones in use: the test is asked on every one of `of` slots,
+      # and holds for about `usually` of them. Without that, a walk over sixty-four slots
+      # with six in use is counted at sixty-four bodies a frame, since a build can prove
+      # the slot count and nothing else. `over` names the set the author named, so a
+      # report can say which one it counted.
+      def if_(cond, *body, over: nil, usually: nil, of: nil)
+        if usually && !Whole.within?(usually, 1..of.to_i)
+          raise ArgumentError,
+                "`usually:` must be between 1 and the #{of.inspect} slots of :#{over}. " \
+                "You gave #{usually.inspect}."
+        end
+        hints = { over: over, usually: usually, of: of }.compact
+        Nodes.build(:if, children: body, cond: cond, **hints)
       end
 
       # The else-branch of an `if`: its statements run when the condition is

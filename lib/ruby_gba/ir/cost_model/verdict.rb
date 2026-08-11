@@ -73,6 +73,11 @@ module RubyGBA
         # guessed — the one assumption in the frame figure a reader can correct.
         ListLength = Data.define(:name, :counted, :capacity, :said)
 
+        # The same for a walk over a fixed set of slots that acts on the ones in use (a
+        # pool): every slot is asked, so the walk itself is counted whole, and this is how
+        # many of them the body was counted for.
+        LiveSlots = Data.define(:name, :counted, :slots, :said)
+
         # Work the model cannot price to a single number because it depends on something
         # only known as the game runs — how far a value ranges, and what that costs at each
         # end. Loud, because a frame figure that quietly left it out would read as fine.

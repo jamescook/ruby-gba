@@ -46,8 +46,8 @@ class TestCostResidual < CostModelTest
   end
 
   # The caveat has to travel with the number wherever it appears. The estimate is not a
-  # point prediction — it counts a list-driven loop at capacity and a `pressed` body at
-  # zero — so an over-count and an under-count land in the same total and can cancel. A
+  # point prediction — it counts a list walk at what the list usually holds and a `pressed`
+  # body at zero — so an over-count and an under-count land in the same total and can cancel. A
   # share near 100% is therefore weak evidence of correctness, and saying only that a low
   # share is bad would let the number read as a proof it is not.
   def test_it_says_the_share_is_a_net_and_not_a_bound

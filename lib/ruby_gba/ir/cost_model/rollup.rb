@@ -128,9 +128,8 @@ module RubyGBA
 
         private
 
-        # The selectivity-weighted cost of a subtree: how often the node's body
-        # actually runs scales its cost, so what's left is the work that runs every
-        # frame. A node that always runs weighs 1 (see #selectivity).
+        # What a subtree really costs every frame: how often a body actually runs scales it,
+        # so what is left is the work a frame always pays for (see #selectivity).
         # +worst+ runs the same walk asking for everything a frame could cost rather than
         # what it usually does — see #expr_cost. Differencing the two is how the estimate
         # names what the recurring load leaves out.
@@ -140,19 +139,17 @@ module RubyGBA
         # risk by the whole of it up to the last draw (#steady_tear_cost). There is nothing
         # here that sums the drawing on its own.
         def steady(node, worst: false)
-          selectivity(node) * raw_steady(node, worst)
-        end
-
-        def raw_steady(node, worst)
           case node.kind
           when :program, :loop, :else then node.children.sum { |child| steady(child, worst: worst) }
           # The condition is tested every frame, whichever way it goes — that's where a
-          # collision test's comparison chain lives — so it's priced here; only the branch
-          # bodies are scaled by how often they run.
+          # collision test's comparison chain lives, and a pool's walk asks whether a slot is
+          # live on every slot it has — so it's priced whole here; only the branch bodies are
+          # scaled by how often they run.
           when :if
             expr_cost(node.cond, worst: worst) +
-              node.children.sum { |child| steady(child, worst: worst) } +
-              (node.else ? steady(node.else, worst: worst) : 0)
+              (selectivity(node) *
+                (node.children.sum { |child| steady(child, worst: worst) } +
+                 (node.else ? steady(node.else, worst: worst) : 0)))
           # A loop costs a rate per pass AND a fixed amount for being entered — see
           # #loop_overhead_leaf for what each of them is.
           when :repeat
@@ -219,12 +216,14 @@ module RubyGBA
           @in_fast_code = was
         end
 
-        # How often an `if`'s body runs, read from its condition: a body behind a
-        # `pressed` edge is a rare transition (never counts toward the steady load); a
-        # `chance(p)` body holds p% of the time. A `held` or a plain comparison runs
-        # every frame it's true, so it weighs 1 — as does any non-`if` node.
+        # How often an `if`'s body runs. A body behind a `pressed` edge is a rare transition
+        # (never counts toward the steady load); a `chance(p)` body holds p% of the time; a
+        # test that guards one slot of a walk holds for the slots in use (see #live_share).
+        # A `held` or a plain comparison runs every frame it's true, so it weighs 1 — as does
+        # any non-`if` node.
         def selectivity(node)
           return 1 unless node.kind == :if
+          return @at_full_capacity ? 1 : live_share(node) if node.of
 
           case node.cond&.kind
           when :pressed then 0
@@ -232,6 +231,26 @@ module RubyGBA
           else 1
           end
         end
+
+        # WHAT SHARE OF A WALK'S SLOTS ARE IN USE, for a guard that says it is one.
+        #
+        # A pool walks every slot it has — that is real work, the test is asked of each one,
+        # and it is priced above whatever this returns. But the body behind the test is only
+        # for a live slot, and a pool is sized for the worst moment of a game rather than a
+        # normal one: sixty-four bullets so the one frame that needs sixty-four has them, six
+        # on screen the rest of the time. Counting sixty-four bodies a frame is counting ten
+        # times the work the console does.
+        #
+        # The author can say the number (`estimate: { usually: 6 }`) and then this is simply
+        # what they said. Where they have not it is a guess, named as one in the report, and
+        # it is the same quarter a list's unsaid length guesses — for the same reason, and
+        # the reason is the same shape of mistake: a capacity is chosen so it can never be
+        # reached, so it sits above anything the author had in mind.
+        def live_share(node)
+          Rational(node.usually || unsaid_share(node.of), node.of)
+        end
+
+        def unsaid_share(slots) = [slots / UNSAID_SHARE, 1].max
 
         # What every per-pixel collision test in a frame costs if they all land at once —
         # the part of the worst case the recurring load leaves out, so the estimate can say
@@ -567,7 +586,7 @@ module RubyGBA
         # A timed trigger (every/after) as a labeled container: it carries its body's
         # full cost — the cost of the frame it does fire — so the tree and the
         # heaviest-frame figure read true; the steady discount is applied separately
-        # (see #raw_steady). The label names the intent, e.g. "every 30".
+        # (see #steady). The label names the intent, e.g. "every 30".
         def build_timer(node, label)
           kids = node.children.flat_map { |child| build(child) }
           Entry.new(op: node.kind, label: label, cost: sum(kids), source: node.source, children: kids)
@@ -601,7 +620,7 @@ module RubyGBA
           return [count.value, "x#{count.value}"] if count.is_a?(Node) && count.kind == :int
           if count.is_a?(Node) && count.kind == :list_len && @capacities[count.name]
             cap = @capacities[count.name]
-            return [cap, "x<=#{cap} (#{count.name} capacity)"] unless typical && !@at_list_capacity
+            return [cap, "x<=#{cap} (#{count.name} capacity)"] unless typical && !@at_full_capacity
 
             usual = list_length(count.name)
             return [usual, "x#{usual} (#{count.name} usually)"]
@@ -609,29 +628,27 @@ module RubyGBA
           [0, "x? (unbounded)"]
         end
 
-        # Ask the every-frame question about a list AS THOUGH IT WERE FULL, for the length
-        # of a block. One caller wants that: the guardrail that says at what length a
-        # growing list stops fitting in a frame (see Verdicts#budget_thresholds) is asking
-        # about the frames a game has not reached yet, which is the one question the typical
-        # length is the wrong answer to.
-        def at_list_capacity
-          was = @at_list_capacity
-          @at_list_capacity = true
+        # Ask the every-frame question AS THOUGH EVERYTHING WERE FULL, for the length of a
+        # block — a list holding its capacity, a pool with every slot live. One caller wants
+        # that: the guardrail that says at what length a growing list stops fitting in a
+        # frame (see Verdicts#budget_thresholds) is asking about the frames a game has not
+        # reached yet, which is the one question a typical figure is the wrong answer to.
+        def at_full_capacity
+          was = @at_full_capacity
+          @at_full_capacity = true
           yield
         ensure
-          @at_list_capacity = was
+          @at_full_capacity = was
         end
 
-        # HOW LONG A LIST USUALLY IS, which nothing in a program says out loud.
+        # HOW MUCH OF A CAPACITY IS USUALLY IN USE, when nothing in the program says.
         #
-        # The author can say it (`list :body, capacity: 256, estimate: { usually: 12 }`) and
-        # then this is simply what they said. Where they have not, it is a guess and the
-        # report says so:
-        # a QUARTER of the capacity, because a capacity is picked as a ceiling the list must
-        # never pass and is then rounded up to a power of two, so it already sits above the
-        # biggest number the author had in mind. A quarter of it is still a real walk — it
-        # counts every pass — and it is nearer the truth than the ceiling for every list a
-        # game grows into.
+        # A QUARTER of it, for a list's length and for a pool's live slots alike, because a
+        # capacity is picked as a ceiling the thing must never reach — and a list's is then
+        # rounded up to a power of two on top of that — so it already sits above the biggest
+        # number the author had in mind. A quarter is still real work: every pass of the walk
+        # is counted whatever this says, and it is nearer the truth than the ceiling for
+        # anything a game grows into.
         #
         # Guessing at all is a deliberate call. The alternative is to keep charging the
         # ceiling, and that is not the safe direction here: it is not a couple of
@@ -639,10 +656,13 @@ module RubyGBA
         # frame, and an estimate that cries wolf on a game which fits teaches an author to
         # stop reading it. The worst case is still counted and still printed — see the tree,
         # which keeps the capacity, and the line the report prints beside the verdict.
-        UNSAID_LIST_SHARE = 4
+        UNSAID_SHARE = 4
 
+        # How long a list usually is, which nothing in a program says out loud. The author can
+        # say it (`list :body, capacity: 256, estimate: { usually: 12 }`) and then this is
+        # simply what they said; otherwise it is the guess above, and the report says so.
         def list_length(name)
-          @list_lengths[name] || [@capacities[name] / UNSAID_LIST_SHARE, 1].max
+          @list_lengths[name] || unsaid_share(@capacities[name])
         end
       end
     end

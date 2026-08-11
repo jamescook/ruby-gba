@@ -263,6 +263,7 @@ module RubyGBA
           end
 
           list_walk_line(program, printer)
+          live_slot_line(program, printer)
 
           if frame_total > recurring + 0.1
             printer.puts "    (a heavier frame reaches #{fmt(frame_total)} — the worst case for everything on it, " \
@@ -290,6 +291,24 @@ module RubyGBA
           else
             printer.puts "    (a list walk counts what the list usually holds — #{at}, a guess. " \
                          "To give the real length, write estimate: { usually: N } on the list.)"
+          end
+        end
+
+        # HOW MANY SLOTS WERE TAKEN TO BE IN USE. A pool's walk visits every slot it has and
+        # that is counted in full — but the body behind the live test is not, and a pool is
+        # sized for the worst moment of a game rather than a normal one. So this is the
+        # second assumption in the budget an author can correct, and it says how.
+        def live_slot_line(program, printer)
+          guards = live_slot_verdicts(program)
+          return if guards.empty?
+
+          at = guards.map { |g| ":#{g.name} #{g.counted} of #{g.slots}" }.join(", ")
+          if guards.all?(&:said)
+            printer.puts "    (a pool walks every slot, and runs its body for the live ones — " \
+                         "#{at}, the number you gave)"
+          else
+            printer.puts "    (a pool walks every slot, and runs its body for the live ones — #{at}, " \
+                         "a guess. To give the real number, write estimate: { usually: N } on the pool.)"
           end
         end
 
