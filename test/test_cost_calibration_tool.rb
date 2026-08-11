@@ -6,7 +6,10 @@ require_relative "../tools/calibration/reductions"
 require_relative "../tools/calibration/domain"
 require_relative "../tools/calibration/fake_measurer"
 require_relative "../tools/calibration/calibrator"
+require_relative "../tools/calibration/provenance"
+require_relative "../tools/calibration/measured_cartridges"
 require_relative "../tools/calibration/weights_fixture"
+require_relative "../tools/calibration/cartridges_fixture"
 
 # The calibration tool itself (tools/calibration/), which measures every weight the cost model
 # charges. It used to be one flat script welded to the emulator, so none of it could be tested;
@@ -110,6 +113,17 @@ class TestCostCalibrationTool < Minitest::Test
     File.expand_path("../lib/ruby_gba/ir/measured_weights.rb", __dir__)
   end
 
+  # The same round trip for the provenance file beside it.
+  def test_it_renders_the_committed_cartridges_exactly
+    rendered = Calibration::CartridgesFixture.new(digests: Calibration::MEASURED_CARTRIDGES,
+                                                  emulator: Calibration::MEASURED_EMULATOR).render
+    assert_equal File.read(cartridges_path), rendered
+  end
+
+  def cartridges_path
+    File.expand_path("../tools/calibration/measured_cartridges.rb", __dir__)
+  end
+
   # Given domains, it writes them too — and the rendered source has to be valid Ruby that
   # actually defines them, not just text that looks right.
   def test_it_renders_the_domains_when_a_calibration_recorded_them
@@ -146,14 +160,89 @@ class TestCostCalibrationTool < Minitest::Test
                  mod::Fixture::IR::CostModel::WEIGHT_DOMAINS[:op_step])
   end
 
+  # --- ARE THE COMMITTED WEIGHTS STILL THIS TREE'S? ---
+  #
+  # THE FAILURE THIS EXISTS FOR. The weights file says to re-run the calibration after changing
+  # the lowering of a priced op, and until now nothing checked that anybody had. A change to the
+  # shape of a loop whose body calls a routine left op_div, op_div_fix and blit_start describing
+  # a loop shape their benchmarks no longer got; it sat in the file across seven commits and was
+  # found by accident, while re-measuring an unrelated weight. The round trip above could not
+  # see it — that asks whether the file is what the RENDERER would write given those numbers,
+  # which says nothing about whether the numbers are what the tool would measure today. So the
+  # one thing that can go stale was the one thing not checked.
+  #
+  # WHY THIS CAN BE EXACT. The emulator is deterministic, so a cartridge whose bytes have not
+  # changed cannot read differently, and one whose bytes HAVE changed may. So the check compares
+  # the cartridges rather than the weights: no tolerance to argue about, no false alarm from a
+  # refactor that changed no emitted byte, and nothing missed that reaches a benchmarked op. See
+  # tools/calibration/provenance.rb for why hashing the source files instead would be worse.
+  #
+  # It needs no emulator — building a cartridge is not running one — so it belongs in the
+  # ordinary suite rather than behind a flag or a commit hook.
+  def test_the_weights_were_measured_on_the_cartridges_this_tree_builds
+    built = built_cartridges
+    recorded = Calibration::MEASURED_CARTRIDGES
+
+    changed = recorded.keys.select { |name| built.key?(name) && built[name] != recorded[name] }
+    assert_empty changed, "#{changed.length} of the cartridges the weights were measured on are " \
+                          "no longer what this tree builds, so whatever they measured now " \
+                          "describes code the build does not emit. Re-run " \
+                          "tools/calibrate_cost_model.rb and commit the diff — it prints every " \
+                          "weight that moved and by how much."
+  end
+
+  # ...and the same question the other two ways round, so that adding or removing a benchmark
+  # without re-measuring is caught as loudly as changing one. Each side is named on its own:
+  # the interesting thing is the handful that moved, and a list of all hundred and fifty-seven
+  # twice over would bury it.
+  def test_every_cartridge_the_calibration_builds_is_one_the_weights_were_measured_on
+    built = built_cartridges.keys
+    recorded = Calibration::MEASURED_CARTRIDGES.keys
+
+    assert_empty built - recorded, "the calibration builds cartridges the committed weights " \
+                                   "were never measured on. Re-run tools/calibrate_cost_model.rb."
+    assert_empty recorded - built, "the committed weights were measured on cartridges the " \
+                                   "calibration no longer builds. Re-run " \
+                                   "tools/calibrate_cost_model.rb."
+  end
+
+  # THE OTHER HALF, and the cartridges' one blind spot: the emulator itself. Change what it
+  # counts and every cartridge is byte-identical while every weight goes stale.
+  def test_the_weights_were_measured_on_this_emulator
+    assert_equal Calibration::MEASURED_EMULATOR, Calibration::Provenance.emulator_digest,
+                 "the emulator's own sources have changed since the weights were measured, and " \
+                 "the cartridges cannot see that — they are the same bytes either way. Re-run " \
+                 "tools/calibrate_cost_model.rb."
+  end
+
+  # Every cartridge this tree's calibration builds, by content. The readings are canned, so no
+  # emulator runs; what is exercised is the building.
+  def built_cartridges = flat_calibration.last.digests
+
   # --- the recipes, against canned readings ---
 
   # Every reading answers the same number, so every marginal rate comes out at zero. Useless as
   # a value and exactly right as a wiring check: it runs every recipe and says they produce the
   # weights the model expects, in the order the fixture wants them.
+  #
+  # The plain form — nothing canned — is SHARED, because half the tests in this file want the
+  # same one and a run builds a hundred and fifty-seven cartridges. It cannot come out
+  # differently twice. It also goes through the provenance log, so the cartridge checks above and
+  # the recipe checks below are one run rather than two.
   def flat_calibration(default: 1.0, busy: {})
-    fake = Calibration::FakeMeasurer.new(busy: busy, default: default)
-    [Calibration::Calibrator.new(fake).run, fake]
+    return self.class.plain_run ||= run_calibration(Calibration::FakeMeasurer.new(default: 1.0)) if
+      busy.empty? && default == 1.0
+
+    run_calibration(Calibration::FakeMeasurer.new(busy: busy, default: default))
+  end
+
+  def run_calibration(measurer)
+    log = Calibration::Provenance::Log.new(measurer)
+    [Calibration::Calibrator.new(log).run, log]
+  end
+
+  class << self
+    attr_accessor :plain_run
   end
 
   def test_it_produces_exactly_the_weights_the_model_uses_in_the_committed_order
