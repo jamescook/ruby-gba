@@ -2,6 +2,7 @@
 
 require_relative "effects/packs/screen_shake"
 require_relative "effects/packs/screen_fade"
+require_relative "effects/packs/follow_camera"
 require_relative "effects/packs/pulse"
 
 module RubyGBA
@@ -196,8 +197,9 @@ module RubyGBA
     # gets these verbs without asking for them; anything else it registers itself.
     DEFAULT_PACKS = [
       Packs::ScreenShake, # shake_screen — the impact effect, built on `camera`
-      Packs::ScreenFade,  # fade_out / fade_in / flash_screen — built on `fade`
-      Packs::Pulse,       # pulse — a sprite that breathes, built on `sprite.scale`
+      Packs::ScreenFade,    # fade_out / fade_in / flash_screen — built on `fade`
+      Packs::FollowCamera,  # camera_follows — built on a background's own scrolling
+      Packs::Pulse,         # pulse — a sprite that breathes, built on `sprite.scale`
     ].freeze
   end
 

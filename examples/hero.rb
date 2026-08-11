@@ -11,15 +11,21 @@
 # hero on top of the moving scenery for free, so the hero never smears and the
 # scenery never tears.
 #
-# The trick is a tiny bit of bookkeeping: we remember where the hero is in the
-# WORLD (which can be far bigger than the screen), keep the hero's picture pinned
-# to the screen's center, and each frame point the camera at the hero — so the
-# window onto the world is always centered on them. The world is a torus, so you
-# can walk forever in any direction and it simply wraps around.
+# You say it once — `camera_follows hero, across: world` — and from then on the hero
+# is an ORDINARY SPRITE you move with `move`, exactly like one in a game that fits on
+# a single screen. The framework does the swap: every frame it sees how far the hero
+# walked, slides the world by that much, and puts the hero back where it stands. The
+# world is a torus, so you can walk forever in any direction and it wraps around.
+#
+# That the hero stays an ordinary sprite is the part that matters. Written by hand,
+# a world bigger than the screen forces you to keep the hero's world position in
+# variables of your own — and then the hero is a pair of numbers rather than a
+# sprite, so `move` and its automatic facing, walk cycles and poses are all out of
+# reach.
 #
 # What you never touch: object memory, tile numbers, palettes, the sprite table,
 # or a single scroll register. A tile is an `image`, the world is a `background`,
-# the hero is a `sprite`, and "follow the hero" is one `scroll_to` a frame.
+# and the hero is a `sprite`.
 #
 # Its companion, examples/scroll.rb, pans the same kind of world with no hero —
 # the camera on its own. This is that camera locked onto a character.
@@ -31,10 +37,6 @@ require_relative "../lib/ruby_gba"
 
 module Hero
   SPEED = 2 # pixels the hero walks per frame while a direction is held
-
-  # An 8x8 sprite sits centered on the 240x160 screen when its top-left is here.
-  CENTER_X = 116
-  CENTER_Y = 76
 
   # A pond of water tiles, a few cells across, dropped into the grass as a landmark
   # you can watch slide by as you walk (and walk back around to, since the world wraps).
@@ -111,27 +113,22 @@ module Hero
       ART
     end
 
-    sprite :guy, at: [CENTER_X, CENTER_Y]
+    hero = sprite :guy, at: [0, 0]
+    hero.center_on_screen # the middle of the screen, worked out from the hero's own size
 
-    # Where the hero stands in the WORLD (not on the screen). We start them near a
-    # corner of the pond and move THIS as you press the d-pad; the sprite itself stays
-    # put in the center.
-    hero_x = var :hero_x, 120
-    hero_y = var :hero_y, 80
+    # ...and the camera follows them. From here the hero is an ordinary sprite you move
+    # with `move`, and the world slides underneath instead: every frame the framework
+    # sees how far they walked, scrolls the world by exactly that, and puts them back.
+    camera_follows hero, across: world, at: [120, 80] # standing by a corner of the pond
 
     game_loop do
-      # Hold a direction to walk. We move the hero's world position; the world is a
-      # torus, so there's no edge to bump into — keep going and it wraps.
-      held(:left).then  { hero_x.sub SPEED }
-      held(:right).then { hero_x.add SPEED }
-      held(:up).then    { hero_y.sub SPEED }
-      held(:down).then  { hero_y.add SPEED }
-
-      # Point the camera at the hero: put the window's top-left where the hero is,
-      # backed off by half the screen, so the hero lands dead center. That one line is
-      # the whole follow-cam — the console slides the world and composites the hero
-      # over it.
-      world.scroll_to hero_x - CENTER_X, hero_y - CENTER_Y
+      # Hold a direction to walk. This is the same `move` any sprite takes — nothing
+      # here knows the world is bigger than the screen. The world is a torus, so there's
+      # no edge to bump into: keep going and it wraps.
+      held(:left).then  { hero.move :left,  by: SPEED }
+      held(:right).then { hero.move :right, by: SPEED }
+      held(:up).then    { hero.move :up,    by: SPEED }
+      held(:down).then  { hero.move :down,  by: SPEED }
     end
   end
 

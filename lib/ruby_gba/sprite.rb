@@ -181,6 +181,18 @@ module RubyGBA
     end
     alias stay_on_screen clamp_to_screen
 
+    # Put the sprite in the middle of the screen, worked out from its own size — the
+    # sibling of {#clamp_to_screen}, and for the same reason: no coordinate literals.
+    # Where a logo sits on a title screen, where a cursor starts on a menu.
+    #
+    # It centres the sprite's collision box, which is the box that hugs its visible
+    # pixels unless you gave it one — so a picture with a transparent margin still
+    # LOOKS centred, which a naive half-the-width would not manage.
+    def center_on_screen
+      move_to((IR::Screen::WIDTH - @hit_w) / 2 - @hit_x,
+              (IR::Screen::HEIGHT - @hit_h) / 2 - @hit_y)
+    end
+
     # Turn the sprite to face a direction, swapping to that pose in place (no move).
     # Only for a sprite given `facing:` poses, and only a direction it has a pose
     # for — anything else is a friendly error. The pose shows on the next frame,
