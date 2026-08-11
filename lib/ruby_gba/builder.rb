@@ -314,6 +314,7 @@ module RubyGBA
       finalize_background_scrolls
       finalize_per_frame_routines
       verify_targets_defined!
+      verify_stack_fits!
       initialize_rng_stream
       register_save_init
       emit_boot_inits

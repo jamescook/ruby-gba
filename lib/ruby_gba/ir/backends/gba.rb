@@ -263,6 +263,11 @@ module RubyGBA
           reserve_divide_routine if needs_divide_routine?(program)
           reserve_divide_fix_routine if needs_divide_fix_routine?(program)
           collect_definitions(program)
+          # How the picture stacks: which scenery and sprites there are, in what order,
+          # and how deep each sits. Worked out once, before anything is given a hardware
+          # slot, because both the background layers and the sprites read the same
+          # answer and a slot handed out early cannot be taken back.
+          @picture = IR::Stacking.picture(program)
           adopt_frame_body(program) # the game loop's body counts as a routine once it moves
           prepare_direct_sound(program) # embed the program's samples as ROM data
           @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
@@ -272,6 +277,7 @@ module RubyGBA
           prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
           resolve_modes(program)
           @tiled = program.walk.any? { |node| node.kind == :screen && node.mode == :tiled }
+          guard_stack_fits if @tiled
           prepare_backgrounds(program) if @tiled
           register_row_bends(program) # which layers bend row by row (armed at boot, run per line)
           prepare_row_bends(program)
@@ -623,8 +629,7 @@ module RubyGBA
           # Back to front. A layer can put a background behind one declared before it,
           # and this order becomes the hardware layer number, which IS the paint order —
           # so it has to be settled here, before any layer is given a number.
-          nodes = IR::Stacking.order(program.walk.select { |node| node.kind == :background },
-                                     @layer_stack, &:layer)
+          nodes = @picture.scenery
           if nodes.size > MAX_BG_LAYERS
             raise LoweringError,
                   "#{nodes.size} background layers were declared, but the console stacks #{MAX_BG_LAYERS} " \
@@ -636,7 +641,7 @@ module RubyGBA
           # points at a see-through tile and layers behind it show through.
           palette = { 0x0000 => 0 }
           char = (+"").b << ("\x00" * (TILE_PX * TILE_PX)).b
-          nodes.each_with_index { |node, layer| prepare_one_background(node, layer, nodes.size, palette, char) }
+          nodes.each_with_index { |node, layer| prepare_one_background(node, layer, palette, char) }
 
           tiles_total = char.bytesize / (TILE_PX * TILE_PX)
           if tiles_total > CHAR_BLOCK_TILES
@@ -653,8 +658,8 @@ module RubyGBA
 
         # Fold one layer into the shared palette and character block, and build its map.
         # +layer+ is its place in the stack, which is also its hardware layer number
-        # (BG0, BG1, ...) and decides its paint order: the first one is the backmost.
-        def prepare_one_background(node, layer, count, palette, char)
+        # (BG0, BG1, ...). What decides its paint order is the priority below.
+        def prepare_one_background(node, layer, palette, char)
           name = node.name
           tiles = node.tiles
           validate_tile_sizes!(name, tiles)
@@ -692,10 +697,55 @@ module RubyGBA
           @data_blobs[map_blob] = entries.pack("v*")
           @backgrounds[name] = BackgroundPlacement.new(
             map: map_blob, map_units: entries.size,
-            bg: layer,                           # hardware layer (BG0..BG3), in declaration order
+            bg: layer,                           # hardware layer (BG0..BG3), in stack order
             screen_block: FIRST_MAP_SCREENBLOCK + layer,
-            priority: count - 1 - layer          # first declared is backmost (higher priority number = drawn behind)
+            priority: hardware_priority(name)
           )
+        end
+
+        # The console keeps four levels of depth, and a picture can ask for more of them
+        # than that. Say so in the author's own layer names — the number this refuses is
+        # a hardware fact, but "BG2" is not a thing anybody wrote.
+        #
+        # There are only two ways to run out, so the message names the one that happened
+        # rather than listing both: too much scenery, or a layer of sprites sitting
+        # behind every piece of it (which needs a level of its own, above the lot).
+        MAX_LEVELS = 4
+
+        def guard_stack_fits
+          needed = @picture.depths.count
+          return if needed <= MAX_LEVELS || @picture.stack.empty?
+
+          raise LoweringError,
+                "This picture needs #{needed} levels of depth and the console stacks #{MAX_LEVELS}. " \
+                "#{stack_overflow_cause}\n" \
+                "The stack is #{@picture.stack.map { |name| ":#{name}" }.join(', ')}, back to front."
+        end
+
+        # Which of the two ways it ran out, and what to do about that one.
+        def stack_overflow_cause
+          backmost = @picture.objects.select { |node| @picture.depths[node.name].zero? }
+          if backmost.any? && @picture.scenery.none? { |node| @picture.depths[node.name].zero? }
+            behind = backmost.map(&:layer).uniq.compact
+            "The sprites in #{behind.map { |name| ":#{name}" }.join(', ')} sit behind every background, " \
+              "which takes a level of its own. To fix this, move that layer in front of one background, " \
+              "or use one background less."
+          else
+            "Each background takes a level, and the sprites in front of it share that level. " \
+              "To fix this, use fewer backgrounds."
+          end
+        end
+
+        # What the console's stacking hardware is told about how deep a thing sits.
+        #
+        # It counts the other way round from the picture: 0 is the FRONT and 3 the back,
+        # and there are only four of them. So the levels the picture needs are flipped
+        # onto that scale, deepest first. Several named layers can land on one number,
+        # which is the point — the console has more layers than it has priorities, and
+        # it can already tell apart what shares one (a sprite is drawn over a background
+        # of the same priority, and two sprites keep their table order).
+        def hardware_priority(name)
+          @picture.depths.count - 1 - @picture.depths[name]
         end
 
         # This color's slot in the shared background palette, adding it if it's new.
@@ -764,6 +814,12 @@ module RubyGBA
         # no palette banks to think about.
         OBJ_256_COLOR = 0x2000
 
+        # attr2 bits 10-11: how deep this sprite sits, on the console's own scale where 0
+        # is the front. A sprite is drawn over a background holding the SAME number, which
+        # is what lets a picture put scenery in front of one sprite and behind another
+        # without spending a number on each.
+        OBJ_PRIORITY_SHIFT = 10
+
         # Sprite tile memory: 32KB, holding all the sprites' tile pictures at once.
         OBJ_TILE_CAPACITY = 0x8000
 
@@ -800,7 +856,7 @@ module RubyGBA
         # actually draws is what keeps this console agreeing with every other backend
         # about which sprite is on top.
         def prepare_objects(program)
-          nodes = objects_in_draw_order(program)
+          nodes = @picture.objects
           if nodes.size > MAX_SPRITES
             raise LoweringError,
                   "#{nodes.size} sprites declared, but the console draws at most #{MAX_SPRITES} at once"
@@ -818,20 +874,6 @@ module RubyGBA
           raise LoweringError,
                 "the sprites' tiles need #{tile_unit * 32} bytes — sprite tile memory holds #{OBJ_TILE_CAPACITY}. " \
                 "Use fewer or smaller sprites."
-        end
-
-        # Every declared sprite, in the order a frame draws them (later = in front). The
-        # frame's own draw list leads; a sprite that list never mentions — one declared
-        # in a program with no frame to draw it — keeps its place in the tree, after the
-        # ones that are drawn.
-        def objects_in_draw_order(program)
-          declared = program.walk.select { |node| node.kind == :object }
-          by_name = declared.to_h { |node| [node.name, node] }
-          drawn = program.walk.find { |node| node.kind == :present_objects }
-          return declared unless drawn
-
-          ordered = drawn.names.filter_map { |name| by_name[name] }
-          ordered + (declared - ordered)
         end
 
         # Set up the sprites that turn or change size. Each is given one of the console's
@@ -950,6 +992,10 @@ module RubyGBA
             scales: object_scales?(node),           # ...and does that group need a size worked out?
             attr0_base: OBJ_256_COLOR | (shape << 14),
             attr1_base: size << 14,
+            # attr2's top bits carry how deep the sprite sits. It stays 0 — the front —
+            # in every picture where the sprites are over all the scenery, which is
+            # every picture that names no layers.
+            attr2_base: hardware_priority(name) << OBJ_PRIORITY_SHIFT,
           }
         end
 

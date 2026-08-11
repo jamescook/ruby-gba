@@ -761,12 +761,13 @@ module RubyGBA
           def emit_object_tile_number(obj, attr2_addr)
             fixed = const_int(obj[:pose])
             if fixed
-              write_reg16(attr2_addr, obj[:tile_index] + (fixed * obj[:per_pose]))
+              write_reg16(attr2_addr, obj[:tile_index] + (fixed * obj[:per_pose]) | obj[:attr2_base])
             else
               eval_value(obj[:pose])                          # r0 = pose index
               emit(ASM.load_immediate(TMP, obj[:per_pose]))   # r1 = stride between poses
               emit(ASM.mul(2, ACC, TMP))                      # r2 = pose * stride (rd must differ from rm)
               emit_add_const(ACC, 2, obj[:tile_index], TMP)   # r0 = r2 + base tile
+              orr_acc(obj[:attr2_base]) unless obj[:attr2_base].zero?
               store_halfword_acc(attr2_addr)
             end
           end
