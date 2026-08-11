@@ -124,6 +124,7 @@ module RubyGBA
           @row_bends = {}          # background name -> :scroll_rows node giving each row its own offset
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
+          @layer_stack = []        # the layers the program declared, backmost first
           @tables = {}             # name -> { values:, signed: } (a read-only ROM table)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
           @samples = {}           # name -> { rate:, length: } (a defined PCM sample)
@@ -356,6 +357,10 @@ module RubyGBA
               @vars[node.counter] = Int32.add(@vars[node.counter], 1)
               node.children.each { |child| exec(child) } if @vars[node.counter] == node.frames
             end
+          when :layers
+            # The stack of depths this picture is built from, backmost first. A
+            # declaration, so reaching it settles the order rather than doing anything.
+            @layer_stack = node.names
           when :list_new
             # Create (or reset) the named list, empty, with its rounded capacity.
             @lists[node.name] = ListValue.new(node.capacity)

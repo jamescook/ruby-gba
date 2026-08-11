@@ -97,6 +97,11 @@ module RubyGBA
     # draw.
     attr_reader :object_name
 
+    # Where this sprite sits in the stack — the layer it was declared in, or nil in a
+    # game that names no layers. It's read off the object itself rather than kept here
+    # as well, so the handle and the program can never disagree about it.
+    def layer = @object_node.layer
+
     # The sprite's position, as {Value} handles — steer them with the expression DSL
     # (`hero.x.add 2`, `hero.y.clamp 0, 150`). The framework reads them each frame to
     # know where to draw.

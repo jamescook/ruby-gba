@@ -20,6 +20,7 @@ require_relative "builder/tiled"
 require_relative "builder/composition"
 require_relative "builder/timers"
 require_relative "builder/sampled_audio"
+require_relative "builder/layers"
 
 module RubyGBA
   # DSL context for building a GBA ROM.
@@ -62,6 +63,7 @@ module RubyGBA
     include Composition # pool (a component + a pool of instances, per-instance update)
     include Timers     # timer (a hardware counter running at a chosen rate)
     include SampledAudio # sample (a recorded PCM sound, played via Direct Sound)
+    include Layers     # layers, layer (a named place in the stack: what sits in front of what)
 
     # Shorthand for the IR node constructors, so DSL methods can build tree
     # nodes as terse Build.set(...) calls.
@@ -114,6 +116,8 @@ module RubyGBA
       @scene_gates = {}        # scene func name → [state_var, value] it's dispatched on (from case_var), for gating its presentation
       @current_scene_gate = nil # while a scene func's body is being built: the [state_var, value] its declarations belong to
       @building_scene = nil    # the scene func name currently being built (lets its presentation be declared inside it)
+      @layer_stack = []        # the layers the program declared, back to front (see Builder::Layers)
+      @current_layer = nil     # while a `layer` block runs: the layer its declarations belong to
 
       # The program the DSL builds: an IR tree of nodes that {RubyGBA.build}
       # lowers to a ROM. Each statement attaches to the container on top of the
@@ -361,11 +365,18 @@ module RubyGBA
       if_node
     end
 
-    # The hook a {List} handle uses to append one of its statement operations
-    # (push / drop / element-set) at the current build point — the collection
-    # counterpart to how a {Value}'s mutators record through the builder's verbs.
+    # The hook a handle uses to append one of its own statement operations at the
+    # current build point — a {List}'s push, a {Sprite} painting itself onto the screen
+    # and taking itself off again — the counterpart to how a {Value}'s mutators record
+    # through the builder's verbs.
+    #
+    # It skips the layer rules a flat DSL verb goes through, and that is the whole
+    # difference between the two. A handle doing its own work is never a brushstroke
+    # somebody wrote inside a `layer` block: a software sprite paints itself with the
+    # same node an author's `blit` builds, and refusing the sprite for the sake of the
+    # `blit` would refuse the very thing a layer is for.
     def record_statement(node)
-      record(node)
+      attach(node)
     end
 
     # Record a container node and run +block+ to fill its children — the hook a handle
@@ -700,10 +711,18 @@ module RubyGBA
 
     # --- IR tree construction ---
 
-    # Attach a freshly built IR node to the open container and return it. Stamp it
-    # with the DSL call site that built it (unless it already carries one), so a
-    # later guardrail finding can point the author straight at the line.
+    # Attach a freshly built IR node to the open container and return it — the route
+    # every flat DSL verb takes, so it's also where an open `layer` block gets its say
+    # about what was just written.
     def record(node)
+      place_in_layer(node)
+      attach(node)
+    end
+
+    # Put a node in the open container. Stamp it with the DSL call site that built it
+    # (unless it already carries one), so a later guardrail finding can point the
+    # author straight at the line.
+    def attach(node)
       node.source ||= caller_source_location
       @container_stack.last.add_child(node)
       node

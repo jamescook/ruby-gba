@@ -338,6 +338,9 @@ module RubyGBA
       FREE_STATEMENT_KINDS = %i[
         screen wait_vblank halt raw object
         define_sound song data bitmap backing_buffer list_new table
+        # naming the depths a picture is built from settles an order at build time —
+        # nothing is written, computed or drawn where it is declared
+        layers
         timer_start timer_stop
         sample play_sample stop_sample
         # These two are standing declarations: nothing happens where they are written, and

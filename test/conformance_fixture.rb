@@ -57,6 +57,7 @@ module ConformanceFixture
       B.sample(:clip, [0, 60, 120, 60, 0, -60, -120, -60].pack("c*"), 8000), # a tiny PCM clip
       B.backing_buffer(:under, width: 4, height: 4), # a save-under patch for a moving object
       B.table(:lut, [10, 20, 30, 40], width: :byte, signed: false), # a ROM lookup table (read by table_get below)
+      B.layers(%i[scenery actors]), # the stack of depths, backmost first (the background and the object below sit in it)
       B.func(:helper, B.set(:h, 1), B.add(:h, 2), B.wait_vblank),
       B.func(:scene_a, B.set(:picked, 10)),
       B.func(:scene_b, B.set(:picked, 20)),
@@ -142,7 +143,8 @@ module ConformanceFixture
       B.blit(:sprite, :x, :y),
       B.blit_pose([:sprite, :pose_b], B.var_ref(:x), :x, :y), # one pose of a same-size set, by index
       B.background(:grid, tiles: [:tile_a, :tile_b],          # a tiled grid; nil = an empty cell
-                          map: [[0, 1], [1, nil]], tile_w: 2, tile_h: 2),
+                          map: [[0, 1], [1, nil]], tile_w: 2, tile_h: 2,
+                          layer: :scenery),                   # ...at the back of the stack
       B.scroll_background(:grid, x: B.var_ref(:x), y: B.var_ref(:y)), # move the window over it
       # ...and bend it row by row: every row of the picture gets its own sideways offset,
       # worked out from the row number a backend puts in :bend_row. `% 2` keeps the offsets
@@ -156,7 +158,8 @@ module ConformanceFixture
                           # Turned 45 degrees and drawn at half again its size — the two
                           # halves of the transform, together, since a backend that does
                           # either does both through the same matrix.
-                          angle: B.int(45), scale: B.int(B::SCALE_ONE * 3 / 2)),
+                          angle: B.int(45), scale: B.int(B::SCALE_ONE * 3 / 2),
+                          layer: :actors), # ...in front of the scenery
 
       B.present_objects([:hero_obj]),   # draw the declared objects for this frame
       B.save_region(:under, :x, :y),    # remember the pixels under a moving object

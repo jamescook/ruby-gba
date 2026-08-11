@@ -69,8 +69,10 @@ module RubyGBA
       # sprites can overlap (a hero touching a coin) without leaving trails.
       def emit_frame_boundary
         wait_node = record(Build.wait_vblank)
-        @sprites.each { |sprite| record(sprite.erase_node) }
-        @sprites.each { |sprite| record(sprite.draw_node) }
+        # Each sprite's own painting, recorded on its behalf (see #record_statement) —
+        # the same nodes an author's `blit` builds, but nobody wrote them here.
+        @sprites.each { |sprite| record_statement(sprite.erase_node) }
+        @sprites.each { |sprite| record_statement(sprite.draw_node) }
         # Hardware sprites need no erase pass — the console recomposites the whole
         # picture each frame — so it's one step: draw them all from their current
         # positions (later ones sit in front). Tiled-mode text/number glyphs are
@@ -221,7 +223,7 @@ module RubyGBA
 
         @each_frame_seq += 1
         name ||= :"__each_frame_#{@each_frame_seq}"
-        func(name, &block)
+        declare_func(name, &block)
         @per_frame_routines << name
         name
       end
