@@ -243,6 +243,49 @@ module RubyGBA
                             cost: cost, budget: FRAME_BUDGET)
         end
 
+        # What keeping sprites out of a placed fade costs per frame, or nil when nothing is
+        # kept out. The whole fade family is otherwise free — it tells the display what to
+        # show and redraws nothing — so the one member that is not has to be named, or a
+        # reader carries the wrong rule into the one place it stops holding.
+        #
+        # The console names each background layer separately and every sprite together, so
+        # a line drawn among the sprites is bought with a second, invisible sprite over
+        # each one that is kept: a table write a frame each, and a sprite slot. A fade that
+        # keeps ALL the sprites needs none of that and stays free.
+        def kept_sprites_verdict(program)
+          layers = program.walk.filter_map { |node| node.under if node.kind == :fade }.uniq
+          return nil if layers.empty?
+
+          index(program) # settles which routines the build keeps in the quick memory
+          picture = Stacking.picture(program)
+          kept = layers.flat_map { |layer| twinned_sprites(picture, layer) }.uniq
+          return nil if kept.empty?
+
+          # Charged in the frame's own body, because that is where it happens: the window
+          # over a kept sprite is written in the same pass that writes the sprite, so it
+          # runs from the same memory and gets the same discount.
+          #
+          # And charged as a WHOLE sprite write each, which is the safe side of the truth.
+          # A window rides its sprite's numbers rather than working out its own, so it
+          # really costs somewhat less than one.
+          cost = in_fast_frame { kept.length * @weights[:obj_write] * fast_memory_factor }
+          Verdict::KeptSprites.new(layers: layers, sprites: kept.length,
+                                   cost: cost, budget: FRAME_BUDGET)
+        end
+
+        # The sprites a fade under +layer+ has to hold the effect off one at a time. None
+        # when every sprite is on the kept side: the sprites then leave the blend's target
+        # list together and it costs nothing.
+        def twinned_sprites(picture, layer)
+          kept = Stacking.at_or_above(picture, layer).map(&:name)
+          keeps, blends = picture.objects.partition { |node| kept.include?(node.name) }
+          blends.empty? ? [] : keeps.map(&:name)
+        end
+
+        def kept_sprites_cost(program)
+          kept_sprites_verdict(program)&.cost || 0
+        end
+
         # What one line's interrupt costs. Keeping the routine it lands in in faster memory
         # buys back a good part of it, but NOT the measured factor the rest of the model
         # uses: a fair share of an interrupt is the console's own doing — stopping the game,
@@ -339,6 +382,14 @@ module RubyGBA
         # The tick handlers' per-frame cost as a plain number (0 when no timer runs one).
         def tick_cost(program)
           tick_verdict(program)&.cost || 0
+        end
+
+        # Everything a frame pays that the op tree cannot show, together: the sound mixer,
+        # a row-by-row bend's per-line interrupt, a timer's tick handlers, and the sprites
+        # a placed fade has to hold itself off. Add it to whichever reading of the tree is
+        # being judged — everything on a frame, or only what recurs on every one.
+        def standing_costs(program)
+          mixer_cost(program) + bend_cost(program) + tick_cost(program) + kept_sprites_cost(program)
         end
 
         # What a frame spends inside the routine the console jumps into when the display or

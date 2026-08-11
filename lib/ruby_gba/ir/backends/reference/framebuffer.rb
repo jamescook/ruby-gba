@@ -36,6 +36,8 @@ module RubyGBA
             @camera_y = 0
             @fade_toward = :black
             @fade_amount = 0
+            @paint_toward = nil
+            @paint_steps = 0
           end
 
           # Move the visible window over the stored picture: after this, screen (0, 0)
@@ -52,6 +54,20 @@ module RubyGBA
           def fade_to(toward, amount)
             @fade_toward = toward
             @fade_amount = amount
+          end
+
+          # Blend everything painted FROM HERE ON toward +toward+ by +amount+ (0 to 100),
+          # or paint colors as they are when +toward+ is nil.
+          #
+          # This is the other half of fade_to, and the two are not interchangeable. A fade
+          # over the whole screen blends the finished picture as it is read, which changes
+          # nothing that was drawn. A fade placed in the stack has to reach what is behind
+          # it and leave what is in front of it alone — so the compositor turns this on
+          # while it paints the things behind the line and off before the things in front,
+          # and the finished picture already carries the blend.
+          def paint_faded(toward, amount)
+            @paint_toward = toward
+            @paint_steps = toward.nil? ? 0 : steps_of(amount)
           end
 
           # The color shown at screen (x, y) — the stored cell the window currently puts
@@ -79,7 +95,7 @@ module RubyGBA
           def set_pixel(x, y, color)
             return unless in_bounds?(x, y)
 
-            @pixels[(y * @width) + x] = color
+            @pixels[(y * @width) + x] = painted(color)
           end
 
           # Paint a horizontal run of cells: +count+ of them starting at (x, y), read
@@ -95,7 +111,9 @@ module RubyGBA
             i = 0
             while i < count
               color = colors[from + i]
-              @pixels[base + i] = color if color
+              # The blend is asked for inline rather than through #painted, which would be
+              # a method call per pixel on the path that repaints the whole scene.
+              @pixels[base + i] = @paint_toward ? painted(color) : color if color
               i += 1
             end
           end
@@ -112,7 +130,7 @@ module RubyGBA
 
           # Paint the entire screen one color.
           def clear(color)
-            @pixels.fill(color)
+            @pixels.fill(painted(color))
           end
 
           # A flat, row-major copy of every cell — for asserting the whole screen
@@ -135,12 +153,22 @@ module RubyGBA
           # truncating, because that is exactly what the blend hardware does. Matching
           # it here is what lets a test assert one expected color for both backends.
           def faded(color)
-            steps = fade_steps
+            blend(color, @fade_toward, fade_steps)
+          end
+
+          # One color with the blend a placed fade asks for, or the color untouched when
+          # no fade is placed. The same arithmetic as #faded, so a picture blended while
+          # it is painted and one blended while it is read cannot come out different.
+          def painted(color)
+            @paint_toward ? blend(color, @paint_toward, @paint_steps) : color
+          end
+
+          def blend(color, toward, steps)
             return color if steps.zero?
 
             channels = [color & 0x1F, (color >> 5) & 0x1F, (color >> 10) & 0x1F]
             blended = channels.map do |c|
-              if @fade_toward == :white
+              if toward == :white
                 c + (((CHANNEL_MAX - c) * steps) / FADE_STEPS)
               else
                 c - ((c * steps) / FADE_STEPS)
@@ -152,7 +180,11 @@ module RubyGBA
           # How far the fade goes, in sixteenths. Out-of-range amounts settle at the
           # ends rather than wrapping or raising, the same as the hardware.
           def fade_steps
-            ((@fade_amount * FADE_STEPS) / 100).clamp(0, FADE_STEPS)
+            steps_of(@fade_amount)
+          end
+
+          def steps_of(amount)
+            ((amount * FADE_STEPS) / 100).clamp(0, FADE_STEPS)
           end
 
           def in_bounds?(x, y)

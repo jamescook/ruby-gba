@@ -48,6 +48,14 @@ module RubyGBA
           include Budgeted
         end
 
+        # Sprites kept out of a fade placed in the stack. The console names every sprite
+        # with one bit, so the only way to hold an effect off SOME of them is to write a
+        # second, invisible sprite over each — which is a table write a frame each, and
+        # the first thing in the fade family that is not free.
+        KeptSprites = Data.define(:layers, :sprites, :cost, :budget) do
+          include Budgeted
+        end
+
         # Every timer handler a frame runs, together — they all ride the same interrupt.
         Ticks = Data.define(:timers, :cost, :budget) do
           include Budgeted

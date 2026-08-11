@@ -65,11 +65,20 @@ module RubyGBA
         # color, and `fade_in` brings it back untouched. Calling this again while a fade
         # runs redirects it from where it is now.
         #
+        # `under:` places the fade in the stack instead of over the whole screen: it names
+        # a layer, and that layer and everything in front of it stay as they are. Fade the
+        # game out to a game-over screen and leave the score showing:
+        #
+        #   fade_out under: :ui
+        #
+        # `fade_in` with no arguments comes back the same way, so the layer is said once.
+        #
         # @param color [Symbol] :black or :white
         # @param frames [Integer, nil] how long the fade takes, in frames
         # @param duration [Numeric, nil] how long it takes, in seconds (instead of frames)
-        def fade_out(color = :black, frames: nil, duration: nil)
-          start_fade(color, FULL, frames, duration)
+        # @param under [Symbol, nil] a layer the fade sits under, or nil for the whole screen
+        def fade_out(color = :black, frames: nil, duration: nil, under: nil)
+          start_fade(color, FULL, frames, duration, under: under)
         end
 
         # Bring the screen back from a fade — the other half of `fade_out`, and the one
@@ -105,10 +114,11 @@ module RubyGBA
         # @param color [Symbol] :white or :black
         # @param frames [Integer, nil] how long the flash lasts, in frames
         # @param duration [Numeric, nil] how long it lasts, in seconds
-        def flash_screen(color = :white, frames: nil, duration: nil)
+        # @param under [Symbol, nil] a layer the flash sits under, or nil for the whole screen
+        def flash_screen(color = :white, frames: nil, duration: nil, under: nil)
           state = screen_fade_state
           state[:level].set FULL # start full, so the first frame shown is the bright one
-          start_fade(color, 0.0, frames, duration, default: FLASH_FRAMES)
+          start_fade(color, 0.0, frames, duration, default: FLASH_FRAMES, under: under)
         end
 
         # How far the screen is faded right now, as a value the game can read: 0 is the
@@ -232,7 +242,8 @@ module RubyGBA
         # A color of nil keeps whatever the screen is already fading toward, which is what
         # lets `fade_in` be written on its own: it comes back the way it went out. Leaving
         # the step alone when no length is given does the same for the speed.
-        def start_fade(color, target, frames, duration, default: DEFAULT_FRAMES)
+        def start_fade(color, target, frames, duration, default: DEFAULT_FRAMES, under: nil)
+          place_the_fade(under) if under
           state = screen_fade_state
           state[:color].set fade_color_code(color) if color
           state[:target].set target
@@ -266,8 +277,8 @@ module RubyGBA
 
             each_frame(ROUTINE) do
               (active == 1).then do
-                (color == BLACK).then { fade :black, level.to_i }
-                (color == WHITE).then { fade :white, level.to_i }
+                (color == BLACK).then { fade :black, level.to_i, under: @fade_place }
+                (color == WHITE).then { fade :white, level.to_i, under: @fade_place }
                 (level == target).then { active.set 0 }
                                  .else { level.approach target, step }
               end
@@ -295,6 +306,28 @@ module RubyGBA
           end
 
           [count - 1, 1].max.to_f
+        end
+
+        # WHERE THIS GAME'S SCREEN FADE SITS, and there is one of it.
+        #
+        # The pack is one ramp — one level, one color, one routine that walks them — and
+        # its place in the stack is the same kind of thing: what a game means by "the
+        # screen fading". Said on any of the verbs, it holds for all of them, so a
+        # `fade_out under: :ui` is undone by a plain `fade_in`.
+        #
+        # Two different places is a friendly error rather than a choice, and the reason is
+        # in the console: there is ONE set of blend registers, so two fades at two depths
+        # cannot both be in force. A game that really wants that is writing two effects,
+        # not one, and `fade` itself takes `under:` per call for it.
+        def place_the_fade(under)
+          if @fade_place && @fade_place != under
+            raise ArgumentError,
+                  "This game already fades under :#{@fade_place}, and now asks for :#{under}. " \
+                  "A game has one screen fade, and it sits in one place. To fix this, use " \
+                  "the same layer for every `fade_out` and `flash_screen`, or call `fade` " \
+                  "yourself for a second one."
+          end
+          @fade_place = under
         end
 
         def fade_seconds_in_frames(duration)

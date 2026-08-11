@@ -141,9 +141,17 @@ module RubyGBA
       #     fade :black, level
       #   end
       #
+      # `under:` puts the fade at a place in the stack instead of over the whole
+      # picture: it names a layer, and that layer and everything in front of it are
+      # left alone. Fade the game out and keep the score showing:
+      #
+      #   layers :world, :actors, :ui
+      #   fade :black, 100, under: :ui
+      #
       # @param toward [Symbol] :black or :white
       # @param amount [Symbol, Integer, Value] how far, 0 to 100
-      def fade(toward, amount = 100)
+      # @param under [Symbol, nil] a layer this fade sits under, or nil for the whole screen
+      def fade(toward, amount = 100, under: nil)
         unless FADE_COLORS.include?(toward)
           raise ArgumentError,
                 "fade goes to :black or :white. You gave #{toward.inspect}."
@@ -153,8 +161,9 @@ module RubyGBA
           raise ArgumentError,
                 "fade's amount is how far to go, from 0 to 100. You gave #{fixed}."
         end
+        check_effect_layer!(:fade, under) if under
 
-        record(Build.fade(toward: toward, amount: Value.node_for(amount)))
+        record(Build.fade(toward: toward, amount: Value.node_for(amount), under: under))
         ensure_var(amount)
       end
 

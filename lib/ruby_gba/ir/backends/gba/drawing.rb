@@ -42,7 +42,10 @@ module RubyGBA
           BG_ENABLES = [BG0_ENABLE, BG1_ENABLE, BG2_ENABLE, BG3_ENABLE].freeze
           def tiled_bg_enable_bits
             layers = [@backgrounds.size, 1].max
-            BG_ENABLES.first(layers).reduce(0, :|)
+            bits = BG_ENABLES.first(layers).reduce(0, :|)
+            # ...and the object window, for a program that keeps sprites out of a fade.
+            bits |= OBJ_WINDOW_ENABLE unless @window_twins.empty?
+            bits
           end
 
           # One-time boot for a program that switches the hardware per scene: put the
@@ -480,7 +483,10 @@ module RubyGBA
           # multiply and a divide once per call — nothing next to a frame.
           def emit_fade(node)
             mode = node.toward == :white ? BLD_BRIGHTEN : BLD_DARKEN
-            write_reg16(REG_BLDCNT, mode | BLD_ALL_LAYERS)
+            write_reg16(REG_BLDCNT, mode | fade_targets(node.under))
+            # Where this fade sits in the stack, for the window twins to read. Only a
+            # program that has twins writes it (see GBA#prepare_effect_layers).
+            store_word_immediate(effect_line(node.under), var_addr(EFFECT_LINE)) unless @window_twins.empty?
 
             if (amount = const_int(node.amount))
               write_reg16(REG_BLDY, fade_steps(amount))
@@ -600,6 +606,20 @@ module RubyGBA
             @objects.each_value do |obj|
               emit_dma_blob(obj[:tiles], OBJ_TILE_BASE + (obj[:tile_index] * 32), obj[:tile_units] * 16) # tiles -> sprite memory
             end
+            emit_boot_object_windows
+          end
+
+          # Set up the object window, once, for a program that keeps sprites out of a
+          # fade. Outside it every layer shows and the color effect applies; inside it
+          # every layer still shows and the effect does not. The region itself is the
+          # shape of whatever the twin sprites paint, so nothing here mentions a place on
+          # screen. EFFECT_LINE starts past the front of the stack: until a fade is
+          # placed, no twin shows.
+          def emit_boot_object_windows
+            return if @window_twins.empty?
+
+            write_reg16(REG_WINOUT, WIN_ALL_LAYERS | WIN_EFFECT | (WIN_ALL_LAYERS << WINOUT_OBJ_SHIFT))
+            store_word_immediate(@picture.stack.length, var_addr(EFFECT_LINE))
           end
 
           # Fill the sprite table with the "unused slot" marker so no leftover memory
@@ -618,15 +638,22 @@ module RubyGBA
           # with no tearing. The console composites the sprites over the background for
           # free — there's nothing to erase, unlike a software sprite.
           def emit_present_objects(node)
-            node.names.each { |name| emit_present_object(@objects.fetch(name)) }
+            node.names.each { |name| emit_present_object(@objects.fetch(name), twin: @window_twins[name]) }
           end
 
           # Write one sprite's table entries from its live x/y/active variables. A hidden
           # sprite (active == 0) gets the "unused slot" marker instead, so it vanishes; a
           # shown one gets its position, size, and tiles — drawn upright, or turned to its
           # current angle when the sprite rotates.
-          def emit_present_object(obj)
+          #
+          # +twin+ is the window that keeps this sprite out of a placed fade, when it has
+          # one. It stands exactly where the sprite stands and holds exactly the pose the
+          # sprite holds, so it is filled in from the SAME numbers on the way past rather
+          # than worked out again — a copy of each attribute as it is written, and one test
+          # of where the fade is sitting. See GBA#prepare_object_windows.
+          def emit_present_object(obj, twin: nil)
             base = OAM_START + (obj[:slot] * 8)
+            mirror = twin && OAM_START + (twin[:slot] * 8)
 
             eval_value(obj[:active])
             emit(ASM.cmp_imm(ACC, 0))
@@ -634,32 +661,59 @@ module RubyGBA
             done = gensym
             emit_branch(:bcond, draw, cond: :ne)
             write_reg16(base, OBJ_HIDDEN_ATTR0) # active == 0: mark the slot unused
+            write_reg16(mirror, OBJ_HIDDEN_ATTR0) if mirror # ...and the window over it
             emit_branch(:b, done)
 
             place_label(draw)
             if obj[:transformed]
-              emit_draw_object_transformed(obj, base)
+              emit_draw_object_transformed(obj, base, mirror)
             else
-              emit_draw_object_upright(obj, base)
+              emit_draw_object_upright(obj, base, mirror)
             end
+            emit_window_gate(twin, mirror) if mirror
             place_label(done)
           end
 
           # An upright sprite: position and size straight into its slot.
-          def emit_draw_object_upright(obj, base)
+          def emit_draw_object_upright(obj, base, mirror = nil)
             # attr0 = (y & 0xFF) | shape + 256-color flag
             eval_value(obj[:y])
             mask_into_acc(0xFF)
             orr_acc(obj[:attr0_base])
             store_halfword_acc(base)
+            mirror_attr0(mirror)
             # attr1 = (x & 0x1FF) | size
             eval_value(obj[:x])
             mask_into_acc(0x1FF)
             orr_acc(obj[:attr1_base])
             store_halfword_acc(base + 2)
+            store_halfword_acc(mirror + 2) if mirror
             # attr2 = which tiles to draw = this sprite's base tile + pose * stride
             # (palette bank/priority left at 0). A fixed pose folds to a constant.
             emit_object_tile_number(obj, base + 4)
+            store_halfword_acc(mirror + 4) if mirror
+          end
+
+          # Drop the attr0 just written into the window twin's slot as well, with the bit
+          # that makes it a window rather than a picture. The value is still in hand, so
+          # this is two instructions and not a second sprite worked out from scratch.
+          def mirror_attr0(mirror)
+            return unless mirror
+
+            orr_acc(OBJ_WINDOW_MODE)
+            store_halfword_acc(mirror)
+          end
+
+          # Put the window away when the fade in force is not behind this sprite — a fade
+          # over the whole screen, or one placed further forward. The sprite itself has
+          # already been written, so this only has to hide the twin.
+          def emit_window_gate(twin, mirror)
+            eval_value(twin[:gate])
+            emit(ASM.cmp_imm(ACC, 0))
+            keeps = gensym
+            emit_branch(:bcond, keeps, cond: :ne)
+            write_reg16(mirror, OBJ_HIDDEN_ATTR0)
+            place_label(keeps)
           end
 
           # A turning or resizing sprite: the console draws it through its affine group in
@@ -667,7 +721,7 @@ module RubyGBA
           # picture stays centered where an upright one would sit and pivots on its own
           # center, turn on the rotate/scale and double-size bits, point attr1 at the
           # affine group, then fill that group with this frame's matrix.
-          def emit_draw_object_transformed(obj, base)
+          def emit_draw_object_transformed(obj, base, mirror = nil)
             half_w = obj[:width] / 2
             half_h = obj[:height] / 2
             # attr0 = ((y - half_h) & 0xFF) | rotate/scale + double-size + shape/color
@@ -676,13 +730,18 @@ module RubyGBA
             mask_into_acc(0xFF)
             orr_acc(obj[:attr0_base] | OBJ_ROTSCALE | OBJ_DOUBLE_SIZE)
             store_halfword_acc(base)
+            mirror_attr0(mirror)
             # attr1 = ((x - half_w) & 0x1FF) | size | affine-group index (bits 9..13)
             eval_value(obj[:x])
             emit(ASM.sub_imm(ACC, ACC, half_w)) unless half_w.zero?
             mask_into_acc(0x1FF)
             orr_acc(obj[:attr1_base] | (obj[:affine_slot] << 9))
             store_halfword_acc(base + 2)
+            # The twin points at the same affine group, so it turns and resizes with the
+            # sprite and the hole stays the shape of the picture.
+            store_halfword_acc(mirror + 2) if mirror
             emit_object_tile_number(obj, base + 4)
+            store_halfword_acc(mirror + 4) if mirror
             emit_object_affine_matrix(obj)
           end
 

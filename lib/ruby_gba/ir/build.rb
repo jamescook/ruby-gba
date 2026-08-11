@@ -528,8 +528,13 @@ module RubyGBA
       # Like camera, this describes what the DISPLAY shows and needs no redrawing:
       # nothing that was drawn is changed, so the cost is the same whatever is on
       # screen. One backend leans on blend hardware, another blends as it reads.
-      def fade(toward:, amount:)
-        Nodes.build(:fade, toward: toward, amount: wrap(amount))
+      #
+      # +under+ places the effect in the stack (see Stacking): it names a layer, and
+      # everything in that layer and in front of it is left alone while everything
+      # behind it blends. Left out, the effect is under the whole picture, which is
+      # every picture that names no layers.
+      def fade(toward:, amount:, under: nil)
+        Nodes.build(:fade, toward: toward, amount: wrap(amount), **under_layer(under))
       end
 
       # --- display objects (a moving picture the display composites over the scene) ---
@@ -801,6 +806,12 @@ module RubyGBA
       # the tree it built before layers existed.
       def in_layer(name)
         name ? { layer: name } : {}
+      end
+
+      # The same idea for an effect, which names the layer it sits UNDER rather than the
+      # one it belongs to.
+      def under_layer(name)
+        name ? { under: name } : {}
       end
 
       # Round a list's capacity up to the next power of two (4 stays 4, 5 becomes

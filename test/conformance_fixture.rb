@@ -153,6 +153,11 @@ module ConformanceFixture
       B.scroll_rows(:grid, row: :bend_row, offset: B.binop(:%, B.var_ref(:bend_row), B.int(2))),
       B.camera(x: B.int(0), y: B.int(0)), # move the window over the whole picture
       B.fade(toward: :black, amount: B.int(0)), # blend the picture toward a color (0 = as drawn)
+      # ...and the same effect placed in the stack: it reaches what is behind :actors and
+      # leaves :actors and anything in front of it alone. At 0 nothing is blended either
+      # way, so the picture is the same and what this pins is that every backend can say
+      # where an effect sits.
+      B.fade(toward: :black, amount: B.int(0), under: :actors),
       B.object(:hero_obj, poses: [:obj8], pose: B.int(0), # a composited object (one pose, held at index 0)
                           x: B.var_ref(:x), y: B.var_ref(:y), active: B.int(1),
                           # Turned 45 degrees and drawn at half again its size — the two

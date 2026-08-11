@@ -282,6 +282,7 @@ module RubyGBA
           register_row_bends(program) # which layers bend row by row (armed at boot, run per line)
           prepare_row_bends(program)
           @has_objects = program.walk.any? { |node| node.kind == :object }
+          prepare_effect_layers(program) # which sprites an effect placed in the stack must skip
           prepare_objects(program) if @has_objects
           @uses_save = program.walk.any? { |node| node.kind == :save_init }
           prepare_palette(program) if @any_buffered
@@ -861,11 +862,17 @@ module RubyGBA
             raise LoweringError,
                   "#{nodes.size} sprites declared, but the console draws at most #{MAX_SPRITES} at once"
           end
+          guard_window_twins_fit(nodes)
           build_shared_object_palette(nodes)
 
+          # The window twins take the front slots and every real sprite moves back by as
+          # many, which changes nothing about what is in front of what (a twin paints
+          # nothing, and the sprites keep their order among themselves). It has to be
+          # this way round: a twin only holds the effect off a sprite that is BEHIND it.
+          front = @window_twins.size
           tile_unit = 0 # running offset into sprite tile memory, in 32-byte units
           nodes.each_with_index do |node, index|
-            prepare_one_object(node, nodes.size - 1 - index, tile_unit)
+            prepare_one_object(node, front + nodes.size - 1 - index, tile_unit)
             tile_unit += @objects[node.name][:tile_units]
           end
           prepare_affine(nodes)
@@ -917,6 +924,103 @@ module RubyGBA
         # turn a sprite through different numbers.
         def build_sine_table
           (0...OBJ_SINE_ENTRIES).map { |degrees| Affine.sine(degrees) }.pack("s<*")
+        end
+
+        # --- an effect placed in the stack ---
+        #
+        # `fade :black, 100, under: :ui` blends what is behind :ui and leaves :ui and
+        # everything in front of it alone. The console has two ways to say that, and the
+        # asymmetry between them is what shapes all of this:
+        #
+        #   * The blend register names each background layer with a bit of its own, so
+        #     scenery on the kept side simply stays out of the mask. Free.
+        #   * It names every sprite on screen with ONE bit. So a line drawn between two
+        #     sprites cannot be said there at all — and a HUD is sprites, which makes
+        #     that the case the whole feature exists for.
+        #
+        # The way through is the OBJECT WINDOW. A sprite can be drawn as a window instead
+        # of a picture: it paints nothing, and where its pixels would have been the color
+        # effect is turned off. The region is the shape of the pixels it paints and not
+        # its box, which is what makes it usable for a letter. So each kept sprite gets a
+        # twin drawn that way, and the fade goes around the sprite.
+        #
+        # A twin costs one sprite slot and one table write a frame, so they are made only
+        # where they are the only answer: a fade that keeps EVERY sprite leaves the OBJ
+        # bit out of the mask instead, and costs nothing at all.
+        EFFECT_LINE = :__effect_line # where in the stack the fade now in force is sitting
+        OBJ_WINDOW_MODE = 0x0800     # attr0 bits 10-11 = 2: a window rather than a picture
+        OBJ_WINDOW_ENABLE = 0x8000   # DISPCNT bit 15: the object window is on
+
+        # Which sprites need a window twin, and for each one which table slot it takes and
+        # when it shows. Worked out from every fade the program places, before any sprite
+        # is given a slot, because the twins take the front ones (see #prepare_objects).
+        #
+        # A twin is a RIDER on its sprite rather than a second sprite to work out. Where it
+        # is, which pose it holds and how big it is are all the same numbers, so the frame
+        # writes them once and drops a copy into the twin's slot on the way past (see
+        # Drawing#emit_present_object) — which is what keeps a HUD held out of a fade from
+        # costing as much again as the HUD.
+        #
+        # Its gate is where the fade in force is sitting: EFFECT_LINE against this sprite's
+        # place in the stack. So a program that also fades the whole screen somewhere else
+        # puts the twins away for that one, and the HUD goes down with the game — which is
+        # what a whole-screen fade means.
+        #
+        # Nothing to do — and not one emitted byte different — for a program that places no
+        # fade, which is every program that names no layers.
+        def prepare_effect_layers(program)
+          @window_twins = {} # sprite name -> { slot:, gate: }: the window that keeps it out
+          program.walk.filter_map { |node| node.under if node.kind == :fade }
+                 .uniq
+                 .flat_map { |layer| sprites_needing_a_window(layer) }
+                 .uniq(&:name)
+                 .each_with_index do |node, nth|
+            place = @picture.stack.index(node.layer)
+            @window_twins[node.name] = {
+              slot: nth, # in front of every real sprite — see #prepare_objects
+              gate: Build.binop(:<=, Build.var_ref(EFFECT_LINE), Build.int(place)),
+            }
+          end
+        end
+
+        # The sprites a fade under +layer+ has to hold itself off one at a time. None when
+        # every sprite is on the kept side: they then leave the blend's target list
+        # together, which is one register bit and no twins at all.
+        def sprites_needing_a_window(layer)
+          kept = IR::Stacking.at_or_above(@picture, layer).map(&:name)
+          keeps, blends = @picture.objects.partition { |node| kept.include?(node.name) }
+          blends.empty? ? [] : keeps
+        end
+
+        def guard_window_twins_fit(nodes)
+          total = nodes.size + @window_twins.size
+          return if total <= MAX_SPRITES
+
+          raise LoweringError,
+                "#{@window_twins.size} sprites are kept out of a fade, and each one needs a second " \
+                "slot in the sprite table to hold the fade off it. That is #{total} slots with the " \
+                "#{nodes.size} sprites themselves, and the console draws #{MAX_SPRITES} at once. " \
+                "To fix this, keep fewer sprites out of the fade, or use fewer sprites."
+        end
+
+        # Which layers a fade blends, as the blend register's target bits. With no layer
+        # named that is everything, exactly as it always was.
+        def fade_targets(under)
+          return BLD_ALL_LAYERS if under.nil?
+
+          kept = IR::Stacking.at_or_above(@picture, under).map(&:name)
+          bits = BLD_BACKDROP # the backdrop is behind everything, so a placed fade always reaches it
+          @picture.scenery.each_with_index do |node, layer|
+            bits |= (BLD_BG0 << layer) unless kept.include?(node.name)
+          end
+          bits |= BLD_OBJ if @picture.objects.any? { |node| !kept.include?(node.name) }
+          bits
+        end
+
+        # Where in the stack a fade sits. One past the front for a fade that names no
+        # layer, so no twin is ever shown for it.
+        def effect_line(under)
+          under.nil? ? @picture.stack.length : @picture.stack.index(under)
         end
 
         # Build the one color table every sprite shares (8-bit color has a single

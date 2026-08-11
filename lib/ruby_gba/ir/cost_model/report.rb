@@ -177,8 +177,9 @@ module RubyGBA
         def as_json(program)
           {
             # everything on a frame, including the standing costs the op tree can't show:
-            # the sound mixer, a row-by-row bend's per-line interrupt, and a timer's ticks
-            frame_cost: frame_cost(program) + mixer_cost(program) + bend_cost(program) + tick_cost(program),
+            # the sound mixer, a row-by-row bend's per-line interrupt, a timer's ticks, and
+            # the sprites a placed fade has to hold itself off
+            frame_cost: frame_cost(program) + standing_costs(program),
             steady_cost: steady_cost(program), # what recurs every frame from the op tree (the tear risk)
             frame_budget: FRAME_BUDGET,        # the whole-frame 60fps deadline
             budget: budget_for(program),       # the drawing/tear budget (vblank, or the whole frame when buffered)
@@ -191,6 +192,7 @@ module RubyGBA
             mixer: verdict_json(mixer_verdict(program)), # the mixer's per-frame CPU (nil if no sampled sound)
             bend: verdict_json(bend_verdict(program)),   # a bend's per-frame CPU (nil if nothing bends)
             ticks: verdict_json(tick_verdict(program)),  # each timer's handler (nil if no timer runs one)
+            kept: verdict_json(kept_sprites_verdict(program)), # sprites held out of a fade (nil if none are)
             # per-font reachable-glyph footprint, flattened here because this hash is the
             # serialized output and a value object has no meaning once it is JSON
             glyphs: IR::GlyphUsage.footprint(program).map(&:to_h),
@@ -274,7 +276,7 @@ module RubyGBA
           # spike (a transition repaint, an every() tick) is named separately below, not
           # judged as if it ran every frame: 60fps against the whole recurring load,
           # tearing against the work that runs before the frame's last write to the screen.
-          recurring = steady_cost(program) + mixer_cost(program) + bend_cost(program) + tick_cost(program)
+          recurring = steady_cost(program) + standing_costs(program)
           recurring_tear = steady_tear_cost(program)
           if measured
             # A measurement is the verdict: the real per-frame cost / frame rate, per scene

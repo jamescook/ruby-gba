@@ -186,6 +186,31 @@ module RubyGBA
               "The stack is #{list_of(@layer_stack)}, back to front."
       end
 
+      # An effect can be PLACED in the stack instead of covering the whole screen —
+      # `fade :black, 100, under: :ui` fades the game and leaves the score showing. What
+      # it names has to be a layer, and the screen has to be one that HAS a stack.
+      #
+      # A bitmap screen does not. Everything on it — the scenery, the software sprites,
+      # the text — is painted into one picture before the display ever sees it, so by
+      # the time an effect could apply there is nothing left to tell apart.
+      def check_effect_layer!(verb, name)
+        unless name.is_a?(Symbol)
+          raise ArgumentError,
+                "`#{verb}` takes a layer name after `under:`, like `under: :ui`. You gave " \
+                "#{name.inspect}."
+        end
+
+        if @screen_mode != :tiled
+          raise ArgumentError,
+                "`#{verb} ... under: :#{name}` needs `screen :tiled`. On a bitmap screen the " \
+                "whole picture is painted into one place before the display sees it, so an " \
+                "effect cannot leave one part of it alone. To fix this, use `#{verb}` with no " \
+                "`under:`, which changes the whole screen."
+        end
+
+        check_layer_named!(name)
+      end
+
       def check_stack_not_declared!
         return if @layer_stack.empty?
 
@@ -223,6 +248,12 @@ module RubyGBA
                 "then open `layer :#{name}`."
         end
 
+        check_layer_named!(name)
+      end
+
+      # Is this a layer the program declared? Asked by everything that names one — a
+      # `layer` block, and an effect placed with `under:`.
+      def check_layer_named!(name)
         if @layer_stack.empty?
           raise ArgumentError,
                 "This program declares no layers, so :#{name} is not one. To fix this, declare " \
@@ -289,10 +320,23 @@ module RubyGBA
         %i[draw_text draw_digit].include?(node.kind) ? " on a `screen :bitmap`" : ""
       end
 
+      # An effect is PLACED, not contained — which is a different thing from belonging to
+      # a layer, and the difference is worth teaching here rather than leaving somebody to
+      # find it. A layer holds things; a fade is not a thing in the picture, it is
+      # something done to the picture from a place in the stack.
       def refuse_whole_screen_in_layer!(node)
         raise ArgumentError,
               "`#{node.kind}` changes the whole screen, so it cannot belong to the layer " \
-              ":#{@current_layer}. To fix this, call `#{node.kind}` outside the `layer` block."
+              ":#{@current_layer}. To fix this, call `#{node.kind}` outside the `layer` " \
+              "block.#{fade_can_be_placed(node)}"
+      end
+
+      def fade_can_be_placed(node)
+        return "" unless node.kind == :fade
+
+        " A fade can still sit at a place in the stack: `fade :black, 100, " \
+          "under: :#{@current_layer}` fades everything behind :#{@current_layer} and " \
+          "leaves :#{@current_layer} alone."
       end
 
       def list_of(names)

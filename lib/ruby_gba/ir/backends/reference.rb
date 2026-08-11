@@ -123,6 +123,8 @@ module RubyGBA
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
           @row_bends = {}          # background name -> :scroll_rows node giving each row its own offset
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
+          @fade_placed = nil       # [layer, toward, amount] while a fade sits under a layer rather than over everything
+          @kept_out_of_the_fade = {} # layer -> the names a fade under it leaves alone
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @layer_stack = []        # the layers the program declared, backmost first
           @bg_shown = []           # the backgrounds painted onto the screen so far, in that order
@@ -173,6 +175,10 @@ module RubyGBA
           @repaints ||= IR::Stacking.scenery_over_objects?(@picture.depths,
                                                            scenery: @picture.scenery,
                                                            objects: @picture.objects)
+          # An effect placed in the stack reaches what is behind it and leaves what is in
+          # front alone, so it has to be applied while the picture is built rather than
+          # over the finished one. That is the rebuild path too.
+          @repaints ||= node.walk.any? { |child| child.kind == :fade && child.under }
           catch(:halt) { exec(node) }
           self
         end
@@ -454,7 +460,7 @@ module RubyGBA
           when :camera
             @screen.camera_to(eval_value(node.x), eval_value(node.y))
           when :fade
-            @screen.fade_to(node.toward, eval_value(node.amount))
+            exec_fade(node)
           when :present_objects
             exec_present_objects(node)
           when :enable_sound
@@ -846,15 +852,63 @@ module RubyGBA
         # present_objects call this, so whichever runs last in a frame leaves the
         # settled, correct image regardless of their order.
         def composite_scrolled_frame
-          @screen.clear(0) # the backdrop the layers' transparent pixels reveal
+          kept = @fade_placed ? kept_out_of_the_fade : nil
+          paint_blend_for(nil, kept)      # the backdrop is behind everything, so it blends
+          @screen.clear(0)                # the backdrop the layers' transparent pixels reveal
           levels = @picture.depths
           (0...levels.count).each do |level|
             # Scenery first, then the objects that share this level — an object is drawn
             # over the scenery it sits with, which is what lets a picture put scenery in
             # front of one object and behind another.
-            @picture.scenery.each { |bg| paint_background_window(bg) if levels[bg.name] == level }
-            @obj_layer.each { |obj| paint_object_layer(obj) if obj[:level] == level }
+            @picture.scenery.each do |bg|
+              next unless levels[bg.name] == level
+
+              paint_blend_for(bg.name, kept)
+              paint_background_window(bg)
+            end
+            @obj_layer.each do |obj|
+              next unless obj[:level] == level
+
+              paint_blend_for(obj[:name], kept)
+              paint_object_layer(obj)
+            end
           end
+          @screen.paint_faded(nil, nil)
+        end
+
+        # A fade, over the whole screen or placed in the stack.
+        #
+        # Over the whole screen it stays what it has always been: a blend applied as the
+        # screen is READ, so nothing that was drawn changes and the picture comes back
+        # untouched when the fade lifts.
+        #
+        # Placed under a layer it cannot be that, because the things in front of the line
+        # have to come through unblended. So the blend is applied to each thing as the
+        # picture is BUILT, and the picture is rebuilt right here — a fade is usually
+        # written after the frame has already been composited, and the frame that asked
+        # for it is the frame that has to show it.
+        def exec_fade(node)
+          amount = eval_value(node.amount)
+          @fade_placed = node.under && [node.under, node.toward, amount]
+          @screen.fade_to(node.toward, @fade_placed ? 0 : amount)
+          composite_scrolled_frame if @fade_placed
+        end
+
+        # Turn the blend on or off for the thing about to be painted: on for anything the
+        # placed fade reaches, off for anything it leaves alone. A +name+ of nil is the
+        # backdrop, which is behind everything and so is always reached.
+        def paint_blend_for(name, kept)
+          return @screen.paint_faded(nil, nil) if kept.nil?
+          return @screen.paint_faded(nil, nil) if name && kept.include?(name)
+
+          @screen.paint_faded(@fade_placed[1], @fade_placed[2])
+        end
+
+        # The names the fade in force leaves alone — its layer and everything in front.
+        # Worked out once per layer, because it depends only on the picture.
+        def kept_out_of_the_fade
+          @kept_out_of_the_fade[@fade_placed[0]] ||=
+            IR::Stacking.at_or_above(@picture, @fade_placed[0]).map(&:name)
         end
 
         # Draw one snapshotted object from the layer captured this frame.
@@ -954,7 +1008,7 @@ module RubyGBA
             image = object_pose_image(obj)
             next if image.nil?
 
-            snap = { image: image, x: eval_value(obj.x), y: eval_value(obj.y),
+            snap = { name: name, image: image, x: eval_value(obj.x), y: eval_value(obj.y),
                      level: @picture.depths[name] }
             snap[:transform] = object_transform(obj) if object_transformed?(obj)
             snap
