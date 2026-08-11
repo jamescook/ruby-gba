@@ -82,6 +82,22 @@ class TestGrid < Minitest::Test
     assert_match(/0..29/, err.message)
   end
 
+  # ...and it is the NUMBER that gets checked, not the Ruby class it arrived as. A
+  # coordinate the author fixed is the same fact whether it turns up bare or already
+  # wrapped for the tree, and a check that asked after the class let the wrapped one
+  # through — silently drawing off the board, which is the thing this error exists to stop.
+  def test_a_cell_outside_the_board_is_caught_even_when_it_arrives_wrapped
+    err = assert_raises(ArgumentError) do
+      interpret_screen do
+        screen :bitmap
+        board = grid :board, cols: 30, rows: 20, cell: 8, over: :black
+        board.set_cell RubyGBA::IR::Build.int(30), 0, :white
+      end
+    end
+
+    assert_match(/0..29/, err.message)
+  end
+
   def test_an_odd_cell_size_is_a_friendly_error
     err = assert_raises(ArgumentError) do
       interpret_screen do

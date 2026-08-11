@@ -36,6 +36,23 @@ module RubyGBA
       operand.is_a?(Value) ? operand.node : Build.wrap(operand)
     end
 
+    # THE NUMBER THIS OPERAND ALREADY HAS, or nil when the game works it out as it runs.
+    # The sibling of #node_for, and the same idea: ask for the answer rather than for the
+    # class, because "a number the author wrote" is not one Ruby type. A bare 5, a literal
+    # already wrapped for the tree, and a handle standing for one are the same fact, and a
+    # variable, an expression and a run-time handle are the other fact.
+    #
+    # Asking after the class instead gets the second group right and the first group wrong:
+    # a literal that had already been wrapped answered "the game works it out" and took the
+    # run-time path for nothing. The report and the reference call these two fixed and
+    # worked out, so the code says fixed too.
+    def self.fixed_number(operand)
+      node = operand.is_a?(Value) ? operand.node : operand
+      return node if node.is_a?(Integer)
+
+      node.value if node.is_a?(IR::Node) && node.kind == :int
+    end
+
     # @param builder [Builder] the build the mutators record into
     # @param node [IR::Node] the value node this handle stands for
     # @param name [Symbol, nil] the variable name, if this handle names one

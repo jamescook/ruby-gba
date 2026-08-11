@@ -148,9 +148,10 @@ module RubyGBA
           raise ArgumentError,
                 "fade goes to :black or :white. You gave #{toward.inspect}."
         end
-        if amount.is_a?(Integer) && !(0..100).cover?(amount)
+        fixed = Value.fixed_number(amount)
+        if fixed && !(0..100).cover?(fixed)
           raise ArgumentError,
-                "fade's amount is how far to go, from 0 to 100. You gave #{amount}."
+                "fade's amount is how far to go, from 0 to 100. You gave #{fixed}."
         end
 
         record(Build.fade(toward: toward, amount: Value.node_for(amount)))

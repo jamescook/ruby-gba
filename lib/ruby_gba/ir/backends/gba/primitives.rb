@@ -82,12 +82,13 @@ module RubyGBA
             emit(ASM.str(ACC, TMP))
           end
 
-          # The integer value of a constant operand, or nil if it isn't a constant.
+          # The value of an operand the author fixed, or nil if the game works it out. The
+          # same question the surface asks, so the two cannot disagree about what counts as
+          # fixed; what this adds is the console's own arithmetic, where a number is signed
+          # and thirty-two bits wide.
           def const_int(node)
-            return Int32.wrap(node) if node.is_a?(Integer)
-            return Int32.wrap(node.value) if node.is_a?(Node) && node.kind == :int
-
-            nil
+            fixed = Value.fixed_number(node)
+            Int32.wrap(fixed) if fixed
           end
 
           # Each named operand as a number settled while building, in the order given. The
