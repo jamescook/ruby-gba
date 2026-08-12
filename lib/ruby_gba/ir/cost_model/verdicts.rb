@@ -240,7 +240,15 @@ module RubyGBA
           # interrupts into, or inside the frame's own body — and each of those may have
           # been kept in the quick memory independently of the other.
           offsets = bend_offsets_cost(bends, copied)
-          feeding = copied ? VISIBLE_LINES * bend_row_copied_weight : LINES_PER_FRAME * bend_line_weight
+          # ...and so does what it takes to get the offsets there, but not in the same way.
+          # Each copier-fed layer has a table of its own to fill, so two layers is twice the
+          # work; the interrupt is ONE announcement however many layers answer it, and what
+          # each of them then does is already in the offsets above.
+          feeding = if copied
+                      bends.length * VISIBLE_LINES * bend_row_copied_weight
+                    else
+                      LINES_PER_FRAME * bend_line_weight
+                    end
           Verdict::Bend.new(layers: bends.map { |node| node.name }.uniq,
                             lowering: copied ? :copier : :interrupt, lines: LINES_PER_FRAME,
                             feeding: feeding, offsets: offsets,

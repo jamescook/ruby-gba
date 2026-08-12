@@ -738,42 +738,65 @@ module RubyGBA
       # noise, and both small enough to leave the reading nowhere near a whole frame.
       BEND_STEPS = [1, 5].freeze
 
-      # A tiled background, optionally bending row by row — and, when it bends, in either of
-      # the two ways a bend can be lowered.
+      # A tiled background, optionally bending row by row, ANSWERED PER LINE. The block sets a
+      # variable +steps+ times, which is a program rather than a number, so it cannot be
+      # worked out ahead of the frame: the display raises an interrupt after every line it
+      # draws and the handler writes that line's scroll offset — the whole per-line cost, 228
+      # times a frame. The offset itself stays a number written into the program, the cheapest
+      # one there is, so nothing of the program's own arithmetic is in the way (the model
+      # prices that separately, per visible line).
       #
-      # +copied+ leaves the block as one number, which is what lets the build work all 160
-      # rows out at the frame boundary and hand them to a copying engine. The per-line cost
-      # is then nothing at all and what is left is the table: differencing against the same
-      # ROM without the bend leaves the loop that fills it, the write into it, and the
-      # engine's own moment on each line.
-      #
-      # Without +copied+ the block sets a variable +steps+ times, which is a program rather
-      # than a number, so it is answered per line: the display raises an interrupt after
-      # every line it draws and the handler writes that line's scroll offset — the whole
-      # per-line cost, 228 times a frame. The offset itself stays a number written into the
-      # program, the cheapest one there is, so nothing of the program's own arithmetic is in
-      # the way (the model prices that separately, per visible line).
-      #
-      # +fast+ builds the same ROM the way a real one is built, so the build keeps the busy
-      # routine in the console's quick memory. That is the OTHER weight of each pair, and it
-      # has to be measured rather than taken from the general fast-memory factor: part of
-      # what each lowering costs is the console's own doing — stopping the game and handing
-      # control over, or an engine stealing the bus — and none of that runs from our memory.
-      def bend_busy(bend, fast: false, copied: false, steps: BEND_STEPS.first)
-        name = "bend#{bend ? (copied ? 'c' : steps) : 0}#{fast ? 'f' : ''}"
+      # +fast+ builds the same ROM the way a real one is built, so the build keeps the routine
+      # the announcements land in in the console's quick memory. That is the OTHER weight of
+      # the pair, and it has to be measured rather than taken from the general fast-memory
+      # factor: a fair share of an interrupt is the console's own doing — stopping the game,
+      # handing control over and taking it back — and none of that runs from our memory.
+      def bend_busy(bend, fast: false, steps: BEND_STEPS.first)
+        name = "bend#{bend ? steps : 0}#{fast ? 'f' : ''}"
         rom = build_for(fast, name) do
           screen :tiled
           image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
           tiles :ts, "#" => :t
           bg = background :bg, tiles: :ts, map: Array.new(20, "#" * 30)
-          if bend && copied
-            bg.scroll_each_row { |_row| 3 }
-          elsif bend
+          if bend
             shift = var :shift, 0
             bg.scroll_each_row do |_row|
               steps.times { shift.set 3 }
               3
             end
+          end
+          game_loop { wait_vblank }
+        end
+        @m.busy(name, rom)
+      end
+
+      # HOW MANY LAYERS BEND in the copier-fed pair. Three is as many as there are engines to
+      # lend out, and it is the sweep rather than a size: what a table costs per row is
+      # supposed to be the same for the second layer as for the first, and differencing three
+      # bending layers against one is what says so instead of assuming it.
+      COPIED_BENDS = [1, 3].freeze
+
+      # THREE tiled backgrounds, of which +bending+ bend row by row with a block that is one
+      # number. That block can be worked out ahead of the frame, so each bending layer gets a
+      # table of 160 offsets and a copying engine that feeds the display from it — nothing is
+      # interrupted at all.
+      #
+      # ALL THREE BACKGROUNDS ARE THERE ON BOTH SIDES, and that is the recipe rather than a
+      # detail: the display fetches every layer it is showing whether that layer bends or not,
+      # so a pair that differed in how many backgrounds there are would be measuring the
+      # display's own work and calling it a table. What is left when they are differenced is
+      # the tables alone — the loop that fills each one, the writes into it, and the engine's
+      # own moment on each line.
+      def bend_copied_busy(bending, fast: false)
+        name = "bendc#{bending}#{fast ? 'f' : ''}"
+        layers = COPIED_BENDS.max
+        rom = build_for(fast, name) do
+          screen :tiled
+          image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
+          tiles :ts, "#" => :t
+          layers.times do |i|
+            bg = background :"bg#{i}", tiles: :ts, map: Array.new(20, "#" * 30)
+            bg.scroll_each_row { |_row| 3 } if i < bending
           end
           game_loop { wait_vblank }
         end
