@@ -89,6 +89,16 @@ module RubyGBA
         @func_mode.fetch(name, @default_mode)
       end
 
+      # The screen mode in force where a statement sits: the mode of the scene that
+      # owns it, or the boot mode for a statement in the main body. Asking it per
+      # statement is what lets a bitmap title screen and a tiled play scene live in
+      # one program and be judged apart.
+      def mode_at(node)
+        func = node.parent
+        func = func.parent while func && func.kind != :func
+        func ? mode_of(func.name) : default_mode
+      end
+
       # The statement subtrees that draw in buffered mode: the main body when the
       # boot mode is buffered, plus every reachable func resolved to buffered. A
       # consumer that cares only about buffered drawing (the palette, which only

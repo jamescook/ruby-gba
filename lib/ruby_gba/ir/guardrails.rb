@@ -227,6 +227,8 @@ require_relative "guardrails/per_frame_scope" # shared by the one-time-setup che
 require_relative "guardrails/seed_in_loop"
 require_relative "guardrails/list_in_loop"
 require_relative "guardrails/iwram_budget"
+require_relative "guardrails/layer_holds_nothing"
+require_relative "guardrails/stack_not_honored"
 
 module RubyGBA
   module IR
