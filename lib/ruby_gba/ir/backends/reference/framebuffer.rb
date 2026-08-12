@@ -152,10 +152,31 @@ module RubyGBA
             @pixels.fill(painted(color))
           end
 
-          # A flat, row-major copy of every cell — for asserting the whole screen
-          # or counting how many cells hold a given color.
+          # A flat, row-major copy of every cell as it is STORED — for counting how many
+          # cells hold a given color, or asserting what was drawn.
           def to_a
             @pixels.dup
+          end
+
+          # The same screen as it is SHOWN: the window's offset applied, and whatever fade
+          # or tint is on blended in. The companion to #to_a, and the two are not
+          # interchangeable.
+          #
+          # Where they differ is exactly where an effect is on, and that difference is the
+          # whole point of an effect: a fade changes NOTHING that was drawn, which is what
+          # makes it cost the same however much is on screen and come back untouched. So
+          # anything comparing this screen with a real display has to read this one — the
+          # stored cells are a picture nobody is looking at.
+          def shown
+            return to_a if plain?
+
+            Array.new(@width * @height) { |i| pixel(i % @width, i / @width) }
+          end
+
+          # Nothing between what is stored and what is shown: the window at the origin and
+          # no effect in force. The common case, and worth not walking the screen for.
+          def plain?
+            @camera_x.zero? && @camera_y.zero? && @tint_color.nil? && fade_steps.zero?
           end
 
           private
@@ -163,14 +184,20 @@ module RubyGBA
           # One color with the current fade applied.
           #
           # A color is three 5-bit channels packed into a halfword, and the fade moves
-          # each channel a fraction of the way to its limit: toward black, take away
-          # that fraction of what the channel has; toward white, add that fraction of
-          # the headroom it has left. So a mid-fade picture keeps its shape and loses
-          # its color, rather than every pixel jumping at once.
+          # each channel a fraction of the way to its limit. So a mid-fade picture keeps
+          # its shape and loses its color, rather than every pixel jumping at once.
           #
-          # The fraction is in sixteenths, and the arithmetic is whole-number and
-          # truncating, because that is exactly what the blend hardware does. Matching
-          # it here is what lets a test assert one expected color for both backends.
+          # THE TWO DIRECTIONS ARE NOT MIRROR IMAGES, and where the truncation falls is
+          # the whole of the difference. Toward white, a channel ADDS a share of the
+          # headroom it has left, and that share is truncated on its own. Toward black it
+          # KEEPS a share of what it has — which is not the same as taking a truncated
+          # share away, because the two round in opposite directions. A channel at the top
+          # blended a quarter of the way to black keeps 23, where taking a quarter away
+          # would leave 24.
+          #
+          # The fractions are in sixteenths and the arithmetic is whole-number, which is
+          # what the display does. Matching it exactly is what lets a test name one
+          # expected color and assert it on both backends.
           def faded(color)
             return mixed(color, @tint_color, steps_of(@tint_amount)) if @tint_color
 
@@ -215,7 +242,7 @@ module RubyGBA
               if toward == :white
                 c + (((CHANNEL_MAX - c) * steps) / FADE_STEPS)
               else
-                c - ((c * steps) / FADE_STEPS)
+                (c * (FADE_STEPS - steps)) / FADE_STEPS
               end
             end
             blended[0] | (blended[1] << 5) | (blended[2] << 10)

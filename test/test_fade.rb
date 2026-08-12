@@ -63,15 +63,30 @@ class TestFade < Minitest::Test
     assert_equal WHITE, i.screen.pixel(10, 10)
   end
 
-  # Halfway is halfway on each channel: a full channel (31) keeps 16 of its 31 parts
-  # going to black. Asserting the number, not just "darker", is what pins the blend.
+  # Halfway on each channel, and the two directions land on DIFFERENT numbers because
+  # the truncation falls in different places. Going to black a channel keeps half of
+  # what it has — half of 31 is 15.5, kept as 15. Going to white it adds half of the
+  # headroom it has left.
+  #
+  # These are the console's own numbers, read off the emulator rather than derived: a
+  # green screen faded halfway to black comes back 0x01e0, which is 15. Asserting 16
+  # here (what taking a truncated half AWAY gives) is how the interpreter drifted a step
+  # darker than the console for as long as nothing compared the two.
   def test_a_half_fade_moves_each_channel_half_way
     dark = Reference.new.run(faded(:black, 50))
     light = Reference.new.run(faded(:white, 50))
 
-    assert_equal [16, 0, 0], channels(dark.screen.pixel(120, 80)), "red, half faded to black"
-    assert_equal [0, 0, 16], channels(dark.screen.pixel(10, 10)), "blue, half faded to black"
+    assert_equal [15, 0, 0], channels(dark.screen.pixel(120, 80)), "red, half faded to black"
+    assert_equal [0, 0, 15], channels(dark.screen.pixel(10, 10)), "blue, half faded to black"
     assert_equal [31, 15, 15], channels(light.screen.pixel(120, 80)), "red, half faded to white"
+  end
+
+  # ...and the console really does say so, for the same picture through the ROM.
+  def test_the_console_shows_the_same_half_fade
+    rom = assemble_rom(faded(:black, 50), name: "HALF")
+    v = assert_gemba_loads_rom(rom, frames: 6)
+
+    assert_equal 15, v.pixel_gba(10, 10) >> 10, "blue, half faded to black"
   end
 
   # The invariant that matters: a fade covers the picture, it does not destroy it.

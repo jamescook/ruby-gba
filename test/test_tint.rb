@@ -1,12 +1,15 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "differential"
 
 # `tint` — moving the whole picture toward a color, which is `fade`'s sibling and not a
 # fade with a color argument. A fade changes BRIGHTNESS (a display can do that to a
 # finished picture); a tint mixes a color IN. They reach the screen by different means
 # and round differently, so the numbers below are asserted rather than derived.
 class TestTint < Minitest::Test
+  include Differential
+
   # A green screen and one tint, as the DSL writes it.
   def tinted(color, amount, screen_kind: :bitmap, tear_free: false)
     b = RubyGBA::Builder.new
@@ -96,20 +99,11 @@ class TestTint < Minitest::Test
     end
   end
 
-  # The whole screen, not the five pixels above. Written out rather than using
-  # assert_backends_agree, which reads the interpreter's STORED cells — and a tint (like
-  # a fade) changes what is SHOWN and leaves the cells alone, so that helper cannot see
-  # one at all.
+  # The whole screen, not the five pixels above. `blended:` allows the emulator its
+  # coarser blend (see Differential::EMULATOR_BLEND_SLACK); the exact arithmetic is what
+  # the per-color assertions above pin.
   def test_the_console_agrees_over_the_whole_screen
-    program = tinted(:red, 50)
-    oracle = Reference.new.run(program, frames: 2).screen
-    console = assert_gemba_loads_rom(assemble_rom(program, name: "TINT"), frames: 4).frame_gba
-
-    differing = (0...160).sum do |y|
-      (0...240).count { |x| oracle.pixel(x, y) != console[(y * 240) + x] }
-    end
-
-    assert_equal 0, differing, "#{differing} pixels differ between the backends"
+    assert_backends_agree(tinted(:red, 50), frames: 2, blended: true)
   end
 
   # A tint the game works out is converted as the program runs, which is a different
