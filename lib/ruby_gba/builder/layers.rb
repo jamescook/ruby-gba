@@ -153,7 +153,7 @@ module RubyGBA
       # Put a node in the layer that is open, or refuse it. Called for every statement
       # the DSL records, so a verb never has to remember to ask.
       def place_in_layer(node)
-        return unless @current_layer
+        return refuse_deferred_layer!(node) unless @current_layer
 
         case IN_A_LAYER.fetch(node.kind, :free)
         when :held then node.layer = @current_layer
@@ -268,40 +268,61 @@ module RubyGBA
               "to front. To fix this, use one of those names, or add :#{name} to the `layers` line."
       end
 
-      # A routine's body is built after the DSL block has run, when no layer is open, so
-      # anything it declares would get no layer at all. That is the silent wrong picture
-      # this whole feature exists to remove, so refuse it and say which way round works.
-      # Only the routines an author writes reach here: the ones the framework declares
-      # for you (an effect's per-frame body) go through #declare_func instead, because
-      # a body that runs every frame is behavior and has no place in the picture.
-      #
-      # A `game_loop` inside a layer block is NOT refused, and the difference is worth
-      # keeping straight. A func is a mechanical problem — the layer provably cannot
-      # reach the body. A game loop's body runs right there, so the layer does reach it
-      # and a sprite declared inside gets the depth it looks like it gets. Refusing that
-      # would be a rule about tidiness, and a rule that costs somebody a working program
-      # needs a better reason than tidiness.
-      def refuse_routine_in_layer!(verb)
+      # A scene cannot go inside a layer, and the reason is about what the two ARE rather
+      # than about when a body is built. A scene is a state of the game and a state holds
+      # things at many depths; a layer is one depth. So this is refused where it is
+      # written, whatever the scene turns out to declare.
+      def refuse_scene_in_layer!
         return unless @current_layer
 
-        raise ArgumentError, ROUTINE_IN_LAYER.fetch(verb).call(@current_layer)
+        raise ArgumentError,
+              "A `scene` cannot go inside a `layer` block. A scene is a state of the game, " \
+              "and a state holds things at many depths. A layer is one depth. To fix this, " \
+              "put the `layer :#{@current_layer}` block inside the scene."
       end
 
-      ROUTINE_IN_LAYER = {
-        func: lambda { |layer|
-          "A `func` inside a `layer` block does not belong to the layer :#{layer}. The body " \
-            "of a func runs later, when the ROM is built, and the layer is not in force then. " \
-            "To fix this, put the `layer` block inside the func:\n" \
-            "  func :setup do\n" \
-            "    layer :#{layer} do ... end\n" \
-            "  end"
-        },
-        scene: lambda { |layer|
-          "A `scene` cannot go inside a `layer` block. A scene is a state of the game, and a " \
-            "state holds things at many depths. A layer is one depth. To fix this, put the " \
-            "`layer :#{layer}` block inside the scene."
-        },
-      }.freeze
+      # A ROUTINE'S BODY IS BUILT LATER, when the `layer` block it was written inside has
+      # closed, so anything in it that wants a depth would quietly get none. That is the
+      # silent wrong picture this whole feature exists to remove.
+      #
+      # THE REFUSAL IS ON WHAT ACTUALLY HAPPENED, not on where the routine was written,
+      # and that distinction is the whole design. Refusing every routine declared inside
+      # a layer would refuse `pulse coin` on the line after the coin — which is exactly
+      # where a game writes it — because `pulse`, `camera_follows`, `fade_out` and
+      # `shake_screen` are all built on the public `each_frame` and a pack cannot be told
+      # from an author by the verb it calls. Asking instead whether the body DECLARED
+      # something with a depth lets every one of them through, since a per-frame body is
+      # behavior and declares nothing that sits in the picture. It also lets a plain
+      # `func` that declares nothing drawable live beside the sprite it moves.
+      #
+      # A `game_loop` inside a layer block never reaches here, and that is right: its
+      # body runs where it is written, so the layer does reach it and a sprite declared
+      # inside gets the depth it looks like it gets.
+      def refuse_deferred_layer!(node)
+        return if @deferred_layer.nil? || IN_A_LAYER.fetch(node.kind, :free) != :held
+
+        layer, wrote = @deferred_layer
+        raise ArgumentError,
+              "#{HELD_THING.fetch(node.kind)} declared inside `#{wrote}` cannot take the " \
+              "layer :#{layer}. The body of `#{wrote}` is built later, when the ROM is made, " \
+              "and the layer is not in force then — so this would sit at no depth at all. " \
+              "To fix this, #{deferred_layer_fix(wrote, layer)}"
+      end
+
+      # What a held node is, in the words the message needs. Text on a tiled screen is one
+      # little sprite per character, so a glyph really is a sprite here.
+      HELD_THING = { object: "A sprite", background: "A background" }.freeze
+
+      # The way round that works, which is not the same for the two. A declaration inside
+      # a per-frame body runs once wherever it is put, so moving it out is both the fix
+      # and what the author meant. A func's body is the routine, so the layer goes in it.
+      def deferred_layer_fix(wrote, layer)
+        return "put the `layer` block inside the func:\n  #{wrote} do\n    layer :#{layer} do ... end\n  end" \
+          if wrote.start_with?("func")
+
+        "declare it outside the `#{wrote}` block. A per-frame body is behavior, and a " \
+          "declaration in it runs one time wherever you put it."
+      end
 
       def refuse_painting_in_layer!(node)
         verb = VERB_FOR.fetch(node.kind, node.kind)

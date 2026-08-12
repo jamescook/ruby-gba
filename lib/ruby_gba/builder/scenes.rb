@@ -26,8 +26,7 @@ module RubyGBA
       # @param name [Symbol] function name
       # @param fast [Boolean, nil] keep it in the quick memory (nil = let the framework decide)
       def func(name, fast: nil, &block)
-        refuse_routine_in_layer!(:func)
-        declare_func(name, fast: fast, &block)
+        declare_func(name, fast: fast, wrote: "func :#{name}", &block)
       end
 
       # Call a named subroutine. The target is resolved by name when the tree is
@@ -59,7 +58,7 @@ module RubyGBA
       #
       # @param name [Symbol] scene name
       def scene(name, &block)
-        refuse_routine_in_layer!(:scene)
+        refuse_scene_in_layer!
         declare_func(:"_scene_#{name}", &block)
       end
 
@@ -100,16 +99,25 @@ module RubyGBA
 
       private
 
-      # Register a routine's body, with none of the rules that apply to a `func` an
-      # author writes. This is what the framework declares its own routines through —
-      # an effect's per-frame body, a hidden helper — because those are behavior rather
-      # than things in the picture, and a game says `pulse coin` on the line after it
-      # declares the coin, layer block and all.
-      def declare_func(name, fast: nil, &block)
+      # Register a routine's body. Every routine goes through here — an author's `func`,
+      # an author's `each_frame`, and the ones the framework declares for itself (an
+      # effect's per-frame body, a hidden helper).
+      #
+      # A body is built LATER, at finalize, when the `layer` block it was written inside
+      # has long since closed. So anything in it that wants a depth would quietly get
+      # none, and this is where the layer in force is remembered so that can be refused
+      # when it actually happens (see Layers#refuse_deferred_layer!). Remembering rather
+      # than refusing here is what lets `pulse coin` be written on the line after the
+      # coin, inside the layer block: a pack's per-frame body is behavior and declares
+      # nothing with a depth, so it never trips the rule. +wrote+ is what the author
+      # typed, for that message; the framework's own routines leave it alone and are
+      # never the subject of one.
+      def declare_func(name, fast: nil, wrote: nil, &block)
         raise ArgumentError, "The function :#{name} is already defined. Use a different name for each function." if @functions.key?(name)
 
         @functions[name] = block
         @func_fast[name] = fast unless fast.nil?
+        @routine_layer[name] = [@current_layer, wrote] if @current_layer && wrote
       end
 
       # Every call and case target must name a defined function. Check that here, so
