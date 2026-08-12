@@ -31,10 +31,10 @@ module Shmup
 
   GAME = RubyGBA.game("SHMUP", code: "BSMP", maker: "01") do
     screen :tiled
-    # The stack, back to front. Only the HUD names a layer here, and that is enough: the
-    # fade below sits UNDER :ui, so it reaches the field and everything that moves in it
-    # and leaves the score alone. Anything that named no layer keeps the place it had.
-    layers :field, :ui
+    # The stack, back to front — one line saying what is in front of what, for a picture
+    # whose parts are declared in three different files. The fade below then sits UNDER
+    # :ui, so it reaches the field and everything moving in it and leaves the score alone.
+    layers :enemies, :ship, :ui
     seed 0xC0DE # a fixed stream once at boot, so enemy respawns are reproducible
     var :state, PLAYING
     new_game = var :new_game, 0 # 1 asks the playing scene to start over
@@ -43,9 +43,9 @@ module Shmup
     # The playing scene owns the whole field — declaring the parts here makes their
     # sprites and HUD belong to this scene, so they vanish on the game-over screen.
     scene :playing do
-      enemies = Enemies.new(self) # declared first, so they draw behind the ship
-      player  = Player.new(self)
-      hud     = layer(:ui) { Hud.new(self) } # ...and the score sits above the lot
+      enemies = layer(:enemies) { Enemies.new(self) }
+      player  = layer(:ship)    { Player.new(self) }
+      hud     = layer(:ui)      { Hud.new(self) }
 
       # Start a fresh game when the game-over screen asked for one: everything back to
       # its opening position, then clear the request.

@@ -174,8 +174,10 @@ module Lake
     tiles :above, "." => :sky, "o" => :sun, "^" => :hill, "=" => :shore, "~" => :water
     tiles :below, "~" => :water, "v" => :hill_reflection, "|" => :glint
 
-    background :scene, tiles: :above, map: SCENE  # declared first -> the back layer
-    water = background :water, tiles: :below, map: WATER # declared second -> in front
+    layers :shore, :surface # the stack, back to front
+
+    layer(:shore) { background :scene, tiles: :above, map: SCENE }
+    water = layer(:surface) { background :water, tiles: :below, map: WATER }
 
     # One wave, as a table of sideways offsets worked out at build time. A table is the
     # right home for it: the block below runs 160 times a frame, so anything it has to

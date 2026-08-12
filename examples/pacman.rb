@@ -115,6 +115,11 @@ module Pacman
   # ships — the headless interpreter runs THIS, the console runs the ROM.
   GAME = RubyGBA.game("PACMAN", code: "BPAC", maker: "01") do
     screen :tiled # tile mode: a background layer for the room + hardware sprites on top
+
+    # What is in front of what, back to front. Four things share this screen, and
+    # without this line their order is whichever declaration happens to run first.
+    layers :room, :pellets, :actors, :ui
+
     enable_sound
     define_sound :waka,   frequency: 660, duty: :half, decay: :fast
     define_sound :caught, frequency: 90,  duty: :half, decay: :slow, volume: 12
@@ -146,7 +151,7 @@ module Pacman
       ART
     end
     tiles :dungeon, "#" => :wall, "." => :floor
-    background :room, tiles: :dungeon, map: ROOM
+    layer(:room) { background :room, tiles: :dungeon, map: ROOM }
 
     # --- Pac-Man: a two-frame chomp per direction, imported from a sprite sheet ---
     # pacman_sheet.png is a grid — one row per direction (in DIRS order), two columns
@@ -155,18 +160,20 @@ module Pacman
     # so Pac chomps whichever way he faces: this is the way a real game brings in art,
     # from a file rather than typed inline. (Re-run the generator if you change the
     # formula.)
-    pac = sprite :pac, at: START, rate: 6,
-                       facing_from: "assets/pacman_sheet.png", tile: SIZE,
-                       dirs: DIRS, transparent: true
+    pac = layer(:actors) do
+      sprite :pac, at: START, rate: 6,
+                   facing_from: "assets/pacman_sheet.png", tile: SIZE,
+                   dirs: DIRS, transparent: true
+    end
 
     # --- the pellets: a sprite each, scattered on the floor ---
     image(:pellet, "." => :transparent, "o" => :white) { PELLET_ART }
-    pellets = PELLET_SPOTS.map { |px, py| sprite :pellet, at: [px, py] }
+    pellets = layer(:pellets) { PELLET_SPOTS.map { |px, py| sprite :pellet, at: [px, py] } }
     eaten = var :eaten, 0 # how many pellets Pac-Man has swallowed
 
     # --- the ghost ---
     image(:ghost, "." => :transparent, "R" => :red, "W" => :white) { GHOST_ART }
-    ghost = sprite :ghost, at: GHOST_START
+    ghost = layer(:actors) { sprite :ghost, at: GHOST_START }
     caught = var :caught, 0 # how many times the ghost has caught Pac
 
     # --- the score, right on the screen ---
@@ -174,8 +181,10 @@ module Pacman
     # draw each character as a little sprite the console lays over the game. You declare
     # them ONCE here (like a sprite); the number then follows :eaten and repaints itself
     # every frame — there's nothing to redraw inside the loop.
-    draw_text "SCORE", 8, 4, :white
-    draw_number :eaten, 46, 4, :white, digits: 3
+    layer :ui do
+      draw_text "SCORE", 8, 4, :white
+      draw_number :eaten, 46, 4, :white, digits: 3
+    end
 
     game_loop do
       # Hold a direction: Pac moves that way AND turns to face it — one call each.
