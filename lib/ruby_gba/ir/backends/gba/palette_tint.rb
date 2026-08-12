@@ -126,7 +126,7 @@ module RubyGBA
 
             eval_value(Build.binop(:/, Build.binop(:*, node.amount, Build.int(BLD_MAX)),
                                    Build.int(100)))
-            emit_clamp_tint_steps
+            emit_clamp_blend_steps
             emit(ASM.mov_reg(TINT_STEPS, ACC))                      # kept while the state is compared
             emit(ASM.load_immediate(TMP, color << TINT_COLOR_SHIFT))
             emit(ASM.orr_reg(TMP, TMP, ACC))                        # r1 = the state asked for
@@ -137,18 +137,6 @@ module RubyGBA
             emit_branch(:bcond, done, cond: :eq)
             store_var(TMP, TINT_STATE)
             emit(ASM.mov_reg(ACC, TINT_STEPS))
-          end
-
-          # An amount past either end settles at that end rather than running off it, the
-          # same as the interpreter and the same as `fade`. The direct-color screen gets
-          # this free — its weights go into a register the display itself clamps — but
-          # here the arithmetic is ours, and a share of more than all of it would take a
-          # picture somewhere no color goes.
-          def emit_clamp_tint_steps
-            emit(ASM.cmp_imm(ACC, 0))
-            emit(ASM.mov_imm_cond(:lt, ACC, 0))
-            emit(ASM.cmp_imm(ACC, BLD_MAX))
-            emit(ASM.mov_imm_cond(:gt, ACC, BLD_MAX))
           end
 
           TINT_COLOR_SHIFT = 5 # the steps (0..16) sit below the color in the state word

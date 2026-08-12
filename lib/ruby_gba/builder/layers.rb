@@ -88,6 +88,9 @@ module RubyGBA
         blit_pose: :free,
         save_region: :free,
         restore_region: :free,
+        # ...and how see-through the see-through layer is, which the framework puts at the
+        # frame boundary. It already knows the layer it is about, so it belongs to none.
+        see_through: :free,
       }.freeze
 
       # The verb an author writes for each kind that cannot go in a layer, so the error
@@ -147,13 +150,28 @@ module RubyGBA
       # blending as it draws, so nothing is redrawn and it costs nothing however much is
       # on screen.
       #
+      # THE AMOUNT CAN BE SOMETHING THE GAME WORKS OUT, which is fog that thickens, water
+      # that gets murkier as you go down, a menu backdrop that dims in:
+      #
+      #   mist = var :mist, 0
+      #   layer :air, transparency: 100 - mist do
+      #     background :fog, tiles: :weather, map: SKY
+      #   end
+      #
+      # Write a variable where you would write a number and that is the whole of it. The
+      # difference is what it costs: a number is sent to the display once and never again,
+      # where an amount that can change has to be sent again before every frame. That is
+      # one register write, nothing is redrawn either way, and `rom.explain` says which of
+      # the two a picture got.
+      #
       # A game has ONE see-through layer, and it says the amount one time — every example
       # opens a layer block exactly once, so that is the natural place. Needs
       # `screen :tiled`: a bitmap screen paints its whole picture into one place before
       # the display sees it, so by then there is nothing left to see through.
       #
       # @param name [Symbol] a layer named in {#layers}
-      # @param transparency [Integer, nil] how much of what is behind shows through, 0 to 100
+      # @param transparency [Integer, Symbol, Value, nil] how much of what is behind shows
+      #   through, 0 to 100 — a number, or something the game works out
       # @return [Object] the block's value
       def layer(name, transparency: nil, &block)
         raise ArgumentError, "`layer :#{name}` needs a block: `layer :#{name} do ... end`." unless block
@@ -252,22 +270,36 @@ module RubyGBA
         check_one_transparent_layer!(name, amount)
 
         @layers_node.transparent = name
-        @layers_node.transparency = amount
+        @layers_node.transparency = Value.node_for(amount)
+        @transparency_written = amount
+        ensure_var(amount)
       end
 
       def check_transparency_amount!(name, amount)
-        return if amount.is_a?(Integer) && (0..100).cover?(amount)
+        fixed = Value.fixed_number(amount)
+        return if fixed.nil? && value_like?(amount) # the game works it out — checked as it runs
+        return if fixed && (0..100).cover?(fixed)
 
-        unless amount.is_a?(Integer)
+        unless fixed
           raise ArgumentError,
-                "`layer :#{name}, transparency:` takes a whole number from 0 to 100. You gave " \
-                "#{amount.inspect}. The framework settles it while building, so it cannot be a " \
-                "value the game works out as it runs."
+                "`layer :#{name}, transparency:` takes a whole number from 0 to 100, or " \
+                "something the game works out (a variable, or a sum of them). You gave " \
+                "#{amount.inspect}."
         end
 
         raise ArgumentError,
-              "`layer :#{name}, transparency: #{amount}` is outside 0 to 100. 0 is solid and " \
+              "`layer :#{name}, transparency: #{fixed}` is outside 0 to 100. 0 is solid and " \
               "100 lets everything behind show through."
+      end
+
+      def value_like?(amount)
+        amount.is_a?(Symbol) || amount.is_a?(Value) || amount.is_a?(IR::Node)
+      end
+
+      # How see-through the layer was asked to be, as the author wrote it — a number, or
+      # the name of what the game works it out from. For a message about it.
+      def transparency_as_written
+        Value.fixed_number(@transparency_written) || @transparency_written.inspect
       end
 
       # A bitmap screen paints its scenery, its sprites and its text into ONE picture
@@ -287,13 +319,15 @@ module RubyGBA
       def check_one_transparent_layer!(name, amount)
         already = @layers_node.transparent
         return if already.nil?
-        return if already == name && @layers_node.transparency == amount
+        # The same thing said twice is one fact said twice. Compared as the author wrote
+        # it, since two reads of the same variable build two equal-but-distinct nodes.
+        return if already == name && @transparency_written.equal?(amount)
 
         if already == name
           raise ArgumentError,
-                "The layer :#{name} is already #{@layers_node.transparency} see-through, and now " \
-                "asks for #{amount}. A layer says how see-through it is one time. To fix this, " \
-                "say `transparency:` on one of the `layer :#{name}` blocks."
+                "The layer :#{name} is already #{transparency_as_written} see-through, and now " \
+                "asks for #{amount.inspect}. A layer says how see-through it is one time. To fix " \
+                "this, say `transparency:` on one of the `layer :#{name}` blocks."
         end
 
         raise ArgumentError,

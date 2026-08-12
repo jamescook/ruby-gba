@@ -165,6 +165,11 @@ module ConformanceFixture
       # Also at 0, for the same reason: nothing is blended either way, so the picture is
       # unchanged and what this pins is that every backend can be told to tint at all.
       B.tint(color: :red, amount: B.int(0)),
+      # Saying again how see-through the see-through layer is, which is what a picture
+      # whose amount the game works out does on every frame. The amount here is the one
+      # the stack was declared with, so the picture does not change and what this pins is
+      # that every backend can be told the amount again at all.
+      B.see_through(B.int(50)),
       B.object(:hero_obj, poses: [:obj8], pose: B.int(0), # a composited object (one pose, held at index 0)
                           x: B.var_ref(:x), y: B.var_ref(:y), active: B.int(1),
                           # Turned 45 degrees and drawn at half again its size — the two

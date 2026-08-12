@@ -114,6 +114,7 @@ module RubyGBA
           when :camera then @weights[:camera_move]
           when :fade then fade_cost(node)
           when :tint then tint_cost(node)
+          when :see_through then see_through_cost(node)
           when :background then dma_blob_cost(background_cells(node)) # one-time map stamp (boot, not per frame)
           when :play_song then song_cost(node.name)
           when :beep then BEEP_WRITES * @weights[:sound_write]
@@ -190,6 +191,23 @@ module RubyGBA
 
           @weights[:fade_set] + @weights[:op_mul] + @weights[:op_div_const] +
             (sees_through_a_layer? ? @weights[:op_compare] : 0)
+        end
+
+        # SEEING THROUGH A LAYER IS FREE, and this is the one arrangement where it is not.
+        #
+        # An amount the author wrote is one register write at boot and nothing ever again —
+        # the display blends as it draws, so the layer costs the same as a solid one
+        # however much is on screen. That case never reaches here: no per-frame node is
+        # made for it.
+        #
+        # An amount the game works out is that same register written on EVERY frame,
+        # because the display has to be told again before each one. The write is one thing;
+        # the conversion is the rest — the amount runs 0 to 100 and the hardware counts in
+        # sixteenths — plus settling an amount that ran off either end.
+        def see_through_cost(node)
+          return @weights[:fade_set] if const_side(node.amount)
+
+          @weights[:fade_set] + @weights[:op_mul] + @weights[:op_div_const] + @weights[:op_compare]
         end
 
         # A tint costs one of two quite different things, and which one is the screen's

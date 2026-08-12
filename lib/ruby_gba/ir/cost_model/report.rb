@@ -162,8 +162,17 @@ module RubyGBA
           node = program.each.find { |n| n.kind == :layers && n.transparent }
           return unless node
 
-          printer.puts "    :#{node.transparent} is #{node.transparency} see-through — " \
-                       "the display blends it as it draws, for nothing"
+          fixed = Value.fixed_number(node.transparency)
+          if fixed
+            printer.puts "    :#{node.transparent} is #{fixed} see-through — " \
+                         "the display blends it as it draws, for nothing"
+          else
+            # The one arrangement where it is not free — and only half of it: the blending
+            # is still the display's, and it is the TELLING that costs.
+            printer.puts "    :#{node.transparent} is as see-through as the game works out — " \
+                         "the display blends it for nothing"
+            printer.puts "      ...and the amount is written to it on every frame"
+          end
           return unless program.each.any? { |n| n.kind == :fade }
 
           # The one thing a reader cannot see anywhere else. A fade uses the same blend

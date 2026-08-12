@@ -267,11 +267,28 @@ module RubyGBA
       # so it is named here rather than being a property of each layer: `transparent` is
       # the layer's name and `transparency` is how much of what is behind it shows, 0
       # (solid) to 100 (invisible).
+      #
+      # The amount is a value rather than a number, because a picture can go on changing
+      # it — fog that thickens, water that gets murkier the deeper you swim. A number
+      # settled while authoring is written once and never again; one the program works out
+      # is re-read every frame (see SeeThrough).
       class Layers
         include Node
         kind :layers
         category :data
-        operands names: :list, transparent: :name, transparency: :int
+        operands names: :list, transparent: :name, transparency: :value
+      end
+
+      # How see-through the see-through layer is, RIGHT NOW.
+      #
+      # Only a picture whose amount is worked out as it runs carries this: the framework
+      # puts one at each frame boundary so the display is told again before the frame is
+      # drawn. Which layer it means is on the Layers node — a picture has one.
+      class SeeThrough
+        include Node
+        kind :see_through
+        category :draw
+        operands amount: :value
       end
 
       class ListDrop
