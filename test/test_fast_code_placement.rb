@@ -182,6 +182,10 @@ class TestFastCodePlacement < Minitest::Test
   # times a frame, which makes the routine those answers run in the busiest thing in the
   # program. It has no name the author wrote, like the game loop's body, and it is placed
   # the same way.
+  #
+  # Its block SETS A VARIABLE, which is what puts it on the interrupt: a block that is one
+  # number is worked out ahead of the frame and handed to a copying engine instead, and then
+  # there is no interrupt to place at all (see BendForm, and the test below).
   def bending_program(&block)
     b = Builder.new
     b.instance_eval do
@@ -192,7 +196,11 @@ class TestFastCodePlacement < Minitest::Test
       if block
         instance_exec(water, &block)
       else
-        water.scroll_each_row { |row| row % 8 }
+        shift = var :shift, 0
+        water.scroll_each_row do |row|
+          shift.set row % 8
+          shift
+        end
       end
       game_loop { }
     end
@@ -202,6 +210,14 @@ class TestFastCodePlacement < Minitest::Test
 
   def test_the_routine_the_display_interrupts_into_moves_when_a_background_bends
     assert_includes placement_of(bending_program).funcs, Placement::IRQ_ROUTINE
+  end
+
+  # ...and it is not placed at all for a bend a copying engine feeds, because nothing lands
+  # there: the display announces no lines, and the block runs in the frame with the rest of
+  # the code. The room goes to whatever else earns it.
+  def test_nothing_is_placed_there_for_a_bend_the_copier_feeds
+    program = bending_program { |water| water.scroll_each_row { |row| row % 8 } }
+    refute_includes placement_of(program).funcs, Placement::IRQ_ROUTINE
   end
 
   # ...and it does NOT move for a program that only sleeps until the next frame. That
@@ -293,8 +309,8 @@ class TestFastCodePlacement < Minitest::Test
   # read nearly twice over for every program that ripples.
   def test_the_estimate_follows_the_interrupt_into_quick_memory
     program = bending_program
-    cart = RubyGBA::IR::CostModel.new.bend_verdict(program).interrupts
-    quick = RubyGBA::IR::CostModel.new(fast_interrupts: true).bend_verdict(program).interrupts
+    cart = RubyGBA::IR::CostModel.new.bend_verdict(program).feeding
+    quick = RubyGBA::IR::CostModel.new(fast_interrupts: true).bend_verdict(program).feeding
     assert_operator quick, :<, cart
   end
 

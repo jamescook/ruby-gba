@@ -66,9 +66,12 @@ module RubyGBA
           # It earns its place the same way anything else does — by what a frame spends in
           # it. That is usually nothing: a program that only sleeps until the next frame
           # enters it once a frame and leaves again immediately. But a background bending
-          # row by row is entered after every single line the display draws, 228 times a
-          # frame, and then it is the busiest routine in the program by a wide margin.
-          # Measured on examples/lake.rb: 47.6 scanlines a frame down to 24.2.
+          # row by row, when its block is more than one number, is entered after every
+          # single line the display draws, 228 times a frame, and then it is the busiest
+          # routine in the program by a wide margin. (A block that IS one number is fed to
+          # the display by a copying engine instead and lands here not at all — see
+          # {BendForm} — and then this routine is worth nothing again and the room goes to
+          # the frame's own body, which is where that bend's table is filled.)
           #
           # It buys less than the 2.6x the rest of this file talks about — 1.9x, measured —
           # because a fair share of an interrupt is the console's own doing, and that part
@@ -327,8 +330,12 @@ module RubyGBA
           # The trees the console runs on an announcement: every bending background's block
           # and every timer's tick body. There is no one node standing for all of it the way
           # a routine has one, so the pieces are gathered.
+          #
+          # A bend the copying engine feeds is not among them: nothing announces its lines,
+          # and its block runs in the frame like ordinary code (see {BendForm}).
           def irq_bodies(program)
-            program.walk.select { |node| %i[scroll_rows on_timer].include?(node.kind) }
+            kinds = BendForm.copier?(program) ? %i[on_timer] : %i[scroll_rows on_timer]
+            program.walk.select { |node| kinds.include?(node.kind) }
           end
 
           # The routines the author asked for by name, placed before anything the
@@ -385,7 +392,7 @@ module RubyGBA
             model = CostModel.new
             costs = program.walk.select { |node| node.kind == :func }
                            .to_h { |node| [node.name, model.func_frame_cost(program, node.name)] }
-            costs[FRAME_ROUTINE] = model.steady_cost(program) if sizes.key?(FRAME_ROUTINE)
+            costs[FRAME_ROUTINE] = model.frame_body_cost(program) if sizes.key?(FRAME_ROUTINE)
             costs[IRQ_ROUTINE] = model.interrupt_frame_cost(program) if sizes.key?(IRQ_ROUTINE)
 
             costs.select { |name, cost| cost >= WORTH_MOVING && sizes[name].to_i.positive? }

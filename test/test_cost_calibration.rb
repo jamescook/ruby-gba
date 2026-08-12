@@ -70,9 +70,14 @@ class TestCostCalibration < Minitest::Test
     game_loop { }
   end
 
-  # Bending a background row by row: the display interrupts the program after every line it
-  # counts, and the block works out that row's offset. Neither is a statement anybody wrote
-  # in the frame, which is why it has to be measured whole rather than found in the op tree.
+  # Bending a background row by row, ANSWERED PER LINE: the display interrupts the program
+  # after every line it counts, and the block works out that row's offset. Neither is a
+  # statement anybody wrote in the frame, which is why it has to be measured whole rather
+  # than found in the op tree.
+  #
+  # The block SETS A VARIABLE, and that is what puts it on the interrupt rather than being a
+  # detail of the fixture: a block that is only a number is worked out ahead of the frame
+  # and handed to a copying engine, which is the case below.
   BEND = lambda do |with|
     screen :tiled
     image(:sky, "." => :blue) { ("." * 8 + "\n") * 8 }
@@ -80,8 +85,34 @@ class TestCostCalibration < Minitest::Test
     water = background :water, tiles: :set, map: Array.new(20) { "." * 30 }
     ripple = table :ripple, (0...WAVE_ROWS).map { |i| (Math.sin(i * 2 * Math::PI / WAVE_ROWS) * 4).round }
     phase = var :phase, 0
-    water.scroll_each_row { |row| ripple[(row - phase) % WAVE_ROWS] } if with
+    sway = var :sway, 0
+    if with
+      water.scroll_each_row do |row|
+        sway.set ripple[(row - phase) % WAVE_ROWS]
+        sway
+      end
+    end
     game_loop { phase.add 1 }
+  end
+
+  # The same layer with the block left as ONE NUMBER, which is what lets the build work all
+  # 160 rows out at the frame boundary and hand the table to a copying engine. Nothing is
+  # interrupted; what is measured is the table being filled.
+  #
+  # A NUMBER WRITTEN IN THE PROGRAM, where the case above reads a sine table, and that is
+  # not laziness: with nothing to work out per row the whole reading is the table, so the
+  # case watches its own weight and nothing else. Read a table here instead and the block's
+  # own arithmetic — which the model prices from the op tree, at the general quick-memory
+  # factor — grows into a share big enough that this case notices THAT weight drifting too,
+  # and then a failure no longer says which. It is also the block the weight was measured on
+  # (Benchmarks#bend_busy).
+  BEND_COPIED = lambda do |with|
+    screen :tiled
+    image(:sky, "." => :blue) { ("." * 8 + "\n") * 8 }
+    tiles :set, "." => :sky
+    water = background :water, tiles: :set, map: Array.new(20) { "." * 30 }
+    water.scroll_each_row { |_row| 3 } if with
+    game_loop { }
   end
 
   # A timer's tick handler, which runs off the timer and not the frame loop. The rate is
@@ -350,6 +381,10 @@ class TestCostCalibration < Minitest::Test
     Standing.new(name: :bend, weight: :bend_line, fast_code: false, shape: BEND,
                  predict: ->(model, program) { model.bend_cost(program) }),
     Standing.new(name: :bend_fast, weight: :bend_line_fast, fast_code: true, shape: BEND,
+                 predict: ->(model, program) { model.bend_cost(program) }),
+    Standing.new(name: :bend_copied, weight: :bend_row_copied, fast_code: false, shape: BEND_COPIED,
+                 predict: ->(model, program) { model.bend_cost(program) }),
+    Standing.new(name: :bend_copied_fast, weight: :bend_row_copied_fast, fast_code: true, shape: BEND_COPIED,
                  predict: ->(model, program) { model.bend_cost(program) }),
     Standing.new(name: :ticks, weight: :tick_interrupt, fast_code: false, shape: TICKS,
                  predict: ->(model, program) { model.tick_cost(program) }),

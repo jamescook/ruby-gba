@@ -2,6 +2,7 @@
 
 require_relative "gba/emit"
 require_relative "gba/loop_form" # which shape a repeat gets; the cost model asks it too
+require_relative "gba/bend_form" # ...and which way a row-by-row bend is lowered, likewise
 require_relative "gba/statements"
 require_relative "gba/lists"
 require_relative "gba/drawing"
@@ -232,6 +233,8 @@ module RubyGBA
           @backgrounds = {}      # name -> resolved tiled-background layer (map blob, BG number, screen block, priority)
           @row_bends = {}        # name -> :scroll_rows node giving each of that layer's rows its own offset
           @row_bend_base = {}    # name -> the layer's own scroll, which a row's offset is measured from
+          @row_bend_table = {}   # name -> where its table of row offsets sits, when the copier feeds them
+          @copies_row_bends = false # are those bends fed by a copying engine rather than per-line interrupts?
           @bg_shared = nil       # the one palette + character block every background layer shares
           @has_objects = false   # does the program declare any composited objects (sprites)?
           @objects = {}          # name -> resolved sprite layout (OAM slot, tile/palette blobs)
@@ -312,6 +315,10 @@ module RubyGBA
             emit_boot_objects if @has_objects # sprite tiles/colors + clear the sprite table
             emit_boot_layer_blend if @see_through # ...and which layer you can see through
           end
+          # Start the engine that feeds a bending layer its offsets. Set up wherever the
+          # program starts out, since it is fed a table rather than a picture — there is
+          # nothing here for a bitmap scene to overwrite.
+          emit_boot_row_bend_copiers if copies_row_bends?
           emit_tint_state_init if @palette_tint # the color tables start as they were drawn
           @lower_mode = @default_mode
           program.children.each { |stmt| emit_statement(stmt) }
@@ -379,7 +386,7 @@ module RubyGBA
         # (for an on_tick handler)? The mixer needs none: it refills on the frame loop, in
         # the main thread, not off an interrupt.
         def uses_irq?
-          @uses_vblank || irq_timers.any? || bends_rows?
+          @uses_vblank || irq_timers.any? || interrupts_rows?
         end
 
         # Playing samples means the mixer, and the mixer refills once per frame right after
@@ -435,15 +442,17 @@ module RubyGBA
         def emit_irq_setup
           enabled = 0
           enabled |= IRQ_VBLANK if @uses_vblank
-          enabled |= IRQ_HBLANK if bends_rows?
+          enabled |= IRQ_HBLANK if interrupts_rows?
           irq_timers.each { |_, info| enabled |= timer_irq_bit(info[:rate]) }
 
           # Which moments the display announces: the gap between frames (so wait_vblank
           # can sleep until one), and the gap after every line it draws (so a bending
-          # background can move before the next line).
+          # background answered per line can move before the next one). A bend fed by the
+          # copier needs neither — the engine acts on the line-end by itself, with nobody
+          # to tell.
           announce = 0
           announce |= DISPSTAT_VBLANK_IRQ if @uses_vblank
-          announce |= DISPSTAT_HBLANK_IRQ if bends_rows?
+          announce |= DISPSTAT_HBLANK_IRQ if interrupts_rows?
 
           write_io_halfword(REG_IME, 0)                          # interrupts off while we wire things up
           write_io_halfword(REG_DISPSTAT, announce) unless announce.zero?
@@ -474,7 +483,7 @@ module RubyGBA
           # A bending background is checked FIRST because it fires by far the most often —
           # once for every line the display draws, against once a frame for everything
           # else. Every check ahead of it would be paid 228 times a frame.
-          emit_irq_source(IRQ_HBLANK) { emit_row_bend_handler } if bends_rows?
+          emit_irq_source(IRQ_HBLANK) { emit_row_bend_handler } if interrupts_rows?
           # VBlank must ack in TWO places — the hardware flag (REG_IF) and the BIOS's own
           # copy (REG_IFBIOS) that VBlankIntrWait polls — or the CPU would never wake.
           emit_irq_source(IRQ_VBLANK, bios_ack: true) if @uses_vblank

@@ -730,26 +730,51 @@ module RubyGBA
 
       # --- interrupts: a bending background, and a timer's tick ---
 
-      # A tiled background, optionally bending row by row. With +bend+ the display raises an
-      # interrupt after every line it draws and the handler writes that line's own scroll
-      # offset — so this ROM pays the whole per-line cost 228 times a frame. The offset is a
-      # number written into the program, the cheapest one there is, so differencing against the
-      # same ROM without the bend leaves the interrupt itself and nothing of the program's own
-      # arithmetic (which the model prices separately, per visible line).
+      # HOW MANY STATEMENTS the pair of interrupt-lowered ROMs put in the block. A block of
+      # NONE would be the natural thing to measure an interrupt on, and it is exactly the
+      # block the build hands to a copying engine instead — so the interrupt's own cost is
+      # read off two blocks that do something and the line through them extended back to a
+      # block that does nothing. Far apart enough that the difference is well clear of the
+      # noise, and both small enough to leave the reading nowhere near a whole frame.
+      BEND_STEPS = [1, 5].freeze
+
+      # A tiled background, optionally bending row by row — and, when it bends, in either of
+      # the two ways a bend can be lowered.
       #
-      # +fast+ builds the same ROM the way a real one is built, so the build keeps the routine
-      # the announcement lands in in the console's quick memory. That is the OTHER weight: the
-      # handler runs from fast memory but the console's own part of an interrupt — stopping the
-      # game, saving registers, handing over and taking back — does not, so how much it saves
-      # has to be measured rather than assumed from the general fast-memory factor.
-      def bend_busy(bend, fast: false)
-        name = "bend#{bend ? 1 : 0}#{fast ? 'f' : ''}"
+      # +copied+ leaves the block as one number, which is what lets the build work all 160
+      # rows out at the frame boundary and hand them to a copying engine. The per-line cost
+      # is then nothing at all and what is left is the table: differencing against the same
+      # ROM without the bend leaves the loop that fills it, the write into it, and the
+      # engine's own moment on each line.
+      #
+      # Without +copied+ the block sets a variable +steps+ times, which is a program rather
+      # than a number, so it is answered per line: the display raises an interrupt after
+      # every line it draws and the handler writes that line's scroll offset — the whole
+      # per-line cost, 228 times a frame. The offset itself stays a number written into the
+      # program, the cheapest one there is, so nothing of the program's own arithmetic is in
+      # the way (the model prices that separately, per visible line).
+      #
+      # +fast+ builds the same ROM the way a real one is built, so the build keeps the busy
+      # routine in the console's quick memory. That is the OTHER weight of each pair, and it
+      # has to be measured rather than taken from the general fast-memory factor: part of
+      # what each lowering costs is the console's own doing — stopping the game and handing
+      # control over, or an engine stealing the bus — and none of that runs from our memory.
+      def bend_busy(bend, fast: false, copied: false, steps: BEND_STEPS.first)
+        name = "bend#{bend ? (copied ? 'c' : steps) : 0}#{fast ? 'f' : ''}"
         rom = build_for(fast, name) do
           screen :tiled
           image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
           tiles :ts, "#" => :t
           bg = background :bg, tiles: :ts, map: Array.new(20, "#" * 30)
-          bg.scroll_each_row { |_row| 3 } if bend
+          if bend && copied
+            bg.scroll_each_row { |_row| 3 }
+          elsif bend
+            shift = var :shift, 0
+            bg.scroll_each_row do |_row|
+              steps.times { shift.set 3 }
+              3
+            end
+          end
           game_loop { wait_vblank }
         end
         @m.busy(name, rom)

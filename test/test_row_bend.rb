@@ -14,6 +14,8 @@ require_relative "differential"
 class TestRowBend < Minitest::Test
   include Differential
 
+  BendForm = RubyGBA::IR::Backends::GBA::BendForm
+
   # A background of narrow vertical bars. Vertical edges are what a sideways shift moves,
   # so where a row's bars land IS its offset, read straight off the screen.
   def bars_program(&bend)
@@ -109,15 +111,16 @@ class TestRowBend < Minitest::Test
   end
 
   # A travelling ripple: a sine table read at an index the program moves every frame — the
-  # real shape of the effect, and a different lowering path (a ROM table read inside the
-  # per-line handler) from the arithmetic above.
+  # real shape of the effect, and the one an animated bend has to get right, since a still
+  # bend looks the same whichever frame you read it on.
   #
   # It is compared at EQUAL frame counts, where a framebuffer program needs the console run
-  # a frame longer (Differential::BOOT_FRAMES). A bend is not drawn by the program: the
-  # console writes a frame's row offsets from the end of the previous frame through to the
-  # bottom of this one, so its picture is already a frame further on than a draw the loop
-  # made — which cancels the boot frames exactly. The sweep below is what establishes that
-  # rather than assuming it.
+  # a frame longer (Differential::BOOT_FRAMES). A bending program spends a good part of its
+  # first frame getting ready — filling a table of row offsets, or arming an interrupt and
+  # answering it — and comes out of that a frame further on than a program that only draws.
+  # The sweep below is what establishes the pairing rather than assuming it, which is the
+  # point: this is measured, like BOOT_FRAMES itself, and not worked out from first
+  # principles.
   def ripple_program
     b = Builder.new
     b.instance_eval do
@@ -242,21 +245,98 @@ class TestRowBend < Minitest::Test
     assert_match(/needs a block/, err.message)
   end
 
+  # --- which way it is lowered ---
+  #
+  # A block that is one number can be worked out ahead of the frame, into a table one of
+  # the console's copying engines feeds to the display by itself. A block that does more
+  # than that has to run where the display asks, which means being interrupted per line.
+  # The build picks, and what it picks is worth a great deal — see the cost tests below.
+
+  def test_a_block_that_is_one_number_is_fed_by_the_copier
+    program = bars_program { |water| water.scroll_each_row { |row| row % 8 } }
+    assert BendForm.copier?(program)
+    assert_nil BendForm.kept_interrupt_reason(program)
+  end
+
+  # A block that sets a variable or calls a routine is a program, and no copier runs a
+  # program — it moves numbers. So that one keeps the interrupt, which can run anything.
+  def test_a_block_that_does_more_keeps_the_interrupt
+    program = bars_program do |water|
+      shift = var :shift, 0
+      water.scroll_each_row do |row|
+        shift.set row % 4
+        shift
+      end
+    end
+    refute BendForm.copier?(program)
+    assert_match(/does more than work one number out/, BendForm.kept_interrupt_reason(program))
+  end
+
+  # One engine is free to sit on a scroll register all frame, so one layer can be fed that
+  # way. A second bending layer puts them both back on the interrupt rather than paying for
+  # both mechanisms: the interrupt costs what it costs the moment one bend needs it.
+  def test_a_second_bending_layer_keeps_the_interrupt
+    refute BendForm.copier?(two_bends_program)
+    assert_match(/more than one bending layer/, BendForm.kept_interrupt_reason(two_bends_program))
+  end
+
+  # The table is filled once a frame, so a program with no frames has nowhere to fill it.
+  def test_a_program_with_no_frame_keeps_the_interrupt
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      tiles :ts, "#" => :t
+      background(:bg, tiles: :ts, map: Array.new(20, "#" * 30)).scroll_each_row { |row| row % 8 }
+      halt
+    end
+    b.emit_pending_functions
+    refute BendForm.copier?(b.program)
+    assert_match(/never waits for a frame/, BendForm.kept_interrupt_reason(b.program))
+  end
+
   # --- the cost is visible ---
 
-  # Bending is paid per LINE, not per statement, so it is nowhere in the op tree — a
-  # reader hunting for where a sixth of their frame went would find nothing. It is priced
-  # for the whole frame and named in the report.
+  # Bending is paid per ROW, not per statement, so it is nowhere in the op tree — a reader
+  # hunting for where a chunk of their frame went would find nothing. It is priced for the
+  # whole frame and named in the report, together with WHICH way it was lowered: the two
+  # prices are far enough apart that a reader comparing two games needs to know.
   def test_the_report_names_what_bending_costs
     program = bars_program { |water| water.scroll_each_row { |row| row % 8 } }
     verdict = RubyGBA::IR::CostModel.new.bend_verdict(program)
     assert_equal [:water], verdict.layers
-    assert_operator verdict.interrupts, :>, 20, "228 interruptions a frame is the bulk of the cost"
+    assert_equal :copier, verdict.lowering
 
     io = StringIO.new
     RubyGBA::IR::CostModel.new.report(program, out: io, color: false)
     assert_match(/bending :water costs/, io.string)
+    assert_match(/copier hands each row its offset/, io.string)
+  end
+
+  # ...and when it kept the interrupt it says so, and says why — the reader who has seen the
+  # other price in another game will otherwise think this one is wrong.
+  def test_the_report_says_when_the_interrupt_was_kept_and_why
+    verdict = RubyGBA::IR::CostModel.new.bend_verdict(two_bends_program)
+    assert_equal :interrupt, verdict.lowering
+    assert_operator verdict.feeding, :>, 20, "228 interruptions a frame is the bulk of the cost"
+
+    io = StringIO.new
+    RubyGBA::IR::CostModel.new.report(two_bends_program, out: io, color: false)
     assert_match(/interrupted on all 228 of its lines/, io.string)
+    assert_match(/could not feed this one: there is more than one bending layer/, io.string)
+  end
+
+  # THE WHOLE POINT, as a number: the same picture, worked out ahead of the frame, for a
+  # fraction of what being interrupted 228 times costs. Both are measured on the emulator,
+  # so this is a real saving and not an arrangement of weights.
+  def test_the_copier_costs_a_fraction_of_the_interrupt
+    pure = bars_program { |water| water.scroll_each_row { |row| row % 8 } }
+    copied = RubyGBA::IR::CostModel.new.bend_verdict(pure)
+    interrupted = RubyGBA::IR::CostModel.new.bend_verdict(two_bends_program)
+
+    assert_operator copied.cost * 2, :<, interrupted.cost,
+                    "expected the copier to be worth more than half, got " \
+                    "#{copied.cost.round(1)} against #{interrupted.cost.round(1)}"
   end
 
   # A program that does not bend pays nothing and says nothing.

@@ -34,12 +34,15 @@
 # What you never touch: a scroll register, an interrupt, or the fact that the framework has
 # to get in between two lines of a picture being drawn to do this at all.
 #
-# It is not free. Answering per line means being interrupted per line, which `explain`
-# prices at about 20 of a frame's 228 scanlines — a tenth of the frame for the effect,
-# almost all of it the interruptions rather than the sine lookup. Run
-# `ruby-gba build examples/lake.rb --explain` to see it named, and to see that the build
-# put the routine those interruptions land in in the console's quick memory, which is worth
-# about half of what it used to cost.
+# It is not free, and what it costs depends on what you write in the block. This block is
+# ONE NUMBER — a table read — so the framework can work all 160 rows out at the frame
+# boundary and hand the table to one of the console's copying engines, which feeds the
+# display by itself with the CPU untouched. That is most of the price gone: `explain` puts
+# the whole effect at about a twelfth of the frame's 228 scanlines, and about half of THAT
+# is the sine lookup rather than the machinery. Write a block that sets a variable or calls
+# a routine and it goes back to being answered per line, which costs several times as much
+# and which `explain` names, with the reason, so the difference is never a mystery. Run
+# `ruby-gba build examples/lake.rb --explain` to see it.
 #
 # Run it to build examples/lake.gba:
 #   ruby examples/lake.rb

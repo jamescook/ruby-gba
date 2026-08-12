@@ -40,12 +40,23 @@ module RubyGBA
           include Budgeted
         end
 
-        # Bending backgrounds row by row: the display interrupts the game on every line it
-        # counts, and each bend's offset is worked out again on every visible line. The two
-        # are kept apart because most of the cost is the interrupting, not the block — a
-        # reader hunting their frame would otherwise rewrite the block and find it no faster.
-        Bend = Data.define(:layers, :lines, :interrupts, :offsets, :cost, :budget) do
+        # Bending backgrounds row by row. Each bend's offset is worked out again for every
+        # visible row, and on top of that comes the price of GETTING it to the display,
+        # which is the part that differs by lowering (see Backends::GBA::BendForm):
+        # +lowering+ is :interrupt, where the game is stopped on all 228 of the lines the
+        # display counts, or :copier, where a copying engine feeds the display by itself and
+        # what is left is a table to fill once a frame.
+        #
+        # The two halves are kept apart because with the interrupt most of the cost is the
+        # interrupting, not the block — a reader hunting their frame would otherwise rewrite
+        # the block and find it no faster. On the copier it is the other way round, and that
+        # is worth seeing too.
+        # +feeding+ is that first half: what it takes to get the offsets to the display,
+        # whatever the lowering. +offsets+ is the second: what it takes to work them out.
+        Bend = Data.define(:layers, :lowering, :lines, :feeding, :offsets, :cost, :budget) do
           include Budgeted
+
+          def copied? = lowering == :copier
         end
 
         # Sprites kept out of a fade placed in the stack. The console names every sprite

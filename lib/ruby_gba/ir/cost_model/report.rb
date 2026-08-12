@@ -452,18 +452,38 @@ module RubyGBA
         end
 
         # What a row-by-row bend costs the frame, and why. This is not in the tree above and
-        # cannot be: the work is per LINE, not per statement, so a reader looking for where
-        # the frame went would find nothing. It also says which part is the interrupt and
-        # which part is the block, because the block is almost never the expensive half —
-        # somebody hunting for the cost will otherwise rewrite the wrong thing.
+        # cannot be: the work is per ROW, not per statement, so a reader looking for where
+        # the frame went would find nothing. It also splits the cost in two — what it takes
+        # to hand the offsets to the display, and what it takes to work them out — because
+        # which of those two is the expensive half depends on the lowering, and somebody
+        # hunting for the cost will otherwise rewrite the wrong thing.
+        #
+        # WHICH LOWERING IT GOT IS SAID OUT LOUD, because the two prices are far enough
+        # apart that a reader comparing two games, or the same game before and after an edit
+        # to the block, would otherwise have no idea what changed (see BendForm).
         def bend_line(program, printer)
           verdict = bend_verdict(program) or return
 
           layers = verdict.layers.map { |name| ":#{name}" }.join(", ")
-          printer.puts format("    bending %s costs ~%s a frame — the display is interrupted on all " \
-                              "%d of its lines (~%s), and each row's own offset is worked out (~%s)",
-                              layers, fmt(verdict.cost), verdict.lines,
-                              fmt(verdict.interrupts), fmt(verdict.offsets))
+          feeding = if verdict.copied?
+                      format("the display's own copier hands each row its offset with no interruption " \
+                             "at all (~%s)", fmt(verdict.feeding))
+                    else
+                      format("the display is interrupted on all %d of its lines (~%s)",
+                             verdict.lines, fmt(verdict.feeding))
+                    end
+          printer.puts format("    bending %s costs ~%s a frame — %s, and each row's own offset is " \
+                              "worked out (~%s)", layers, fmt(verdict.cost), feeding, fmt(verdict.offsets))
+          kept_interrupt_note(program, printer) unless verdict.copied?
+        end
+
+        # ...and when it kept the interrupt, WHY — one line, because a reader who has seen
+        # the copier priced in another game will ask, and because the answer is usually
+        # something they can act on.
+        def kept_interrupt_note(program, printer)
+          reason = Backends::GBA::BendForm.kept_interrupt_reason(program) or return
+
+          printer.puts "    (the copier could not feed this one: #{reason}.)"
         end
 
         # Below this a timer's per-frame cost prints as "<0.1" anyway, so there is nothing to
