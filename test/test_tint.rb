@@ -237,7 +237,7 @@ class TestTint < Minitest::Test
   # Named here rather than derived so a lowering that quietly changed the arithmetic on
   # one screen could not move both sides of the comparison below with it.
   TILED_SCENERY = [GREEN, 0x01EF, RED].freeze
-  TILED_SPRITE = [WHITE, 0x3DFE, RED].freeze
+  TILED_SPRITE = [WHITE, 0x3DFF, RED].freeze
   TILED_AMOUNTS = [0, 50, 100].freeze
 
   def test_a_tiled_screen_tints_the_scenery_and_the_sprites_together

@@ -98,6 +98,7 @@ module RubyGBA
           def enter_tiled_mode
             emit_boot_backgrounds if @tiled && !@backgrounds.empty? # shared BG palette + tile pictures
             emit_boot_objects if @has_objects                       # sprite palette + tiles, and clear OAM
+            emit_boot_layer_blend if @see_through                   # ...and which one is see-through
             value = MODE_0 | tiled_bg_enable_bits
             value |= OBJ_ENABLE | OBJ_1D_MAP if @has_objects
             write_reg16(REG_DISPCNT, value)

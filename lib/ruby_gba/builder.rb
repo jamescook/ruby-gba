@@ -117,6 +117,7 @@ module RubyGBA
       @current_scene_gate = nil # while a scene func's body is being built: the [state_var, value] its declarations belong to
       @building_scene = nil    # the scene func name currently being built (lets its presentation be declared inside it)
       @layer_stack = []        # the layers the program declared, back to front (see Builder::Layers)
+      @layers_node = nil       # ...and the node holding them, so a `layer` block can mark one see-through
       @current_layer = nil     # while a `layer` block runs: the layer its declarations belong to
       @routine_layer = {}      # routine name → [layer, what the author wrote] when it was declared inside one
       @deferred_layer = nil    # while such a routine's body is built: that pair, so a declaration in it can be refused

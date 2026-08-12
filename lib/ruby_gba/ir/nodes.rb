@@ -262,11 +262,16 @@ module RubyGBA
         operands value: :int
       end
 
+      # The stack of layers a picture is built from, backmost first — and which one of
+      # them, if any, you can see through. A stack holds at most one see-through layer,
+      # so it is named here rather than being a property of each layer: `transparent` is
+      # the layer's name and `transparency` is how much of what is behind it shows, 0
+      # (solid) to 100 (invisible).
       class Layers
         include Node
         kind :layers
         category :data
-        operands names: :list
+        operands names: :list, transparent: :name, transparency: :int
       end
 
       class ListDrop
