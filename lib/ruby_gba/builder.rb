@@ -118,6 +118,8 @@ module RubyGBA
       @building_scene = nil    # the scene func name currently being built (lets its presentation be declared inside it)
       @layer_stack = []        # the layers the program declared, back to front (see Builder::Layers)
       @current_layer = nil     # while a `layer` block runs: the layer its declarations belong to
+      @routine_layer = {}      # routine name → [layer, what the author wrote] when it was declared inside one
+      @deferred_layer = nil    # while such a routine's body is built: that pair, so a declaration in it can be refused
 
       # The program the DSL builds: an IR tree of nodes that {RubyGBA.build}
       # lowers to a ROM. Each statement attaches to the container on top of the
@@ -300,6 +302,10 @@ module RubyGBA
           # scopes what it presents to when the scene is active.
           @building_scene = name if @scene_gates.key?(name)
           @current_scene_gate = @scene_gates[name]
+          # ...and if this routine was WRITTEN inside a `layer` block, remember which, so
+          # anything it declares that wants a depth can be refused rather than quietly
+          # getting none (see Layers#refuse_deferred_layer!).
+          @deferred_layer = @routine_layer[name]
           @screen_mode = default_screen_mode
           push_container(Build.func(name, fast: @func_fast[name])) do
             run_block(&block)
@@ -307,6 +313,7 @@ module RubyGBA
         ensure
           @building_scene = nil
           @current_scene_gate = nil
+          @deferred_layer = nil
         end
       end
 

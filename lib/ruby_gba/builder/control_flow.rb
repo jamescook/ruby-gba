@@ -222,8 +222,9 @@ module RubyGBA
         raise ArgumentError, "each_frame needs a block: each_frame { ... }" unless block
 
         @each_frame_seq += 1
+        wrote = name ? "each_frame :#{name}" : "each_frame"
         name ||= :"__each_frame_#{@each_frame_seq}"
-        declare_func(name, &block)
+        declare_func(name, wrote: wrote, &block)
         @per_frame_routines << name
         name
       end

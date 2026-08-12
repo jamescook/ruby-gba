@@ -126,19 +126,71 @@ class TestLayerGuardrails < Minitest::Test
   end
 
   # --- routines: the layer cannot reach the body ---
+  #
+  # A routine's body is built after the `layer` block has closed, so a declaration in it
+  # would quietly get no depth. What is refused is that DECLARATION, not the routine —
+  # see the tests further down for why the difference is the whole design.
 
-  def test_a_func_inside_a_layer_is_refused_and_says_which_way_round_works
+  def test_a_sprite_declared_in_a_func_in_a_layer_is_refused_and_says_which_way_round_works
     error = assert_raises(ArgumentError) do
       built do
+        screen :tiled
         layers :actors
-        layer(:actors) { func(:setup) { nil } }
+        layer(:actors) { func(:setup) { sprite :red_guy, at: [10, 10] } }
       end
     end
 
-    assert_match(/runs later/, error.message)
+    assert_match(/A sprite declared inside `func :setup`/, error.message)
+    assert_match(/built later/, error.message)
     assert_match(/put the `layer` block inside the func/, error.message)
   end
 
+  # The hole this closes: `each_frame` has exactly the shape a `func` has, and used to
+  # say nothing at all.
+  def test_a_sprite_declared_in_an_each_frame_in_a_layer_is_refused
+    error = assert_raises(ArgumentError) do
+      built do
+        screen :tiled
+        layers :actors
+        layer(:actors) { each_frame { sprite :red_guy, at: [10, 10] } }
+      end
+    end
+
+    assert_match(/A sprite declared inside `each_frame`/, error.message)
+    # The advice differs from the func's on purpose: a declaration in a per-frame body
+    # runs once wherever it is put, so moving it out is both the fix and what was meant.
+    assert_match(/declare it outside/, error.message)
+  end
+
+  def test_the_refusal_names_the_routine_the_author_named
+    error = assert_raises(ArgumentError) do
+      built do
+        screen :tiled
+        layers :actors
+        layer(:actors) { each_frame(:wobble) { sprite :red_guy, at: [10, 10] } }
+      end
+    end
+
+    assert_match(/`each_frame :wobble`/, error.message)
+  end
+
+  def test_a_background_declared_in_a_deferred_body_in_a_layer_is_refused
+    error = assert_raises(ArgumentError) do
+      built do
+        screen :tiled
+        image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
+        tiles :set, "#" => :tile
+        layers :sky
+        layer(:sky) { each_frame { background :bg, tiles: :set, map: (0...4).map { "#" * 4 } } }
+      end
+    end
+
+    assert_match(/A background declared inside `each_frame`/, error.message)
+  end
+
+  # A scene is refused where it is WRITTEN, whatever it turns out to declare, and the
+  # reason is different in kind: not that the layer cannot reach the body, but that a
+  # state of the game holds things at many depths and a layer is one.
   def test_a_scene_inside_a_layer_is_refused_for_holding_many_depths
     error = assert_raises(ArgumentError) do
       built do
@@ -148,6 +200,72 @@ class TestLayerGuardrails < Minitest::Test
     end
 
     assert_match(/many depths/, error.message)
+  end
+
+  # --- routines that must go on working, which is why the rule is on the hazard ---
+  #
+  # `pulse`, `camera_follows`, `fade_out` and `shake_screen` are all built on the PUBLIC
+  # `each_frame`, so a rule that refused the verb could not tell a pack from an author
+  # and would refuse `pulse coin` on the line after the coin — exactly where a game
+  # writes it. Asking instead what the body DECLARED lets every one of them through,
+  # because a per-frame body is behavior and puts nothing in the picture.
+
+  EFFECTS_IN_A_LAYER = {
+    "pulse" => ->(sprite, _bg) { pulse sprite, to: 1.5 },
+    "camera_follows" => ->(sprite, bg) { camera_follows sprite, across: bg },
+    "fade_out" => ->(_sprite, _bg) { fade_out frames: 10 },
+    "shake_screen" => ->(_sprite, _bg) { shake_screen intensity: 3, frames: 8 },
+  }.freeze
+
+  EFFECTS_IN_A_LAYER.each do |verb, effect|
+    define_method(:"test_#{verb}_still_works_inside_a_layer") do
+      program, = built do
+        screen :tiled
+        image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
+        tiles :set, "#" => :tile
+        layers :world, :actors
+        world = layer(:world) { background :bg, tiles: :set, map: (0...20).map { "#" * 30 } }
+        layer(:actors) do
+          hero = sprite :red_guy, at: [100, 60]
+          instance_exec(hero, world, &effect)
+        end
+        game_loop { fade_in }
+      end
+
+      assert_equal [:actors], program.walk.filter_map { |node| node.layer if node.kind == :object }
+    end
+  end
+
+  # And a plain routine that declares nothing with a depth can live beside the sprite it
+  # moves, which the old rule refused for no reason a picture could tell.
+  def test_a_func_that_declares_nothing_drawable_can_sit_beside_its_sprite
+    program, = built do
+      screen :tiled
+      layers :actors
+      x = var :x, 0
+      layer(:actors) do
+        sprite :red_guy, at: [10, 10]
+        func(:move) { x.add 1 }
+      end
+      game_loop { call :move }
+    end
+
+    assert_equal [:actors], program.walk.filter_map { |node| node.layer if node.kind == :object }
+  end
+
+  def test_an_each_frame_that_declares_nothing_drawable_is_left_alone
+    program, = built do
+      screen :tiled
+      layers :actors
+      x = var :x, 0
+      layer(:actors) do
+        sprite :red_guy, at: [10, 10]
+        each_frame { x.add 1 }
+      end
+      game_loop { nil }
+    end
+
+    assert_equal [:actors], program.walk.filter_map { |node| node.layer if node.kind == :object }
   end
 
   # --- drawing: a layer holds things, not brushstrokes ---
