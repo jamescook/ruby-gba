@@ -164,6 +164,13 @@ module RubyGBA
 
           printer.puts "    :#{node.transparent} is #{node.transparency} see-through — " \
                        "the display blends it as it draws, for nothing"
+          return unless program.each.any? { |n| n.kind == :fade }
+
+          # The one thing a reader cannot see anywhere else. A fade uses the same blend
+          # unit, so it takes that "for nothing" away for as long as it runs — and the two
+          # verbs are usually written nowhere near each other.
+          printer.puts "      ...except while a fade runs, which takes the same blend: " \
+                       ":#{node.transparent} is solid until it lifts"
         end
 
         # What the build kept in the console's quick memory, and how much of it is left.

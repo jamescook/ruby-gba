@@ -896,9 +896,14 @@ module RubyGBA
         # for it is the frame that has to show it.
         def exec_fade(node)
           amount = eval_value(node.amount)
+          was_fading = fading?
           @fade_placed = node.under && [node.under, node.toward, amount]
           @screen.fade_to(node.toward, @fade_placed ? 0 : amount)
-          composite_scrolled_frame if @fade_placed
+          # A fade takes the see-through layer's blend while it runs and hands it back when
+          # it lifts (see #fading?), so the picture has to be built again at each of those
+          # two moments — the layer is drawn solid on one side of them and see-through on
+          # the other, and a fade is usually written after the frame is already composited.
+          composite_scrolled_frame if @fade_placed || (@see_through && fading? != was_fading)
         end
 
         # A tint — the same idea as a whole-screen fade, toward a color a fade cannot
@@ -924,7 +929,7 @@ module RubyGBA
         # already in the buffer" is the display's own "blend with the layer directly
         # beneath" — the stack does not have to be consulted a second time.
         def paint_through_for(name)
-          @screen.paint_through(see_through?(name) ? @see_through[1] : 0)
+          @screen.paint_through(see_through?(name) && !fading? ? @see_through[1] : 0)
         end
 
         def see_through?(name)
@@ -932,6 +937,17 @@ module RubyGBA
 
           node = @bg_by_name[name] || @objects[name]
           node && node.layer == @see_through[0]
+        end
+
+        # Is a fade in force? A see-through layer asks, because a display blends two layers
+        # together or moves the whole picture toward a color — it is one unit and it does
+        # one of them. While a fade runs the layer is solid and darkens with everything
+        # else, which is what a fade out looks like; when the fade lifts the layer comes
+        # back untouched. A fade placed under a layer is still a fade, so it counts too.
+        def fading?
+          return @fade_placed[2].positive? if @fade_placed
+
+          @screen.fade_amount.positive?
         end
 
         # The names the fade in force leaves alone — its layer and everything in front.

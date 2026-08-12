@@ -78,8 +78,8 @@ class TestLayerTransparency < Minitest::Test
     Reference.new.run(program, frames: 2).screen.pixel(x, y)
   end
 
-  def console(program, x, y, name)
-    assert_gemba_loads_rom(assemble_rom(program, name: name), frames: 6).pixel_gba(x, y)
+  def console(program, x, y, name, frames: 6)
+    assert_gemba_loads_rom(assemble_rom(program, name: name), frames: frames).pixel_gba(x, y)
   end
 
   # --- the picture ---
@@ -138,6 +138,189 @@ class TestLayerTransparency < Minitest::Test
 
     assert_equal HALF_WHITE_OVER_RED,
                  assert_gemba_loads_rom(assemble_rom(program, name: "SEEHLD"), frames: 40).pixel_gba(*SPRITE_XY)
+  end
+
+  # --- a fade takes the blend, and hands it back ---
+  #
+  # Fading the screen and seeing through a layer are the display's ONE blend unit, told
+  # which of the two it is doing. So while a fade runs the layer is solid and darkens with
+  # everything else — which is what a fade out is supposed to look like — and it comes
+  # back the moment the fade lifts. The bug this exists to remove is the second half: a
+  # fade ends at ZERO, which is invisible but still a fade, so one hit flash used to turn
+  # the water solid for the rest of the game with nothing anywhere to say why.
+
+  # The same picture, with a fade held at a fixed amount. `hold` of 0 is a lifted fade.
+  def faded_program(kind, amount, hold)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:back, "#" => :red) { tile }
+      image(:front, "#" => :white) { tile }
+      tiles :backset, "#" => :back
+      tiles :frontset, "#" => :front
+      layers :deep, :glass
+      layer(:deep) { background :floor, tiles: :backset, map: Array.new(20) { "#" * 30 } }
+      layer(:glass, transparency: amount) do
+        if kind == :scenery
+          background :pane, tiles: :frontset, map: Array.new(20) { "#" * 20 }
+        else
+          sprite :front, at: [64, 64]
+        end
+      end
+      game_loop { fade :black, hold }
+    end
+  end
+
+  def faded_xy(kind) = kind == :scenery ? SCENERY_XY : SPRITE_XY
+
+  # A see-through layer under a fade shows exactly what a SOLID layer under the same fade
+  # shows. Said that way round on purpose: it needs no number of its own, so it cannot be
+  # satisfied by a wrong blend that happens to match a constant written beside it.
+  def test_while_a_fade_runs_the_layer_is_solid
+    %i[scenery sprite].each do |kind|
+      solid = shown(faded_program(kind, 0, 25), *faded_xy(kind))
+
+      assert_equal solid, shown(faded_program(kind, 50, 25), *faded_xy(kind)),
+                   "the see-through #{kind} layer is not solid while a fade runs"
+    end
+  end
+
+  def test_the_console_makes_the_layer_solid_while_a_fade_runs_too
+    %i[scenery sprite].each do |kind|
+      solid = console(faded_program(kind, 0, 25), *faded_xy(kind), "FADSOL")
+
+      assert_equal solid, console(faded_program(kind, 50, 25), *faded_xy(kind), "FADSEE"),
+                   "the console leaves the see-through #{kind} layer blending under a fade"
+    end
+  end
+
+  # ...and a fade of nothing is a lifted fade, not a fade of zero left in force.
+  def test_a_lifted_fade_leaves_the_layer_see_through
+    %i[scenery sprite].each do |kind|
+      assert_equal HALF_WHITE_OVER_RED, shown(faded_program(kind, 50, 0), *faded_xy(kind))
+      assert_equal HALF_WHITE_OVER_RED, console(faded_program(kind, 50, 0), *faded_xy(kind), "FADOFF")
+    end
+  end
+
+  # A TINT does not take the blend, and the warning above sends people here — so it is a
+  # promise the suite has to keep. On a tiled screen a tint moves the colors themselves
+  # rather than asking the display to blend, so the layer keeps seeing through them: a
+  # `flash_screen :red` reaches a game the water can be seen through and a white one does
+  # not. What shows is the layer blending TINTED colors, so it is neither the plain
+  # see-through value nor the solid one.
+  def tinted_program(amount, hold)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:back, "#" => :red) { tile }
+      image(:front, "#" => :white) { tile }
+      tiles :backset, "#" => :back
+      tiles :frontset, "#" => :front
+      layers :deep, :glass
+      layer(:deep) { background :floor, tiles: :backset, map: Array.new(20) { "#" * 30 } }
+      layer(:glass, transparency: amount) do
+        background :pane, tiles: :frontset, map: Array.new(20) { "#" * 20 }
+      end
+      game_loop { tint :blue, hold }
+    end
+  end
+
+  def test_a_tint_leaves_the_layer_see_through
+    solid = shown(tinted_program(0, 50), *SCENERY_XY)
+
+    refute_equal solid, shown(tinted_program(50, 50), *SCENERY_XY),
+                 "a tint took the layer's blend away"
+    assert_equal shown(tinted_program(50, 50), *SCENERY_XY),
+                 console(tinted_program(50, 50), *SCENERY_XY, "TNTSEE"),
+                 "the two backends disagree about a tint over a see-through layer"
+  end
+
+  # A fade PLACED in the stack is still a fade — it takes the same blend unit, whatever it
+  # leaves alone — so the rule and the hand-back have to reach it too.
+  def placed_fade_program(amount, hold)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:back, "#" => :red) { tile }
+      image(:front, "#" => :white) { tile }
+      image(:badge, "#" => :green) { tile }
+      tiles :backset, "#" => :back
+      tiles :frontset, "#" => :front
+      layers :deep, :glass, :ui
+      layer(:deep) { background :floor, tiles: :backset, map: Array.new(20) { "#" * 30 } }
+      layer(:glass, transparency: amount) do
+        background :pane, tiles: :frontset, map: Array.new(20) { "#" * 20 }
+      end
+      layer(:ui) { sprite :badge, at: [200, 8] }
+      game_loop { fade :black, hold, under: :ui }
+    end
+  end
+
+  def test_a_fade_placed_in_the_stack_takes_the_blend_and_gives_it_back_too
+    solid = shown(placed_fade_program(0, 25), *SCENERY_XY)
+
+    assert_equal solid, shown(placed_fade_program(50, 25), *SCENERY_XY),
+                 "a placed fade left the layer blending"
+    assert_equal HALF_WHITE_OVER_RED, shown(placed_fade_program(50, 0), *SCENERY_XY)
+
+    on_console = console(placed_fade_program(0, 25), *SCENERY_XY, "FADPLC")
+
+    assert_equal on_console, console(placed_fade_program(50, 25), *SCENERY_XY, "FADPL2")
+    assert_equal HALF_WHITE_OVER_RED, console(placed_fade_program(50, 0), *SCENERY_XY, "FADPL3")
+  end
+
+  # The real shape of it: a hit flash, walked over frames by the effects pack, whose last
+  # act is a fade of zero. This is the failure the bead describes — and the amount here is
+  # one the game works out as it runs, which is the branch rather than the settled zero.
+  FLASH_AT = 3
+  AFTER_THE_FLASH = 20
+
+  def flashing_program(kind)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:back, "#" => :red) { tile }
+      image(:front, "#" => :white) { tile }
+      tiles :backset, "#" => :back
+      tiles :frontset, "#" => :front
+      layers :deep, :glass
+      layer(:deep) { background :floor, tiles: :backset, map: Array.new(20) { "#" * 30 } }
+      layer(:glass, transparency: 50) do
+        if kind == :scenery
+          background :pane, tiles: :frontset, map: Array.new(20) { "#" * 20 }
+        else
+          sprite :front, at: [64, 64]
+        end
+      end
+      tick = var :tick, 0
+      game_loop do
+        tick.add 1
+        (tick == FLASH_AT).then { flash_screen :black, frames: 6 }
+      end
+    end
+  end
+
+  def test_one_flash_does_not_cost_the_layer_for_the_rest_of_the_game
+    %i[scenery sprite].each do |kind|
+      screen = Reference.new.run(flashing_program(kind), frames: AFTER_THE_FLASH).screen
+
+      assert_equal HALF_WHITE_OVER_RED, screen.pixel(*faded_xy(kind)),
+                   "the #{kind} layer never came back after the flash"
+    end
+  end
+
+  def test_the_console_gives_the_layer_back_after_a_flash_too
+    %i[scenery sprite].each do |kind|
+      assert_equal HALF_WHITE_OVER_RED,
+                   console(flashing_program(kind), *faded_xy(kind), "FLSBAK", frames: AFTER_THE_FLASH),
+                   "the console never gave the #{kind} layer back"
+    end
+  end
+
+  # The whole screen, once the flash is over and both backends have settled.
+  def test_the_two_backends_draw_the_same_screen_after_a_fade
+    assert_backends_agree(flashing_program(:scenery), frames: AFTER_THE_FLASH)
+    assert_backends_agree(flashing_program(:sprite), frames: AFTER_THE_FLASH)
   end
 
   # --- what it refuses ---
@@ -233,6 +416,41 @@ class TestLayerTransparency < Minitest::Test
     refute_includes warnings(scenery_program(60)), :layer_invisible
   end
 
+  # The collision is worth saying out loud, because neither verb mentions the other and
+  # the picture that shows it is over in half a second.
+  def test_a_game_that_fades_and_sees_through_a_layer_is_told
+    finding = RubyGBA::IR::Guardrails::Validator.new
+                                                .run(flashing_program(:scenery), autofix: false)
+                                                .warnings
+                                                .find { |w| w.check == :layer_solid_while_fading }
+
+    assert finding, "a game that fades over a see-through layer was told nothing"
+    assert_includes finding.message, ":glass"
+    assert_includes finding.message, "solid"
+  end
+
+  def test_a_see_through_layer_with_no_fade_is_not_warned_about
+    refute_includes warnings(scenery_program(40)), :layer_solid_while_fading
+  end
+
+  def test_a_fade_with_no_see_through_layer_is_not_warned_about
+    refute_includes warnings(faded_program(:scenery, 0, 50)), :layer_solid_while_fading
+  end
+
+  def test_the_report_says_a_fade_takes_the_blend
+    out = StringIO.new
+    RubyGBA::IR::CostModel.new.render(flashing_program(:scenery), out: out, color: false)
+
+    assert_includes out.string, "while a fade runs"
+  end
+
+  def test_the_report_leaves_that_out_when_nothing_fades
+    out = StringIO.new
+    RubyGBA::IR::CostModel.new.render(scenery_program(40), out: out, color: false)
+
+    refute_includes out.string, "while a fade runs"
+  end
+
   # --- what it costs ---
 
   # Nothing. The display blends as it draws, so a see-through layer costs the same as the
@@ -242,6 +460,34 @@ class TestLayerTransparency < Minitest::Test
     blended = RubyGBA::IR::CostModel.new.steady_cost(scenery_program(40))
 
     assert_in_delta solid, blended, 0.0001
+  end
+
+  # ...unless the game also fades. Then the fade has one more thing to settle every frame
+  # — am I running, or handing the blend back? — and only when the level is one the game
+  # works out, which is what a fade walked over frames is.
+  def fading_program(amount)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:back, "#" => :red) { tile }
+      image(:front, "#" => :white) { tile }
+      tiles :backset, "#" => :back
+      tiles :frontset, "#" => :front
+      layers :deep, :glass
+      layer(:deep) { background :floor, tiles: :backset, map: Array.new(20) { "#" * 30 } }
+      layer(:glass, transparency: amount) do
+        background :pane, tiles: :frontset, map: Array.new(20) { "#" * 20 }
+      end
+      level = var :level, 0
+      game_loop { fade :black, level }
+    end
+  end
+
+  def test_a_fade_costs_a_little_more_where_a_layer_can_be_seen_through
+    solid = RubyGBA::IR::CostModel.new.steady_cost(fading_program(0))
+    blended = RubyGBA::IR::CostModel.new.steady_cost(fading_program(50))
+
+    assert_operator blended, :>, solid
   end
 
   def test_the_report_says_which_layer_is_see_through

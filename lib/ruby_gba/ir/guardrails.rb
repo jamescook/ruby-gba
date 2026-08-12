@@ -230,6 +230,7 @@ require_relative "guardrails/list_in_loop"
 require_relative "guardrails/iwram_budget"
 require_relative "guardrails/layer_holds_nothing"
 require_relative "guardrails/layer_invisible"
+require_relative "guardrails/layer_solid_while_fading"
 require_relative "guardrails/stack_not_honored"
 
 module RubyGBA
@@ -259,6 +260,7 @@ module RubyGBA
         Checks::ListInLoop.new,
         Checks::IwramBudget.new,
         Checks::LayerInvisible.new,
+        Checks::LayerSolidWhileFading.new,
       ].freeze
     end
   end

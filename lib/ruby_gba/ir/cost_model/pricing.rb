@@ -178,10 +178,18 @@ module RubyGBA
         # top. A level written into the program is converted while building and is free.
         # (The conversion is built by the lowering, so it is not in the tree to be found;
         # Backends::GBA::Drawing#emit_fade is where it lives. If one moves, both must.)
+        #
+        # In a game that can SEE THROUGH a layer there is one more thing to settle. A fade
+        # and a see-through layer are the display's one blend unit, so a fade of nothing has
+        # to hand that unit back rather than sit in it (Drawing#emit_fade_sharing_the_blend) —
+        # a compare and a branch, for a level the game works out. A level written into the
+        # program answers that while building and still costs a fade's two register writes,
+        # whichever way it goes.
         def fade_cost(node)
           return @weights[:fade_set] if const_side(node.amount)
 
-          @weights[:fade_set] + @weights[:op_mul] + @weights[:op_div_const]
+          @weights[:fade_set] + @weights[:op_mul] + @weights[:op_div_const] +
+            (sees_through_a_layer? ? @weights[:op_compare] : 0)
         end
 
         # A tint costs one of two quite different things, and which one is the screen's

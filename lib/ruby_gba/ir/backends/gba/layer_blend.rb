@@ -11,18 +11,30 @@ module RubyGBA
         # nothing is redrawn, no pixel in memory changes, and a see-through layer costs
         # the same whatever is on screen — the same bargain `fade` and `camera` make.
         #
-        # TWO PATHS, and the difference is worth having rather than hiding, because one of
-        # them survives a fade and the other does not.
+        # TWO PATHS, and the difference is real even though it does not reach the author.
         #
         #   A LAYER OF SCENERY is named as the near side of the blend in the blend-control
         #   register, with everything behind it as the far side. That register also holds
-        #   WHICH effect is running, so this is the path a fade collides with.
+        #   WHICH effect is running, so this path needs the effect set to "mix two layers".
         #
         #   A LAYER OF SPRITES needs none of that. A sprite can be marked see-through in
-        #   its own table entry, which blends that sprite and no other whatever the effect
-        #   bits say. It is one bit OR'd into an entry the frame already writes — so it
-        #   costs nothing, it picks out exactly the sprites in that layer, and it keeps
-        #   working while the screen fades.
+        #   its own table entry, and the display then blends that sprite and no other
+        #   whatever the effect bits say. It is one bit OR'd into an entry the frame
+        #   already writes, so it costs nothing and it picks out exactly the sprites in
+        #   that layer.
+        #
+        # NEITHER PATH SURVIVES A FADE, measured rather than assumed. The sprite's own bit
+        # frees it from the effect field, but a see-through sprite still has to be told
+        # WHAT it blends with — the far side of that same register — and a fade writes the
+        # register whole. So a fade takes the blend from both paths for as long as it runs,
+        # and both get it back when it lifts (see Drawing#emit_fade_sharing_the_blend).
+        #
+        # Keeping the far side across a fade was tried, and the picture it gives is worse.
+        # The sprite does go on blending — but the display then blends it with the darkened
+        # picture WITHOUT darkening the sprite itself, so fading out to a game-over screen
+        # leaves half-bright ghosts floating on a black screen. Letting the fade have the
+        # whole register makes everything darken together, which is what a fade out is
+        # supposed to look like, and it costs nothing to do.
         #
         # An author writes the same keyword either way and never learns which they got.
         module LayerBlend
@@ -58,11 +70,12 @@ module RubyGBA
           # where the layer behind has a hole, what shows through is the backdrop, and it
           # has to be blended too or that hole would come out at full strength.
           #
-          # A program whose see-through layer holds only sprites never emits this: those
-          # carry their own bit and need no effect mode at all.
-          # A see-through layer of SPRITES leaves the effect bits at nothing, and that is
-          # the point of the second path: the sprites still blend, because their own
-          # entries say so, and the effect a `fade` runs is left free.
+          # A see-through layer of SPRITES leaves the effect bits at nothing and writes the
+          # far side alone: the sprites blend because their own entries say so, and nothing
+          # else has to be in force for them.
+          #
+          # Called again wherever the register has to be put back the way this left it —
+          # entering a display mode, and a fade lifting.
           def emit_boot_layer_blend
             mode = blends_scenery? ? BLD_ALPHA : BLD_OFF
             write_reg16(REG_BLDCNT, mode | near_side_bits | (far_side_bits << BLD_SECOND_SHIFT))
