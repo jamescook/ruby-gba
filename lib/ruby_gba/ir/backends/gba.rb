@@ -19,6 +19,7 @@ require_relative "gba/direct_sound"
 require_relative "gba/mixer"
 require_relative "gba/save"
 require_relative "gba/palette_tint"
+require_relative "gba/layer_blend"
 require_relative "gba/bios_compress"
 
 module RubyGBA
@@ -78,6 +79,7 @@ module RubyGBA
         include Mixer
         include Save
         include PaletteTint
+        include LayerBlend
 
         class LoweringError < StandardError; end
 
@@ -285,6 +287,7 @@ module RubyGBA
           prepare_row_bends(program)
           @has_objects = program.walk.any? { |node| node.kind == :object }
           prepare_effect_layers(program) # which sprites an effect placed in the stack must skip
+          prepare_layer_blend(program)   # ...and which layer, if any, you can see through
           prepare_objects(program) if @has_objects
           @uses_save = program.walk.any? { |node| node.kind == :save_init }
           prepare_palette(program) if @any_buffered
@@ -307,6 +310,7 @@ module RubyGBA
           unless @manage_modes
             emit_boot_backgrounds if @tiled && !@backgrounds.empty? # shared BG palette + tiles
             emit_boot_objects if @has_objects # sprite tiles/colors + clear the sprite table
+            emit_boot_layer_blend if @see_through # ...and which layer you can see through
           end
           emit_tint_state_init if @palette_tint # the color tables start as they were drawn
           @lower_mode = @default_mode
@@ -1098,7 +1102,10 @@ module RubyGBA
             scale: node.scale,   # the size operand (the "as drawn" constant unless it resizes)
             transformed: object_transformed?(node), # draw it through an affine group rather than upright?
             scales: object_scales?(node),           # ...and does that group need a size worked out?
-            attr0_base: OBJ_256_COLOR | (shape << 14),
+            # A sprite in the see-through layer carries the blend in its own entry, so it
+            # rides here rather than costing anything at draw time.
+            attr0_base: OBJ_256_COLOR | (shape << 14) |
+              (see_through_object?(node) ? OBJ_SEMI_TRANSPARENT : 0),
             attr1_base: size << 14,
             # attr2's top bits carry how deep the sprite sits. It stays 0 — the front —
             # in every picture where the sprites are over all the scenery, which is

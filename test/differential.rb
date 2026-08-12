@@ -66,7 +66,7 @@ module Differential
   # So this still proves an effect reached the right pixels. What it cannot prove is the
   # last step of the arithmetic; that is what the exact per-color assertions against
   # measured console values are for.
-  EMULATOR_BLEND_SLACK = 2
+  EMULATOR_BLEND_SLACK = 1
 
   def assert_backends_agree(program, frames: 4, name: "DIFF", console_frames: nil, blended: false)
     oracle, console = backend_pictures(program, frames: frames, name: name, console_frames: console_frames)

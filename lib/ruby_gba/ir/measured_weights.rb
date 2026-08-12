@@ -70,7 +70,7 @@ module RubyGBA
         camera_move: 0.08354,
         fade_set: 0.02570,
         tint_set: 0.04177,
-        tint_entry: 0.06481,
+        tint_entry: 0.06801,
         tint_hold: 0.02399,
         save_write: 0.07017,
         tearfree_pair: 0.00321,

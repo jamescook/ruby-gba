@@ -41,6 +41,8 @@ module RubyGBA
             @tint_amount = 0
             @paint_toward = nil
             @paint_steps = 0
+            @through_steps = 0
+            @blending = false
           end
 
           # Move the visible window over the stored picture: after this, screen (0, 0)
@@ -87,6 +89,22 @@ module RubyGBA
           def paint_faded(toward, amount)
             @paint_toward = toward
             @paint_steps = toward.nil? ? 0 : steps_of(amount)
+            @blending = blending?
+          end
+
+          # Blend everything painted FROM HERE ON with what is already in the cell, by
+          # +amount+ (0 to 100) — a see-through layer.
+          #
+          # This is the one blend that needs the DESTINATION, which is why it cannot be
+          # #paint_faded with a different color: a fade mixes toward a color that is the
+          # same everywhere, and a see-through layer mixes toward whatever happens to be
+          # underneath at that pixel. And it works BECAUSE the picture is painted back to
+          # front — "blend with whatever is already there" and the display's own "blend
+          # with the layer directly beneath" are then the same rule, so nothing about the
+          # stack has to be modelled a second time.
+          def paint_through(amount)
+            @through_steps = steps_of(amount)
+            @blending = blending?
           end
 
           # The color shown at screen (x, y) — the stored cell the window currently puts
@@ -114,7 +132,8 @@ module RubyGBA
           def set_pixel(x, y, color)
             return unless in_bounds?(x, y)
 
-            @pixels[(y * @width) + x] = painted(color)
+            at = (y * @width) + x
+            @pixels[at] = laid(at, color)
           end
 
           # Paint a horizontal run of cells: +count+ of them starting at (x, y), read
@@ -130,9 +149,9 @@ module RubyGBA
             i = 0
             while i < count
               color = colors[from + i]
-              # The blend is asked for inline rather than through #painted, which would be
+              # The blend is asked for inline rather than through #laid, which would be
               # a method call per pixel on the path that repaints the whole scene.
-              @pixels[base + i] = @paint_toward ? painted(color) : color if color
+              @pixels[base + i] = @blending ? laid(base + i, color) : color if color
               i += 1
             end
           end
@@ -205,14 +224,19 @@ module RubyGBA
           end
 
           # One color mixed toward another, the way a display's blend unit does it: each
-          # channel keeps its share of the picture and takes its share of the tint, and
-          # the two shares are truncated SEPARATELY before they are added.
+          # channel takes its share of the picture and its share of the other color, the
+          # two are ADDED, and only then is the sixteenth dropped.
           #
-          # That separate truncation is the whole reason this is not #blend with a color
-          # argument. A brightness change works on what a channel has (or the headroom it
-          # has left) in one step; a mix rounds twice and lands somewhere else. Matching
-          # the display exactly is what lets a test name one expected color and assert it
-          # on both backends.
+          # WHERE THE TRUNCATION FALLS IS THE WHOLE OF IT, and it is not the same as the
+          # brightness blend below. Truncating each share on its own and adding them can
+          # land a whole step lower — white mixed half way toward red keeps 30 of its red
+          # that way and 31 this way — so a picture where both sides have something in a
+          # channel comes out different. Measured on hardware, which is where this
+          # rounding is decided; matching it exactly is what lets a test name one
+          # expected color and assert it on both backends.
+          #
+          # The two shares are in sixteenths and always add to sixteen, so no channel can
+          # come out above its limit and there is nothing to clamp.
           def mixed(color, toward, steps)
             return color if steps.zero?
 
@@ -222,9 +246,19 @@ module RubyGBA
               shift = channel * 5
               have = (color >> shift) & CHANNEL_MAX
               want = (toward >> shift) & CHANNEL_MAX
-              packed |= (((have * keep) / FADE_STEPS) + ((want * steps) / FADE_STEPS)) << shift
+              packed |= (((have * keep) + (want * steps)) / FADE_STEPS) << shift
             end
             packed
+          end
+
+          # One color on its way into the cell at +at+: the blend a placed fade asks for,
+          # then the blend a see-through layer asks for against what is already there.
+          # Untouched when neither is on, which is the usual case.
+          def laid(at, color)
+            color = painted(color)
+            return color if @through_steps.zero?
+
+            mixed(color, @pixels[at], @through_steps)
           end
 
           # One color with the blend a placed fade asks for, or the color untouched when
@@ -232,6 +266,13 @@ module RubyGBA
           # it is painted and one blended while it is read cannot come out different.
           def painted(color)
             @paint_toward ? blend(color, @paint_toward, @paint_steps) : color
+          end
+
+          # Is anything between the color asked for and the cell it lands in? Kept as one
+          # flag rather than two questions, because it is asked once per pixel on the path
+          # that repaints a whole scrolling scene.
+          def blending?
+            !@paint_toward.nil? || @through_steps.positive?
           end
 
           def blend(color, toward, steps)

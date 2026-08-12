@@ -127,6 +127,7 @@ module RubyGBA
           @kept_out_of_the_fade = {} # layer -> the names a fade under it leaves alone
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @layer_stack = []        # the layers the program declared, backmost first
+          @see_through = nil       # ...and which of them you can see through, and by how much
           @bg_shown = []           # the backgrounds painted onto the screen so far, in that order
           @tables = {}             # name -> { values:, signed: } (a read-only ROM table)
           @music_frames = Hash.new(0) # per-song frame counter for play_song
@@ -260,6 +261,7 @@ module RubyGBA
               # name a layer that puts it behind one declared earlier, and the painting
               # has to know that when it starts rather than halfway through.
               @layer_stack = n.names
+              @see_through = n.transparent && [n.transparent, n.transparency]
             when :background
               # Remember every background so present_objects can redraw them under the
               # objects each frame (that clean redraw is what erases the previous frame),
@@ -722,6 +724,7 @@ module RubyGBA
           tiles = node.tiles
           tile_w = node.tile_w
           tile_h = node.tile_h
+          paint_through_for(node.name)
           node.map.each_with_index do |row, r|
             row.each_with_index do |index, c|
               next if index.nil?
@@ -729,6 +732,7 @@ module RubyGBA
               stamp_tile(tiles, index, c * tile_w, r * tile_h, tile_w, tile_h)
             end
           end
+          @screen.paint_through(0)
         end
 
         # +nodes+ in the order the declared stack asks for (see IR::Stacking).
@@ -876,6 +880,7 @@ module RubyGBA
             end
           end
           @screen.paint_faded(nil, nil)
+          @screen.paint_through(0)
         end
 
         # A fade, over the whole screen or placed in the stack.
@@ -907,10 +912,26 @@ module RubyGBA
         # placed fade reaches, off for anything it leaves alone. A +name+ of nil is the
         # backdrop, which is behind everything and so is always reached.
         def paint_blend_for(name, kept)
+          paint_through_for(name)
           return @screen.paint_faded(nil, nil) if kept.nil?
           return @screen.paint_faded(nil, nil) if name && kept.include?(name)
 
           @screen.paint_faded(@fade_placed[1], @fade_placed[2])
+        end
+
+        # Turn the see-through blend on for a thing in the see-through layer, and off for
+        # everything else. The picture is painted back to front, so "blend with what is
+        # already in the buffer" is the display's own "blend with the layer directly
+        # beneath" — the stack does not have to be consulted a second time.
+        def paint_through_for(name)
+          @screen.paint_through(see_through?(name) ? @see_through[1] : 0)
+        end
+
+        def see_through?(name)
+          return false unless @see_through && name
+
+          node = @bg_by_name[name] || @objects[name]
+          node && node.layer == @see_through[0]
         end
 
         # The names the fade in force leaves alone — its layer and everything in front.
@@ -983,9 +1004,13 @@ module RubyGBA
         # through the transform when it does. Shared by the still-scene present path and
         # the scrolling-scene recomposite.
         def draw_object(obj, image, x, y)
-          return blit_image(image, x, y) unless object_transformed?(obj)
-
-          blit_image_transformed(image, x, y, *object_transform(obj))
+          paint_through_for(obj.name)
+          if object_transformed?(obj)
+            blit_image_transformed(image, x, y, *object_transform(obj))
+          else
+            blit_image(image, x, y)
+          end
+          @screen.paint_through(0)
         end
 
         # Does this object turn or resize? It does unless BOTH its angle and its size are

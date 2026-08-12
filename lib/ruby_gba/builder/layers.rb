@@ -110,7 +110,10 @@ module RubyGBA
         check_stack_names!(names)
 
         @layer_stack = names
-        record(Build.layers(names))
+        # Held so a `layer` block can say later that its layer is see-through: the stack
+        # is one thing and it is declared here, but which of its layers you can see
+        # through is written where that layer is opened.
+        @layers_node = record(Build.layers(names))
         names
       end
 
@@ -130,12 +133,33 @@ module RubyGBA
       # one line — `hero = layer(:actors) { sprite :hero, at: [100, 60] }` — and a layer
       # holding several is written the way anything else with a block is.
       #
+      # `transparency:` says how much of what is BEHIND this layer shows through it —
+      # water, glass, fog, a dimmed backdrop behind a menu. 0 is solid (the picture as
+      # drawn) and 100 is invisible:
+      #
+      #   layer :water, transparency: 40 do
+      #     background :surface, tiles: :ripples, map: WATER
+      #   end
+      #
+      # What it means is what it looks like. Whatever sits directly under the layer at a
+      # pixel shows through it; anything in FRONT of it draws solid; and where the layer
+      # itself has a see-through tile, what is behind shows plain. The display does the
+      # blending as it draws, so nothing is redrawn and it costs nothing however much is
+      # on screen.
+      #
+      # A game has ONE see-through layer, and it says the amount one time — every example
+      # opens a layer block exactly once, so that is the natural place. Needs
+      # `screen :tiled`: a bitmap screen paints its whole picture into one place before
+      # the display sees it, so by then there is nothing left to see through.
+      #
       # @param name [Symbol] a layer named in {#layers}
+      # @param transparency [Integer, nil] how much of what is behind shows through, 0 to 100
       # @return [Object] the block's value
-      def layer(name, &block)
+      def layer(name, transparency: nil, &block)
         raise ArgumentError, "`layer :#{name}` needs a block: `layer :#{name} do ... end`." unless block
 
         check_layer_can_open!(name)
+        make_layer_transparent(name, transparency) unless transparency.nil?
 
         @current_layer = name
         begin
@@ -210,6 +234,72 @@ module RubyGBA
         end
 
         check_layer_named!(name)
+      end
+
+      # Record that this layer is see-through, and refuse every way of asking for one the
+      # console cannot show.
+      #
+      # ONE SEE-THROUGH LAYER PER GAME, and the honest reason is not that the console
+      # cannot do two. It shares the AMOUNT rather than the layer, so two layers at the
+      # same number would work on hardware. It is that a see-through layer sitting
+      # directly over another one gives two different pictures: the console blends the
+      # top two things at a pixel, and the reference interpreter paints back to front and
+      # would blend all three. One rule keeps the two honest, and a rule the author can
+      # hold in their head beats one that holds until their layers happen to touch.
+      def make_layer_transparent(name, amount)
+        check_transparency_amount!(name, amount)
+        check_transparency_screen!(name)
+        check_one_transparent_layer!(name, amount)
+
+        @layers_node.transparent = name
+        @layers_node.transparency = amount
+      end
+
+      def check_transparency_amount!(name, amount)
+        return if amount.is_a?(Integer) && (0..100).cover?(amount)
+
+        unless amount.is_a?(Integer)
+          raise ArgumentError,
+                "`layer :#{name}, transparency:` takes a whole number from 0 to 100. You gave " \
+                "#{amount.inspect}. The framework settles it while building, so it cannot be a " \
+                "value the game works out as it runs."
+        end
+
+        raise ArgumentError,
+              "`layer :#{name}, transparency: #{amount}` is outside 0 to 100. 0 is solid and " \
+              "100 lets everything behind show through."
+      end
+
+      # A bitmap screen paints its scenery, its sprites and its text into ONE picture
+      # before the display ever sees it. By the time an effect could apply there is
+      # nothing left to tell apart, so there is nothing to see through. Same shape of
+      # answer as `fade ... under:` already gives.
+      def check_transparency_screen!(name)
+        return if @screen_mode == :tiled
+
+        raise ArgumentError,
+              "`layer :#{name}, transparency:` needs `screen :tiled`. On a bitmap screen the " \
+              "whole picture is painted into one place before the display sees it, so there is " \
+              "nothing left behind a layer to see through. To fix this, use `screen :tiled`, or " \
+              "draw the see-through art into the picture yourself."
+      end
+
+      def check_one_transparent_layer!(name, amount)
+        already = @layers_node.transparent
+        return if already.nil?
+        return if already == name && @layers_node.transparency == amount
+
+        if already == name
+          raise ArgumentError,
+                "The layer :#{name} is already #{@layers_node.transparency} see-through, and now " \
+                "asks for #{amount}. A layer says how see-through it is one time. To fix this, " \
+                "say `transparency:` on one of the `layer :#{name}` blocks."
+        end
+
+        raise ArgumentError,
+              "This game already makes :#{already} see-through, and now asks for :#{name}. A game " \
+              "has one see-through layer. The console blends one layer with what is behind it. " \
+              "To fix this, remove `transparency:` from one of them."
       end
 
       def check_stack_not_declared!

@@ -103,6 +103,7 @@ module RubyGBA
             printer.puts "    #{layer_level(picture, held).ljust(9)}:#{layer.to_s.ljust(12)}" \
                          "#{layer_cost_column(costs[layer])}#{layer_holds(picture, layer)}"
           end
+          transparency_line(program, printer)
           used = picture.depths.count
           printer.puts "    #{used} of #{levels} levels used, #{levels - used} free"
           printer.puts "    #{layer_share_line(program, costs)}"
@@ -151,6 +152,18 @@ module RubyGBA
           sprites = picture.objects.count { |node| node.layer == layer }
           scenery.push("#{sprites} sprite#{'s' if sprites > 1}") if sprites.positive?
           scenery.join(", ")
+        end
+
+        # A see-through layer is worth saying on its own line, and the cost column beside
+        # it is the point: the display blends as it draws, so seeing through a layer is
+        # free the way a fade is free. Without the line a reader has no way to tell a
+        # stack that blends from one that does not.
+        def transparency_line(program, printer)
+          node = program.each.find { |n| n.kind == :layers && n.transparent }
+          return unless node
+
+          printer.puts "    :#{node.transparent} is #{node.transparency} see-through — " \
+                       "the display blends it as it draws, for nothing"
         end
 
         # What the build kept in the console's quick memory, and how much of it is left.

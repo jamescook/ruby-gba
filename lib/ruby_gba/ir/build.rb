@@ -467,8 +467,8 @@ module RubyGBA
       # Declare the program's stack: +names+ in order, backmost first. A thing that
       # names a layer sits at that layer's place in this list, and two things in the
       # same layer keep the order they were declared in.
-      def layers(names)
-        Nodes.build(:layers, names: names)
+      def layers(names, transparent: nil, transparency: nil)
+        Nodes.build(:layers, names: names, transparent: transparent, transparency: transparency)
       end
 
       # A tiled background: a whole grid drawn from a small set of reusable tiles.

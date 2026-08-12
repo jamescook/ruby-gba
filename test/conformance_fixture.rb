@@ -57,7 +57,10 @@ module ConformanceFixture
       B.sample(:clip, [0, 60, 120, 60, 0, -60, -120, -60].pack("c*"), 8000), # a tiny PCM clip
       B.backing_buffer(:under, width: 4, height: 4), # a save-under patch for a moving object
       B.table(:lut, [10, 20, 30, 40], width: :byte, signed: false), # a ROM lookup table (read by table_get below)
-      B.layers(%i[scenery actors]), # the stack of depths, backmost first (the background and the object below sit in it)
+      # The stack of depths, backmost first (the background and the object below sit in
+      # it), with the front one see-through — so every backend has to blend the object
+      # with the scenery behind it rather than draw it solid.
+      B.layers(%i[scenery actors], transparent: :actors, transparency: 50),
       B.func(:helper, B.set(:h, 1), B.add(:h, 2), B.wait_vblank),
       B.func(:scene_a, B.set(:picked, 10)),
       B.func(:scene_b, B.set(:picked, 20)),

@@ -60,8 +60,9 @@ module RubyGBA
           TINT_KEEP = 5  # how much of the original survives, in sixteenths
           TINT_RB = 6    # the red/blue mask, held rather than rebuilt per entry
           TINT_G = 7     # the green mask, likewise
-          TINT_ADD = 8   # the color's own share, already blended — the same for every entry
-          TINT_SPARE = 9 # scratch while that share is worked out
+          TINT_ADD = 8   # the color's own red and blue share — the same for every entry
+          TINT_ADD_G = 9 # ...and its green one
+          TINT_STEPS = 10 # where the steps wait while the remembered tint is compared
 
           # Does this program tint a screen that draws through a color table, and does it
           # fade at all? Both answers decide code that is emitted far from the tint
@@ -126,7 +127,7 @@ module RubyGBA
             eval_value(Build.binop(:/, Build.binop(:*, node.amount, Build.int(BLD_MAX)),
                                    Build.int(100)))
             emit_clamp_tint_steps
-            emit(ASM.mov_reg(TINT_SPARE, ACC))                      # r9 = the steps, kept
+            emit(ASM.mov_reg(TINT_STEPS, ACC))                      # kept while the state is compared
             emit(ASM.load_immediate(TMP, color << TINT_COLOR_SHIFT))
             emit(ASM.orr_reg(TMP, TMP, ACC))                        # r1 = the state asked for
             emit(ASM.cmp_imm(ACC, 0))
@@ -135,7 +136,7 @@ module RubyGBA
             emit(ASM.cmp_reg(ACC, TMP))
             emit_branch(:bcond, done, cond: :eq)
             store_var(TMP, TINT_STATE)
-            emit(ASM.mov_reg(ACC, TINT_SPARE))
+            emit(ASM.mov_reg(ACC, TINT_STEPS))
           end
 
           # An amount past either end settles at that end rather than running off it, the
@@ -163,6 +164,10 @@ module RubyGBA
           # makes the inner loop as short as it is — the color does not change while a
           # table is being walked, so neither does what it contributes.
           #
+          # It is kept UNSHIFTED, still multiplied up, because that is what makes the
+          # rounding right: the display adds the two shares and drops the sixteenth once,
+          # from the sum. Dropping it from each share first can land a whole step lower.
+          #
           # r0 holds the steps on the way in.
           def emit_tint_shares(node)
             color = Color.resolve(node.color)
@@ -172,37 +177,26 @@ module RubyGBA
             emit(ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC)) # 16 sixteenths, less the tint's
 
             if (amount = const_int(node.amount))
-              return emit(ASM.load_immediate(TINT_ADD, tint_share(color, fade_steps(amount))))
+              steps = fade_steps(amount)
+              emit(ASM.load_immediate(TINT_ADD, (color & RB_MASK) * steps))
+              return emit(ASM.load_immediate(TINT_ADD_G, (color & G_MASK) * steps))
             end
 
             emit(ASM.load_immediate(TMP, color & RB_MASK))
             emit(ASM.mul(TINT_ADD, TMP, ACC))
-            emit(ASM.lsr_imm(TINT_ADD, TINT_ADD, BLEND_SHIFT))
-            emit(ASM.and_reg(TINT_ADD, TINT_ADD, TINT_RB))
             emit(ASM.load_immediate(TMP, color & G_MASK))
-            emit(ASM.mul(TINT_SPARE, TMP, ACC))
-            emit(ASM.lsr_imm(TINT_SPARE, TINT_SPARE, BLEND_SHIFT))
-            emit(ASM.and_reg(TINT_SPARE, TINT_SPARE, TINT_G))
-            emit(ASM.orr_reg(TINT_ADD, TINT_ADD, TINT_SPARE))
-          end
-
-          # What the tint color contributes to every blended entry, when how far is known
-          # while building. The two halves never overlap, so they go together with an OR.
-          def tint_share(color, steps)
-            rb = (((color & RB_MASK) * steps) >> BLEND_SHIFT) & RB_MASK
-            g = (((color & G_MASK) * steps) >> BLEND_SHIFT) & G_MASK
-            rb | g
+            emit(ASM.mul(TINT_ADD_G, TMP, ACC))
           end
 
           # Walk one color table: read each original from the cartridge, blend it, write
           # it where the display reads colors from.
           #
           # The blend is the same arithmetic the display's own unit does, and the same the
-          # interpreter does — each channel keeps its share of the original and takes its
-          # share of the color, both truncated on their own before they are added. Doing
-          # it channel by channel would be three times this; masking red and blue together
-          # (they are far enough apart that a multiply cannot run one into the other) does
-          # two of them in one multiply.
+          # interpreter does — each channel takes its share of the original and its share
+          # of the color, the two are ADDED, and only then is the sixteenth dropped.
+          # Doing it channel by channel would be three times this; masking red and blue
+          # together (they sit far enough apart that a multiply cannot run one into the
+          # other, and neither can the sum) does two of them in one multiply.
           def emit_tint_table(blob_name, dest, units)
             emit_load_data_address(TINT_SRC, blob_name)
             emit(ASM.load_immediate(TINT_DST, dest))
@@ -213,14 +207,15 @@ module RubyGBA
             emit(ASM.load_halfword(ACC, TINT_SRC))        # r0 = the original color
             emit(ASM.and_reg(TMP, ACC, TINT_RB))
             emit(ASM.mul(TMP, TINT_KEEP, TMP))            # red and blue, both at once
+            emit(ASM.add_reg(TMP, TMP, TINT_ADD))         # + the color's share, before the drop
             emit(ASM.lsr_imm(TMP, TMP, BLEND_SHIFT))
             emit(ASM.and_reg(TMP, TMP, TINT_RB))
             emit(ASM.and_reg(ACC, ACC, TINT_G))
             emit(ASM.mul(ACC, TINT_KEEP, ACC))            # ...then green
+            emit(ASM.add_reg(ACC, ACC, TINT_ADD_G))
             emit(ASM.lsr_imm(ACC, ACC, BLEND_SHIFT))
             emit(ASM.and_reg(ACC, ACC, TINT_G))
             emit(ASM.add_reg(ACC, ACC, TMP))
-            emit(ASM.add_reg(ACC, ACC, TINT_ADD))         # + the color's share
             emit(ASM.store_halfword(ACC, TINT_DST))
             emit(ASM.add_imm(TINT_SRC, TINT_SRC, 2))
             emit(ASM.add_imm(TINT_DST, TINT_DST, 2))
