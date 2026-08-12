@@ -51,6 +51,13 @@ module RubyGBA
     # and then every loop is priced as the dearer shape.
     attr_accessor :loop_shapes
 
+    # How many colors each screen of this ROM draws through: screen mode -> entries. A
+    # tint on a screen drawn through a color table moves every entry, so the estimate has
+    # to know how many there are — and only the build does, since it is what packed them
+    # (see the GBA backend's #palette_entries). Nil for a ROM assembled straight from
+    # machine code, and then a tint is priced on a full table.
+    attr_accessor :palette_entries
+
     # Package finished machine code into a cartridge: write the header, drop the
     # code in after it, and finalize (entry branch, checksum, power-of-two
     # padding, and the ROM-image validation). This is the counterpart to a
@@ -169,7 +176,8 @@ module RubyGBA
     # both change what the same statement costs. The frame's own body has no name in the
     # program, so it is passed as its own flag.
     def placement_for_cost_model
-      decided = { var_addresses: var_addresses, loop_shapes: loop_shapes }.compact
+      decided = { var_addresses: var_addresses, loop_shapes: loop_shapes,
+                  palette_entries: palette_entries }.compact
       return decided unless placement
 
       names = placement.funcs

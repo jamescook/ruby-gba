@@ -18,6 +18,7 @@ require_relative "gba/raster"
 require_relative "gba/direct_sound"
 require_relative "gba/mixer"
 require_relative "gba/save"
+require_relative "gba/palette_tint"
 require_relative "gba/bios_compress"
 
 module RubyGBA
@@ -76,6 +77,7 @@ module RubyGBA
         include DirectSound
         include Mixer
         include Save
+        include PaletteTint
 
         class LoweringError < StandardError; end
 
@@ -286,6 +288,7 @@ module RubyGBA
           prepare_objects(program) if @has_objects
           @uses_save = program.walk.any? { |node| node.kind == :save_init }
           prepare_palette(program) if @any_buffered
+          prepare_palette_tint(program)
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
           # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
           # the console's cautious power-on timing.
@@ -305,6 +308,7 @@ module RubyGBA
             emit_boot_backgrounds if @tiled && !@backgrounds.empty? # shared BG palette + tiles
             emit_boot_objects if @has_objects # sprite tiles/colors + clear the sprite table
           end
+          emit_tint_state_init if @palette_tint # the color tables start as they were drawn
           @lower_mode = @default_mode
           program.children.each { |stmt| emit_statement(stmt) }
           guard_variables_clear_of_routines

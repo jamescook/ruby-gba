@@ -615,6 +615,30 @@ module RubyGBA
               note: "setting the fade level, from a number written in the program")
         weigh(:tint_set, @bench.per_op("tint", 100, 2, 6) { |b, _xv| b.tint :red, 50 },
               note: "setting the tint level, from a color and a number written in the program")
+        palette_tint
+      end
+
+      # A screen drawn through a COLOR TABLE cannot be tinted by the display's own blend
+      # (the color it would blend against is the table's own first entry), so the framework
+      # moves every entry of the table instead. Two numbers, because a game pays one of them
+      # on nearly every frame and the other only when the tint actually moves.
+      #
+      # Both ROMs of the per-entry pair paint the same number of pixels and hold the same
+      # number of them in the table's low entries — only how many DISTINCT colors they use
+      # differs — so the drawing, which happens once at boot anyway, cancels exactly.
+      PALETTE_TINT_LO = 32
+      PALETTE_TINT_HI = 224
+
+      def palette_tint
+        lo = PALETTE_TINT_LO
+        hi = PALETTE_TINT_HI
+        weigh(:tint_entry,
+              Reductions.marginal(@bench.palette_tint_busy(hi), @bench.palette_tint_busy(lo),
+                                  over: hi - lo),
+              varies: :colors, from: lo, to: hi,
+              note: "one color of the table moved toward the tint, on a frame where the tint moved")
+        weigh(:tint_hold, @bench.per_op_palette("ptinth", 100, 2, 6) { |b, _lv| b.tint :red, 50 },
+              note: "asking for a tint that has not moved — the check that skips the table")
       end
 
       def saving

@@ -355,8 +355,19 @@ module RubyGBA
           when :background then "background :#{node.name}"
           when :play_song then "play_song :#{node.name} (#{song_notes(node.name)} notes)"
           when :beep then "beep #{node.tone.inspect}"
+          when :tint then tint_label(node)
           else node.kind.to_s
           end
+        end
+
+        # A tint reads as a plain `tint` where the display does it for nothing, and says
+        # what it is really doing where it does not. On a screen drawn through a color
+        # table the framework moves every color the game declared — so the count is the
+        # cost, and a reader who cannot see why a tint costs anything at all needs it.
+        def tint_label(node)
+          return "tint" unless palette_screen?
+
+          "tint — #{tint_palette_entries} colors, when it changes"
         end
       end
     end

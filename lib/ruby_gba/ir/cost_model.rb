@@ -367,13 +367,15 @@ module RubyGBA
       # tear check. SOUND is the sound-register writes plus the software mixer. Anything
       # else the loop computes — moving things, collisions, counters — is LOGIC. They
       # all share the one frame, so they all roll into the frame total.
-      # camera and fade redraw nothing — they tell the display where to look and how far
-      # to blend — but they are still writes the visible frame must not see part-done, so
-      # they belong with the drawing the tear check judges.
+      # camera, fade and tint redraw nothing — they tell the display where to look and
+      # what to mix into what it draws — but they are still writes the visible frame must
+      # not see part-done, so they belong with the drawing the tear check judges. A tint
+      # on a screen drawn through a color table is the clearest case: it rewrites the very
+      # table the display is reading colors out of.
       DRAW_KINDS = %i[
         pixel fill_rect dma_fill_rect draw_rect_at clear_screen draw_text draw_digit
         blit blit_pose save_region restore_region present_objects scroll_background background
-        camera fade
+        camera fade tint
       ].freeze
       SOUND_KINDS = %i[play_song beep noise wave stop_wave enable_sound stop_music mixer].freeze
       CATEGORY_ORDER = %i[drawing sound logic].freeze
@@ -391,10 +393,13 @@ module RubyGBA
       # much memory is used and left (see Backends::GBA::Placement#iwram_report).
       # +loop_shapes+ says which loops kept their counter in a register, keyed by the loop's
       # index — the build's answer again, for the same reason (see {LoopShape}).
-      attr_reader :var_addresses, :loop_shapes
+      # +palette_entries+ says how many colors each screen draws through — the build's
+      # answer again, since it is what packed the tables (see Backends::GBA::PaletteTint).
+      attr_reader :var_addresses, :loop_shapes, :palette_entries
 
       def initialize(fast_routines: nil, fast_frame: false, fast_interrupts: false,
-                     placement: nil, var_addresses: nil, loop_shapes: nil, **weights)
+                     placement: nil, var_addresses: nil, loop_shapes: nil,
+                     palette_entries: nil, **weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)
         # The same table with everything but the transfer engine's own work zeroed, so an op
         # can be priced twice over and the two answers differenced (see Pricing::ENGINE_WEIGHTS).
@@ -409,6 +414,7 @@ module RubyGBA
         # the right way to be wrong. See {Decided}.
         @var_addresses = Decided.for(var_addresses)
         @loop_shapes = Decided.for(loop_shapes)
+        @palette_entries = Decided.for(palette_entries)
         # Readable so a caller can ask whether a build stands behind this estimate at all —
         # a report says a different thing when the answer is "nothing was worked out".
         @in_fast_code = false

@@ -184,18 +184,49 @@ module RubyGBA
           @weights[:fade_set] + @weights[:op_mul] + @weights[:op_div_const]
         end
 
-        # A tint is a register write more than a fade — the color it moves toward has to
-        # be put where the display reads it — and a level the game works out costs the
-        # same conversion on top, plus turning that level into the pair of weights the
-        # blend takes. (Backends::GBA::Drawing#emit_tint is where both live.)
+        # A tint costs one of two quite different things, and which one is the screen's
+        # answer rather than the author's.
+        #
+        # On the DIRECT-COLOR screen it is a register write more than a fade — the color it
+        # moves toward has to be put where the display reads it — and nothing else, however
+        # much is on screen.
+        #
+        # On a screen drawn through a COLOR TABLE the display's own blend cannot do it, so
+        # the framework moves every entry of the table instead: a blend per color the game
+        # declared, on a frame where the tint moves. Charged here as though every frame
+        # moved it, which is the safe way to be wrong — a frame that holds the tint still
+        # pays only the check that skips the walk.
+        #
+        # Either way, a level the game works out costs the conversion into sixteenths on
+        # top. (Backends::GBA::Drawing#emit_tint and PaletteTint#emit_palette_tint are
+        # where all of it lives.)
         def tint_cost(node)
-          return @weights[:tint_set] if const_side(node.amount)
+          fixed = const_side(node.amount)
+          worked_out = fixed ? 0 : @weights[:op_mul] + @weights[:op_div_const]
+          return palette_tint_cost + worked_out if palette_screen?
 
-          @weights[:tint_set] + @weights[:op_mul] + @weights[:op_div_const] +
-            (TINT_WEIGHT_STEPS * @weights[:op_plain])
+          setting = @weights[:tint_set] + (fixed ? 0 : TINT_WEIGHT_STEPS * @weights[:op_plain])
+          setting + worked_out
         end
 
         TINT_WEIGHT_STEPS = 3 # what turning a level into the blend's two weights takes
+
+        def palette_tint_cost
+          @weights[:tint_hold] + (tint_palette_entries * @weights[:tint_entry])
+        end
+
+        # Is the op being priced on a screen that draws through a color table? Both of
+        # them are — the tear-free bitmap screen and the tiled screen — so this is the
+        # direct-color screen's opposite rather than a question about tiles.
+        def palette_screen? = current_mode != Modes::DIRECT
+
+        # How many colors this screen draws through. The build knows exactly, and hands
+        # it over; with no build behind the estimate a full table is assumed, so an
+        # estimate with nothing to go on quotes the dearest answer rather than a cheap
+        # guess.
+        def tint_palette_entries
+          @palette_entries[current_mode] || Palette::CAPACITY
+        end
 
         # A kind that fell through to the zero-cost fallback: 0 if it's a declared-free
         # kind, otherwise 0 too — but remembered, so the estimate can announce that it

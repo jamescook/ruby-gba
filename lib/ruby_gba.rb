@@ -124,6 +124,8 @@ module RubyGBA
     rom.var_addresses = backend.var_addresses
     # ...and which loops kept their counter in a register, which decides what a pass costs
     rom.loop_shapes = backend.loop_shapes
+    # ...and how many colors each screen draws through, which decides what a tint costs
+    rom.palette_entries = backend.palette_entries
 
     # Record how far asset packing shrank the cart (tile pictures, palettes, maps) so
     # a caller can read it back or a verbose build can show it. Building it into the
