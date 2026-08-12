@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require_relative "../examples/pong"
 
 # The pong ball/paddle/scoring core — the focused integration test for the
 # collision fix. It isn't the whole game (that's examples/pong.rb); it's the part
@@ -96,5 +97,41 @@ class TestPongScoring < Minitest::Test
                   player_paddle_y: 0, cpu_paddle_y: 90, frames: 30)
     assert_equal 0, r[:player_score], "a lined-up CPU paddle stops the ball"
     assert_equal(-2, r[:ball_dx],     "and sends it back to the left")
+  end
+
+  # --- the red sting, in the real example ---
+  #
+  # The dashed center line is drawn plain gray every frame, so any red SHIFT in it (the
+  # red channel above the green) is the tint and nothing else. The frame numbers are
+  # where the CPU's first point actually lands with nobody touching the pad — if the
+  # ball or paddle speeds change, these move, and that is worth being told about.
+
+  LINE_X = 120
+  LINE_Y = 6
+  JUST_AFTER_THE_POINT = 338
+  ONCE_IT_HAS_EASED_OFF = 352
+
+  def pong_at(frames)
+    i = Reference.new
+    i.input_each_frame { |f| f < 3 ? [:start] : [] } # press START, then hands off
+    i.run(Pong.program, frames: frames)
+    color = i.screen.pixel(LINE_X, LINE_Y)
+    { sting: i[:sting], line: [color & 0x1F, (color >> 5) & 0x1F, (color >> 10) & 0x1F] }
+  end
+
+  def test_the_screen_stings_red_when_the_cpu_scores
+    hit = pong_at(JUST_AFTER_THE_POINT)
+
+    assert_operator hit[:sting], :>, 0, "the sting is running"
+    assert_operator hit[:line][0], :>, hit[:line][1],
+                    "the gray center line reads red while the sting is on"
+  end
+
+  def test_the_sting_eases_back_off_by_itself
+    settled = pong_at(ONCE_IT_HAS_EASED_OFF)
+
+    assert_equal 0, settled[:sting], "the sting has run out"
+    assert_equal settled[:line][0], settled[:line][1],
+                 "so the center line is plain gray again"
   end
 end
