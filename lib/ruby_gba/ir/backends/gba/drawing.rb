@@ -497,20 +497,81 @@ module RubyGBA
             # interpreter models — so a fade puts the colors back. Only a program that
             # tints such a screen emits this, and the check inside is one compare.
             emit_lift_palette_tint(@modes.mode_at(node)) if @palette_tint && palette_screen?(node)
+            return emit_fade_sharing_the_blend(node) if @see_through
 
+            emit_fade_registers(node)
+          end
+
+          # Which layers the fade reaches and which way, then how far.
+          def emit_fade_registers(node)
+            emit_fade_control(node)
+
+            if (amount = const_int(node.amount))
+              write_reg16(REG_BLDY, fade_steps(amount))
+            else
+              eval_value(fade_steps_value(node.amount))
+              store_halfword_acc(REG_BLDY)
+            end
+          end
+
+          def emit_fade_control(node)
             mode = node.toward == :white ? BLD_BRIGHTEN : BLD_DARKEN
             write_reg16(REG_BLDCNT, mode | fade_targets(node.under))
             # Where this fade sits in the stack, for the window twins to read. Only a
             # program that has twins writes it (see GBA#prepare_effect_layers).
             store_word_immediate(effect_line(node.under), var_addr(EFFECT_LINE)) unless @window_twins.empty?
+          end
 
+          # How far the fade has come, in the sixteenths the hardware counts in, for an
+          # amount the game works out as it runs.
+          def fade_steps_value(amount)
+            Build.binop(:/, Build.binop(:*, amount, Build.int(BLD_MAX)), Build.int(100))
+          end
+
+          # Where the amount waits while the registers around it are written. Free within
+          # a statement, like the other scratch registers.
+          FADE_HELD = 2
+
+          # A FADE AND A SEE-THROUGH LAYER ARE THE SAME PIECE OF DISPLAY, so only one of
+          # them can be in force. The blend unit is told which effect it is running in one
+          # field of one register: mixing two layers together, or moving the whole picture
+          # toward black. A fade writes that field, and the layer's blend is gone while it
+          # holds it — the layer draws solid, and darkens with everything else, which is
+          # what a fade out is supposed to look like.
+          #
+          # What must not happen is that it stays gone. A fade ends AT ZERO — invisible,
+          # but still a fade as far as the register is concerned — so without this a single
+          # hit flash would leave the water solid for the rest of the game, with nothing on
+          # screen or in the build to say why.
+          #
+          # So a fade of nothing hands the register back rather than writing a dead fade.
+          # A zero the author wrote is settled here and costs not one instruction; an amount
+          # the game works out is a compare and a branch, which is what a fade walked over
+          # frames arrives as.
+          def emit_fade_sharing_the_blend(node)
             if (amount = const_int(node.amount))
-              write_reg16(REG_BLDY, fade_steps(amount))
-            else
-              eval_value(Build.binop(:/, Build.binop(:*, node.amount, Build.int(BLD_MAX)),
-                                     Build.int(100)))
-              store_halfword_acc(REG_BLDY)
+              return emit_boot_layer_blend if fade_steps(amount).zero?
+
+              return emit_fade_registers(node)
             end
+
+            emit_fade_or_hand_back(node)
+          end
+
+          def emit_fade_or_hand_back(node)
+            hand_back = gensym
+            done = gensym
+            eval_value(fade_steps_value(node.amount))
+            emit(ASM.mov_reg(FADE_HELD, ACC))
+            emit(ASM.cmp_imm(FADE_HELD, 0))
+            emit_branch(:bcond, hand_back, cond: :eq)
+            emit_fade_control(node)
+            emit(ASM.mov_reg(ACC, FADE_HELD))
+            store_halfword_acc(REG_BLDY)
+            emit_branch(:b, done)
+            place_label(hand_back)
+            emit_boot_layer_blend
+            place_label(done)
           end
 
           # A percentage of the way there, in the sixteenths the hardware counts in.

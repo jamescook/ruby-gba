@@ -283,7 +283,12 @@ module RubyGBA
           @bitmaps = {}
           @backing = {}
           @objects = {}
+          @sees_through = false
           program.walk do |node|
+            # Whether any layer can be seen through, which changes what a FADE costs — the
+            # two share the display's one blend unit, so a fade in such a game decides
+            # whether it is running or handing the blend back (see Pricing#fade_cost).
+            @sees_through ||= node.kind == :layers && node.transparency.to_i.positive?
             @funcs[node.name] = node if node.kind == :func
             @capacities[node.name] = node.capacity if node.kind == :list_new
             # ...and the length the AUTHOR asked for, which is the most the list can really
@@ -664,6 +669,8 @@ module RubyGBA
         def list_length(name)
           @list_lengths[name] || unsaid_share(@capacities[name])
         end
+
+        def sees_through_a_layer? = @sees_through
       end
     end
   end
