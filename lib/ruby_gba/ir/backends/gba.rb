@@ -234,6 +234,7 @@ module RubyGBA
           @row_bends = {}        # name -> :scroll_rows node giving each of that layer's rows its own offset
           @row_bend_base = {}    # name -> the layer's own scroll, which a row's offset is measured from
           @row_bend_table = {}   # name -> where its table of row offsets sits, when the copier feeds them
+          @row_bend_engine = {}  # name -> which copying engine feeds it from that table
           @copies_row_bends = false # are those bends fed by a copying engine rather than per-line interrupts?
           @bg_shared = nil       # the one palette + character block every background layer shares
           @has_objects = false   # does the program declare any composited objects (sprites)?

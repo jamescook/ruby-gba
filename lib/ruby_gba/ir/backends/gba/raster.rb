@@ -33,6 +33,10 @@ module RubyGBA
         # once a frame, which is the program's own expression run 160 times in an ordinary
         # loop — and that is the whole of what a bend costs this way.
         #
+        # An engine feeds one register, so a bending layer needs one of its own: three
+        # layers, three tables, three engines, all filled in the same pass at the frame
+        # boundary. Which engines there are to give out is {BendForm}'s answer.
+        #
         # Two details make the table line up. The engine's first move happens at the end of
         # LINE 0, so what it moves is row 1's offset, and the table it walks starts one
         # entry in; row 0 is written straight to the register by the frame instead. And an
@@ -99,12 +103,14 @@ module RubyGBA
             @copies_row_bends = BendForm.copier?(program)
             return unless @copies_row_bends
 
-            # One table per bending layer, in the same quick memory the variables live in.
-            # It holds a row's offset per entry, and one more than there are rows: the
-            # engine's last move of a frame reads one past the bottom of the picture, on a
-            # line nothing is drawn on.
-            @row_bends.each_key do |name|
+            # One table AND one engine per bending layer. The table lives in the same quick
+            # memory the variables do, and holds a row's offset per entry with one to spare:
+            # the engine's last move of a frame reads one past the bottom of the picture, on
+            # a line nothing is drawn on.
+            engines = BendForm.engines(program)
+            @row_bends.each_key.with_index do |name, i|
               @row_bend_table[name] = @next_var
+              @row_bend_engine[name] = engines.fetch(i)
               @next_var += TABLE_BYTES
             end
           end
@@ -114,13 +120,13 @@ module RubyGBA
           TABLE_ENTRIES = VISIBLE_LINES + 1
           TABLE_BYTES = ((TABLE_ENTRIES * 2) + 3) & ~3
 
-          # The copying engine a bend rides. The first of the four: it is the one with
-          # nothing else on it (the general copier fills and uploads, the other two feed
-          # sampled sound), and it is also the one the console serves first when two want
-          # to move at the same moment — which is what a line-end move wants to be.
-          COPIER_SAD = REG_DMA0SAD
-          COPIER_DAD = REG_DMA0DAD
-          COPIER_CNT = REG_DMA0CNT
+          # The three registers of each engine a bend can ride, by engine number: where it
+          # reads from, where it writes to, and what it is doing. Which engines are free to
+          # be handed out, and in what order, is {BendForm}'s answer — the cost model asks it
+          # too, so it cannot live here.
+          COPIER_SAD = [REG_DMA0SAD, REG_DMA1SAD, REG_DMA2SAD].freeze
+          COPIER_DAD = [REG_DMA0DAD, REG_DMA1DAD, REG_DMA2DAD].freeze
+          COPIER_CNT = [REG_DMA0CNT, REG_DMA1CNT, REG_DMA2CNT].freeze
 
           # Move ONE 16-bit number at the end of every line the display draws, and keep
           # doing it: the destination stays put (it is a register, not a run of memory)
@@ -137,7 +143,7 @@ module RubyGBA
               store_word_immediate(scratch, REG_DMA3SAD) # one word of zeroes, read over and over
               store_word_immediate(base, REG_DMA3DAD)
               store_word_immediate(dma_fill_control(TABLE_BYTES / 4), REG_DMA3CNT)
-              store_word_immediate(Drawing::BG_HOFS_REGS[bg_number(name)], COPIER_DAD)
+              store_word_immediate(Drawing::BG_HOFS_REGS[bg_number(name)], COPIER_DAD[engine_for(name)])
             end
             emit_rearm_row_bend_copiers
           end
@@ -150,11 +156,17 @@ module RubyGBA
           # — the end of line 0 is the first line-end there is. Row 0 is the frame's own to
           # write (see #emit_fill_row_bend_tables).
           def emit_rearm_row_bend_copiers
-            @row_bend_table.each_value do |base|
-              store_word_immediate(0, COPIER_CNT)
-              store_word_immediate(base + 2, COPIER_SAD)
-              store_word_immediate(COPIER_CONTROL, COPIER_CNT)
+            @row_bend_table.each do |name, base|
+              engine = engine_for(name)
+              store_word_immediate(0, COPIER_CNT[engine])
+              store_word_immediate(base + 2, COPIER_SAD[engine])
+              store_word_immediate(COPIER_CONTROL, COPIER_CNT[engine])
             end
+          end
+
+          # Which engine feeds this layer, settled in #prepare_row_bends.
+          def engine_for(name)
+            @row_bend_engine.fetch(name)
           end
 
           # Work out where every row of every bending layer sits, into the table the copier

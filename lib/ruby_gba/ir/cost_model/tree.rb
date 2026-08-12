@@ -174,7 +174,7 @@ module RubyGBA
 
           layers = v.layers.map { |name| ":#{name}" }.join(", ")
           how = if v.copied?
-                  "worked out for each of #{VISIBLE_LINES} rows a frame, then fed to the display for us"
+                  "worked out for each of its #{VISIBLE_LINES} rows a frame, then fed to the display for us"
                 else
                   "interrupted on each of #{v.lines} lines a frame"
                 end

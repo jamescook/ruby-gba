@@ -381,17 +381,19 @@ class TestCostCalibrationTool < Minitest::Test
     assert_equal n - 1, kept_sprites(kept)
   end
 
-  # A BEND FED BY THE COPIER is measured against the same layer not bending at all, over the
-  # 160 rows there are: canned, the bending cartridge costs 1.6 more, so a row is 0.01.
-  def test_a_copied_bend_is_measured_over_the_rows_of_the_table_it_fills
-    calibration, = flat_calibration(busy: { "bend0" => 1.0, "bendc" => 2.6 })
+  # A BEND FED BY THE COPIER is measured over HOW MANY LAYERS BEND, which is the thing the
+  # model assumes — it charges a table per bending layer. Canned, three bending layers cost
+  # 3.2 more than one, over the 320 rows of table the extra two add, so a row is 0.01.
+  def test_a_copied_bend_is_measured_over_the_layers_that_bend
+    calibration, = flat_calibration(busy: { "bendc1" => 1.0, "bendc3" => 4.2 })
 
     assert_in_delta 0.01, calibration.weights[:bend_row_copied], 1e-9
 
     domain = calibration.domains[:bend_row_copied]
-    assert_equal :rows_per_frame, domain.varies
-    assert_equal [160, 160], [domain.from, domain.to],
-                 "the table holds the rows of the picture, and the lines below it are not in it"
+    assert_equal :bending_layers, domain.varies
+    assert_equal [1, 3], [domain.from, domain.to],
+                 "three is as many layers as there are engines to feed them — the fourth " \
+                 "copier is the general one every fill and upload uses"
   end
 
   # AN INTERRUPT'S OWN COST IS READ OFF TWO BLOCKS AND EXTENDED BACK TO NONE, which is the one
@@ -413,32 +415,41 @@ class TestCostCalibrationTool < Minitest::Test
                  "a program cannot ask the display to draw a different number of lines"
   end
 
-  # ...AND THE THREE BENDING CARTRIDGES REALLY ARE THE ONE LAYER LOWERED TWO WAYS, which the
-  # canned readings above cannot see. Every frame is the wait for the screen and nothing else:
-  # a bend is a standing declaration, so whichever way it is lowered, none of it is a statement
-  # in the frame the program wrote.
-  def test_the_bending_cartridges_are_one_layer_lowered_both_ways
+  # ...AND THE BENDING CARTRIDGES REALLY ARE WHAT THE TWO RECIPES SAY, which the canned
+  # readings above cannot see. Every frame is the wait for the screen and nothing else: a bend
+  # is a standing declaration, so whichever way it is lowered, none of it is a statement in the
+  # frame the program wrote.
+  def test_the_bending_cartridges_are_what_the_two_recipes_take_them_for
     catcher = RomCatcher.new(default: 1.0)
     bench = Calibration::Benchmarks.new(catcher)
     bench.bend_busy(false)
-    bench.bend_busy(true, copied: true)
     Calibration::Benchmarks::BEND_STEPS.each { |n| bench.bend_busy(true, steps: n) }
-    copied, one, five = catcher.roms.values_at("bendc", "bend1", "bend5")
+    Calibration::Benchmarks::COPIED_BENDS.each { |n| bench.bend_copied_busy(n) }
+    one, five, few, many = catcher.roms.values_at("bend1", "bend5", "bendc1", "bendc3")
 
-    assert_equal [%i[wait_vblank]] * 4, catcher.roms.each_value.map { |rom| frame_body(rom) },
+    assert_equal [%i[wait_vblank]] * 5, catcher.roms.each_value.map { |rom| frame_body(rom) },
                  "each frame waits for the screen, and a bend is nowhere in it"
-    assert BendForm.copier?(copied.source_program), "a block of one number is fed by the copier"
     [one, five].each do |rom|
       refute BendForm.copier?(rom.source_program), "a block that sets a variable is answered per line"
     end
     assert_equal [1, 5], [one, five].map { |rom| block_statements(rom) },
                  "and the pair the interrupt is fitted from differ by their blocks alone"
+
+    [few, many].each { |rom| assert BendForm.copier?(rom.source_program), "a block of one number is copied" }
+    assert_equal [1, 3], [few, many].map { |rom| bending_layers(rom) }
+    assert_equal [3, 3], [few, many].map { |rom| backgrounds(rom) },
+                 "both sides show three backgrounds, so what is differenced is the tables and " \
+                 "not the display's own work"
   end
 
-  # How many statements this cartridge's bend records beside the offset it works out.
+  # How many statements this cartridge's bend records beside the offset it works out, how many
+  # of its layers bend, and how many backgrounds it shows at all.
   def block_statements(rom)
     rom.source_program.walk.select { |node| node.kind == :scroll_rows }.sum { |n| n.children.length }
   end
+
+  def bending_layers(rom) = rom.source_program.walk.count { |node| node.kind == :scroll_rows }
+  def backgrounds(rom) = rom.source_program.walk.count { |node| node.kind == :background }
 
   # How many sprites this cartridge's frame presents, and how many of them a placed fade has
   # to be held off one at a time.

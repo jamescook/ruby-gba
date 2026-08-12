@@ -595,21 +595,28 @@ module RubyGBA
         # copying engines moves that row's offset into the scroll register at the end of every
         # line, with the CPU untouched — so there is no per-line cost left to measure at all.
         # What this weighs is the other side of that bargain: all 160 rows worked out at the
-        # frame boundary into a table, which is the loop that fills it, the write into it, and
-        # the engine's own moment on each line. Divided over the visible rows, which is the
-        # count that decides it — the lines below the picture are not in the table.
+        # frame boundary into a table, which is the loop that fills it, the writes into it, and
+        # the engine's own moment on each line.
+        #
+        # SWEPT OVER HOW MANY LAYERS BEND, not over one layer against none, because that is the
+        # thing the model assumes and so the thing to measure: it charges a table per bending
+        # layer, so three layers had better cost three times one. Three is also the ceiling —
+        # there are four engines and the last is the general copier every fill and upload uses.
+        # Over the rows the extra layers add, since the rate is per row of table.
+        low, high = Benchmarks::COPIED_BENDS
         weigh(:bend_row_copied,
-              Reductions.marginal(@bench.bend_busy(true, copied: true), @bench.bend_busy(false), over: rows),
-              varies: :rows_per_frame, from: rows, to: rows,
-              note: "one row's offset written into the table the copier reads, from the cartridge")
+              Reductions.marginal(@bench.bend_copied_busy(high), @bench.bend_copied_busy(low),
+                                  over: (high - low) * rows),
+              varies: :bending_layers, from: low, to: high,
+              note: "one row of one bending layer's table, filled from the cartridge")
         # ...and the same with the frame's own body kept in the console's quick memory, which is
         # where a real build puts a body this busy. Two weights rather than one and a discount,
         # because the engine's share of it is the console's own work and gets no faster wherever
         # our code lives — the same reason the pair below is a pair.
         weigh(:bend_row_copied_fast,
-              Reductions.marginal(@bench.bend_busy(true, copied: true, fast: true),
-                                  @bench.bend_busy(false, fast: true), over: rows),
-              varies: :rows_per_frame, from: rows, to: rows,
+              Reductions.marginal(@bench.bend_copied_busy(high, fast: true),
+                                  @bench.bend_copied_busy(low, fast: true), over: (high - low) * rows),
+              varies: :bending_layers, from: low, to: high,
               note: "the same, from the quick memory")
 
         # THE INTERRUPT, which is what a block that does more than that gets: what ONE line
