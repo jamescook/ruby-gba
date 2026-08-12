@@ -44,18 +44,24 @@ module Differential
   # matching number (see BOOT_FRAMES). For a program that halts or sits still the
   # count barely matters; for an animated one it selects which frame is compared.
   # +blended+ says the picture has a display effect on it — a fade or a tint. Those need
-  # a little slack, for a reason that is about the EMULATOR rather than the program:
-  # the console blends in the five bits a channel actually has, while the emulator
-  # renders at eight and only comes back down to five when the frame is read. A channel
-  # at the top taken three quarters of the way to black is 23 on the console and 191/255
-  # in the emulator, which reads back as 24.
+  # a little slack, for a reason that is about the EMULATOR rather than the program.
   #
-  # The slack is measured, not guessed, and it is ONE-SIDED because the measurement is:
-  # across nine colors, seven amounts and four effects the emulator reads HIGH by up to
-  # two steps and never once reads low. Keeping it one-sided is what preserves the
-  # comparison's teeth — the real bug this slack was written alongside (the interpreter
-  # fading toward black by taking a truncated share away rather than keeping one) made
-  # the interpreter read HIGH, which is the side with no slack at all.
+  # The console blends in the five bits a channel actually has. The emulator is built for
+  # 32-bit color, so it widens each channel to eight bits and blends there — and it
+  # divides the RED channel on its raw byte while dividing green and blue on their
+  # shifted fields, which are 256 times finer. The three channels therefore truncate
+  # differently, which is why a uniform gray comes back from a fade with unequal
+  # channels. It is a quirk of that renderer and says nothing about our lowering.
+  #
+  # The bound is PROVED, not sampled: test_emulator_blend.rb walks every 5-bit value
+  # against every amount, for both fade directions and the tint, and asserts the emulator
+  # never reads low and never more than this far high — and that this number is tight, so
+  # it cannot quietly cover more than it was measured to.
+  #
+  # KEEPING IT ONE-SIDED IS THE POINT. The bug this was written alongside — the
+  # interpreter fading toward black by taking a truncated share away rather than keeping
+  # one — made the INTERPRETER read high, which is the side with no slack at all. A plain
+  # absolute difference would have hidden it. Do not "tidy" this into one.
   #
   # So this still proves an effect reached the right pixels. What it cannot prove is the
   # last step of the arithmetic; that is what the exact per-color assertions against
