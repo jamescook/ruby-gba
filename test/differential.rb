@@ -43,9 +43,28 @@ module Differential
   # +frames+ is how many frames the INTERPRETER plays; the console is run for the
   # matching number (see BOOT_FRAMES). For a program that halts or sits still the
   # count barely matters; for an animated one it selects which frame is compared.
-  def assert_backends_agree(program, frames: 4, name: "DIFF", console_frames: nil)
+  # +blended+ says the picture has a display effect on it — a fade or a tint. Those need
+  # a little slack, for a reason that is about the EMULATOR rather than the program:
+  # the console blends in the five bits a channel actually has, while the emulator
+  # renders at eight and only comes back down to five when the frame is read. A channel
+  # at the top taken three quarters of the way to black is 23 on the console and 191/255
+  # in the emulator, which reads back as 24.
+  #
+  # The slack is measured, not guessed, and it is ONE-SIDED because the measurement is:
+  # across nine colors, seven amounts and four effects the emulator reads HIGH by up to
+  # two steps and never once reads low. Keeping it one-sided is what preserves the
+  # comparison's teeth — the real bug this slack was written alongside (the interpreter
+  # fading toward black by taking a truncated share away rather than keeping one) made
+  # the interpreter read HIGH, which is the side with no slack at all.
+  #
+  # So this still proves an effect reached the right pixels. What it cannot prove is the
+  # last step of the arithmetic; that is what the exact per-color assertions against
+  # measured console values are for.
+  EMULATOR_BLEND_SLACK = 2
+
+  def assert_backends_agree(program, frames: 4, name: "DIFF", console_frames: nil, blended: false)
     oracle, console = backend_pictures(program, frames: frames, name: name, console_frames: console_frames)
-    bad = mismatched_pixels(oracle, console)
+    bad = mismatched_pixels(oracle, console, slack: blended ? EMULATOR_BLEND_SLACK : 0)
     return if bad.empty?
 
     flunk mismatch_report(bad, oracle, console, frames, console_frames || console_frames_for(program, frames))
@@ -57,17 +76,32 @@ module Differential
   # @return [Array(Array<Integer>, Array<Integer>)] the interpreter's, the console's
   def backend_pictures(program, frames: 4, name: "DIFF", console_frames: nil)
     cf = console_frames || console_frames_for(program, frames)
-    oracle = RubyGBA::IR::Backends::Reference.new.run(program, frames: frames).screen.to_a
+    # What the interpreter SHOWS, not what it stored. A fade, a tint and the camera all
+    # change the picture without touching a drawn pixel, so reading the stored cells
+    # would compare a picture nobody is looking at against one the console really put out.
+    oracle = RubyGBA::IR::Backends::Reference.new.run(program, frames: frames).screen.shown
     rom = assemble_rom(program, name: name)
     [oracle, RubyGBA::Verifier.new(rom, frames: cf).frame_gba]
   end
 
   # Every pixel the two disagree on, as [x, y, interpreter_color, console_color].
-  def mismatched_pixels(oracle, console)
+  # +slack+ is how many steps the emulator is allowed to read HIGH in a channel; 0 means
+  # the colors have to be identical (see EMULATOR_BLEND_SLACK).
+  def mismatched_pixels(oracle, console, slack: 0)
     (0...PIXELS).filter_map do |i|
       next if oracle[i] == console[i]
+      next if slack.positive? && within_slack?(oracle[i], console[i], slack)
 
       [i % SCREEN_W, i / SCREEN_W, oracle[i], console[i]]
+    end
+  end
+
+  # Is every channel of the emulator's color the interpreter's, or up to +slack+ above it?
+  # Never below — reading low is a real disagreement, whatever the slack.
+  def within_slack?(want, got, slack)
+    3.times.all? do |channel|
+      shift = channel * 5
+      (0..slack).cover?(((got >> shift) & 0x1F) - ((want >> shift) & 0x1F))
     end
   end
 

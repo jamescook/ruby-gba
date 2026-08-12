@@ -53,6 +53,63 @@ class TestDifferential < Minitest::Test
     end)
   end
 
+  # THE EFFECTS THAT CHANGE NOTHING THAT WAS DRAWN — a fade, a tint, the camera.
+  #
+  # These are the hardest thing for a comparison like this to see, and for a while it
+  # could not: reading the interpreter's stored cells shows the picture underneath an
+  # effect, which is not what either display is putting out. So the whole family is
+  # walked over a picture with several colors in it, because a blend is per channel and
+  # a single flat fill would agree by luck.
+  def test_a_fade_blends_the_same_picture_on_both_backends
+    [0, 25, 50, 75, 100].each do |amount|
+      assert_backends_agree(build do
+        screen :bitmap
+        clear_screen :blue
+        fill_rect 8, 8, 40, 24, Color.resolve(:red)
+        fill_rect 100, 60, 40, 24, Color.resolve(:green)
+        draw_text "FADE", 60, 120, Color.resolve(:yellow)
+        fade :black, amount
+        halt
+      end, name: "FADE", blended: true)
+    end
+  end
+
+  def test_a_fade_toward_white_blends_the_same_picture
+    assert_backends_agree(build do
+      screen :bitmap
+      clear_screen :blue
+      fill_rect 8, 8, 40, 24, Color.resolve(:red)
+      fill_rect 100, 60, 40, 24, Color.resolve(:green)
+      fade :white, 50
+      halt
+    end, name: "FADEW", blended: true)
+  end
+
+  def test_a_tint_mixes_the_same_picture_on_both_backends
+    [25, 50, 75].each do |amount|
+      assert_backends_agree(build do
+        screen :bitmap
+        clear_screen :blue
+        fill_rect 8, 8, 40, 24, Color.resolve(:red)
+        fill_rect 100, 60, 40, 24, Color.resolve(:green)
+        tint :orange, amount
+        halt
+      end, name: "TINT", blended: true)
+    end
+  end
+
+  # The camera moves the window over the picture rather than the picture, so this is
+  # the same shape of blind spot: everything drawn stays where it was drawn.
+  def test_a_moved_camera_shows_the_same_window
+    assert_backends_agree(build do
+      screen :bitmap
+      clear_screen :black
+      fill_rect 40, 40, 40, 24, Color.resolve(:white)
+      camera 16, 8
+      halt
+    end, name: "CAM")
+  end
+
   # A rect fill is a block DMA, and DMA rounds its destination down to the size of
   # the unit it moves. Two pixels per transfer needs an even column; asked for an
   # odd one, the console used to shift the whole rect a pixel left and say nothing.
