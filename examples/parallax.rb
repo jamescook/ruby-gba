@@ -3,11 +3,13 @@
 
 # Parallax — two background layers that scroll at different speeds to fake depth.
 #
-# Declare more than one `background` and they stack: the first is the backmost, each
-# later one sits in front, and a front layer's empty (see-through) tiles let the
-# layer behind show through. Scroll a near layer FASTER than a far one and your eye
-# reads the gap as distance — the trees rush past while the clouds drift lazily. It's
-# the oldest trick for depth on flat hardware, and every side-scroller uses it.
+# Declare more than one `background` and they stack. `layers` names the depths back to
+# front and each background says which one it is in, so what is in front of what is one
+# line rather than something you work out from the declaration order. A front layer's
+# empty (see-through) tiles let the layer behind show through. Scroll a near layer
+# FASTER than a far one and your eye reads the gap as distance — the trees rush past
+# while the clouds drift lazily. It's the oldest trick for depth on flat hardware, and
+# every side-scroller uses it.
 #
 # Here the FAR layer is sky with slow-drifting clouds; the NEAR layer is the ground
 # and the trees on it, mostly see-through above so the sky shows. Hold left/right and
@@ -119,8 +121,10 @@ module Parallax
     tiles :heavens, "." => :sky, "c" => :cloud
     tiles :scenery, "d" => :dirt, "g" => :grass, "T" => :tree
 
-    far  = background :sky,    tiles: :heavens, map: SKY    # declared first -> the back layer
-    near = background :ground, tiles: :scenery, map: GROUND # declared second -> in front
+    layers :distance, :foreground # the stack, back to front
+
+    far  = layer(:distance)   { background :sky,    tiles: :heavens, map: SKY }
+    near = layer(:foreground) { background :ground, tiles: :scenery, map: GROUND }
 
     game_loop do
       # Hold a direction; the near layer moves twice as far as the far one, so the

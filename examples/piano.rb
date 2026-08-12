@@ -63,6 +63,10 @@ module Piano
     # sprites over the keyboard background — no framebuffer, no redraw by hand.
     screen :tiled
 
+    # What is in front of what, back to front, said once instead of left to the order
+    # the declarations happen to run in.
+    layers :keyboard, :hands, :lights, :ui
+
     # --- The keyboard, drawn once as a static background ---
     # Two 8x8 tiles: a key's left edge (a black separator line, then white) and a
     # key's body (all white). "LR" is one 16px white key; a row of them is a keyboard.
@@ -94,7 +98,7 @@ module Piano
 
     # 20 rows tall; the bottom five are the keyboard, the rest empty (dark backdrop).
     rows = Array.new(15, " " * 30) + Array.new(5, "LR" * 15)
-    background :keyboard, tiles: :keys, map: rows
+    layer(:keyboard) { background :keyboard, tiles: :keys, map: rows }
 
     # --- The hands' poses and the key-light, imported from files ---
     image :rh_rest, from: "assets/piano_right_rest.png", width: 64, height: 32, transparent: true
@@ -118,19 +122,22 @@ module Piano
     # two hands' notes sound at once.
     piano = instrument :piano, from: "assets/piano.wav", note: :C4
 
-    draw_text "PIANO", 100, 8, :white # a title (tiled-mode text: declared above the loop)
+    layer(:ui) { draw_text "PIANO", 100, 8, :white } # a title (tiled text: declared above the loop)
 
     # Each hand starts resting; the melody hand swaps to a finger pose per note, the
-    # chord hand to its two-finger pose. Declared before the lights so the lights
-    # draw in front of the keys.
-    rhand = sprite :rhand, at: [RIGHT_HAND_X, HAND_Y],
-                   facing: { rest: :rh_rest, f0: :rh_f0, f1: :rh_f1, f2: :rh_f2, f3: :rh_f3 }
-    lhand = sprite :lhand, at: [LEFT_HAND_X, HAND_Y], facing: { rest: :lh_rest, chord: :lh_chord }
+    # chord hand to its two-finger pose.
+    rhand, lhand = layer :hands do
+      [sprite(:rhand, at: [RIGHT_HAND_X, HAND_Y],
+                      facing: { rest: :rh_rest, f0: :rh_f0, f1: :rh_f1, f2: :rh_f2, f3: :rh_f3 }),
+       sprite(:lhand, at: [LEFT_HAND_X, HAND_Y], facing: { rest: :lh_rest, chord: :lh_chord })]
+    end
 
     # Key-lights: one for the melody (it hops from key to key), two fixed on the
     # chord's keys. They share one picture; each `sprite` call is its own object.
-    melody_light = sprite :key_light, at: [0, HILITE_Y], shown: false
-    chord_lights = CHORD_KEYS.map { |k| sprite :key_light, at: [k * KEY_W, HILITE_Y], shown: false }
+    melody_light, chord_lights = layer :lights do
+      [sprite(:key_light, at: [0, HILITE_Y], shown: false),
+       CHORD_KEYS.map { |k| sprite :key_light, at: [k * KEY_W, HILITE_Y], shown: false }]
+    end
 
     seq = var :seq, 0
 
