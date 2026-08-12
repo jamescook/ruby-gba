@@ -36,7 +36,7 @@ module RubyGBA
 
             program.each.filter_map do |node|
               next unless TiledDisplay::BITMAP_DRAWS.include?(node.kind)
-              next unless scope_mode(node, modes) == Modes::TILED
+              next unless modes.mode_at(node) == Modes::TILED
 
               Finding.new(check: NAME, severity: :error,
                           message: message(TiledDisplay.verb_for(node.kind)), node: node)
@@ -48,21 +48,6 @@ module RubyGBA
           end
 
           private
-
-          # The screen mode in effect where a statement sits: the mode of the scene
-          # that owns it, or the boot mode for a statement in the main body. Reading
-          # it per scene is what keeps a bitmap title screen's `fill_rect` quiet in a
-          # game whose play scene is tiled.
-          def scope_mode(node, modes)
-            func = enclosing_func(node)
-            func ? modes.mode_of(func.name) : modes.default_mode
-          end
-
-          def enclosing_func(node)
-            current = node.parent
-            current = current.parent while current && current.kind != :func
-            current
-          end
 
           def message(verb)
             "`#{verb}` cannot draw on a tiled screen. A tiled screen shows " \

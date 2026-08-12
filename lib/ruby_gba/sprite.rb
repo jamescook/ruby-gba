@@ -92,6 +92,10 @@ module RubyGBA
     # in; the name is what says what that order has to be.
     attr_reader :layer
 
+    # What to call this sprite in a message. A software sprite has no name of its own —
+    # it is named by the art it draws, which is the word the author typed.
+    def picture_name = @image || @poses&.first
+
     # What per-pixel collision (see {PixelBounds}) reads off this sprite: the build to
     # record into, its picture set, the pose it's showing now, and whether it collides
     # on its drawn pixels at all.

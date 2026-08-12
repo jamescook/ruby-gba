@@ -324,6 +324,13 @@ module RubyGBA
     # RubyGBA.build so Checks::DroppedFrameSync can report them.
     attr_reader :dropped_syncs
 
+    # The software sprites, in the order they were declared — which on a bitmap
+    # screen is the order they are painted in. Read by RubyGBA.build so
+    # Checks::StackNotHonored can compare that order against the declared stack; a
+    # software sprite's layer lives on the handle rather than in the tree, so a check
+    # walking the tree alone cannot see it.
+    attr_reader :sprites
+
     # Remember that +name+ is scrolled, so its position is written once a frame in
     # the gap between frames rather than wherever the game happened to compute it.
     # +node+ is the write recorded at the call site, which finalize drops once it

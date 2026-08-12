@@ -93,13 +93,16 @@ module RubyGBA
     # whose tree is deliberately truncated.
     unless builder.debug_halted?
       # The default checks — the always-on builtins plus anything registered (an
-      # effect pack's own guardrails) — walk the IR. The orphaned-Condition check
-      # is appended per build because it reports from the builder's leftover
-      # Conditions, not the tree (a native-`if` slip leaves no trace there). All
-      # are just checks in the list, so the Validator treats them alike.
+      # effect pack's own guardrails) — walk the IR. The rest are appended per build
+      # because they report from the builder rather than the tree: leftover
+      # Conditions (a native-`if` slip leaves no trace there), covered `wait_vblank`
+      # calls, and the software sprites, whose layer lives on the handle. All are
+      # just checks in the list, so the Validator treats them alike.
       checks = IR::Guardrails.default_checks +
                [IR::Guardrails::Checks::OrphanedCondition.new(builder.pending_conditions),
-                IR::Guardrails::Checks::DroppedFrameSync.new(builder.dropped_syncs)]
+                IR::Guardrails::Checks::DroppedFrameSync.new(builder.dropped_syncs),
+                IR::Guardrails::Checks::LayerHoldsNothing.new(builder.sprites),
+                IR::Guardrails::Checks::StackNotHonored.new(builder.sprites)]
       report = IR::Guardrails::Validator.new(checks: checks).run(program, autofix: false)
       report.emit(to: err)
       if report.errors.any?
