@@ -71,6 +71,12 @@ module RubyGBA
             store_word_immediate(PAGE1, var_addr(BACKBUF))
             write_reg16(REG_DISPCNT, base)
             store_word_immediate(MODE_BUFFERED, var_addr(MODE_STATE))
+            # A scene that tints leaves its color table blended, and one that remembers a
+            # tint has to be able to trust what is in the table. In a program that crosses
+            # to the tiled screen, that screen's own colors have been in this table since —
+            # so put the originals back, which is also what makes the remembered tint true
+            # again.
+            upload_palette if @palette_tint && @mixed_display
           end
 
           # Switch the hardware into direct-color (Mode 3) and record it as live. Writing
@@ -139,6 +145,7 @@ module RubyGBA
             emit(ASM.str(ACC, TMP))                       # DMA source = the table
             store_word_immediate(BG_PALETTE, REG_DMA3DAD) # DMA destination = palette memory
             store_word_immediate(@palette.size | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
+            emit_tint_state_reset # the table now holds the originals again
           end
 
           # At the vblank boundary, flip the pages — but only while a buffered scene is
@@ -408,6 +415,7 @@ module RubyGBA
           def emit_boot_backgrounds
             emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @bg_shared[:pal_units])   # colors -> palette memory
             emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @bg_shared[:char_units]) # tile pictures -> char block 0
+            emit_tint_state_reset # the table now holds the originals again
           end
 
           # Point one layer's hardware at its data: DMA its map into its own screen block,
@@ -482,6 +490,13 @@ module RubyGBA
           # number; an amount the game computes is scaled at run time, which is a
           # multiply and a divide once per call — nothing next to a frame.
           def emit_fade(node)
+            # On a screen drawn through a color table the two effects are separate pieces
+            # of hardware, so nothing puts a tint away by itself. The display still holds
+            # one whole-picture effect at a time — that is the rule the DSL states and the
+            # interpreter models — so a fade puts the colors back. Only a program that
+            # tints such a screen emits this, and the check inside is one compare.
+            emit_lift_palette_tint(@modes.mode_at(node)) if @palette_tint && palette_screen?(node)
+
             mode = node.toward == :white ? BLD_BRIGHTEN : BLD_DARKEN
             write_reg16(REG_BLDCNT, mode | fade_targets(node.under))
             # Where this fade sits in the stack, for the window twins to read. Only a
@@ -505,6 +520,9 @@ module RubyGBA
           # Mix a color INTO the whole picture, which is a different piece of the display
           # from the fade above and not a fade with a color argument.
           #
+          # Two mechanisms, chosen by the screen — see PaletteTint for the other one, and
+          # for why a screen that draws through a color table cannot use this one.
+          #
           # The display can blend two layers together as it draws, weighing each one. So
           # the picture is blended against the BACKDROP — the color shown where nothing
           # was drawn — with the backdrop set to the tint. Turn the weights toward the
@@ -521,6 +539,8 @@ module RubyGBA
           # The weights are a pair that adds to sixteen: what is left of the picture,
           # and how much of the color has come in.
           def emit_tint(node)
+            return emit_palette_tint(node) if palette_screen?(node)
+
             write_reg16(PALETTE_START, Color.resolve(node.color)) # the backdrop IS the tint
             write_reg16(REG_BLDCNT, BLD_ALPHA | BLD_BG2 | (BLD_BACKDROP << BLD_SECOND_SHIFT))
 
@@ -652,6 +672,7 @@ module RubyGBA
               emit_dma_blob(obj[:tiles], OBJ_TILE_BASE + (obj[:tile_index] * 32), obj[:tile_units] * 16) # tiles -> sprite memory
             end
             emit_boot_object_windows
+            emit_tint_state_reset # the table now holds the originals again
           end
 
           # Set up the object window, once, for a program that keeps sprites out of a

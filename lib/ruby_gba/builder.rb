@@ -98,7 +98,6 @@ module RubyGBA
       @image_bounds = {}       # image name → [x, y, w, h] box around its visible (non-transparent) pixels, for collision
       @tilesets = {}           # tileset name → { chars:, by_number:, tile_w:, tile_h:, solid_images: } — a tile-image map addressable by character or by number (a CSV cell)
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
-      @screen_buffered = false # ...and whether it is the double-buffered kind, which `tint` needs apart
       @sprites = []            # live software sprites, repainted after every wait_vblank
       @hw_sprites = []         # live hardware sprites, drawn (into the sprite table) after every wait_vblank
       @pool_objects = []       # a spriteful pool's per-slot sprite object names, drawn among the game sprites
@@ -289,7 +288,6 @@ module RubyGBA
       # or the default, never by which scene happened to be built before it. That's what
       # lets `sprite`/`draw_text`/`draw_number` pick software vs hardware per scene.
       default_screen_mode = @screen_mode
-      default_screen_buffered = @screen_buffered
 
       # Drain rather than iterate: building one body can declare another routine — a
       # verb reached from inside a scene may declare an `each_frame` of its own — and
@@ -309,7 +307,6 @@ module RubyGBA
           # getting none (see Layers#refuse_deferred_layer!).
           @deferred_layer = @routine_layer[name]
           @screen_mode = default_screen_mode
-          @screen_buffered = default_screen_buffered
           push_container(Build.func(name, fast: @func_fast[name])) do
             run_block(&block)
           end

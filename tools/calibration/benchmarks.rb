@@ -607,6 +607,54 @@ module RubyGBA
 
       def tearfree_busy(name, per_frame, &body) = @m.busy(name, tearfree_rom(name, per_frame, &body))
 
+      # --- tinting a screen drawn through a color table ---
+      #
+      # The tint moves every entry of the table, so what it costs is how many colors the game
+      # declared. Both ROMs of the pair paint the SAME number of pixels, once at boot, and
+      # differ only in how many distinct colors are among them — so the drawing cancels and
+      # what is left is the table.
+      #
+      # The level alternates between 0 and 100 so the tint MOVES on every frame. Held still it
+      # would be skipped, which is the other weight (see #per_op_palette).
+      PALETTE_TINT_PIXELS = 224
+
+      def palette_tint_busy(colors)
+        name = "ptint#{colors}"
+        pixels = PALETTE_TINT_PIXELS
+        rom = cartridge_build(name) do
+          screen :bitmap, tear_free: true
+          level = var :level, 100
+          pixels.times { |i| pixel i, 0, (i % colors) + 1 }
+          b = self
+          game_loop do
+            b.wait_vblank
+            level.flip
+            level.add 100
+            b.tint :red, level
+          end
+        end
+        @m.busy(name, rom)
+      end
+
+      # Marginal cost per op on a table-drawn screen, for an op that has no counterpart on the
+      # direct-color one. The same shape as #per_op, on the other screen.
+      def per_op_palette(name, repeat_n, lo, hi, &one)
+        b_lo = palette_op_busy("#{name}#{lo}", repeat_n) { |*a| lo.times { one.call(*a) } }
+        b_hi = palette_op_busy("#{name}#{hi}", repeat_n) { |*a| hi.times { one.call(*a) } }
+        Reductions.marginal(b_hi, b_lo, over: repeat_n * (hi - lo))
+      end
+
+      def palette_op_busy(name, repeat_n, &body)
+        rom = cartridge_build(name) do
+          screen :bitmap, tear_free: true
+          var :first, 0
+          lv = var :level, 50
+          b = self
+          game_loop { b.wait_vblank; b.repeat(repeat_n) { body.call(b, lv) } }
+        end
+        @m.busy(name, rom)
+      end
+
       # Everything one of these costs: the CPU's own work AND the stall the block-fill engine
       # imposes while it copies, which the busy count cannot see. Needed wherever a shape hands
       # work to the engine, since half of what it costs is on the far side of that line.

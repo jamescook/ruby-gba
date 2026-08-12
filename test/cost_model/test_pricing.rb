@@ -301,6 +301,51 @@ class TestCostPricing < CostModelTest
          Cost.new.steady_cost(live), "the conversion, and reading the level it converts"
   end
 
+  # A TINT COSTS TWO QUITE DIFFERENT THINGS, and the screen decides which. On the
+  # direct-color screen the display blends the finished picture and the tint is two
+  # register writes. On a screen drawn through a color table it cannot, so the framework
+  # moves every color the game declared — and that is the number this must charge, or a
+  # game would read a real per-frame cost as free.
+  def test_a_tint_on_a_table_drawn_screen_is_priced_per_color
+    direct = Build.program(
+      Build.screen(:bitmap),
+      Build.loop_(Build.wait_vblank, Build.tint(color: :red, amount: Build.int(50))),
+    )
+    buffered = Build.program(
+      Build.screen(:bitmap, buffered: true),
+      Build.loop_(Build.wait_vblank, Build.tint(color: :red, amount: Build.int(50))),
+    )
+
+    near WEIGHTS[:tint_set], Cost.new.steady_cost(direct)
+    near WEIGHTS[:tint_hold] + (ENTRIES * WEIGHTS[:tint_entry]),
+         Cost.new(palette_entries: { buffered: ENTRIES }).steady_cost(buffered)
+  end
+
+  ENTRIES = 34 # what a build would have told the estimate its table holds
+
+  # With no build behind the estimate there is nothing to ask, so a full table is
+  # assumed — the dearest answer rather than a cheap guess.
+  def test_a_tint_with_no_build_behind_it_is_priced_on_a_full_table
+    program = Build.program(
+      Build.screen(:bitmap, buffered: true),
+      Build.loop_(Build.wait_vblank, Build.tint(color: :red, amount: Build.int(50))),
+    )
+
+    near WEIGHTS[:tint_hold] + (256 * WEIGHTS[:tint_entry]), Cost.new.steady_cost(program)
+  end
+
+  # ...and the tree says so, because a reader with no idea that a table exists cannot
+  # otherwise tell why one `tint` costs a hundred times another.
+  def test_the_tree_names_the_colors_a_tint_moves
+    program = Build.program(
+      Build.screen(:bitmap, buffered: true),
+      Build.loop_(Build.wait_vblank, Build.tint(color: :red, amount: Build.int(50))),
+    )
+    label = leaves(Cost.new(palette_entries: { buffered: ENTRIES }).analyze(program)).first.label
+
+    assert_includes label, "#{ENTRIES} colors"
+  end
+
   # Save memory sits on a slow bus and takes a byte at a time, so keeping a counter in a
   # `save_var` costs several times what keeping it in an ordinary one does — every change
   # mirrors it back. Worth seeing rather than counting as free.
