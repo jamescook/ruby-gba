@@ -521,6 +521,32 @@ module RubyGBA
         weigh(:obj_write, Reductions.marginal(@bench.sprites_busy(64), @bench.sprites_busy(8), over: 64 - 8),
               varies: :sprites, from: 8, to: 64,
               note: "rewriting one sprite's position each frame")
+        # ...and holding a placed fade off one of them, which is what a game does when it fades
+        # out and leaves its HUD readable. Measured against the SAME sprites drawn with no fade
+        # over them, so the sprite writes cancel and what is left is the window twin each kept
+        # sprite gets.
+        #
+        # A TWIN IS NOT A SECOND SPRITE, and this weight exists to say how much less it is.
+        # Where it stands, which pose it holds and how big it is are the sprite's own — worked
+        # out once and copied into the twin's slot on the way past — plus one test of where the
+        # fade is sitting. Measured, that is about four fifths of a whole sprite write, and a
+        # whole sprite write is what the model charged for it before this was measured.
+        #
+        # IT IS DEARER THAN THE EMITTED CODE SUGGESTS, which is the reason to measure it rather
+        # than count it. In the ROM a twin is a little over half of what a sprite adds — but
+        # what a sprite adds to the ROM includes the parts a frame never runs: uploading its
+        # picture, and setting up the variables it keeps its position in. A per-frame rate can
+        # only come from a frame.
+        #
+        # ONE SPRITE STAYS BELOW THE LINE in the fading ROM, so 64 sprites make 63 twins: a
+        # fade that keeps every sprite has nothing left to fade and makes none at all. See
+        # Benchmarks#sprites_busy.
+        kept = Benchmarks::KEPT_SPRITES
+        weigh(:obj_window_write,
+              Reductions.marginal(@bench.sprites_busy(kept, kept: true), @bench.sprites_busy(kept),
+                                  over: kept - 1),
+              varies: :kept_sprites, from: kept - 1, to: kept - 1,
+              note: "holding a placed fade off one sprite, on top of drawing that sprite")
         # MOVING ONE BACKGROUND'S WINDOW, which is two register writes and nothing else.
         # Measured over how many backgrounds scroll rather than how often a game scrolls one,
         # because the write is made once a frame per background however often it was asked for

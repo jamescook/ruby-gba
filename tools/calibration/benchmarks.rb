@@ -40,6 +40,10 @@ module RubyGBA
       DIGIT_HI = 6
       ENGINE_W = 40
       AFFINE_SPRITES = 32 # the most the display can rotate/resize at once
+      # And the most sprites that can be kept out of a placed fade: each kept one takes a
+      # second slot in the table of 128, so 64 sprites and their 63 windows is the ceiling.
+      # It is also the count obj_write's own high end is measured at, so the two share a ROM.
+      KEPT_SPRITES = 64
       SPEEDUP_OPS = 40
       TICK_HZ = 8000
       TICKS_PER_FRAME = TICK_HZ / 60.0
@@ -249,18 +253,40 @@ module RubyGBA
 
       # Per-frame cost of presenting +n+ hardware sprites — each frame rewrites every sprite's
       # position, so more sprites is more of those writes. One shared 8x8 image.
-      def sprites_busy(n, turn: false, resize: false)
-        name = "obj#{turn ? 't' : 'u'}#{resize ? 's' : 'p'}#{n}"
+      #
+      # +kept+ builds the same n sprites again, this time with a stack and a fade placed above
+      # them, which is a game fading out and leaving its HUD readable. The display cannot say
+      # "everything except these sprites" in the register a fade writes — it names every sprite
+      # with one bit — so each kept sprite gets a second entry in the sprite table, drawn as a
+      # window in the shape of its own pixels, and the fade goes around it. Those extra entries
+      # are what the difference between the two ROMs measures.
+      #
+      # THE FIRST SPRITE STAYS BELOW THE LINE, and that is the recipe rather than a detail: a
+      # fade that keeps EVERY sprite has nothing left to fade, so the sprites leave the fade's
+      # target list together and no window is made at all. One sprite below leaves n - 1 kept,
+      # at the same sprite count on both sides.
+      def sprites_busy(n, turn: false, resize: false, kept: false)
+        name = "obj#{turn ? 't' : 'u'}#{resize ? 's' : 'p'}#{kept ? 'k' : ''}#{n}"
         rom = cartridge_build(name) do
           screen :tiled
           image(:dot, "#" => :red) { (["#" * 8] * 8).join("\n") }
-          n.times do |i|
-            s = sprite :dot, at: [(i % 28) * 8, (i / 28) * 8]
-            # Set once, up front. The angle and the size are then variables the draw reads
-            # every frame — which is the cost being measured — with no per-frame `set` of the
-            # author's own to muddle it.
+          spot = ->(i) { [(i % 28) * 8, (i / 28) * 8] }
+          # Set once, up front. The angle and the size are then variables the draw reads
+          # every frame — which is the cost being measured — with no per-frame `set` of the
+          # author's own to muddle it.
+          pose = lambda do |s|
             s.face_angle(20) if turn
             s.scale(1.5) if resize
+          end
+          if kept
+            layers :field, :ui
+            layer(:field) { pose.call(sprite(:dot, at: spot.call(0))) }
+            layer(:ui) { (1...n).each { |i| pose.call(sprite(:dot, at: spot.call(i))) } }
+            # Placed once, outside the loop: what is under measurement is the windows the
+            # frame writes, not the register the fade itself sets.
+            fade :black, 100, under: :ui
+          else
+            n.times { |i| pose.call(sprite(:dot, at: spot.call(i))) }
           end
           game_loop { wait_vblank }
         end
