@@ -187,6 +187,12 @@ module RubyGBA
           # (VBlankIntrWait). The interrupt itself was armed once at boot (emit_irq_setup),
           # so this is a single instruction; the CPU draws no power while it waits.
           def emit_wait_vblank
+            # Before the wait, because the frame drawn while we sleep is the one this table
+            # is for: work out where every row of a bending background sits, from the game's
+            # variables as they stand now — after the body that moved them. (Nothing here
+            # when no background bends, or when a bend is answered per line instead.)
+            emit_fill_row_bend_tables if copies_row_bends?
+
             emit(ASM.swi(SWI_VBLANK_INTR_WAIT << 16))
 
             # A new frame just started — build the next slice of mixed sound and hand it to
@@ -201,6 +207,10 @@ module RubyGBA
             # show the frame just drawn and hand the program the other page. Which mode
             # is live can change frame to frame, so the flip is decided at run time.
             emit_flip_if_buffered if @any_buffered
+
+            # ...and the safe moment to point the copier back at the top of the table it
+            # just walked down, ready for the frame after this one.
+            emit_rearm_row_bend_copiers if copies_row_bends?
           end
         end
       end

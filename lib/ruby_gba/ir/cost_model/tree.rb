@@ -173,8 +173,12 @@ module RubyGBA
           return [] unless v
 
           layers = v.layers.map { |name| ":#{name}" }.join(", ")
-          [Entry.new(op: :bend, category: :logic, cost: v.cost,
-                     label: "bending #{layers} row by row — interrupted on each of #{v.lines} lines a frame")]
+          how = if v.copied?
+                  "worked out for each of #{VISIBLE_LINES} rows a frame, then fed to the display for us"
+                else
+                  "interrupted on each of #{v.lines} lines a frame"
+                end
+          [Entry.new(op: :bend, category: :logic, cost: v.cost, label: "bending #{layers} row by row — #{how}")]
         end
 
         # One leaf per timer that runs a tick handler, for the same reason: the body runs off

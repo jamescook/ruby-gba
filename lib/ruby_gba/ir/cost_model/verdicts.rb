@@ -215,17 +215,17 @@ module RubyGBA
         end
 
         # What bending backgrounds row by row costs per frame, or nil when nothing bends.
-        # One entry for the whole program, since every bend rides the same per-line
-        # interrupt: the interrupt itself is paid once per line the display counts, and each
-        # bend's own offset expression once per visible line.
+        # One entry for the whole program, since every bend is fed the same way.
         #
         # It is worth naming rather than folding into the tree because the shape surprises
-        # people: most of the cost is not what you wrote in the block. Measured, the 228
+        # people, and it surprises them differently on the two lowerings. ON THE INTERRUPT
+        # most of the cost is not what you wrote in the block: measured, the 228
         # interruptions come to about 20 scanlines and reading a sine table on every visible
         # row adds 4 — so the reader hunting for their frame would rewrite the sine lookup
-        # and find four fifths of the cost still there. A block that is only a number costs
-        # nothing measurable at all.
-        # Each entry: { layers:, lines:, cost:, budget:, over: }
+        # and find four fifths of the cost still there. ON THE COPIER there is no
+        # interrupting left to pay for, and what remains IS the block, run 160 times at the
+        # frame boundary — so the same reader is now looking at the right thing.
+        # Each entry: { layers:, lowering:, lines:, cost:, budget:, over: }
         def bend_verdict(program)
           # Pricing the block a bend runs needs what every other entry point catalogues
           # first — a bend's offset is usually a table lookup, and what a table read costs
@@ -235,12 +235,21 @@ module RubyGBA
           bends = program.walk.select { |node| node.kind == :scroll_rows }
           return nil if bends.empty?
 
-          interrupts = LINES_PER_FRAME * bend_line_weight
-          offsets = in_fast_interrupts { bends.sum { |node| VISIBLE_LINES * bend_offset_cost(node) } }
-          cost = interrupts + offsets
-          Verdict::Bend.new(layers: bends.map { |node| node.name }.uniq, lines: LINES_PER_FRAME,
-                            interrupts: interrupts, offsets: offsets,
-                            cost: cost, budget: FRAME_BUDGET)
+          copied = Backends::GBA::BendForm.copier?(program)
+          # The block runs where its lowering puts it — inside the routine the display
+          # interrupts into, or inside the frame's own body — and each of those may have
+          # been kept in the quick memory independently of the other.
+          offsets = bend_offsets_cost(bends, copied)
+          feeding = copied ? VISIBLE_LINES * bend_row_copied_weight : LINES_PER_FRAME * bend_line_weight
+          Verdict::Bend.new(layers: bends.map { |node| node.name }.uniq,
+                            lowering: copied ? :copier : :interrupt, lines: LINES_PER_FRAME,
+                            feeding: feeding, offsets: offsets,
+                            cost: feeding + offsets, budget: FRAME_BUDGET)
+        end
+
+        def bend_offsets_cost(bends, copied)
+          each = -> { bends.sum { |node| VISIBLE_LINES * bend_offset_cost(node) } }
+          copied ? in_fast_frame { each.call } : in_fast_interrupts { each.call }
         end
 
         # What keeping sprites out of a placed fade costs per frame, or nil when nothing is
@@ -372,6 +381,15 @@ module RubyGBA
           @fast_interrupts ? @weights[:bend_line_fast] : @weights[:bend_line]
         end
 
+        # What handing ONE row's offset to the display costs when a copying engine does the
+        # handing: writing that row into the table, and the walk that gets there. Two
+        # weights for the same reason again — this runs in the frame's own body, which the
+        # build may have kept in the quick memory — and the engine's own moment, which is
+        # in there too and gets no faster, is why it is not the general factor.
+        def bend_row_copied_weight
+          @fast_frame ? @weights[:bend_row_copied_fast] : @weights[:bend_row_copied]
+        end
+
         # What working ONE row's offset out costs: the program's expression, plus anything
         # it put in the block before it. The register write and the row bookkeeping are
         # already in the per-line weight.
@@ -472,11 +490,22 @@ module RubyGBA
         # a timer announces something — the number that decides whether that routine is
         # worth keeping in faster memory (Backends::GBA::Placement#IRQ_ROUTINE).
         #
-        # Both things that land there: bending backgrounds row by row, and timers' tick
+        # Both things that can land there: bending backgrounds row by row, and timers' tick
         # handlers. All of each happens in that routine — the interrupt AND the body — so
-        # both count in full.
+        # both count in full. A bend fed by a copying engine lands there not at all: nothing
+        # announces its lines, and its block runs in the frame with the rest of the code.
         def interrupt_frame_cost(program)
-          bend_cost(program) + tick_cost(program)
+          bend = bend_verdict(program)
+          (bend && !bend.copied? ? bend.cost : 0) + tick_cost(program)
+        end
+
+        # ...and the same question for the frame's OWN body, which is the other routine with
+        # no name in the program. A bend fed by a copying engine is worked out there, once a
+        # frame, and no statement in the op tree says so — so a body that is nothing but a
+        # bend would read as idle and lose the room to something that matters less.
+        def frame_body_cost(program)
+          bend = bend_verdict(program)
+          steady_cost(program) + (bend&.copied? ? bend.cost : 0)
         end
 
         # The rate the mixer runs at — the one most of the program's samples were recorded

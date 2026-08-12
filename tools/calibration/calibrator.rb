@@ -586,26 +586,57 @@ module RubyGBA
 
       def interrupts
         lines = IR::CostModel::LINES_PER_FRAME
-        # Bending a background row by row: what ONE line costs. The display announces the end of
-        # every line it draws, all 228 of them, and each announcement stops the game, saves
-        # registers, works the line's offset out and resumes. That fixed cost is the bulk of it —
-        # measured, a sine lookup per line adds a fifth of what the interrupts add — which is why
-        # it gets a weight of its own rather than being folded into the arithmetic. Divided over
-        # every line the display counts, not just the visible ones: the interrupt fires below the
-        # picture too.
+        rows = IR::CostModel::VISIBLE_LINES
+
+        # BENDING A BACKGROUND ROW BY ROW, both ways it can be lowered — and the two prices are
+        # what make the choice worth making, so both are measured on the same picture.
         #
-        # The count is always exactly 228, so there is no regime to leave: a program cannot ask
-        # the display to draw a different number of lines.
-        weigh(:bend_line,
-              Reductions.marginal(@bench.bend_busy(true), @bench.bend_busy(false), over: lines),
+        # THE COPIER first, which is what a block that is one number gets. One of the console's
+        # copying engines moves that row's offset into the scroll register at the end of every
+        # line, with the CPU untouched — so there is no per-line cost left to measure at all.
+        # What this weighs is the other side of that bargain: all 160 rows worked out at the
+        # frame boundary into a table, which is the loop that fills it, the write into it, and
+        # the engine's own moment on each line. Divided over the visible rows, which is the
+        # count that decides it — the lines below the picture are not in the table.
+        weigh(:bend_row_copied,
+              Reductions.marginal(@bench.bend_busy(true, copied: true), @bench.bend_busy(false), over: rows),
+              varies: :rows_per_frame, from: rows, to: rows,
+              note: "one row's offset written into the table the copier reads, from the cartridge")
+        # ...and the same with the frame's own body kept in the console's quick memory, which is
+        # where a real build puts a body this busy. Two weights rather than one and a discount,
+        # because the engine's share of it is the console's own work and gets no faster wherever
+        # our code lives — the same reason the pair below is a pair.
+        weigh(:bend_row_copied_fast,
+              Reductions.marginal(@bench.bend_busy(true, copied: true, fast: true),
+                                  @bench.bend_busy(false, fast: true), over: rows),
+              varies: :rows_per_frame, from: rows, to: rows,
+              note: "the same, from the quick memory")
+
+        # THE INTERRUPT, which is what a block that does more than that gets: what ONE line
+        # costs. The display announces the end of every line it draws, all 228 of them, and each
+        # announcement stops the game, saves registers, runs the block, works the line's offset
+        # out and resumes. That fixed cost is the bulk of it — measured, a sine lookup per line
+        # adds a fifth of what the interrupts add — which is why it gets a weight of its own
+        # rather than being folded into the arithmetic. Divided over every line the display
+        # counts, not just the visible ones: the interrupt fires below the picture too.
+        #
+        # READ OFF TWO BLOCKS AND EXTENDED BACK TO NONE, which is the one measurement in this
+        # file that is not a plain difference, and the reason is the copier: a block that does
+        # nothing is precisely the block the build hands to the engine, so the ROM that would
+        # measure a bare interrupt cannot be built. Two blocks that DO something, differenced
+        # against the same ROM with no bend and fitted, answer both "what does one of those
+        # statements cost in here" (thrown away — the model prices statements already) and
+        # "what is left with none of them", which is the interrupt itself.
+        #
+        # The line count is always exactly 228, so there is no regime to leave: a program cannot
+        # ask the display to draw a different number of lines.
+        low, high = Benchmarks::BEND_STEPS
+        weigh(:bend_line, bare_interrupt(low, high, fast: false) / lines,
               varies: :lines_per_frame, from: lines, to: lines,
               note: "one line's interrupt, handler in the cartridge")
         # ...and the same line with the handler kept in the console's quick memory, which is what
-        # a real build does with it. Two weights rather than one and a discount, because part of
-        # an interrupt is the console's own work and gets no faster wherever our code lives.
-        weigh(:bend_line_fast,
-              Reductions.marginal(@bench.bend_busy(true, fast: true), @bench.bend_busy(false, fast: true),
-                                  over: lines),
+        # a real build does with it.
+        weigh(:bend_line_fast, bare_interrupt(low, high, fast: true) / lines,
               varies: :lines_per_frame, from: lines, to: lines,
               note: "the same, handler in the quick memory")
 
@@ -626,6 +657,18 @@ module RubyGBA
                                   over: per_frame),
               varies: :ticks_per_frame, from: per_frame, to: per_frame,
               note: "the same, handler in the quick memory")
+      end
+
+      # What a frame of bare interrupts costs, with the block that has to be in them taken
+      # back out: two bending ROMs whose blocks do +low+ and +high+ statements, each
+      # differenced against the same ROM with no bend, fitted, and read at none. The slope —
+      # what one of those statements costs inside a handler — is dropped, since the model
+      # prices a statement from the op tree and would charge it twice.
+      def bare_interrupt(low, high, fast:)
+        none = @bench.bend_busy(false, fast: fast)
+        _each, bare = Reductions.fit(low, @bench.bend_busy(true, steps: low, fast: fast) - none,
+                                     high, @bench.bend_busy(true, steps: high, fast: fast) - none)
+        bare
       end
 
       # --- what the DISPLAY is told to show, without redrawing a pixel ---
