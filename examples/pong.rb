@@ -12,18 +12,16 @@
 #   - Sound effects on paddle hits, wall bounces, and scoring
 #   - The screen stings red when the CPU scores on you
 #
-# The red sting is `tint`, and it is the cheapest thing in this file. A tint moves the
-# whole picture toward a color — `fade` does the same toward black or white, and this is
-# its sibling for every other color. Nothing is redrawn: the display mixes the color in
-# as it draws the screen, so a picture full of paddles, ball, score and center line
-# costs exactly what an empty screen would, and the picture is all still there
-# underneath the moment the tint lifts.
+# The red sting is one word — `flash_screen :red` — written where the point is lost, and
+# it is the cheapest thing in this file. A flash goes full on the frame it happens and
+# falls back over the next few, and the framework walks that for you: no variable to
+# hold how red the screen is, and no way to leave it on.
 #
-# Which is what makes the effect two lines. A variable holds how red the screen is, one
-# score sets it, and the game loop eases it back to nothing every frame:
-#
-#     sting.approach 0, STING_FADE
-#     tint :red, sting
+# Underneath it is `tint`, which moves the whole picture toward a color the way `fade`
+# moves it toward black or white. Nothing is redrawn — the display mixes the color in as
+# it draws — so a picture full of paddles, ball, score and center line costs exactly what
+# an empty screen would, and the picture is all still there underneath the moment the
+# sting lifts.
 
 require_relative "../lib/ruby_gba"
 
@@ -37,8 +35,7 @@ PADDLE_SPEED = 2
 BALL_SPEED   = 2
 CPU_SPEED    = 1
 WIN_SCORE    = 5
-STING_STRENGTH = 70     # how red the screen goes when the cpu scores (0-100)
-STING_FADE     = 4      # how much of that comes off each frame
+STING_FRAMES = 18       # how long the red sting takes to fall away when the cpu scores
 LEFT_X       = 8        # player paddle x
 RIGHT_X      = 228      # cpu paddle x
 
@@ -94,7 +91,6 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   cpu_score    = var :cpu_score, 0
   state        = var :state, 0    # 0=title, 1=playing, 2=player_wins, 3=cpu_wins
   blink        = var :blink, 1    # 1=show the title prompt this frame, 0=hide it (flashes)
-  sting        = var :sting, 0    # how red the screen is right now, 0 (normal) to 100
 
   # --- Subroutines ---
 
@@ -170,7 +166,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
       cpu_score.add 1
       (cpu_score >= WIN_SCORE).then { state.set 3 }
       beep :point
-      sting.set STING_STRENGTH
+      flash_screen :red, frames: STING_FRAMES
       call :reset_ball
     end
 
@@ -256,14 +252,6 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
       when_val 2, :player_wins
       when_val 3, :cpu_wins
     end
-
-    # THE STING, applied here rather than inside a scene so it is impossible to leave
-    # on: whatever the game is showing, this runs, and the level always eases back to
-    # nothing. `tint` moves the whole picture toward a color the way `fade` moves it
-    # toward black or white — and like a fade it redraws nothing, so a screen full of
-    # game costs exactly what an empty one does.
-    sting.approach 0, STING_FADE
-    tint :red, sting
   end
 end
 

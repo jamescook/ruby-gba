@@ -13,6 +13,8 @@ require "test_helper"
 class TestScreenFade < Minitest::Test
   WHITE = RubyGBA::Color.resolve(:white)
   RED = RubyGBA::Color.resolve(:red)
+  GREEN = RubyGBA::Color.resolve(:green)
+  BLUE = RubyGBA::Color.resolve(:blue)
   BLACK = 0
 
   def program(&block)
@@ -164,9 +166,72 @@ class TestScreenFade < Minitest::Test
     assert_match(/positive whole number of frames/, error.message)
   end
 
-  def test_a_colour_the_display_cannot_fade_to_is_a_friendly_error
+  def test_a_colour_nobody_has_heard_of_is_a_friendly_error
     error = assert_raises(ArgumentError) do
-      program { screen :bitmap; game_loop { fade_out :green } }
+      program { screen :bitmap; game_loop { fade_out :reddish } }
+    end
+    assert_match(/unknown color/, error.message)
+  end
+
+  # --- a colour other than black or white ---
+  #
+  # Black and white are a BRIGHTNESS change, which is what `fade` is. Red is not — mixing
+  # a colour in is a different piece of the display, and that is `tint`. Both take the
+  # same amount and leave the picture untouched underneath, so the ramp above them is one
+  # ramp; only the verb the branch reaches for changes.
+
+  def test_a_flash_in_a_colour_goes_full_on_the_frame_it_is_seen_first
+    seen = ramp(fading_game { flash_screen :green, frames: 6 }, 12)
+    lit = seen.index { |px| px != RED }
+
+    refute_nil lit, "the flash has to show at all"
+    assert_equal GREEN, seen[lit], "its first visible frame is nothing but the colour"
+    assert_equal RED, seen.last, "then it falls back to the picture, with nothing left behind"
+  end
+
+  # Each colour a game asks for gets a branch of its own, so two of them in one game do
+  # not collapse into whichever was asked for last.
+  def test_two_colours_in_one_game_each_get_their_own_flash
+    prog = program do
+      screen :bitmap
+      frame = var :frame, 0
+      game_loop do
+        clear_screen :red
+        frame.add 1
+        (frame == 2).then { flash_screen :green, frames: 4 }
+        (frame == 10).then { flash_screen :blue, frames: 4 }
+      end
+    end
+    seen = ramp(prog, 16)
+
+    assert_includes seen, GREEN
+    assert_includes seen, BLUE
+  end
+
+  # Placing an effect at a depth works by hiding it from what sits in front, and the
+  # console can hide only a brightness change that way. Either order of the two asks the
+  # same impossible thing of one game, so both are refused.
+  def test_a_coloured_fade_under_a_layer_is_a_friendly_error
+    error = assert_raises(ArgumentError) do
+      program do
+        screen :tiled
+        layers :world, :ui
+        game_loop { flash_screen :green, under: :ui }
+      end
+    end
+    assert_match(/:black or :white/, error.message)
+  end
+
+  def test_a_layer_asked_for_after_a_coloured_fade_is_refused_too
+    error = assert_raises(ArgumentError) do
+      program do
+        screen :tiled
+        layers :world, :ui
+        game_loop do
+          flash_screen :green
+          fade_out under: :ui
+        end
+      end
     end
     assert_match(/:black or :white/, error.message)
   end
@@ -252,5 +317,27 @@ class TestScreenFade < Minitest::Test
            "the console really does black the picture out"
     assert assert_gemba_loads_rom(rom, frames: 30).red?(120, 80),
            "and really does put it back"
+  end
+
+  # A coloured flash on the TEAR-FREE screen, which is where a real game meets this: that
+  # screen draws every pixel through a colour table, so the flash goes through the
+  # framework's own blend rather than the display's. Breakout is a tear-free game and its
+  # damage flash is exactly this.
+  def test_a_coloured_flash_shows_and_lifts_on_the_console
+    prog = program do
+      screen :bitmap, tear_free: true
+      frame = var :frame, 0
+      game_loop do
+        clear_screen :green
+        frame.add 1
+        (frame == 2).then { flash_screen :red, frames: 6 }
+      end
+    end
+    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "FLASH", code: "BFLS", maker: "01")
+
+    assert assert_gemba_loads_rom(rom, frames: 4).red?(120, 80),
+           "the console really does sting the picture red"
+    assert assert_gemba_loads_rom(rom, frames: 30).green?(120, 80),
+           "and really does leave it as it was drawn"
   end
 end
