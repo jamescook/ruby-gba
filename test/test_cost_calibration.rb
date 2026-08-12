@@ -312,6 +312,27 @@ class TestCostCalibration < Minitest::Test
     game_loop { b.repeat(SCROLLS_PER_FRAME) { world.scroll_by 1, 0 } if with }
   end
 
+  # KEEPING SPRITES OUT OF A PLACED FADE, which is the one member of the fade family that is
+  # not free — the rest tell the display what to show and redraw nothing. The console names
+  # every sprite with a single bit in the register a fade writes, so "all of them except these"
+  # cannot be said there: each kept sprite gets a second, invisible entry in the sprite table,
+  # in the shape of its own pixels, and the fade goes around it.
+  #
+  # The two sides declare the same sprites in the same layers and differ only in whether the
+  # fade is placed, so the difference is the windows and nothing else. ONE SPRITE STAYS BELOW
+  # THE LINE: a fade that keeps every sprite has nothing left to fade and makes no window.
+  KEPT_SPRITES = 63
+
+  KEEPING = lambda do |with|
+    screen :tiled
+    image(:dot, "#" => :red) { (["#" * 8] * 8).join("\n") }
+    layers :field, :ui
+    layer(:field) { sprite :dot, at: [0, 0] }
+    layer(:ui) { KEPT_SPRITES.times { |i| sprite :dot, at: [((i + 1) % 28) * 8, ((i + 1) / 28) * 8] } }
+    fade :black, 100, under: :ui if with
+    game_loop { }
+  end
+
   # A frame of the cheapest arithmetic there is: multiplying by a power of two, which the
   # build turns into a shift. It was charged a whole plain step — six instructions for one —
   # so `set :y, (x * 8)` read at twice what it costs. Nothing else here shifts, and the
@@ -354,6 +375,8 @@ class TestCostCalibration < Minitest::Test
                  predict: ->(model, program) { model.frame_cost(program) }),
     Standing.new(name: :far_vars, weight: :var_address_step, fast_code: false, shape: FAR_VARIABLES,
                  predict: ->(model, program) { model.frame_cost(program) }),
+    Standing.new(name: :keeping, weight: :obj_window_write, fast_code: false, shape: KEEPING,
+                 predict: ->(model, program) { model.kept_sprites_cost(program) }),
   ].freeze
 
   def test_each_standing_cost_matches_what_the_emulator_measures

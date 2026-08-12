@@ -341,6 +341,55 @@ class TestCostCalibrationTool < Minitest::Test
                  "each frame is the wait and one write per scrolling background, and nothing more")
   end
 
+  # KEEPING A SPRITE OUT OF A PLACED FADE, measured against the SAME sprites with no fade over
+  # them. Canned, 64 sprites cost 0.63 more once a fade is placed above them, over the 63 that
+  # are kept — so one window is 0.01.
+  #
+  # The sweep is what makes the number mean anything: both cartridges present 64 sprites, so
+  # the sprite writes cancel and what is left is the windows. Differenced against a smaller
+  # count instead, this would be measuring the sprites again and calling the answer a window.
+  def test_keeping_a_sprite_out_of_a_fade_is_measured_against_the_same_sprites_unfaded
+    calibration, = flat_calibration(busy: { "objup64" => 1.0, "objupk64" => 1.63 })
+
+    assert_in_delta 0.01, calibration.weights[:obj_window_write], 1e-9
+
+    domain = calibration.domains[:obj_window_write]
+    assert_equal :kept_sprites, domain.varies
+    assert_equal [63, 63], [domain.from, domain.to],
+                 "64 sprites and their 63 windows is the ceiling — each kept sprite takes a " \
+                 "second slot in the table of 128"
+  end
+
+  # ...AND THE TWO CARTRIDGES REALLY DO DIFFER BY THE WINDOWS ALONE, which the canned reading
+  # above cannot see. Both frames wait for the screen and present the same sprites; the fade is
+  # placed once, outside the loop, so the frame under measurement holds the windows and nothing
+  # else. One sprite stays below the line in the fading ROM, because a fade that keeps EVERY
+  # sprite has nothing left to fade and makes no window at all.
+  def test_the_two_kept_sprite_cartridges_differ_by_the_windows_alone
+    catcher = RomCatcher.new(default: 1.0)
+    bench = Calibration::Benchmarks.new(catcher)
+    n = Calibration::Benchmarks::KEPT_SPRITES
+    bench.sprites_busy(n)
+    bench.sprites_busy(n, kept: true)
+    plain, kept = catcher.roms.values_at("objup#{n}", "objupk#{n}")
+
+    assert_equal [frame_body(plain)], [frame_body(kept)],
+                 "each frame waits for the screen and presents its sprites, and nothing else"
+    assert_equal [n, n], [presented(plain), presented(kept)], "the same sprites on both sides"
+    assert_nil kept_sprites(plain), "nothing is kept out of a fade this cartridge does not place"
+    assert_equal n - 1, kept_sprites(kept)
+  end
+
+  # How many sprites this cartridge's frame presents, and how many of them a placed fade has
+  # to be held off one at a time.
+  def presented(rom)
+    rom.source_program.walk.select { |node| node.kind == :present_objects }.sum { |n| n.names.length }
+  end
+
+  def kept_sprites(rom)
+    rom.cost_model.kept_sprites_verdict(rom.source_program)&.sprites
+  end
+
   # A canned measurer that also KEEPS the cartridges it was handed, so a test can ask what a
   # benchmark's two ROMs differ by rather than only what it was told they cost.
   class RomCatcher < Calibration::FakeMeasurer

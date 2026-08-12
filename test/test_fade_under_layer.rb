@@ -300,6 +300,20 @@ class TestFadeUnderLayer < Minitest::Test
     refute_match(/keeping/, out.string, "no sprite needs holding out of it one at a time")
   end
 
+  # ...and it is charged at a weight of its OWN, measured on the emulator beside the sprite
+  # write it used to borrow. A window is not a second sprite: where it stands, which pose it
+  # holds and how big it is are the sprite's own numbers, copied into its slot on the way
+  # past. Charged as a whole sprite each — which the model did until it was measured — a
+  # kept HUD reads a quarter too dear, in a report where every number beside it is measured.
+  def test_a_kept_sprite_is_charged_less_than_a_whole_sprite_write
+    weights = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
+    verdict = RubyGBA::IR::CostModel.new.kept_sprites_verdict(game(100, under: :ui).program)
+
+    assert_in_delta verdict.sprites * weights[:obj_window_write], verdict.cost, 1e-9
+    assert_operator weights[:obj_window_write], :<, weights[:obj_write],
+                    "a window rides its sprite's numbers, so it cannot cost a whole sprite write"
+  end
+
   # --- the whole screen, both backends ---
 
   def test_every_pixel_agrees_with_the_console

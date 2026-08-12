@@ -265,10 +265,10 @@ module RubyGBA
           # over a kept sprite is written in the same pass that writes the sprite, so it
           # runs from the same memory and gets the same discount.
           #
-          # And charged as a WHOLE sprite write each, which is the safe side of the truth.
-          # A window rides its sprite's numbers rather than working out its own, so it
-          # really costs somewhat less than one.
-          cost = in_fast_frame { kept.length * @weights[:obj_write] * fast_memory_factor }
+          # A window has a weight of its own, measured, and it is about four fifths of a
+          # sprite write: it rides its sprite's numbers rather than working out its own, so
+          # the frame copies each attribute on the way past and tests where the fade sits.
+          cost = in_fast_frame { kept.length * @weights[:obj_window_write] * fast_memory_factor }
           Verdict::KeptSprites.new(layers: layers, sprites: kept.length,
                                    cost: cost, budget: FRAME_BUDGET)
         end
