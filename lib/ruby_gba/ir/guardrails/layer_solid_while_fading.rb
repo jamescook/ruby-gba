@@ -23,8 +23,7 @@ module RubyGBA
           NAME = :layer_solid_while_fading
 
           def detect(program)
-            # A layer at 0 is solid already, so a fade takes nothing away from it.
-            layers = program.each.find { |n| n.kind == :layers && n.transparency.to_i.positive? }
+            layers = program.each.find { |n| n.kind == :layers && blends?(n) }
             return [] unless layers
 
             fade = program.each.find { |n| n.kind == :fade }
@@ -34,6 +33,16 @@ module RubyGBA
           end
 
           private
+
+          # Is there anything for a fade to take? A layer fixed at 0 is solid already; one
+          # the game works out is asked about, since it is not 0 for long if it is worth
+          # writing.
+          def blends?(node)
+            return false unless node.transparency
+
+            fixed = Value.fixed_number(node.transparency)
+            fixed.nil? || fixed.positive?
+          end
 
           def message(layer)
             "This game fades the screen, and it can see through the layer :#{layer}. A " \

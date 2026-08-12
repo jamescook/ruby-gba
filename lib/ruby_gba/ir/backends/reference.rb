@@ -465,6 +465,8 @@ module RubyGBA
             exec_fade(node)
           when :tint
             exec_tint(node)
+          when :see_through
+            exec_see_through(node)
           when :present_objects
             exec_present_objects(node)
           when :enable_sound
@@ -929,7 +931,23 @@ module RubyGBA
         # already in the buffer" is the display's own "blend with the layer directly
         # beneath" — the stack does not have to be consulted a second time.
         def paint_through_for(name)
-          @screen.paint_through(see_through?(name) && !fading? ? @see_through[1] : 0)
+          @screen.paint_through(see_through?(name) && !fading? ? see_through_amount : 0)
+        end
+
+        # How see-through the layer is right now. Read here rather than remembered, so a
+        # picture whose amount the program works out — fog that thickens — is painted at
+        # the amount it has at the moment it is painted.
+        def see_through_amount = eval_value(@see_through[1])
+
+        # The amount has been worked out again for the frame about to be drawn. Nothing to
+        # store: the paint above reads it. What this owes is the picture, since a scene
+        # that neither moves nor scrolls would otherwise keep the one it was painted with.
+        def exec_see_through(node)
+          amount = eval_value(node.amount)
+          return if amount == @see_through_shown
+
+          @see_through_shown = amount
+          composite_scrolled_frame
         end
 
         def see_through?(name)

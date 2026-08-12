@@ -66,6 +66,7 @@ module RubyGBA
         camera: :portable,            # offset the whole picture — a display offset anywhere
         fade: :portable,              # blend the whole picture toward a color — any backend can
         tint: :portable,              # ...and toward any color at all — likewise
+        see_through: :portable,       # how much of what is behind a layer shows — any backend can
         # a composited moving picture — software compositing or sprite hardware, any backend can
         object: :portable, present_objects: :portable,
         # save/restore a screen patch — copying pixels to/from a buffer, any backend can

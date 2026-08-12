@@ -74,8 +74,8 @@ class TestLayerTransparency < Minitest::Test
   SCENERY_XY = [8, 8].freeze
   SPRITE_XY = [66, 66].freeze
 
-  def shown(program, x, y)
-    Reference.new.run(program, frames: 2).screen.pixel(x, y)
+  def shown(program, x, y, frames: 2)
+    Reference.new.run(program, frames: frames).screen.pixel(x, y)
   end
 
   def console(program, x, y, name, frames: 6)
@@ -138,6 +138,113 @@ class TestLayerTransparency < Minitest::Test
 
     assert_equal HALF_WHITE_OVER_RED,
                  assert_gemba_loads_rom(assemble_rom(program, name: "SEEHLD"), frames: 40).pixel_gba(*SPRITE_XY)
+  end
+
+  # --- an amount the game works out (fog that thickens) ---
+  #
+  # A number the author writes is sent to the display once at boot and never again. An
+  # amount the GAME works out has to be sent again before every frame — so the same
+  # keyword covers fog that thickens, water that gets murkier as you go down, a menu
+  # backdrop that dims in. The author writes a variable where they wrote a number.
+
+  # A white pane over a red floor whose see-through amount walks from all the way
+  # through (100) to solid (0), a step a frame.
+  def clearing_program(amount = nil)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:back, "#" => :red) { tile }
+      image(:front, "#" => :white) { tile }
+      tiles :backset, "#" => :back
+      tiles :frontset, "#" => :front
+      layers :deep, :glass
+      layer(:deep) { background :floor, tiles: :backset, map: Array.new(20) { "#" * 30 } }
+      clear = var :clear, 100
+      layer(:glass, transparency: amount ? instance_exec(clear, &amount) : clear) do
+        background :pane, tiles: :frontset, map: Array.new(20) { "#" * 20 }
+      end
+      game_loop { clear.approach 0, 10 }
+    end
+  end
+
+  def walked(program, frames) = (1..frames).map { |f| shown(program, *SCENERY_XY, frames: f) }
+
+  # It starts at the floor (nothing of the pane shows) and ends at the pane (none of the
+  # floor does), and every frame between is a different mix — which is the whole claim:
+  # the amount is being re-read rather than settled once.
+  def test_the_layer_thickens_as_the_game_works_it_out
+    seen = walked(clearing_program, 11)
+
+    assert_equal RED, seen.first, "it did not start see-through"
+    assert_equal WHITE, seen.last, "it never became solid"
+    assert_equal seen.uniq, seen, "the amount was not re-read every frame"
+  end
+
+  # ...and the console draws the same walk. Compared to the interpreter's own frames
+  # rather than to written-down colors, so this cannot pass by agreeing with a table.
+  def test_the_console_walks_the_same_amounts
+    rom = assemble_rom(clearing_program, name: "FOG")
+    oracle = walked(clearing_program, 10)
+    seen = (1..10).map { |f| assert_gemba_loads_rom(rom, frames: f + CONSOLE_LAG).pixel_gba(*SCENERY_XY) }
+
+    assert_equal oracle, seen
+  end
+
+  # The console is drawing while it boots, and the tiles are uploaded before the blend is
+  # set up, so the first frame is the layer solid — the same on a fixed amount as on one
+  # the game works out. Measured, not chosen.
+  CONSOLE_LAG = 2
+
+  # BEFORE the first frame boundary has even run, the layer is already at the amount its
+  # variable starts at — boot writes that rather than waiting to be told. A game whose fog
+  # starts clear must not flash solid on the way in.
+  def test_the_first_frame_shows_the_amount_the_game_starts_at
+    rom = assemble_rom(clearing_program, name: "FOGBOO")
+
+    assert_equal RED, assert_gemba_loads_rom(rom, frames: CONSOLE_LAG).pixel_gba(*SCENERY_XY)
+  end
+
+  # An amount is a VALUE, not only a variable — so it can be worked out from the game's
+  # own state on the spot. `100 - mist` is what an example actually writes.
+  def test_the_amount_can_be_worked_out_on_the_spot
+    from_a_sum = clearing_program(->(clear) { 100 - (100 - clear) })
+
+    assert_equal walked(clearing_program, 8), walked(from_a_sum, 8)
+  end
+
+  def test_the_two_backends_draw_the_same_thickening_screen
+    assert_backends_agree(clearing_program, frames: 6, console_frames: 6 + CONSOLE_LAG)
+  end
+
+  # --- ...and what it costs, which is the reason it is not simply the same feature ---
+
+  # A number the author wrote is sent once at boot: there is nothing per frame to make.
+  def test_a_fixed_amount_makes_no_per_frame_work
+    assert_empty scenery_program(40).walk.select { |n| n.kind == :see_through }
+  end
+
+  def test_an_amount_the_game_works_out_is_sent_every_frame
+    assert_equal 1, clearing_program.walk.count { |n| n.kind == :see_through }
+  end
+
+  def test_seeing_through_a_layer_by_a_worked_out_amount_is_not_free
+    fixed = RubyGBA::IR::CostModel.new.steady_cost(scenery_program(40))
+    worked_out = RubyGBA::IR::CostModel.new.steady_cost(clearing_program)
+
+    assert_operator worked_out, :>, fixed
+  end
+
+  def test_the_report_says_the_amount_is_worked_out
+    out = StringIO.new
+    RubyGBA::IR::CostModel.new.render(clearing_program, out: out, color: false)
+
+    assert_includes out.string, "as see-through as the game works out"
+  end
+
+  # The 100 warning cannot answer for a variable — passing through 100 for a frame is a
+  # fog that cleared, not a layer nobody can see. Same silence `fade` and `tint` keep.
+  def test_a_worked_out_amount_is_not_warned_about_at_100
+    refute_includes warnings(clearing_program), :layer_invisible
   end
 
   # --- a fade takes the blend, and hands it back ---
@@ -317,6 +424,48 @@ class TestLayerTransparency < Minitest::Test
     end
   end
 
+  # THE TWO HALVES TOGETHER, which is where a hand-back could quietly be wrong: a fade
+  # takes the blend, and the amount to give back is one the game has gone on working out
+  # while the fade ran. Mist half thick when the flash ends comes back half thick — not at
+  # the amount it started the game with.
+  #
+  # Said as "the flash left no trace": the picture afterwards is the picture the same game
+  # draws with no flash in it at all.
+  # The fade here is written by hand rather than walked by `flash_screen`, and that is the
+  # point: it lands at the END of the frame's work, after the amount for this frame has
+  # already been sent. So a hand-back that gave the amount the game STARTED with would
+  # hold for the whole frame, and the next, and every one after it.
+  def thickening_program(lifting:)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:back, "#" => :red) { tile }
+      image(:front, "#" => :white) { tile }
+      tiles :backset, "#" => :back
+      tiles :frontset, "#" => :front
+      layers :deep, :glass
+      layer(:deep) { background :floor, tiles: :backset, map: Array.new(20) { "#" * 30 } }
+      clear = var :clear, 100
+      layer(:glass, transparency: clear) do
+        background :pane, tiles: :frontset, map: Array.new(20) { "#" * 20 }
+      end
+      tick = var :tick, 0
+      game_loop do
+        tick.add 1
+        clear.approach 0, 2
+        (tick > FLASH_AT).then { fade :black, 0 } if lifting
+      end
+    end
+  end
+
+  def test_a_lifting_fade_hands_back_the_amount_the_game_has_now
+    settled = AFTER_THE_FLASH + CONSOLE_LAG
+
+    assert_equal console(thickening_program(lifting: false), *SCENERY_XY, "NOFADE", frames: settled),
+                 console(thickening_program(lifting: true), *SCENERY_XY, "FOGFAD", frames: settled),
+                 "the lifted fade left the layer at some other amount than the one the game had"
+  end
+
   # The whole screen, once the flash is over and both backends have settled.
   def test_the_two_backends_draw_the_same_screen_after_a_fade
     assert_backends_agree(flashing_program(:scenery), frames: AFTER_THE_FLASH)
@@ -331,17 +480,17 @@ class TestLayerTransparency < Minitest::Test
     assert_includes error.message, "0 to 100"
   end
 
-  def test_an_amount_the_game_works_out_is_refused_by_name
+  def test_an_amount_that_is_neither_a_number_nor_a_value_says_both
     error = assert_raises(ArgumentError) do
       program do
         screen :tiled
         layers :glass
-        level = var :level, 40
-        layer(:glass, transparency: level) { sprite :x, at: [0, 0] }
+        layer(:glass, transparency: "half") { nil }
       end
     end
 
     assert_includes error.message, "whole number"
+    assert_includes error.message, "works out"
   end
 
   def test_a_bitmap_screen_is_refused_and_says_why

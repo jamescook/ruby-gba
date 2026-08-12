@@ -375,7 +375,7 @@ module RubyGBA
       DRAW_KINDS = %i[
         pixel fill_rect dma_fill_rect draw_rect_at clear_screen draw_text draw_digit
         blit blit_pose save_region restore_region present_objects scroll_background background
-        camera fade tint
+        camera fade tint see_through
       ].freeze
       SOUND_KINDS = %i[play_song beep noise wave stop_wave enable_sound stop_music mixer].freeze
       CATEGORY_ORDER = %i[drawing sound logic].freeze

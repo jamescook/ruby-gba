@@ -320,6 +320,7 @@ module RubyGBA
 
       finalize_present_lists
       finalize_background_scrolls
+      finalize_layer_blend
       finalize_per_frame_routines
       verify_targets_defined!
       verify_stack_fits!
@@ -584,6 +585,31 @@ module RubyGBA
           container.children.insert(at + 1, node)
           node.parent = container
         end
+      end
+    end
+
+    # Tell the display again how see-through the see-through layer is, once per frame.
+    #
+    # Only a picture whose amount the game works out needs this — fog that thickens,
+    # water that gets murkier as you go down. A number the author wrote is written once
+    # at boot and never again, and this puts nothing anywhere.
+    #
+    # It goes at the frame boundary for the reason the scroll writes do: that gap is the
+    # one moment the display is not reading, so the whole picture is drawn at one amount
+    # rather than half at each. And it goes FIRST, before the sprites are put where they
+    # go, so the frame that is about to be drawn is drawn at the amount this frame has.
+    def finalize_layer_blend
+      return if @frame_boundaries.empty? || @layers_node.nil?
+      return if Value.fixed_number(@layers_node.transparency) # a number needs telling once
+
+      @frame_boundaries.each do |wait_node|
+        container = wait_node.parent
+        at = container&.children&.index(wait_node)
+        next unless at
+
+        node = Build.see_through(@layers_node.transparency.copy)
+        container.children.insert(at + 1, node)
+        node.parent = container
       end
     end
 

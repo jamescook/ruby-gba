@@ -98,7 +98,7 @@ module RubyGBA
           def enter_tiled_mode
             emit_boot_backgrounds if @tiled && !@backgrounds.empty? # shared BG palette + tile pictures
             emit_boot_objects if @has_objects                       # sprite palette + tiles, and clear OAM
-            emit_boot_layer_blend if @see_through                   # ...and which one is see-through
+            emit_layer_blend_again if @see_through                  # ...and which one is see-through
             value = MODE_0 | tiled_bg_enable_bits
             value |= OBJ_ENABLE | OBJ_1D_MAP if @has_objects
             write_reg16(REG_DISPCNT, value)
@@ -550,7 +550,7 @@ module RubyGBA
           # frames arrives as.
           def emit_fade_sharing_the_blend(node)
             if (amount = const_int(node.amount))
-              return emit_boot_layer_blend if fade_steps(amount).zero?
+              return emit_layer_blend_again if fade_steps(amount).zero?
 
               return emit_fade_registers(node)
             end
@@ -570,7 +570,7 @@ module RubyGBA
             store_halfword_acc(REG_BLDY)
             emit_branch(:b, done)
             place_label(hand_back)
-            emit_boot_layer_blend
+            emit_layer_blend_again
             place_label(done)
           end
 
@@ -611,7 +611,7 @@ module RubyGBA
             else
               eval_value(Build.binop(:/, Build.binop(:*, node.amount, Build.int(BLD_MAX)),
                                      Build.int(100)))
-              emit_tint_weights_from_acc
+              emit_blend_weights_from_acc
             end
           end
 
@@ -622,11 +622,27 @@ module RubyGBA
           end
 
           # The same pair, for an amount the game works out. r0 holds the steps.
-          def emit_tint_weights_from_acc
+          #
+          # Shared by the two things that blend two layers together: a tint on the
+          # direct-color screen, and a see-through layer. They mean different things by
+          # the two sides — a color coming in, or what is behind showing through — and the
+          # register does not care, so neither does this.
+          def emit_blend_weights_from_acc
             emit(ASM.load_immediate(TMP, BLD_MAX))
-            emit(ASM.sub_reg(TMP, TMP, ACC))              # r1 = what is left of the picture
-            emit(ASM.orr_reg_lsl(ACC, TMP, ACC, 8))       # ...with the color's share above it
+            emit(ASM.sub_reg(TMP, TMP, ACC))              # r1 = what is left of the near side
+            emit(ASM.orr_reg_lsl(ACC, TMP, ACC, 8))       # ...with the far side's share above it
             store_halfword_acc(REG_BLDALPHA)
+          end
+
+          # An amount past either end settles at that end rather than running off it, the
+          # same as the interpreter does. Where the weights go into a register the display
+          # itself clamps this is free, but a share worked out here can be more than all of
+          # it — and that takes a picture somewhere no color goes.
+          def emit_clamp_blend_steps
+            emit(ASM.cmp_imm(ACC, 0))
+            emit(ASM.mov_imm_cond(:lt, ACC, 0))
+            emit(ASM.cmp_imm(ACC, BLD_MAX))
+            emit(ASM.mov_imm_cond(:gt, ACC, BLD_MAX))
           end
 
           def emit_scroll_background(node)

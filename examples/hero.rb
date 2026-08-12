@@ -23,6 +23,23 @@
 # sprite, so `move` and its automatic facing, walk cycles and poses are all out of
 # reach.
 #
+# And there is WEATHER. Walk north and mist closes in; walk back south and it clears.
+# Two things make that work, and neither is a drawing:
+#
+#     layers :ground, :actors, :air        # the fog is declared in FRONT of the hero
+#     layer :air, transparency: 100 - mist do ... end
+#
+# The first line is why the mist covers the hero rather than hiding behind them. Scenery
+# is normally behind everything that moves, so a background in front of a sprite is the
+# one arrangement a picture cannot fall into by accident — you say it, in the one line
+# that says what is in front of what.
+#
+# The second is how thick it is, and the point is that it is not a number. `transparency:`
+# is how much of what is BEHIND the layer shows through, so `100 - mist` thins as the mist
+# thickens — and `mist` is an ordinary variable the game adds to when you walk north. The
+# display blends the two layers as it draws each line, so nothing is redrawn however thick
+# the fog gets; the only per-frame cost is telling it the new amount, which is one write.
+#
 # What you never touch: object memory, tile numbers, palettes, the sprite table,
 # or a single scroll register. A tile is an `image`, the world is a `background`,
 # and the hero is a `sprite`.
@@ -37,6 +54,11 @@ require_relative "../lib/ruby_gba"
 
 module Hero
   SPEED = 2 # pixels the hero walks per frame while a direction is held
+
+  # The weather. Walking north thickens the mist and south thins it, a couple of points a
+  # step, so a second or so of walking takes you from clear air into a whiteout.
+  MIST_PER_STEP = 2
+  THICKEST = 90 # never quite solid — you can always see where you are going
 
   # A pond of water tiles, a few cells across, dropped into the grass as a landmark
   # you can watch slide by as you walk (and walk back around to, since the world wraps).
@@ -95,7 +117,31 @@ module Hero
     end
 
     tiles :terrain, "." => :grass, "T" => :tree, "~" => :water
-    world = background :world, tiles: :terrain, map: MAP
+
+    # A sheet of pale mist, in tiles like anything else. On its own it would be a flat
+    # white wall over the game; it is the layer it goes in that makes it weather.
+    image :cloud, "." => rgb(28, 29, 31), "'" => rgb(31, 31, 31) do
+      <<~ART
+        ........
+        ..'.....
+        ....'...
+        ........
+        .'......
+        ......'.
+        ........
+        ...'....
+      ART
+    end
+    tiles :weather, "#" => :cloud
+
+    # THE STACK, back to front. The fog is declared IN FRONT of the hero, which is the one
+    # arrangement a picture cannot fall into by accident — normally scenery is behind
+    # everything that moves. Saying it here is the whole of it; once one background is in
+    # front of a sprite, every background and sprite has to say where it sits, which is why
+    # the world and the hero get blocks of their own below.
+    layers :ground, :actors, :air
+
+    world = layer(:ground) { background :world, tiles: :terrain, map: MAP }
 
     # The hero: a little round face, its corners see-through so the grass shows around
     # it, its eyes a second color. It's pinned to the center of the screen and never
@@ -113,8 +159,20 @@ module Hero
       ART
     end
 
-    hero = sprite :guy, at: [0, 0]
+    hero = layer(:actors) { sprite :guy, at: [0, 0] }
     hero.center_on_screen # the middle of the screen, worked out from the hero's own size
+
+    # HOW THICK THE MIST IS, which the game works out as you walk: 0 in the south, 100 in
+    # the north. `transparency:` is how much of what is BEHIND the layer shows through, so
+    # it is 100 minus the mist — thicker mist, less world.
+    #
+    # A number written here would be sent to the display once and never again. A value is
+    # sent again before every frame, and that is the only difference: one register write
+    # per frame, and nothing is redrawn.
+    mist = var :mist, 0
+    layer(:air, transparency: 100 - mist) do
+      background :fog, tiles: :weather, map: Array.new(32) { "#" * 32 }
+    end
 
     # ...and the camera follows them. From here the hero is an ordinary sprite you move
     # with `move`, and the world slides underneath instead: every frame the framework
@@ -127,8 +185,17 @@ module Hero
       # no edge to bump into: keep going and it wraps.
       held(:left).then  { hero.move :left,  by: SPEED }
       held(:right).then { hero.move :right, by: SPEED }
-      held(:up).then    { hero.move :up,    by: SPEED }
-      held(:down).then  { hero.move :down,  by: SPEED }
+      # Walking north takes you into the mist and south brings you back out of it. The
+      # layer is see-through by whatever this holds, so the weather is one variable.
+      held(:up).then do
+        hero.move :up, by: SPEED
+        mist.add MIST_PER_STEP
+      end
+      held(:down).then do
+        hero.move :down, by: SPEED
+        mist.sub MIST_PER_STEP
+      end
+      mist.clamp 0, THICKEST
     end
   end
 

@@ -288,7 +288,8 @@ module RubyGBA
             # Whether any layer can be seen through, which changes what a FADE costs — the
             # two share the display's one blend unit, so a fade in such a game decides
             # whether it is running or handing the blend back (see Pricing#fade_cost).
-            @sees_through ||= node.kind == :layers && node.transparency.to_i.positive?
+            @sees_through ||= node.kind == :layers && node.transparency &&
+                              Value.fixed_number(node.transparency) != 0
             @funcs[node.name] = node if node.kind == :func
             @capacities[node.name] = node.capacity if node.kind == :list_new
             # ...and the length the AUTHOR asked for, which is the most the list can really

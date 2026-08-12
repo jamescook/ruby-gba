@@ -21,8 +21,13 @@ module RubyGBA
           # and a very faint layer is a style choice rather than a mistake.
           INVISIBLE = 100
 
+          # Nothing is said about an amount the game works out — the same silence
+          # FadeNeverLifted and TintNeverLifted keep, and for the same reason: a variable
+          # that reaches 100 for one frame of a thickening fog is the effect working.
           def detect(program)
-            node = program.each.find { |n| n.kind == :layers && n.transparency == INVISIBLE }
+            node = program.each.find do |n|
+              n.kind == :layers && Value.fixed_number(n.transparency) == INVISIBLE
+            end
             return [] unless node
 
             [Finding.new(check: NAME, severity: :warning, message: message(node.transparent), node: node)]

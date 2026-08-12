@@ -47,6 +47,44 @@ class TestHeroExample < Minitest::Test
     refute_equal blue,    walked.pixel(78, 78),  "and it left its old spot behind (no smear)"
   end
 
+  # --- The weather: mist that thickens as you walk north ---
+  #
+  # Two things at once, and the second is what makes the first mean anything. The mist is
+  # a background declared IN FRONT of the hero, so it washes out the hero as well as the
+  # world — the one arrangement a picture cannot fall into by accident. And how see-
+  # through it is, is not a number in the program: it is `100 - mist`, worked out afresh
+  # every frame from how far north the player has walked.
+
+  # Walk one way for a while, then read the pixel the hero's body sits on.
+  def after_walking(direction, frames)
+    Reference.new
+             .input_each_frame { |f| f <= frames ? [direction] : [] }
+             .run(Hero.program, frames: frames + 1).screen.pixel(*CENTER)
+  end
+
+  # Mixing red toward white raises every channel, so a whiter pixel is a bigger number —
+  # which makes "thicker than" something the test can say without naming a blend.
+  def test_walking_north_draws_the_mist_over_the_hero
+    assert_equal Color.resolve(:red), after_walking(:right, 12), "walking east, the air stays clear"
+
+    a_little = after_walking(:up, 6)
+    a_lot = after_walking(:up, 24)
+
+    assert_operator a_little, :>, Color.resolve(:red), "walking north left the hero unmisted"
+    assert_operator a_lot, :>, a_little, "the mist stopped thickening as the hero walked on"
+  end
+
+  # ...and it thins again on the way back, which is what says the amount is read every
+  # frame rather than set once when something happened.
+  def test_walking_south_again_clears_the_mist
+    there_and_back = Reference.new
+                              .input_each_frame { |f| f <= 24 ? [:up] : [:down] }
+                              .run(Hero.program, frames: 55).screen
+
+    assert_equal Color.resolve(:red), there_and_back.pixel(*CENTER),
+                 "the mist never cleared on the walk back south"
+  end
+
   # --- Hardware (gemba): the follow-cam really renders and scrolls ---
 
   def test_the_follow_cam_renders_on_the_console
@@ -55,6 +93,17 @@ class TestHeroExample < Minitest::Test
            "the hero renders centered on hardware, got 0x#{format('%04X', v.pixel_gba(*CENTER))}"
     assert blue_in?(70..105, 72..92) { |x, y| v.blue?(x, y) },
            "the pond renders near the hero at rest"
+  end
+
+  # The console draws the mist over the hero too, and works the amount out as it goes.
+  def test_the_mist_thickens_over_the_hero_on_the_console
+    rom = Hero.build_rom(err: StringIO.new)
+    clear = assert_gemba_loads_rom(rom, frames: 30).pixel_gba(*CENTER)
+    misted = assert_gemba_loads_rom(rom, frames: 30, keys: KEY_UP).pixel_gba(*CENTER)
+
+    assert_equal Color.resolve(:red), clear, "the air is clear until the hero walks north"
+    assert_operator misted, :>, clear,
+                    "the console left the hero unmisted, got 0x#{format('%04X', misted)}"
   end
 
   def test_the_world_scrolls_under_the_hero_on_the_console

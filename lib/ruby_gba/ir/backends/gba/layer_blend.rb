@@ -50,7 +50,27 @@ module RubyGBA
           # which is what keeps such a program byte for byte as it was.
           def prepare_layer_blend(program)
             node = program.walk.find { |n| n.kind == :layers && n.transparent }
-            @see_through = node && { layer: node.transparent, steps: fade_steps(node.transparency) }
+            return @see_through = nil unless node
+
+            fixed = const_int(node.transparency)
+            @see_through = { layer: node.transparent,
+                             amount: node.transparency,
+                             # An amount the program works out has no number here. What boot
+                             # writes is what its variable starts at, so the first frame is
+                             # already right rather than right one frame later.
+                             steps: fade_steps(fixed || starting_amount(program, node.transparency)) }
+          end
+
+          # What an amount the game works out starts at: the initial value of the variable
+          # it reads, when it is one plain variable. An amount worked out from more than
+          # that starts at the picture as drawn — the safe way to be wrong for one frame.
+          def starting_amount(program, amount)
+            return 0 unless amount.kind == :var_ref
+
+            # The first thing written to that name is its declaration, which the build has
+            # already moved to the front of the program.
+            first = program.walk.find { |n| n.kind == :set && n.var == amount.name }
+            (first && const_int(first.value)) || 0
           end
 
           # Does this program see through a layer of SCENERY? Only that half touches the
@@ -77,16 +97,51 @@ module RubyGBA
           # Called again wherever the register has to be put back the way this left it —
           # entering a display mode, and a fade lifting.
           def emit_boot_layer_blend
+            emit_blend_targets
+            write_reg16(REG_BLDALPHA, blend_weights(@see_through[:steps]))
+          end
+
+          # PUT THE BLEND BACK, for whatever took it — entering a display mode, and a fade
+          # lifting. Both happen while the game is running, so this writes the amount the
+          # picture has NOW rather than the one it started with: a game whose fog is half
+          # thick when a hit flash ends must come back half thick, not clear.
+          #
+          # For a number the author wrote there is no difference and no extra instruction:
+          # then and now are the same number.
+          def emit_layer_blend_again
+            emit_blend_targets
+            emit_blend_amount(@see_through[:amount])
+          end
+
+          # HOW SEE-THROUGH THE LAYER IS, NOW. A picture whose amount the program works out
+          # gets one of these at every frame boundary, so the display is told again before
+          # the frame it applies to is drawn.
+          #
+          # It writes the weights and nothing else: which layers blend with which was
+          # settled at boot and does not change, so the per-frame part is one register.
+          def emit_see_through(node)
+            emit_blend_amount(node.amount) if @see_through
+          end
+
+          def emit_blend_targets
             mode = blends_scenery? ? BLD_ALPHA : BLD_OFF
             write_reg16(REG_BLDCNT, mode | near_side_bits | (far_side_bits << BLD_SECOND_SHIFT))
-            write_reg16(REG_BLDALPHA, blend_weights)
+          end
+
+          def emit_blend_amount(amount)
+            if (fixed = const_int(amount))
+              return write_reg16(REG_BLDALPHA, blend_weights(fade_steps(fixed)))
+            end
+
+            eval_value(fade_steps_value(amount))
+            emit_clamp_blend_steps
+            emit_blend_weights_from_acc
           end
 
           # The weight pair as one halfword: how much of the layer itself survives in the
           # low byte, how much of what is behind comes through above it. The same shape
           # the tint's weights take, because it is the same blend unit.
-          def blend_weights
-            steps = @see_through[:steps]
+          def blend_weights(steps)
             (BLD_MAX - steps) | (steps << 8)
           end
 
