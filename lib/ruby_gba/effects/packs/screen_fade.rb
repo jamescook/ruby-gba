@@ -26,6 +26,14 @@ module RubyGBA
       # simply settles it while building today. Until that changes, one routine covers
       # both by testing which is wanted; that is two compares on a frame that is fading
       # and nothing at all on a frame that is not.
+      #
+      # AND WHY ANY OTHER COLOR IS ONE MORE BRANCH. Black and white are a BRIGHTNESS
+      # change, which is what `fade` is. Red is not: mixing a color in is a different
+      # piece of the display, and that is `tint`. Both take an amount from 0 to 100 and
+      # both leave the picture untouched underneath, so the ramp above them is the same
+      # one — only the verb the branch reaches for changes. Each color a game asks for
+      # earns a branch of its own, because a color is settled while building; a game asks
+      # for one or two, and the routine only ever runs one of them.
       module ScreenFade
         # The hidden state, named with the framework's underscore prefix so a game's own
         # variables can never collide with it.
@@ -39,6 +47,7 @@ module RubyGBA
         BLACK = 0
         WHITE = 1
         COLORS = { black: BLACK, white: WHITE }.freeze
+        FIRST_TINT = 2 # every other color takes the next code after these two
 
         FULL = 100.0 # the amount at which nothing of the picture shows through
 
@@ -60,6 +69,7 @@ module RubyGBA
         #   fade_out                                # to black, over half a second
         #   fade_out :white, frames: 10             # a fast whiteout
         #   fade_out :black, duration: 1.5          # the same, said in seconds
+        #   fade_out :red, frames: 12               # a redout, for a death
         #
         # The picture is not redrawn and nothing is lost — it is all still there under the
         # color, and `fade_in` brings it back untouched. Calling this again while a fade
@@ -72,8 +82,10 @@ module RubyGBA
         #   fade_out under: :ui
         #
         # `fade_in` with no arguments comes back the same way, so the layer is said once.
+        # A layer and a color other than :black or :white cannot be asked for together,
+        # which is a friendly error saying why.
         #
-        # @param color [Symbol] :black or :white
+        # @param color [Symbol, String, Integer] the color to fade toward
         # @param frames [Integer, nil] how long the fade takes, in frames
         # @param duration [Numeric, nil] how long it takes, in seconds (instead of frames)
         # @param under [Symbol, nil] a layer the fade sits under, or nil for the whole screen
@@ -90,7 +102,7 @@ module RubyGBA
         # With no arguments it comes back in the color it faded to and over the same
         # number of frames, so a scene change is two words and no bookkeeping.
         #
-        # @param color [Symbol, nil] :black or :white; leave it out to keep the current one
+        # @param color [Symbol, String, Integer, nil] a color; leave it out to keep the current one
         # @param frames [Integer, nil] how long it takes, in frames
         # @param duration [Numeric, nil] how long it takes, in seconds
         def fade_in(color = nil, frames: nil, duration: nil)
@@ -103,15 +115,14 @@ module RubyGBA
         #
         #   flash_screen                            # a short white flash
         #   flash_screen :black, frames: 4          # a blink instead
+        #   flash_screen :red                       # took damage
         #
-        # Pair it with `shake_screen` for a hit that is felt as well as seen. Calling it
-        # again restarts the flash, so repeated hits keep flashing.
+        # Any color works, and red is the one a game reaches for most: a white flash reads
+        # as "something happened" and a red one reads as "that hurt". Pair it with
+        # `shake_screen` for a hit that is felt as well as seen. Calling it again restarts
+        # the flash, so repeated hits keep flashing.
         #
-        # Only :white and :black today. A flash in an arbitrary color is a different
-        # effect on the display — the picture blended against a backdrop rather than
-        # brightened — and needs a primitive the library does not have yet.
-        #
-        # @param color [Symbol] :white or :black
+        # @param color [Symbol, String, Integer] the color to flash
         # @param frames [Integer, nil] how long the flash lasts, in frames
         # @param duration [Numeric, nil] how long it lasts, in seconds
         # @param under [Symbol, nil] a layer the flash sits under, or nil for the whole screen
@@ -243,6 +254,7 @@ module RubyGBA
         # lets `fade_in` be written on its own: it comes back the way it went out. Leaving
         # the step alone when no length is given does the same for the speed.
         def start_fade(color, target, frames, duration, default: DEFAULT_FRAMES, under: nil)
+          check_fade_placement!(color, under)
           place_the_fade(under) if under
           state = screen_fade_state
           state[:color].set fade_color_code(color) if color
@@ -275,10 +287,15 @@ module RubyGBA
             color = var COLOR, BLACK
             active = var ACTIVE, 0
 
+            # The body is built once the game is written, not here — so by the time it
+            # runs, every color the game asked for is known and each has its branch.
             each_frame(ROUTINE) do
               (active == 1).then do
                 (color == BLACK).then { fade :black, level.to_i, under: @fade_place }
                 (color == WHITE).then { fade :white, level.to_i, under: @fade_place }
+                fade_tint_colors.each_with_index do |tint_color, i|
+                  (color == FIRST_TINT + i).then { tint tint_color, level.to_i }
+                end
                 (level == target).then { active.set 0 }
                                  .else { level.approach target, step }
               end
@@ -339,11 +356,44 @@ module RubyGBA
           (duration * Builder::ControlFlow::FRAMES_PER_SECOND).round
         end
 
+        # This color's code in the hidden variable the routine branches on. Black and
+        # white have fixed ones, because the display brightens toward them and that is a
+        # different verb; every other color earns the next code the first time the game
+        # asks for it, and keeps it.
         def fade_color_code(color)
-          COLORS.fetch(color) do
-            raise ArgumentError,
-                  "a fade goes to :black or :white. You gave #{color.inspect}."
-          end
+          return COLORS.fetch(color) if COLORS.key?(color)
+
+          resolved = Color.resolve(color)
+          fade_tint_colors << resolved unless fade_tint_colors.include?(resolved)
+          FIRST_TINT + fade_tint_colors.index(resolved)
+        end
+
+        # The colors this game fades toward that are not black or white, in the order it
+        # asked for them. Read by the routine when its body is built.
+        def fade_tint_colors
+          @fade_tint_colors ||= []
+        end
+
+        # A COLORED FADE CANNOT BE PLACED IN THE STACK, and the reason is the display
+        # rather than this pack. Putting an effect at a depth works by hiding it from what
+        # sits in front, and the console can hide only a BRIGHTNESS change that way — a
+        # color mixed in reaches the whole picture however it is asked for.
+        #
+        # A game has one screen fade, so this asks about the whole game and not one call:
+        # either order of the two — a color then a layer, or a layer then a color — leaves
+        # the same game asking for something the console cannot show.
+        def check_fade_placement!(color, under)
+          place = under || @fade_place
+          wanted = color unless color.nil? || COLORS.key?(color)
+          wanted ||= fade_tint_colors.first
+          return unless place && wanted
+
+          raise ArgumentError,
+                "This game fades under :#{place}, and it also fades toward " \
+                "#{wanted.inspect}. The console can put only a fade to :black or :white " \
+                "at a place in the stack. Every other color mixes into the whole picture. " \
+                "To fix this, fade to :black or :white, or drop `under:` from every fade " \
+                "in this game."
         end
       end
     end

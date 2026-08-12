@@ -228,7 +228,10 @@ module Breakout
         # seen. Each of these is one call at the moment of the miss — the framework runs
         # all three over the frames that follow.
         shake_screen intensity: 5, duration: 0.25
-        flash_screen :white, frames: 6
+        # Red, because a white flash reads as "something happened" and a red one reads as
+        # "that hurt". Any color works: black and white are a brightness change and every
+        # other color is mixed into the picture, and the verb is the same either way.
+        flash_screen :red, frames: 6
         (lives <= 0).then do
           (score > high).then { high.set score } # record a new best (saved automatically)
           state.set 3

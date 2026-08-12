@@ -108,30 +108,34 @@ class TestPongScoring < Minitest::Test
 
   LINE_X = 120
   LINE_Y = 6
+  THE_POINT = 334
   JUST_AFTER_THE_POINT = 338
   ONCE_IT_HAS_EASED_OFF = 352
 
-  def pong_at(frames)
+  # The center line's three channels, as red / green / blue.
+  def pong_line_at(frames)
     i = Reference.new
     i.input_each_frame { |f| f < 3 ? [:start] : [] } # press START, then hands off
     i.run(Pong.program, frames: frames)
     color = i.screen.pixel(LINE_X, LINE_Y)
-    { sting: i[:sting], line: [color & 0x1F, (color >> 5) & 0x1F, (color >> 10) & 0x1F] }
+    [color & 0x1F, (color >> 5) & 0x1F, (color >> 10) & 0x1F]
   end
 
-  def test_the_screen_stings_red_when_the_cpu_scores
-    hit = pong_at(JUST_AFTER_THE_POINT)
+  # A flash is FULL on the frame it happens, which is the frame it exists for — so the
+  # gray line is nothing but red there, not a shade of it.
+  def test_the_screen_goes_fully_red_on_the_frame_the_cpu_scores
+    assert_equal [31, 0, 0], pong_line_at(THE_POINT)
+  end
 
-    assert_operator hit[:sting], :>, 0, "the sting is running"
-    assert_operator hit[:line][0], :>, hit[:line][1],
-                    "the gray center line reads red while the sting is on"
+  def test_the_sting_is_still_running_a_few_frames_later
+    line = pong_line_at(JUST_AFTER_THE_POINT)
+
+    assert_operator line[0], :>, line[1], "the gray center line still reads red"
   end
 
   def test_the_sting_eases_back_off_by_itself
-    settled = pong_at(ONCE_IT_HAS_EASED_OFF)
+    line = pong_line_at(ONCE_IT_HAS_EASED_OFF)
 
-    assert_equal 0, settled[:sting], "the sting has run out"
-    assert_equal settled[:line][0], settled[:line][1],
-                 "so the center line is plain gray again"
+    assert_equal line[0], line[1], "the center line is plain gray again"
   end
 end
