@@ -537,6 +537,20 @@ module RubyGBA
         Nodes.build(:fade, toward: toward, amount: wrap(amount), **under_layer(under))
       end
 
+      # Blend the whole displayed picture toward any color, not only black or white.
+      # +amount+ runs from 0 (the picture as drawn) to 100 (nothing left but that
+      # color), as a run-time value, so it can be walked over frames exactly as a fade
+      # is.
+      #
+      # This is fade's sibling and not a generalization of it: moving a picture toward
+      # black or white is a brightness change, which a display can do to a finished
+      # picture, while moving it toward an arbitrary color means mixing that color IN.
+      # The two therefore reach the screen by different means and round differently, so
+      # they stay separate rather than one growing a color argument.
+      def tint(color:, amount:)
+        Nodes.build(:tint, color: color, amount: wrap(amount))
+      end
+
       # --- display objects (a moving picture the display composites over the scene) ---
       #
       # An object is an image the display draws on top of the background every frame,

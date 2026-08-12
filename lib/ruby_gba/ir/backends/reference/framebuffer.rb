@@ -19,7 +19,8 @@ module RubyGBA
           WIDTH = Screen::WIDTH
           HEIGHT = Screen::HEIGHT
 
-          attr_reader :width, :height, :camera_x, :camera_y, :fade_toward, :fade_amount
+          attr_reader :width, :height, :camera_x, :camera_y, :fade_toward, :fade_amount,
+                      :tint_color, :tint_amount
 
           # A color channel runs 0..31, and a full fade is 16 steps. Both come from the
           # display contract every backend blends against, so the two agree step for step.
@@ -36,6 +37,8 @@ module RubyGBA
             @camera_y = 0
             @fade_toward = :black
             @fade_amount = 0
+            @tint_color = nil
+            @tint_amount = 0
             @paint_toward = nil
             @paint_steps = 0
           end
@@ -54,6 +57,22 @@ module RubyGBA
           def fade_to(toward, amount)
             @fade_toward = toward
             @fade_amount = amount
+            @tint_color = nil # a display holds one of these at a time — see #tint_to
+          end
+
+          # Blend everything shown toward +color+ by +amount+, 0 to 100. Same idea as
+          # fade_to, for the colors a fade cannot reach: moving a picture toward black or
+          # white is a change of BRIGHTNESS, which a display can do to a finished picture,
+          # while moving it toward red means mixing red IN.
+          #
+          # A display holds ONE such effect at a time, so setting a tint puts away
+          # whatever fade was in force and the other way round. That is the display's own
+          # rule rather than a simplification here, and modelling it is what stops a
+          # program looking right on one backend and wrong on another.
+          def tint_to(color, amount)
+            @tint_color = color
+            @tint_amount = amount
+            @fade_amount = 0
           end
 
           # Blend everything painted FROM HERE ON toward +toward+ by +amount+ (0 to 100),
@@ -153,7 +172,32 @@ module RubyGBA
           # truncating, because that is exactly what the blend hardware does. Matching
           # it here is what lets a test assert one expected color for both backends.
           def faded(color)
+            return mixed(color, @tint_color, steps_of(@tint_amount)) if @tint_color
+
             blend(color, @fade_toward, fade_steps)
+          end
+
+          # One color mixed toward another, the way a display's blend unit does it: each
+          # channel keeps its share of the picture and takes its share of the tint, and
+          # the two shares are truncated SEPARATELY before they are added.
+          #
+          # That separate truncation is the whole reason this is not #blend with a color
+          # argument. A brightness change works on what a channel has (or the headroom it
+          # has left) in one step; a mix rounds twice and lands somewhere else. Matching
+          # the display exactly is what lets a test name one expected color and assert it
+          # on both backends.
+          def mixed(color, toward, steps)
+            return color if steps.zero?
+
+            keep = FADE_STEPS - steps
+            packed = 0
+            3.times do |channel|
+              shift = channel * 5
+              have = (color >> shift) & CHANNEL_MAX
+              want = (toward >> shift) & CHANNEL_MAX
+              packed |= (((have * keep) / FADE_STEPS) + ((want * steps) / FADE_STEPS)) << shift
+            end
+            packed
           end
 
           # One color with the blend a placed fade asks for, or the color untouched when

@@ -74,6 +74,7 @@ module RubyGBA
         # the whole screen — these describe what the display shows, not one thing in it
         camera: :whole_screen,
         fade: :whole_screen,
+        tint: :whole_screen,
 
         # nothing a layer has an opinion about: the display mode, a background's window,
         # and the painting the framework itself does to put a software sprite on screen

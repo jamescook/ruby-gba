@@ -502,6 +502,51 @@ module RubyGBA
             ((percent * BLD_MAX) / 100).clamp(0, BLD_MAX)
           end
 
+          # Mix a color INTO the whole picture, which is a different piece of the display
+          # from the fade above and not a fade with a color argument.
+          #
+          # The display can blend two layers together as it draws, weighing each one. So
+          # the picture is blended against the BACKDROP — the color shown where nothing
+          # was drawn — with the backdrop set to the tint. Turn the weights toward the
+          # backdrop and the whole picture moves toward that color. Nothing is redrawn
+          # and no pixel in memory changes, so this costs the same whatever is on screen
+          # and the picture is all still there when the amount returns to 0.
+          #
+          # This works because on the direct-color screen the picture is one layer of
+          # its own colors, so the backdrop is free to be anything and nothing else in
+          # the picture reads it. The screens that draw through a shared color table
+          # cannot do it this way, and the DSL refuses them where the author writes it
+          # (Builder::Drawing#check_tint_screen!).
+          #
+          # The weights are a pair that adds to sixteen: what is left of the picture,
+          # and how much of the color has come in.
+          def emit_tint(node)
+            write_reg16(PALETTE_START, Color.resolve(node.color)) # the backdrop IS the tint
+            write_reg16(REG_BLDCNT, BLD_ALPHA | BLD_BG2 | (BLD_BACKDROP << BLD_SECOND_SHIFT))
+
+            if (amount = const_int(node.amount))
+              write_reg16(REG_BLDALPHA, tint_weights(fade_steps(amount)))
+            else
+              eval_value(Build.binop(:/, Build.binop(:*, node.amount, Build.int(BLD_MAX)),
+                                     Build.int(100)))
+              emit_tint_weights_from_acc
+            end
+          end
+
+          # The weight pair as one halfword: how much of the picture survives in the low
+          # byte, how much of the color comes in above it.
+          def tint_weights(steps)
+            (BLD_MAX - steps) | (steps << 8)
+          end
+
+          # The same pair, for an amount the game works out. r0 holds the steps.
+          def emit_tint_weights_from_acc
+            emit(ASM.load_immediate(TMP, BLD_MAX))
+            emit(ASM.sub_reg(TMP, TMP, ACC))              # r1 = what is left of the picture
+            emit(ASM.orr_reg_lsl(ACC, TMP, ACC, 8))       # ...with the color's share above it
+            store_halfword_acc(REG_BLDALPHA)
+          end
+
           def emit_scroll_background(node)
             # In tile mode this names a real layer; outside it (a bitmap-mode program that
             # still declares a background) there's no tiled layer, so fall back to BG0 —

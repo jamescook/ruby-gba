@@ -113,6 +113,7 @@ module RubyGBA
           # every frame it runs.
           when :camera then @weights[:camera_move]
           when :fade then fade_cost(node)
+          when :tint then tint_cost(node)
           when :background then dma_blob_cost(background_cells(node)) # one-time map stamp (boot, not per frame)
           when :play_song then song_cost(node.name)
           when :beep then BEEP_WRITES * @weights[:sound_write]
@@ -182,6 +183,19 @@ module RubyGBA
 
           @weights[:fade_set] + @weights[:op_mul] + @weights[:op_div_const]
         end
+
+        # A tint is a register write more than a fade — the color it moves toward has to
+        # be put where the display reads it — and a level the game works out costs the
+        # same conversion on top, plus turning that level into the pair of weights the
+        # blend takes. (Backends::GBA::Drawing#emit_tint is where both live.)
+        def tint_cost(node)
+          return @weights[:tint_set] if const_side(node.amount)
+
+          @weights[:tint_set] + @weights[:op_mul] + @weights[:op_div_const] +
+            (TINT_WEIGHT_STEPS * @weights[:op_plain])
+        end
+
+        TINT_WEIGHT_STEPS = 3 # what turning a level into the blend's two weights takes
 
         # A kind that fell through to the zero-cost fallback: 0 if it's a declared-free
         # kind, otherwise 0 too — but remembered, so the estimate can announce that it

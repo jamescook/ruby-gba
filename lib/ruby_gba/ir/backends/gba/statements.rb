@@ -50,6 +50,7 @@ module RubyGBA
             when :scroll_rows then nil # a standing declaration — its body runs per line, from the dispatcher
             when :camera then emit_camera(node)
             when :fade then emit_fade(node)
+            when :tint then emit_tint(node)
             when :present_objects then emit_present_objects(node)
             when :save_region then emit_save_region(node)
             when :restore_region then emit_restore_region(node)

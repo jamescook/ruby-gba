@@ -211,6 +211,7 @@ require_relative "guardrails/screen_mode_set"
 require_relative "guardrails/empty_tiled_screen"
 require_relative "guardrails/bitmap_draw_on_tiled"
 require_relative "guardrails/fade_never_lifted"
+require_relative "guardrails/tint_never_lifted"
 require_relative "guardrails/dropped_frame_sync"
 require_relative "guardrails/vblank_sync"
 require_relative "guardrails/termination"
@@ -242,6 +243,7 @@ module RubyGBA
         Checks::EmptyTiledScreen.new,
         Checks::BitmapDrawOnTiled.new,
         Checks::FadeNeverLifted.new,
+        Checks::TintNeverLifted.new,
         Checks::VblankSync.new,
         Checks::Termination.new,
         Checks::OffScreenDraw.new,

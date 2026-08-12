@@ -66,6 +66,9 @@ module RubyGBA
         # hardware). A raw register value doesn't map to a friendly name, so it leaves
         # the mode unnamed.
         @screen_mode = mode if mode.is_a?(Symbol)
+        # ...and whether it is the double-buffered one, which `tint` has to tell apart
+        # from the direct-color screen even though both answer :bitmap.
+        @screen_buffered = tear_free
         record(Build.screen(mode, buffered: tear_free))
       end
 
@@ -167,6 +170,41 @@ module RubyGBA
         ensure_var(amount)
       end
 
+      # Tint the whole screen toward a color — red for damage, blue for cold water,
+      # orange for a sunset. `fade`'s sibling, for the colors a fade cannot reach.
+      #
+      # `amount` is how far, from 0 (the picture as drawn) to 100 (nothing left but
+      # that color). Nothing is redrawn, so the picture is all still there and comes
+      # back untouched when the tint lifts.
+      #
+      #   tint :red               # everything red
+      #   tint :red, 0            # back to normal
+      #   tint :orange, 30        # a warm wash over the picture
+      #
+      # Like `fade` it sets the level where you call it, so tinting over time is a
+      # variable moved a little each frame:
+      #
+      #   hurt = var :hurt, 0
+      #   game_loop do
+      #     hurt.approach 0, 6      # ease it back off
+      #     tint :red, hurt
+      #   end
+      #
+      # @param color [Symbol, String, Integer] the color to move the picture toward
+      # @param amount [Symbol, Integer, Value] how far, 0 to 100
+      def tint(color, amount = 100)
+        fixed = Value.fixed_number(amount)
+        if fixed && !(0..100).cover?(fixed)
+          raise ArgumentError,
+                "tint's amount is how far to go, from 0 to 100. You gave #{fixed}."
+        end
+        check_tint_screen!
+
+        record(Build.tint(color: Color.resolve(color), amount: Value.node_for(amount)))
+        ensure_var(amount)
+      end
+
+
       # Fill a rectangle at a fixed position and size.
       #
       # @param x [Integer] left edge
@@ -225,6 +263,28 @@ module RubyGBA
       end
 
       private
+
+      # WHICH SCREENS CAN BE TINTED, and why it is not all of them yet.
+      #
+      # The display mixes a color into the picture by blending the picture against the
+      # backdrop — the color that shows where nothing was drawn. On the direct-color
+      # screen every pixel holds its own color, so the backdrop is free to be the tint
+      # and nothing else in the picture reads it.
+      #
+      # The other two screens draw their pixels through a shared color table, and the
+      # backdrop is the FIRST ENTRY of that table — the same entry an unpainted pixel
+      # reads. Putting the tint there turns every unpainted pixel that color at full
+      # strength, before any blending happens. Those screens need the other mechanism
+      # (moving each entry of the table), which is not built yet, so this says so rather
+      # than showing a wrong picture.
+      def check_tint_screen!
+        return if @screen_mode != :tiled && !@screen_buffered
+
+        screen = @screen_mode == :tiled ? "`screen :tiled`" : "`screen :bitmap, tear_free: true`"
+        raise ArgumentError,
+              "`tint` does not work on #{screen} yet. It works on `screen :bitmap`. " \
+              "To fix this, use `fade :black` or `fade :white`, which work on every screen."
+      end
 
       def validate_coords!(x, y)
         raise ArgumentError, "x=#{x} is outside the screen. Use an x from 0 to #{SCREEN_WIDTH - 1}." unless (0...SCREEN_WIDTH).cover?(x)

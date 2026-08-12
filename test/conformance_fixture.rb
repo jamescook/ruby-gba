@@ -158,6 +158,10 @@ module ConformanceFixture
       # way, so the picture is the same and what this pins is that every backend can say
       # where an effect sits.
       B.fade(toward: :black, amount: B.int(0), under: :actors),
+      # ...and the sibling effect that mixes a color IN rather than changing brightness.
+      # Also at 0, for the same reason: nothing is blended either way, so the picture is
+      # unchanged and what this pins is that every backend can be told to tint at all.
+      B.tint(color: :red, amount: B.int(0)),
       B.object(:hero_obj, poses: [:obj8], pose: B.int(0), # a composited object (one pose, held at index 0)
                           x: B.var_ref(:x), y: B.var_ref(:y), active: B.int(1),
                           # Turned 45 degrees and drawn at half again its size — the two
