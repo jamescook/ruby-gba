@@ -256,6 +256,56 @@ class TestLayers < Minitest::Test
     assert_equal 1, nodes(prog, :blit).length
   end
 
+  # --- both screens honor the stack for sprites ---
+  #
+  # The picture, not the tree. Two sprites overlapping in layers that REVERSE the order
+  # they were declared in: the one in front must be the one the stack put there, and both
+  # screen kinds must agree on which that is.
+
+  OVERLAP = [60, 60].freeze
+
+  def two_reversed_sprites(kind)
+    program do
+      screen kind
+      image(:pillar, "#" => :green) { (["#" * 8] * 8).join("\n") }
+      image(:heart, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      clear_screen :blue if kind == :bitmap
+      layers :behind, :front
+      # The pillar declared FIRST but placed at the FRONT, so declaration order and the
+      # stack disagree on purpose.
+      layer(:front) { sprite :pillar, at: OVERLAP }
+      layer(:behind) { sprite :heart, at: OVERLAP }
+      game_loop { nil }
+    end
+  end
+
+  def shown_where_they_overlap(kind)
+    Reference.new.run(two_reversed_sprites(kind), frames: 3)
+             .screen.pixel(OVERLAP[0] + 3, OVERLAP[1] + 3)
+  end
+
+  def test_a_bitmap_screen_shows_the_sprite_the_stack_puts_in_front
+    assert_equal Color.resolve(:green), shown_where_they_overlap(:bitmap),
+                 "the front layer's sprite must win, not the one declared last"
+  end
+
+  def test_a_tiled_screen_shows_the_same_one
+    assert_equal Color.resolve(:green), shown_where_they_overlap(:tiled)
+  end
+
+  def test_the_two_screens_agree
+    assert_equal shown_where_they_overlap(:bitmap), shown_where_they_overlap(:tiled)
+  end
+
+  # ...and the console draws what the interpreter says.
+  def test_the_console_shows_the_front_layer_too
+    rom = assemble_rom(two_reversed_sprites(:bitmap), name: "STACK")
+    v = assert_gemba_loads_rom(rom, frames: 6)
+
+    assert v.green?(OVERLAP[0] + 3, OVERLAP[1] + 3),
+           "console showed #{format('0x%04x', v.pixel_gba(OVERLAP[0] + 3, OVERLAP[1] + 3))}"
+  end
+
   # --- the classification is complete ---
 
   # Every kind of drawing has an answer to "can this go in a layer", so a new one has to

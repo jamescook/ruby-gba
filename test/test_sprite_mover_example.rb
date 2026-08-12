@@ -48,6 +48,45 @@ class TestSpriteMoverExample < Minitest::Test
     assert SpriteMover.build_rom.size.positive?
   end
 
+  # --- the two posts, which is what the stack is here to show ---
+  #
+  # Both posts are written AFTER the heart, so declaration order alone would put both in
+  # front of it. The stack overrules that for one of them. Nineteen frames of holding a
+  # direction is where the heart sits on a post — far enough to reach it, not so far it
+  # has gone past (the heart moves two pixels a frame from the middle of the screen).
+
+  ON_A_POST = 19
+  POST_ROW = SpriteMover::POST_Y + 2
+
+  def steered(direction)
+    Reference.new.input_each_frame { |_f| [direction] }
+             .run(SpriteMover.program, frames: ON_A_POST).screen
+  end
+
+  def test_the_heart_passes_in_front_of_the_post_in_the_back_layer
+    assert_equal Color.resolve(:red),
+                 steered(:left).pixel(SpriteMover::LEFT_POST_X + 1, POST_ROW),
+                 "the left post is in :backdrop, so the heart must cover it"
+  end
+
+  def test_the_heart_passes_behind_the_post_in_the_front_layer
+    shown = steered(:right).pixel(SpriteMover::RIGHT_POST_X + 1, POST_ROW)
+
+    refute_equal Color.resolve(:red), shown,
+                 "the right post is in :foreground, so it must cover the heart"
+    refute_equal FIELD, shown, "the heart never reached the right post"
+  end
+
+  # The same thing the console draws, since this is the bug's whole point.
+  def test_the_stack_holds_on_hardware
+    rom = ROM.assemble(GBA.new.lower(SpriteMover.program), title: "SPRITEMV", code: "BSPM", maker: "01")
+    v = assert_gemba_loads_rom(rom, frames: ON_A_POST + 2, keys: KEY_LEFT)
+
+    assert v.pixel_is?(SpriteMover::LEFT_POST_X + 1, POST_ROW, :red),
+           "on hardware the heart did not cover the :backdrop post — got " \
+           "#{format('0x%04x', v.pixel_gba(SpriteMover::LEFT_POST_X + 1, POST_ROW))}"
+  end
+
   def test_it_renders_and_steers_on_hardware
     rom = ROM.assemble(GBA.new.lower(SpriteMover.program), title: "SPRITEMV", code: "BSPM", maker: "01")
     v = assert_gemba_loads_rom(rom, frames: 10, keys: KEY_LEFT)

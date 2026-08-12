@@ -67,12 +67,23 @@ module RubyGBA
       # hadn't been erased yet — and smear a copy of it across the screen when it
       # later moved. Erasing everyone first means each captures clean background, so
       # sprites can overlap (a hero touching a coin) without leaving trails.
+      #
+      # THE TWO PASSES RUN IN OPPOSITE ORDERS, and that is not a detail. A sprite
+      # remembers what was under it when it drew, so where two overlap the FRONT one's
+      # memory holds the BACK one's pixels. Putting them back has to undo the drawing
+      # exactly, front first — otherwise the front one's restore paints those borrowed
+      # pixels over background the back one has already cleaned, and nothing repaints
+      # them. The stale copy then sits there for the rest of the game.
       def emit_frame_boundary
         wait_node = record(Build.wait_vblank)
         # Each sprite's own painting, recorded on its behalf (see #record_statement) —
         # the same nodes an author's `blit` builds, but nobody wrote them here.
-        @sprites.each { |sprite| record_statement(sprite.erase_node) }
-        @sprites.each { |sprite| record_statement(sprite.draw_node) }
+        #
+        # Back to front, which is what a declared stack decides. With no layers this is
+        # the order they were declared in, exactly as before.
+        painted = IR::Stacking.order(@sprites, @layer_stack, &:layer)
+        painted.reverse_each { |sprite| record_statement(sprite.erase_node) }
+        painted.each { |sprite| record_statement(sprite.draw_node) }
         # Hardware sprites need no erase pass — the console recomposites the whole
         # picture each frame — so it's one step: draw them all from their current
         # positions (later ones sit in front). Tiled-mode text/number glyphs are
