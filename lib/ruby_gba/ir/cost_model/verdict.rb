@@ -67,6 +67,12 @@ module RubyGBA
         # rather than by the body.
         Timer = Data.define(:name, :hz, :delivered, :ticks, :each, :interrupts, :body, :cost)
 
+        # What a frame spends on the things at ONE DEPTH. No budget: a depth is not a thing
+        # that can be over one. The question this answers is which of them the time is
+        # going to, so the numbers are only meaningful beside each other and beside the
+        # frame — which is why the report prints the share as well.
+        Layer = Data.define(:name, :cost)
+
         # How long a list can get before the frame stops fitting. Reported only for a walk
         # whose break-even is reachable — a loop that fits even with the list full is not
         # interesting.

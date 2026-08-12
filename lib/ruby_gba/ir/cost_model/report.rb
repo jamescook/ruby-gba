@@ -75,27 +75,65 @@ module RubyGBA
           end
         end
 
-        # What each declared layer turned out to hold, and how deep the picture goes.
+        # What each declared layer turned out to hold, what it costs a frame, and how deep
+        # the picture goes.
         #
         # A layer is a name an author writes; a LEVEL is what the console actually keeps,
         # and it has only four of them. Several layers landing on one level is the normal,
         # wanted answer rather than a compromise — so the report shows the levels, with
         # the layers that share each, and says how many are left. Same bargain as the
         # quick memory above: the framework picks, this says what it picked.
+        #
+        # ONE SECTION AND NOT TWO, deliberately. "What is at this depth" and "what does
+        # this depth cost" are the same question asked twice, and a reader whose frame is
+        # too full wants them on one line — the layer they would move something out of and
+        # the reason to bother. Splitting them would mean reading the stack twice and
+        # matching names by eye.
         def stack_lines(program, printer)
           picture = Stacking.picture(program)
-          return if picture.stack.empty?
+          held_by = picture.stack.to_h { |layer| [layer, picture.in_layer(layer)] }
+          return if held_by.each_value.all?(&:empty?)
 
           levels = Backends::GBA::MAX_LEVELS
+          costs = layer_verdicts(program).to_h { |v| [v.name, v.cost] }
           printer.puts "  the stack, back to front (the console keeps #{levels} levels):"
-          picture.stack.each do |layer|
-            held = picture.in_layer(layer)
+          held_by.each do |layer, held|
             next if held.empty?
 
-            printer.puts "    #{layer_level(picture, held).ljust(9)}:#{layer.to_s.ljust(12)} #{layer_holds(picture, layer)}"
+            printer.puts "    #{layer_level(picture, held).ljust(9)}:#{layer.to_s.ljust(12)}" \
+                         "#{layer_cost_column(costs[layer])}#{layer_holds(picture, layer)}"
           end
           used = picture.depths.count
           printer.puts "    #{used} of #{levels} levels used, #{levels - used} free"
+          printer.puts "    #{layer_share_line(program, costs)}"
+        end
+
+        # What a layer costs every frame, or nothing at all when it costs nothing — and a
+        # blank there is the thing worth seeing, because it is the whole bargain of the
+        # tiled screen: a background is drawn by the display for free once it is up,
+        # however big it is. Only what the framework has to write again each frame charges.
+        def layer_cost_column(cost)
+          (cost.nil? || cost.zero? ? "" : "~#{fmt(cost)}").ljust(8)
+        end
+
+        # THE HONEST LINE, and the section needs it more than it needs the numbers above.
+        # Most of a frame sits at no depth — the game's own logic, its sound, drawing
+        # written out by hand — so a column of small numbers with nothing to measure them
+        # against reads as though the game costs what the stack costs.
+        #
+        # Measured against what a frame pays EVERY TIME, not against the worst-case total
+        # the tree above shows. The costs in the column are per-frame upkeep, so they are
+        # every-frame numbers, and dividing an every-frame number by a worst case would
+        # make a stack that is most of the real load look like a twentieth of it. This is
+        # the same figure the budget below judges, and it is read from the same place so
+        # the two can never drift apart.
+        def layer_share_line(program, costs)
+          total = costs.values.sum
+          return "these layers cost nothing a frame — the display draws what they hold" if total.zero?
+
+          recurring = steady_cost(program) + standing_costs(program)
+          "these layers cost ~#{fmt(total)} of the ~#{fmt(recurring)} scanlines a frame pays " \
+            "every time; the rest of it sits at no depth"
         end
 
         # Which level a layer landed on. Nearly always one — a layer holding two
@@ -193,6 +231,9 @@ module RubyGBA
             bend: verdict_json(bend_verdict(program)),   # a bend's per-frame CPU (nil if nothing bends)
             ticks: verdict_json(tick_verdict(program)),  # each timer's handler (nil if no timer runs one)
             kept: verdict_json(kept_sprites_verdict(program)), # sprites held out of a fade (nil if none are)
+            # what a frame spends at each declared depth — the other axis from the tree
+            # below, and empty for a program that declares no layers
+            layers: layer_verdicts(program).map { |v| verdict_json(v) },
             # per-font reachable-glyph footprint, flattened here because this hash is the
             # serialized output and a value object has no meaning once it is JSON
             glyphs: IR::GlyphUsage.footprint(program).map(&:to_h),

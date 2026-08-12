@@ -286,6 +286,82 @@ module RubyGBA
           kept_sprites_verdict(program)&.cost || 0
         end
 
+        # WHAT EACH DECLARED LAYER COSTS A FRAME, which is a different question from what
+        # is inside it, and a different AXIS from the cost tree.
+        #
+        # The tree groups by the shape of the program — a case_var, a scene, a func, a
+        # repeat — and answers "where in my code". A layer groups by depth in the picture
+        # and answers "where on screen". A sprite in :actors inside scene :playing is in
+        # both, so this is a roll-up printed beside the tree rather than a branch of it.
+        #
+        # What a depth costs is what the framework spends every frame on the things that
+        # sit there, and that is a short list: presenting each sprite, moving a background
+        # the game scrolls, and running a background's row-by-row bend. Everything else a
+        # frame does — the game's own logic, its sound, drawing an author wrote out by
+        # hand — sits at no depth at all. Most of a frame is usually that, which is why the
+        # report prints the share as well as the numbers.
+        #
+        # The framework does all of it at the frame boundary, so the statements are read
+        # from the frame's own body and never from inside a scene or a loop, where a cost
+        # would have to be multiplied or a branch chosen.
+        #
+        # Every layer in the stack gets an answer, including the free ones. A tiled
+        # background costs nothing once it is up however big it is, and a zero is the
+        # thing worth seeing there.
+        def layer_verdicts(program)
+          index(program)
+          picture = Stacking.picture(program)
+          return [] if picture.stack.empty?
+
+          layer_of = (picture.scenery + picture.objects).to_h { |node| [node.name, node.layer] }
+          costs = Hash.new(0)
+          in_fast_frame { tally_frame_layer_costs(costs, program, layer_of) }
+          tally_bend_layer_costs(costs, program, layer_of)
+          picture.stack.map { |name| Verdict::Layer.new(name: name, cost: costs[name]) }
+        end
+
+        # The per-frame upkeep the framework does for a thing with a depth. A name with no
+        # layer lands under nil and is never read back — it is in no layer, and the share
+        # the report prints is what says so.
+        def tally_frame_layer_costs(costs, program, layer_of)
+          steady_statements(program).each do |node|
+            case node.kind
+            when :present_objects
+              share_out(costs, op_cost(node), node.names.to_h { |name| [name, present_object_cost(name)] },
+                        layer_of)
+            when :scroll_background
+              costs[layer_of[node.name]] += op_cost(node)
+            end
+          end
+        end
+
+        # Split what one statement really cost among the depths it was spent at, in
+        # proportion to what each thing in it takes.
+        #
+        # Sharing out the PRICED total rather than adding up raw weights is what keeps
+        # this column and the cost tree agreeing. A statement is not the sum of its
+        # weights — the quick-memory discount is applied to the statement, not to each
+        # sprite in it — so adding weights up here gave a stack that cost more than the
+        # whole frame. Whatever the pricing does to a statement lands here too, and the
+        # parts still add back up to the whole.
+        def share_out(costs, total, raw, layer_of)
+          whole = raw.values.sum
+          return if whole.zero?
+
+          raw.each { |name, part| costs[layer_of[name]] += total * part / whole }
+        end
+
+        # A bend is nearly all interrupt, and the display raises that once a line however
+        # many backgrounds are bending — so it is one cost shared among them rather than
+        # one each. Every real case bends a single background and gets the whole figure.
+        def tally_bend_layer_costs(costs, program, layer_of)
+          bend = bend_verdict(program)
+          return unless bend
+
+          each = bend.cost / bend.layers.length
+          bend.layers.each { |name| costs[layer_of[name]] += each }
+        end
+
         # What one line's interrupt costs. Keeping the routine it lands in in faster memory
         # buys back a good part of it, but NOT the measured factor the rest of the model
         # uses: a fair share of an interrupt is the console's own doing — stopping the game,

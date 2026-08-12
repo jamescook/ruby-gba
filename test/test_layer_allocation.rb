@@ -224,8 +224,8 @@ class TestLayerAllocation < Minitest::Test
 
     assert_match(/the stack, back to front/, report)
     assert_match(/:sky\s+background :bg/, report)
-    assert_match(/:actors\s+1 sprite/, report)
-    assert_match(/:ui\s+2 sprites/, report)
+    assert_match(/:actors\s+~\S+\s+1 sprite/, report)
+    assert_match(/:ui\s+~\S+\s+2 sprites/, report)
     assert_match(/1 of 4 levels used, 3 free/, report)
   end
 
