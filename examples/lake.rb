@@ -15,10 +15,21 @@
 # (0 at the top of the screen) and gives back how far across that row sits. Here it reads a
 # sine table, shifted a little further along each frame, so a wave rolls down toward you.
 #
-# Two layers make it read. The BACK layer is the scene — sky, sun, hills — and it does not
-# bend. The FRONT layer is the water, see-through above the shoreline so the scene shows
+# Three layers make it read. The BACK layer is the scene — sky, sun, hills — and it does not
+# bend. The MIDDLE layer is the water, see-through above the shoreline so the scene shows
 # through, and it is the one that bends. Watch the bright pillar under the sun: that is the
 # sun's reflection, and a rippling surface is exactly what makes it wobble.
+#
+# And a THIRD layer of jellyfish drifts across the lake, half see-through:
+#
+#     layer(:swimmers, transparency: 55) { ... }
+#
+# That is the whole of it. A layer says how much of what is BEHIND it shows through, 0
+# solid and 100 invisible, and it says it where the layer is opened. Nothing is redrawn
+# and nothing is worked out per pixel — the console mixes the two as it draws each line —
+# so a see-through layer costs the same as a solid one however much is on screen. Watch
+# the water through a bell: the ripple keeps travelling through it, because what you are
+# seeing IS the water, mixed in rather than copied.
 #
 # What you never touch: a scroll register, an interrupt, or the fact that the framework has
 # to get in between two lines of a picture being drawn to do this at all.
@@ -47,6 +58,17 @@ module Lake
   SWAY = 3
   WAVE_ROWS = 64
   WAVE_SPEED = 1     # rows the pattern travels per frame — 64 frames to a full cycle
+
+  # The jellyfish. Each one is 16x16, drifts right at its own speed, and wraps round to
+  # the left edge when it leaves — so the lake never empties. Their y is the wave's own
+  # offset added to a resting depth, which is what makes them bob on the same swell that
+  # ripples the water rather than on a rhythm of their own.
+  SCREEN_W = 240
+  JELLY_SIZE = 16
+  SEE_THROUGH = 55   # how much of the water shows through a bell, 0 solid to 100 invisible
+  DRIFT = [[20, 96, 1],    # x it starts at, the depth it rests at, pixels a frame
+           [110, 124, 2],
+           [190, 108, 1]].freeze
 
   # The scene above the water: sky, a sun, and hills standing on the shoreline. Opaque
   # everywhere, because it is the backmost layer and nothing shows behind it.
@@ -171,13 +193,45 @@ module Lake
       ART
     end
 
+    # A jellyfish: a bell with tentacles under it, and nothing else — the dots are
+    # see-through, so the lake shows around it as well as through it.
+    image :jelly, "." => :transparent, "o" => rgb(26, 18, 29), "O" => rgb(31, 26, 31),
+                  "t" => rgb(22, 14, 26) do
+      <<~ART
+        ......oooo......
+        ....oooOOOooo...
+        ...oOOOOOOOOo...
+        ..oOOOOOOOOOOo..
+        .oOOOOOOOOOOOOo.
+        .oOOOOOOOOOOOOo.
+        oOOOOOOOOOOOOOOo
+        oOOOOOOOOOOOOOOo
+        .oOOOOOOOOOOOOo.
+        ..oooooooooooo..
+        ...t..t..t..t...
+        ...t..t..t..t...
+        ..t...t...t..t..
+        ..t...t....t.t..
+        .t....t....t.t..
+        .t....t.....t...
+      ART
+    end
+
     tiles :above, "." => :sky, "o" => :sun, "^" => :hill, "=" => :shore, "~" => :water
     tiles :below, "~" => :water, "v" => :hill_reflection, "|" => :glint
 
-    layers :shore, :surface # the stack, back to front
+    layers :shore, :surface, :swimmers # the stack, back to front
 
     layer(:shore) { background :scene, tiles: :above, map: SCENE }
     water = layer(:surface) { background :water, tiles: :below, map: WATER }
+
+    # The one see-through layer. A game has one, and this is the better use for it: a
+    # sheet of glass lying still over a picture is easy to mistake for a paler picture,
+    # where a jellyfish drifting across the ripples — with the wave pattern travelling
+    # through its bell — cannot be mistaken for anything else.
+    jellyfish = layer(:swimmers, transparency: SEE_THROUGH) do
+      DRIFT.map { |x, depth, speed| [sprite(:jelly, at: [x, depth]), depth, speed] }
+    end
 
     # One wave, as a table of sideways offsets worked out at build time. A table is the
     # right home for it: the block below runs 160 times a frame, so anything it has to
@@ -197,6 +251,14 @@ module Lake
       # Move the wave along. That is the entire animation — the bend is re-read for every
       # row of every frame, so one variable changing is a whole rippling lake.
       phase.add WAVE_SPEED
+
+      # ...and the jellyfish drift on it. Each one reads the SAME wave table the water
+      # bends by, so they rise and fall on the swell they are floating in.
+      jellyfish.each do |jelly, depth, speed|
+        jelly.x.add speed
+        (jelly.x > SCREEN_W).then { jelly.x.set(-JELLY_SIZE) }
+        jelly.y.set(ripple[(jelly.x + phase) % WAVE_ROWS] + depth)
+      end
     end
   end
 
