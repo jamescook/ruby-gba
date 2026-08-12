@@ -12,6 +12,13 @@
 # Compare the redraw-everything way (clear the whole screen and re-blit every
 # frame): that does more work each frame and tears once there's enough on screen.
 #
+# It also shows what a LAYER is for. There are two posts, and `layers` names the
+# depths back to front in one line: the left post is in :backdrop, the heart is in
+# :actors, the right post is in :foreground. So steer left and the heart passes IN
+# FRONT of that post; steer right and it slides BEHIND the other one. Both posts are
+# written after the heart, so declaration order alone would put both on top — the stack
+# is the only thing deciding it, and you can see both halves of that at once.
+#
 # Run it to build examples/sprite_mover.gba:
 #   ruby examples/sprite_mover.rb
 
@@ -25,6 +32,9 @@ module SpriteMover
   SPRITE_H = 5
   HALF_W   = SPRITE_W / 2 # how far the heart may hang off a vertical edge
   HALF_H   = SPRITE_H / 2 # ... and off a horizontal edge
+  POST_Y       = 77       # the two posts sit at the heart's height, either side of it
+  LEFT_POST_X  = 80
+  RIGHT_POST_X = 156
 
   # The game as a block the builder runs, so a test can drive the exact program
   # that ships — the headless interpreter runs THIS, the console runs the ROM.
@@ -43,11 +53,37 @@ module SpriteMover
       ART
     end
 
+    # Two posts to steer around, so you can see what a layer decides. Same picture,
+    # different depths.
+    image :post, "#" => rgb(20, 18, 6) do
+      <<~ART
+        ####
+        ####
+        ####
+        ####
+        ####
+        ####
+      ART
+    end
+
     # Paint the field ONCE, before the loop. From here on the heart is a sprite that
     # restores the field pixels under itself as it moves, so nothing else redraws.
     clear_screen rgb(4, 6, 14) # a calm blue field
 
-    hero = sprite :heart, at: [(SCREEN_W - SPRITE_W) / 2, (SCREEN_H - SPRITE_H) / 2]
+    # THE STACK, back to front. One line says what is in front of what, and it is the
+    # only thing that decides it — not the order the three sprites happen to be
+    # declared in below.
+    layers :backdrop, :actors, :foreground
+
+    # The heart first, then both posts — so the order these are WRITTEN would put both
+    # posts on top of it. The stack says otherwise for one of them: the left post is
+    # behind the heart, the right post in front. Steer into each and you see both halves
+    # of that on one screen.
+    hero = layer(:actors) do
+      sprite :heart, at: [(SCREEN_W - SPRITE_W) / 2, (SCREEN_H - SPRITE_H) / 2]
+    end
+    layer(:backdrop) { sprite :post, at: [LEFT_POST_X, POST_Y] }
+    layer(:foreground) { sprite :post, at: [RIGHT_POST_X, POST_Y] }
 
     game_loop do
       # Hold a direction to move — say it the way you'd think it: press left, move

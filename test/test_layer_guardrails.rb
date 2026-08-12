@@ -38,9 +38,13 @@ class TestLayerGuardrails < Minitest::Test
     [b.program, b.sprites]
   end
 
+  # Some checks need the build's software sprites (a sprite's layer lives on its handle,
+  # not in the tree) and some read the tree alone. Hand the list only to the ones that
+  # take it, so a check that stops needing it says so by its own signature.
   def findings(check, &block)
     program, sprites = built(&block)
-    check.new(sprites).detect(program)
+    made = check.instance_method(:initialize).arity.zero? ? check.new : check.new(sprites)
+    made.detect(program)
   end
 
   def only_finding(check, &block)
@@ -462,14 +466,24 @@ class TestLayerGuardrails < Minitest::Test
 
   # --- a stack the screen does not honor ---
 
-  def test_a_bitmap_stack_that_reverses_the_declarations_is_warned_about
-    finding = only_finding(Checks::StackNotHonored) do
+  # SPRITES ARE NOT WARNED ABOUT ANY MORE, because the picture is now right: the frame
+  # boundary repaints them in stack order. Warning here would be a false alarm, so the
+  # test that used to demand one now demands silence — and test_layers.rb asserts the
+  # pixel that proves it.
+  def test_a_bitmap_stack_that_reverses_two_sprites_is_left_alone
+    assert_empty findings(Checks::StackNotHonored) {
       screen :bitmap
       layers :front, :back # :back is the FRONT of the stack, so the two disagree
       layer(:back) { sprite :red_guy, at: [16, 16] }
       layer(:front) { sprite :blue_guy, at: [16, 16] }
       game_loop { nil }
-    end
+    }
+  end
+
+  # A background is the half that stays permanent: it stamps itself into the one picture
+  # where it is declared, and nothing draws it again.
+  def test_two_bitmap_backgrounds_the_stack_reverses_are_warned_about
+    finding = reversed_background_finding
 
     assert_equal :stack_not_honored, finding.check
     assert_predicate finding, :warning?
@@ -480,20 +494,20 @@ class TestLayerGuardrails < Minitest::Test
   # Both orders, because "your stack says one thing and the screen will do another" is
   # only useful if it says which is which.
   def test_the_warning_shows_the_order_asked_for_and_the_order_the_screen_gives
-    finding = only_finding(Checks::StackNotHonored) do
-      screen :bitmap
-      layers :front, :back
-      layer(:back) { sprite :red_guy, at: [16, 16] }
-      layer(:front) { sprite :blue_guy, at: [16, 16] }
-      game_loop { nil }
-    end
+    finding = reversed_background_finding
 
-    assert_match(/asks for :blue_guy, :red_guy/, finding.message)
-    assert_match(/will show :red_guy, :blue_guy/, finding.message)
+    assert_match(/asks for :far, :near/, finding.message)
+    assert_match(/will show :near, :far/, finding.message)
   end
 
-  # A background paints once, where it is declared, and every sprite is painted over
-  # it every frame after that. So no layer can put it in front of one.
+  # ...and it says sprites are fine, so nobody reads the warning as covering them too.
+  def test_the_warning_says_sprites_are_not_affected
+    assert_match(/[Ss]prites are not affected/, reversed_background_finding.message)
+  end
+
+  # A background paints once, where it is declared, and every sprite is painted over it
+  # every frame after that. So no layer can put a background in FRONT of a sprite here,
+  # and this is the case the sprite fix does not reach.
   def test_a_bitmap_background_put_in_front_of_a_sprite_is_warned_about
     finding = only_finding(Checks::StackNotHonored) do
       screen :bitmap
@@ -506,6 +520,28 @@ class TestLayerGuardrails < Minitest::Test
     end
 
     assert_match(/:bg/, finding.message)
+  end
+
+  # The finding three tests share. `built` runs its block with the BUILDER as `self`, so
+  # the setup has to be handed the builder rather than called bare — a bare call would
+  # look for a DSL verb of that name.
+  def reversed_background_finding
+    test = self
+    only_finding(Checks::StackNotHonored) { test.two_reversed_backgrounds(self) }
+  end
+
+  # Two backgrounds on a bitmap screen whose layers reverse the order they were declared
+  # in — the near one written first, the stack asking for the far one behind it. The one
+  # arrangement the screen cannot give, since each stamped itself where it was written.
+  def two_reversed_backgrounds(builder)
+    builder.screen :bitmap
+    builder.image(:grass, "#" => :green) { (["#" * 8] * 8).join("\n") }
+    builder.tiles :terrain, "." => :grass
+    builder.layers :far, :near
+    map = (0...4).map { "." * 4 }
+    builder.layer(:near) { builder.background :near, tiles: :terrain, map: map }
+    builder.layer(:far) { builder.background :far, tiles: :terrain, map: map }
+    builder.game_loop { nil }
   end
 
   # The usual arrangement — declared back to front — is the one a bitmap screen paints
@@ -581,6 +617,24 @@ class TestLayerGuardrails < Minitest::Test
 
   def test_a_real_build_reports_a_stack_the_screen_does_not_honor
     err = StringIO.new
+    map = (0...4).map { "." * 4 }
+    RubyGBA.build("LAYERS", code: "BLYR", maker: "01", err: err) do
+      screen :bitmap
+      image(:grass, "#" => :green) { (["#" * 8] * 8).join("\n") }
+      tiles :terrain, "." => :grass
+      layers :far, :near
+      layer(:near) { background :near, tiles: :terrain, map: map }
+      layer(:far) { background :far, tiles: :terrain, map: map }
+      game_loop { nil }
+    end
+
+    assert_match(/stack asks for a background order that screen does not give/, err.string)
+  end
+
+  # ...and the same build with SPRITES in a reversed stack says nothing at all, because
+  # that picture is now the one the stack asked for.
+  def test_a_real_build_says_nothing_about_a_reversed_sprite_stack
+    err = StringIO.new
     RubyGBA.build("LAYERS", code: "BLYR", maker: "01", err: err) do
       screen :bitmap
       image(:red_guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -591,7 +645,7 @@ class TestLayerGuardrails < Minitest::Test
       game_loop { nil }
     end
 
-    assert_match(/stack asks for an order that screen does not give/, err.string)
+    refute_match(/stack_not_honored/, err.string)
   end
 
   # Advisory, both of them: the ROM is still built and still runs. A warning that

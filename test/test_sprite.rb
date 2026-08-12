@@ -113,6 +113,45 @@ class TestSprite < Minitest::Test
     assert moved, "the sprite didn't move right"
   end
 
+  # TWO OVERLAPPING SPRITES THAT BOTH MOVE — the case the single-sprite test above
+  # cannot reach, and the one the repaint gets wrong if its two passes run the same way
+  # round.
+  #
+  # A sprite remembers what was under it when it drew, so where two overlap the FRONT
+  # one's memory holds the BACK one's pixels. Putting them back has to undo the drawing
+  # exactly — front first. Erase the back one first and the front one's restore paints
+  # those borrowed pixels over background already cleaned, and nothing repaints them: a
+  # stale copy sits there for the rest of the game.
+  #
+  # So the tell is the overlap square once BOTH have left it.
+  def test_two_overlapping_sprites_leave_no_copy_of_each_other_behind
+    b = RubyGBA::Builder.new
+    b.instance_eval do
+      screen :bitmap
+      image(:blob_a, "#" => :green) { (["#" * 8] * 8).join("\n") }
+      image(:blob_b, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      clear_screen :blue
+
+      back = sprite :blob_a, at: [50, 50]
+      front = sprite :blob_b, at: [54, 50] # overlaps the right half of the green one
+      frame = var :frame, 0
+      game_loop do
+        frame.add 1
+        (frame == 2).then { front.move_to 200, 50 } # the front one leaves first...
+        (frame == 3).then { back.move_to 50, 130 }  # ...then the back one
+      end
+    end
+    b.emit_pending_functions
+    screen = Reference.new.run(b.program, frames: 6).screen
+
+    whole_sprite = 8 * 8 # these two are 8x8, not the 4x4 BLOCK the rest of the file uses
+
+    assert_equal Color.resolve(:blue), screen.pixel(55, 52),
+                 "a copy of the sprite behind was left in the overlap"
+    assert_equal whole_sprite, count_color(screen, :green), "there is more than one green block"
+    assert_equal whole_sprite, count_color(screen, :red), "there is more than one red block"
+  end
+
   def test_steering_with_held_input_moves_the_sprite
     prog = sprite_program(frames: 15) { |hero| held(:right).then { hero.x.add 2 } }
     i = Reference.new.input_each_frame { |_f| [:right] }.run(prog)
