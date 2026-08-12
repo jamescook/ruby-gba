@@ -578,6 +578,13 @@ module RubyGBA
         operands name: :name
       end
 
+      class Tint
+        include Node
+        kind :tint
+        category :draw
+        operands color: :color, amount: :value
+      end
+
       class VarRef
         include Node
         kind :var_ref

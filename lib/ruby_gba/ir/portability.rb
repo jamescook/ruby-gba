@@ -65,6 +65,7 @@ module RubyGBA
         scroll_rows: :portable,       # a sideways offset per row — read it per row, or per scanline
         camera: :portable,            # offset the whole picture — a display offset anywhere
         fade: :portable,              # blend the whole picture toward a color — any backend can
+        tint: :portable,              # ...and toward any color at all — likewise
         # a composited moving picture — software compositing or sprite hardware, any backend can
         object: :portable, present_objects: :portable,
         # save/restore a screen patch — copying pixels to/from a buffer, any backend can

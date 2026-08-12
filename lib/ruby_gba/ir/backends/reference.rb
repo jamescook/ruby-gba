@@ -461,6 +461,8 @@ module RubyGBA
             @screen.camera_to(eval_value(node.x), eval_value(node.y))
           when :fade
             exec_fade(node)
+          when :tint
+            exec_tint(node)
           when :present_objects
             exec_present_objects(node)
           when :enable_sound
@@ -892,6 +894,13 @@ module RubyGBA
           @fade_placed = node.under && [node.under, node.toward, amount]
           @screen.fade_to(node.toward, @fade_placed ? 0 : amount)
           composite_scrolled_frame if @fade_placed
+        end
+
+        # A tint — the same idea as a whole-screen fade, toward a color a fade cannot
+        # reach. Applied as the screen is read, so nothing drawn changes and the picture
+        # is all still there when the amount returns to 0.
+        def exec_tint(node)
+          @screen.tint_to(Color.resolve(node.color), eval_value(node.amount))
         end
 
         # Turn the blend on or off for the thing about to be painted: on for anything the

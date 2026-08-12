@@ -169,6 +169,8 @@ module RubyGBA
       "tick0f" => "0f7672db6f23dbec85c2b673ff8a7d2da0cc97633f263c0122c12bc758fbf3c9",
       "tick1" => "4bb0b8c939bfeeedb228bba58d37cc626f08cf0fce1564f14958a65149490c95",
       "tick1f" => "23be80fff99847055cf5a01922ce5f4dc4f3de01e4493f454f13d36b8bd2dd6b",
+      "tint2" => "f604e874c7c0d9c98a4c067f918e367a8bb7be6d218e4779e11882d31d263a92",
+      "tint6" => "86b2e96ae851aaf4205be24a3eb4cf1d3605643ca60771cde4dd6e3a2f84f5a2",
       "varop2" => "e87dee2fefd165a2d6eca2a5aff0e47388be9c414aff325a3eeb3d7a30edb34d",
       "varop6" => "fc43ad289c3509e0c5f0799d116d1fc282d2277602149c7cd4fdf20b3c1306c0",
     }.freeze

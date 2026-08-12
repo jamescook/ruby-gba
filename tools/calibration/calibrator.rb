@@ -613,6 +613,8 @@ module RubyGBA
               note: "moving the visible window over the picture")
         weigh(:fade_set, @bench.per_op("fade", 100, 2, 6) { |b, _xv| b.fade :black, 50 },
               note: "setting the fade level, from a number written in the program")
+        weigh(:tint_set, @bench.per_op("tint", 100, 2, 6) { |b, _xv| b.tint :red, 50 },
+              note: "setting the tint level, from a color and a number written in the program")
       end
 
       def saving

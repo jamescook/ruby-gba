@@ -200,8 +200,14 @@ module RubyGBA
     # the asymmetry that shapes everything built on this: each background layer has
     # a bit of its own, and every sprite on screen shares the single OBJ bit.
     BLD_BG0      = 0x0001
+    BLD_BG2      = 0x0004 # the layer the direct-color and buffered screens draw into
     BLD_OBJ      = 0x0010
     BLD_BACKDROP = 0x0020
+
+    # The same six bits again, eight places up, name the layers on the OTHER side of an
+    # alpha blend. Blending needs two: a layer in the low six is mixed with whatever
+    # sits directly beneath it, if that layer is named up here.
+    BLD_SECOND_SHIFT = 8
 
     # The effect, in bits 6-7 of BLDCNT.
     BLD_OFF      = 0x0000
