@@ -11,7 +11,11 @@ rescue LoadError
   require "ruby_gba"
 end
 
+require_relative "wolf3d/codec/rlew"
+require_relative "wolf3d/codec/carmack"
+require_relative "wolf3d/codec/huffman"
 require_relative "wolf3d/game_data"
+require_relative "wolf3d/fixture/release"
 require_relative "wolf3d/title"
 
 module Wolf3D
