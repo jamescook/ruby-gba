@@ -404,10 +404,28 @@ module RubyGBA
       # worked out again. The three instructions the splice costs are less than the nine that
       # buys back.
       def column_rows
-        weigh(:column_row, @bench.column_row_cost("colr", tear_free: false),
+        one = @bench.column_row_cost("colr", tear_free: false)
+        one_tf = @bench.column_row_cost("tfcolr", tear_free: true)
+        weigh(:column_row, one,
               varies: :column_height, from: Benchmarks::COLUMN_SHORT, to: Benchmarks::COLUMN_TALL,
               note: "one row of a picture's column stretched to a height the game works out")
-        weigh(:tearfree_column_row, @bench.column_row_cost("tfcolr", tear_free: true),
+        weigh(:tearfree_column_row, one_tf,
+              varies: :column_height, from: Benchmarks::COLUMN_SHORT, to: Benchmarks::COLUMN_TALL,
+              note: "the same, on the tear-free screen")
+
+        # WHAT A PIXEL BESIDE THE FIRST COSTS. A strip is ONE walk down the screen whatever
+        # its width — the picture is read once and the screen row found once — so the pixels
+        # beside the first are only their own writes. Reading it rather than assuming it is
+        # what keeps the estimate honest about a view that draws wide strips.
+        extra = Benchmarks::COLUMN_STRIP - 1
+        weigh(:column_extra_pixel,
+              Reductions.residual(@bench.column_row_cost("colw", tear_free: false, width: Benchmarks::COLUMN_STRIP),
+                                  one) / extra,
+              varies: :column_height, from: Benchmarks::COLUMN_SHORT, to: Benchmarks::COLUMN_TALL,
+              note: "one more pixel across a stretched strip, beside the first")
+        weigh(:tearfree_column_extra_pixel,
+              Reductions.residual(@bench.column_row_cost("tfcolw", tear_free: true, width: Benchmarks::COLUMN_STRIP),
+                                  one_tf) / extra,
               varies: :column_height, from: Benchmarks::COLUMN_SHORT, to: Benchmarks::COLUMN_TALL,
               note: "the same, on the tear-free screen")
       end

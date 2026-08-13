@@ -886,12 +886,26 @@ module RubyGBA
         # game works out has no provable size — the same rule a rect with a computed side
         # follows — so it contributes nothing rather than a guess, and the estimate says so
         # rather than quietly under-reporting.
+        # A strip is ONE walk down the screen whatever its width — the picture is read once and
+        # the screen row found once — so the pixels beside the first are only their own writes,
+        # which is far less than a second walk.
         def draw_column_cost(node)
           rows = const_side(node.height)
-          per_row = @weights[tear_free? ? :tearfree_column_row : :column_row]
+          # The divisor is the height the game works out, so this is the dear kind of divide,
+          # and it is charged whatever the height turns out to be.
+          divide = runtime_divide_weight(nil)
+          return divide unless rows
 
-          # The divisor is the height the game works out, so this is the dear kind of divide.
-          runtime_divide_weight(nil) + (rows ? rows * per_row : 0)
+          divide + (rows * column_row_weight(node))
+        end
+
+        def column_row_weight(node)
+          first, extra = if tear_free?
+                           %i[tearfree_column_row tearfree_column_extra_pixel]
+                         else
+                           %i[column_row column_extra_pixel]
+                         end
+          @weights[first] + (((node.width || 1) - 1) * @weights[extra])
         end
 
         def dma_rows_cost(w, h)

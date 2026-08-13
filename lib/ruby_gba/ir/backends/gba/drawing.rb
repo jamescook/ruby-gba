@@ -286,97 +286,142 @@ module RubyGBA
           # rows lands — leaves gaps when stretching and writes some rows twice when squashing.
           # The interpreter walks the same way, which is what makes the two agree pixel for
           # pixel.
+          # ONE WALK FILLS THE WHOLE STRIP. Every pixel across a strip shows the same picture
+          # column at the same height, so working the walk out once and writing its answer
+          # across is not an optimisation — calling this once per pixel instead asks for the
+          # same answer that many times over.
           def emit_draw_column_at(node)
             return emit_draw_column_at_buffered(node) if @lower_mode == :buffered
 
             bmp = @bitmaps.fetch(node.name) do
               raise LoweringError, "draw_column_at of undefined image #{node.name.inspect}"
             end
-
-            x_reg = 4
-            y_reg = 5
-            rows_left = 6
-            pos = 8    # where we are in the picture, in 65536ths of a row
-            step = 9   # how far that moves per screen row
-            src = 10   # the address of the picture's column, at row 0
+            width = node.width || 1
 
             done = gensym
+            emit_column_setup(node, bmp, done)
+
+            # The screen's left and right edges are settled ONCE here, because a strip has one
+            # x for its whole height. A strip wholly on screen then writes with nothing to
+            # test; one hanging off an edge takes a second copy of the rows that tests each
+            # pixel, which is the rare case and pays for itself only there. A strip one pixel
+            # wide has no second case: it is on the screen or it draws nothing.
+            clipped = gensym
+            emit(ASM.cmp_imm(COLUMN_X, 0))
+            emit_branch(:bcond, clipped, cond: :lt)
+            emit(ASM.load_immediate(TMP, SCREEN_WIDTH - width))
+            emit(ASM.cmp_reg(COLUMN_X, TMP))
+            emit_branch(:bcond, clipped, cond: :gt)
+
+            emit_column_rows { emit_draw_column_row(bmp, width, clipped: false) }
+            emit_branch(:b, done) if width > 1
+            place_label(clipped)
+            emit_column_rows { emit_draw_column_row(bmp, width, clipped: true) } if width > 1
+            place_label(done)
+          end
+
+          # Everything a column needs before its first row: how many rows, how far down the
+          # picture each one moves, where it starts on screen, and where its pixels come from.
+          #
+          # +blob+ and +pixel_bytes+ differ by screen: the direct-color one reads the picture's
+          # colors, two bytes each, and the tear-free one reads the same picture as palette
+          # numbers, one byte each.
+          def emit_column_setup(node, bmp, done, blob: node.name, pixel_bytes: 2)
             eval_value(node.height)
-            emit(ASM.mov_reg(rows_left, ACC))
-            emit(ASM.cmp_imm(rows_left, 0))
+            emit(ASM.mov_reg(COLUMN_ROWS, ACC))
+            emit(ASM.cmp_imm(COLUMN_ROWS, 0))
             emit_branch(:bcond, done, cond: :le) # a column of no height draws nothing
 
             # step = (picture height << 16) / height, by the shared divide routine — which takes
             # the numerator in TMP and the divisor in ACC, and hands the answer back in ACC.
             emit(ASM.load_immediate(TMP, bmp.height << COLUMN_FIXED))
-            emit(ASM.mov_reg(ACC, rows_left))
+            emit(ASM.mov_reg(ACC, COLUMN_ROWS))
             emit_call_divide_routine
-            emit(ASM.mov_reg(step, ACC))
+            emit(ASM.mov_reg(COLUMN_STEP, ACC))
 
             eval_value(node.x)
-            emit(ASM.mov_reg(x_reg, ACC))
+            emit(ASM.mov_reg(COLUMN_X, ACC))
             eval_value(node.top)
-            emit(ASM.mov_reg(y_reg, ACC))
+            emit(ASM.mov_reg(COLUMN_Y, ACC))
 
             # The picture's column: its first pixel is `slice` pixels along its first row, and
             # its rows are a whole picture width apart.
             eval_value(node.slice)
             emit_clamp_to(ACC, bmp.width - 1)
-            emit(ASM.lsl_imm(ACC, ACC, 1)) # two bytes a pixel
-            emit_load_data_address(src, node.name)
-            emit(ASM.add_reg(src, src, ACC))
-
-            emit(ASM.load_immediate(pos, 0))
-            emit_row_loop(rows_left) do
-              emit_draw_column_pixel(bmp, x_reg, y_reg, pos, src)
-              emit(ASM.add_reg(pos, pos, step))
-              emit(ASM.add_imm(y_reg, y_reg, 1))
-            end
-            place_label(done)
+            emit(ASM.lsl_imm(ACC, ACC, 1)) if pixel_bytes == 2
+            emit_load_data_address(COLUMN_SRC, blob)
+            emit(ASM.add_reg(COLUMN_SRC, COLUMN_SRC, ACC))
           end
 
-          # One pixel of the column: work out which picture row we are on, read it, and store it
-          # where this screen row is — unless that row is off the screen, in which case the walk
-          # goes on without drawing, so a column taller than the screen still lands correctly.
-          def emit_draw_column_pixel(bmp, x_reg, y_reg, pos, src)
+          # The walk down the screen, one pass per row of the column.
+          def emit_column_rows
+            emit(ASM.load_immediate(COLUMN_POS, 0))
+            emit_row_loop(COLUMN_ROWS) do
+              yield
+              emit(ASM.add_reg(COLUMN_POS, COLUMN_POS, COLUMN_STEP))
+              emit(ASM.add_imm(COLUMN_Y, COLUMN_Y, 1))
+            end
+          end
+
+          # One row of the strip: work out which picture row we are on, read its colour, and
+          # write it across — unless the row is off the screen, in which case the walk goes on
+          # without drawing, so a column taller than the screen still lands correctly.
+          def emit_draw_column_row(bmp, width, clipped:)
             skip = gensym
 
-            emit(ASM.cmp_imm(y_reg, 0))
+            emit(ASM.cmp_imm(COLUMN_Y, 0))
             emit_branch(:bcond, skip, cond: :lt)
-            emit(ASM.cmp_imm(y_reg, SCREEN_HEIGHT))
-            emit_branch(:bcond, skip, cond: :ge)
-            emit(ASM.cmp_imm(x_reg, 0))
-            emit_branch(:bcond, skip, cond: :lt)
-            emit(ASM.cmp_imm(x_reg, SCREEN_WIDTH))
+            emit(ASM.cmp_imm(COLUMN_Y, SCREEN_HEIGHT))
             emit_branch(:bcond, skip, cond: :ge)
 
-            # colour = picture[(pos >> 16) * width + slice], the slice already folded into src
-            emit(ASM.lsr_imm(ACC, pos, COLUMN_FIXED))
+            emit_read_column_pixel(bmp, skip)
+
+            # ...to the screen at (x, y), and to the pixels beside it. Their addresses are a
+            # fixed distance along from the first, so the row's address is built once.
+            emit(ASM.load_immediate(TMP, SCREEN_WIDTH))
+            emit(ASM.mul(TMP, COLUMN_Y, TMP))
+            emit(ASM.add_reg(TMP, TMP, COLUMN_X))
+            emit(ASM.lsl_imm(TMP, TMP, 1))
+            emit(ASM.load_immediate(SPARE, VRAM_START))
+            emit(ASM.add_reg(TMP, TMP, SPARE))
+            width.times { |dx| emit_column_store(dx, clipped: clipped) }
+
+            place_label(skip)
+          end
+
+          # colour = picture[(pos >> 16) * width + slice], the slice already folded into
+          # COLUMN_SRC. Leaves it in ACC, or jumps to +skip+ when the pixel is see-through.
+          def emit_read_column_pixel(bmp, skip)
+            emit(ASM.lsr_imm(ACC, COLUMN_POS, COLUMN_FIXED))
             emit_clamp_to(ACC, bmp.height - 1)
             emit(ASM.load_immediate(TMP, bmp.width * 2))
             emit(ASM.mul(ACC, ACC, TMP))
-            emit(ASM.add_reg(ACC, src, ACC))
+            emit(ASM.add_reg(ACC, COLUMN_SRC, ACC))
             emit(ASM.load_halfword(ACC, ACC))
 
             # A see-through pixel carries a value no real color has, so it means "leave this
             # one alone" and nothing is written — which is what lets a scaled sprite in a
             # first-person view keep its shape instead of standing in a black box.
-            if bmp.transparent
-              emit(ASM.load_immediate(TMP, bmp.transparent))
-              emit(ASM.cmp_reg(ACC, TMP))
-              emit_branch(:bcond, skip, cond: :eq)
-            end
+            return unless bmp.transparent
 
-            # ...to the screen at (x, y)
-            emit(ASM.load_immediate(TMP, SCREEN_WIDTH))
-            emit(ASM.mul(TMP, y_reg, TMP))
-            emit(ASM.add_reg(TMP, TMP, x_reg))
-            emit(ASM.lsl_imm(TMP, TMP, 1))
-            emit(ASM.load_immediate(SPARE, VRAM_START))
-            emit(ASM.add_reg(TMP, TMP, SPARE))
-            emit(ASM.store_halfword(ACC, TMP))
+            emit(ASM.load_immediate(TMP, bmp.transparent))
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit_branch(:bcond, skip, cond: :eq)
+          end
 
-            place_label(skip)
+          # One pixel of the strip. In the clipped copy of the rows its own column is tested,
+          # since only part of the strip is on the screen.
+          def emit_column_store(offset, clipped:)
+            return emit(ASM.store_halfword_offset(ACC, TMP, offset * 2)) unless clipped
+
+            past = gensym
+            emit(ASM.add_imm(SPARE, COLUMN_X, offset))
+            emit(ASM.cmp_imm(SPARE, 0))
+            emit_branch(:bcond, past, cond: :lt)
+            emit(ASM.cmp_imm(SPARE, SCREEN_WIDTH))
+            emit_branch(:bcond, past, cond: :ge)
+            emit(ASM.store_halfword_offset(ACC, TMP, offset * 2))
+            place_label(past)
           end
 
           # Hold a register between 0 and +top+, so a slice or a row worked out past the edge of
