@@ -13,8 +13,17 @@ module Wolf3D
     COLUMN_W = 3          # ...three pixels each
     TURN = 512            # angle units in a full turn
     QUARTER = TURN / 4
-    SPREAD = 2            # angle units between one strip and the next
     CROSSINGS = 48        # grid lines a ray may cross before it gives up — about 24 cells
+
+    # HOW WIDE THE VIEW IS, which is one angle unit per strip — about 56 degrees across, near
+    # the 60 the original uses.
+    #
+    # It was two units, and that made a view of 111 degrees. A wide view is not a neutral
+    # choice: perspective genuinely stretches whatever is at the edge of it, and at 111
+    # degrees the strip at the edge covers three times the world the strip in the middle does,
+    # where at 60 degrees it covers one and a third. That stretch is what reads as a bend when
+    # you look along a wall rather than at it.
+    SPREAD = 1
 
     # The furthest one crossing can be worth. A ray running almost along an axis meets that
     # axis's lines almost never, and one over almost-nothing is too big to hold — so it is
@@ -24,7 +33,16 @@ module Wolf3D
     TEX = WallAtlas::SIDE # a wall picture is this many columns across...
     PAIR = TEX * 2        # ...and each wall keeps two of them, lit then dark
     HORIZON = 76          # the eye line
-    WALL_SCALE = 70.0     # how tall a wall one cell away stands
+    ACROSS = 240          # pixels across the screen
+
+    # HOW TALL A WALL ONE CELL AWAY STANDS, and it is not a free choice. It is the distance
+    # from the eye to the screen measured in pixels, and that follows from how wide the view
+    # is: a narrower view is a longer lens, and a longer lens makes everything bigger. Pick it
+    # independently of SPREAD and the picture is stretched one way or the other — walls too
+    # squat for the width of the view, or too tall for it.
+    HALF_VIEW = (COLUMNS - 1) * SPREAD / 2.0 # angle units from the middle of the view to its edge
+    WALL_SCALE = (ACROSS / 2) / Math.tan(HALF_VIEW * 2 * Math::PI / TURN)
+
     WALK = 0.07
     TURN_SPEED = 6
 
