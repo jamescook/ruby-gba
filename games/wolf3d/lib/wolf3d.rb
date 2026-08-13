@@ -15,10 +15,12 @@ require_relative "wolf3d/codec/rlew"
 require_relative "wolf3d/codec/carmack"
 require_relative "wolf3d/codec/huffman"
 require_relative "wolf3d/game_data"
+require_relative "wolf3d/palette"
 require_relative "wolf3d/level"
 require_relative "wolf3d/maps"
 require_relative "wolf3d/fixture/release"
 require_relative "wolf3d/map_view"
+require_relative "wolf3d/palette_view"
 require_relative "wolf3d/title"
 
 module Wolf3D
@@ -37,6 +39,8 @@ module Wolf3D
 
   def self.maps = @maps ||= data && Maps.from(data)
 
+  def self.palette = Palette.game
+
   # Say what the cartridge was built from, or how to fix it not knowing.
   def self.report(err = $stderr)
     data ? err.puts(data.describe) : err.puts(GameData.unset_message(home))
@@ -48,9 +52,13 @@ module Wolf3D
 
     level = Wolf3D.maps&.[](0)
     if level
-      view = Wolf3D::MapView.new(self, level).declare
+      map = Wolf3D::MapView.new(self, level).declare
+      colours = Wolf3D.palette && Wolf3D::PaletteView.new(self, Wolf3D.palette).declare
       draw_text level.name.upcase, 8, 4, :white
-      game_loop { view.draw }
+      game_loop do
+        map.draw
+        colours&.draw
+      end
     else
       title = Title.new(self)
       game_loop { title.update }

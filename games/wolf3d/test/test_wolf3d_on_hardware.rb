@@ -59,4 +59,19 @@ class TestMapViewOnHardware < Minitest::Test
     # And the screen either side of the map is left alone.
     refute_equal view::FLOOR, gba.pixel_gba(4, 100)
   end
+
+  # The game's own colours, on the console, read back one by one.
+  def test_the_games_own_colours_reach_the_screen
+    game_data_or_skip
+    palette = Wolf3D.palette
+    view = Wolf3D::PaletteView
+    gba = RubyGBA::Verifier.new(Wolf3D.build_rom(out: StringIO.new, err: StringIO.new), frames: 4)
+
+    [0, 1, 16, 255].each do |index|
+      x = view::ORIGIN_X + ((index % view::ACROSS) * view::CELL)
+      y = view::ORIGIN_Y + ((index / view::ACROSS) * view::CELL)
+
+      assert_equal palette[index], gba.pixel_gba(x, y), "colour #{index} on screen"
+    end
+  end
 end
