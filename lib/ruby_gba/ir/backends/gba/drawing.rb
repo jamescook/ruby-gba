@@ -278,12 +278,6 @@ module RubyGBA
           # A size settled while building is unrolled with an immediate control word,
           # exactly as it always was, so a paddle or a ball costs what it did before.
           # Only a size the game works out pays for a counter and a computed word.
-          # How many bits of fraction the walk down a column keeps. The step is a picture row
-          # per screen row and is almost never whole — a wall twice as tall as its picture
-          # advances half a row at a time — so it is kept in 65536ths and added, because adding
-          # is one instruction and dividing is a subroutine.
-          COLUMN_FIXED = 16
-
           # One column of a picture, stretched to a height worked out as the game runs. The
           # whole of a first-person view is this, once per strip across the screen.
           #
@@ -293,10 +287,11 @@ module RubyGBA
           # The interpreter walks the same way, which is what makes the two agree pixel for
           # pixel.
           def emit_draw_column_at(node)
+            return emit_draw_column_at_buffered(node) if @lower_mode == :buffered
+
             bmp = @bitmaps.fetch(node.name) do
               raise LoweringError, "draw_column_at of undefined image #{node.name.inspect}"
             end
-            raise LoweringError, column_unsupported_message if @lower_mode == :buffered
 
             x_reg = 4
             y_reg = 5
@@ -363,6 +358,15 @@ module RubyGBA
             emit(ASM.add_reg(ACC, src, ACC))
             emit(ASM.load_halfword(ACC, ACC))
 
+            # A see-through pixel carries a value no real color has, so it means "leave this
+            # one alone" and nothing is written — which is what lets a scaled sprite in a
+            # first-person view keep its shape instead of standing in a black box.
+            if bmp.transparent
+              emit(ASM.load_immediate(TMP, bmp.transparent))
+              emit(ASM.cmp_reg(ACC, TMP))
+              emit_branch(:bcond, skip, cond: :eq)
+            end
+
             # ...to the screen at (x, y)
             emit(ASM.load_immediate(TMP, SCREEN_WIDTH))
             emit(ASM.mul(TMP, y_reg, TMP))
@@ -390,11 +394,6 @@ module RubyGBA
             emit_branch(:bcond, under, cond: :le)
             emit(ASM.mov_reg(reg, TMP))
             place_label(under)
-          end
-
-          def column_unsupported_message
-            "`draw_column_at` cannot draw on the tear-free screen yet (`tear_free: true`). " \
-              "Use `screen :bitmap` for now."
           end
 
           def emit_draw_rect_at(node)

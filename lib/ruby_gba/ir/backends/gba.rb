@@ -165,6 +165,13 @@ module RubyGBA
         SPARE = 2 # somewhere to keep a value while the accumulator is busy
         HIGH = 3  # the top half of a 64-bit product
 
+        # How many bits of fraction the walk down a stretched column keeps. The step is a
+        # picture row per screen row and is almost never whole — a wall twice as tall as its
+        # picture advances half a row at a time — so it is kept in 65536ths and added, because
+        # adding is one instruction and dividing is a subroutine. Both screens walk a column
+        # this way, which is what makes them land every pixel in the same place.
+        COLUMN_FIXED = 16
+
         # Interrupt-driven frame timing. `wait_vblank` asks the BIOS to sleep the CPU
         # until the next VBlank rather than busy-poll the scanline counter — the BIOS
         # routine VBlankIntrWait (software-interrupt number 5). It only returns once a

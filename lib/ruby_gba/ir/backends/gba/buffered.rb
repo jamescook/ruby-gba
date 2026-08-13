@@ -590,6 +590,196 @@ module RubyGBA
             end
           end
 
+          # Held for the whole of a stretched column: r5 the screen row, r6 how many rows
+          # are left, r8 where we are in the picture, r9 how far that moves per screen row,
+          # r10 the picture's column, r11 the address of the 16-bit unit this row writes
+          # into. r4 holds the screen column, but only during setup — see below, nothing
+          # inside the walk needs it.
+          COLUMN_X = 4
+          COLUMN_Y = 5
+          COLUMN_ROWS = 6
+          COLUMN_POS = 8
+          COLUMN_STEP = 9
+          COLUMN_SRC = 10
+          COLUMN_DEST = 11
+
+          # r2 keeps the half of the unit that is NOT being written, r3 how far to shift the
+          # new pixel into place. Both are needed only when the column's evenness cannot be
+          # proved while building; they are set up after every operand has been worked out,
+          # so nothing else wants them by then.
+          COLUMN_MASK = 2
+          COLUMN_SHIFT = 3
+
+          # One column of a picture, stretched to a height the game works out — on the
+          # tear-free screen.
+          #
+          # It walks DOWN THE SCREEN and asks which picture row belongs at each screen row,
+          # exactly as the direct-color screen does, because that is what makes the two
+          # screens and the interpreter land every pixel in the same place. What differs is
+          # the two things this screen forces: a pixel is one BYTE (a number picking a color
+          # out of the shared table) rather than two, and video memory refuses a lone byte —
+          # the smallest write covers a side-by-side PAIR of pixels. So every pixel is a
+          # read of its pair, a splice of its own half, and a write back.
+          #
+          # TWO QUESTIONS ARE ANSWERED ONCE HERE THAT THE OTHER SCREEN ASKS AT EVERY PIXEL,
+          # and both come from the same fact: a column has ONE x for its whole height.
+          #
+          #   - The screen's left and right edges. A column is either on the screen or it is
+          #     not, so it is tested before the first row instead of at every one.
+          #   - WHICH HALF OF THE PAIR to write. A row is an even number of bytes across, so
+          #     the parity of a pixel's address is the parity of its column — the same half,
+          #     every row, all the way down. That also means the unit's address needs no
+          #     rounding as it walks: it starts on the pair the column sits in and steps one
+          #     screen width per row.
+          def emit_draw_column_at_buffered(node)
+            bmp = @bitmaps.fetch(node.name) do
+              raise LoweringError, "draw_column_at of undefined image #{node.name.inspect}"
+            end
+
+            done = gensym
+            emit_column_step(node, done)
+            return unless emit_column_position(node, bmp, done)
+
+            parity = Parity.of(node.x)
+            emit_column_splice_setup unless parity
+            clear = @indexed_bitmaps[node.name]
+
+            emit(ASM.load_immediate(COLUMN_POS, 0))
+            emit_row_loop(COLUMN_ROWS) do
+              emit_draw_column_pixel_buffered(bmp, parity, clear)
+              emit(ASM.add_reg(COLUMN_POS, COLUMN_POS, COLUMN_STEP))
+              emit(ASM.add_imm(COLUMN_Y, COLUMN_Y, 1))
+              emit(ASM.add_imm(COLUMN_DEST, COLUMN_DEST, SCREEN_WIDTH)) # one row down
+            end
+            place_label(done)
+          end
+
+          # How far down the picture one screen row moves: the picture's height over the
+          # column's, kept in 65536ths so the walk can add rather than divide. A column of no
+          # height draws nothing, which is what lets a wall at the far end of a corridor need
+          # no test around it.
+          def emit_column_step(node, done)
+            eval_value(node.height)
+            emit(ASM.mov_reg(COLUMN_ROWS, ACC))
+            emit(ASM.cmp_imm(COLUMN_ROWS, 0))
+            emit_branch(:bcond, done, cond: :le)
+
+            emit(ASM.load_immediate(TMP, bitmap_height_fixed(node)))
+            emit(ASM.mov_reg(ACC, COLUMN_ROWS))
+            emit_call_divide_routine
+            emit(ASM.mov_reg(COLUMN_STEP, ACC))
+          end
+
+          def bitmap_height_fixed(node) = @bitmaps.fetch(node.name).height << COLUMN_FIXED
+
+          # Where the column reads from and where it writes to. Returns false when the whole
+          # column is off the side of the screen and there is nothing left to emit.
+          def emit_column_position(node, bmp, done)
+            eval_value(node.x)
+            emit(ASM.mov_reg(COLUMN_X, ACC))
+            emit(ASM.cmp_imm(COLUMN_X, 0))
+            emit_branch(:bcond, done, cond: :lt)
+            emit(ASM.cmp_imm(COLUMN_X, SCREEN_WIDTH))
+            emit_branch(:bcond, done, cond: :ge)
+
+            eval_value(node.top)
+            emit(ASM.mov_reg(COLUMN_Y, ACC))
+
+            # The picture's column, as palette numbers: one byte a pixel, so the slice is the
+            # offset. A slice past the last column reads that column rather than whatever sits
+            # next in memory — which is what lets a game lay a hundred wall pictures side by
+            # side and pick between them with arithmetic.
+            eval_value(node.slice)
+            emit_clamp_to(ACC, bmp.width - 1)
+            emit_load_data_address(COLUMN_SRC, indexed_blob(node.name))
+            emit(ASM.add_reg(COLUMN_SRC, COLUMN_SRC, ACC))
+
+            emit_column_destination
+            true
+          end
+
+          # The unit the column's first row writes into: the hidden page, that row, and the
+          # column rounded down to the pair it shares. A top above the screen makes this an
+          # address before the page, which is fine — the walk steps forward to it and writes
+          # nothing until the row is on screen.
+          def emit_column_destination
+            emit(ASM.load_immediate(TMP, SCREEN_WIDTH))
+            emit(ASM.mul(COLUMN_DEST, COLUMN_Y, TMP)) # 1 byte a pixel, so this is bytes
+            load_var(TMP, BACKBUF)
+            emit(ASM.add_reg(COLUMN_DEST, COLUMN_DEST, TMP))
+            emit(ASM.lsr_imm(TMP, COLUMN_X, 1)) # clear the low bit ->
+            emit(ASM.lsl_imm(TMP, TMP, 1))      # ...the pair this column sits in
+            emit(ASM.add_reg(COLUMN_DEST, COLUMN_DEST, TMP))
+          end
+
+          # When the column's evenness cannot be proved while building, the two constants the
+          # splice would have used become registers. It costs one instruction per pixel over
+          # the proved case — which is why proving it is worth something: a view that draws
+          # its strips two pixels wide writes `col * 2`, and twice anything is even.
+          def emit_column_splice_setup
+            odd = gensym
+            done = gensym
+            emit(ASM.and_imm(ACC, COLUMN_X, 1))
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, odd, cond: :ne)
+            emit(ASM.load_immediate(COLUMN_MASK, 0xFF00)) # even: keep the right pixel...
+            emit(ASM.load_immediate(COLUMN_SHIFT, 0))     # ...and write the left one where it is
+            emit_branch(:b, done)
+            place_label(odd)
+            emit(ASM.load_immediate(COLUMN_MASK, 0x00FF)) # odd: keep the left pixel...
+            emit(ASM.load_immediate(COLUMN_SHIFT, 8))     # ...and move the new one into the right
+            place_label(done)
+          end
+
+          # One pixel of the column: which picture row belongs at this screen row, read it,
+          # and splice it into the pair this column shares — unless the row is off the top or
+          # bottom of the screen, in which case the walk goes on without drawing, so a wall
+          # taller than the screen still lands where it should.
+          def emit_draw_column_pixel_buffered(bmp, parity, clear)
+            skip = gensym
+            emit(ASM.cmp_imm(COLUMN_Y, 0))
+            emit_branch(:bcond, skip, cond: :lt)
+            emit(ASM.cmp_imm(COLUMN_Y, SCREEN_HEIGHT))
+            emit_branch(:bcond, skip, cond: :ge)
+
+            # number = picture[(pos >> 16) * width + slice], the slice already folded into src
+            emit(ASM.lsr_imm(ACC, COLUMN_POS, COLUMN_FIXED))
+            emit_clamp_to(ACC, bmp.height - 1)
+            emit(ASM.load_immediate(TMP, bmp.width))
+            emit(ASM.mul(ACC, ACC, TMP))
+            emit(ASM.add_reg(ACC, COLUMN_SRC, ACC))
+            emit(ASM.ldrb_offset(ACC, ACC, 0))
+
+            # A see-through pixel carries the one number that is not any color in the table,
+            # so it means "leave this one alone" and the pair is not touched at all.
+            if clear
+              emit(ASM.load_immediate(TMP, clear))
+              emit(ASM.cmp_reg(ACC, TMP))
+              emit_branch(:bcond, skip, cond: :eq)
+            end
+
+            emit(ASM.load_halfword(TMP, COLUMN_DEST))
+            emit_splice_column_pixel(parity)
+            emit(ASM.store_halfword(TMP, COLUMN_DEST))
+            place_label(skip)
+          end
+
+          # Put the new pixel (r0) into its half of the pair (r1), keeping the other half.
+          def emit_splice_column_pixel(parity)
+            case parity
+            when :even
+              emit(ASM.and_imm(TMP, TMP, 0xFF00))
+              emit(ASM.orr_reg(TMP, TMP, ACC))
+            when :odd
+              emit(ASM.and_imm(TMP, TMP, 0x00FF))
+              emit(ASM.orr_reg_lsl(TMP, TMP, ACC, 8))
+            else
+              emit(ASM.and_reg(TMP, TMP, COLUMN_MASK))
+              emit(ASM.mov_reg_lsl_reg(ACC, ACC, COLUMN_SHIFT))
+              emit(ASM.orr_reg(TMP, TMP, ACC))
+            end
+          end
+
           # blit doesn't work on the indexed screen: its images are stored as direct
           # colors, which need converting to palette indices first. Point at what does.
           def blit_unsupported_in_buffered!
