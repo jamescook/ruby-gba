@@ -7,8 +7,9 @@ module Wolf3D
     BLINK_ON = 60
     BLINK_OFF = 120
 
-    def initialize(build)
+    def initialize(build, data = nil)
       @build = build
+      @data = data
       @blink = build.var :_title_blink, 0
     end
 
@@ -19,7 +20,12 @@ module Wolf3D
 
       @blink.add 1
       (@blink >= BLINK_OFF).then { @blink.set 0 }
-      (@blink < BLINK_ON).then { @build.draw_text "NO GAME DATA", 78, 104, :red }
+      (@blink < BLINK_ON).then { @build.draw_text banner, 78, 104, @data ? :green : :red }
     end
+
+    private
+
+    # Which release the cartridge was built from, so a ROM says where its data came from.
+    def banner = @data ? @data.set : "NO GAME DATA"
   end
 end

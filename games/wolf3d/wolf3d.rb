@@ -9,4 +9,5 @@
 
 require_relative "lib/wolf3d"
 
+Wolf3D.report if $PROGRAM_NAME == __FILE__
 Wolf3D::GAME.write_if_main
