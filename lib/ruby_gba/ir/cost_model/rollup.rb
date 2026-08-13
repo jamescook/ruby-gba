@@ -623,6 +623,8 @@ module RubyGBA
         # report 106 of its 228.
         def repeat_factor(node, typical: false)
           count = node.count
+          early = early_exit_passes(node, typical: typical)
+          return early if early
           return [count.value, "x#{count.value}"] if count.is_a?(Node) && count.kind == :int
           if count.is_a?(Node) && count.kind == :list_len && @capacities[count.name]
             cap = @capacities[count.name]
@@ -645,6 +647,35 @@ module RubyGBA
           yield
         ensure
           @at_full_capacity = was
+        end
+
+        # A LOOP THAT CAN STOP EARLY, which makes its count a ceiling rather than a number of
+        # passes. Nothing in the program says where it really leaves, so this is the same
+        # question a list's length is, from the other side: a known ceiling with an unknown
+        # real count.
+        #
+        # It matters more here than anywhere else, because a ceiling is picked so it can never
+        # be reached and this kind of loop sits inside another one. A ray that gives up after
+        # forty-eight crossings meets a wall in a handful, and eighty rays multiply the
+        # difference — counting the ceiling read seven times what the console really does.
+        #
+        # The WORST case still counts every pass, and the tree still prints the ceiling.
+        def early_exit_passes(node, typical:)
+          return nil unless stops_early?(node)
+
+          ceiling = node.count.is_a?(Node) && node.count.kind == :int ? node.count.value : nil
+          return [ceiling || 0, "x<=#{ceiling || '?'} (stops early)"] unless typical
+
+          said = node.usually
+          passes = said || (ceiling && unsaid_share(ceiling)) || 0
+          [passes, "x#{passes} (usually, of #{ceiling || '?'})"]
+        end
+
+        # Whether this loop can leave before its count runs out. A stop_when of a plain nought
+        # is what a loop with no early exit carries, so it is not one.
+        def stops_early?(node)
+          leave = node.stop_when
+          !leave.nil? && !(leave.kind == :int && leave.value.zero?)
         end
 
         # HOW MUCH OF A CAPACITY IS USUALLY IN USE, when nothing in the program says.

@@ -473,11 +473,16 @@ module RubyGBA
       # +stop_when+ is a value checked before each pass: when it is true the loop ends early,
       # which is what a search wants — a ray that has met a wall has its answer and every step
       # after it is spent proving nothing.
+      # +usually+ is how many passes a loop that can STOP EARLY normally makes. The count is
+      # then a ceiling rather than a number of passes, and nothing in the program says where
+      # the loop really leaves — so this is the same hint a list and a pool take, and for the
+      # same reason: what the estimate needs is the every-frame load, not the worst moment.
+      # nil where nothing was said, or where the loop runs to its count every time.
       class Repeat
         include Node
         kind :repeat
         category :control
-        operands count: :value, index: :name, stop_when: :value
+        operands count: :value, index: :name, stop_when: :value, usually: :int
       end
 
       class RestoreRegion

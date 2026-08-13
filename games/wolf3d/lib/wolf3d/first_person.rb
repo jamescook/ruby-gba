@@ -436,7 +436,13 @@ module Wolf3D
 
       # Take whichever line is nearer, every time. That is all there is to it — and it stops
       # the moment it meets a wall, which is well before the last crossing it is allowed.
-      b.repeat(CROSSINGS, stop_when: @hit == 1) do
+      #
+      # HOW SOON IT STOPS is measured rather than felt, because nothing at build time can know
+      # it and the estimate would otherwise count the ceiling: walking these same rays over the
+      # first floor, from sixty-four places and four ways round each, a ray crosses four and a
+      # bit grid lines and no ray in twenty thousand ever ran out. So the ceiling is generous
+      # and free, and this is what a frame really pays.
+      b.repeat(CROSSINGS, stop_when: @hit == 1, estimate: { usually: 5 }) do
         (@sidex < @sidey).then do
           @sidex.add @deltax
           @mapx.add @stepmx

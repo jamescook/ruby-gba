@@ -377,6 +377,7 @@ module RubyGBA
 
           list_walk_line(program, printer)
           live_slot_line(program, printer)
+          early_exit_line(program, printer)
 
           if frame_total > recurring + 0.1
             printer.puts "    (a heavier frame reaches #{fmt(frame_total)} — the worst case for everything on it, " \
@@ -422,6 +423,24 @@ module RubyGBA
           else
             printer.puts "    (a pool walks every slot, and runs its body for the live ones — #{at}, " \
                          "a guess. To give the real number, write estimate: { usually: N } on the pool.)"
+          end
+        end
+
+        # HOW MANY PASSES A LOOP THAT STOPS EARLY WAS COUNTED AT. The third assumption in the
+        # budget, and the one that can be furthest out — a ceiling is picked so it can never
+        # be reached, and this kind of loop usually sits inside another, so the over-count
+        # multiplies.
+        def early_exit_line(program, printer)
+          loops = early_exit_verdicts(program)
+          return if loops.empty?
+
+          at = loops.map { |l| "#{l.counted} of #{l.ceiling || '?'}" }.join(", ")
+          if loops.all?(&:said)
+            printer.puts "    (a loop that stops early counts the passes it usually makes — " \
+                         "#{at}, the number you gave)"
+          else
+            printer.puts "    (a loop that stops early counts the passes it usually makes — #{at}, " \
+                         "a guess. To give the real number, write estimate: { usually: N } on the repeat.)"
           end
         end
 
