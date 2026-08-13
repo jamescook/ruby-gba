@@ -187,11 +187,17 @@ module RubyGBA
 
       # One column of a picture, stretched to a height the program works out. The whole of a
       # first-person view is this, done once per strip across the screen.
+      #
+      # +width+ is how many pixels ACROSS the strip is. A view whose strips are wider than a
+      # pixel shows the same picture column at the same height in each of them, so the width
+      # belongs here rather than in a loop the caller writes: one walk down the screen fills
+      # the whole strip. It is a number settled while building, because a strip's width is a
+      # property of the view rather than something a game works out per frame.
       class DrawColumnAt
         include Node
         kind :draw_column_at
         category :draw
-        operands name: :name, slice: :value, x: :value, top: :value, height: :value
+        operands name: :name, slice: :value, x: :value, top: :value, height: :value, width: :int
       end
 
       class DrawText

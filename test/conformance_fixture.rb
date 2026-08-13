@@ -146,6 +146,9 @@ module ConformanceFixture
       # which picture row belongs at each screen row, so seven screen rows show the picture's
       # four rows spread over them — walking the picture instead would leave gaps.
       B.draw_column_at(:sprite, B.int(1), B.int(60), B.int(30), B.var_ref(:x)),
+      # ...and as a STRIP, whose pixels share one walk down the screen. At an odd column, so a
+      # backend whose pixels are packed in pairs has to splice rather than write whole ones.
+      B.draw_column_at(:sprite, B.int(1), B.int(71), B.int(30), B.var_ref(:x), width: 3),
       B.draw_text("HI", 10, 10, :white),
       B.draw_digit(B.var_ref(:x), 20, 10, :white), # one run-time digit glyph
       B.blit(:sprite, :x, :y),

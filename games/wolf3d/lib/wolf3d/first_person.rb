@@ -234,11 +234,12 @@ module Wolf3D
     # crossing point that is past the grid line the wall stands on.
     def texture_column = (@wallx * TEX).to_i % TEX
 
+    # The whole strip is one walk down the screen. Its pixels all show the same column of the
+    # same picture at the same height, so asking for them one at a time worked the same answer
+    # out three times over.
     def strip(x, slice)
-      COLUMN_W.times do |dx|
-        (@hit == 1).then do
-          @b.draw_column_at :walls, slice: slice, x: x + dx, top: @top, height: @colh
-        end
+      (@hit == 1).then do
+        @b.draw_column_at :walls, slice: slice, x: x, top: @top, height: @colh, width: COLUMN_W
       end
     end
   end

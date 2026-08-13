@@ -750,18 +750,22 @@ module RubyGBA
       COLUMN_SHORT = 8
       COLUMN_TALL = 32
 
-      def column_row_cost(tag, tear_free:)
-        a = column_busy("#{tag}#{COLUMN_SHORT}", COLUMN_SHORT, tear_free)
-        z = column_busy("#{tag}#{COLUMN_TALL}", COLUMN_TALL, tear_free)
+      def column_row_cost(tag, tear_free:, width: 1)
+        a = column_busy("#{tag}#{COLUMN_SHORT}", COLUMN_SHORT, tear_free, width)
+        z = column_busy("#{tag}#{COLUMN_TALL}", COLUMN_TALL, tear_free, width)
         Reductions.marginal(z, a, over: COLUMN_PASSES * (COLUMN_TALL - COLUMN_SHORT))
       end
 
-      # The columns are spread three pixels apart, so they land on even and odd columns alike
-      # — which is what a view drawing strips wider than a pixel does, and on the tear-free
-      # screen it is the case that cannot prove which half of a pair it writes.
-      COLUMN_SPREAD = 3
+      # A strip of this many pixels, for reading what the pixels BESIDE the first cost. Three
+      # rather than two because two is the one width that happens to fall exactly on a pair on
+      # the tear-free screen, and a weight measured only on the lucky case would under-read.
+      COLUMN_STRIP = 3
 
-      def column_busy(name, height, tear_free)
+      # The strips are spread wide enough not to overlap, and at a spacing that lands them on
+      # even and odd columns alike — which is what a view drawing strips wider than a pixel
+      # does, and on the tear-free screen it is the case that cannot prove which half of a pair
+      # it writes.
+      def column_busy(name, height, tear_free, width)
         rom = cartridge_build(name) do
           screen :bitmap, tear_free: tear_free
           image :art, width: 8, height: 64, data: Array.new(8 * 64) { |i| i.even? ? :red : :blue }
@@ -769,7 +773,7 @@ module RubyGBA
           game_loop do
             tall.set height
             repeat(COLUMN_PASSES) do |c|
-              draw_column_at :art, slice: 0, x: c * COLUMN_SPREAD, top: 10, height: tall
+              draw_column_at :art, slice: 0, x: c * COLUMN_STRIP, top: 10, height: tall, width: width
             end
           end
         end

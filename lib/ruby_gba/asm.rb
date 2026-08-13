@@ -383,6 +383,16 @@ module RubyGBA
       [0xE1D000B0 | (rn << 16) | (rd << 12)].pack("V")
     end
 
+    # LDRH rd, [rn, #offset] — the same load a fixed distance further on, so a run of
+    # neighbouring halfwords needs no address arithmetic between them. Splits its offset
+    # across two nibbles the way {store_halfword_offset} does, and for the same reason.
+    # @param offset [Integer] byte offset, 0..255
+    def load_halfword_offset(rd, rn, offset)
+      raise ArgumentError, "halfword load offset #{offset} is outside 0..255" unless (0..255).cover?(offset)
+
+      [0xE1D000B0 | (rn << 16) | (rd << 12) | ((offset & 0xF0) << 4) | (offset & 0x0F)].pack("V")
+    end
+
     # LDRSH rd, [rn] — load signed 16-bit halfword, sign-extended into the whole
     # register (the halfword counterpart of LDRSB; same encoding as LDRH but the
     # signed-halfword selector). The general way to read a signed 16-bit value.

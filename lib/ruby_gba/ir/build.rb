@@ -159,9 +159,9 @@ module RubyGBA
         Nodes.build(:draw_rect_at, x: wrap(x), y: wrap(y), w: wrap(w), h: wrap(h), color: color)
       end
 
-      def draw_column_at(name, slice, x, top, height)
+      def draw_column_at(name, slice, x, top, height, width: 1)
         Nodes.build(:draw_column_at, name: name, slice: wrap(slice), x: wrap(x),
-                                     top: wrap(top), height: wrap(height))
+                                     top: wrap(top), height: wrap(height), width: width)
       end
 
       # Fill a rectangle at a fixed position and size — same picture as

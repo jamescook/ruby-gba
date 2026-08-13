@@ -183,6 +183,51 @@ class TestDrawColumnAt < Minitest::Test
     assert_empty differ.first(8), "these pixels differ between the interpreter and the console"
   end
 
+  # A STRIP IS ONE WALK. Its pixels all show the same picture column at the same height, so
+  # asking for them one at a time works the same answer out that many times over. What it
+  # draws has to be identical, which is what this pins.
+  def test_a_strip_draws_what_the_same_pixels_drawn_one_at_a_time_draw
+    apiece = program do
+      game_loop { 3.times { |dx| draw_column_at :bars, slice: 0, x: 10 + dx, top: 4, height: 8 } }
+    end
+    strip = program do
+      game_loop { draw_column_at :bars, slice: 0, x: 10, top: 4, height: 8, width: 3 }
+    end
+
+    one = Reference.new.run(apiece, frames: 2)
+    many = Reference.new.run(strip, frames: 2)
+    differ = (0...240).to_a.product((0...160).to_a).reject do |x, y|
+      one.screen.pixel(x, y) == many.screen.pixel(x, y)
+    end
+
+    assert_empty differ.first(8), "a strip drew something different from its own pixels"
+    assert_equal %i[red red green green blue blue white white], column_on_screen(many, 12, 4, 12)
+  end
+
+  # A strip hanging off the side of the screen keeps the part that is on it. This is the case
+  # a first-person view meets only at the edges, and the one a shared walk could quietly get
+  # wrong by drawing the whole strip or none of it.
+  def test_a_strip_past_the_edge_keeps_the_part_that_is_on_screen
+    run = Reference.new.run(program do
+      game_loop do
+        draw_column_at :bars, slice: 0, x: 238, top: 0, height: 4, width: 4
+        draw_column_at :bars, slice: 0, x: -2, top: 0, height: 4, width: 4
+      end
+    end, frames: 2)
+
+    assert_equal :red, column_on_screen(run, 239, 0, 1).first, "the pixel still on screen draws"
+    assert_equal :red, column_on_screen(run, 0, 0, 1).first, "and at the other edge too"
+    assert_nil run.screen.pixel(240, 0), "nothing past the right edge"
+  end
+
+  def test_a_width_that_is_not_a_whole_number_of_pixels_says_so
+    err = assert_raises(ArgumentError) do
+      program { game_loop { draw_column_at :bars, slice: 0, x: 0, top: 0, height: 4, width: 0 } }
+    end
+
+    assert_match(/width/, err.message)
+  end
+
   # A see-through picture keeps its shape: the pixels it leaves out are left alone rather
   # than painted, which is what a scaled sprite in a first-person view needs — a guard down
   # a corridor, not a guard in a black box.
@@ -239,6 +284,18 @@ class TestDrawColumnAtTearFree < Minitest::Test
         draw_column_at :bars, slice: 0, x: 239, top: 0, height: 8    # the last column
         draw_column_at :bars, slice: 0, x: 240, top: 0, height: 8    # off the right edge
         draw_column_at :bars, slice: 0, x: -1, top: 0, height: 8     # off the left edge
+
+        # ...and the same as STRIPS, which write whole pairs where they can. Both parities,
+        # a width that covers a pair exactly and one that does not, and both edges.
+        draw_column_at :bars, slice: 0, x: 140, top: 20, height: 12, width: 3
+        draw_column_at :bars, slice: 0, x: 151, top: 20, height: 12, width: 3
+        draw_column_at :bars, slice: 0, x: 160, top: 20, height: 12, width: 2
+        draw_column_at :bars, slice: 0, x: 171, top: 20, height: 12, width: 4
+        draw_column_at :ghost, slice: 0, x: 180, top: 20, height: 12, width: 3
+        draw_column_at :bars, slice: 0, x: 237, top: 20, height: 12, width: 5
+        draw_column_at :bars, slice: 0, x: -2, top: 20, height: 12, width: 5
+        at.set 200
+        draw_column_at :bars, slice: 0, x: at, top: 100, height: 12, width: 3
       end
     end
     b.emit_pending_functions

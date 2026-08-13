@@ -172,6 +172,19 @@ module RubyGBA
         # this way, which is what makes them land every pixel in the same place.
         COLUMN_FIXED = 16
 
+        # The registers a stretched column works in, shared by both screens' lowerings so there
+        # is one story about them. r4 the screen column, r5 the screen row, r6 how many rows are
+        # left, r8 where we are in the picture, r9 how far that moves per screen row, r10 the
+        # picture's column. The tear-free screen needs one more, r11, for the address of the
+        # 16-bit unit the current row writes into.
+        COLUMN_X = 4
+        COLUMN_Y = 5
+        COLUMN_ROWS = 6
+        COLUMN_POS = 8
+        COLUMN_STEP = 9
+        COLUMN_SRC = 10
+        COLUMN_DEST = 11
+
         # Interrupt-driven frame timing. `wait_vblank` asks the BIOS to sleep the CPU
         # until the next VBlank rather than busy-poll the scanline counter — the BIOS
         # routine VBlankIntrWait (software-interrupt number 5). It only returns once a

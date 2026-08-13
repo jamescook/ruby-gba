@@ -239,20 +239,33 @@ module RubyGBA
       # A height of zero or less draws nothing, and anything off the top or bottom of the
       # screen is clipped, so a wall you are nose-to-nose with needs no test around it.
       #
+      # +width+ is how many pixels ACROSS the strip is, 1 by default. A view drawing
+      # strips wider than a pixel wants this rather than a loop of its own: the whole
+      # strip shows the same picture column at the same height, so one walk down the
+      # screen fills all of it. Calling this once per pixel instead works out the same
+      # answer that many times over.
+      #
       # @param name [Symbol] a picture defined with {#image}
       # @param slice [Symbol, Integer, Value] which column of the picture
       # @param x [Symbol, Integer, Value] where it lands on screen
       # @param top [Symbol, Integer, Value] the screen row it starts on
       # @param height [Symbol, Integer, Value] how tall to stretch it
-      def draw_column_at(name, slice:, x:, top:, height:)
+      # @param width [Integer] how many pixels across, settled while building
+      def draw_column_at(name, slice:, x:, top:, height:, width: 1)
         unless @images.key?(name)
           raise ArgumentError,
                 "draw_column_at needs a picture. There is no image :#{name}. " \
                 "Define it with `image :#{name} do ... end` first."
         end
+        unless width.is_a?(Integer) && width.positive?
+          raise ArgumentError,
+                "draw_column_at needs a `width:` of 1 or more, settled while you build. " \
+                "Got #{width.inspect}. A strip's width is a property of the view, not " \
+                "something the game works out as it runs."
+        end
 
         record(Build.draw_column_at(name, Value.node_for(slice), Value.node_for(x),
-                                    Value.node_for(top), Value.node_for(height)))
+                                    Value.node_for(top), Value.node_for(height), width: width))
         [slice, x, top, height].each { |operand| ensure_var(operand) }
       end
 

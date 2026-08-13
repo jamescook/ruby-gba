@@ -1183,13 +1183,17 @@ module RubyGBA
           top = eval_value(node.top)
           step = (bmp.height << FIXED) / height
 
+          # Every pixel across the strip shows the same picture column at the same height, so
+          # the walk is done once and its answer written across.
+          width = node.width || 1
+
           height.times do |row|
             source = ((row * step) >> FIXED).clamp(0, bmp.height - 1)
             at = (((source * bmp.width) + slice) * 2)
             color = pixels.getbyte(at) | (pixels.getbyte(at + 1) << 8)
             next if bmp.transparent && color == bmp.transparent
 
-            @screen.set_pixel(x, top + row, color) # the screen clips for us
+            width.times { |dx| @screen.set_pixel(x + dx, top + row, color) } # the screen clips
           end
         end
 
