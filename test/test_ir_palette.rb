@@ -246,4 +246,80 @@ class TestIRPalette < Minitest::Test
 
     assert_match(/300/, err.message)
   end
+
+  # The indexed screen holds a NUMBER per pixel where a picture holds a whole color, so a
+  # picture needs a second form before anything can draw it there.
+  def test_a_picture_converts_to_the_numbers_its_colors_sit_at
+    prog = program do
+      screen :bitmap, tear_free: true
+      image(:flag, "." => :red, "#" => :blue) { "..##\n##..\n" }
+      game_loop { clear_screen :red }
+    end
+    pal = Palette.build(prog)
+    bytes, clear = pal.indices_for(bitmap_in(prog))
+
+    assert_nil clear, "a solid picture has no see-through number"
+    assert_equal [pal.index_of(:red)] * 2 + [pal.index_of(:blue)] * 2, bytes.bytes.first(4)
+  end
+
+  # A see-through pixel is not a color, so it needs a number no slot uses — otherwise a drawer
+  # cannot tell "leave this alone" from "paint slot 0".
+  def test_a_see_through_pixel_gets_a_number_that_is_not_a_slot
+    prog = program do
+      screen :bitmap, tear_free: true
+      image(:ghost, "." => :transparent, "#" => :green) { ".##.\n#..#\n" }
+      game_loop { clear_screen :red }
+    end
+    pal = Palette.build(prog)
+    bytes, clear = pal.indices_for(bitmap_in(prog))
+
+    assert_equal pal.size, clear
+    refute_operator clear, :<, pal.size, "the see-through number must not be a real slot"
+    assert_equal [clear, pal.index_of(:green), pal.index_of(:green), clear], bytes.bytes.first(4)
+  end
+
+  # A supplied table is the case this exists for: the picture's pixels are numbers picking out
+  # of it, so the conversion has to give those same numbers back.
+  def test_a_picture_converts_through_a_supplied_table_to_its_own_numbers
+    colors = (0...256).map { |i| Color.rgb(i % 32, (i / 8) % 32, (i / 32) % 32) }
+    prog = program do
+      screen :bitmap, tear_free: true, colors: colors
+      image :wall, width: 2, height: 2, data: [colors[7], colors[200], colors[7], colors[255]]
+      game_loop { clear_screen colors[0] }
+    end
+
+    assert_equal [7, 200, 7, 255], Palette.build(prog).indices_for(bitmap_in(prog)).first.bytes
+  end
+
+  # With every number spoken for there is nothing left to mean "leave this alone".
+  def test_a_full_table_and_a_see_through_picture_is_refused
+    colors = (0...256).map { |i| Color.rgb(i % 32, (i / 8) % 32, (i / 32) % 32) }
+    prog = program do
+      screen :bitmap, tear_free: true, colors: colors
+      image :ghost, width: 2, height: 1, data: [colors[3], 0x8000], transparent: 0x8000
+      game_loop { clear_screen colors[0] }
+    end
+
+    err = assert_raises(Palette::Missing) { Palette.build(prog).indices_for(bitmap_in(prog)) }
+    assert_match(/ghost/, err.message)
+  end
+
+  # An unexpected color usually arrives in a picture, which nobody typed — so saying which
+  # picture is most of the help.
+  def test_a_color_only_a_picture_holds_is_refused_by_picture_and_by_name
+    err = assert_raises(Palette::Missing) do
+      Palette.build(program do
+        screen :bitmap, tear_free: true, colors: %i[black red]
+        image :odd, width: 1, height: 1, data: [:magenta]
+        game_loop { clear_screen :black }
+      end)
+    end
+
+    assert_match(/magenta/, err.message)
+    assert_match(/:odd/, err.message)
+  end
+
+  private
+
+  def bitmap_in(prog) = prog.walk.find { |node| node.kind == :bitmap }
 end
