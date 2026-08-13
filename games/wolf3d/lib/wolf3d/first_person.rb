@@ -30,9 +30,10 @@ module Wolf3D
     # held here, at a distance longer than any crossing on a map this size.
     FAR = 128.0
 
-    # Where the map table stops naming walls and starts naming doors. Above every picture a
-    # level could hold, so the two can never be confused for one another.
+    # Where the map table stops naming walls and starts naming the two things that move. Both
+    # are above every picture a level could hold, so none of the three can be confused.
     DOOR = 512
+    PUSH = 1024
 
     # HOW FAR OPEN A DOOR IS: 0 is shut and 1 is out of the way, which is the same thing the
     # ray asks about, so nothing has to be converted where the two meet.
@@ -41,6 +42,9 @@ module Wolf3D
     DOOR_LINGER = 180        # and three seconds standing open before it shuts again
     DOOR_WALKABLE = 0.75     # open this far and you fit through
     DOOR_REACH = 0.75        # how far in front of you a door is close enough to open
+
+    # Which bit of what the player carries each key is.
+    KEY_BITS = { gold: 1, silver: 2 }.freeze
 
     TEX = WallAtlas::SIDE # a wall picture is this many columns across...
     PAIR = TEX * 2        # ...and each wall keeps two of them, lit then dark
@@ -61,11 +65,12 @@ module Wolf3D
     CEILING = RubyGBA::Color.rgb(7, 7, 9)
     FLOOR_COLOR = RubyGBA::Color.rgb(12, 11, 10)
 
-    def initialize(build, level, atlas, doors)
+    def initialize(build:, level:, atlas:, doors:, pushwalls:)
       @b = build
       @level = level
       @atlas = atlas
       @doors = doors
+      @pushwalls = pushwalls
       declare
     end
 
@@ -118,7 +123,22 @@ module Wolf3D
       # turn, so unlike a wall it needs no choosing as the game runs.
       @door_picture = b.table :door_picture, door_pictures, width: :byte
       @door_across = b.table :door_across, @doors.doors.map(&:across), width: :byte
-      @door_locked = b.table :door_locked, @doors.doors.map { |d| d.lock ? 1 : 0 }, width: :byte
+      # Which key each door wants, as the bit the player carries. Nought wants none.
+      @door_lock = b.table :door_lock, @doors.doors.map { |d| KEY_BITS[d.lock] || 0 }, width: :byte
+
+      # A push wall: where it started, what it is made of, and — as the game runs — which way
+      # it was shoved, how far it has got, and how long until its next cell.
+      @push_home = b.table :push_home, @pushwalls.homes.then { |h| h.empty? ? [0] : h }
+      @push_face = b.table :push_face, push_pictures, width: :byte
+      @push_step = b.list :push_step, capacity: [@pushwalls.count, 1].max
+      @push_gone = b.list :push_gone, capacity: [@pushwalls.count, 1].max
+      @push_wait = b.list :push_wait, capacity: [@pushwalls.count, 1].max
+
+      # Which keys the player is carrying, one bit each.
+      @keys = b.var :keys, 0
+      @key_taken = b.list :key_taken, capacity: [key_cells.length, 1].max
+      @key_cell = b.table :key_cell, key_cells.empty? ? [0] : key_cells.map { |c| c[:cell] }
+      @key_bit = b.table :key_bit, key_cells.empty? ? [0] : key_cells.map { |c| c[:bit] }, width: :byte
 
       b.image :walls, width: @atlas.width, height: @atlas.height, data: @atlas.pixels
 
@@ -130,13 +150,14 @@ module Wolf3D
       # Whole numbers: which cell the ray is in, which way it is walking through the grid,
       # which kind of grid line it last crossed, and what came of all that.
       %i[_ang _hit _wall _cell _colh _top _mapx _mapy _stepmx _stepmy _side
-         _isdoor _door _edge _foot _here _wait _can _slot].each do |name|
+         _isdoor _door _edge _foot _here _wait _can _slot
+         _push _pcell _ahead _want _gone].each do |name|
         instance_variable_set(:"@#{name.to_s.delete_prefix('_')}", b.var(name, 0))
       end
       # ...and the ones that hold a fraction: where the ray points, how far to each kind of
       # line, how far it has got, where along the wall it landed, and how far a door has slid.
       %i[_dx _dy _deltax _deltay _sidex _sidey _dist _seen _wallx _mid _slid _swing
-         _nx _ny _stepx _stepy].each do |name|
+         _across _along _nx _ny _stepx _stepy].each do |name|
         instance_variable_set(:"@#{name.to_s.delete_prefix('_')}", b.var(name, 0.0))
       end
 
@@ -144,21 +165,54 @@ module Wolf3D
       # can reach one by number.
       @doors.count.times { @open << 0.0 }
       @doors.count.times { @linger << 0 }
+      [@pushwalls.count, 1].max.times do
+        @push_step << 0
+        @push_gone << 0
+        @push_wait << 0
+      end
+      [key_cells.length, 1].max.times { @key_taken << 0 }
     end
 
     # What one cell of the map table says. See the note where the table is declared.
     def cell_value(x, y)
       number = @doors.number_at(x, y)
       return DOOR + number - 1 if number
+
+      pushing = @pushwalls.number_at(x, y)
+      return PUSH + pushing - 1 if pushing
       return 0 unless @level.solid?(x, y)
 
-      code = @level.wall_code(x, y)
-      lit = @atlas.position_of(@atlas.texture_index(code, WallAtlas::LIT))
-      lit ? lit + 1 : 0
+      lit = wall_picture(@level.wall_code(x, y))
+      lit || 0
+    end
+
+    # Where a wall code's lit picture sits in the row of pictures, counting from one so that
+    # zero can mean open floor.
+    def wall_picture(code)
+      at = @atlas.position_of(@atlas.texture_index(code, WallAtlas::LIT))
+      at && at + 1
     end
 
     def door_pictures
       @doors.doors.map { |door| @atlas.position_of(@doors.picture_for(door)) }
+    end
+
+    # A push wall is made of an ordinary wall, so it wears that wall's picture and picks
+    # between its lit and dark form the way any wall does.
+    def push_pictures
+      return [0] if @pushwalls.empty?
+
+      @pushwalls.codes.map { |code| wall_picture(code) - 1 }
+    end
+
+    # Every key lying on this floor: which cell it is on, and which bit picking it up sets.
+    def key_cells
+      @key_cells ||= @level.each_cell.filter_map do |x, y|
+        lock = @level.key_at(x, y)
+        next unless lock
+
+        { cell: (y * @level.width) + x, bit: KEY_BITS.fetch(lock) }
+      end
     end
 
     # A number as a table will really hold it, to the places a variable with a fraction keeps.
@@ -192,8 +246,10 @@ module Wolf3D
         free?(@px.to_i, @ny.to_i).then { @py.set @ny }
       end
 
+      pick_up_a_key
       open_a_door
       move_the_doors
+      move_the_walls
     end
 
     # Can the player stand here? Open floor, or a doorway whose panel has slid far enough out
@@ -206,9 +262,17 @@ module Wolf3D
       @foot.set(@world[(y * @level.width) + x])
       @can.set 0
       (@foot == 0).then { @can.set 1 }
-      (@foot >= DOOR).then do
-        @slot.set(@foot - DOOR)
-        (@open[@slot] > DOOR_WALKABLE).then { @can.set 1 }
+      (@foot >= PUSH).then do
+        # A cell a push wall could reach is floor unless the wall is standing in it now.
+        @slot.set(@foot - PUSH)
+        @pcell.set(@push_home[@slot])
+        @pcell.add(@push_gone[@slot] * @push_step[@slot])
+        (@pcell != (y * @level.width) + x).then { @can.set 1 }
+      end.else do
+        (@foot >= DOOR).then do
+          @slot.set(@foot - DOOR)
+          (@open[@slot] > DOOR_WALKABLE).then { @can.set 1 }
+        end
       end
       @can == 1
     end
@@ -222,11 +286,77 @@ module Wolf3D
         @nx.add(@sin[@view + QUARTER] * DOOR_REACH)
         @ny.set @py
         @ny.add(@sin[@view] * DOOR_REACH)
-        @foot.set(@world[(@ny.to_i * @level.width) + @nx.to_i])
-        (@foot >= DOOR).then do
-          @slot.set(@foot - DOOR)
-          # A locked door wants a key, and there are none to carry yet, so it stays shut.
-          (@door_locked[@slot] == 0).then { @linger[@slot] = DOOR_LINGER }
+        @ahead.set((@ny.to_i * @level.width) + @nx.to_i)
+        @foot.set(@world[@ahead])
+
+        (@foot >= PUSH).then { shove_a_wall }
+          .else do
+            (@foot >= DOOR).then do
+              @slot.set(@foot - DOOR)
+              # A locked door wants its key. Without it, nothing happens at all.
+              #
+              # Nested rather than joined with "or", because joining works out BOTH sides —
+              # and the second side divides by which key is wanted, which is nought for a door
+              # that wants none.
+              @want.set(@door_lock[@slot])
+              @can.set 0
+              (@want == 0).then { @can.set 1 }
+              (@want > 0).then { ((@keys / @want) % 2 == 1).then { @can.set 1 } }
+              (@can == 1).then { @linger[@slot] = DOOR_LINGER }
+            end
+          end
+      end
+    end
+
+    # Lean on a secret wall and it goes. Which way it goes is which way you are pushing, taken
+    # to the nearer of the two axes — you cannot shove a wall diagonally.
+    def shove_a_wall
+      @slot.set(@foot - PUSH)
+      # Only from its own cell, and only once. A wall already on the move ignores you.
+      ((@ahead == @push_home[@slot]) & (@push_step[@slot] == 0)).then do
+        @across.set(@sin[@view + QUARTER])
+        @across.abs
+        @along.set(@sin[@view])
+        @along.abs
+        (@across > @along).then do
+          (@sin[@view + QUARTER] > 0.0).then { @push_step[@slot] = 1 }
+                                       .else { @push_step[@slot] = -1 }
+        end.else do
+          (@sin[@view] > 0.0).then { @push_step[@slot] = @level.width }
+                             .else { @push_step[@slot] = -@level.width }
+        end
+        @push_wait[@slot] = Pushwalls::FRAMES_PER_CELL
+      end
+    end
+
+    # Every push wall, every frame. One that has been shoved counts down to its next cell and
+    # stops after two — which is what makes a secret passage a passage rather than a hole.
+    def move_the_walls
+      return if @pushwalls.empty?
+
+      @b.repeat(@pushwalls.count) do |wall|
+        @wait.set(@push_wait[wall])
+        (@wait > 0).then do
+          @push_wait[wall] = @wait - 1
+          (@wait == 1).then do
+            @gone.set(@push_gone[wall] + 1)
+            @push_gone[wall] = @gone
+            (@gone < Pushwalls::DISTANCE).then { @push_wait[wall] = Pushwalls::FRAMES_PER_CELL }
+          end
+        end
+      end
+    end
+
+    # Walk over a key and you have it. Each one is taken once, and what you carry is a bit per
+    # kind — which is all a locked door asks about.
+    def pick_up_a_key
+      return if key_cells.empty?
+
+      @here.set((@py.to_i * @level.width) + @px.to_i)
+      @b.repeat(key_cells.length) do |key|
+        ((@key_taken[key] == 0) & (@key_cell[key] == @here)).then do
+          @key_taken[key] = 1
+          @keys.add(@key_bit[key])
         end
       end
     end
@@ -320,11 +450,14 @@ module Wolf3D
         (@cell > 0).then do
           # Something is here. Only now is it worth asking WHICH kind, because the ray has
           # stopped either way — every step before this one paid a single test and no more.
-          (@cell >= DOOR).then { meet_a_door }.else do
-            @hit.set 1
-            @wall.set(@cell - 1 + @side)
-            @isdoor.set 0
-          end
+          (@cell >= PUSH).then { meet_a_pushwall(width) }
+            .else do
+              (@cell >= DOOR).then { meet_a_door }.else do
+                @hit.set 1
+                @wall.set(@cell - 1 + @side)
+                @isdoor.set 0
+              end
+            end
         end
       end
 
@@ -359,6 +492,24 @@ module Wolf3D
       @top.sub(@colh / 2)
 
       draw_strip(col)
+    end
+
+    # A RAY REACHES A CELL A PUSH WALL COULD BE IN, which is not the same as one it IS in.
+    #
+    # The map cannot say where a push wall is, because the map is in the cartridge and a push
+    # wall moves. So the map marks everywhere one could ever get to, and the answer is worked
+    # out here: where it started, plus how far it has gone in the direction it was shoved. If
+    # that is this cell it is a wall like any other; if not, this cell is the floor the map
+    # always said it was and the ray carries straight on.
+    def meet_a_pushwall(width)
+      @push.set(@cell - PUSH)
+      @pcell.set(@push_home[@push])
+      @pcell.add(@push_gone[@push] * @push_step[@push])
+      (@pcell == (@mapy * width) + @mapx).then do
+        @hit.set 1
+        @isdoor.set 0
+        @wall.set(@push_face[@push] + @side)
+      end
     end
 
     # A RAY MEETS A DOORWAY, which is not the same as meeting a wall.

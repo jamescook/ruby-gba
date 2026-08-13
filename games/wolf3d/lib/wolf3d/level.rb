@@ -19,6 +19,11 @@ module Wolf3D
     FACINGS = { 19 => :north, 20 => :east, 21 => :south, 22 => :west }.freeze
     PUSHWALL = 98
 
+    # The keys lying on the floor, and which lock each one answers. Checked against the game:
+    # every floor of the first episode that has a gold-locked door also has exactly one gold
+    # key on it, which it must, or the floor could not be finished.
+    KEYS = { 43 => :gold, 44 => :silver }.freeze
+
     Start = Data.define(:x, :y, :facing)
     Thing = Data.define(:x, :y, :code)
 
@@ -42,6 +47,18 @@ module Wolf3D
     def ambush?(x, y) = wall_code(x, y) == AMBUSH
     def floor?(x, y) = wall_code(x, y) >= FLOOR || ambush?(x, y)
     def pushwall?(x, y) = thing_code(x, y) == PUSHWALL
+
+    # Which lock a key on this cell answers, or nil if there is no key here.
+    def key_at(x, y) = KEYS[thing_code(x, y)]
+
+    # Which key a locked door wants. The codes run in pairs — the two ways a panel can face —
+    # so the pair a code sits in is the lock it has.
+    def lock_at(x, y)
+      code = wall_code(x, y)
+      return nil unless LOCKED_DOORS.include?(code)
+
+      (code - LOCKED_DOORS.first) / 2 == 0 ? :gold : :silver
+    end
 
     # Which area of the level a floor cell belongs to. Areas are how the original decides which
     # rooms hear a gunshot.

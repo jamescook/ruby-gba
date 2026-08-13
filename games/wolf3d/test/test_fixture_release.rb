@@ -36,8 +36,11 @@ class TestFixtureRelease < Minitest::Test
     middle = (32 * 64) + 32
 
     assert_equal Release::PLAYER_NORTH, plane[middle]
-    assert_equal Release::GUARD_EAST, plane[middle + 4]
-    assert_equal 2, plane.count(&:positive?), "only the player and one guard"
+    assert_equal Release::GUARD_EAST, plane[middle + 2]
+    assert_equal Release::GOLD_KEY, plane[release.key_cell]
+    assert_equal Wolf3D::Level::PUSHWALL, plane[release.push_wall_cell]
+    assert_equal 4, plane.count(&:positive?),
+                 "the player, a guard, a key and a push wall — and nothing else"
   end
 
   # A name sits at the end of the header, so reading it proves every field before it is the

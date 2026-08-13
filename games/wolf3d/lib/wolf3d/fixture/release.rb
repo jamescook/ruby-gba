@@ -28,11 +28,15 @@ module Wolf3D
       # door actually is: both of these sit in a wall running east-west with wall to their east
       # and west, which is the odd code.
       DOOR = 91
+      # ...and the gold-locked one, which sits in a wall running north-south, so it takes the
+      # even code of its pair.
+      GOLD_DOOR = Level::LOCKED_DOORS.first
 
       # Plane 1: where the player starts and which way they face, then everything standing in
       # the level.
       PLAYER_NORTH = 19
       GUARD_EAST = 108
+      GOLD_KEY = Level::KEYS.key(:gold)
 
       attr_reader :dir, :set
 
@@ -87,6 +91,8 @@ module Wolf3D
         # goes behind them rather than ahead so that the view forward stays a plain flat wall,
         # which is what the tests of the renderer itself measure.
         cells[(((GRID / 2) + ROOM) * GRID) + (GRID / 2)] = DOOR
+        # The room's WEST wall holds a locked one, so a key has something to answer.
+        cells[((GRID / 2) * GRID) + (GRID / 2) - ROOM] = GOLD_DOOR
         cells
       end
 
@@ -98,11 +104,22 @@ module Wolf3D
         (dx == ROOM && dy <= ROOM) || (dy == ROOM && dx <= ROOM)
       end
 
+      # One in the room's EAST wall, level with the player, so walking straight at it reaches
+      # it. It goes east rather than north or south so the wall ahead of the player and the
+      # door behind them both stay as the renderer's own tests expect.
+      def push_wall_cell = (((GRID / 2) * GRID) + (GRID / 2) + ROOM)
+
+      # A key on the floor beside the player, and the locked door it answers.
+      def key_cell = (((GRID / 2) - 1) * GRID) + (GRID / 2)
+
       def plane1
         cells = Array.new(CELLS, 0)
         middle = ((GRID / 2) * GRID) + (GRID / 2)
         cells[middle] = PLAYER_NORTH
-        cells[middle + 4] = GUARD_EAST
+        # Standing on the floor inside the room, two cells along, rather than in the wall.
+        cells[middle + 2] = GUARD_EAST
+        cells[push_wall_cell] = Level::PUSHWALL
+        cells[key_cell] = GOLD_KEY
         cells
       end
 
