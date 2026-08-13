@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "differential"
 
 # One column of a picture, stretched to a height the game works out — what a first-person view
 # is made of, and what a scaled sprite is.
@@ -180,5 +181,103 @@ class TestDrawColumnAt < Minitest::Test
     end
 
     assert_empty differ.first(8), "these pixels differ between the interpreter and the console"
+  end
+
+  # A see-through picture keeps its shape: the pixels it leaves out are left alone rather
+  # than painted, which is what a scaled sprite in a first-person view needs — a guard down
+  # a corridor, not a guard in a black box.
+  def test_a_column_of_a_see_through_picture_leaves_the_background_alone
+    prog = program do
+      image(:ghost, "." => :transparent, "W" => :white) { "W\n.\n.\nW\n" }
+      clear_screen :gray
+      game_loop { draw_column_at :ghost, slice: 0, x: 10, top: 0, height: 8 }
+    end
+
+    run = Reference.new.run(prog, frames: 2)
+
+    assert_equal %i[white white other other other other white white],
+                 column_on_screen(run, 10, 0, 8).map { |c| c == :other ? :other : c }
+    assert_equal RubyGBA::Color.resolve(:gray), run.screen.pixel(10, 3),
+                 "the see-through rows must show what was already there"
+  end
+end
+
+# The same stretched column on the TEAR-FREE screen, which is the one a first-person view
+# actually wants: it repaints the whole screen every frame, and that is what tears.
+#
+# This screen holds a NUMBER per pixel rather than a color, and refuses a lone byte — the
+# smallest write covers a side-by-side pair. So every pixel is a read of its pair, a splice
+# of its own half and a write back, and WHICH HALF depends on the column being even or odd.
+# That is why the odd column has tests of its own here.
+class TestDrawColumnAtTearFree < Minitest::Test
+  include GembaSupport
+  include Differential
+
+  BARS = %i[red red green green blue blue white white].freeze
+
+  # The same program on either screen, so the two can be held against each other.
+  def column_program(tear_free:)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap, tear_free: tear_free
+      image :bars, width: 2, height: 4, data: BARS
+      image(:ghost, "." => :transparent, "W" => :white) { "W\n.\n.\nW\n" }
+      at = var :at, 0
+      game_loop do
+        # Repainted every pass, because this screen has TWO pages and the loop draws on
+        # whichever one is hidden — a clear above the loop would paint only one of them.
+        clear_screen :gray
+        draw_column_at :bars, slice: 0, x: 10, top: 0, height: 8  # an even column...
+        draw_column_at :bars, slice: 0, x: 11, top: 0, height: 8  # ...and an odd one
+        at.set 31 # a column whose evenness cannot be proved while building
+        draw_column_at :bars, slice: 1, x: at, top: 10, height: 12
+        repeat(4) { |c| draw_column_at :bars, slice: 0, x: (c * 2) + 60, top: 0, height: 6 }
+        draw_column_at :ghost, slice: 0, x: 100, top: 0, height: 8
+        draw_column_at :ghost, slice: 0, x: 101, top: 0, height: 8
+        draw_column_at :bars, slice: 0, x: 120, top: -6, height: 20  # clipped above
+        draw_column_at :bars, slice: 0, x: 121, top: 150, height: 40 # clipped below
+        draw_column_at :bars, slice: 0, x: 239, top: 0, height: 8    # the last column
+        draw_column_at :bars, slice: 0, x: 240, top: 0, height: 8    # off the right edge
+        draw_column_at :bars, slice: 0, x: -1, top: 0, height: 8     # off the left edge
+      end
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  def test_the_console_draws_what_the_interpreter_draws
+    assert_backends_agree(column_program(tear_free: true), frames: 3, name: "TFCOL")
+  end
+
+  # THE POINT OF THE WHOLE BEAD: a game that moves to the tear-free screen to stop the
+  # flicker must get the same picture it had before. Every one of the cases above is
+  # compared across the two screens, so an odd column spliced into the wrong half — the
+  # mistake this screen invites — shows up as a column of wrong pixels.
+  def test_the_two_screens_draw_the_same_column
+    tear_free = assert_gemba_loads_rom(assemble_rom(column_program(tear_free: true), name: "TFCOL"),
+                                       frames: 6).frame_gba
+    direct = assert_gemba_loads_rom(assemble_rom(column_program(tear_free: false), name: "DRCOL"),
+                                    frames: 6).frame_gba
+
+    differ = mismatched_pixels(direct, tear_free)
+
+    assert_empty differ.first(8), "the two screens drew different pictures"
+  end
+
+  # A screen told which colors it shows was given a table its pictures were drawn against,
+  # so a color outside it cannot be shown at all. The error names the picture, because
+  # nobody typed the color — it arrived in the art.
+  def test_a_picture_the_screen_was_not_given_names_that_picture
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap, tear_free: true, colors: [Color.resolve(:black), Color.resolve(:red)]
+      image :bars, width: 2, height: 4, data: BARS
+      game_loop { draw_column_at :bars, slice: 0, x: 10, top: 0, height: 8 }
+    end
+    b.emit_pending_functions
+
+    err = assert_raises(RubyGBA::IR::Palette::Missing) { GBA.new.lower(b.program) }
+
+    assert_match(/:bars/, err.message)
   end
 end

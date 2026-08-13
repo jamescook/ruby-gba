@@ -875,16 +875,20 @@ module RubyGBA
         # ALWAYS, because a first-person view does it once per strip across the screen and a
         # hundred of them a frame is a real cost that nothing else would account for.
         #
-        # The rest is per screen row and costs about what plotting a pixel does, plus the walk
-        # down the picture. It is charged only where the height is a number settled while
-        # building. A height the game works out has no provable size — the same rule a rect with
-        # a computed side follows — so it contributes nothing rather than a guess, and the
-        # estimate says so rather than quietly under-reporting.
-        COLUMN_ROW_STEPS = 3 # reading the picture and finding the screen row, beside the plot
-
+        # The rest is per screen row, and WHICH SCREEN decides what a row costs, so the two are
+        # measured apart. The tear-free screen has to read the pair a pixel shares, splice its
+        # own half and write it back, where the direct-color screen just stores — and it is
+        # still the cheaper of the two, because a column has one x for its whole height, so the
+        # screen edges are tested once instead of at every pixel and the address walks down by
+        # a fixed step. Measured, not reasoned: see Calibrator#column_rows.
+        #
+        # It is charged only where the height is a number settled while building. A height the
+        # game works out has no provable size — the same rule a rect with a computed side
+        # follows — so it contributes nothing rather than a guess, and the estimate says so
+        # rather than quietly under-reporting.
         def draw_column_cost(node)
           rows = const_side(node.height)
-          per_row = @weights[:plot_pixel] + (COLUMN_ROW_STEPS * @weights[:op_step])
+          per_row = @weights[tear_free? ? :tearfree_column_row : :column_row]
 
           # The divisor is the height the game works out, so this is the dear kind of divide.
           runtime_divide_weight(nil) + (rows ? rows * per_row : 0)

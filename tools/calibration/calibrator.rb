@@ -390,6 +390,26 @@ module RubyGBA
                 8 * @weights[:blit_row], 4 * 8 * @weights[:blit_pixel], 2 * operand_read
               ),
               note: "what one such image costs before its first row, apart from reaching its position")
+
+        column_rows
+      end
+
+      # ONE ROW OF A STRETCHED COLUMN, read on both screens because they write a pixel
+      # differently and the answer decides which screen a first-person view should use.
+      #
+      # The tear-free screen has to read the pair a pixel shares, splice its own half and write
+      # it back, where the direct-color screen just stores. It is still the cheaper of the two,
+      # because a column has ONE x for its whole height — so the screen edges are tested once
+      # instead of at every pixel, and the address walks down by a fixed step instead of being
+      # worked out again. The three instructions the splice costs are less than the nine that
+      # buys back.
+      def column_rows
+        weigh(:column_row, @bench.column_row_cost("colr", tear_free: false),
+              varies: :column_height, from: Benchmarks::COLUMN_SHORT, to: Benchmarks::COLUMN_TALL,
+              note: "one row of a picture's column stretched to a height the game works out")
+        weigh(:tearfree_column_row, @bench.column_row_cost("tfcolr", tear_free: true),
+              varies: :column_height, from: Benchmarks::COLUMN_SHORT, to: Benchmarks::COLUMN_TALL,
+              note: "the same, on the tear-free screen")
       end
 
       def run_pixel_rate(y)

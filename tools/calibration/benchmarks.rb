@@ -728,6 +728,54 @@ module RubyGBA
         @m.stall(name, tearfree_rom(name, per_frame) { |b, _xv, _yv| b.fill_rect 0, 0, 240, h, :red })
       end
 
+      # --- a stretched column of a picture ---
+      #
+      # One ROW of a stretched column, which is what a first-person view is made of. The pair
+      # differs only in how TALL the columns are, so the divide that finds the step, the loop
+      # around them and reaching the picture all cancel, and what is left is the walk down the
+      # screen.
+      #
+      # Read on BOTH screens, because they do not write a pixel the same way and the answer
+      # decides which screen such a view should use. The direct-color one stores a whole color
+      # straight out; the tear-free one holds a number per pixel and refuses a lone byte, so
+      # every pixel is a read of the pair it shares, a splice of its own half, and a write back.
+      #
+      # The height is a variable, because a wall's height always is — and the model charges
+      # this weight only where the height is a number, so measuring it against one written into
+      # the program would measure a case that never charges.
+      # Kept small enough that the TALLER of the pair still finishes inside a frame. These
+      # weights describe code running from the cartridge, which is where the measuring ROMs
+      # put it, and a reading past about 200 scanlines saturates and stops meaning anything.
+      COLUMN_PASSES = 20
+      COLUMN_SHORT = 8
+      COLUMN_TALL = 32
+
+      def column_row_cost(tag, tear_free:)
+        a = column_busy("#{tag}#{COLUMN_SHORT}", COLUMN_SHORT, tear_free)
+        z = column_busy("#{tag}#{COLUMN_TALL}", COLUMN_TALL, tear_free)
+        Reductions.marginal(z, a, over: COLUMN_PASSES * (COLUMN_TALL - COLUMN_SHORT))
+      end
+
+      # The columns are spread three pixels apart, so they land on even and odd columns alike
+      # — which is what a view drawing strips wider than a pixel does, and on the tear-free
+      # screen it is the case that cannot prove which half of a pair it writes.
+      COLUMN_SPREAD = 3
+
+      def column_busy(name, height, tear_free)
+        rom = cartridge_build(name) do
+          screen :bitmap, tear_free: tear_free
+          image :art, width: 8, height: 64, data: Array.new(8 * 64) { |i| i.even? ? :red : :blue }
+          tall = var :tall, 0
+          game_loop do
+            tall.set height
+            repeat(COLUMN_PASSES) do |c|
+              draw_column_at :art, slice: 0, x: c * COLUMN_SPREAD, top: 10, height: tall
+            end
+          end
+        end
+        @m.busy(name, rom)
+      end
+
       # --- interrupts: a bending background, and a timer's tick ---
 
       # HOW MANY LAYERS BEND across the sweep both bending weights are read from.

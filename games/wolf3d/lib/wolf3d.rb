@@ -53,7 +53,13 @@ module Wolf3D
   end
 
   GAME = RubyGBA.game(TITLE, code: CODE, maker: MAKER) do
-    screen :bitmap
+    # Drawn on the tear-free screen, and it has to be. A first-person view repaints every
+    # pixel every frame, and this one costs more than a frame holds — so on a screen the
+    # display reads while the game is still drawing it, the player watches the picture
+    # arrive, half a corridor at a time. Here the frame is drawn out of sight and shown
+    # whole, so a frame that takes too long shows the previous one again rather than a
+    # torn one.
+    screen :bitmap, tear_free: true
 
     level = Wolf3D.maps&.[](0)
     if level
