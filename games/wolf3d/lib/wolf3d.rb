@@ -15,7 +15,10 @@ require_relative "wolf3d/codec/rlew"
 require_relative "wolf3d/codec/carmack"
 require_relative "wolf3d/codec/huffman"
 require_relative "wolf3d/game_data"
+require_relative "wolf3d/level"
+require_relative "wolf3d/maps"
 require_relative "wolf3d/fixture/release"
+require_relative "wolf3d/map_view"
 require_relative "wolf3d/title"
 
 module Wolf3D
@@ -29,22 +32,29 @@ module Wolf3D
   def self.home = File.expand_path("..", __dir__)
 
   # Nil until someone points the build at their copy. The game still builds without it, so the
-  # cartridge can say what is missing instead of the build dying. That stops being true once
-  # anything actually reads the data.
+  # cartridge can say what is missing instead of the build dying.
   def self.data = @data ||= GameData.find
 
-  # Say what the cartridge was built from, or how to fix it not knowing. Without this a build
-  # with no data is silent and the only clue is four words on the title screen.
+  def self.maps = @maps ||= data && Maps.from(data)
+
+  # Say what the cartridge was built from, or how to fix it not knowing.
   def self.report(err = $stderr)
     data ? err.puts(data.describe) : err.puts(GameData.unset_message(home))
     data
   end
 
   GAME = RubyGBA.game(TITLE, code: CODE, maker: MAKER) do
-    screen :bitmap, tear_free: true
+    screen :bitmap
 
-    title = Title.new(self, Wolf3D.data)
-    game_loop { title.update }
+    level = Wolf3D.maps&.[](0)
+    if level
+      view = Wolf3D::MapView.new(self, level).declare
+      draw_text level.name.upcase, 8, 4, :white
+      game_loop { view.draw }
+    else
+      title = Title.new(self)
+      game_loop { title.update }
+    end
   end
 
   def self.program = GAME.program
