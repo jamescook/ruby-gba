@@ -66,12 +66,12 @@ module RubyGBA
           # It earns its place the same way anything else does — by what a frame spends in
           # it. That is usually nothing: a program that only sleeps until the next frame
           # enters it once a frame and leaves again immediately. But a background bending
-          # row by row, when its block is more than one number, is entered after every
-          # single line the display draws, 228 times a frame, and then it is the busiest
-          # routine in the program by a wide margin. (A block that IS one number is fed to
-          # the display by a copying engine instead and lands here not at all — see
-          # {BendForm} — and then this routine is worth nothing again and the room goes to
-          # the frame's own body, which is where that bend's table is filled.)
+          # row by row with no copying engine left to feed it is entered after every single
+          # line the display draws, 228 times a frame, and then it is the busiest routine in
+          # the program by a wide margin. (Where an engine does the feeding this lands here
+          # not at all — see {BendForm} — and then the routine is worth nothing again and
+          # the room goes to the frame's own body, which is where that bend's table is
+          # filled.)
           #
           # It buys less than the 2.6x the rest of this file talks about — 1.9x, measured —
           # because a fair share of an interrupt is the console's own doing, and that part
@@ -331,10 +331,11 @@ module RubyGBA
           # and every timer's tick body. There is no one node standing for all of it the way
           # a routine has one, so the pieces are gathered.
           #
-          # A bend the copying engine feeds is not among them: nothing announces its lines,
-          # and its block runs in the frame like ordinary code (see {BendForm}).
+          # A bend in a paced program is not among them: its block runs in the frame like
+          # ordinary code, into a table, and what the announcement then does is read one
+          # number out of it (see {BendForm}).
           def irq_bodies(program)
-            kinds = BendForm.copier?(program) ? %i[on_timer] : %i[scroll_rows on_timer]
+            kinds = BendForm.live?(program) ? %i[scroll_rows on_timer] : %i[on_timer]
             program.walk.select { |node| kinds.include?(node.kind) }
           end
 

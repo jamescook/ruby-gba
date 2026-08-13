@@ -34,15 +34,18 @@
 # What you never touch: a scroll register, an interrupt, or the fact that the framework has
 # to get in between two lines of a picture being drawn to do this at all.
 #
-# It is not free, and what it costs depends on what you write in the block. This block is
-# ONE NUMBER — a table read — so the framework can work all 160 rows out at the frame
-# boundary and hand the table to one of the console's copying engines, which feeds the
-# display by itself with the CPU untouched. That is most of the price gone: `explain` puts
-# the whole effect at about a twelfth of the frame's 228 scanlines, and about half of THAT
-# is the sine lookup rather than the machinery. Write a block that sets a variable or calls
-# a routine and it goes back to being answered per line, which costs several times as much
-# and which `explain` names, with the reason, so the difference is never a mystery. Run
-# `ruby-gba build examples/lake.rb --explain` to see it.
+# It is not free, and most of what it costs is your own block: all 160 rows are worked out
+# in the gap between frames, before any of the picture is drawn. `explain` puts the whole
+# effect at about a twelfth of the frame's 228 scanlines, and about half of THAT is this
+# example's sine lookup rather than the machinery. The machinery half is small because the
+# framework hands the finished table to one of the console's copying engines, which feeds
+# the display by itself with the CPU untouched. There are three engines to lend out, so a
+# fourth bending layer would go back to being answered per line — which `explain` names,
+# with the reason. Run `ruby-gba build examples/lake.rb --explain` to see it.
+#
+# Working the rows out in that gap is also what keeps the jellyfish honest. A sprite's
+# position is settled in the same gap, so the water and the things floating on it are
+# always showing the same frame.
 #
 # Run it to build examples/lake.gba:
 #   ruby examples/lake.rb

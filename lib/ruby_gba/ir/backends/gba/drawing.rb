@@ -651,8 +651,13 @@ module RubyGBA
             # the scroll registers do nothing when that layer isn't on, matching the
             # interpreter's harmless handling.
             bg_num = @backgrounds[node.name]&.bg || 0
-            eval_value(node.x)          # r0 = scroll x (pixels)
-            store_halfword_acc(BG_HOFS_REGS[bg_num])
+            # A bending layer's sideways position is settled row by row instead, and every
+            # one of those rows already has this scroll in it (see Raster). Writing it here
+            # too would only undo the top row's bend until the display asked for the next.
+            unless @row_bends.key?(node.name)
+              eval_value(node.x)        # r0 = scroll x (pixels)
+              store_halfword_acc(BG_HOFS_REGS[bg_num])
+            end
             eval_value(node.y)          # r0 = scroll y
             store_halfword_acc(BG_VOFS_REGS[bg_num])
           end

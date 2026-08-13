@@ -588,24 +588,18 @@ module RubyGBA
         lines = IR::CostModel::LINES_PER_FRAME
         rows = IR::CostModel::VISIBLE_LINES
 
-        # BENDING A BACKGROUND ROW BY ROW, both ways it can be lowered — and the two prices are
-        # what make the choice worth making, so both are measured on the same picture.
+        # BENDING A BACKGROUND ROW BY ROW. All 160 rows are worked out at the frame boundary
+        # into a table whichever way they then reach the display, so the two weights here are
+        # the table and the reading of it, and ONE SWEEP over how many layers bend gives both.
         #
-        # THE COPIER first, which is what a block that is one number gets. One of the console's
-        # copying engines moves that row's offset into the scroll register at the end of every
-        # line, with the CPU untouched — so there is no per-line cost left to measure at all.
-        # What this weighs is the other side of that bargain: all 160 rows worked out at the
-        # frame boundary into a table, which is the loop that fills it, the writes into it, and
-        # the engine's own moment on each line.
-        #
-        # SWEPT OVER HOW MANY LAYERS BEND, not over one layer against none, because that is the
-        # thing the model assumes and so the thing to measure: it charges a table per bending
-        # layer, so three layers had better cost three times one. Three is also the ceiling —
-        # there are four engines and the last is the general copier every fill and upload uses.
-        # Over the rows the extra layers add, since the rate is per row of table.
-        low, high = Benchmarks::COPIED_BENDS
+        # THE TABLE first. What this weighs is the loop that fills one, the writes into it, and
+        # the copying engine's own moment on each line. Swept over how many layers bend, not
+        # over one layer against none, because that is the thing the model assumes and so the
+        # thing to measure: it charges a table per bending layer, so three layers had better
+        # cost three times one. Over the rows the extra layers add, since the rate is per row.
+        low, high = Benchmarks::BEND_LAYERS.first, Benchmarks::BEND_LAYERS[2]
         weigh(:bend_row_copied,
-              Reductions.marginal(@bench.bend_copied_busy(high), @bench.bend_copied_busy(low),
+              Reductions.marginal(@bench.bend_layers_busy(high), @bench.bend_layers_busy(low),
                                   over: (high - low) * rows),
               varies: :bending_layers, from: low, to: high,
               note: "one row of one bending layer's table, filled from the cartridge")
@@ -614,36 +608,27 @@ module RubyGBA
         # because the engine's share of it is the console's own work and gets no faster wherever
         # our code lives — the same reason the pair below is a pair.
         weigh(:bend_row_copied_fast,
-              Reductions.marginal(@bench.bend_copied_busy(high, fast: true),
-                                  @bench.bend_copied_busy(low, fast: true), over: (high - low) * rows),
+              Reductions.marginal(@bench.bend_layers_busy(high, fast: true),
+                                  @bench.bend_layers_busy(low, fast: true), over: (high - low) * rows),
               varies: :bending_layers, from: low, to: high,
               note: "the same, from the quick memory")
 
-        # THE INTERRUPT, which is what a block that does more than that gets: what ONE line
-        # costs. The display announces the end of every line it draws, all 228 of them, and each
-        # announcement stops the game, saves registers, runs the block, works the line's offset
-        # out and resumes. That fixed cost is the bulk of it — measured, a sine lookup per line
-        # adds a fifth of what the interrupts add — which is why it gets a weight of its own
-        # rather than being folded into the arithmetic. Divided over every line the display
-        # counts, not just the visible ones: the interrupt fires below the picture too.
-        #
-        # READ OFF TWO BLOCKS AND EXTENDED BACK TO NONE, which is the one measurement in this
-        # file that is not a plain difference, and the reason is the copier: a block that does
-        # nothing is precisely the block the build hands to the engine, so the ROM that would
-        # measure a bare interrupt cannot be built. Two blocks that DO something, differenced
-        # against the same ROM with no bend and fitted, answer both "what does one of those
-        # statements cost in here" (thrown away — the model prices statements already) and
-        # "what is left with none of them", which is the interrupt itself.
+        # THE INTERRUPT, which is what a bend gets when no engine was free to feed it: what ONE
+        # line costs. The display announces the end of every line it draws, all 228 of them, and
+        # each announcement stops the game, saves registers, reads that line's offset out of the
+        # table, writes it and resumes. That fixed cost is the bulk of it, which is why it gets
+        # a weight of its own rather than being folded into the arithmetic. Divided over every
+        # line the display counts, not just the visible ones: the interrupt fires below the
+        # picture too.
         #
         # The line count is always exactly 228, so there is no regime to leave: a program cannot
         # ask the display to draw a different number of lines.
-        low, high = Benchmarks::BEND_STEPS
-        weigh(:bend_line, bare_interrupt(low, high, fast: false) / lines,
+        weigh(:bend_line, bare_interrupt(fast: false) / lines,
               varies: :lines_per_frame, from: lines, to: lines,
               note: "one line's interrupt, handler in the cartridge")
         # ...and the same line with the handler kept in the console's quick memory, which is what
         # a real build does with it.
-        weigh(:bend_line_fast, bare_interrupt(low, high, fast: true) / lines,
+        weigh(:bend_line_fast, bare_interrupt(fast: true) / lines,
               varies: :lines_per_frame, from: lines, to: lines,
               note: "the same, handler in the quick memory")
 
@@ -666,16 +651,17 @@ module RubyGBA
               note: "the same, handler in the quick memory")
       end
 
-      # What a frame of bare interrupts costs, with the block that has to be in them taken
-      # back out: two bending ROMs whose blocks do +low+ and +high+ statements, each
-      # differenced against the same ROM with no bend, fitted, and read at none. The slope —
-      # what one of those statements costs inside a handler — is dropped, since the model
-      # prices a statement from the op tree and would charge it twice.
-      def bare_interrupt(low, high, fast:)
-        none = @bench.bend_busy(false, fast: fast)
-        _each, bare = Reductions.fit(low, @bench.bend_busy(true, steps: low, fast: fast) - none,
-                                     high, @bench.bend_busy(true, steps: high, fast: fast) - none)
-        bare
+      # What a frame of bare interrupts costs, with the table it reads from taken back out.
+      #
+      # A FOURTH bending layer costs two things at once: one more table, and the whole
+      # interrupt, since four is one more layer than there are copying engines to feed them.
+      # A THIRD costs one more table and nothing else. So the step from three layers to four,
+      # less the step from two to three, is the interrupt on its own — measured against its
+      # own neighbour rather than against a modelled table, and adjacent so that a later
+      # layer's table reaching further into memory cancels as well.
+      def bare_interrupt(fast:)
+        two, three, four = Benchmarks::BEND_LAYERS.last(3).map { |n| @bench.bend_layers_busy(n, fast: fast) }
+        (four - three) - (three - two)
       end
 
       # --- what the DISPLAY is told to show, without redrawing a pixel ---

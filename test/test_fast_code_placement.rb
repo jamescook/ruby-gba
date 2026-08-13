@@ -183,23 +183,23 @@ class TestFastCodePlacement < Minitest::Test
   # program. It has no name the author wrote, like the game loop's body, and it is placed
   # the same way.
   #
-  # Its block SETS A VARIABLE, which is what puts it on the interrupt: a block that is one
-  # number is worked out ahead of the frame and handed to a copying engine instead, and then
-  # there is no interrupt to place at all (see BendForm, and the test below).
+  # It bends FOUR layers, which is what puts it on the interrupt: three is as many copying
+  # engines as there are to lend out, so a fourth layer is one more than there is an engine
+  # for and the display has to be interrupted for all of them. Give the helper a block
+  # instead and it bends one layer, which an engine feeds and which lands there not at all
+  # (see BendForm, and the test below).
   def bending_program(&block)
     b = Builder.new
     b.instance_eval do
       screen :tiled
       image(:bar, "." => :transparent, "#" => :red) { (["##......"] * 8).join("\n") }
       tiles :stripes, "#" => :bar
-      water = background :water, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+      map = Array.new(20) { "#" * 30 }
       if block
-        instance_exec(water, &block)
+        instance_exec(background(:water, tiles: :stripes, map: map), &block)
       else
-        shift = var :shift, 0
-        water.scroll_each_row do |row|
-          shift.set row % 8
-          shift
+        4.times do |i|
+          background(:"water#{i}", tiles: :stripes, map: map).scroll_each_row { |row| (row + i) % 8 }
         end
       end
       game_loop { }
@@ -286,9 +286,10 @@ class TestFastCodePlacement < Minitest::Test
   end
 
   # A block that does more than work one number out — it sets a variable, calls a routine,
-  # and reads the result. Those statements run inside the moved routine too, and a call out
-  # of it to a routine still in the cartridge is four instructions instead of one, so this
-  # is the path that breaks if the crossing is not handled.
+  # and reads the result. Those statements run 160 times in the frame's own body, which is
+  # itself kept in the quick memory, and a call out of there to a routine still in the
+  # cartridge is four instructions instead of one — so this is the path that breaks if the
+  # crossing is not handled.
   def test_a_block_that_calls_a_routine_still_bends_the_same_rows
     program = bending_program do |water|
       shift = var :shift, 0
@@ -299,7 +300,7 @@ class TestFastCodePlacement < Minitest::Test
         shift
       end
     end
-    assert_includes placement_of(program).funcs, Placement::IRQ_ROUTINE
+    assert_includes placement_of(program).funcs, Placement::FRAME_ROUTINE
     assert_backends_agree(program, frames: 3, name: "CBND")
   end
 

@@ -77,6 +77,10 @@ module RubyGBA
     # every frame — a `table` lookup is the usual body, because whatever you write there
     # is paid for 160 times a frame.
     #
+    # All 160 rows are worked out in the gap between frames, before any of the picture is
+    # drawn, which is where a sprite's position is settled too. So a boat riding on the
+    # water is showing the same frame the water is.
+    #
     # Declare it once, where the background is declared. It keeps running from there, so
     # there is nothing to call each frame; animate it by moving a variable the block reads
     # (the `phase` above). Calling it again on the same background replaces the bend.

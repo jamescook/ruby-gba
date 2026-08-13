@@ -233,9 +233,9 @@ module RubyGBA
           @backgrounds = {}      # name -> resolved tiled-background layer (map blob, BG number, screen block, priority)
           @row_bends = {}        # name -> :scroll_rows node giving each of that layer's rows its own offset
           @row_bend_base = {}    # name -> the layer's own scroll, which a row's offset is measured from
-          @row_bend_table = {}   # name -> where its table of row offsets sits, when the copier feeds them
+          @row_bend_table = {}   # name -> where its table of row offsets sits, worked out each frame
           @row_bend_engine = {}  # name -> which copying engine feeds it from that table
-          @copies_row_bends = false # are those bends fed by a copying engine rather than per-line interrupts?
+          @copies_row_bends = false # are those tables fed by a copying engine rather than per-line interrupts?
           @bg_shared = nil       # the one palette + character block every background layer shares
           @has_objects = false   # does the program declare any composited objects (sprites)?
           @objects = {}          # name -> resolved sprite layout (OAM slot, tile/palette blobs)
@@ -316,10 +316,11 @@ module RubyGBA
             emit_boot_objects if @has_objects # sprite tiles/colors + clear the sprite table
             emit_boot_layer_blend if @see_through # ...and which layer you can see through
           end
-          # Start the engine that feeds a bending layer its offsets. Set up wherever the
-          # program starts out, since it is fed a table rather than a picture — there is
-          # nothing here for a bitmap scene to overwrite.
-          emit_boot_row_bend_copiers if copies_row_bends?
+          # Clear each bending layer's table of row offsets, and start the engine that feeds
+          # it to the display. Set up wherever the program starts out, since a bend is fed a
+          # table rather than a picture — there is nothing here for a bitmap scene to
+          # overwrite.
+          emit_boot_row_bends if latches_row_bends?
           emit_tint_state_init if @palette_tint # the color tables start as they were drawn
           @lower_mode = @default_mode
           program.children.each { |stmt| emit_statement(stmt) }
