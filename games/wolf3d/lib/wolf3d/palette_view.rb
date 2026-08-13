@@ -6,8 +6,8 @@ module Wolf3D
   class PaletteView
     ACROSS = 16
     CELL = 3
-    ORIGIN_X = 4
-    ORIGIN_Y = 56
+    ORIGIN_X = 2
+    ORIGIN_Y = 90
 
     def initialize(build, palette)
       @build = build

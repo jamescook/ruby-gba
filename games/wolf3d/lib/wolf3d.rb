@@ -18,9 +18,11 @@ require_relative "wolf3d/game_data"
 require_relative "wolf3d/palette"
 require_relative "wolf3d/level"
 require_relative "wolf3d/maps"
+require_relative "wolf3d/vswap"
 require_relative "wolf3d/fixture/release"
 require_relative "wolf3d/map_view"
 require_relative "wolf3d/palette_view"
+require_relative "wolf3d/art_view"
 require_relative "wolf3d/title"
 
 module Wolf3D
@@ -38,6 +40,7 @@ module Wolf3D
   def self.data = @data ||= GameData.find
 
   def self.maps = @maps ||= data && Maps.from(data)
+  def self.vswap = @vswap ||= data && Vswap.from(data)
 
   def self.palette = Palette.game
 
@@ -53,12 +56,19 @@ module Wolf3D
     level = Wolf3D.maps&.[](0)
     if level
       map = Wolf3D::MapView.new(self, level).declare
-      colours = Wolf3D.palette && Wolf3D::PaletteView.new(self, Wolf3D.palette).declare
-      draw_text level.name.upcase, 8, 4, :white
-      game_loop do
-        map.draw
-        colours&.draw
-      end
+      art = Wolf3D::ArtView.new(self, Wolf3D.palette)
+             .add(:wall, Wolf3D.vswap.wall(0), at: [8, 6])
+             .add(:thing, Wolf3D.vswap.sprite(50), at: [8, 44])
+      colours = Wolf3D::PaletteView.new(self, Wolf3D.palette).declare
+
+      # None of this moves, so it is drawn once rather than every frame. The framework says so
+      # if you get it wrong: a full repaint of a screen this busy does not fit the moment a
+      # frame has to change the picture.
+      draw_text level.name.upcase, 60, 2, :white
+      map.draw
+      art.draw
+      colours.draw
+      game_loop { halt }
     else
       title = Title.new(self)
       game_loop { title.update }

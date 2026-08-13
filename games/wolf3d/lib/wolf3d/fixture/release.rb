@@ -124,8 +124,9 @@ module Wolf3D
         @sprites.times { |i| chunks << sprite(i) }
         first_sound = chunks.length
         @sounds.times { |i| chunks << sound(i) }
-        chunks << Array.new(@sounds) { |i| [first_sound + i, chunks[first_sound + i].bytesize] }
-                       .flatten.pack("v*")
+        # The index counts from the FIRST SOUND, not from the start of the file — measured on a
+        # real VSWAP, whose first pairs are [0, ...], [2, ...], [3, ...].
+        chunks << Array.new(@sounds) { |i| [i, chunks[first_sound + i].bytesize] }.flatten.pack("v*")
 
         at = 6 + (chunks.length * 6)
         offsets = chunks.map { |chunk| at.tap { at += chunk.bytesize } }
