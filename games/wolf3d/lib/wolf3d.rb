@@ -20,6 +20,8 @@ require_relative "wolf3d/level"
 require_relative "wolf3d/maps"
 require_relative "wolf3d/vswap"
 require_relative "wolf3d/fixture/release"
+require_relative "wolf3d/wall_atlas"
+require_relative "wolf3d/first_person"
 require_relative "wolf3d/map_view"
 require_relative "wolf3d/palette_view"
 require_relative "wolf3d/art_view"
@@ -55,20 +57,9 @@ module Wolf3D
 
     level = Wolf3D.maps&.[](0)
     if level
-      map = Wolf3D::MapView.new(self, level).declare
-      art = Wolf3D::ArtView.new(self, Wolf3D.palette)
-             .add(:wall, Wolf3D.vswap.wall(0), at: [8, 6])
-             .add(:thing, Wolf3D.vswap.sprite(50), at: [8, 44])
-      colours = Wolf3D::PaletteView.new(self, Wolf3D.palette).declare
-
-      # None of this moves, so it is drawn once rather than every frame. The framework says so
-      # if you get it wrong: a full repaint of a screen this busy does not fit the moment a
-      # frame has to change the picture.
-      draw_text level.name.upcase, 60, 2, :white
-      map.draw
-      art.draw
-      colours.draw
-      game_loop { halt }
+      atlas = Wolf3D::WallAtlas.new(Wolf3D.vswap, Wolf3D.palette, level)
+      view = Wolf3D::FirstPerson.new(self, level, atlas)
+      game_loop { view.update }
     else
       title = Title.new(self)
       game_loop { title.update }
