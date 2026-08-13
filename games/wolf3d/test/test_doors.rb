@@ -50,9 +50,13 @@ class TestDoors < Minitest::Test
     end.run(program, frames: frames)
   end
 
-  def door_open(run, index) = run.instance_variable_get(:@lists)[:door_open].get(index)
+  ONE = 1 << RubyGBA::Fraction::DEFAULT_BITS
 
-  def where(run) = run[:py] / (1 << RubyGBA::Fraction::DEFAULT_BITS).to_f
+  # How far open a door is, as the 0-to-1 the game writes. The list holds numbers with a
+  # fraction, so what is stored is multiplied up.
+  def door_open(run, index) = run.instance_variable_get(:@lists)[:door_open].get(index) / ONE.to_f
+
+  def where(run) = run[:py] / ONE.to_f
 
   # --- what the level says ---
 
@@ -89,7 +93,7 @@ class TestDoors < Minitest::Test
 
     assert_operator door_open(opening, room_door), :>, 0, "it should be moving"
     assert_operator door_open(opening, room_door), :<, FP::DOOR_WIDE, "...but not there yet"
-    assert_equal FP::DOOR_WIDE, door_open(open, room_door), "and then all the way open"
+    assert_in_delta FP::DOOR_WIDE, door_open(open, room_door), 0.001, "and then all the way open"
     assert_operator where(open), :>, @doors.doors.fetch(room_door).y,
                    "the player should be through the doorway"
   end

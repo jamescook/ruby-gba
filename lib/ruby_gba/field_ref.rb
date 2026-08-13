@@ -11,29 +11,36 @@ module RubyGBA
     Build = IR::Build
 
     # @param builder [Builder] the build these operations record into
-    # @param list_name [Symbol] the field's backing list (one list per field)
-    # @param index_node [IR::Node] the value node for this instance's slot index
-    def initialize(builder, list_name, index_node)
-      @list_name = list_name
-      @index_node = index_node
+    # @param list [Symbol] the field's backing list (one list per field)
+    # @param index [IR::Node] the value node for this instance's slot index
+    # @param pool [Symbol] the pool this field belongs to, for its error messages
+    # @param field [Symbol] the field's own name, likewise
+    # @param fraction_bits [Integer, nil] what the field holds, from its declared default —
+    #   a pool field written `vy: 0.0` carries a fraction the way a variable does
+    def initialize(builder:, list:, index:, pool:, field:, fraction_bits: nil)
+      @list_name = list
+      @index_node = index
+      @pool = pool
+      @field = field
       # As a Value, this handle IS a read of the slot — so it composes in expressions
       # (b.x + 5, b.y > 100) exactly like a variable read. It carries no variable name,
       # so the mutators below override Value's (which write to a named variable).
-      super(builder, read, name: nil)
+      super(builder, read, name: nil, fraction_bits: fraction_bits,
+                           declaring: declaring, mixing: mixing)
     end
 
     # --- mutation: write back into this instance's slot ---
 
     def set(value)
-      write(node_of(value))
+      write(matched(value, "hold"))
     end
 
     def add(amount)
-      write(Build.binop(:+, read, node_of(amount)))
+      write(Build.binop(:+, read, matched(amount, "add")))
     end
 
     def sub(amount)
-      write(Build.binop(:-, read, node_of(amount)))
+      write(Build.binop(:-, read, matched(amount, "subtract")))
     end
 
     # The read-modify-write mutators have no single expression, so they round-trip
@@ -73,12 +80,42 @@ module RubyGBA
     end
 
     # Load the slot into a reusable scratch variable, apply an ordinary Value mutation
-    # to it, and store it back into the slot.
+    # to it, and store it back into the slot. The scratch carries the field's scale, so a
+    # `clamp` or an `approach` on a field that holds a fraction follows the same rules.
     def via_scratch
       scratch = @builder.field_scratch_var
       @builder.record_statement(Build.set(scratch, read))
-      yield Value.new(@builder, Build.var_ref(scratch), name: scratch)
+      yield Value.new(@builder, Build.var_ref(scratch), name: scratch, fraction_bits: fraction_bits)
       write(Build.var_ref(scratch))
+    end
+
+    # A value on its way into the slot, checked against what the field holds.
+    def matched(other, verb)
+      node_matching(other, verb)
+    end
+
+    # How to make THIS field hold a fraction: say so in the default it is declared with,
+    # which is the same way a variable says it.
+    def declaring
+      lambda { |other|
+        "declare the field with one — `pool :#{@pool}, #{@field}: #{other}` rather than " \
+          "`#{@field}: #{other.to_i}`"
+      }
+    end
+
+    # ...and the other mismatch. A field has no left and right side, so the wording a
+    # plain operator uses does not fit it.
+    def mixing
+      lambda { |field_holds_fraction|
+        holds, given = if field_holds_fraction
+                         ["numbers with a fraction", "a whole number the game works out"]
+                       else
+                         ["whole numbers", "a number with a fraction"]
+                       end
+        "`pool :#{@pool}` keeps #{holds} in its #{@field.inspect} field, and this is " \
+          "#{given}. There is no way to tell what it counts. Use `.to_f` on the whole " \
+          "number to give it a fraction, or `.to_i` on the other one to drop its fraction."
+      }
     end
 
     def node_of(other)

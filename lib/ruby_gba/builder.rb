@@ -174,13 +174,34 @@ module RubyGBA
     # the frames that usually happen. That is also why a range cannot talk the estimate
     # down: a wider one always reads dearer, never cheaper.
     #
+    # `holds:` says what KIND of number the list keeps, by showing one. Write a Float and
+    # the list holds numbers with a fraction, exactly as writing one makes a variable hold
+    # them: `list :speeds, capacity: 8, holds: 0.0`. Every value read out then carries the
+    # scale and every value put in is checked against it, so a game with many of something
+    # that moves in halves and quarters never has to pick a scale and carry it by hand. The
+    # number itself is only an example — a list still starts empty.
+    #
     # @param name [Symbol] the list's name
     # @param capacity [Integer] the most items it can hold (rounded up to 2^n)
     # @param estimate [Hash] what the estimate cannot know — today `usually:` (Integer or Range)
+    # @param holds [Numeric] an example of what it holds; a Float means it holds fractions
     # @return [List] a handle to the list
-    def list(name, capacity:, estimate: nil)
+    def list(name, capacity:, estimate: nil, holds: nil)
       record(Build.list_new(name, capacity, usually: usual_length(estimate, capacity)))
-      List.new(self, name)
+      List.new(self, name, fraction_bits: list_fraction_bits(name, holds))
+    end
+
+    # What `holds:` said, as a number of fraction bits. A whole number says the same as
+    # saying nothing, so it is allowed and means what it looks like.
+    def list_fraction_bits(name, holds)
+      return nil if holds.nil?
+      unless holds.is_a?(Numeric)
+        raise ArgumentError,
+              "`holds:` takes an example of what the list holds, like `holds: 0.0` for " \
+              "numbers with a fraction. `list :#{name}` was given #{holds.inspect}."
+      end
+
+      Fraction.bits_of(holds)
     end
 
     # What the `estimate:` hint says this list usually holds, as the one number a walk is
