@@ -16,14 +16,15 @@ class TestFirstPerson < Minitest::Test
 
   def fixture = @fixture ||= Wolf3D::Fixture::Release.new
 
-  # A view built from our own one-room level, so it needs nobody's copy of the game.
-  def view_program(columns: FP::COLUMNS)
+  # A view built from our own one-room level, so it needs nobody's copy of the game. On the
+  # tear-free screen, which is the one the game itself draws on.
+  def view_program
     vswap = Wolf3D::Vswap.new(fixture.files["VSWAP"])
     atlas = Wolf3D::WallAtlas.new(vswap, Wolf3D::Palette.game, @level)
     level = @level
 
     RubyGBA.game("VIEW", code: "AVUE", maker: "01") do
-      screen :bitmap
+      screen :bitmap, tear_free: true
       view = Wolf3D::FirstPerson.new(self, level, atlas)
       game_loop { view.update }
     end.program
@@ -69,20 +70,35 @@ class TestFirstPerson < Minitest::Test
     assert_operator lit, :>, 100, "most strips should meet a wall in a closed room"
   end
 
-  # Correctness of the renderer, apart from whether the console can finish a frame of it: drawn
-  # few enough strips that it does finish, every pixel matches. The full view costs more than a
-  # frame holds, which is what the tear-free screen is for.
-  def test_the_console_draws_what_the_interpreter_draws_when_it_has_time_to_finish
+  # THE WHOLE SCREEN, both backends. This used to be able to check only the left of the view:
+  # the console could not finish a frame of it, so the strips on the right were simply not
+  # there to compare. Walking the ray to the grid line instead of in fixed steps took the
+  # frame under budget, so the whole picture can now be held against the interpreter.
+  def test_the_console_draws_what_the_interpreter_draws
     program = view_program
 
     interp = Reference.new.run(program, frames: 3)
     rom = ROM.assemble(GBA.new.lower(program), title: "VIEW", code: "AVUE", maker: "01")
     gba = RubyGBA::Verifier.new(rom, frames: 6)
 
-    # The left of the screen is drawn first, so it is the part the console reaches whatever
-    # else happens. A mismatch here would be the renderer, not the clock.
-    differ = (0...24).sum { |x| (0...160).count { |y| (interp.screen.pixel(x, y) || 0) != gba.pixel_gba(x, y) } }
+    differ = (0...240).to_a.product((0...160).to_a).reject do |x, y|
+      (interp.screen.pixel(x, y) || 0) == gba.pixel_gba(x, y)
+    end
 
-    assert_equal 0, differ, "the strips the console does reach must match the interpreter"
+    assert_empty differ.first(8), "these pixels differ between the interpreter and the console"
+  end
+
+  # A flat wall square-on stands at ONE distance, so every strip across it must be the same
+  # height and its top edge must be a straight line. That is what the walk to the grid line
+  # buys: a fixed-step walk reports the distance in lumps, and dividing by it turns a lump
+  # into a jump of several pixels, so the wall arrives as a staircase.
+  def test_a_flat_wall_has_a_straight_top_edge
+    run = Reference.new.run(view_program, frames: 3)
+
+    tops = (60...180).map { |x| (0...FP::HORIZON).find { |y| run.screen.pixel(x, y) != FP::CEILING } }
+
+    refute_includes tops, nil, "every strip across the middle should meet the wall ahead"
+    assert_equal 1, tops.uniq.length,
+                 "a flat wall square-on should stand at one height, got #{tops.uniq.sort.inspect}"
   end
 end
