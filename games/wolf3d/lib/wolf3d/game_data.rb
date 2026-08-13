@@ -24,7 +24,7 @@ module Wolf3D
 
     STEMS = %w[VSWAP GAMEMAPS MAPHEAD VGAGRAPH VGADICT VGAHEAD AUDIOT AUDIOHED].freeze
 
-    attr_reader :dir, :set, :source
+    attr_reader :dir, :set, :source, :home
 
     # The data, or nil when there is none. For tests that skip rather than fail.
     def self.find(home: Wolf3D.home)
@@ -42,13 +42,14 @@ module Wolf3D
       raise NotFound, no_files_message(dir, source) if sets.empty?
       raise NotFound, ambiguous_message(dir, sets) if sets.length > 1
 
-      new(dir: dir, set: sets.first, source: source)
+      new(dir: dir, set: sets.first, source: source, home: home)
     end
 
-    def initialize(dir:, set:, source:)
+    def initialize(dir:, set:, source:, home: nil)
       @dir = dir
       @set = set
       @source = source
+      @home = home
     end
 
     # The file for a stem, e.g. path("VSWAP"). Case is whatever the disk uses.
@@ -82,13 +83,20 @@ module Wolf3D
       from_env = ENV.fetch(ENV_VAR, nil)
       return [File.expand_path(from_env), ENV_VAR] unless from_env.to_s.empty?
 
-      config = File.join(home, CONFIG_FILE)
-      return [nil, nil] unless File.file?(config)
-
-      named = YAML.safe_load_file(config).then { |y| y.is_a?(Hash) ? y["data"] : nil }
-      return [nil, nil] if named.to_s.empty?
+      named = config_value(home, "data")
+      return [nil, nil] if named.nil?
 
       [File.expand_path(named, home), CONFIG_FILE]
+    end
+
+    def self.config_value(home, key)
+      return nil if home.nil?
+
+      config = File.join(home, CONFIG_FILE)
+      return nil unless File.file?(config)
+
+      value = YAML.safe_load_file(config).then { |loaded| loaded.is_a?(Hash) ? loaded[key] : nil }
+      value.to_s.empty? ? nil : value
     end
 
     def self.unset_message(home)
