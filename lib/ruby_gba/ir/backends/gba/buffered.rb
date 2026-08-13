@@ -620,6 +620,9 @@ module RubyGBA
 
             done = gensym
             emit_column_setup(node, bmp, done, blob: indexed_blob(node.name), pixel_bytes: 1)
+            # Clipped BEFORE the destination is worked out, so the destination points at the
+            # first row that shows rather than at a row above the screen.
+            emit_clip_column_rows(done)
             emit_column_destination
 
             # A strip wholly on the screen writes with nothing to test; one hanging off an
@@ -682,7 +685,6 @@ module RubyGBA
           # why the pair it points at needed rounding only once: a row is an even number of
           # bytes across, so every row of a strip sits the same way inside its pair.
           def emit_buffered_column_rows
-            emit(ASM.load_immediate(COLUMN_POS, 0))
             emit_row_loop(COLUMN_ROWS) do
               yield
               emit(ASM.add_reg(COLUMN_POS, COLUMN_POS, COLUMN_STEP))
@@ -697,11 +699,6 @@ module RubyGBA
           # where it should. +starts_odd+ is nil in the copy that has to test each pixel.
           def emit_buffered_column_row(bmp, width, clear, starts_odd)
             skip = gensym
-            emit(ASM.cmp_imm(COLUMN_Y, 0))
-            emit_branch(:bcond, skip, cond: :lt)
-            emit(ASM.cmp_imm(COLUMN_Y, SCREEN_HEIGHT))
-            emit_branch(:bcond, skip, cond: :ge)
-
             emit_read_column_number(bmp, clear, skip)
 
             if starts_odd.nil?
@@ -714,9 +711,10 @@ module RubyGBA
 
           # number = picture[(pos >> 16) * width + slice], the slice already folded into
           # COLUMN_SRC. Leaves it in ACC, or jumps to +skip+ when the pixel is see-through.
+          # Nothing holds the row back — see the note on the direct screen's reader for why it
+          # cannot run past the picture.
           def emit_read_column_number(bmp, clear, skip)
             emit(ASM.lsr_imm(ACC, COLUMN_POS, COLUMN_FIXED))
-            emit_clamp_to(ACC, bmp.height - 1)
             emit(ASM.load_immediate(TMP, bmp.width))
             emit(ASM.mul(ACC, ACC, TMP))
             emit(ASM.add_reg(ACC, COLUMN_SRC, ACC))

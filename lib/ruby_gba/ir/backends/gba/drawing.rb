@@ -300,6 +300,7 @@ module RubyGBA
 
             done = gensym
             emit_column_setup(node, bmp, done)
+            emit_clip_column_rows(done)
 
             # The screen's left and right edges are settled ONCE here, because a strip has one
             # x for its whole height. A strip wholly on screen then writes with nothing to
@@ -353,9 +354,47 @@ module RubyGBA
             emit(ASM.add_reg(COLUMN_SRC, COLUMN_SRC, ACC))
           end
 
-          # The walk down the screen, one pass per row of the column.
+          # WHICH ROWS OF THE COLUMN ARE ACTUALLY ON THE SCREEN, worked out once before the
+          # walk starts.
+          #
+          # A wall you are nose-to-nose with is many times taller than the screen. Walking
+          # every one of its rows and throwing away the ones above and below is work that
+          # grows with how close you stand — and it is why a game would otherwise have to hold
+          # its wall heights to a ceiling, which is a lie about perspective at exactly the
+          # moment the player can see it best. So the walk starts on the first row that shows
+          # and stops after the last, and a column of any height costs what is on screen.
+          #
+          # COLUMN_ROWS holds the height coming in and how many rows to walk going out;
+          # COLUMN_Y and COLUMN_POS are moved to that first visible row. Jumps to +done+ when
+          # nothing of the column shows at all.
+          def emit_clip_column_rows(done)
+            above = gensym
+            emit(ASM.rsb_imm(ACC, COLUMN_Y, 0)) # ACC = -top: rows above the screen...
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, above, cond: :ge)
+            emit(ASM.load_immediate(ACC, 0))    # ...or none, when it starts on the screen
+            place_label(above)
+
+            # Stop at the bottom of the screen, then take off the rows skipped at the top.
+            under = gensym
+            emit(ASM.load_immediate(TMP, SCREEN_HEIGHT))
+            emit(ASM.sub_reg(TMP, TMP, COLUMN_Y)) # one past the last row that shows
+            emit(ASM.cmp_reg(COLUMN_ROWS, TMP))
+            emit_branch(:bcond, under, cond: :le)
+            emit(ASM.mov_reg(COLUMN_ROWS, TMP))
+            place_label(under)
+            emit(ASM.sub_reg(COLUMN_ROWS, COLUMN_ROWS, ACC))
+            emit(ASM.cmp_imm(COLUMN_ROWS, 0))
+            emit_branch(:bcond, done, cond: :le)
+
+            # Start the walk where it becomes visible, which is what keeps the picture in the
+            # same place: the rows skipped are stepped over rather than left out.
+            emit(ASM.add_reg(COLUMN_Y, COLUMN_Y, ACC))
+            emit(ASM.mul(COLUMN_POS, ACC, COLUMN_STEP))
+          end
+
+          # The walk down the screen, one pass per row of the column that shows.
           def emit_column_rows
-            emit(ASM.load_immediate(COLUMN_POS, 0))
             emit_row_loop(COLUMN_ROWS) do
               yield
               emit(ASM.add_reg(COLUMN_POS, COLUMN_POS, COLUMN_STEP))
@@ -364,15 +403,10 @@ module RubyGBA
           end
 
           # One row of the strip: work out which picture row we are on, read its colour, and
-          # write it across — unless the row is off the screen, in which case the walk goes on
-          # without drawing, so a column taller than the screen still lands correctly.
+          # write it across. Every row this reaches is on the screen — that was settled before
+          # the walk started.
           def emit_draw_column_row(bmp, width, clipped:)
             skip = gensym
-
-            emit(ASM.cmp_imm(COLUMN_Y, 0))
-            emit_branch(:bcond, skip, cond: :lt)
-            emit(ASM.cmp_imm(COLUMN_Y, SCREEN_HEIGHT))
-            emit_branch(:bcond, skip, cond: :ge)
 
             emit_read_column_pixel(bmp, skip)
 
@@ -391,9 +425,13 @@ module RubyGBA
 
           # colour = picture[(pos >> 16) * width + slice], the slice already folded into
           # COLUMN_SRC. Leaves it in ACC, or jumps to +skip+ when the pixel is see-through.
+          #
+          # THE ROW CANNOT RUN PAST THE PICTURE, so nothing holds it back. The step is the
+          # picture's height shifted up over the row count, rounded down, and the last row
+          # reaches at most one less than that count times it — which is strictly less than
+          # the picture's height however the rounding falls.
           def emit_read_column_pixel(bmp, skip)
             emit(ASM.lsr_imm(ACC, COLUMN_POS, COLUMN_FIXED))
-            emit_clamp_to(ACC, bmp.height - 1)
             emit(ASM.load_immediate(TMP, bmp.width * 2))
             emit(ASM.mul(ACC, ACC, TMP))
             emit(ASM.add_reg(ACC, COLUMN_SRC, ACC))

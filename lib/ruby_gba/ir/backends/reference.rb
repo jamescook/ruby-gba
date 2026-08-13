@@ -1187,7 +1187,13 @@ module RubyGBA
           # the walk is done once and its answer written across.
           width = node.width || 1
 
-          height.times do |row|
+          # Only the rows that show. A wall you are nose-to-nose with is many times taller
+          # than the screen, and walking its rows to throw them away is work that grows with
+          # how close you stand — so the walk starts on the first row that shows and stops
+          # after the last, which is what lets a height be what perspective says it is.
+          rows = [[-top, 0].max, [height, Screen::HEIGHT - top].min].then { |a, z| a...z }
+
+          rows.each do |row|
             source = ((row * step) >> FIXED).clamp(0, bmp.height - 1)
             at = (((source * bmp.width) + slice) * 2)
             color = pixels.getbyte(at) | (pixels.getbyte(at + 1) << 8)
