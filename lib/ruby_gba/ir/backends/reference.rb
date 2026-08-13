@@ -361,6 +361,10 @@ module RubyGBA
             while i < count
               tick!
               @vars[node.index] = i
+              # Checked BEFORE the body, so a loop that is already finished on its first pass
+              # runs the body no times at all — the same reading on both backends.
+              break if node.stop_when && !eval_value(node.stop_when).zero?
+
               node.children.each { |child| exec(child) }
               i += 1
             end

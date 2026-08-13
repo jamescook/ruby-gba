@@ -68,13 +68,23 @@ module RubyGBA
 
           # Whether this repeat can keep its counter in a register with nothing saved.
           def registers?(node)
-            node.kind == :repeat && blocking_children(node).empty?
+            node.kind == :repeat && !stops_early?(node) && blocking_children(node).empty?
+          end
+
+          # A loop that can stop early works out whether to, before every pass, in the two
+          # registers the fast shape keeps its counter and limit in. So it takes the safe shape
+          # — dearer per pass, and still far cheaper than the passes it does not make: a ray
+          # that meets a wall a third of the way through a march skips the rest of it.
+          def stops_early?(node)
+            leave = node.stop_when
+            !leave.nil? && !(leave.kind == :int && leave.value.zero?)
           end
 
           # Whether it can keep the counter in registers by saving the pair around the few
           # statements that would otherwise land in them.
           def spills?(node)
             return false unless node.kind == :repeat
+            return false if stops_early?(node)
 
             blocking = blocking_children(node)
             blocking.any? && blocking.size <= SPILL_LIMIT &&

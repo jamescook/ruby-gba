@@ -245,6 +245,14 @@ module RubyGBA
             emit(ASM.cmp_reg(ACC, TMP))     # counter - limit
             emit_branch(:bcond, done, cond: :ge) # counter >= limit => finished
 
+            # ...and the other way out: a loop given something to stop for asks before every
+            # pass, so one already answered on its first pass runs the body no times at all.
+            if LoopForm.stops_early?(node)
+              eval_value(node.stop_when)
+              emit(ASM.cmp_imm(ACC, 0))
+              emit_branch(:bcond, done, cond: :ne)
+            end
+
             node.children.each { |stmt| emit_statement(stmt) }
 
             load_var(ACC, index)

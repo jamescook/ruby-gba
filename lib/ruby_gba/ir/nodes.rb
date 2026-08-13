@@ -464,11 +464,14 @@ module RubyGBA
         category :value
       end
 
+      # +stop_when+ is a value checked before each pass: when it is true the loop ends early,
+      # which is what a search wants — a ray that has met a wall has its answer and every step
+      # after it is spent proving nothing.
       class Repeat
         include Node
         kind :repeat
         category :control
-        operands count: :value, index: :name
+        operands count: :value, index: :name, stop_when: :value
       end
 
       class RestoreRegion
