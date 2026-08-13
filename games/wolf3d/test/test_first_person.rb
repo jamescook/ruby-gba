@@ -20,12 +20,13 @@ class TestFirstPerson < Minitest::Test
   # tear-free screen, which is the one the game itself draws on.
   def view_program
     vswap = Wolf3D::Vswap.new(fixture.files["VSWAP"])
-    atlas = Wolf3D::WallAtlas.new(vswap, Wolf3D::Palette.game, @level)
+    doors = Wolf3D::Doors.new(@level, vswap)
+    atlas = Wolf3D::WallAtlas.new(vswap, Wolf3D::Palette.game, @level, doors: doors)
     level = @level
 
     RubyGBA.game("VIEW", code: "AVUE", maker: "01") do
       screen :bitmap, tear_free: true
-      view = Wolf3D::FirstPerson.new(self, level, atlas)
+      view = Wolf3D::FirstPerson.new(self, level, atlas, doors)
       game_loop { view.update }
     end.program
   end

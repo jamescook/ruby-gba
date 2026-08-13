@@ -30,6 +30,19 @@ module Wolf3D
     # held here, at a distance longer than any crossing on a map this size.
     FAR = 128.0
 
+    # Where the map table stops naming walls and starts naming doors. Above every picture a
+    # level could hold, so the two can never be confused for one another.
+    DOOR = 512
+
+    # HOW FAR OPEN A DOOR IS, counted in 64ths of the way rather than as a fraction, because a
+    # list holds whole numbers. Sixty-four is also how many columns a door picture has, so a
+    # step of this is a column of the panel disappearing.
+    DOOR_WIDE = 64
+    DOOR_STEP = 3            # 64ths a frame, so about a third of a second to swing
+    DOOR_LINGER = 180        # and three seconds standing open before it shuts again
+    DOOR_WALKABLE = 48       # open this far and you fit through
+    DOOR_REACH = 0.75        # how far in front of you a door is close enough to open
+
     TEX = WallAtlas::SIDE # a wall picture is this many columns across...
     PAIR = TEX * 2        # ...and each wall keeps two of them, lit then dark
     HORIZON = 76          # the eye line
@@ -49,10 +62,11 @@ module Wolf3D
     CEILING = RubyGBA::Color.rgb(7, 7, 9)
     FLOOR_COLOR = RubyGBA::Color.rgb(12, 11, 10)
 
-    def initialize(build, level, atlas)
+    def initialize(build, level, atlas, doors)
       @b = build
       @level = level
       @atlas = atlas
+      @doors = doors
       declare
     end
 
@@ -84,11 +98,28 @@ module Wolf3D
         toward > (1.0 / FAR) ? 1.0 / toward : FAR
       }
 
-      # The map as one flat table: which of the atlas's walls stands in each cell, counting
-      # from one, and 0 for open floor.
-      @world = b.table :world, @level.each_cell.map { |x, y|
-        @level.solid?(x, y) ? (@atlas.codes.index(@level.wall_code(x, y)) || 0) + 1 : 0
-      }, width: :byte
+      # THE MAP AS ONE FLAT TABLE, and it says three things in one number so that the walk asks
+      # one question per step rather than two. 0 is open floor. Anything up to DOOR is a wall,
+      # and the number is where its lit picture sits in the row of pictures, counting from one —
+      # so the walk adds which way the face turns and has the picture. DOOR and above is a
+      # doorway, and what is left over is which door.
+      #
+      # Keeping doors in the same table is what makes them nearly free: the walk already tests
+      # "is there anything here", and that test is false almost every step. Only when something
+      # IS here does it go on to ask which kind, and by then the ray has stopped anyway.
+      @world = b.table :world, @level.each_cell.map { |x, y| cell_value(x, y) }
+
+      # How far open each door is: 0 is shut, 1 is out of the way. A door is only ever moving
+      # toward one or the other, so this one number is its whole state, and the count beside it
+      # is how long it still has to stand open.
+      @open = b.list :door_open, capacity: [@doors.count, 1].max
+      @linger = b.list :door_linger, capacity: [@doors.count, 1].max
+
+      # Which picture each door wears, worked out while building — a door's panel does not
+      # turn, so unlike a wall it needs no choosing as the game runs.
+      @door_picture = b.table :door_picture, door_pictures, width: :byte
+      @door_across = b.table :door_across, @doors.doors.map(&:across), width: :byte
+      @door_locked = b.table :door_locked, @doors.doors.map { |d| d.lock ? 1 : 0 }, width: :byte
 
       b.image :walls, width: @atlas.width, height: @atlas.height, data: @atlas.pixels
 
@@ -99,14 +130,36 @@ module Wolf3D
 
       # Whole numbers: which cell the ray is in, which way it is walking through the grid,
       # which kind of grid line it last crossed, and what came of all that.
-      %i[_ang _hit _wall _cell _colh _top _mapx _mapy _stepmx _stepmy _side].each do |name|
+      %i[_ang _hit _wall _cell _colh _top _mapx _mapy _stepmx _stepmy _side
+         _isdoor _door _edge _foot _here _wait _swing _can _slot].each do |name|
         instance_variable_set(:"@#{name.to_s.delete_prefix('_')}", b.var(name, 0))
       end
       # ...and the ones that hold a fraction: where the ray points, how far to each kind of
       # line, how far it has got, and where along the wall it landed.
-      %i[_dx _dy _deltax _deltay _sidex _sidey _dist _seen _wallx _nx _ny _stepx _stepy].each do |name|
+      %i[_dx _dy _deltax _deltay _sidex _sidey _dist _seen _wallx _mid _slid
+         _nx _ny _stepx _stepy].each do |name|
         instance_variable_set(:"@#{name.to_s.delete_prefix('_')}", b.var(name, 0.0))
       end
+
+      # Every door starts shut, and a list starts empty — so it needs its slots before anything
+      # can reach one by number.
+      @doors.count.times { @open << 0 }
+      @doors.count.times { @linger << 0 }
+    end
+
+    # What one cell of the map table says. See the note where the table is declared.
+    def cell_value(x, y)
+      number = @doors.number_at(x, y)
+      return DOOR + number - 1 if number
+      return 0 unless @level.solid?(x, y)
+
+      code = @level.wall_code(x, y)
+      lit = @atlas.position_of(@atlas.texture_index(code, WallAtlas::LIT))
+      lit ? lit + 1 : 0
+    end
+
+    def door_pictures
+      @doors.doors.map { |door| @atlas.position_of(@doors.picture_for(door)) }
     end
 
     # A number as a table will really hold it, to the places a variable with a fraction keeps.
@@ -133,11 +186,73 @@ module Wolf3D
         # it instead of stopping dead — one of the two moves still lands.
         @nx.set @px
         @nx.add @stepx
-        (@world[(@py.to_i * @level.width) + @nx.to_i] == 0).then { @px.set @nx }
+        free?(@nx.to_i, @py.to_i).then { @px.set @nx }
 
         @ny.set @py
         @ny.add @stepy
-        (@world[(@ny.to_i * @level.width) + @px.to_i] == 0).then { @py.set @ny }
+        free?(@px.to_i, @ny.to_i).then { @py.set @ny }
+      end
+
+      open_a_door
+      move_the_doors
+    end
+
+    # Can the player stand here? Open floor, or a doorway whose panel has slid far enough out
+    # of the way to fit through.
+    #
+    # Written as nested tests rather than one joined condition on purpose: joining them with
+    # "and" would work out BOTH sides, and the second one reaches into the list of doors by a
+    # number that is only a door number when the first side is true.
+    def free?(x, y)
+      @foot.set(@world[(y * @level.width) + x])
+      @can.set 0
+      (@foot == 0).then { @can.set 1 }
+      (@foot >= DOOR).then do
+        @slot.set(@foot - DOOR)
+        (@open[@slot] > DOOR_WALKABLE).then { @can.set 1 }
+      end
+      @can == 1
+    end
+
+    # Press the button facing a door and it opens. The reach is short on purpose: you have to
+    # be at the door, not merely pointing at it from across the room.
+    def open_a_door
+      b = @b
+      b.pressed(:a).then do
+        @nx.set @px
+        @nx.add(@sin[@view + QUARTER] * DOOR_REACH)
+        @ny.set @py
+        @ny.add(@sin[@view] * DOOR_REACH)
+        @foot.set(@world[(@ny.to_i * @level.width) + @nx.to_i])
+        (@foot >= DOOR).then do
+          @slot.set(@foot - DOOR)
+          # A locked door wants a key, and there are none to carry yet, so it stays shut.
+          (@door_locked[@slot] == 0).then { @linger[@slot] = DOOR_LINGER }
+        end
+      end
+    end
+
+    # Every door, every frame. A door with time left on it is going open; one without is going
+    # shut. That one number is the whole of a door's mind, and it is what makes "open, wait,
+    # then close" a subtraction rather than a state machine.
+    #
+    # Standing in the doorway tops the count back up, so a door cannot shut on you.
+    def move_the_doors
+      return if @doors.empty?
+
+      b = @b
+      @here.set(@world[(@py.to_i * @level.width) + @px.to_i])
+      b.repeat(@doors.count) do |door|
+        (@here == DOOR + door).then { @linger[door] = DOOR_LINGER }
+        @wait.set(@linger[door])
+        @swing.set(@open[door])
+        (@wait > 0).then do
+          @linger[door] = @wait - 1
+          @swing.approach DOOR_WIDE, DOOR_STEP
+        end.else do
+          @swing.approach 0, DOOR_STEP
+        end
+        @open[door] = @swing
       end
     end
 
@@ -204,14 +319,22 @@ module Wolf3D
         end
         @cell.set(@world[(@mapy * width) + @mapx])
         (@cell > 0).then do
-          @hit.set 1
-          @wall.set @cell
+          # Something is here. Only now is it worth asking WHICH kind, because the ray has
+          # stopped either way — every step before this one paid a single test and no more.
+          (@cell >= DOOR).then { meet_a_door }.else do
+            @hit.set 1
+            @wall.set(@cell - 1 + @side)
+            @isdoor.set 0
+          end
         end
       end
 
       # The crossing that landed on the wall counted a whole line's worth too far — take that
-      # back and what is left reaches the surface itself.
-      (@side == 0).then { @dist.set(@sidex - @deltax) }.else { @dist.set(@sidey - @deltay) }
+      # back and what is left reaches the surface itself. A door has already worked out its own
+      # distance, because its panel does not stand on a grid line.
+      (@isdoor == 0).then do
+        (@side == 0).then { @dist.set(@sidex - @deltax) }.else { @dist.set(@sidey - @deltay) }
+      end
 
       # Correct for the fan: a ray angled away from centre travels further to reach the same
       # flat wall, and without this a straight wall bows outward at the edges of the view.
@@ -239,6 +362,46 @@ module Wolf3D
       draw_strip(col)
     end
 
+    # A RAY MEETS A DOORWAY, which is not the same as meeting a wall.
+    #
+    # The panel stands across the MIDDLE of the cell, so the ray does not stop where it came
+    # in: it carries on half a cell further and asks what is there. Three things can happen.
+    # It can leave the cell sideways before it ever reaches the middle, and then the doorway
+    # was just a gap it passed beside. It can reach the middle where the panel has slid away,
+    # and pass through. Or it can reach the middle where the panel still is, and stop.
+    #
+    # The half-cell step is the same for either kind of panel, because the distance from one
+    # grid line to the next along this ray is exactly what the walk already keeps.
+    def meet_a_door
+      @door.set(@cell - DOOR)
+
+      (@door_across[@door] == 0).then do
+        @mid.set(@sidex - (@deltax / 2))         # half a cell back from the far side
+        @wallx.set(@py + (@mid * @dy))           # ...and where the ray is by then
+        @edge.set(@wallx.to_i - @mapy)
+      end.else do
+        @mid.set(@sidey - (@deltay / 2))
+        @wallx.set(@px + (@mid * @dx))
+        @edge.set(@wallx.to_i - @mapx)
+      end
+
+      # Still inside this cell when it got there? If not the ray went by the doorway rather
+      # than into it, and the walk carries on as if nothing were here.
+      (@edge == 0).then do
+        # The panel has slid this far out of the way, so the ray passes through anything up to
+        # there and meets the panel beyond it.
+        @slid.set(@open[@door].to_f / DOOR_WIDE)
+        @wallx.sub(@wallx.to_i.to_f) # how far across the cell, with the whole cells taken off
+        (@wallx > @slid).then do
+          @hit.set 1
+          @isdoor.set 1
+          @dist.set @mid
+          @wall.set(@door_picture[@door])
+          @wallx.sub @slid
+        end
+      end
+    end
+
     # WHICH WAY THE FACE TURNS decides two things, and the walk has already answered it: a ray
     # that stepped across a line running one way met a face running that way, and where along
     # that face it landed is the OTHER coordinate of the point it stopped at.
@@ -249,12 +412,14 @@ module Wolf3D
     def draw_strip(col)
       x = (col * COLUMN_W)
 
-      (@side == 0).then do
-        @wallx.set(@py + (@dist * @dy))
-        strip(x, ((@wall - 1) * PAIR) + texture_column)
+      # A door has already said where along its panel the ray landed, and which picture it
+      # wears — its panel does not turn, so there is nothing to pick.
+      (@isdoor == 1).then do
+        strip(x, (@wall * TEX) + texture_column)
       end.else do
-        @wallx.set(@px + (@dist * @dx))
-        strip(x, ((@wall - 1) * PAIR) + TEX + texture_column)
+        (@side == 0).then { @wallx.set(@py + (@dist * @dy)) }
+                    .else { @wallx.set(@px + (@dist * @dx)) }
+        strip(x, (@wall * TEX) + texture_column)
       end
     end
 
