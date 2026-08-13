@@ -22,8 +22,15 @@ module Wolf3D
     TURN = 512            # angle units in a full turn
     QUARTER = TURN / 4
     SPREAD = 2            # angle units between one strip and the next
-    STEPS = 40            # how far a ray looks before giving up...
-    PER_CELL = 8          # ...an eighth of a cell at a time, so five cells of sight
+    CROSSINGS = 48        # grid lines a ray may cross before it gives up — about 24 cells
+
+    # The furthest one crossing can be worth. A ray running almost along an axis meets that
+    # axis's lines almost never, and one over almost-nothing is too big to hold — so it is
+    # held here, at a distance longer than any crossing on a map this size.
+    FAR = 128.0
+
+    TEX = WallAtlas::SIDE # a wall picture is this many columns across...
+    PAIR = TEX * 2        # ...and each wall keeps two of them, lit then dark
     HORIZON = 76          # the eye line
     WALL_SCALE = 70.0     # how tall a wall one cell away stands
     SOFTEN = 0.3
@@ -56,6 +63,15 @@ module Wolf3D
       b = @b
       @sin = b.table :sin, (0...TURN).map { |a| Math.sin(a * 2 * Math::PI / TURN) }
 
+      # One over the sine, which is what the walk below needs: how far along a ray it is from
+      # one grid line to the next. Worked out here once for every angle rather than divided
+      # for every strip of every frame — dividing two numbers that hold a fraction is the
+      # dearest arithmetic there is, and reading a table is a fraction of it.
+      @reach = b.table :reach, (0...TURN).map { |a|
+        toward = Math.sin(a * 2 * Math::PI / TURN).abs
+        toward > (1.0 / FAR) ? 1.0 / toward : FAR
+      }
+
       # The map as one flat table: which of the atlas's walls stands in each cell, counting
       # from one, and 0 for open floor.
       @world = b.table :world, @level.each_cell.map { |x, y|
@@ -69,15 +85,14 @@ module Wolf3D
       @py = b.var :py, start.y + 0.5
       @view = b.var :view, facing_angle(start.facing)
 
-      @ang = b.var :_ang, 0
-      @hit = b.var :_hit, 0
-      @wall = b.var :_wall, 0
-      @cell = b.var :_cell, 0
-      @colh = b.var :_colh, 0
-      @top = b.var :_top, 0
-      @offx = b.var :_offx, 0
-      @offy = b.var :_offy, 0
-      %i[_dx _dy _rx _ry _dist _seen _nx _ny _stepx _stepy].each do |name|
+      # Whole numbers: which cell the ray is in, which way it is walking through the grid,
+      # which kind of grid line it last crossed, and what came of all that.
+      %i[_ang _hit _wall _cell _colh _top _mapx _mapy _stepmx _stepmy _side].each do |name|
+        instance_variable_set(:"@#{name.to_s.delete_prefix('_')}", b.var(name, 0))
+      end
+      # ...and the ones that hold a fraction: where the ray points, how far to each kind of
+      # line, how far it has got, and where along the wall it landed.
+      %i[_dx _dy _deltax _deltay _sidex _sidey _dist _seen _wallx _nx _ny _stepx _stepy].each do |name|
         instance_variable_set(:"@#{name.to_s.delete_prefix('_')}", b.var(name, 0.0))
       end
     end
@@ -110,7 +125,16 @@ module Wolf3D
       end
     end
 
-    # One strip: march a ray, then stretch a column of whatever it met.
+    # One strip: walk a ray out to the wall it meets, then stretch a column of that wall's
+    # picture to the height its distance earns.
+    #
+    # THE WALK GOES FROM GRID LINE TO GRID LINE, and that is the whole idea. A wall stands ON
+    # a grid line, so stepping to the next line lands exactly on the surface — which gives
+    # the true distance and the true place along the face. Walking in steps of a fixed size
+    # instead stops somewhere INSIDE the wall, and has to make do with both: the distance
+    # comes out in lumps, and dividing by it turns a lump into a jump of several pixels, so a
+    # flat wall arrives as a staircase and its bricks slide about. It is also fewer steps —
+    # about two a cell crossed, against eight.
     def cast(col)
       b = @b
       width = @level.width
@@ -119,26 +143,59 @@ module Wolf3D
       @ang.add(col * SPREAD)
       @ang.sub((COLUMNS - 1) * SPREAD / 2)
 
-      @dx.set(@sin[@ang + QUARTER] * (1.0 / PER_CELL))
-      @dy.set(@sin[@ang] * (1.0 / PER_CELL))
-      @rx.set @px
-      @ry.set @py
+      # Which way the ray points, and how far along it from one grid line to the next — one
+      # answer for the lines running one way, one for the lines running the other.
+      @dx.set(@sin[@ang + QUARTER])
+      @dy.set(@sin[@ang])
+      @deltax.set(@reach[@ang + QUARTER])
+      @deltay.set(@reach[@ang])
+
+      @mapx.set @px.to_i
+      @mapy.set @py.to_i
       @hit.set 0
       @wall.set 0
-      @dist.set(STEPS.to_f / PER_CELL)
+      @side.set 0
 
-      # Stop at the first wall. Every step after that is spent proving nothing, which is what
-      # `stop_when` is for — a ray meets a wall well before its fortieth step.
-      b.repeat(STEPS, stop_when: @hit == 1) do |step|
-        @rx.add @dx
-        @ry.add @dy
-        @cell.set(@world[(@ry.to_i * width) + @rx.to_i])
+      # How far to the FIRST line of each kind, which depends on which way the ray leans:
+      # leaning back it is what has already been crossed of this cell, leaning forward it is
+      # what is left of it.
+      (@dx < 0).then do
+        @stepmx.set(-1)
+        @sidex.set((@px - @mapx.to_f) * @deltax)
+      end.else do
+        @stepmx.set(1)
+        @sidex.set((@mapx.to_f + 1 - @px) * @deltax)
+      end
+      (@dy < 0).then do
+        @stepmy.set(-1)
+        @sidey.set((@py - @mapy.to_f) * @deltay)
+      end.else do
+        @stepmy.set(1)
+        @sidey.set((@mapy.to_f + 1 - @py) * @deltay)
+      end
+
+      # Take whichever line is nearer, every time. That is all there is to it — and it stops
+      # the moment it meets a wall, which is well before the last crossing it is allowed.
+      b.repeat(CROSSINGS, stop_when: @hit == 1) do
+        (@sidex < @sidey).then do
+          @sidex.add @deltax
+          @mapx.add @stepmx
+          @side.set 0
+        end.else do
+          @sidey.add @deltay
+          @mapy.add @stepmy
+          @side.set 1
+        end
+        @cell.set(@world[(@mapy * width) + @mapx])
         (@cell > 0).then do
           @hit.set 1
           @wall.set @cell
-          @dist.set(step * (1.0 / PER_CELL))
         end
       end
+
+      # The crossing that landed on the wall counted a whole line's worth too far — take that
+      # back and what is left reaches the surface itself.
+      (@side == 0).then { @dist.set(@sidex - @deltax) }.else { @dist.set(@sidey - @deltay) }
 
       # Correct for the fan: a ray angled away from centre travels further to reach the same
       # flat wall, and without this a straight wall bows outward at the edges of the view.
@@ -154,34 +211,28 @@ module Wolf3D
       draw_strip(col)
     end
 
-    # WHICH WAY THE WALL FACES decides two things, and getting it wrong is what makes a wall
-    # look like torn paper: which coordinate says where along the face the ray landed, and
-    # which of the wall's two pictures to use.
+    # WHICH WAY THE FACE TURNS decides two things, and the walk has already answered it: a ray
+    # that stepped across a line running one way met a face running that way, and where along
+    # that face it landed is the OTHER coordinate of the point it stopped at.
     #
-    # A ray that crossed mostly sideways met a face running north-south, and how far DOWN that
-    # face it landed is its y; one that crossed mostly up or down met an east-west face, and
-    # the answer is its x. Telling them apart is asking which coordinate moved further into
-    # the cell it stopped in.
+    # Each wall keeps two pictures side by side, the lit one then the darker one, so the same
+    # answer picks between them for nothing — which is where the whole game gets its sense of
+    # light.
     def draw_strip(col)
       x = (col * COLUMN_W)
 
-      # How far into its cell each coordinate ended up, measured from the middle, in the same
-      # 64ths the picture is 64 columns of. Whichever moved further is the one that crossed a
-      # face, and the other one says where along that face the ray landed.
-      @offx.set(((@rx * 64).to_i % 64) - 32)
-      @offx.abs
-      @offy.set(((@ry * 64).to_i % 64) - 32)
-      @offy.abs
-
-      # Each wall keeps two pictures side by side, the lit one then the darker one, so the
-      # face's direction picks between them for nothing — which is where the whole game gets
-      # its sense of light.
-      (@offx > @offy).then do
-        strip(x, ((@wall - 1) * 128) + ((@ry * 64).to_i % 64))
+      (@side == 0).then do
+        @wallx.set(@py + (@dist * @dy))
+        strip(x, ((@wall - 1) * PAIR) + texture_column)
       end.else do
-        strip(x, ((@wall - 1) * 128) + 64 + ((@rx * 64).to_i % 64))
+        @wallx.set(@px + (@dist * @dx))
+        strip(x, ((@wall - 1) * PAIR) + TEX + texture_column)
       end
     end
+
+    # Where along the face the ray landed, as one of the picture's columns: the part of the
+    # crossing point that is past the grid line the wall stands on.
+    def texture_column = (@wallx * TEX).to_i % TEX
 
     def strip(x, slice)
       COLUMN_W.times do |dx|
