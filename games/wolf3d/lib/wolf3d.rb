@@ -11,6 +11,7 @@ rescue LoadError
   require "ruby_gba"
 end
 
+require_relative "wolf3d/game_data"
 require_relative "wolf3d/title"
 
 module Wolf3D
@@ -20,10 +21,25 @@ module Wolf3D
   CODE = "AWLF"
   MAKER = "01"
 
+  # This game's own directory, which is where wolf3d.yml is looked for.
+  def self.home = File.expand_path("..", __dir__)
+
+  # Nil until someone points the build at their copy. The game still builds without it, so the
+  # cartridge can say what is missing instead of the build dying. That stops being true once
+  # anything actually reads the data.
+  def self.data = @data ||= GameData.find
+
+  # Say what the cartridge was built from, or how to fix it not knowing. Without this a build
+  # with no data is silent and the only clue is four words on the title screen.
+  def self.report(err = $stderr)
+    data ? err.puts(data.describe) : err.puts(GameData.unset_message(home))
+    data
+  end
+
   GAME = RubyGBA.game(TITLE, code: CODE, maker: MAKER) do
     screen :bitmap, tear_free: true
 
-    title = Title.new(self)
+    title = Title.new(self, Wolf3D.data)
     game_loop { title.update }
   end
 
