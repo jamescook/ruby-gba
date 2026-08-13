@@ -77,7 +77,7 @@ Build it and run it in any GBA emulator:
 ```bash
 ruby examples/snake.rb             # => writes snake.gba
 ruby-gba build examples/snake.rb   # the same, via the CLI (adds -o / --explain / --stats)
-rake test                          # unit + (optional) emulator integration tests
+rake test                          # unit + emulator integration tests (builds gemba-core first)
 ```
 
 ---
@@ -88,11 +88,11 @@ rake test                          # unit + (optional) emulator integration test
 
 Every user-facing verb speaks intent and color *names*, never registers or jargon. `screen :bitmap`, `draw_rect_at`, `beep :eat`, `clear_screen :black`. The framework owns the palette, VRAM layout, VBlank timing, and DMA. Sensible, safe defaults (edge-clipping, safe writes) mean nothing corrupts memory or silently fails — and a **raw escape hatch** stays available for anyone who *wants* to drop down to the metal.
 
-It also fixes the hardware defaults a real game has to fix and a first-timer never knows about. The console reads the cartridge at its slowest, safest speed at power-on, so every ROM asks for the quicker timing before it runs a line of your code — measured on the emulator's timing model, that is about **40% off the CPU time each frame** (breakout 17.4 → 10.6 scanlines of a 228-scanline frame, Pac-Man 13.5 → 8.0, the shmup 15.2 → 9.2). Pass `fast_cartridge: false` to keep the cautious timing.
+It also fixes the hardware defaults a real game has to fix and a first-timer never knows about — the console reads the cartridge at its slowest, safest speed at power-on, so every ROM asks for the quicker timing before it runs a line of your code. Pass `fast_cartridge: false` to keep the cautious one.
 
 ### Guardrails — footguns become teaching errors
 
-The worst part of learning the GBA is that mistakes rarely tell you *what* went wrong. A wrong register, a draw that runs off-screen, an 8-bit store into 16-bit-only memory — and you get a silent black screen, or garbled visuals, or memory corruption that surfaces somewhere unrelated, or a ROM that works in one emulator and hangs on real hardware. The failure is almost never next to its cause. So known footguns are caught at **build time** and explained in plain language: *drew something but never set a screen mode*, *game loop that never waits for the screen*, *a draw that lands entirely off-screen*, *a comparison used as a native Ruby `if`*. Fatal problems stop the build so a broken ROM can't ship; advisories print and let it through. Fixes are **suggested, never silently applied** (opt-in `--auto-fix` is planned). The check registry is **extensible** — a feature or plugin can register its own guardrails.
+The worst part of learning the GBA is that mistakes rarely tell you *what* went wrong. A wrong register, a draw that runs off-screen, an 8-bit store into 16-bit-only memory — and you get a silent black screen, or garbled visuals, or memory corruption that surfaces somewhere unrelated, or a ROM that works in one emulator and hangs on real hardware. The failure is almost never next to its cause. So known footguns are caught at **build time** and explained in plain language: *drew something but never set a screen mode*, *game loop that never waits for the screen*, *a draw that lands entirely off-screen*, *a comparison used as a native Ruby `if`*. Fatal problems stop the build so a broken ROM can't ship; advisories print and let it through. Fixes are **suggested, never silently applied**. The check registry is **extensible** — a feature or plugin can register its own guardrails.
 
 ### The value-centric DSL — why it matters
 
@@ -185,35 +185,39 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Bitmap display — Mode 3, 240×160, 15-bit color
 - [x] Drawing — pixels, rectangles, DMA fills, screen clear
 - [x] Bitmap images + runtime `blit` (transparency, edge-clipping; ASCII-art or array)
-- [x] Text + `draw_number` (built-in 5×7 font)
+- [x] Text + live `draw_number` — two built-in fonts, and on a tiled screen each character is drawn for you as a glyph sprite
 - [x] Value-centric expression DSL — `.then`/`.else`, `&`/`|`, integer division
 - [x] Control flow — `func`/`call`, `scene`/`case_var`, `game_loop`, `repeat`
 - [x] Scenes / screens — a game is a state machine of scenes; each **owns what it draws** (a scene's sprites/HUD show only while it's active), plus per-scene display mode
 - [x] Input — D-pad + buttons (`held` / `pressed`)
 - [x] Double-buffering — tear-free Mode 4 page-flip (`screen :bitmap, tear_free: true`) + auto-managed palette
 - [x] Hardware sprites / OAM — poses (`facing:`), flipbook animation (`frames:` / `rate:`), stacking, sprite/tile collision
+- [x] Sprite rotation + scaling — `face_angle` / `turn` / `scale`, done by the console's affine hardware
 - [x] Tiled backgrounds (Mode 0) — text or CSV maps, scrolling, stacked parallax layers
+- [x] Layers — name the stack once (`layers :sky, :world, :ui`), then say where a thing belongs; one layer can be see-through
+- [x] Screen effects — `fade` / `tint` / `flash_screen` / `fade_out` / `fade_in`, and a fade can be placed *in* the stack (dim the game, keep the HUD)
+- [x] Camera — `camera`, `camera_follows` (the follow-you camera), `shake_screen`, `pulse`
+- [x] Row-by-row bends — `background.scroll_each_row` gives every row its own offset: rippling water, heat haze, a screen melting
 - [x] Sound — four PSG channels (music, SFX, noise, wave) + multi-voice songs (`song`/`voice`, `beep`, `noise`, `wave`)
 - [x] Sampled PCM audio (Direct Sound / DMA sound) — `sample` / `instrument`, WAV import, mixer refilled once per frame
 - [x] Deterministic randomness — `seed` / `roll` / `rand` / `chance` / `randomize`
-- [x] Timing + motion — `every` / `after`, `approach`
+- [x] Timing + motion — `every` / `after`, `approach`, plus free-running hardware `timer`s with `on_tick`
 - [x] VBlank-IRQ frame timing — `game_loop` paces itself at one pass per frame, sleeping the CPU on the BIOS interrupt wait rather than busy-waiting
-- [x] Runtime collection — `list`
+- [x] Numbers with a fraction — write a Float and the fixed point is managed for you, multiplies and divides included
+- [x] Runtime collections — `list`, `pool` (many of a component, without desyncing parallel lists), `grid`, and build-time `table` lookups in ROM
 - [x] Save / load persistence — `save_var` over battery-backed SRAM, loaded at boot and re-saved on change
-- [x] Asset pipeline — PNG → tiles / sprites / animation frames, and CSV tilemaps → backgrounds
+- [x] Asset pipeline — PNG → tiles / sprites / animation frames, CSV tilemaps → backgrounds, and native `.aseprite` files read straight (layers, frames, palette, named animations — no export step)
 - [x] Fonts — built-in + register your own (`font` from glyph art)
 - [x] Guardrails (extensible registry) + build-time validation, findings traced to the DSL line
-- [x] Effect packs — register your own DSL verbs (and their guardrails); `camera` + `shake_screen` ship as the first pack
+- [x] Effect packs — register your own DSL verbs (and their guardrails); four ship by default (screen shake, screen fade, follow camera, pulse)
 - [x] Cost estimator + `rom.explain`
-- [x] IR + two backends (GBA lowering, Ruby interpreter) with a conformance fixture + portability tagging
+- [x] IR + two backends (GBA lowering, reference interpreter in pure Ruby) with a conformance fixture + portability tagging
 - [x] CLI — `ruby-gba build / explain / inspect / new` (Thor): per-command help, typed options, friendly errors
 
-**Planned**
+**Planned / Ideas**
 
-- [ ] Affine transforms — rotation & scaling for sprites and backgrounds (Mode 7-style)
+- [ ] Affine backgrounds — rotating and scaling a whole tiled layer (Mode 7-style); sprites already do both
 - [ ] Tiled TMX import + larger streamed maps (beyond one 32×32 screenblock)
-- [ ] Opt-in guardrail auto-fix (`--auto-fix`)
-- [ ] Screen effects — fade / flash (needs the brightness primitive)
 - [ ] More motion verbs — lerp / wrap / bounce / snap
 - [ ] Target-neutral draw layer (decouple draw intent from the framebuffer)
 - [ ] Flash save memory (beyond SRAM)
@@ -237,6 +241,7 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | [`breakout.rb`](examples/breakout.rb) | A whole grid of `overlaps?` bricks, lives, angle-on-paddle-hit | Tear-free (double-buffered), whole frame redrawn |
 | [`snake.rb`](examples/snake.rb) | A growing `list` body, an `every` movement beat, live score | Direct Mode 3, **only the changed cells** redrawn |
 | [`snake_buffered.rb`](examples/snake_buffered.rb) | The *same* game written the naïve way and still tear-free | Double-buffered, whole board redrawn each frame |
+| [`raycaster.rb`](examples/raycaster.rb) | A first-person view of a maze, drawn the Wolfenstein way. Positions, ray steps and wall distances all hold fractions (write a Float and the fixed point is managed for you); the sine curve and the map are build-time `table`s in ROM | Direct Mode 3, one fill per screen column |
 | [`pacman.rb`](examples/pacman.rb) | The tiled-mode flagship: a tiled room, `facing:` poses, sprite-to-sprite `overlaps?` (eat pellets, dodge a chasing ghost), a live on-screen SCORE (`draw_text`/`draw_number` in tiled mode), sound | Tiled background + hardware (OAM) sprites, HUD as glyph sprites |
 | [`hero.rb`](examples/hero.rb) | A follow-you camera: a hardware sprite pinned to screen center while a world bigger than the screen scrolls under it (`background.scroll_to`) | Scrolling tiled background + a hardware sprite over it |
 | [`sprite_mover.rb`](examples/sprite_mover.rb) | Steering a single sprite over a kept background | A software sprite over a preserved bitmap |
@@ -244,11 +249,14 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | [`tiles.rb`](examples/tiles.rb) | A room built from reusable 8×8 tiles + a text map (`tiles` / `background`) | Tiled background, drawn by the tile hardware |
 | [`scroll.rb`](examples/scroll.rb) | Panning a camera over a world bigger than the screen (`background.scroll_by`, wraps at the edge) | Tiled background, scrolled by the tile hardware |
 | [`parallax.rb`](examples/parallax.rb) | Two background layers (far clouds, near trees) scrolling at different speeds to fake depth | Stacked tiled layers, composited + independently scrolled |
+| [`lake.rb`](examples/lake.rb) | Water that ripples: every row of a layer gets its own sideways offset (`scroll_each_row`), read from a sine table that travels a little each frame. Plus a named layer stack and half-see-through jellyfish drifting over it | Tiled layers, bent row by row by the display itself |
+| [`bird.rb`](examples/bird.rb) | Art straight from a native `.aseprite` file — layers, frames and palette read with no export step — and a sprite that tilts (`face_angle`) and drifts nearer and further (`pulse`) at once | Tiled: one hardware sprite through the console's rotate/scale hardware |
 | [`maze.rb`](examples/maze.rb) | A hero that walks corridors and is stopped by the walls (`tiles solid:`, `sprite.blocked_by`) | Tiled room + a hardware sprite with tile collision |
 | [`sheet.rb`](examples/sheet.rb) | Art imported from PNG files: a tile sheet paints the room, a transparent sprite sheet animates the hero (`tiles from:` / `sprite frames_from:`) | Tiled room + a hardware sprite, both imported from images |
 | [`level.rb`](examples/level.rb) | A level designed in a map editor: import the whole tile sheet as numbered tiles, then read the room straight from a CSV export (`tiles from:` / `background from:`) | Tiled room from a CSV tilemap + a hardware sprite |
 | [`shmup.rb`](examples/shmup.rb) + [`shmup/`](examples/shmup) | A game **split across files** with real **scenes**: `player.rb`, `enemies.rb`, `hud.rb` are plain Ruby objects that take the build — no base class, no magic. Ship, diving enemies, per-pixel shot hits, a live HUD, and a **PLAYING → GAME OVER → restart** flow where losing the last ship hides the field and shows the game-over screen (no visibility flags) | Tiled: hardware sprites + text HUD + per-pixel collision, scene-scoped |
-| [`jukebox.rb`](examples/jukebox.rb) | The sound showcase: three classical tunes written as plain notes (`song` / `note`) — Ode to Joy played two-handed with a `voice :melody` over a `voice :bass` — a cursor that picks one to play and loop, and bobbing "now playing" bars | Tear-free (double-buffered) bitmap menu |
+| [`piano.rb`](examples/piano.rb) | The sampled-sound showcase: two hands playing a tune from ONE recorded note, re-pitched across the keyboard by `instrument`, with three voices sounding together through the software mixer | Tiled: hands and key-lights as hardware sprites over a keyboard background |
+| [`jukebox.rb`](examples/jukebox.rb) | The PSG sound showcase: three classical tunes written as plain notes (`song` / `note`) — Ode to Joy played two-handed with a `voice :melody` over a `voice :bass` — a cursor that picks one to play and loop, and bobbing "now playing" bars | Tear-free (double-buffered) bitmap menu |
 
 Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static
 drawing), [`grid_cursor.rb`](examples/grid_cursor.rb) (a `grid` with a moving
@@ -324,9 +332,9 @@ lib/ruby_gba/
     node.rb, build.rb        # the IR op-tree + constructors
     int32.rb, portability.rb # reference semantics; portable vs hardware-only tags
     guardrails/              # the check registry + individual footgun checks
-    cost_model.rb            # per-frame draw-cost estimator (feeds rom.explain)
-    backends/gba.rb          # lower IR -> ARM7 ROM
-    backends/ruby/           # interpret IR -> framebuffer (headless reference)
+    cost_model.rb, cost_model/ # per-frame cost estimator + its report (feeds rom.explain)
+    backends/gba*            # lower IR -> ARM7 ROM
+    backends/reference*      # interpret IR -> framebuffer (headless oracle)
   asm.rb, rom.rb             # ARM encoding + cartridge assembly
   verifier.rb                # read back real pixels from an emulator (via gemba-core, the libmgba binding)
 examples/                    # runnable games + demos (see the Examples section above)
@@ -335,7 +343,7 @@ assets/                      # captured GIFs / screenshots
 
 ## Status
 
-Pre-1.0 and moving fast. Full games work end-to-end on both bitmap and tiled screens — sprites, scrolling backgrounds, four-channel sound, and the asset pipeline are all in (see `examples/`); sampled audio, affine transforms, and the alternate backends are the next frontier.
+Pre-1.0 and moving fast. Full games work end-to-end on both bitmap and tiled screens — sprites (rotated and scaled), scrolling and bending backgrounds, a named layer stack, screen effects, four-channel and sampled sound, and the asset pipeline are all in (see `examples/`); affine backgrounds and the alternate backends are the next frontier.
 
 Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. Anything that reads what a ROM *actually did* runs it in an emulator through **`gemba-core`**, a small in-repo C extension binding libmgba, which needs a C compiler and libmgba to build. Three things use it: the pixel read-back the tests assert on, the measured frame-rate verdict in `rom.explain`, and — the one that is easy to miss — **calibrating the cost model's weights**.
 
