@@ -139,8 +139,20 @@ module RubyGBA
 
     # A mutable handle to +field+ of the instance at slot +index+ (a {Value}).
     def field_ref(field, index)
-      FieldRef.new(@builder, field_list(field), index.node)
+      field_handle(field, index.node)
     end
+
+    # One field of one slot, with everything it needs to read, write and complain clearly.
+    def field_handle(field, index_node)
+      FieldRef.new(builder: @builder, list: field_list(field), index: index_node,
+                   pool: @name, field: field, fraction_bits: field_bits(field))
+    end
+
+    # What a field holds, taken from the default it was declared with. Writing `vy: 0.0`
+    # is how a pool says a field carries a fraction, exactly as writing `var :vy, 0.0` does
+    # for a variable — so a game with sixty particles drifting at fractional speeds never
+    # picks a scale of its own.
+    def field_bits(field) = Fraction.bits_of(@fields[field])
 
     private
 
@@ -193,7 +205,11 @@ module RubyGBA
     # take their declared default).
     def assign_fields(slot, values)
       @fields.map do |field, default|
-        Build.list_set(field_list(field), slot, Value.node_for(values.fetch(field, default)))
+        given = values.fetch(field, default)
+        # Checked against what the field holds, so spawning with a fraction into a whole
+        # field — or the other way round — is the same friendly error as writing one later.
+        node = field_handle(field, slot).node_matching(given, "hold")
+        Build.list_set(field_list(field), slot, node)
       end
     end
 

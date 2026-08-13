@@ -34,13 +34,12 @@ module Wolf3D
     # level could hold, so the two can never be confused for one another.
     DOOR = 512
 
-    # HOW FAR OPEN A DOOR IS, counted in 64ths of the way rather than as a fraction, because a
-    # list holds whole numbers. Sixty-four is also how many columns a door picture has, so a
-    # step of this is a column of the panel disappearing.
-    DOOR_WIDE = 64
-    DOOR_STEP = 3            # 64ths a frame, so about a third of a second to swing
+    # HOW FAR OPEN A DOOR IS: 0 is shut and 1 is out of the way, which is the same thing the
+    # ray asks about, so nothing has to be converted where the two meet.
+    DOOR_WIDE = 1.0
+    DOOR_STEP = 0.05         # a frame, so about half a second to swing
     DOOR_LINGER = 180        # and three seconds standing open before it shuts again
-    DOOR_WALKABLE = 48       # open this far and you fit through
+    DOOR_WALKABLE = 0.75     # open this far and you fit through
     DOOR_REACH = 0.75        # how far in front of you a door is close enough to open
 
     TEX = WallAtlas::SIDE # a wall picture is this many columns across...
@@ -112,7 +111,7 @@ module Wolf3D
       # How far open each door is: 0 is shut, 1 is out of the way. A door is only ever moving
       # toward one or the other, so this one number is its whole state, and the count beside it
       # is how long it still has to stand open.
-      @open = b.list :door_open, capacity: [@doors.count, 1].max
+      @open = b.list :door_open, capacity: [@doors.count, 1].max, holds: 0.0
       @linger = b.list :door_linger, capacity: [@doors.count, 1].max
 
       # Which picture each door wears, worked out while building — a door's panel does not
@@ -131,19 +130,19 @@ module Wolf3D
       # Whole numbers: which cell the ray is in, which way it is walking through the grid,
       # which kind of grid line it last crossed, and what came of all that.
       %i[_ang _hit _wall _cell _colh _top _mapx _mapy _stepmx _stepmy _side
-         _isdoor _door _edge _foot _here _wait _swing _can _slot].each do |name|
+         _isdoor _door _edge _foot _here _wait _can _slot].each do |name|
         instance_variable_set(:"@#{name.to_s.delete_prefix('_')}", b.var(name, 0))
       end
       # ...and the ones that hold a fraction: where the ray points, how far to each kind of
-      # line, how far it has got, and where along the wall it landed.
-      %i[_dx _dy _deltax _deltay _sidex _sidey _dist _seen _wallx _mid _slid
+      # line, how far it has got, where along the wall it landed, and how far a door has slid.
+      %i[_dx _dy _deltax _deltay _sidex _sidey _dist _seen _wallx _mid _slid _swing
          _nx _ny _stepx _stepy].each do |name|
         instance_variable_set(:"@#{name.to_s.delete_prefix('_')}", b.var(name, 0.0))
       end
 
       # Every door starts shut, and a list starts empty — so it needs its slots before anything
       # can reach one by number.
-      @doors.count.times { @open << 0 }
+      @doors.count.times { @open << 0.0 }
       @doors.count.times { @linger << 0 }
     end
 
@@ -250,7 +249,7 @@ module Wolf3D
           @linger[door] = @wait - 1
           @swing.approach DOOR_WIDE, DOOR_STEP
         end.else do
-          @swing.approach 0, DOOR_STEP
+          @swing.approach 0.0, DOOR_STEP
         end
         @open[door] = @swing
       end
@@ -390,7 +389,7 @@ module Wolf3D
       (@edge == 0).then do
         # The panel has slid this far out of the way, so the ray passes through anything up to
         # there and meets the panel beyond it.
-        @slid.set(@open[@door].to_f / DOOR_WIDE)
+        @slid.set(@open[@door])
         @wallx.sub(@wallx.to_i.to_f) # how far across the cell, with the whole cells taken off
         (@wallx > @slid).then do
           @hit.set 1

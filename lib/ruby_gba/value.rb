@@ -58,11 +58,17 @@ module RubyGBA
     # @param name [Symbol, nil] the variable name, if this handle names one
     # @param fraction_bits [Integer, nil] how many fraction bits it carries; nil for a
     #   plain whole number (see {Fraction} for what carrying a fraction means)
-    def initialize(builder, node, name: nil, fraction_bits: nil)
+    # +declaring+ is how to tell somebody to declare THIS kind of thing with a fraction,
+    # given the number they wrote. A variable and a list say it differently, and the rules
+    # for lining two scales up are otherwise the same — so the rules live here once and
+    # only the advice changes.
+    def initialize(builder, node, name: nil, fraction_bits: nil, declaring: nil, mixing: nil)
       @builder = builder
       @node = node
       @name = name
       @fraction_bits = fraction_bits
+      @declaring = declaring
+      @mixing = mixing
     end
 
     # The IR value node behind this handle (a var_ref, an int, or a binop).
@@ -74,6 +80,13 @@ module RubyGBA
     # Whether this value carries a fraction rather than being a plain whole number.
     def fraction?
       !@fraction_bits.nil?
+    end
+
+    # The node for +other+ brought to this value's scale, or a friendly error saying why
+    # it cannot be. Public because a LIST carries a scale the same way but is not a Value,
+    # and one implementation of these rules is worth more than a convenient shape.
+    def node_matching(other, verb)
+      align!(other, verb)
     end
 
     # --- arithmetic: build a bigger expression Value ---
@@ -305,8 +318,7 @@ module RubyGBA
       if !fraction? && other.is_a?(Float)
         raise ArgumentError,
               "this holds whole numbers, so it cannot #{verb} #{other}. To give it a " \
-              "fraction, declare it with one — `var :name, #{other}` rather than " \
-              "`var :name, #{other.to_i}`.#{at_dsl_line}"
+              "fraction, #{declaring_advice(other)}.#{at_dsl_line}"
       end
       return node_of(other) if !fraction? && Fraction.literal?(other)
 
@@ -345,9 +357,19 @@ module RubyGBA
             "#{at_dsl_line}"
     end
 
+    # How to declare this kind of thing so that it holds a fraction. A variable says it
+    # with its starting value; anything else says so its own way.
+    def declaring_advice(other)
+      return @declaring.call(other) if @declaring
+
+      "declare it with one — `var :name, #{other}` rather than `var :name, #{other.to_i}`"
+    end
+
     # One side holds a fraction and the other is a plain whole number the game works
     # out. Which one is which decides what to tell the author to do.
     def mixed_kinds_message(_other, verb)
+      return "#{@mixing.call(fraction?)}#{at_dsl_line}" if @mixing
+
       fraction_side, whole_side = fraction? ? %w[left right] : %w[right left]
       "you cannot #{verb} these two numbers. The #{fraction_side} one holds a " \
         "fraction and the #{whole_side} one is a whole number the game works out, so " \
