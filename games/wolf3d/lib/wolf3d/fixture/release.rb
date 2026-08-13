@@ -24,7 +24,10 @@ module Wolf3D
       # Plane 0 codes. The original numbers walls from 1 and starts floors at 108.
       FIRST_FLOOR = 108
       WALL = 1
-      DOOR = 90
+      # A door's code says which way its panel runs, and the level must agree with where the
+      # door actually is: both of these sit in a wall running east-west with wall to their east
+      # and west, which is the odd code.
+      DOOR = 91
 
       # Plane 1: where the player starts and which way they face, then everything standing in
       # the level.
@@ -35,7 +38,11 @@ module Wolf3D
 
       def self.write(dir, **) = new(**).write(dir)
 
-      def initialize(set: "WL1", walls: 4, sprites: 2, sounds: 2)
+      # Enough walls that the last eight can be the door pictures, the way a real release
+      # arranges them, and a few real ones in front of those.
+      DEFAULT_WALLS = Doors::DOOR_PICTURES + 4
+
+      def initialize(set: "WL1", walls: DEFAULT_WALLS, sprites: 2, sounds: 2)
         @set = set
         @walls = walls
         @sprites = sprites
@@ -76,6 +83,10 @@ module Wolf3D
           end
         end
         cells[GRID / 2] = DOOR
+        # ...and one in the room's SOUTH wall, which the player starts with their back to. It
+        # goes behind them rather than ahead so that the view forward stays a plain flat wall,
+        # which is what the tests of the renderer itself measure.
+        cells[(((GRID / 2) + ROOM) * GRID) + (GRID / 2)] = DOOR
         cells
       end
 
