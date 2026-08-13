@@ -38,15 +38,30 @@ class TestWolf3DOnHardware < Minitest::Test
   end
 end
 
-# The map on screen, which needs a copy of the game to have a map. Skips without one.
+# The map seen from above and the game's colours, in a cartridge of their own. They used to be
+# tested through the whole game, which stopped drawing them the moment it had a first-person
+# view to draw instead — the same trap the holding screen fell into.
 class TestMapViewOnHardware < Minitest::Test
   include Wolf3DTest
+
+  # A cartridge that draws only what these tests are about.
+  def views_rom(level)
+    palette = Wolf3D.palette
+    RubyGBA.build("VIEWS", code: "AVWS", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      map = Wolf3D::MapView.new(self, level).declare
+      colours = Wolf3D::PaletteView.new(self, palette).declare
+      map.draw
+      colours.draw
+      game_loop { halt }
+    end
+  end
 
   def test_the_first_level_draws_where_the_grid_says
     game_data_or_skip
     level = Wolf3D.maps[0]
     view = Wolf3D::MapView
-    gba = RubyGBA::Verifier.new(Wolf3D.build_rom(out: StringIO.new, err: StringIO.new), frames: 4)
+    gba = RubyGBA::Verifier.new(views_rom(level), frames: 4)
 
     start = level.start
     assert_equal view::START, gba.pixel_gba(view::ORIGIN_X + (start.x * view::SCALE),
@@ -65,7 +80,7 @@ class TestMapViewOnHardware < Minitest::Test
     game_data_or_skip
     palette = Wolf3D.palette
     view = Wolf3D::PaletteView
-    gba = RubyGBA::Verifier.new(Wolf3D.build_rom(out: StringIO.new, err: StringIO.new), frames: 4)
+    gba = RubyGBA::Verifier.new(views_rom(Wolf3D.maps[0]), frames: 4)
 
     [0, 1, 16, 255].each do |index|
       x = view::ORIGIN_X + ((index % view::ACROSS) * view::CELL)

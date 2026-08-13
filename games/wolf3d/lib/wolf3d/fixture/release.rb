@@ -60,17 +60,31 @@ module Wolf3D
           "AUDIOHED" => audiohed, "AUDIOT" => audio }
       end
 
-      # One room: a wall border, floor inside, a door in the north wall, the player in the
-      # middle facing north, one guard to their east.
+      # How far the inner room's walls stand from the middle. Close enough that a first-person
+      # view meets one: a ray sees a handful of cells, so a player alone in a 64-cell field has
+      # nothing to look at.
+      ROOM = 4
+
+      # A wall border round the whole map, a door in the north wall, and a small room around
+      # the player in the middle — with one guard beside them.
       def plane0
         cells = Array.new(CELLS, FIRST_FLOOR)
         GRID.times do |y|
           GRID.times do |x|
-            cells[(y * GRID) + x] = WALL if x.zero? || y.zero? || x == GRID - 1 || y == GRID - 1
+            edge = x.zero? || y.zero? || x == GRID - 1 || y == GRID - 1
+            cells[(y * GRID) + x] = WALL if edge || room_wall?(x, y)
           end
         end
         cells[GRID / 2] = DOOR
         cells
+      end
+
+      # The four sides of the little room, and nothing inside it.
+      def room_wall?(x, y)
+        middle = GRID / 2
+        dx = (x - middle).abs
+        dy = (y - middle).abs
+        (dx == ROOM && dy <= ROOM) || (dy == ROOM && dx <= ROOM)
       end
 
       def plane1
