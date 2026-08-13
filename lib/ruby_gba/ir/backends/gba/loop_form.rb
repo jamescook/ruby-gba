@@ -44,11 +44,13 @@ module RubyGBA
           # ...and the two lowerings that use the high registers for their own working: a
           # blitted image clips each row against the screen edges in them, and the mixer sums
           # its voices there.
-          USES_HIGH_REGISTERS = %i[blit blit_pose play_sample stop_sample sample].freeze
+          USES_HIGH_REGISTERS = %i[blit blit_pose play_sample stop_sample sample
+                                   draw_column_at].freeze
 
           # A value kind that reaches the console's own routines, which own the registers while
-          # they run.
-          CALLS_A_ROUTINE = %i[div_fix pixels_overlap].freeze
+          # they run. A stretched column is here as well as above: it works in the high
+          # registers AND divides to find its step, and either one alone would take them.
+          CALLS_A_ROUTINE = %i[div_fix pixels_overlap draw_column_at].freeze
 
           # HOW MANY STATEMENTS ARE WORTH BRACKETING before giving up the registers is cheaper.
           # A bracket is four instructions — the count written out to its variable, then the
@@ -142,6 +144,7 @@ module RubyGBA
             when :raw then "instructions of your own inside it"
             when :div_fix then "a divide of numbers holding a fraction"
             when :pixels_overlap then "a per-pixel collision test"
+            when :draw_column_at then "the body stretches a column of a picture"
             when *USES_HIGH_REGISTERS then "the body draws an image"
             else
               writes?(node, index) ? "the body writes :#{index}, the loop's own count" : "a divide the game works out"
