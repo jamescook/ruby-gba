@@ -6,32 +6,34 @@ module RubyGBA
       class GBA
         # WHICH OF THE TWO WAYS A ROW-BY-ROW BEND IS LOWERED, decided from the program alone.
         #
-        # Both ways answer the same question — where does this row sit? — and the display asks
-        # it once per line as it builds the picture. What differs is who answers.
+        # WHERE THE OFFSETS COME FROM IS THE SAME EITHER WAY. The block is run for all 160 rows
+        # in the gap between frames, into a table. That is where everything else about a frame
+        # is settled too — the sprites' positions, a background's scroll — so a bend shows the
+        # frame that moved it at the same moment they do. Working the rows out while the
+        # picture is being drawn instead would show a bend a frame ahead of the sprite standing
+        # on it, and would race the display down the screen besides.
         #
-        # THE INTERRUPT is the general one. The display announces the end of every line it
-        # draws, the console stops the game, and the block runs right there with the whole
-        # program in reach: it can call a routine, set a variable, read anything. That is what
-        # makes it the primitive. It is also why it is dear — being stopped and restarted 228
-        # times a frame costs more than the block usually does, and most of THAT is the
-        # console's own work on the way in and out, which nothing we write reaches.
+        # What the two ways differ in is WHO MOVES a row's number out of that table and into
+        # the scroll register, once per line, as the display asks for it.
         #
-        # THE COPIER is the cheap one. One of the console's copying engines can be told "move
-        # one number into this register at the end of every line", and from then on it feeds
-        # the scroll register itself with the CPU untouched. The per-line cost goes to nothing.
-        # The price is that a copier moves numbers and cannot run a program, so all 160 of them
-        # have to be worked out in advance, once a frame, into a table it reads.
+        # THE COPIER is the cheap one, and the usual one. One of the console's copying engines
+        # can be told "move one number into this register at the end of every line", and from
+        # then on it feeds the register itself with the CPU untouched. The per-line cost goes
+        # to nothing at all, so a bend costs only the table.
         #
-        # So the copier can only take a bend whose block IS one number — no statements beside
-        # it. Ask for anything more and the interrupt is what can answer.
+        # ONE ENGINE PER BENDING LAYER, since an engine feeds one register. Three of the four
+        # can be lent out, which is where the ceiling comes from.
         #
-        # AND ONE ENGINE PER BENDING LAYER, since an engine feeds one register. Three of the
-        # four can be lent out, which is where the ceiling comes from — and it lands in a
-        # comfortable place: with the frame's own body kept in the console's quick memory,
-        # where a real build puts a body this busy, three tables still cost a good deal less
-        # than being interrupted 228 times. (Left in the cartridge the two come out close at
-        # three, which is a reason to leave the ceiling where the hardware puts it rather than
-        # to start choosing by price.)
+        # THE INTERRUPT is the fallback, for when there is no engine left. The display
+        # announces the end of every line it draws, the console stops the game, and the
+        # handler reads that line's number out of the table and writes it. It does the same
+        # work the engine would, so the picture is the same — it just costs being stopped and
+        # restarted 228 times a frame, most of which is the console's own doing on the way in
+        # and out and nothing we write reaches.
+        #
+        # A PROGRAM WITH NO FRAME has nowhere to fill a table, and then the interrupt runs the
+        # block itself, line by line. Nothing is paced in such a program, so there is nothing
+        # for the bend to be in step with.
         #
         # THIS ANSWER IS ASKED FOR IN TWO PLACES, here where the bend is emitted and in the
         # cost estimate, which has to charge for the lowering that will really run. It lives in
@@ -76,10 +78,23 @@ module RubyGBA
             program.walk.select { |node| node.kind == :scroll_rows }
           end
 
-          # Whether this program's bends are fed by the copier rather than by a per-line
-          # interrupt. All of them or none: the interrupt costs what it costs the moment one
-          # bend needs it, and a second lowering beside it would add a table to fill for no
-          # saving at all.
+          # Whether this program's bends are worked out into a table ahead of the frame. They
+          # are, whenever there is a frame to work them out in — which is what a wait for one
+          # is. A program with no frame has no such moment and runs its block per line instead.
+          def latched?(program)
+            !bends(program).empty? && program.walk.any? { |node| node.kind == :wait_vblank }
+          end
+
+          # ...and the other side of the same answer: a bend that runs its block per line,
+          # because the program it is in never waits for a frame.
+          def live?(program)
+            !bends(program).empty? && !latched?(program)
+          end
+
+          # Whether this program's tables are fed to the display by a copying engine rather
+          # than by a per-line interrupt. All of them or none: the interrupt costs what it
+          # costs the moment one bend needs it, and feeding one layer by engine beside it
+          # would save nothing.
           def copier?(program)
             bends = bends(program)
             !bends.empty? && refusal(program, bends).nil?
@@ -94,12 +109,10 @@ module RubyGBA
           end
 
           def refusal(program, bends)
-            if bends.length > channels(program)
+            if !latched?(program)
+              "the program never waits for a frame, so there is no moment to work the rows out in"
+            elsif bends.length > channels(program)
               too_many(program, bends)
-            elsif (busy = bends.find { |node| !node.children.empty? })
-              "the block of :#{busy.name} does more than work one number out"
-            elsif program.walk.none? { |node| node.kind == :wait_vblank }
-              "the program never waits for a frame, so there is no moment to fill the table in"
             end
           end
 

@@ -173,8 +173,11 @@ module RubyGBA
           return [] unless v
 
           layers = v.layers.map { |name| ":#{name}" }.join(", ")
+          worked_out = "worked out for each of its #{VISIBLE_LINES} rows a frame"
           how = if v.copied?
-                  "worked out for each of its #{VISIBLE_LINES} rows a frame, then fed to the display for us"
+                  "#{worked_out}, then fed to the display for us"
+                elsif v.filling.positive?
+                  "#{worked_out}, then read back on each of #{v.lines} lines"
                 else
                   "interrupted on each of #{v.lines} lines a frame"
                 end

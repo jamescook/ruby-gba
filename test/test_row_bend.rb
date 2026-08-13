@@ -114,13 +114,10 @@ class TestRowBend < Minitest::Test
   # real shape of the effect, and the one an animated bend has to get right, since a still
   # bend looks the same whichever frame you read it on.
   #
-  # It is compared at EQUAL frame counts, where a framebuffer program needs the console run
-  # a frame longer (Differential::BOOT_FRAMES). A bending program spends a good part of its
-  # first frame getting ready — filling a table of row offsets, or arming an interrupt and
-  # answering it — and comes out of that a frame further on than a program that only draws.
-  # The sweep below is what establishes the pairing rather than assuming it, which is the
-  # point: this is measured, like BOOT_FRAMES itself, and not worked out from first
-  # principles.
+  # It is compared with the console run ONE FRAME LONGER, which is what a tiled program
+  # needs anyway (Differential::BOOT_FRAMES). The sweep below is what establishes the
+  # pairing rather than assuming it, which is the point: this is measured, like BOOT_FRAMES
+  # itself, and not worked out from first principles.
   def ripple_program
     b = Builder.new
     b.instance_eval do
@@ -149,7 +146,7 @@ class TestRowBend < Minitest::Test
   end
 
   def test_a_travelling_ripple_agrees_across_backends
-    assert_backends_agree(ripple_program, frames: 4, console_frames: 4, name: "RIPL")
+    assert_backends_agree(ripple_program, frames: 4, name: "RIPL")
   end
 
   # The same, frame after frame. One frame agreeing could be a coincidence of where the
@@ -157,8 +154,67 @@ class TestRowBend < Minitest::Test
   # together. This is also what proves the interpreter repaints a bending background every
   # frame — before it did, its picture froze after the first and only this test noticed.
   def test_the_ripple_agrees_frame_after_frame
+    (2..5).each { |f| assert_backends_agree(ripple_program, frames: f, name: "RIP#{f}") }
+  end
+
+  # A BEND AND A MOVING SPRITE, which is the pairing a game actually writes — a boat on
+  # rippling water, a jellyfish drifting over a lake. Both halves agreed on their own long
+  # before this test: what it watches is that they agree AT THE SAME MOMENT.
+  #
+  # They did not. A sprite is placed in the gap between frames, so it shows what the last
+  # body did; the rows used to be worked out while the picture was being drawn, so they
+  # showed what THIS body had just done — one frame further on. No frame count lined both
+  # up, so the strongest test in the project could not be pointed at the combination at all.
+  # Working the rows out in the gap, beside the sprites, is what put them in step.
+  def ripple_and_sprite_program(layers: 1)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image :bar, "." => :transparent, "#" => :red do
+        <<~ART
+          ##......
+          ##......
+          ##......
+          ##......
+          ##......
+          ##......
+          ##......
+          ##......
+        ART
+      end
+      image(:boat, "#" => :white) { (["#" * 8] * 8).join("\n") }
+      tiles :stripes, "#" => :bar
+      ripple = table :ripple, (0...64).map { |i| (Math.sin(i * 2 * Math::PI / 64) * 3).round }
+      phase = var :phase, 0
+      layers.times do |i|
+        water = background :"water#{i}", tiles: :stripes, map: Array.new(20) { "#" * 30 }
+        water.scroll_each_row { |row| ripple[(row - phase + (i * 7)) % 64] }
+      end
+      boat = sprite :boat, at: [20, 40]
+      game_loop do
+        phase.add 1
+        boat.move :right, by: 4
+      end
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  def test_a_bend_and_a_moving_sprite_agree_frame_after_frame
+    (2..5).each { |f| assert_backends_agree(ripple_and_sprite_program, frames: f, name: "BSP#{f}") }
+  end
+
+  # ...and the same when no engine was free to feed the rows and the display is interrupted
+  # for them instead. The two lowerings hand over the same numbers at the same moment, so a
+  # game cannot tell which it got — which is the property the whole split rests on.
+  #
+  # The console is run one frame longer still. That is boot, not behavior: four tables to
+  # clear and an interrupt to arm is more than a program gets through before its first pass.
+  def test_a_bend_the_interrupt_feeds_agrees_with_a_moving_sprite_too
+    program = ripple_and_sprite_program(layers: 4)
+    refute BendForm.copier?(program), "four bending layers is one more than there are engines"
     (2..5).each do |f|
-      assert_backends_agree(ripple_program, frames: f, console_frames: f, name: "RIP#{f}")
+      assert_backends_agree(program, frames: f, console_frames: f + 2, name: "ISP#{f}")
     end
   end
 
@@ -294,20 +350,22 @@ class TestRowBend < Minitest::Test
 
   # --- which way it is lowered ---
   #
-  # A block that is one number can be worked out ahead of the frame, into a table one of
-  # the console's copying engines feeds to the display by itself. A block that does more
-  # than that has to run where the display asks, which means being interrupted per line.
-  # The build picks, and what it picks is worth a great deal — see the cost tests below.
+  # The rows are worked out at the frame boundary either way, into a table. What the build
+  # picks is who moves a row out of that table and into the display's register: one of the
+  # console's copying engines, for nothing at all, or an interrupt on every line. It picks
+  # the engine whenever there is one free, and that is worth a great deal — see the cost
+  # tests below.
 
-  def test_a_block_that_is_one_number_is_fed_by_the_copier
+  def test_a_bend_is_fed_by_the_copier
     program = bars_program { |water| water.scroll_each_row { |row| row % 8 } }
     assert BendForm.copier?(program)
     assert_nil BendForm.kept_interrupt_reason(program)
   end
 
-  # A block that sets a variable or calls a routine is a program, and no copier runs a
-  # program — it moves numbers. So that one keeps the interrupt, which can run anything.
-  def test_a_block_that_does_more_keeps_the_interrupt
+  # WHAT IS IN THE BLOCK DOES NOT DECIDE THIS. A block that sets a variable or calls a
+  # routine is a program, and no copier runs a program — but nothing asks it to, because
+  # the block runs in the frame and only its answer is handed over.
+  def test_a_block_that_does_more_is_fed_by_the_copier_too
     program = bars_program do |water|
       shift = var :shift, 0
       water.scroll_each_row do |row|
@@ -315,8 +373,22 @@ class TestRowBend < Minitest::Test
         shift
       end
     end
-    refute BendForm.copier?(program)
-    assert_match(/does more than work one number out/, BendForm.kept_interrupt_reason(program))
+    assert BendForm.copier?(program)
+    assert_nil BendForm.kept_interrupt_reason(program)
+  end
+
+  # ...and it draws the same picture it drew when it ran per line: the block's statements
+  # run once per row wherever they run, so the row a statement works out is the row it lands
+  # on. Every pixel, against the interpreter, which runs that block per row of its own.
+  def test_a_block_that_does_more_bends_the_same_rows
+    program = bars_program do |water|
+      shift = var :shift, 0
+      water.scroll_each_row do |row|
+        shift.set row % 8
+        shift
+      end
+    end
+    assert_backends_agree(program, frames: 4, name: "BUSY")
   end
 
   # Three of the console's four copying engines can be lent out — the fourth is the general
@@ -378,7 +450,9 @@ class TestRowBend < Minitest::Test
     b.program
   end
 
-  # The table is filled once a frame, so a program with no frames has nowhere to fill it.
+  # The rows are worked out once a frame, so a program with no frames has no moment to work
+  # them out in — and then the handler runs the block itself, line by line, which is what
+  # every bend did before there was a table.
   def test_a_program_with_no_frame_keeps_the_interrupt
     b = Builder.new
     b.instance_eval do
@@ -390,6 +464,7 @@ class TestRowBend < Minitest::Test
     end
     b.emit_pending_functions
     refute BendForm.copier?(b.program)
+    refute BendForm.latched?(b.program)
     assert_match(/never waits for a frame/, BendForm.kept_interrupt_reason(b.program))
   end
 

@@ -465,16 +465,25 @@ module RubyGBA
           verdict = bend_verdict(program) or return
 
           layers = verdict.layers.map { |name| ":#{name}" }.join(", ")
-          feeding = if verdict.copied?
-                      format("the display's own copier hands each row its offset with no interruption " \
-                             "at all (~%s)", fmt(verdict.feeding))
-                    else
-                      format("the display is interrupted on all %d of its lines (~%s)",
-                             verdict.lines, fmt(verdict.feeding))
-                    end
           printer.puts format("    bending %s costs ~%s a frame — %s, and each row's own offset is " \
-                              "worked out (~%s)", layers, fmt(verdict.cost), feeding, fmt(verdict.offsets))
+                              "worked out (~%s)", layers, fmt(verdict.cost), bend_feeding_phrase(verdict),
+                              fmt(verdict.offsets))
           kept_interrupt_note(program, printer) unless verdict.copied?
+        end
+
+        # How this bend's rows reach the display, in the words that name what it cost.
+        def bend_feeding_phrase(verdict)
+          if verdict.copied?
+            format("the display's own copier hands each row its offset with no interruption at all, " \
+                   "from a table this costs ~%s to fill", fmt(verdict.filling))
+          elsif verdict.filling.positive?
+            format("the display is interrupted on all %d of its lines (~%s) to read each row out of a " \
+                   "table that costs ~%s to fill",
+                   verdict.lines, fmt(verdict.interrupting), fmt(verdict.filling))
+          else
+            format("the display is interrupted on all %d of its lines (~%s)",
+                   verdict.lines, fmt(verdict.interrupting))
+          end
         end
 
         # ...and when it kept the interrupt, WHY — one line, because a reader who has seen

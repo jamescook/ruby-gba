@@ -117,20 +117,18 @@ class TestAnalyzer < Minitest::Test
   # woken 228 times a frame, which is that case — so a reading must never be less than the
   # CPU it can be shown to burn.
   #
-  # The block SETS A VARIABLE so the bend is answered per line. A block that is only a
-  # number is worked out ahead of the frame and handed to a copying engine, which never
-  # wakes the CPU at all — a fine thing for a game and no use as a probe of this.
+  # FOUR LAYERS BEND, which is what puts the answering on the interrupt: three is as many
+  # copying engines as there are to lend out, and an engine feeds the display without ever
+  # waking the CPU — a fine thing for a game and no use as a probe of this.
   def test_a_reading_is_never_less_than_the_cpu_the_frame_burns
     b = Builder.new
     b.instance_eval do
       screen :tiled
       image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
       tiles :ts, "#" => :t
-      bg = background :bg, tiles: :ts, map: Array.new(20, "#" * 30)
-      shift = var :shift, 0
-      bg.scroll_each_row do |row|
-        shift.set row % 8
-        shift
+      map = Array.new(20, "#" * 30)
+      4.times do |i|
+        background(:"bg#{i}", tiles: :ts, map: map).scroll_each_row { |row| (row + i) % 8 }
       end
       game_loop { }
     end

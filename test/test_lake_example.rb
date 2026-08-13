@@ -111,15 +111,21 @@ class TestLakeExample < Minitest::Test
     refute_includes seen, BELL, "and no pixel of a bell is its own colour"
   end
 
-  # The background half of the picture, every pixel of it. The bend and the scene agree
-  # exactly; the jellyfish are left out because the two backends present a moving sprite
-  # a frame apart from each other (see the note in the bands below).
-  ABOVE_THE_SWIMMERS = 90
-
-  def test_the_two_backends_draw_the_same_lake_above_the_swimmers
-    oracle, console = backend_pictures(Lake.program, frames: 8, name: "LAKE")
-    bad = mismatched_pixels(oracle, console).reject { |_x, y, _want, _got| y >= ABOVE_THE_SWIMMERS }
-
-    assert_empty bad, "the scene and the rippling water disagree"
+  # EVERY PIXEL OF THE LAKE, jellyfish and all: the scene, the water bending row by row,
+  # and three see-through sprites drifting over it, all at once and all agreeing.
+  #
+  # The swimmers used to be left out. A sprite is placed in the gap between frames, so it
+  # showed what the last frame's body did, while the water's rows were worked out as the
+  # picture was drawn and so showed what THIS body had just done — one frame further on.
+  # No frame count lined the two up, and the strongest test this project has could only be
+  # pointed at the water above them. Working the rows out in the gap, beside the sprites,
+  # is what let it cover the whole picture.
+  #
+  # The console is run TWO frames longer, not the usual one: this example uploads three
+  # backgrounds and a sprite sheet before it reaches its first pass, which is more than a
+  # bare tiled program does (Differential::BOOT_FRAMES). Measured, by sweeping the pairing.
+  # +blended+ is the emulator's own rounding where a bell mixes with the water.
+  def test_the_two_backends_draw_the_same_lake
+    assert_backends_agree(Lake.program, frames: 8, console_frames: 10, blended: true, name: "LAKE")
   end
 end

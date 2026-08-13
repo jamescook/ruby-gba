@@ -312,12 +312,11 @@ module RubyGBA
       # per-frame cost, and the bigger one. The display asks where each row sits as it
       # draws it, and the two counts below are the two answers to "how many times".
       #
-      # A block that works ONE NUMBER out is worked out for the visible rows only, ahead
-      # of the frame, into a table a copying engine feeds the display from — so 160 is the
-      # whole story there. A block that does more has to run where the display asks, which
-      # means the program is interrupted after every line the display counts, all 228 of
-      # them, whether that line is part of the picture or not; only the visible ones need
-      # the program's own offset worked out. See Backends::GBA::BendForm.
+      # The block itself runs for the VISIBLE rows only, ahead of the frame, into a table —
+      # so 160 is the whole story for the program's own work. Feeding that table to the
+      # display is free where a copying engine does it, and where none was left the program
+      # is interrupted after every line the display counts, all 228 of them, whether that
+      # line is part of the picture or not. See Backends::GBA::BendForm.
       #
       # Like the mixer, this happens every frame no matter what the game loop does, so it
       # is added to the frame rather than found in the op tree. It is CPU work spread

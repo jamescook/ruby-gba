@@ -20,18 +20,29 @@ module RubyGBA
         # still one costs — the picture is made of the same tiles, just fetched from a
         # different place per line.
         #
+        # WHERE THE ROWS ARE WORKED OUT. In the gap between frames, all 160 of them, into a
+        # table — the program's own expression run 160 times in an ordinary loop. That is
+        # the whole of what a bend costs, and it is the same either way the table is then
+        # fed to the display.
+        #
+        # THE GAP IS WHERE IT BELONGS, not a convenience. Everything else about a frame is
+        # settled there — where the sprites are, where each background is scrolled to — so
+        # a bend worked out there shows the frame that moved it at the same moment they do.
+        # Work the rows out while the picture is being drawn instead, which is the obvious
+        # thing to try, and the bend answers the frame's body one frame before the sprite
+        # standing on it does; and the display is meanwhile reading the same rows we are
+        # writing, so a long frame tears its own wave part way down.
+        #
         # HOW WE GET IN BETWEEN THE LINES. After the display finishes drawing a line it
         # pauses briefly before starting the next (the gap is there so the hardware can
-        # fetch what it needs). Two different things can act in that gap, and which one a
-        # bend gets is decided by its block — see {BendForm}.
+        # fetch what it needs). Two different things can move a row's number out of the
+        # table in that pause, and which one a bend gets is {BendForm}'s answer.
         #
-        # THE COPIER, where the block is one number. The console has four small copying
-        # engines, and one of them can be told "at the end of every line, move one number
-        # from here into that register". Point it at a table of 160 offsets and at the
-        # layer's scroll register and it feeds the display by itself, with the CPU
-        # untouched: the per-line cost is nothing at all. What is left is filling the table
-        # once a frame, which is the program's own expression run 160 times in an ordinary
-        # loop — and that is the whole of what a bend costs this way.
+        # THE COPIER is the cheap one. The console has four small copying engines, and one
+        # of them can be told "at the end of every line, move one number from here into
+        # that register". Point it at the table and at the layer's scroll register and it
+        # feeds the display by itself, with the CPU untouched: the per-line cost is nothing
+        # at all.
         #
         # An engine feeds one register, so a bending layer needs one of its own: three
         # layers, three tables, three engines, all filled in the same pass at the frame
@@ -44,11 +55,10 @@ module RubyGBA
         # at the top — which is done in the gap between frames, where it is idle (the
         # display raises no line-ends while it is not drawing).
         #
-        # THE INTERRUPT, where the block does more. The display can raise an interrupt at
-        # the start of that same gap: the handler works out where the NEXT line should sit
-        # and writes the scroll register, and the display picks that up as it draws it.
-        # This is the general answer — the handler is ordinary code with the whole program
-        # in reach — and it is what a block that calls a routine or sets a variable gets.
+        # THE INTERRUPT is what answers when there is no engine left. The display can raise
+        # an interrupt at the start of that same pause: the handler reads the NEXT line's
+        # number out of the table and writes the scroll register, and the display picks
+        # that up as it draws it. Same numbers, same picture — only the CPU carries them.
         #
         # WHAT THE INTERRUPT COSTS. An interrupt per line is real work — the console stops
         # the game, saves registers, runs the handler, and resumes, 228 times a frame (the
@@ -60,6 +70,11 @@ module RubyGBA
         # on its own (see Placement#IRQ_ROUTINE) and which measured a shade under half the
         # cost off. What is left is the part of an interrupt the console does itself, which
         # nothing we can do reaches.
+        #
+        # A PROGRAM WITH NO FRAME has no gap to fill a table in, and then the handler runs
+        # the block itself, line by line, which is what this did everywhere before there
+        # was a table. Nothing is paced in such a program, so there is nothing for the bend
+        # to be a frame out of step with.
         module Raster
           include Constants
 
@@ -89,6 +104,13 @@ module RubyGBA
             @copies_row_bends
           end
 
+          # Whether the rows are worked out ahead of the frame into a table. True for every
+          # bend in a paced program, whichever moves the numbers afterwards; false only where
+          # there is no frame to work them out in, and the handler runs the block per line.
+          def latches_row_bends?
+            !@row_bend_table.empty?
+          end
+
           # Where a bending background's rows are measured from: the layer's own scroll
           # position, so a background can scroll AND bend. Every scroll_by/scroll_to on a
           # background reads the same hidden variable, so any one of its scroll statements
@@ -101,16 +123,16 @@ module RubyGBA
           def prepare_row_bends(program)
             @row_bends.each_key { |name| @row_bend_base[name] = row_bend_base(program, name) }
             @copies_row_bends = BendForm.copier?(program)
-            return unless @copies_row_bends
+            return unless BendForm.latched?(program)
 
-            # One table AND one engine per bending layer. The table lives in the same quick
-            # memory the variables do, and holds a row's offset per entry with one to spare:
-            # the engine's last move of a frame reads one past the bottom of the picture, on
-            # a line nothing is drawn on.
-            engines = BendForm.engines(program)
+            # A table per bending layer, and an engine each for as many as there are engines
+            # to give. The table lives in the same quick memory the variables do, and holds a
+            # row's offset per entry with one to spare: the engine's last move of a frame
+            # reads one past the bottom of the picture, on a line nothing is drawn on.
+            engines = @copies_row_bends ? BendForm.engines(program) : []
             @row_bends.each_key.with_index do |name, i|
               @row_bend_table[name] = @next_var
-              @row_bend_engine[name] = engines.fetch(i)
+              @row_bend_engine[name] = engines[i] if @copies_row_bends
               @next_var += TABLE_BYTES
             end
           end
@@ -133,19 +155,22 @@ module RubyGBA
           # while the source walks forward through the table.
           COPIER_CONTROL = DMA_ENABLE | DMA_AT_HBLANK | DMA_REPEAT | DMA_DEST_FIXED | 1
 
-          # Set the copier up once, at boot: the table starts flat (quick memory does not
-          # come up as zeroes, and a table of leftovers would show as a scrambled first
-          # frame), then the engine is aimed at the layer's scroll register and started.
-          def emit_boot_row_bend_copiers
+          # Set the tables up once, at boot. Each starts flat, because quick memory does not
+          # come up as zeroes and a table of leftovers would show as a scrambled first frame.
+          # Then, where an engine is feeding one, it is aimed at the layer's scroll register
+          # and started.
+          def emit_boot_row_bends
             scratch = var_addr(:_bend_clear)
             store_word_immediate(0, scratch)
             @row_bend_table.each do |name, base|
               store_word_immediate(scratch, REG_DMA3SAD) # one word of zeroes, read over and over
               store_word_immediate(base, REG_DMA3DAD)
               store_word_immediate(dma_fill_control(TABLE_BYTES / 4), REG_DMA3CNT)
+              next unless copies_row_bends?
+
               store_word_immediate(Drawing::BG_HOFS_REGS[bg_number(name)], COPIER_DAD[engine_for(name)])
             end
-            emit_rearm_row_bend_copiers
+            emit_rearm_row_bend_copiers if copies_row_bends?
           end
 
           # Point the engine back at the top of the table, in the gap between frames. It
@@ -169,23 +194,45 @@ module RubyGBA
             @row_bend_engine.fetch(name)
           end
 
-          # Work out where every row of every bending layer sits, into the table the copier
-          # reads. Run once a frame, from the frame boundary — so the program's expression
-          # is worked out 160 times here instead of once per line inside an interrupt.
+          # Work out where every row of every bending layer sits, into the table the display
+          # is fed from. Run once a frame, from the frame boundary — so the program's block
+          # is worked out 160 times here instead of once per line while the picture is drawn.
+          #
+          # EVERY LAYER'S ROW 0 GOES FIRST, before any layer's remaining rows, and that
+          # ordering is load-bearing. Row 0 is the one that is written straight into the
+          # display's register, and it has to be there before the picture starts. The rest
+          # is a table nobody reads until the line it belongs to, so it may take as long as
+          # it likes — a program bending four layers from the cartridge spends longer on
+          # this than the gap between frames is, and if a register write were at the end of
+          # that it would land on a line being drawn and put a seam across the picture.
           def emit_fill_row_bend_tables
+            @row_bends.each_value { |node| emit_first_row_bend(node) }
             @row_bends.each_value { |node| emit_fill_row_bend_table(node) }
           end
 
-          # One layer's table. The loop keeps its count in the block's own row variable,
-          # which the block reads anyway: the expression in the block is free to reach a
-          # routine or the console's divide, and either would land in whatever register a
-          # count was being held in.
+          # One layer's row 0: into the table, and straight into the scroll register, since
+          # whatever feeds the rest only starts moving numbers at the end of line 0. Nothing
+          # else writes that register for a bending layer — a `scroll_by` on one leaves it
+          # alone, because the layer's scroll is already in every entry of the table (see
+          # Drawing#emit_scroll_background).
+          def emit_first_row_bend(node)
+            store_word_immediate(0, var_addr(node.row))
+            emit_row_offset(node)
+            emit(ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
+            emit(ASM.store_halfword(ACC, ADDR))
+            store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
+          end
+
+          # ...and the rest of that layer's rows, 1 up. The loop keeps its count in the
+          # block's own row variable, which the block reads anyway: the block is free to
+          # reach a routine or the console's divide, and either would land in whatever
+          # register a count was being held in.
           def emit_fill_row_bend_table(node)
             base = @row_bend_table.fetch(node.name)
             top = gensym
-            store_word_immediate(0, var_addr(node.row))
+            store_word_immediate(1, var_addr(node.row))
             place_label(top)
-            eval_value(Build.binop(:+, node.offset, @row_bend_base[node.name])) # r0 = this row
+            emit_row_offset(node)
             load_var(TMP, node.row)
             emit(ASM.lsl_imm(SPARE, TMP, 1))         # two bytes an entry
             emit(ASM.load_immediate(ADDR, base))
@@ -195,17 +242,13 @@ module RubyGBA
             store_var(TMP, node.row)
             emit(ASM.cmp_imm(TMP, VISIBLE_LINES))
             emit_branch(:bcond, top, cond: :lt)
-            emit_write_first_row(node, base)
           end
 
-          # Row 0 goes straight into the scroll register, because the copier's first move
-          # of the frame is row 1's. It is written here, at the END of the frame's work,
-          # for the same reason the table is filled here: a `scroll_by` in the frame writes
-          # that register too, and whichever of the two goes last is what the top row shows.
-          def emit_write_first_row(node, base)
-            emit(ASM.load_immediate(ADDR, base))
-            emit(ASM.load_halfword(ACC, ADDR))
-            store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
+          # Where the row now in the block's row variable sits: whatever else the block
+          # does, then its offset, measured from the layer's own scroll. Left in r0.
+          def emit_row_offset(node)
+            node.children.each { |child| emit_statement(child) }
+            eval_value(Build.binop(:+, node.offset, @row_bend_base[node.name]))
           end
 
           # Which of the console's layers draws this background. Outside tile mode there is
@@ -230,16 +273,32 @@ module RubyGBA
             emit(ASM.add_imm_cond(:ne, ACC, ACC, 1))       # ...otherwise the next line down
             emit(ASM.cmp_imm(ACC, VISIBLE_LINES))
             emit_branch(:bcond, done, cond: :ge)           # below the picture: nothing to bend
-            # Every bend is told the line first, because working one offset out needs the
-            # accumulator the line number is sitting in.
-            @row_bends.each_value { |node| store_var(ACC, node.row) }
-            @row_bends.each_value { |node| emit_one_row_bend(node) }
+            if latches_row_bends?
+              emit(ASM.lsl_imm(SPARE, ACC, 1))             # two bytes an entry, held for them all
+              @row_bends.each_value { |node| emit_read_row_from_table(node) }
+            else
+              # Every bend is told the line first, because working one offset out needs the
+              # accumulator the line number is sitting in.
+              @row_bends.each_value { |node| store_var(ACC, node.row) }
+              @row_bends.each_value { |node| emit_one_row_bend(node) }
+            end
             place_label(done)
           end
 
-          # One background's offset for this line: run whatever the program put in the
-          # block, work the offset out, add the layer's own scroll, and write it. The write
-          # is what the display reads as it draws the line.
+          # One background's row, out of the table and into the scroll register. The display
+          # reads that register as it draws the line, so this is the whole of the handler's
+          # work — the number was worked out in the gap between frames.
+          def emit_read_row_from_table(node)
+            emit(ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
+            emit(ASM.add_reg(ADDR, ADDR, SPARE))
+            emit(ASM.load_halfword(ACC, ADDR))
+            store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
+          end
+
+          # One background's offset for this line, worked out here and now: run whatever the
+          # program put in the block, work the offset out, add the layer's own scroll, and
+          # write it. This is what a program with no frame gets, having had no gap to work
+          # its rows out in ahead of time.
           def emit_one_row_bend(node)
             node.children.each { |child| emit_statement(child) }
             eval_value(Build.binop(:+, node.offset, @row_bend_base[node.name]))

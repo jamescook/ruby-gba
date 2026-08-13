@@ -70,42 +70,36 @@ class TestCostCalibration < Minitest::Test
     game_loop { }
   end
 
-  # Bending a background row by row, ANSWERED PER LINE: the display interrupts the program
-  # after every line it counts, and the block works out that row's offset. Neither is a
-  # statement anybody wrote in the frame, which is why it has to be measured whole rather
-  # than found in the op tree.
+  # FOUR backgrounds bending row by row, which is what puts the answering ON THE INTERRUPT:
+  # three is as many copying engines as there are to lend out, so a fourth layer is one more
+  # than there is an engine for and the display interrupts the program after every line it
+  # counts. None of that is a statement anybody wrote in the frame, which is why it has to be
+  # measured whole rather than found in the op tree.
   #
-  # The block SETS A VARIABLE, and that is what puts it on the interrupt rather than being a
-  # detail of the fixture: a block that is only a number is worked out ahead of the frame
-  # and handed to a copying engine, which is the case below.
+  # THIS CASE CANNOT WATCH ITS WEIGHT ALONE, and that is the hardware and not the fixture:
+  # a program only reaches the interrupt by bending more layers than there are engines, and
+  # every one of those layers has a table to fill. So it moves for :bend_row_copied as well
+  # — see the note on the drift matrix, which is written around that.
   BEND = lambda do |with|
     screen :tiled
     image(:sky, "." => :blue) { ("." * 8 + "\n") * 8 }
     tiles :set, "." => :sky
-    water = background :water, tiles: :set, map: Array.new(20) { "." * 30 }
-    ripple = table :ripple, (0...WAVE_ROWS).map { |i| (Math.sin(i * 2 * Math::PI / WAVE_ROWS) * 4).round }
-    phase = var :phase, 0
-    sway = var :sway, 0
-    if with
-      water.scroll_each_row do |row|
-        sway.set ripple[(row - phase) % WAVE_ROWS]
-        sway
-      end
+    4.times do |i|
+      water = background :"water#{i}", tiles: :set, map: Array.new(20) { "." * 30 }
+      water.scroll_each_row { |_row| 3 } if with
     end
-    game_loop { phase.add 1 }
+    game_loop { }
   end
 
-  # The same layer with the block left as ONE NUMBER, which is what lets the build work all
-  # 160 rows out at the frame boundary and hand the table to a copying engine. Nothing is
-  # interrupted; what is measured is the table being filled.
+  # ONE bending layer, which an engine feeds — so there is no interrupt anywhere and the
+  # whole reading is the table being filled.
   #
-  # A NUMBER WRITTEN IN THE PROGRAM, where the case above reads a sine table, and that is
-  # not laziness: with nothing to work out per row the whole reading is the table, so the
-  # case watches its own weight and nothing else. Read a table here instead and the block's
-  # own arithmetic — which the model prices from the op tree, at the general quick-memory
-  # factor — grows into a share big enough that this case notices THAT weight drifting too,
-  # and then a failure no longer says which. It is also the block the weight was measured on
-  # (Benchmarks#bend_busy).
+  # A NUMBER WRITTEN IN THE PROGRAM as the offset, and that is not laziness: with nothing to
+  # work out per row the whole reading is the table, so the case watches its own weight and
+  # nothing else. Read a table here instead and the block's own arithmetic — which the model
+  # prices from the op tree, at the general quick-memory factor — grows into a share big
+  # enough that this case notices THAT weight drifting too, and then a failure no longer says
+  # which. It is also the block the weight was measured on (Benchmarks#bend_layers_busy).
   BEND_COPIED = lambda do |with|
     screen :tiled
     image(:sky, "." => :blue) { ("." * 8 + "\n") * 8 }
@@ -426,24 +420,35 @@ class TestCostCalibration < Minitest::Test
     end
   end
 
-  # The claim that makes this worth more than a smoke test. Each case has to be watching
-  # its OWN weight: break one weight and exactly one case may notice. Without this a case
-  # could be passing on a prediction that never reads the weight it names, and the whole
-  # file would agree with the emulator while guarding nothing.
-  def test_a_drifted_weight_fails_its_own_case_and_no_other
-    CASES.each do |broken|
-      CASES.each do |watching|
+  # The claim that makes this worth more than a smoke test: A FAILURE HERE HAS TO SAY WHICH
+  # WEIGHT DRIFTED. Break one weight and the set of cases that notice is asked for twice —
+  # it must contain the case that names that weight, and it must not be a set any OTHER
+  # weight also produces. Without this a case could be passing on a prediction that never
+  # reads the weight it names, and the whole file would agree with the emulator while
+  # guarding nothing.
+  #
+  # ONE SET RATHER THAN ONE CASE, because one pair of weights cannot be told apart by any
+  # fixture. A program is only answered per line when it bends more layers than there are
+  # copying engines to feed them, and every one of those layers has a table to fill — so
+  # :bend_row_copied moves the interrupt case as well as its own, and there is no program
+  # that shows the one without the other. It is still diagnostic, because the sets differ:
+  # the table's drift fails both bending cases and the interrupt's fails one.
+  def test_a_drifted_weight_says_which_weight_drifted
+    signatures = CASES.to_h do |broken|
+      noticing = CASES.select do |watching|
         predicted = predict(watching, drift: broken.weight)
-        measured = measure(watching)
-        noticed = (predicted - measured).abs > (predicted * BAND) + SLACK
-        if broken.name == watching.name
-          assert noticed, ":#{broken.weight} was tripled and the #{watching.name} case did not " \
-                          "notice — it does not depend on the weight it claims to watch"
-        else
-          refute noticed, ":#{broken.weight} was tripled and the #{watching.name} case failed too — " \
-                          "the cases overlap, so a failure here will not say which weight drifted"
-        end
+        (predicted - measure(watching)).abs > (predicted * BAND) + SLACK
       end
+      [broken, noticing.map(&:name)]
+    end
+
+    signatures.each do |broken, noticing|
+      assert_includes noticing, broken.name,
+                      ":#{broken.weight} was tripled and the #{broken.name} case did not notice — " \
+                      "it does not depend on the weight it claims to watch"
+      twin = signatures.find { |other, set| other != broken && set == noticing }
+      assert_nil twin, ":#{broken.weight} and :#{twin&.first&.weight} fail the same cases " \
+                       "(#{noticing.join(', ')}), so a failure here will not say which drifted"
     end
   end
 

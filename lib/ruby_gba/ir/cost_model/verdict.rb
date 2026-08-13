@@ -40,23 +40,27 @@ module RubyGBA
           include Budgeted
         end
 
-        # Bending backgrounds row by row. Each bend's offset is worked out again for every
-        # visible row, and on top of that comes the price of GETTING it to the display,
-        # which is the part that differs by lowering (see Backends::GBA::BendForm):
-        # +lowering+ is :interrupt, where the game is stopped on all 228 of the lines the
-        # display counts, or :copier, where a copying engine feeds the display by itself and
-        # what is left is a table to fill once a frame.
+        # Bending backgrounds row by row, in three parts, because which of them a reader
+        # should go after depends on the lowering (see Backends::GBA::BendForm).
         #
-        # The two halves are kept apart because with the interrupt most of the cost is the
-        # interrupting, not the block — a reader hunting their frame would otherwise rewrite
-        # the block and find it no faster. On the copier it is the other way round, and that
-        # is worth seeing too.
-        # +feeding+ is that first half: what it takes to get the offsets to the display,
-        # whatever the lowering. +offsets+ is the second: what it takes to work them out.
-        Bend = Data.define(:layers, :lowering, :lines, :feeding, :offsets, :cost, :budget) do
+        # +offsets+ is the program's own block, worked out again for every visible row.
+        # +filling+ is putting those rows in the table the display is fed from — one table
+        # per bending layer. +interrupting+ is being stopped on all 228 of the lines the
+        # display counts, which is what a bend costs when no copying engine was free to feed
+        # it; on the copier it is nothing at all.
+        #
+        # They are kept apart because the biggest one moves. Where an engine feeds the
+        # display the block IS the cost, and rewriting it pays. Where the interrupt does,
+        # most of the cost is the interrupting, and a reader who rewrote the block instead
+        # would find their frame no faster.
+        Bend = Data.define(:layers, :lowering, :lines, :filling, :interrupting, :offsets,
+                           :cost, :budget) do
           include Budgeted
 
           def copied? = lowering == :copier
+
+          # What it takes to get the offsets to the display, either way.
+          def feeding = filling + interrupting
         end
 
         # Sprites kept out of a fade placed in the stack. The console names every sprite

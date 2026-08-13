@@ -730,66 +730,34 @@ module RubyGBA
 
       # --- interrupts: a bending background, and a timer's tick ---
 
-      # HOW MANY STATEMENTS the pair of interrupt-lowered ROMs put in the block. A block of
-      # NONE would be the natural thing to measure an interrupt on, and it is exactly the
-      # block the build hands to a copying engine instead — so the interrupt's own cost is
-      # read off two blocks that do something and the line through them extended back to a
-      # block that does nothing. Far apart enough that the difference is well clear of the
-      # noise, and both small enough to leave the reading nowhere near a whole frame.
-      BEND_STEPS = [1, 5].freeze
-
-      # A tiled background, optionally bending row by row, ANSWERED PER LINE. The block sets a
-      # variable +steps+ times, which is a program rather than a number, so it cannot be
-      # worked out ahead of the frame: the display raises an interrupt after every line it
-      # draws and the handler writes that line's scroll offset — the whole per-line cost, 228
-      # times a frame. The offset itself stays a number written into the program, the cheapest
-      # one there is, so nothing of the program's own arithmetic is in the way (the model
-      # prices that separately, per visible line).
+      # HOW MANY LAYERS BEND across the sweep both bending weights are read from.
       #
-      # +fast+ builds the same ROM the way a real one is built, so the build keeps the routine
-      # the announcements land in in the console's quick memory. That is the OTHER weight of
-      # the pair, and it has to be measured rather than taken from the general fast-memory
-      # factor: a fair share of an interrupt is the console's own doing — stopping the game,
-      # handing control over and taking it back — and none of that runs from our memory.
-      def bend_busy(bend, fast: false, steps: BEND_STEPS.first)
-        name = "bend#{bend ? steps : 0}#{fast ? 'f' : ''}"
-        rom = build_for(fast, name) do
-          screen :tiled
-          image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
-          tiles :ts, "#" => :t
-          bg = background :bg, tiles: :ts, map: Array.new(20, "#" * 30)
-          if bend
-            shift = var :shift, 0
-            bg.scroll_each_row do |_row|
-              steps.times { shift.set 3 }
-              3
-            end
-          end
-          game_loop { wait_vblank }
-        end
-        @m.busy(name, rom)
-      end
+      # One layer to three are fed to the display by its own copying engines, which is as
+      # many as there are to lend out. A FOURTH is one more than there is an engine for, and
+      # then the display is interrupted for every line instead. So one sweep answers both
+      # questions: the step from one bending layer to three is a table each and nothing else,
+      # and the step from three to four is one more table AND the whole interrupt — take the
+      # first step off the second and the interrupt is what is left.
+      BEND_LAYERS = [1, 2, 3, 4].freeze
 
-      # HOW MANY LAYERS BEND in the copier-fed pair. Three is as many as there are engines to
-      # lend out, and it is the sweep rather than a size: what a table costs per row is
-      # supposed to be the same for the second layer as for the first, and differencing three
-      # bending layers against one is what says so instead of assuming it.
-      COPIED_BENDS = [1, 3].freeze
-
-      # THREE tiled backgrounds, of which +bending+ bend row by row with a block that is one
-      # number. That block can be worked out ahead of the frame, so each bending layer gets a
-      # table of 160 offsets and a copying engine that feeds the display from it — nothing is
-      # interrupted at all.
+      # FOUR tiled backgrounds, of which +bending+ bend row by row. The offset each row is
+      # given is a number written into the program, the cheapest one there is, so nothing of
+      # the program's own arithmetic is in the way (the model prices that separately, per
+      # visible row).
       #
-      # ALL THREE BACKGROUNDS ARE THERE ON BOTH SIDES, and that is the recipe rather than a
+      # ALL FOUR BACKGROUNDS ARE THERE WHATEVER BENDS, and that is the recipe rather than a
       # detail: the display fetches every layer it is showing whether that layer bends or not,
       # so a pair that differed in how many backgrounds there are would be measuring the
-      # display's own work and calling it a table. What is left when they are differenced is
-      # the tables alone — the loop that fills each one, the writes into it, and the engine's
-      # own moment on each line.
-      def bend_copied_busy(bending, fast: false)
-        name = "bendc#{bending}#{fast ? 'f' : ''}"
-        layers = COPIED_BENDS.max
+      # display's own work and calling it a table.
+      #
+      # +fast+ builds the same ROM the way a real one is built, so the build keeps the busiest
+      # routines in the console's quick memory. Those are the OTHER weight of each pair, and
+      # they have to be measured rather than taken from the general fast-memory factor: a fair
+      # share of an interrupt is the console's own doing — stopping the game, handing control
+      # over and taking it back — and none of that runs from our memory.
+      def bend_layers_busy(bending, fast: false)
+        name = "bendl#{bending}#{fast ? 'f' : ''}"
+        layers = BEND_LAYERS.max
         rom = build_for(fast, name) do
           screen :tiled
           image(:t, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -807,7 +775,7 @@ module RubyGBA
       # bare cost of being interrupted by it, with none of the program's own work in the way
       # (the model prices the handler's body separately, per tick). Differenced against the
       # same ROM with no timer at all. +fast+ is the second case, for the same reason
-      # #bend_busy needs one.
+      # #bend_layers_busy needs one.
       def tick_busy(ticking, fast: false)
         name = "tick#{ticking ? 1 : 0}#{fast ? 'f' : ''}"
         hz = TICK_HZ
