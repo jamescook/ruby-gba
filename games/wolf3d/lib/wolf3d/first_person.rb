@@ -8,15 +8,7 @@ module Wolf3D
   # picture is stretched to it. Do that across the screen and a flat grid of cells looks like
   # rooms you can walk through.
   class FirstPerson
-    # These are the view the game should have, not the view that happens to fit a frame. What
-    # they cost is measured and reported rather than tuned away: the cost model prices this
-    # build at more than the 228 scanlines a frame has, so the console does not finish it in
-    # one, and on a single-buffered screen an unfinished frame is a picture drawn part way
-    # across — which is exactly the tearing `tear_free:` exists to remove.
-    #
-    # Correctness is separate and settled: drawn few enough strips that the console finishes,
-    # the two backends agree on every one of the 38,400 pixels. What is missing is somewhere to
-    # draw it that does not show a half-finished frame.
+    # These are the view the game should have, not the view that happens to fit a frame.
     COLUMNS = 80          # strips across the screen...
     COLUMN_W = 3          # ...three pixels each
     TURN = 512            # angle units in a full turn
@@ -33,9 +25,6 @@ module Wolf3D
     PAIR = TEX * 2        # ...and each wall keeps two of them, lit then dark
     HORIZON = 76          # the eye line
     WALL_SCALE = 70.0     # how tall a wall one cell away stands
-    SOFTEN = 0.3
-    MIN_H = 2
-    MAX_H = 200
     WALK = 0.07
     TURN_SPEED = 6
 
@@ -67,8 +56,13 @@ module Wolf3D
       # one grid line to the next. Worked out here once for every angle rather than divided
       # for every strip of every frame — dividing two numbers that hold a fraction is the
       # dearest arithmetic there is, and reading a table is a fraction of it.
+      #
+      # INVERTED FROM THE SINE THE GAME WILL ACTUALLY READ, not from the true one. A table
+      # holds a number to a fixed number of places, so the sine the walk uses is a hair off
+      # the real sine — and if this were the true reciprocal the two would not quite cancel,
+      # which shows up as a flat wall whose top edge wanders by a pixel.
       @reach = b.table :reach, (0...TURN).map { |a|
-        toward = Math.sin(a * 2 * Math::PI / TURN).abs
+        toward = held(Math.sin(a * 2 * Math::PI / TURN)).abs
         toward > (1.0 / FAR) ? 1.0 / toward : FAR
       }
 
@@ -96,6 +90,10 @@ module Wolf3D
         instance_variable_set(:"@#{name.to_s.delete_prefix('_')}", b.var(name, 0.0))
       end
     end
+
+    # A number as a table will really hold it, to the places a variable with a fraction keeps.
+    def held(number) = RubyGBA::Fraction.scale(number, RubyGBA::Fraction::DEFAULT_BITS) /
+                       (1 << RubyGBA::Fraction::DEFAULT_BITS).to_f
 
     # Plane 1 says which way the player starts; the angle table runs clockwise from east.
     def facing_angle(facing)
@@ -203,8 +201,20 @@ module Wolf3D
 
       # The perspective divide, which is the whole trick: a wall twice as far away covers half
       # as much of the screen.
-      @colh.set((WALL_SCALE / (@seen + SOFTEN)).to_i)
-      @colh.clamp MIN_H, MAX_H
+      #
+      # NOTHING IS ADDED TO THE DISTANCE AND NOTHING CAPS THE HEIGHT. Both used to be here,
+      # and both were lies about perspective that showed at exactly the moment the player
+      # could see them best: adding to the distance holds a near wall short, by nearly half at
+      # half a cell away, and capping the height stops the wall growing at all in the last
+      # stretch before you touch it. They were there because a tall column used to cost every
+      # row it had, on screen or not. It costs what shows now, so the height can be what
+      # perspective actually says — and a wall you are nose-to-nose with fills the screen with
+      # a few enormous bricks, which is right.
+      # Rounded to the nearest whole pixel rather than always down. A wall square-on stands at
+      # ONE height, and dropping the fraction puts every strip whose height lands exactly on a
+      # whole number at the mercy of the last bit — half of them fall to the pixel below and
+      # the top edge of a flat wall wanders.
+      @colh.set((WALL_SCALE / @seen + 0.5).to_i)
       @top.set HORIZON
       @top.sub(@colh / 2)
 
