@@ -71,6 +71,37 @@ module RubyGBA
         @entries.fetch(index)
       end
 
+      # A picture as palette numbers: one byte a pixel, each the slot its color sits in.
+      #
+      # The indexed screen holds a number per pixel where every picture in the framework holds
+      # a whole color, so nothing can be drawn on that screen until this conversion happens.
+      # Returns the bytes and the number that means "leave this pixel alone", which is nil for
+      # a picture that has no see-through pixels.
+      def indices_for(bitmap)
+        clear = bitmap.transparent
+        marker = clear && transparent_index(bitmap)
+
+        bytes = bitmap.pixels.unpack("v*").map do |value|
+          next marker if clear && value == clear
+
+          @slots.fetch(value & 0x7FFF) { raise Missing, unplaceable_message(bitmap, value) }
+        end
+
+        [bytes.pack("C*"), marker]
+      end
+
+      # A see-through pixel needs a number that is not any slot, since every slot is a real
+      # color a drawer would paint. The first number past the end of the table is that, and it
+      # exists only while the table has room — a full one leaves nothing to say it with.
+      def transparent_index(bitmap)
+        return @entries.size if @entries.size < CAPACITY
+
+        raise Missing,
+              "The picture :#{bitmap.name} has see-through pixels, but the screen's #{CAPACITY} " \
+              "colors are all in use, so there is no number left to mean \"leave this pixel " \
+              "alone\". Free one color, or draw this picture with no see-through pixels."
+      end
+
       # The table to upload, slot by slot: entries[i] is the 15-bit color at slot i.
       # entries[0] is always black.
       def entries
@@ -115,7 +146,22 @@ module RubyGBA
         given.each_with_index { |value, slot| @slots[value] ||= slot }
 
         missing = collect(roots).uniq.reject { |value| @slots.key?(value) }
-        raise Missing, missing_message(missing) unless missing.empty?
+        raise Missing, missing_message(missing, roots) unless missing.empty?
+      end
+
+      # Which picture a color came from, where one did. An unexpected color usually arrives in a
+      # picture rather than in something somebody typed, so saying which picture is most of the
+      # help — without it the author is hunting a number through their own art.
+      def picture_holding(value, roots)
+        roots.each do |root|
+          root.walk do |node|
+            next unless node.kind == :bitmap
+
+            pixels = node.pixels.unpack("v*")
+            return node.name if pixels.any? { |p| p != node.transparent && (p & 0x7FFF) == value }
+          end
+        end
+        nil
       end
 
       # A screen may say which colors it shows. Several scenes may each name a screen,
@@ -160,13 +206,26 @@ module RubyGBA
         end
       end
 
-      def missing_message(missing)
-        named = missing.first(6).map { |value| name_for(value) }.join(", ")
+      # A picture is where an unexpected color usually comes from, because nobody typed it —
+      # so say which picture, not just which color.
+      def unplaceable_message(bitmap, value)
+        "The picture :#{bitmap.name} holds the color #{name_for(value & 0x7FFF)}, which the " \
+          "screen does not show. A screen given `colors:` shows those colors and no others, so " \
+          "either add this one to that list or use a picture drawn from the colors already in it."
+      end
+
+      def missing_message(missing, roots)
+        named = missing.first(6).map { |value| with_source(value, roots) }.join(", ")
         more = missing.length > 6 ? ", and #{missing.length - 6} more" : ""
         one = missing.length == 1
         "This program draws with #{one ? 'a color' : "#{missing.length} colors"} the screen was " \
           "not given: #{named}#{more}. A screen given `colors:` shows those colors and no others. " \
           "Add #{one ? 'it' : 'them'} to that list, or draw with a color that is already in it."
+      end
+
+      def with_source(value, roots)
+        picture = picture_holding(value, roots)
+        picture ? "#{name_for(value)} (in the picture :#{picture})" : name_for(value)
       end
 
       # Say :magenta rather than #7C1F where the color has a name people write.

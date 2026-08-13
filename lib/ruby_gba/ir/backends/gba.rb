@@ -107,6 +107,8 @@ module RubyGBA
         # DISPCNT value (so a flip toggles a single bit) and the address of the page
         # currently being drawn into.
         PALETTE_BLOB = :__palette
+        # What a picture's palette-number form is filed under, beside its colors.
+        INDEXED_SUFFIX = "__indexed"
         DISPCNT_STATE = :__dispcnt
         BACKBUF = :__backbuf
 
@@ -221,6 +223,7 @@ module RubyGBA
           @label_seq = 0
           @uses_pressed = false  # whether the program reads edge-detected input
           @palette = nil         # the color table, built once when any scene is buffered
+          @indexed_bitmaps = {}  # name -> the number meaning see-through, for pictures drawn indexed
           @modes = nil           # IR::Modes: which screen mode each scene resolves to
           @any_buffered = false  # does any scene use double buffering?
           @mixed_display = false # does the program cross the bitmap/tiled boundary?
@@ -620,7 +623,31 @@ module RubyGBA
         def prepare_palette(program)
           @palette = IR::Palette.build(program, scopes: @modes.buffered_scopes)
           @data_blobs[PALETTE_BLOB] = @palette.entries.pack("v*") # 15-bit entries, little-endian
+          prepare_indexed_bitmaps(program)
         end
+
+        # The indexed screen holds a NUMBER per pixel where a picture holds a whole color, so a
+        # picture needs a second form before anything can draw it there. Built here, once, and
+        # shipped beside the picture's colors.
+        #
+        # Only the pictures a tear-free scene actually draws: a program that never uses one
+        # ships nothing extra, and a picture used only on a direct-color scene stays as it was.
+        # Every picture the program declares, once it has a tear-free scene at all — rather than
+        # only the ones such a scene draws. Narrowing it to what is drawn would mean naming the
+        # verbs that draw a picture, and a program that draws none would then ship nothing, which
+        # is the whole set today: no verb can put a picture on this screen yet. Narrow it when
+        # there is something to narrow against.
+        def prepare_indexed_bitmaps(program)
+          program.walk do |node|
+            next unless node.kind == :bitmap
+
+            bytes, clear = @palette.indices_for(node)
+            @data_blobs[indexed_blob(node.name)] = bytes
+            @indexed_bitmaps[node.name] = clear
+          end
+        end
+
+        def indexed_blob(name) = :"#{name}#{INDEXED_SUFFIX}"
 
         # The console's tile size (8x8 pixels) and the number of cells across a
         # regular background map (32x32). These are fixed hardware facts.
