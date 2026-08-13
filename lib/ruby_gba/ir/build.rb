@@ -159,6 +159,11 @@ module RubyGBA
         Nodes.build(:draw_rect_at, x: wrap(x), y: wrap(y), w: wrap(w), h: wrap(h), color: color)
       end
 
+      def draw_column_at(name, slice, x, top, height)
+        Nodes.build(:draw_column_at, name: name, slice: wrap(slice), x: wrap(x),
+                                     top: wrap(top), height: wrap(height))
+      end
+
       # Fill a rectangle at a fixed position and size — same picture as
       # +fill_rect+, but a backend is free to blast it in with a block transfer.
       # Everything (+x+/+y+/+w+/+h+) is a compile-time constant.

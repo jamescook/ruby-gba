@@ -41,6 +41,7 @@ module RubyGBA
             when :clear_screen then emit_clear_screen(node)
             when :dma_fill_rect then emit_dma_fill_rect(node)
             when :draw_rect_at then emit_draw_rect_at(node)
+            when :draw_column_at then emit_draw_column_at(node)
             when :draw_text then emit_draw_text(node)
             when :draw_digit then emit_draw_digit(node)
             when :blit then emit_blit(node)

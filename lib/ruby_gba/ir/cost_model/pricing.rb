@@ -96,6 +96,7 @@ module RubyGBA
             tear_free? ? tearfree_fill_cost(node) : dma_rows_cost(node.w, node.h)
           when :draw_rect_at
             tear_free? ? tearfree_moving_rect_cost(node) : dma_rows_cost(node.w, node.h)
+          when :draw_column_at then draw_column_cost(node)
           when :clear_screen then clear_screen_cost
           when :draw_text then Fonts.get(node.font).text_pixels(node.text) * glyph_pixel_weight(node)
           when :draw_digit then digit_cost(node)
@@ -868,6 +869,27 @@ module RubyGBA
         # save/restore): each row is a DMA, so the fixed per-row setup is paid h times,
         # and the pixels are transferred on top. This is why a tall rectangle costs more
         # than a wide one of the same area.
+        # A stretched column of a picture. Two parts, and they behave differently.
+        #
+        # Working out the step is one divide, whatever the column's height — and it is charged
+        # ALWAYS, because a first-person view does it once per strip across the screen and a
+        # hundred of them a frame is a real cost that nothing else would account for.
+        #
+        # The rest is per screen row and costs about what plotting a pixel does, plus the walk
+        # down the picture. It is charged only where the height is a number settled while
+        # building. A height the game works out has no provable size — the same rule a rect with
+        # a computed side follows — so it contributes nothing rather than a guess, and the
+        # estimate says so rather than quietly under-reporting.
+        COLUMN_ROW_STEPS = 3 # reading the picture and finding the screen row, beside the plot
+
+        def draw_column_cost(node)
+          rows = const_side(node.height)
+          per_row = @weights[:plot_pixel] + (COLUMN_ROW_STEPS * @weights[:op_step])
+
+          # The divisor is the height the game works out, so this is the dear kind of divide.
+          runtime_divide_weight(nil) + (rows ? rows * per_row : 0)
+        end
+
         def dma_rows_cost(w, h)
           w = const_side(w)
           h = const_side(h)

@@ -268,6 +268,9 @@ module RubyGBA
         # pass cannot set off another one.
         def lower(program, fast_funcs: nil)
           @fast_funcs = fast_funcs || choose_fast_funcs(program)
+          # Which pictures a stretched column reads, which decides whether a see-through one
+          # still needs its pixels in the cartridge. Wanted before the assets are registered.
+          @column_bitmaps = program.walk.filter_map { |node| node.name if node.kind == :draw_column_at }.uniq
           # First in internal memory, before anything else is given a home there: only a
           # program that divides by something it works out as it runs carries the divide
           # routine, and every other division is settled at build time.
@@ -575,7 +578,11 @@ module RubyGBA
               # transparent one is drawn pixel-by-pixel with its colors baked into
               # the code (letting transparent pixels be skipped), so it needs no
               # ROM copy.
-              @data_blobs[node.name] = node.pixels unless node.transparent
+              # ...and a see-through one is normally drawn pixel by pixel with its colors baked
+              # into the code, so it needs no copy — unless a stretched column reads it, which
+              # walks the picture as it runs and so needs it there. A scaled sprite in a
+              # first-person view is exactly that case.
+              @data_blobs[node.name] = node.pixels if !node.transparent || @column_bitmaps.include?(node.name)
             when :list_new
               # Reserve the list's IWRAM storage once, up front, so every op that
               # touches it (anywhere in the tree, including funcs emitted later)

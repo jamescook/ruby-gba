@@ -141,6 +141,11 @@ module ConformanceFixture
       # pixels at a time, the rect's first and last pixel then land in different halves
       # of their units and have to be spliced in one at a time.
       B.draw_rect_at(B.int(41), B.int(40), B.var_ref(:x), B.int(2), :white),
+      # One column of a picture, stretched to a height the program works out (:x is 7). The
+      # stretch is the part a backend can get subtly wrong: it must walk DOWN THE SCREEN asking
+      # which picture row belongs at each screen row, so seven screen rows show the picture's
+      # four rows spread over them — walking the picture instead would leave gaps.
+      B.draw_column_at(:sprite, B.int(1), B.int(60), B.int(30), B.var_ref(:x)),
       B.draw_text("HI", 10, 10, :white),
       B.draw_digit(B.var_ref(:x), 20, 10, :white), # one run-time digit glyph
       B.blit(:sprite, :x, :y),

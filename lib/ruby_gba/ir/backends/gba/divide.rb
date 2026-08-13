@@ -77,6 +77,9 @@ module RubyGBA
               when :binop then %i[/ %].include?(node.op) && divisor_needs_routine?(node.rhs)
               when :div_fix then folds_to_plain_divide?(node) && divisor_needs_routine?(node.rhs)
               when :object then object_scales?(node)
+              # A stretched column divides the picture's height by the height asked for, and
+              # that height is only known as the game runs.
+              when :draw_column_at then true
               else false
               end
             end

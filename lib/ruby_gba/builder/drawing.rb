@@ -223,6 +223,39 @@ module RubyGBA
         record(Build.dma_fill_rect(x, y, w, h, c))
       end
 
+      # Draw ONE COLUMN of a picture, stretched to a height the game works out.
+      #
+      # This is what a first-person view is made of. For each strip across the screen a
+      # game works out how far away the wall is, turns that into a height, and draws a
+      # column of a wall picture that tall — near walls tall, far walls short. Do that
+      # across the screen and a flat grid of cells looks like rooms you can walk through.
+      #
+      #   draw_column_at :bricks, slice: ray_hit, x: col * 2, top: top, height: tall
+      #
+      # +slice+ picks the column of the picture (which part of the wall you are looking
+      # at); +x+ is where it lands on screen; +top+ and +height+ are where it starts and
+      # how tall it is. All four can be worked out as the game runs.
+      #
+      # A height of zero or less draws nothing, and anything off the top or bottom of the
+      # screen is clipped, so a wall you are nose-to-nose with needs no test around it.
+      #
+      # @param name [Symbol] a picture defined with {#image}
+      # @param slice [Symbol, Integer, Value] which column of the picture
+      # @param x [Symbol, Integer, Value] where it lands on screen
+      # @param top [Symbol, Integer, Value] the screen row it starts on
+      # @param height [Symbol, Integer, Value] how tall to stretch it
+      def draw_column_at(name, slice:, x:, top:, height:)
+        unless @images.key?(name)
+          raise ArgumentError,
+                "draw_column_at needs a picture. There is no image :#{name}. " \
+                "Define it with `image :#{name} do ... end` first."
+        end
+
+        record(Build.draw_column_at(name, Value.node_for(slice), Value.node_for(x),
+                                    Value.node_for(top), Value.node_for(height)))
+        [slice, x, top, height].each { |operand| ensure_var(operand) }
+      end
+
       # Draw a filled rectangle at a position, and to a height, the game can work out
       # as it runs. The position and the height may each be a variable, an expression,
       # or a plain number; only the width is settled while building, and it must be
