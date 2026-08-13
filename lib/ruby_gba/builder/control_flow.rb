@@ -145,7 +145,7 @@ module RubyGBA
       # a variable — e.g. how many segments the snake has right now).
       #
       # @param count [Value, Integer, Symbol] how many times to run the block
-      def repeat(count, &block)
+      def repeat(count, stop_when: nil, &block)
         raise ArgumentError, "repeat needs a block: repeat(n) { |i| ... }" unless block
 
         @repeat_seq += 1
@@ -153,7 +153,17 @@ module RubyGBA
         ensure_var(index)
         ensure_var(count)
         i = Value.new(self, Build.var_ref(index), name: index)
-        push_container(Build.repeat(Value.node_for(count), index)) do
+        # A Condition carries its own node; anything else is an ordinary value, where not-zero
+        # means stop. Handing one here USES it, the same as branching on it with `.then` — the
+        # guardrail that catches a comparison nobody acted on must not call this one an orphan.
+        leave =
+          if stop_when.is_a?(Condition)
+            consume_condition(stop_when)
+            stop_when.node
+          elsif stop_when
+            Value.node_for(stop_when)
+          end
+        push_container(Build.repeat(Value.node_for(count), index, stop_when: leave)) do
           run_block(i, &block)
         end
       end

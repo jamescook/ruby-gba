@@ -164,16 +164,20 @@ module Raycaster
         hit.set 0
         dist.set(STEPS * STEP) # if nothing is hit in range, treat it as far away
 
-        repeat(STEPS) do |step|
-          (hit == 0).then do
-            rx.add dx
-            ry.add dy
-            # The cell the ray is in now. The border ring is solid, so a ray leaving the
-            # room meets the border wall first; the table read is bounds-safe regardless.
-            (world[(ry.to_i * MAP_W) + rx.to_i] == 1).then do
-              hit.set 1
-              dist.set(step * STEP)
-            end
+        # March until the ray meets a wall, and stop there. `stop_when:` is the whole
+        # difference between this and a plain counted loop: a ray that hits after six steps
+        # used to keep going for the other fourteen, testing a flag and doing nothing, and
+        # this loop is nearly the entire frame. The loop gives up the console's registers to
+        # ask the question before each pass, which costs a little per step and saves all the
+        # steps it does not take.
+        repeat(STEPS, stop_when: hit == 1) do |step|
+          rx.add dx
+          ry.add dy
+          # The cell the ray is in now. The border ring is solid, so a ray leaving the
+          # room meets the border wall first; the table read is bounds-safe regardless.
+          (world[(ry.to_i * MAP_W) + rx.to_i] == 1).then do
+            hit.set 1
+            dist.set(step * STEP)
           end
         end
 

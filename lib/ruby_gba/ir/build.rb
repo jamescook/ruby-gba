@@ -308,8 +308,12 @@ module RubyGBA
       # build-time N.times — where N.times unrolls the loop and its counter is a
       # plain Integer, this emits one loop whose count and counter live on the
       # console. +count+ is a value operand.
-      def repeat(count, index, *body)
-        Nodes.build(:repeat, children: body, count: wrap(count), index: index)
+      # +stop_when+ is always present, because a value slot that is sometimes there is a slot
+      # every reader has to remember to check. Zero is "nothing to stop for", which is what a
+      # plain counted loop has, and both backends recognise the constant and emit nothing.
+      def repeat(count, index, *body, stop_when: nil)
+        Nodes.build(:repeat, children: body, count: wrap(count), index: index,
+                             stop_when: wrap(stop_when || 0))
       end
 
       # A repeating timer: run +body+ once every +period+ frames. +counter+ names
