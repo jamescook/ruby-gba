@@ -41,7 +41,18 @@ module RubyGBA
       #
       # @example Tear-proof
       #   screen :bitmap, tear_free: true
-      def screen(mode, tear_free: false)
+      #
+      # Pass +colors:+ to say which colors the screen shows, instead of letting the
+      # framework work them out from the ones you name. You want this only when your
+      # pictures come from somewhere that already decided — art imported from another
+      # game or a paint program, whose pixels are numbers that pick out of ITS table.
+      # Give the colors in that table's order and the pictures line up. Everything
+      # else is unchanged: you still write color names, and you never write a slot
+      # number. A color you draw with that is not in the list is a friendly error.
+      #
+      # @example Colors that came with the art
+      #   screen :bitmap, tear_free: true, colors: imported.colors
+      def screen(mode, tear_free: false, colors: nil)
         case mode
         when Symbol
           unless SCREEN_MODES.key?(mode)
@@ -66,7 +77,7 @@ module RubyGBA
         # hardware). A raw register value doesn't map to a friendly name, so it leaves
         # the mode unnamed.
         @screen_mode = mode if mode.is_a?(Symbol)
-        record(Build.screen(mode, buffered: tear_free))
+        record(Build.screen(mode, buffered: tear_free, colors: given_colors(colors, tear_free)))
       end
 
       # Draw a single pixel in bitmap mode (MODE_3).
@@ -259,6 +270,31 @@ module RubyGBA
       end
 
       private
+
+      # The colors a screen was told to show, resolved the same way every draw verb
+      # resolves one, so a name, a hex string and a raw value all mean the same thing
+      # here as they do there.
+      def given_colors(colors, tear_free)
+        return nil if colors.nil?
+
+        unless colors.is_a?(Array) && !colors.empty?
+          raise ArgumentError, "screen colors: needs a list of colors, like [:black, :red, ...]. Got #{colors.inspect}."
+        end
+
+        unless tear_free
+          raise ArgumentError,
+                "screen colors: works only with `screen :bitmap, tear_free: true`. A plain bitmap " \
+                "screen holds a full color in every pixel, so it has no table to fill in."
+        end
+
+        if colors.length > IR::Palette::CAPACITY
+          raise ArgumentError,
+                "screen colors: got #{colors.length} colors, and the screen shows at most " \
+                "#{IR::Palette::CAPACITY}. Give a shorter list."
+        end
+
+        colors.map { |spec| Color.resolve(spec) }
+      end
 
       def validate_coords!(x, y)
         raise ArgumentError, "x=#{x} is outside the screen. Use an x from 0 to #{SCREEN_WIDTH - 1}." unless (0...SCREEN_WIDTH).cover?(x)

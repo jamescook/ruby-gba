@@ -67,6 +67,32 @@ class TestBufferedMode4 < Minitest::Test
   # green on odd frames must, after several frames, show one solid color (never a
   # half-and-half mix), and it must be the color drawn on the frame that was
   # presented last.
+  # A program may bring its own table of colors, for art made somewhere else whose pixels are
+  # numbers picking out of THAT table. The order is the whole point, so the order below is one
+  # the framework would never choose — reverse of first use, and with black nowhere in it, where
+  # the derived path always reserves black at slot 0. A lowering that quietly built its own
+  # table would put a different color in every square.
+  def test_gemba_renders_through_a_table_the_program_supplied
+    given = %i[magenta cyan yellow green]
+    rom = assemble_rom(
+      program(
+        screen(:bitmap, buffered: true, colors: given.map { |c| RubyGBA::Color.resolve(c) }),
+        clear_screen(:green),
+        dma_fill_rect(0, 0, 40, 40, :yellow),
+        dma_fill_rect(40, 0, 40, 40, :cyan),
+        dma_fill_rect(80, 0, 40, 40, :magenta),
+        wait_vblank,
+        halt
+      ), name: "PAL4"
+    )
+
+    v = assert_gemba_loads_rom(rom, frames: 6)
+    [[20, 20, :yellow], [60, 20, :cyan], [100, 20, :magenta], [200, 100, :green]].each do |x, y, color|
+      assert v.pixel_is?(x, y, color),
+             "console: (#{x}, #{y}) should be #{color}, got 0x#{format('%04X', v.pixel_gba(x, y))}"
+    end
+  end
+
   def test_the_displayed_page_reflects_the_latest_drawn_frame
     # tick toggles 0/1 each frame; even frames clear red, odd clear green.
     branch = if_(binop(:==, var_ref(:tick), int(0)), clear_screen(:red), set(:tick, 1))
