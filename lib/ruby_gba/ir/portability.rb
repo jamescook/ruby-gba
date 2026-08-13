@@ -57,7 +57,8 @@ module RubyGBA
         # GBA-only modes like affine are a per-argument nuance for when a web backend
         # exists to care — a per-kind tag can't express them).
         screen: :portable, pixel: :portable, fill_rect: :portable, clear_screen: :portable,
-        draw_rect_at: :portable, draw_text: :portable, dma_fill_rect: :portable, blit: :portable,
+        draw_rect_at: :portable, draw_column_at: :portable, draw_text: :portable,
+        dma_fill_rect: :portable, blit: :portable,
         draw_digit: :portable, # index a font by a run-time digit — any backend can
         blit_pose: :portable,  # pick one of a set of images by a run-time index — any backend can
         background: :portable, # stamp a grid of tiles — pixels or tile hardware, any backend can

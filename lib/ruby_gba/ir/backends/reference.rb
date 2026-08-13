@@ -446,6 +446,8 @@ module RubyGBA
             # or height of zero or less covers no pixels, so nothing is drawn.
             @screen.fill_rect(eval_value(node.x), eval_value(node.y),
                               eval_value(node.w), eval_value(node.h), resolve_color(node.color))
+          when :draw_column_at
+            exec_draw_column_at(node)
           when :draw_text
             exec_draw_text(node)
           when :draw_digit
@@ -1153,6 +1155,40 @@ module RubyGBA
         #     the answer is rounded down. Sampling at pixel centers instead moves the
         #     whole shape half a pixel, which shows up as a one-pixel-thick disagreement
         #     all along one side.
+        # One column of a picture, stretched to a height the program worked out.
+        #
+        # The stepping rule here IS the specification, because both backends have to land every
+        # pixel in the same place: walk DOWN THE SCREEN and ask which row of the picture belongs
+        # at each screen row. Walking the picture instead and asking where each of its rows
+        # lands would leave gaps when stretching and would draw some rows twice when squashing.
+        #
+        # The step is held in 16ths of a picture row so the console can do it by adding rather
+        # than dividing, and truncating at each step is what the console's shift does.
+        FIXED = 16
+
+        def exec_draw_column_at(node)
+          height = eval_value(node.height)
+          return if height <= 0
+
+          bmp = @bitmaps.fetch(node.name) do
+            raise ProgramError, "draw_column_at of undefined image #{node.name.inspect}"
+          end
+          pixels = @data.fetch(node.name)
+          slice = eval_value(node.slice).clamp(0, bmp.width - 1)
+          x = eval_value(node.x)
+          top = eval_value(node.top)
+          step = (bmp.height << FIXED) / height
+
+          height.times do |row|
+            source = ((row * step) >> FIXED).clamp(0, bmp.height - 1)
+            at = (((source * bmp.width) + slice) * 2)
+            color = pixels.getbyte(at) | (pixels.getbyte(at + 1) << 8)
+            next if bmp.transparent && color == bmp.transparent
+
+            @screen.set_pixel(x, top + row, color) # the screen clips for us
+          end
+        end
+
         def blit_image_transformed(name, x, y, degrees, scale)
           bmp = @bitmaps.fetch(name) { raise ProgramError, "blit of undefined image #{name.inspect}" }
           pixels = @data.fetch(name)

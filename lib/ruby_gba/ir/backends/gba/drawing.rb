@@ -278,6 +278,125 @@ module RubyGBA
           # A size settled while building is unrolled with an immediate control word,
           # exactly as it always was, so a paddle or a ball costs what it did before.
           # Only a size the game works out pays for a counter and a computed word.
+          # How many bits of fraction the walk down a column keeps. The step is a picture row
+          # per screen row and is almost never whole — a wall twice as tall as its picture
+          # advances half a row at a time — so it is kept in 65536ths and added, because adding
+          # is one instruction and dividing is a subroutine.
+          COLUMN_FIXED = 16
+
+          # One column of a picture, stretched to a height worked out as the game runs. The
+          # whole of a first-person view is this, once per strip across the screen.
+          #
+          # It walks DOWN THE SCREEN, asking which row of the picture belongs at each screen
+          # row. The other way round — walking the picture and working out where each of its
+          # rows lands — leaves gaps when stretching and writes some rows twice when squashing.
+          # The interpreter walks the same way, which is what makes the two agree pixel for
+          # pixel.
+          def emit_draw_column_at(node)
+            bmp = @bitmaps.fetch(node.name) do
+              raise LoweringError, "draw_column_at of undefined image #{node.name.inspect}"
+            end
+            raise LoweringError, column_unsupported_message if @lower_mode == :buffered
+
+            x_reg = 4
+            y_reg = 5
+            rows_left = 6
+            pos = 8    # where we are in the picture, in 65536ths of a row
+            step = 9   # how far that moves per screen row
+            src = 10   # the address of the picture's column, at row 0
+
+            done = gensym
+            eval_value(node.height)
+            emit(ASM.mov_reg(rows_left, ACC))
+            emit(ASM.cmp_imm(rows_left, 0))
+            emit_branch(:bcond, done, cond: :le) # a column of no height draws nothing
+
+            # step = (picture height << 16) / height, by the shared divide routine — which takes
+            # the numerator in TMP and the divisor in ACC, and hands the answer back in ACC.
+            emit(ASM.load_immediate(TMP, bmp.height << COLUMN_FIXED))
+            emit(ASM.mov_reg(ACC, rows_left))
+            emit_call_divide_routine
+            emit(ASM.mov_reg(step, ACC))
+
+            eval_value(node.x)
+            emit(ASM.mov_reg(x_reg, ACC))
+            eval_value(node.top)
+            emit(ASM.mov_reg(y_reg, ACC))
+
+            # The picture's column: its first pixel is `slice` pixels along its first row, and
+            # its rows are a whole picture width apart.
+            eval_value(node.slice)
+            emit_clamp_to(ACC, bmp.width - 1)
+            emit(ASM.lsl_imm(ACC, ACC, 1)) # two bytes a pixel
+            emit_load_data_address(src, node.name)
+            emit(ASM.add_reg(src, src, ACC))
+
+            emit(ASM.load_immediate(pos, 0))
+            emit_row_loop(rows_left) do
+              emit_draw_column_pixel(bmp, x_reg, y_reg, pos, src)
+              emit(ASM.add_reg(pos, pos, step))
+              emit(ASM.add_imm(y_reg, y_reg, 1))
+            end
+            place_label(done)
+          end
+
+          # One pixel of the column: work out which picture row we are on, read it, and store it
+          # where this screen row is — unless that row is off the screen, in which case the walk
+          # goes on without drawing, so a column taller than the screen still lands correctly.
+          def emit_draw_column_pixel(bmp, x_reg, y_reg, pos, src)
+            skip = gensym
+
+            emit(ASM.cmp_imm(y_reg, 0))
+            emit_branch(:bcond, skip, cond: :lt)
+            emit(ASM.cmp_imm(y_reg, SCREEN_HEIGHT))
+            emit_branch(:bcond, skip, cond: :ge)
+            emit(ASM.cmp_imm(x_reg, 0))
+            emit_branch(:bcond, skip, cond: :lt)
+            emit(ASM.cmp_imm(x_reg, SCREEN_WIDTH))
+            emit_branch(:bcond, skip, cond: :ge)
+
+            # colour = picture[(pos >> 16) * width + slice], the slice already folded into src
+            emit(ASM.lsr_imm(ACC, pos, COLUMN_FIXED))
+            emit_clamp_to(ACC, bmp.height - 1)
+            emit(ASM.load_immediate(TMP, bmp.width * 2))
+            emit(ASM.mul(ACC, ACC, TMP))
+            emit(ASM.add_reg(ACC, src, ACC))
+            emit(ASM.load_halfword(ACC, ACC))
+
+            # ...to the screen at (x, y)
+            emit(ASM.load_immediate(TMP, SCREEN_WIDTH))
+            emit(ASM.mul(TMP, y_reg, TMP))
+            emit(ASM.add_reg(TMP, TMP, x_reg))
+            emit(ASM.lsl_imm(TMP, TMP, 1))
+            emit(ASM.load_immediate(SPARE, VRAM_START))
+            emit(ASM.add_reg(TMP, TMP, SPARE))
+            emit(ASM.store_halfword(ACC, TMP))
+
+            place_label(skip)
+          end
+
+          # Hold a register between 0 and +top+, so a slice or a row worked out past the edge of
+          # the picture reads its last pixel rather than whatever is next in memory.
+          def emit_clamp_to(reg, top)
+            keep = gensym
+            emit(ASM.cmp_imm(reg, 0))
+            emit_branch(:bcond, keep, cond: :ge)
+            emit(ASM.load_immediate(reg, 0))
+            place_label(keep)
+
+            under = gensym
+            emit(ASM.load_immediate(TMP, top))
+            emit(ASM.cmp_reg(reg, TMP))
+            emit_branch(:bcond, under, cond: :le)
+            emit(ASM.mov_reg(reg, TMP))
+            place_label(under)
+          end
+
+          def column_unsupported_message
+            "`draw_column_at` cannot draw on the tear-free screen yet (`tear_free: true`). " \
+              "Use `screen :bitmap` for now."
+          end
+
           def emit_draw_rect_at(node)
             return emit_draw_rect_at_buffered(node) if @lower_mode == :buffered
 

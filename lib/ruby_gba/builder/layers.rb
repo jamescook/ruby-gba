@@ -66,6 +66,7 @@ module RubyGBA
         fill_rect: :painted,
         dma_fill_rect: :painted,
         draw_rect_at: :painted,
+        draw_column_at: :painted,
         clear_screen: :painted,
         blit: :painted,
         draw_text: :painted,

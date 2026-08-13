@@ -185,6 +185,15 @@ module RubyGBA
         operands x: :value, y: :value, w: :value, h: :value, color: :color
       end
 
+      # One column of a picture, stretched to a height the program works out. The whole of a
+      # first-person view is this, done once per strip across the screen.
+      class DrawColumnAt
+        include Node
+        kind :draw_column_at
+        category :draw
+        operands name: :name, slice: :value, x: :value, top: :value, height: :value
+      end
+
       class DrawText
         include Node
         kind :draw_text
