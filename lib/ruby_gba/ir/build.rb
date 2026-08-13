@@ -311,9 +311,9 @@ module RubyGBA
       # +stop_when+ is always present, because a value slot that is sometimes there is a slot
       # every reader has to remember to check. Zero is "nothing to stop for", which is what a
       # plain counted loop has, and both backends recognise the constant and emit nothing.
-      def repeat(count, index, *body, stop_when: nil)
+      def repeat(count, index, *body, stop_when: nil, usually: nil)
         Nodes.build(:repeat, children: body, count: wrap(count), index: index,
-                             stop_when: wrap(stop_when || 0))
+                             stop_when: wrap(stop_when || 0), usually: usually)
       end
 
       # A repeating timer: run +body+ once every +period+ frames. +counter+ names

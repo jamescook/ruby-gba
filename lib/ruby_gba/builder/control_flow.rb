@@ -144,9 +144,24 @@ module RubyGBA
       # reach for `repeat` when the count is decided while the game runs (a Value,
       # a variable — e.g. how many segments the snake has right now).
       #
+      # A loop given `stop_when:` leaves as soon as that holds, so its count is a CEILING
+      # rather than a number of passes — and nothing in the program says where it really
+      # leaves. `estimate: { usually: N }` says, for the report only:
+      #
+      #   repeat(48, stop_when: hit == 1, estimate: { usually: 6 }) { ... }
+      #
+      # It changes nothing about how the game runs. Without it the estimate guesses, says so,
+      # and counts the ceiling as the worst case either way — the same bargain a `list` and a
+      # `pool` already offer, and it matters for the same reason: a ceiling is picked so it can
+      # never be reached, so counting it as the every-frame load can be many times over.
+      #
       # @param count [Value, Integer, Symbol] how many times to run the block
-      def repeat(count, stop_when: nil, &block)
+      # @param stop_when [Condition, Value, nil] leave as soon as this holds
+      # @param estimate [Hash, nil] what the estimate cannot know — today `usually:`
+      def repeat(count, stop_when: nil, estimate: nil, &block)
         raise ArgumentError, "repeat needs a block: repeat(n) { |i| ... }" unless block
+
+        usually = repeat_usually(count, stop_when, estimate)
 
         @repeat_seq += 1
         index = :"__repeat_#{@repeat_seq}"
@@ -163,10 +178,28 @@ module RubyGBA
           elsif stop_when
             Value.node_for(stop_when)
           end
-        push_container(Build.repeat(Value.node_for(count), index, stop_when: leave)) do
+        push_container(Build.repeat(Value.node_for(count), index,
+                                    stop_when: leave, usually: usually)) do
           run_block(i, &block)
         end
       end
+
+      # What `estimate: { usually: N }` said, as a number of passes. Only a loop that can stop
+      # early has anything to say here: one that runs its count every time already knows how
+      # many passes it makes, so a hint would be either a repetition or a contradiction.
+      def repeat_usually(count, stop_when, estimate)
+        return nil if estimate.nil?
+
+        unless stop_when
+          raise ArgumentError,
+                "`estimate:` belongs on a loop that can stop early. `repeat` without " \
+                "`stop_when:` runs every pass, so the estimate already knows how many " \
+                "there are. Remove the estimate, or say when the loop leaves."
+        end
+
+        usual_length(estimate, count.is_a?(Integer) ? count : nil)
+      end
+      private :repeat_usually
 
       # The console refreshes the screen ~59.73 times a second; like every game, we
       # count that as a round 60 frames per second. It's what lets a timer be given

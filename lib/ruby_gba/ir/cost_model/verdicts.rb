@@ -756,6 +756,25 @@ module RubyGBA
           guards.uniq(&:name)
         end
 
+        # WHAT EVERY LOOP THAT CAN STOP EARLY WAS COUNTED AT — one entry per such loop, as
+        # { counted:, ceiling:, said: }.
+        #
+        # The third of these, and the one that can be furthest out. A ceiling is picked so it
+        # can never be reached, and this kind of loop is usually inside another one, so the
+        # over-count multiplies: a ray that gives up after forty-eight crossings meets a wall
+        # in a handful, and eighty rays make that the whole frame.
+        def early_exit_verdicts(program)
+          index(program)
+          program.walk.filter_map do |node|
+            next unless node.kind == :repeat && stops_early?(node)
+
+            count = node.count
+            ceiling = count.is_a?(Node) && count.kind == :int ? count.value : nil
+            Verdict::EarlyExit.new(counted: node.usually || (ceiling && unsaid_share(ceiling)) || 0,
+                                   ceiling: ceiling, said: !node.usually.nil?)
+          end
+        end
+
         # Whether the program has a repeat whose trip count has no provable bound — not a
         # literal, not a capacity-bounded list — so the estimate counts its body as zero.
         def unbounded_loop?(program)

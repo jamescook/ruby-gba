@@ -244,7 +244,9 @@ module RubyGBA
                              "Give a range that goes up, like 3..6."
       end
 
-      if usually.min.negative? || (top - usually.min) * 2 > capacity
+      # A ceiling the game works out has no number to measure a range against, so only its
+      # direction can be checked.
+      if usually.min.negative? || (capacity && (top - usually.min) * 2 > capacity)
         raise ArgumentError, "`usually: #{usually}` covers more than half of the capacity " \
                              "#{capacity}. A range that wide does not give a usual length. " \
                              "Give a narrower range, or one number."

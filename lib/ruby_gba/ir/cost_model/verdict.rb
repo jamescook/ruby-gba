@@ -107,6 +107,11 @@ module RubyGBA
         # many of them the body was counted for.
         LiveSlots = Data.define(:name, :counted, :slots, :said)
 
+        # ...and the same for a loop that can STOP EARLY, where the count is a ceiling and
+        # nothing says where the loop really leaves. +ceiling+ is nil where even that is
+        # worked out as the game runs.
+        EarlyExit = Data.define(:counted, :ceiling, :said)
+
         # Work the model cannot price to a single number because it depends on something
         # only known as the game runs — how far a value ranges, and what that costs at each
         # end. Loud, because a frame figure that quietly left it out would read as fine.
