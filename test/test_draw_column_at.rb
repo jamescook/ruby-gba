@@ -101,6 +101,60 @@ class TestDrawColumnAt < Minitest::Test
     assert_match(/image :nope/, err.message)
   end
 
+  # A first-person view draws its columns in a LOOP, so this is the case that matters most, and
+  # it was broken: a loop keeps its count in the console's registers unless the body needs them,
+  # and a stretched column needs them twice over — it works in them, and it calls the divide
+  # routine to find its step. Undeclared, the first column drew and the loop then walked off.
+  def test_columns_drawn_in_a_loop_all_arrive
+    prog = program do
+      game_loop do
+        repeat(8) { |c| draw_column_at :bars, slice: 0, x: c, top: 0, height: 4 }
+      end
+    end
+
+    interp = Reference.new.run(prog, frames: 2)
+    drawn = (0...8).count { |x| interp.screen.pixel(x, 0) == RubyGBA::Color.resolve(:red) }
+    assert_equal 8, drawn, "the interpreter should draw every column"
+
+    rom = ROM.assemble(GBA.new.lower(prog), title: "LOOP", code: "ALUP", maker: "01")
+    gba = assert_gemba_loads_rom(rom, frames: 4)
+    on_console = (0...8).count { |x| gba.pixel_gba(x, 0) == RubyGBA::Color.resolve(:red) }
+
+    assert_equal 8, on_console, "the console should draw every column too"
+  end
+
+  # A depth record — what keeps a guard from showing through a wall — needs nothing new: a list
+  # holds how far away each screen column ended up, and a condition gates the next draw. Worth
+  # a test because it is the pattern a first-person view is built on.
+  def test_a_column_can_be_gated_on_a_distance_kept_per_column
+    prog = program do
+      image :thing, width: 1, height: 2, data: %i[white white]
+      depth = list :depth, capacity: 8
+      col = var :col, 0
+      repeat(8) { depth << 0 } # a list starts empty; a depth record needs its slots up front
+
+      game_loop do
+        repeat(8) do |c|
+          far = var :_far, 0
+          far.set 10
+          (c >= 4).then { far.set 2 } # the right half is nearer than the thing
+          depth[c] = far
+          draw_column_at :bars, slice: 0, x: c, top: 0, height: 8
+        end
+        repeat(8) do |c|
+          col.set c
+          (depth[col] > 5).then { draw_column_at :thing, slice: 0, x: col, top: 2, height: 4 }
+        end
+      end
+    end
+
+    run = Reference.new.run(prog, frames: 2)
+    seen = (0...8).map { |x| run.screen.pixel(x, 3) == RubyGBA::Color.resolve(:white) }
+
+    assert_equal [true] * 4 + [false] * 4, seen,
+                 "the thing shows over the far wall and is hidden by the near one"
+  end
+
   # The two backends have to land every pixel in the same place, or the interpreter is no use
   # for debugging a renderer built on this.
   def test_the_console_draws_the_same_pixels_as_the_interpreter
