@@ -501,7 +501,7 @@ module RubyGBA
         include Node
         kind :screen
         category :draw
-        operands mode: :mode, buffered: :flag
+        operands mode: :mode, buffered: :flag, colors: :list
       end
 
       class ScrollBackground

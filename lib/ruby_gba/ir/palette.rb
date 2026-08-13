@@ -27,6 +27,13 @@ module RubyGBA
       # A friendly build-time error, not a silent failure.
       class Overflow < StandardError; end
 
+      # Raised when a program supplies its own table and then draws with a color that
+      # is not in it.
+      class Missing < StandardError; end
+
+      # Raised when two screens supply different tables. The display has one.
+      class Conflict < StandardError; end
+
       # The table has 256 slots. Slot 0 is reserved for black so that an all-zero
       # (freshly cleared, never-painted) screen reads as black for free — the same
       # "empty screen is black" behavior the direct-color display gives you.
@@ -79,6 +86,9 @@ module RubyGBA
 
       def initialize(program, scopes)
         roots = scopes || [program] # the subtrees to gather colors from
+        given = given_entries(program)
+        return adopt(given, roots) if given
+
         distinct = collect(roots).uniq # first-seen order, deduped by resolved value
         needed = (distinct + [BLACK]).uniq.size # one slot per color, plus reserved black
         raise Overflow, overflow_message(distinct.size) if needed > CAPACITY
@@ -88,6 +98,34 @@ module RubyGBA
         @slots = { BLACK => 0 }
         distinct.each { |value| @slots[value] ||= @slots.size }
         @entries = @slots.keys # keys are inserted in slot order, so this is the table
+      end
+
+      # A table the program brought with it, because its pictures were made against that
+      # table and their pixels are numbers picking out of it. Slots are its order, not
+      # ours, so nothing may be reordered and nothing may be added — including black,
+      # which the derived path reserves at slot 0 and this path leaves entirely to the
+      # program (an unpainted screen reads as whatever the program put first).
+      #
+      # A duplicate color keeps its FIRST slot for drawing, and both slots stay in the
+      # table: a real imported palette repeats colors, and dropping the later one would
+      # shift every slot after it and break every picture.
+      def adopt(given, roots)
+        @entries = given
+        @slots = {}
+        given.each_with_index { |value, slot| @slots[value] ||= slot }
+
+        missing = collect(roots).uniq.reject { |value| @slots.key?(value) }
+        raise Missing, missing_message(missing) unless missing.empty?
+      end
+
+      # A screen may say which colors it shows. Several scenes may each name a screen,
+      # but the display has one table, so two different ones is a contradiction rather
+      # than a choice.
+      def given_entries(program)
+        tables = program.walk.filter_map { |node| node.kind == :screen ? node.colors : nil }.uniq
+        raise Conflict, conflict_message(tables) if tables.length > 1
+
+        tables.first
       end
 
       # Every distinct color the given subtrees draw, in first-seen order. Two
@@ -120,6 +158,27 @@ module RubyGBA
 
           values << (value & 0x7FFF)
         end
+      end
+
+      def missing_message(missing)
+        named = missing.first(6).map { |value| name_for(value) }.join(", ")
+        more = missing.length > 6 ? ", and #{missing.length - 6} more" : ""
+        one = missing.length == 1
+        "This program draws with #{one ? 'a color' : "#{missing.length} colors"} the screen was " \
+          "not given: #{named}#{more}. A screen given `colors:` shows those colors and no others. " \
+          "Add #{one ? 'it' : 'them'} to that list, or draw with a color that is already in it."
+      end
+
+      # Say :magenta rather than #7C1F where the color has a name people write.
+      def name_for(value)
+        @names ||= Color::PRESETS.to_h { |name, resolved| [resolved, name.inspect] }
+        @names.fetch(value) { format("#%04X", value) }
+      end
+
+      def conflict_message(tables)
+        "Two screens were given different colors (#{tables.map(&:length).join(' and ')} of them). " \
+          "The display holds one table of colors at a time, so every screen must be given the same " \
+          "list. Give one list to all of them."
       end
 
       def overflow_message(count)

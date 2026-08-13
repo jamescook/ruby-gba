@@ -149,4 +149,101 @@ class TestIRPalette < Minitest::Test
 
     assert_raises(ArgumentError) { pal.index_of(:green) }
   end
+
+  # A screen may be given its colors instead of the framework working them out. That is for art
+  # made somewhere else, whose pixels are numbers picking out of the table it was made against —
+  # so the ORDER is the whole point and nothing may be moved, dropped or added.
+  def test_a_given_table_is_used_in_the_order_it_was_given
+    pal = Palette.build(program do
+      screen :bitmap, tear_free: true, colors: %i[white red black blue]
+      clear_screen :black
+      game_loop { fill_rect 0, 0, 8, 8, :red }
+    end)
+
+    assert_equal 4, pal.size
+    assert_equal Color.resolve(:white), pal.color_at(0)
+    assert_equal 1, pal.index_of(:red)
+    assert_equal 2, pal.index_of(:black), "black takes its given slot, not the reserved one"
+  end
+
+  # The derived path reserves slot 0 for black so an unpainted screen reads as black. A given
+  # table decides its own slot 0, because a picture made against it says so.
+  def test_a_given_table_does_not_get_black_added_to_it
+    pal = Palette.build(program do
+      screen :bitmap, tear_free: true, colors: %i[red green]
+      game_loop { fill_rect 0, 0, 8, 8, :red }
+    end)
+
+    assert_equal 2, pal.size
+    refute_includes pal.entries, Color.resolve(:black)
+  end
+
+  # A real imported table repeats colors. Dropping a repeat would shift every slot after it and
+  # move every pixel of every picture, so both stay and drawing uses the first.
+  def test_a_repeated_color_keeps_both_slots_and_draws_with_the_first
+    pal = Palette.build(program do
+      screen :bitmap, tear_free: true, colors: %i[black red black]
+      game_loop { fill_rect 0, 0, 8, 8, :black }
+    end)
+
+    assert_equal 3, pal.size
+    assert_equal 0, pal.index_of(:black)
+  end
+
+  def test_drawing_with_a_color_the_screen_was_not_given_is_refused_by_name
+    err = assert_raises(Palette::Missing) do
+      Palette.build(program do
+        screen :bitmap, tear_free: true, colors: %i[black red]
+        game_loop { fill_rect 0, 0, 8, 8, :magenta }
+      end)
+    end
+
+    assert_match(/magenta/, err.message)
+    refute_match(/slot|index|VRAM/, err.message, "no hardware jargon in the message")
+  end
+
+  # The display holds one table, so two scenes naming different ones is a contradiction.
+  def test_two_screens_given_different_colors_is_refused
+    err = assert_raises(Palette::Conflict) do
+      Palette.build(program do
+        scene(:a) { screen :bitmap, tear_free: true, colors: %i[black red] }
+        scene(:b) { screen :bitmap, tear_free: true, colors: %i[black blue green] }
+        game_loop { case_var(:state) { when_val 0, :a; when_val 1, :b } }
+      end)
+    end
+
+    assert_match(/one table/, err.message)
+  end
+
+  def test_the_same_colors_given_to_every_screen_is_fine
+    pal = Palette.build(program do
+      scene(:a) { screen :bitmap, tear_free: true, colors: %i[black red] }
+      scene(:b) { screen :bitmap, tear_free: true, colors: %i[black red] }
+      game_loop { case_var(:state) { when_val 0, :a; when_val 1, :b } }
+    end)
+
+    assert_equal 2, pal.size
+  end
+
+  # Given colors are for the indexed screen. A plain bitmap screen holds a whole color in every
+  # pixel, so there is no table for them to be.
+  def test_colors_without_the_tear_free_screen_is_refused
+    err = assert_raises(ArgumentError) do
+      program do
+        screen :bitmap, colors: %i[black red]
+      end
+    end
+
+    assert_match(/tear_free/, err.message)
+  end
+
+  def test_more_colors_than_the_screen_holds_is_refused
+    err = assert_raises(ArgumentError) do
+      program do
+        screen :bitmap, tear_free: true, colors: Array.new(300) { :red }
+      end
+    end
+
+    assert_match(/300/, err.message)
+  end
 end
