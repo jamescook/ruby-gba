@@ -57,12 +57,19 @@ class TestMaps < Minitest::Test
     assert_equal :north, start.facing
   end
 
+  # Everything standing in the level EXCEPT the player, whose thing code says where they
+  # start rather than that something is there. The fixture floor holds a guard, a key, and a
+  # push wall, and all three are things.
   def test_the_things_are_listed_without_the_player_among_them
     things = @maps[0].things
 
-    assert_equal 1, things.length
-    assert_equal Release::GUARD_EAST, things.first.code
-    assert_equal [36, 32], [things.first.x, things.first.y]
+    refute_includes things.map(&:code), Release::PLAYER_NORTH
+    guard = things.find { |thing| thing.code == Release::GUARD_EAST }
+
+    refute_nil guard, "the guard should be among the things"
+    assert_equal [34, 32], [guard.x, guard.y]
+    assert_includes things.map(&:code), Release::GOLD_KEY
+    assert_includes things.map(&:code), Wolf3D::Level::PUSHWALL
   end
 
   def test_a_floor_cell_knows_which_area_it_belongs_to

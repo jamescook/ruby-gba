@@ -21,12 +21,13 @@ class TestFirstPerson < Minitest::Test
   def view_program
     vswap = Wolf3D::Vswap.new(fixture.files["VSWAP"])
     doors = Wolf3D::Doors.new(@level, vswap)
+    pushwalls = Wolf3D::Pushwalls.new(@level)
     atlas = Wolf3D::WallAtlas.new(vswap, Wolf3D::Palette.game, @level, doors: doors)
     level = @level
 
     RubyGBA.game("VIEW", code: "AVUE", maker: "01") do
       screen :bitmap, tear_free: true
-      view = Wolf3D::FirstPerson.new(self, level, atlas, doors)
+      view = Wolf3D::FirstPerson.new(build: self, level: level, atlas: atlas, doors: doors, pushwalls: pushwalls)
       game_loop { view.update }
     end.program
   end

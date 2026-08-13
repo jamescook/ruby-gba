@@ -20,6 +20,7 @@ require_relative "wolf3d/level"
 require_relative "wolf3d/maps"
 require_relative "wolf3d/vswap"
 require_relative "wolf3d/doors"
+require_relative "wolf3d/pushwalls"
 require_relative "wolf3d/fixture/release"
 require_relative "wolf3d/wall_atlas"
 require_relative "wolf3d/first_person"
@@ -65,8 +66,9 @@ module Wolf3D
     level = Wolf3D.maps&.[](0)
     if level
       doors = Wolf3D::Doors.new(level, Wolf3D.vswap)
+      pushwalls = Wolf3D::Pushwalls.new(level)
       atlas = Wolf3D::WallAtlas.new(Wolf3D.vswap, Wolf3D.palette, level, doors: doors)
-      view = Wolf3D::FirstPerson.new(self, level, atlas, doors)
+      view = Wolf3D::FirstPerson.new(build: self, level: level, atlas: atlas, doors: doors, pushwalls: pushwalls)
       game_loop { view.update }
     else
       title = Title.new(self)

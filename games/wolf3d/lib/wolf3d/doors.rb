@@ -69,7 +69,7 @@ module Wolf3D
       Door.new(x: x, y: y,
                across: code.even? ? ACROSS_X : ACROSS_Y,
                picture: picture_kind(x, y),
-               lock: @level.locked_door?(x, y) ? (code - 92) / 2 : nil)
+               lock: @level.lock_at(x, y))
     end
 
     def picture_kind(x, y)
