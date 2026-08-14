@@ -37,12 +37,15 @@ module Wolf3D
     # Nothing is a target.
     NOBODY = -1
 
-    def initialize(build:, guards:, pool:, level:, world:, player:, door_open:, walls:)
+    def initialize(build:, guards:, pool:, level:, world:, player:, door_open:, walls:, things:,
+                   blocked: nil)
       @b = build
       @guards = guards
       @pool = pool
       @level = level
       @world = world      # the flat map table the ray walk reads
+      @things = things    # the row of pictures everything standing in the level is drawn from
+      @blocked = blocked  # which cells hold scenery a foot cannot pass, or nil for a bare floor
       @player = player    # { x:, y: } as the view keeps them
       @open = door_open   # how far each door has slid
       @walls = walls      # where that table stops naming walls: { door: N, push: N }
@@ -73,7 +76,8 @@ module Wolf3D
 
       # THE STATE TABLE, as tables the game reads by state number. Kept apart rather than as one
       # row per state because each is read on its own.
-      @picture_of = b.table :guard_picture, states.map { |s| Guards.picture_position(s) }, width: :byte
+      @picture_of = b.table :guard_picture,
+                            states.map { |s| @things.position_of(Guards.picture_of(s)) }, width: :byte
       @turns_of = b.table :guard_turns, states.map { |s| s.turns ? 1 : 0 }, width: :byte
       @ticks_of = b.table :guard_ticks, states.map(&:ticks), width: :byte
       @becomes_of = b.table :guard_becomes, states.map { |s| Guards.state_number(s.becomes) }, width: :byte
@@ -120,9 +124,9 @@ module Wolf3D
     def declare_the_scratch
       b = @b
       @state, @dir, @job, @try, @slot, @cellx, @celly, @clear, @done, @ahead, @way, @picked,
-        @tx, @ty, @away, @target, @odds, @wound =
+        @tx, @ty, @away, @target, @odds, @wound, @spot =
         %i[gstate gdir gjob gtry gslot gcellx gcelly gclear gdone gahead gway gpicked
-           gtx gty gaway gtarget godds gwound].map { |name| b.var(:"_#{name}", 0) }
+           gtx gty gaway gtarget godds gwound gspot].map { |name| b.var(:"_#{name}", 0) }
       @dx, @dy, @absx, @absy, @stepx, @stepy, @far, @atx, @aty, @pace, @fwd, @sideways, @nearest =
         %i[gdx gdy gabsx gabsy gstepx gstepy gfar gatx gaty gpace gfwd gsideways gnearest]
         .map { |name| b.var(:"_#{name}", 0.0) }
@@ -418,9 +422,11 @@ module Wolf3D
     end
 
     # A cell a guard can walk into: open floor, or a doorway whose panel has slid out of the
-    # way. The same question the player's feet ask, asked of a guard.
+    # way, and nothing standing in it that a body cannot pass. The same question the player's
+    # feet ask, asked of a guard — and a guard is stopped by a barrel exactly as you are.
     def free_to_walk
-      @ahead.set(@world[(@celly * @width) + @cellx])
+      @spot.set((@celly * @width) + @cellx)
+      @ahead.set(@world[@spot])
       @clear.set 0
       (@ahead == 0).then { @clear.set 1 }
       (@ahead >= @walls[:door]).then do
@@ -429,6 +435,7 @@ module Wolf3D
           (@open[@slot] > FirstPerson::DOOR_WALKABLE).then { @clear.set 1 }
         end
       end
+      (@blocked[@spot] == 1).then { @clear.set 0 } if @blocked
     end
 
     public

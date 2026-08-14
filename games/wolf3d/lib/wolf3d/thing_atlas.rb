@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 module Wolf3D
-  # The pictures of the things that STAND in a level — the guards — laid side by side in one
-  # picture, exactly as the walls are, so that which one to draw is arithmetic on a column
-  # number and never a choice made as the game runs.
+  # The pictures of the things that STAND in a level — the guards, and the lamps and barrels and
+  # bones they stand among — laid side by side in one picture, exactly as the walls are, so that
+  # which one to draw is arithmetic on a column number and never a choice made as the game runs.
   #
   # A SECOND PICTURE RATHER THAN MORE OF THE WALLS' ONE, and speed is the whole reason. These
   # pictures are mostly nothing: a guard is a man standing in a square, and everywhere he is
@@ -60,5 +60,14 @@ module Wolf3D
     # Both numbers count from the LEFT EDGE of the picture, which is what the drawing walks.
     def first_column(sprite) = @vswap.sprite(sprite).first_column
     def last_column(sprite) = @vswap.sprite(sprite).last_column
+
+    # ...AND WHICH ROWS, which is the same question down the other axis and matters for a
+    # different reason. A great many of these things sit on the FLOOR — a clip of ammunition
+    # fills the bottom sixth of its square and nothing else — and a square is always drawn
+    # centred on the eye line. So the nearer you get to a clip the further its picture slides
+    # off the bottom of the screen, and there is a distance at which every pixel of it is past
+    # the bottom edge while the drawing still walks the whole square looking for it.
+    def first_row(sprite) = @vswap.sprite(sprite).first_row
+    def last_row(sprite) = @vswap.sprite(sprite).last_row
   end
 end
