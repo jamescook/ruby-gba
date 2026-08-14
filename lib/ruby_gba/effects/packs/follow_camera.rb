@@ -77,7 +77,7 @@ module RubyGBA
             # as far back from their world position as they sit into the screen.
             across.scroll_to(-sprite.x + at[0], -sprite.y + at[1]) if at
 
-            each_frame(ROUTINE) do
+            once_a_frame(ROUTINE) do
               across.scroll_by sprite.x - home_x, sprite.y - home_y
               sprite.move_to home_x, home_y
             end

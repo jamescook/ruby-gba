@@ -100,7 +100,7 @@ module RubyGBA
       private
 
       # Register a routine's body. Every routine goes through here — an author's `func`,
-      # an author's `each_frame`, and the ones the framework declares for itself (an
+      # an author's `once_a_frame`, and the ones the framework declares for itself (an
       # effect's per-frame body, a hidden helper).
       #
       # A body is built LATER, at finalize, when the `layer` block it was written inside

@@ -111,8 +111,8 @@ module RubyGBA
       @frame_boundaries = []   # each frame's wait node, the anchor the scroll writes are inserted after at finalize
       @scrolled_backgrounds = {} # name → [x var, y var] for every background the game scrolls
       @inline_scroll_nodes = []  # scroll nodes recorded at their call site, dropped once a frame boundary exists
-      @per_frame_routines = []   # func names `each_frame` declared, called at every frame boundary
-      @each_frame_seq = 0        # counts each_frame bodies, to name each one's hidden routine
+      @per_frame_routines = []   # func names `once_a_frame` declared, called at every frame boundary
+      @each_frame_seq = 0        # counts once_a_frame bodies, to name each one's hidden routine
       @scene_gates = {}        # scene func name → [state_var, value] it's dispatched on (from case_var), for gating its presentation
       @current_scene_gate = nil # while a scene func's body is being built: the [state_var, value] its declarations belong to
       @building_scene = nil    # the scene func name currently being built (lets its presentation be declared inside it)
@@ -314,7 +314,7 @@ module RubyGBA
       default_screen_mode = @screen_mode
 
       # Drain rather than iterate: building one body can declare another routine — a
-      # verb reached from inside a scene may declare an `each_frame` of its own — and
+      # verb reached from inside a scene may declare a `once_a_frame` of its own — and
       # walking the hash directly would either miss it or raise for growing mid-loop.
       # Emitting until nothing new is pending covers however deep that goes.
       emitted = {}
@@ -636,12 +636,24 @@ module RubyGBA
       end
     end
 
-    # Run every per-frame routine once at each frame boundary.
+    # Run every per-frame routine at each frame boundary — ONCE PER FRAME THAT REALLY
+    # PASSED, which on a program keeping up is once, and on one that overran its frame
+    # is twice or three times.
+    #
+    # THAT REPEAT IS THE WHOLE OF THE PROMISE. A pass of the game loop is not a frame;
+    # it is a frame on a program that fits and two frames on one that does not. So a
+    # body called once per PASS and described as running every frame quietly runs at
+    # half speed on a heavy game, and a fade told to take half a second takes a second
+    # and a half. Counting the frames instead is what makes the word mean what it says.
+    #
+    # One loop around all of them rather than one each, so a late pass replays the frame
+    # in order — every routine once, then every routine again — rather than running each
+    # routine twice before starting the next.
     #
     # They go at the boundary for the same reason the scroll writes do: that is the
     # gap between frames, the one moment the display is not reading, so whatever they
     # change takes effect on the whole picture rather than half of it. And they go in
-    # here rather than where `each_frame` was called because such a routine is
+    # here rather than where `once_a_frame` was called because such a routine is
     # normally set off by an event — a brick breaking, a life lost — while what it
     # produces has to be applied on EVERY frame after that, including the frames the
     # triggering code does not run on.
@@ -652,16 +664,18 @@ module RubyGBA
     def finalize_per_frame_routines
       return if @per_frame_routines.empty? || @frame_boundaries.empty?
 
-      @frame_boundaries.each do |wait_node|
+      ensure_var(IR::Frames::STEP)
+      @frame_boundaries.each_with_index do |wait_node, boundary|
         container = wait_node.parent
         at = container&.children&.index(wait_node)
         next unless at
 
-        @per_frame_routines.reverse_each do |name|
-          node = Build.call(name)
-          container.children.insert(at + 1, node)
-          node.parent = container
-        end
+        index = :"__once_a_frame_#{boundary}"
+        ensure_var(index)
+        calls = @per_frame_routines.map { |name| Build.call(name) }
+        node = Build.repeat(Build.var_ref(IR::Frames::STEP), index, *calls)
+        container.children.insert(at + 1, node)
+        node.parent = container
       end
     end
 

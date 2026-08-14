@@ -274,14 +274,14 @@ class TestEffectsRegistry < Minitest::Test
                  "a pack composes public DSL verbs; anything lower belongs in the kernel"
   end
 
-  # --- each_frame: the seam a pack composes on ---
+  # --- once_a_frame: the seam a pack composes on ---
 
-  def test_an_each_frame_body_runs_once_on_every_frame
+  def test_a_once_a_frame_body_runs_once_on_every_frame
     i = Reference.new.run(program do
       screen :bitmap
       ticks = var :ticks, 0
       frame = var :frame, 0
-      each_frame { ticks.add 1 }
+      once_a_frame { ticks.add 1 }
       game_loop do
         frame.add 1
         (frame >= 5).then { halt }
@@ -302,7 +302,7 @@ class TestEffectsRegistry < Minitest::Test
       play_ran = var :play_ran, 0
       frame = var :frame, 0
 
-      each_frame { ticks.add 1 }
+      once_a_frame { ticks.add 1 }
 
       scene(:title) do
         title_ran.add 1
@@ -322,22 +322,22 @@ class TestEffectsRegistry < Minitest::Test
 
     assert_equal 2, i[:title_ran], "each scene ran only while it was the active one"
     assert_equal 2, i[:play_ran]
-    assert_equal 4, i[:ticks], "the each_frame body ran on all four frames"
+    assert_equal 4, i[:ticks], "the once_a_frame body ran on all four frames"
   end
 
   def test_a_program_with_no_game_loop_never_runs_it
     i = Reference.new.run(program do
       screen :bitmap
       ticks = var :ticks, 0
-      each_frame { ticks.add 1 }
+      once_a_frame { ticks.add 1 }
       halt
     end)
 
     assert_equal 0, i[:ticks], "no frames, so nothing to run on"
   end
 
-  def test_each_frame_needs_a_block
-    err = assert_raises(ArgumentError) { program { screen :bitmap; each_frame } }
+  def test_once_a_frame_needs_a_block
+    err = assert_raises(ArgumentError) { program { screen :bitmap; once_a_frame } }
     assert_match(/block/, err.message)
   end
 end
