@@ -1,4 +1,3 @@
-.claude
 *.gba
 # Cartridge save memory, written by the emulator beside the ROM it belongs to
 *.sav
@@ -20,3 +19,10 @@ Gemfile.lock
 
 # SimpleCov's report and merge cache, written only under COVERAGE=1
 coverage/
+
+# beads task-tracker db (dolt server, logs, sockets). Never commit: a shell-metacharacter
+# bug in a bd command once dumped a live secret straight into this db.
+.beads/
+
+# Personal Claude Code settings (permissions, local overrides) — not shared config.
+.claude/settings.local.json
