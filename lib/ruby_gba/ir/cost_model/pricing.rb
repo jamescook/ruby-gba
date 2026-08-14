@@ -30,8 +30,8 @@ module RubyGBA
         # after, so it is charged in full wherever the code lives. Operands are always
         # instructions, so they are discounted whole.
         def op_cost(node, worst: true)
-          own = own_op_cost(node)
-          engine = engine_op_cost(node)
+          own = own_op_cost(node, worst)
+          engine = engine_op_cost(node, worst)
           ((own - engine + raw_operand_cost(node, worst)) * fast_memory_factor) + engine
         end
 
@@ -65,10 +65,10 @@ module RubyGBA
         ENGINE_WEIGHTS = %i[dma_engine_start dma_pixel
                             tearfree_engine_stall tearfree_fill_pixel].freeze
 
-        def engine_op_cost(node)
+        def engine_op_cost(node, worst = true)
           return 0 unless @in_fast_code # nothing is being discounted, so there is nothing to hold back
 
-          with_engine_weights { own_op_cost(node) }
+          with_engine_weights { own_op_cost(node, worst) }
         end
 
         def with_engine_weights
@@ -85,7 +85,7 @@ module RubyGBA
         # the pair.
         def dma_start_weight = @weights[:dma_cpu_start] + @weights[:dma_engine_start]
 
-        def own_op_cost(node)
+        def own_op_cost(node, worst = true)
           case node.kind
           when :pixel then tear_free? ? @weights[:tearfree_pixel] : @weights[:plot_pixel]
           # The two screens draw a rectangle in shapes that have nothing in common, so
@@ -96,7 +96,7 @@ module RubyGBA
             tear_free? ? tearfree_fill_cost(node) : dma_rows_cost(node.w, node.h)
           when :draw_rect_at
             tear_free? ? tearfree_moving_rect_cost(node) : dma_rows_cost(node.w, node.h)
-          when :draw_column_at then draw_column_cost(node)
+          when :draw_column_at then draw_column_cost(node, worst)
           when :clear_screen then clear_screen_cost
           when :draw_text then Fonts.get(node.font).text_pixels(node.text) * glyph_pixel_weight(node)
           when :draw_digit then digit_cost(node)
@@ -874,15 +874,44 @@ module RubyGBA
         # its height, because those are the only ones walked. A scaled sprite is mostly nothing
         # — a lamp in a square of ceiling, a clip of ammunition in a square of floor — so its
         # height is a bad guide to what drawing it costs.
-        def draw_column_cost(node)
-          rows = const_side(node.height)
+        def draw_column_cost(node, worst = true)
           # The divisor is the height the game works out, so this is the dear kind of divide,
           # and it is charged whatever the height turns out to be.
           divide = runtime_divide_weight(nil)
-          return divide unless rows
-
-          divide + (rows * column_walked_share(node) * column_row_weight(node))
+          divide + (column_rows(node, worst) * column_walked_share(node) * column_row_weight(node))
         end
+
+        # HOW MANY ROWS A STRETCHED COLUMN WALKS, which used to be answered "none" whenever the
+        # height was a number the game works out — and that is every column of a first-person
+        # view, because working the height out from a distance is what perspective IS. So the
+        # estimate could not see a renderer at all: eighty wall columns came to the price of
+        # eighty divides, and a game measured at half the frame rate read as comfortable.
+        #
+        # WHY THIS ONE CAN BE ANSWERED where a computed loop count cannot. A column is clipped to
+        # the screen, so however tall it is drawn it can never walk more rows than the screen has
+        # — the ceiling is a fact about the hardware rather than a guess about the game. And a
+        # column that draws at all draws at least one row.
+        #
+        # NOT A QUARTER OF THE CEILING, which is what a list, a pool and a loop that stops early
+        # all guess when nobody says. Those ceilings are capacities, chosen with headroom for the
+        # worst moment of a game, so the usual case really is far below. This ceiling is the
+        # screen, and heights above it do not spread out — they PILE UP at it, because a wall you
+        # are close to is clipped rather than made shorter. Measured over a first-person game, a
+        # wall column averages about half the rows it is allowed. Half is the guess, and the
+        # report says it guessed.
+        def column_rows(node, worst)
+          rows = const_side(node.height)
+          return rows if rows
+          return column_ceiling if worst
+
+          node.usually || (column_ceiling / 2)
+        end
+
+        # The most rows a column can walk. The screen's own height, or less inside an area — a
+        # first-person view with a status bar under it draws in a shorter window and its columns
+        # are clipped to that, which is most of the difference between a guess that is close and
+        # one that is a quarter out.
+        def column_ceiling = @draw_height || IR::Screen::HEIGHT
 
         # How much of a stretched column is really walked. A picture the model has never seen
         # is taken at its word.

@@ -142,17 +142,17 @@ module RubyGBA
           case node.kind
           # An area costs nothing of its own — it is edges the shapes below cut themselves
           # against, not work — so its children are counted exactly as they would be anywhere.
-          when :program, :loop, :else, :inside
+          # It does bound one of them: a stretched column is clipped to it.
+          when :program, :loop, :else
             node.children.sum { |child| steady(child, worst: worst) }
+          when :inside
+            within_area(node) { node.children.sum { |child| steady(child, worst: worst) } }
           # The condition is tested every frame, whichever way it goes — that's where a
           # collision test's comparison chain lives, and a pool's walk asks whether a slot is
           # live on every slot it has — so it's priced whole here; only the branch bodies are
           # scaled by how often they run.
           when :if
-            expr_cost(node.cond, worst: worst) +
-              (selectivity(node) *
-                (node.children.sum { |child| steady(child, worst: worst) } +
-                 (node.else ? steady(node.else, worst: worst) : 0)))
+            expr_cost(node.cond, worst: worst) + branch_cost(node, worst: worst)
           # A loop costs a rate per pass AND a fixed amount for being entered — see
           # #loop_overhead_leaf for what each of them is.
           when :repeat
@@ -219,11 +219,58 @@ module RubyGBA
           @in_fast_code = was
         end
 
+        # HOW TALL THE PART OF THE SCREEN BEING DRAWN INTO IS, while walking an `inside` block.
+        # Only one thing reads it — a stretched column, whose height the game works out and which
+        # is CLIPPED to this, so the area is what bounds it (see Pricing#column_rows). Everything
+        # else an area holds is priced from its own numbers, so the area costs nothing and says
+        # nothing. Areas do not nest, so this needs no stack.
+        def within_area(node)
+          was = @draw_height
+          @draw_height = const_side(node.h)
+          yield
+        ensure
+          @draw_height = was
+        end
+
         # How often an `if`'s body runs. A body behind a `pressed` edge is a rare transition
         # (never counts toward the steady load); a `chance(p)` body holds p% of the time; a
         # test that guards one slot of a walk holds for the slots in use (see #live_share).
         # A `held` or a plain comparison runs every frame it's true, so it weighs 1 — as does
         # any non-`if` node.
+        # WHAT THE ARMS OF A BRANCH COST A FRAME. Only one of them runs.
+        #
+        # This used to charge the share times BOTH arms added together, which is not caution —
+        # it is arithmetic that cannot be right. An `if/else` runs one arm or the other, so a
+        # renderer that draws a wall one way and a door the other was charged for two walls
+        # every strip of every frame, and that doubling landed squarely on the most expensive
+        # line in the game. Measured on Wolfenstein: it put the frame at 705 scanlines where the
+        # console spends 431.
+        #
+        # WHEN THE SHARE IS KNOWN — a `chance(25)`, a `pressed` edge, a walk over slots that says
+        # how many are usually live — the two arms are weighted by it, which is what an average
+        # frame really pays. When it is not known, neither arm can be ruled out, so the dearer
+        # of the two is charged: the honest answer to "one of these runs and nothing here can say
+        # which", and never less than the console spends.
+        def branch_cost(node, worst:)
+          taken = node.children.sum { |child| steady(child, worst: worst) }
+          return selectivity(node) * taken unless node.else
+
+          other = steady(node.else, worst: worst)
+          return [taken, other].max unless known_share?(node)
+
+          share = selectivity(node)
+          (share * taken) + ((1 - share) * other)
+        end
+
+        # Whether anything in the program says how often this branch goes one way. A plain
+        # comparison does not; an edge, a chance, and a walk that was told how many slots are
+        # live all do.
+        def known_share?(node)
+          return true if node.of
+
+          %i[pressed chance].include?(node.cond&.kind)
+        end
+
         def selectivity(node)
           return 1 unless node.kind == :if
           return @at_full_capacity ? 1 : live_share(node) if node.of
@@ -411,7 +458,8 @@ module RubyGBA
           case node.kind
           # An area is see-through to the report as well: what it holds is what it costs, and
           # a reader wants to see the shapes, not a box round them.
-          when :program, :loop, :inside then node.children.flat_map { |child| build(child) }
+          when :program, :loop then node.children.flat_map { |child| build(child) }
+          when :inside then within_area(node) { node.children.flat_map { |child| build(child) } }
           when :if
             # The test itself runs every frame, whichever way it branches, so its cost is
             # real per-frame work and shown as its own leaf — a per-pixel collision test

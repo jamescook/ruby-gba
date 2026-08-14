@@ -112,6 +112,11 @@ module RubyGBA
         # worked out as the game runs.
         EarlyExit = Data.define(:counted, :ceiling, :said)
 
+        # ...and the same for a STRETCHED COLUMN whose height the game works out, which is every
+        # column of a first-person view. +ceiling+ is the most rows it could walk — the screen,
+        # or the part of it being drawn into, because a column is clipped to it.
+        StretchedColumn = Data.define(:name, :counted, :ceiling, :said)
+
         # Work the model cannot price to a single number because it depends on something
         # only known as the game runs — how far a value ranges, and what that costs at each
         # end. Loud, because a frame figure that quietly left it out would read as fine.
