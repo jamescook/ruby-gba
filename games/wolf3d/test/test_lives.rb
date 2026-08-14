@@ -163,10 +163,9 @@ class TestLives < Minitest::Test
     took, back = either_side_of_a_restart(at: 30) { [:up] }
 
     assert_operator took[:keys], :>, 0, "walking over the key should have picked it up"
-    assert_equal 1, list(took, :key_taken, 0), "and taken it off the floor"
+    assert_equal 1, list(took, :thing_gone, key_piece), "and taken it off the floor"
     assert_equal 0, back[:keys], "and starting the floor again should hand it back"
-    assert_equal 0, list(back, :key_taken, 0), "and put it where it was lying"
-    assert_equal 0, list(back, :thing_gone, key_piece), "so it is drawn again too"
+    assert_equal 0, list(back, :thing_gone, key_piece), "and put it where it was lying"
   end
 
   # Turn about, walk at the door in the room's south wall, and open it.

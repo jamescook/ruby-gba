@@ -306,12 +306,10 @@ module Wolf3D
       @push_gone = b.list :push_gone, capacity: [@pushwalls.count, 1].max
       @push_wait = b.list :push_wait, capacity: [@pushwalls.count, 1].max
 
-      # Which keys the player is carrying, one bit each.
+      # Which keys the player is carrying, one bit each. A key is a thing lying on the floor like
+      # a clip of ammunition is, so picking one up belongs to Pickups; this is only what is
+      # carried, which is the one number a locked door asks about.
       @keys = b.var :keys, 0
-      @key_taken = b.list :key_taken, capacity: [key_cells.length, 1].max
-      @key_cell = b.table :key_cell, at_least_one(key_cells.map { |c| c[:cell] })
-      @key_bit = b.table :key_bit, at_least_one(key_cells.map { |c| c[:bit] }), width: :byte
-      @key_thing = b.table :key_thing, at_least_one(key_cells.map { |c| c[:thing] }), width: :half
 
       b.image :walls, width: @atlas.width, height: @atlas.height, data: @atlas.pixels
 
@@ -324,6 +322,22 @@ module Wolf3D
       @ammo = b.var :ammo, START_AMMO
       @score = b.var :score, 0
 
+      # DYING AND THE GOES YOU GET COME FIRST, because what stands in the level reaches both: the
+      # guard who lands the last shot sets the death off, and a thing you pick up can hand you
+      # another go.
+      declare_the_dying
+      @lives = Lives.new(build: b, score: @score, dying: @dying)
+      # Which way the eye points, worked out once a move. The shot needs it, every standing thing
+      # needs it, and it is here rather than with the rest of the working room because a floor
+      # with nothing standing in it never wants it.
+      @vcos, @vsin = fraction(:vcos, :vsin) if Billboards.needed?(scenery: @scenery, guards: @guards)
+
+      # ...then the guards, then what is lying on the floor (which every floor has whether
+      # anything DRAWS it or not — a level with a locked door has a key on it), then the guards'
+      # minds, and last the drawing. Each needs the one before it; see each for why.
+      declare_the_guards
+      declare_the_pickups
+      declare_the_guards_minds
       declare_the_standing
       declare_the_scratch
 
@@ -336,10 +350,7 @@ module Wolf3D
         @push_gone << 0
         @push_wait << 0
       end
-      [key_cells.length, 1].max.times { @key_taken << 0 }
-
       declare_the_floor_start
-      @lives = Lives.new(build: b, score: @score, dying: @dying)
       declare_the_bar
       declare_the_clock
     end
@@ -410,37 +421,49 @@ module Wolf3D
 
     # WHAT STANDS IN THE LEVEL, and it is a piece of work of its own: the guards, the scenery,
     # and the one way both of them get on the screen. All this end has to do is bring them into
-    # being in the right order and hand over what they need.
+    # being in the right order and hand over what they need — and the order is a real one, so it
+    # is set out where they are declared rather than left to be worked out from here.
     def declare_the_standing
       return unless Billboards.needed?(scenery: @scenery, guards: @guards)
 
-      # Which way the eye points, worked out once a frame. The shot needs it, every standing
-      # thing needs it, and it is here rather than with the rest of the working room because a
-      # floor with nothing standing in it never wants it.
-      @vcos, @vsin = fraction(:vcos, :vsin)
-
-      declare_the_dying
-      declare_the_guards
       @standing = Billboards.new(build: @b, things: @things, scenery: @scenery,
-                                 guards: @guards, pool: @guard, mind: @mind,
+                                 guards: @guards, pool: @guard, mind: @mind, pickups: @pickups,
                                  eye: { x: @px, y: @py, cos: @vcos, sin: @vsin, angle: @view })
     end
 
     # DYING NEEDS SOMETHING THAT CAN KILL YOU, so a floor with no guards on it declares none of
-    # this and pays for none of it. It is declared before the guards because the guard who lands
-    # the last shot is the one that sets it off.
+    # this and pays for none of it.
     def declare_the_dying
       return if @guards.nil? || @guards.empty?
 
       @dying = Dying.new(build: @b, eye: { x: @px, y: @py, angle: @view, sin: @sin })
     end
 
+    # THINGS ON THE FLOOR YOU PICK UP BY WALKING OVER THEM. It sits between the guards and their
+    # minds, and that is the whole of why the three are declared apart: a clip is kept as a field
+    # of the guard who dropped it, so this needs the pool — and a guard's mind is what tells it he
+    # has fallen, so the mind needs this.
+    #
+    # It reads the floor for itself where no scenery was handed over. A game built without drawing
+    # still has keys lying on it, and the tests of the locked doors are exactly that game.
+    def declare_the_pickups
+      @pickups = Pickups.new(build: @b, level: @level, scenery: @scenery, pool: @guard,
+                             lives: @lives,
+                             player: { x: @px, y: @py, health: @health, ammo: @ammo,
+                                       score: @score, keys: @keys })
+    end
+
+    # THE GUARDS THEMSELVES: where each stands and what state he is in. Their minds come after the
+    # things on the floor, because a guard who falls leaves one.
     def declare_the_guards
       return if @guards.nil? || @guards.empty?
 
       b = @b
+      # +dropped+ is whether he is lying beside the clip of ammunition he left when he fell. It is
+      # a field of his rather than a place of its own because where the clip lies is where he
+      # lies — see Pickups#a_guard_fell.
       @guard = b.pool :guard, x: 0.0, y: 0.0, dir: 0, state: 0, ticks: 0, wait: 0, togo: 0.0,
-                              hp: 0, shown: 0, turn: 0,
+                              hp: 0, shown: 0, turn: 0, dropped: 0,
                               capacity: @guards.count,
                               estimate: { usually: @guards.count }
       @guards.guards.each_with_index do |guard, n|
@@ -456,10 +479,15 @@ module Wolf3D
                      turn: n % 2
       end
       declare_where_the_guards_start
+    end
 
+    def declare_the_guards_minds
+      return if @guards.nil? || @guards.empty?
+
+      b = @b
       @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
                             world: @world, door_open: @open, walls: { door: DOOR, push: PUSH },
-                            things: @things, blocked: @blocked, dying: @dying,
+                            things: @things, blocked: @blocked, dying: @dying, pickups: @pickups,
                             player: { x: @px, y: @py, health: @health, score: @score,
                                       cos: @vcos, sin: @vsin })
     end
@@ -508,8 +536,7 @@ module Wolf3D
       @keys.set 0
       shut_every_door
       put_the_secret_walls_back
-      drop_every_key
-      @standing&.put_the_scenery_back
+      @pickups&.put_them_all_back
       put_the_guards_back
       @dying.start_again
     end
@@ -531,12 +558,6 @@ module Wolf3D
         @push_gone[wall] = 0
         @push_wait[wall] = 0
       end
-    end
-
-    def drop_every_key
-      return if key_cells.empty?
-
-      @b.repeat(key_cells.length) { |key| @key_taken[key] = 0 }
     end
 
     # A KILLED GUARD IS NEVER TAKEN OUT OF THE POOL — he lies where he fell, in a state that
@@ -591,18 +612,6 @@ module Wolf3D
       @pushwalls.codes.map { |code| wall_picture(code) - 1 }
     end
 
-    # Every key lying on this floor: which cell it is on, which bit picking it up sets, and
-    # which piece of scenery it is, so that taking it can stop it being drawn.
-    def key_cells
-      @key_cells ||= @level.each_cell.filter_map do |x, y|
-        lock = @level.key_at(x, y)
-        next unless lock
-
-        { cell: (y * @level.width) + x, bit: KEY_BITS.fetch(lock),
-          thing: @scenery&.index_at(x, y) || 0 }
-      end
-    end
-
     # A number as a table will really hold it, to the places a variable with a fraction keeps.
     def as_a_table_holds_it(number) = RubyGBA::Fraction.scale(number, RubyGBA::Fraction::DEFAULT_BITS) /
                                       (1 << RubyGBA::Fraction::DEFAULT_BITS).to_f
@@ -634,7 +643,7 @@ module Wolf3D
         free?(@px.to_i, @ny.to_i).then { @py.set @ny }
       end
 
-      pick_up_a_key
+      @pickups.update
       move_the_doors
       move_the_walls
     end
@@ -737,24 +746,6 @@ module Wolf3D
             @push_gone[wall] = @gone
             (@gone < Pushwalls::DISTANCE).then { @push_wait[wall] = Pushwalls::FRAMES_PER_CELL }
           end
-        end
-      end
-    end
-
-    # Walk over a key and you have it. Each one is taken once, and what you carry is a bit per
-    # kind — which is all a locked door asks about.
-    #
-    # A key is a piece of scenery like a lamp is, so taking it also has to take it off the
-    # floor: without that you would carry the key and go on seeing it lying there.
-    def pick_up_a_key
-      return if key_cells.empty?
-
-      @here.set((@py.to_i * @level.width) + @px.to_i)
-      @b.repeat(key_cells.length) do |key|
-        ((@key_taken[key] == 0) & (@key_cell[key] == @here)).then do
-          @key_taken[key] = 1
-          @keys.add(@key_bit[key])
-          @standing&.take(@key_thing[key])
         end
       end
     end

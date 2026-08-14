@@ -38,9 +38,10 @@ module Wolf3D
     NOBODY = -1
 
     def initialize(build:, guards:, pool:, level:, world:, player:, door_open:, walls:, things:,
-                   blocked: nil, dying: nil)
+                   blocked: nil, dying: nil, pickups: nil)
       @b = build
       @dying = dying      # what to tell when a shot takes the last of the health, or nil
+      @pickups = pickups  # what to tell when a guard falls, so he can leave a clip behind
       @guards = guards
       @pool = pool
       @level = level
@@ -615,9 +616,11 @@ module Wolf3D
       (hp <= 0).then do
         state.set @fall1
         ticks.set(@ticks_of[@fall1])
-        # A guard is worth a hundred, which is the original's own number. He also drops a clip
-        # of ammunition where he falls, and that waits on there being things to pick up at all.
+        # A guard is worth a hundred, which is the original's own number...
         @player[:score]&.add(Guards::POINTS)
+        # ...and he leaves half a clip of ammunition in the cell he fell in, which is the loop
+        # the whole game runs on: shoot a guard, take what he was carrying, shoot the next one.
+        @pickups&.a_guard_fell(@target)
       end.else do
         # Odd or even decides which of the two flinches he wears, so the same wound twice
         # running does not look like a repeat. Landing in one of them is also what rouses a
