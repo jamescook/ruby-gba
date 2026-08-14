@@ -111,15 +111,31 @@ module Wolf3D
       @reach = reach
 
       declare_the_scratch
-      pool = @pool
-      b.func(:guard_thinking, fast: false) { pool.each { |guard| think(guard) } }
+      # The two pieces asked for from many places, each emitted once. See where each is defined
+      # for what that is worth and why it can be done at all.
+      declare_the_line_walk
+      declare_the_walkable_test
+
+      # WHOSE TURN IT IS. Flipped each time this routine runs, and a guard thinks on the turns
+      # that match his — so half of them think each time and a guard is thought about every
+      # other one. See Guards::TICKS_PER_THINK for why that is often enough.
+      #
+      # FLIPPED HERE rather than on its own beat, so that whatever paces the world paces this
+      # too. A turn flipped once a FRAME while the world moved once a PASS would flip twice
+      # between two moves on a game taking two frames a pass — back to where it started, so the
+      # same half would think every time and the other half never.
+      @turn = b.var :_gturn, 0
+      b.func(:guard_thinking, fast: false) do
+        @turn.set((@turn + 1) % 2)
+        @pool.each { |guard| (guard.turn == @turn).then { think(guard) } }
+      end
     end
 
     # At nothing at all he cannot miss the chance; beyond that it falls away with distance.
     def shot_chance(away)
       return CHANCES if away.zero?
 
-      [(16 * Guards::TICKS_PER_FRAME) / away, CHANCES].min
+      [(16 * Guards::TICKS_PER_THINK / Guards::SCALE) / away, CHANCES].min
     end
 
     def declare_the_scratch
@@ -128,9 +144,10 @@ module Wolf3D
         @tx, @ty, @away, @target, @odds, @wound, @spot =
         %i[gstate gdir gjob gtry gslot gcellx gcelly gclear gdone gahead gway gpicked
            gtx gty gaway gtarget godds gwound gspot].map { |name| b.var(:"_#{name}", 0) }
-      @dx, @dy, @absx, @absy, @stepx, @stepy, @far, @atx, @aty, @pace, @fwd, @sideways, @nearest =
-        %i[gdx gdy gabsx gabsy gstepx gstepy gfar gatx gaty gpace gfwd gsideways gnearest]
-        .map { |name| b.var(:"_#{name}", 0.0) }
+      @dx, @dy, @absx, @absy, @stepx, @stepy, @far, @atx, @aty, @pace, @fwd, @sideways, @nearest,
+        @fromx, @fromy =
+        %i[gdx gdy gabsx gabsy gstepx gstepy gfar gatx gaty gpace gfwd gsideways gnearest
+           gfromx gfromy].map { |name| b.var(:"_#{name}", 0.0) }
     end
 
     # ONE GUARD, ONE FRAME. Count his state down, move him on when it runs out, then let him
@@ -147,11 +164,11 @@ module Wolf3D
     end
 
     # A state with no length never runs down — that is how standing goes on forever. One step a
-    # frame is enough for every other: the shortest state in the table is three units long and a
-    # frame is worth two, so a frame can never step clean over one.
+    # think is enough for every other: the shortest state in the table is nine of these units
+    # long and a think is worth seven, so a think can never step clean over one.
     def step_the_state(guard)
       (@ticks_of[@state] > 0).then do
-        guard.ticks.sub Guards::TICKS_PER_FRAME
+        guard.ticks.sub Guards::TICKS_PER_THINK
         (guard.ticks <= 0).then do
           # The shot leaves as he LEAVES the state he aimed in, which is where the original
           # hangs it: aiming, firing and lowering the arm are three pictures and the bullet
@@ -204,7 +221,7 @@ module Wolf3D
     # you get a beat between being seen and being come after.
     def look(guard)
       (guard.wait > 0).then do
-        guard.wait.sub Guards::TICKS_PER_FRAME
+        guard.wait.sub Guards::TICKS_PER_THINK
         (guard.wait <= 0).then do
           guard.wait.set 0
           first_sighting(guard)
@@ -266,11 +283,32 @@ module Wolf3D
     # allowed. So the ceiling is generous and free, and five is what a frame really pays.
     def line_of_sight(guard) = walk_the_line(guard.x, guard.y)
 
-    # The same line, walked from wherever it starts — a guard looking for you, or a bullet on
-    # its way to him.
+    # ONE COPY OF THE WALK, NOT FOUR, and that is what this indirection buys.
+    #
+    # It is asked from four places — a guard looking, a guard about to fire, and a bullet
+    # picking its target — and a Ruby method call here is INLINED into the program, so four
+    # asks used to mean four copies of the loop, the divide and the wall test. That is a great
+    # deal of code for a routine whose whole job is to walk a handful of cells, and code is the
+    # thing this game is short of: the console's quick memory holds 32K, the frame's own loop
+    # wants nearly all of it, and what a guard emits decides whether both can fit.
+    #
+    # Every one of its inputs is working room already, so all a caller has to hand over is where
+    # the line starts.
     def walk_the_line(fromx, fromy)
+      @fromx.set fromx
+      @fromy.set fromy
+      @b.call :walk_the_sight_line
+    end
+
+    def declare_the_line_walk
+      @b.func(:walk_the_sight_line) { the_sight_line }
+    end
+
+    # The line itself, walked from wherever it was told to start — a guard looking for you, or a
+    # bullet on its way to him.
+    def the_sight_line
       b = @b
-      aim_along_it(fromx, fromy)
+      aim_along_it(@fromx, @fromy)
       @tx.set(@player[:x].to_i)
       @ty.set(@player[:y].to_i)
       @clear.set 1
@@ -293,17 +331,43 @@ module Wolf3D
     # A step along the line from the guard toward the player, sized so the longer of the two
     # directions moves one whole cell each time — which is what makes the walk visit every cell
     # the line passes through without visiting any twice.
+    # ONE DIVIDE AT MOST, NOT TWO, and the one that goes was never doing any work.
+    #
+    # The step is the direction scaled so the LONGER of the two moves one whole cell. Which
+    # means the longer one's step is one whole cell — plus or minus — by construction, and
+    # dividing it by its own size can only ever give back the one it already is. So it is set
+    # from the sign instead, and only the shorter of the two is divided.
+    #
+    # That matters here because dividing a number holding a fraction by another is the dearest
+    # arithmetic there is — about nine times an ordinary step, where every other divide is a
+    # third to three — and these two were a fifth of everything a guard spends in a frame. The
+    # walk that follows is unchanged, step for step.
+    #
+    # And when the two are both under a cell apart the scaling is held at one, so neither is
+    # divided at all: the step IS the direction. That is the near case, which is the one a guard
+    # about to shoot you is in.
     def aim_along_it(fromx, fromy)
       @absx.set @dx
       @absx.abs
       @absy.set @dy
       @absy.abs
-      @far.set @absx
-      (@absy > @far).then { @far.set @absy }
-      (@far < 1.0).then { @far.set 1.0 }
 
-      @stepx.set(@dx / @far)
-      @stepy.set(@dy / @far)
+      @stepx.set @dx
+      @stepy.set @dy
+      (@absx > @absy).then do
+        (@absx > 1.0).then do
+          @stepx.set(1.0)
+          (@dx < 0.0).then { @stepx.set(-1.0) }
+          @stepy.set(@dy / @absx)
+        end
+      end.else do
+        (@absy > 1.0).then do
+          @stepy.set(1.0)
+          (@dy < 0.0).then { @stepy.set(-1.0) }
+          @stepx.set(@dx / @absy)
+        end
+      end
+
       @atx.set fromx
       @aty.set fromy
     end
@@ -428,10 +492,20 @@ module Wolf3D
       end
     end
 
+    # ONE COPY OF THIS TOO, and it is asked from more places than anything else here: a guard
+    # picking a way to go tries as many as eight of them, and each try used to emit the whole
+    # question again. It reads and writes nothing but working room, so it needs nothing passed
+    # to it at all — the caller says which cell in @cellx and @celly, which it was doing anyway.
+    def free_to_walk = @b.call(:can_a_body_walk_there)
+
+    def declare_the_walkable_test
+      @b.func(:can_a_body_walk_there) { walkable }
+    end
+
     # A cell a guard can walk into: open floor, or a doorway whose panel has slid out of the
     # way, and nothing standing in it that a body cannot pass. The same question the player's
     # feet ask, asked of a guard — and a guard is stopped by a barrel exactly as you are.
-    def free_to_walk
+    def walkable
       @spot.set((@celly * @width) + @cellx)
       @ahead.set(@world[@spot])
       @clear.set 0

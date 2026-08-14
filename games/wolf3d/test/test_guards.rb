@@ -201,6 +201,29 @@ class TestGuards < Minitest::Test
     assert_equal STAND, state_of(run)
   end
 
+  # WHICH HALF OF THE WORLD EACH FACING CAN SEE, all four a level can put a guard down in — not
+  # only the two above. "In front" is decided one way per facing, so agreeing about west says
+  # nothing about north, and each of the four is its own line of code.
+  #
+  # The player is due west of the guard. West sees him and east does not, which is the obvious
+  # half. NORTH AND SOUTH SEE HIM TOO, and that is not a slip: the test is which SIDE of a line
+  # the player is on, and the line runs through the guard — so someone exactly on it counts as
+  # in front. It is the original's own rule, and it is why the patrol test below keeps its
+  # player off the guard's row.
+  #
+  # A guard can only be PUT DOWN facing one of these four; the diagonals are reached by walking,
+  # so they belong to a guard already on the move.
+  WESTWARD = { west: true, north: true, south: true, east: false }.freeze
+
+  def test_each_facing_sees_the_half_of_the_world_it_looks_at
+    noticed = WESTWARD.keys.to_h do |way|
+      [way, state_of(watch(guards: [[12, 8, way]], frames: 200)) != STAND]
+    end
+
+    assert_equal WESTWARD, noticed,
+                 "each facing should notice a player to its west, or not, by which way it looks"
+  end
+
   # HE DOES NOT SET OFF THE MOMENT HE SEES YOU. Noticing and reacting are two things: he sees
   # you on one pass and starts his count, and only when that runs down does he come. That beat
   # is why the game feels fair, and one pass is enough to show the two are separate.

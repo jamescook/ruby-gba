@@ -60,15 +60,35 @@ module Wolf3D
     POINTS = 100
 
     # HOW LONG A STATE LASTS is counted in the original's own units — seventieths of a second —
-    # and the numbers below are its numbers, unchanged. This is how many of them one FRAME of
-    # this game is worth, which is a frame of the screen and not a pass of the game loop: the
-    # machine is advanced once for each frame that really went by, so a heavy frame moves the
-    # guards on twice rather than running them at half speed.
+    # and the numbers in the table below are its numbers, unchanged.
     #
-    # It is deliberately a whole number: the shortest state in the table is three units long, so
-    # a frame can never step over a whole state, and the machine never needs to advance twice
-    # for one frame.
-    TICKS_PER_FRAME = 2
+    # THE COUNTER RUNS IN THIRDS OF ONE, and that is what makes the sums come out whole. This
+    # console shows sixty frames a second where the original counted seventy, so one frame is
+    # worth 70/60 of its units — not a whole number, and a counter that steps by a whole number
+    # cannot be told to step by 7/6. In thirds it can: seven thirds.
+    SCALE = 3
+
+    # A guard thinks on every OTHER move of the world, so thirty times a second on a game that
+    # keeps up, and seventy of the original's units a second divided thirty ways is seven thirds
+    # each — which in thirds is SEVEN, exactly. So a guard runs at the speed he was designed at;
+    # he used to run 71% fast, at two of the original's units every frame against the 7/6 owed.
+    #
+    # A game that does NOT keep up moves its world less often, and the guards slow down with
+    # everything else rather than apart from it — which is the whole point of pacing by the pass
+    # (see FirstPerson::PACING).
+    #
+    # WHY EVERY OTHER FRAME. Thinking is the most expensive thing a guard does and half of it is
+    # asking a question whose answer cannot change in a sixtieth of a second — can he see you,
+    # is anything in the way. Measured, a guard costs about eleven scanlines of a frame, and a
+    # real floor has ten of them; halving that is worth more than anything else available here,
+    # and it costs a reaction that is on average a sixtieth of a second later.
+    #
+    # The guards are split between the two frames rather than all thinking on the same one, so
+    # the cost is the same every frame instead of nothing then double.
+    #
+    # It never steps over a state: the shortest in the table is three of the original's units,
+    # which is nine of ours, and a think advances seven.
+    TICKS_PER_THINK = 7
 
     # THE STATE TABLE, and it is the behaviour rather than a description of it. Each row is a
     # picture, how long to stand in it, what to think about while there, and which row comes
@@ -84,9 +104,12 @@ module Wolf3D
     # across three pictures and the bullet leaves on the middle one.
     State = Data.define(:name, :picture, :turns, :ticks, :think, :becomes, :fires)
 
+    # +ticks+ is written in the ORIGINAL'S units, so the table below stays its table and can be
+    # read against it line for line. It is kept in thirds of one — see SCALE — and the
+    # conversion happens here, once, rather than at every number.
     def self.state(name, picture, ticks, think, becomes, turns: true, fires: false)
-      State.new(name: name, picture: picture, ticks: ticks, think: think, becomes: becomes,
-                turns: turns, fires: fires)
+      State.new(name: name, picture: picture, ticks: ticks * SCALE, think: think,
+                becomes: becomes, turns: turns, fires: fires)
     end
 
     STATES = [
@@ -142,19 +165,22 @@ module Wolf3D
     CHASE_TIMES = 3
     CELL = 1 << 16
 
-    # ...and the same as this game counts it: cells per frame.
+    # ...and the same as this game counts it: cells per THINK, which is every other frame. The
+    # division by SCALE is what turns our thirds back into the original's units, so the distance
+    # per second comes out as the original's however the counting is arranged.
     def self.speed(chasing: false)
-      PATROL_SPEED * (chasing ? CHASE_TIMES : 1) * TICKS_PER_FRAME / CELL.to_f
+      PATROL_SPEED * (chasing ? CHASE_TIMES : 1) * TICKS_PER_THINK / SCALE / CELL.to_f
     end
 
     # HOW NEAR IS NEAR ENOUGH TO BE SEEN WITHOUT LOOKING: a guard notices anyone this close
     # whichever way he is facing. One and a half cells, in the original's units.
     AUTOMATIC_SIGHT = 0x18000 / CELL.to_f
 
-    # HOW LONG A GUARD TAKES TO REACT once he has seen you, in the original's time units — one
-    # plus a quarter of a random byte, so up to about a second. This delay is why the game feels
-    # fair: you get a moment between being seen and being shot at.
-    REACTION = 64
+    # HOW LONG A GUARD TAKES TO REACT once he has seen you — one plus a quarter of a random
+    # byte of the original's time units, so up to about a second. This delay is why the game
+    # feels fair: you get a moment between being seen and being shot at. Kept in the same thirds
+    # everything else that counts down is kept in.
+    REACTION = 64 * SCALE
 
     # WHICH WAY EACH DIRECTION GOES, in the order the original numbers them: counter-clockwise
     # from east, with the diagonals between. Eight is "nowhere", which is what a guard who
