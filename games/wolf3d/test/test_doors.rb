@@ -184,36 +184,69 @@ class TestDoors < Minitest::Test
   # This says the cartridge does it too: the same walk, once leaning on the button and once
   # not. Shut, the door stops the player short of it; opened, they walk through.
   #
-  # A FRAME IS NOT THE SAME THING TO THE TWO BACKENDS, which is why this counts its own rather
-  # than matching the interpreter's. The interpreter runs the game loop once per frame it is
-  # asked for; the console runs it once per frame it has TIME for, and this view takes about
-  # two display frames a pass. So the console needs about twice as many frames to play the
-  # same amount of game, and the exact ratio is a measurement rather than a rule.
+  # IT WALKS DUE EAST, ALONG A CORRIDOR MADE FOR IT, and that is not decoration. A frame is not
+  # the same thing to the two backends — the interpreter runs the game loop once per frame it
+  # is asked for, the console once per frame it has TIME for — so a console test can only count
+  # display frames and hope they buy the game passes it wanted. This one used to turn the player
+  # round first, and a turn cannot land exactly: the view moves six angle units a pass and a
+  # half turn is not a multiple of six, so the player walked a few degrees off south. A few
+  # degrees off for fifty passes drifts them half a cell sideways, and this game lets you slide
+  # along what you cannot walk through — so they slid out of the doorway while the door was
+  # still opening, and whether they made it came down to about three passes either way. Any
+  # change anywhere that shifted the pass rate flipped it.
   #
-  # The button is leant on rather than tapped once for the same reason: pressing on one exact
-  # frame would need to know when the player arrives, and tapping it over and over means
-  # whichever tap lands at the door is the one that opens it.
-  CONSOLE_TURN = 82   # display frames to bring the player round to face the door
-  CONSOLE_WALK = 400  # ...and plenty to reach it and go through
+  # Due east has no such problem: the sideways step is exactly zero, so the player stands in the
+  # doorway however long the door takes and however fast the cartridge happens to run.
+  CORRIDOR = 16       # a small field, so a ray meets its edge quickly
+  DOOR_AT = 12        # ...with a wall across it here, and a door in that wall
+  START_AT = 8
+  CONSOLE_FRAMES = 300
+
+  # A corridor running east with a door across it. The even door code is the panel that runs
+  # north-south, which is the one you walk through going east.
+  def corridor
+    side = CORRIDOR
+    cells = Array.new(side * side, Wolf3D::Level::FLOOR)
+    things = Array.new(side * side, 0)
+    side.times do |y|
+      side.times do |x|
+        edge = x.zero? || y.zero? || x == side - 1 || y == side - 1
+        cells[(y * side) + x] = Wolf3D::Fixture::Release::WALL if edge || x == DOOR_AT
+      end
+    end
+    cells[(START_AT * side) + DOOR_AT] = Wolf3D::Level::DOORS.first
+    things[(START_AT * side) + START_AT] = Wolf3D::Level::FACINGS.key(:east)
+    Wolf3D::Level.new(name: "Corridor", width: side, height: side, walls: cells, things: things)
+  end
+
+  def corridor_program(level)
+    doors = Wolf3D::Doors.new(level, @vswap)
+    pushwalls = Wolf3D::Pushwalls.new(level)
+    atlas = Wolf3D::WallAtlas.new(@vswap, Wolf3D::Palette.game, level, doors: doors)
+
+    RubyGBA.game("DOORS", code: "ZDRS", maker: "01") do
+      screen :bitmap, tear_free: true
+      view = FP.new(build: self, level: level, atlas: atlas, doors: doors, pushwalls: pushwalls)
+      game_loop { view.update }
+    end.program
+  end
 
   def test_the_console_opens_the_door_too
     keys = RubyGBA::Constants
-    walking = ->(f) { f <= CONSOLE_TURN ? keys::KEY_LEFT : keys::KEY_UP }
-    # Tapped every few frames, since only the moment of pressing counts, never holding.
-    opening = ->(f) { walking.call(f) | (f > CONSOLE_TURN && (f / 6).even? ? keys::KEY_A : 0) }
+    walking = ->(_f) { keys::KEY_UP }
+    # Tapped rather than held, since only the moment of pressing counts.
+    opening = ->(f) { keys::KEY_UP | ((f / 6).even? ? keys::KEY_A : 0) }
 
     backend = GBA.new
-    rom = ROM.assemble(backend.lower(program), title: "DOORS", code: "ZDRS", maker: "01")
+    rom = ROM.assemble(backend.lower(corridor_program(corridor)), title: "DOORS", code: "ZDRS", maker: "01")
     vars = backend.var_addresses
-    frames = CONSOLE_TURN + CONSOLE_WALK
-    stopped = RubyGBA::Verifier.new(rom, frames: frames, keys: walking, vars: vars)
-    through = RubyGBA::Verifier.new(rom, frames: frames, keys: opening, vars: vars)
+    stopped = RubyGBA::Verifier.new(rom, frames: CONSOLE_FRAMES, keys: walking, vars: vars)
+    through = RubyGBA::Verifier.new(rom, frames: CONSOLE_FRAMES, keys: opening, vars: vars)
 
-    doorway = @doors.doors.fetch(room_door).y
     refute stopped.frame_gba.all?(&:zero?), "the cartridge should be drawing something"
-    assert_operator stopped.var(:py) / ONE.to_f, :<, doorway,
+    assert_operator stopped.var(:px) / ONE.to_f, :<, DOOR_AT,
                     "with nothing pressed, the shut door stops the player short of it"
-    assert_operator through.var(:py) / ONE.to_f, :>, doorway,
+    assert_operator through.var(:px) / ONE.to_f, :>, DOOR_AT,
                     "with the button, the console opens it and the player walks through"
   end
 end

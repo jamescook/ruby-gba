@@ -182,30 +182,27 @@ module Wolf3D
     #
     # A variable holds whole numbers unless it is declared with a fraction, so the split is not
     # a tidiness: it is the difference between a cell number and a place inside a cell.
-    # DO NOT REORDER THESE. Every whole-number one has to be declared before any of the ones
-    # that hold a fraction, and today that is load-bearing rather than tidy: declaring a
-    # fraction first, or mixing the two together, builds a cartridge on which doors stop
-    # opening. The same program run in Ruby behaves the same either way, so what a program
-    # MEANS does not depend on this — only what the console does with it, which means the fault
-    # is in the lowering and not here. Moving one of these is how you would find it again.
     def declare_the_scratch
-      # The ray walk: which cell it is in, which way it steps through the grid, which kind of
-      # grid line it last crossed. Then the doors and the player's feet, which share a few —
-      # each is picked up and put down inside one step, so one of each is enough. Then the
-      # walls that move.
-      @ang, @hit, @wall, @cell, @colh, @top, @mapx, @mapy, @stepmx, @stepmy, @side,
-        @isdoor, @door, @edge, @foot, @here, @wait, @can, @slot,
-        @push, @pcell, @ahead, @want, @gone =
-        whole(:ang, :hit, :wall, :cell, :colh, :top, :mapx, :mapy, :stepmx, :stepmy, :side,
-              :isdoor, :door, :edge, :foot, :here, :wait, :can, :slot,
-              :push, :pcell, :ahead, :want, :gone)
+      # THE RAY WALK. Where it points, how far along it from one grid line to the next, which
+      # cell it is in, and what it met.
+      @ang, @hit, @wall, @cell, @colh, @top = whole(:ang, :hit, :wall, :cell, :colh, :top)
+      @mapx, @mapy, @stepmx, @stepmy, @side = whole(:mapx, :mapy, :stepmx, :stepmy, :side)
+      @dx, @dy, @deltax, @deltay = fraction(:dx, :dy, :deltax, :deltay)
+      @sidex, @sidey, @dist, @seen, @wallx = fraction(:sidex, :sidey, :dist, :seen, :wallx)
 
-      # ...and the same three jobs again for the ones that hold a fraction: where the ray
-      # points and how far it has got, how far a door has slid, and where a step would land.
-      @dx, @dy, @deltax, @deltay, @sidex, @sidey, @dist, @seen, @wallx, @mid, @slid, @swing,
-        @across, @along, @nx, @ny, @stepx, @stepy =
-        fraction(:dx, :dy, :deltax, :deltay, :sidex, :sidey, :dist, :seen, :wallx, :mid, :slid,
-                 :swing, :across, :along, :nx, :ny, :stepx, :stepy)
+      # THE PLAYER'S FEET: what is under them, where a step would land, and whether it may.
+      @foot, @here, @can = whole(:foot, :here, :can)
+      @nx, @ny, @stepx, @stepy = fraction(:nx, :ny, :stepx, :stepy)
+
+      # DOORS. Which one, how far along its panel the ray landed, and how far it has slid.
+      # +slot+ and +wait+ are shared with the walls that move and with the keys — each is
+      # picked up and put down inside one step, so one of each is enough.
+      @isdoor, @door, @edge, @slot, @wait = whole(:isdoor, :door, :edge, :slot, :wait)
+      @mid, @slid, @swing = fraction(:mid, :slid, :swing)
+
+      # WALLS THAT MOVE: which one, where it is now, and which way the player is leaning on it.
+      @push, @pcell, @ahead, @want, @gone = whole(:push, :pcell, :ahead, :want, :gone)
+      @across, @along = fraction(:across, :along)
     end
 
     # THINGS THAT STAND IN THE ROOM: which way the eye points, where one is relative to it, and
