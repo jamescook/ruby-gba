@@ -41,8 +41,8 @@ class TestCostRollup < CostModelTest
       halt
     end
     # ...but the estimate assumes the worst: 8 (capacity) passes of one 8x8 rect, plus the
-    # one-time push that seeded the list (a single logic step).
-    near loop_cost(8, dma_rows(8, 8)) + WEIGHTS[:op_step], Cost.new.frame_cost(prog)
+    # one-time push that seeded the list.
+    near loop_cost(8, dma_rows(8, 8)) + WEIGHTS[:list_write], Cost.new.frame_cost(prog)
   end
 
   # ...THE WORST CASE. The every-frame load asks the other question, and the capacity is the

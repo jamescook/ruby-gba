@@ -71,19 +71,20 @@ module RubyGBA
       # Build a ROM whose game loop runs +body+ (given the builder and the value handles)
       # +repeat_n+ times a frame, and return the scanlines of CPU it burns per frame.
       #
-      # :first is declared first and never used, and that is deliberate. Reaching a variable
-      # starts by building its address, and the FIRST variable of a program sits at an address
-      # the console can build in one instruction where every later one takes two — so a
-      # statement touching the first variable is an instruction cheaper, at each end, than the
-      # same statement anywhere else. Exactly one variable in a program is like that. Measuring
-      # a statement weight there would describe the one variable that is not typical and
-      # under-charge every other, so the spare takes that slot and the measured variables sit
-      # where a game's variables sit.
+      # THERE USED TO BE A SPARE VARIABLE DECLARED FIRST AND NEVER USED, and its going is worth
+      # a note, because it is the proof of something. Reaching a variable once began by building
+      # its whole address, and the first variable of a program sat where the console could build
+      # that address in one instruction while every later one took two or three — so a statement
+      # touching the first variable was cheaper, at each end, than the same statement anywhere
+      # else. Exactly one variable in a program was like that, so a spare took the lucky slot
+      # and the measured ones sat where a game's variables sit.
+      #
+      # A read now names the base of the variable memory and carries the distance inside the
+      # load, so every variable costs the same to reach and there is no lucky slot to protect.
       def stable_busy(name, repeat_n, &body)
         rom = cartridge_build(name) do
           screen :bitmap
           clear_screen :black
-          var :first, 0
           xv = var :x, 7
           var :y, 0
           dv = var :d, 100   # a divisor the GAME works out, for the ops that need one
@@ -412,7 +413,6 @@ module RubyGBA
         rom = cartridge_build(name) do
           screen :bitmap
           clear_screen :black
-          var :first, 0 # the cheap first slot, kept clear — see #stable_busy
           n = var :n, numerator
           d = var :d, 1
           var :out, 0
@@ -433,52 +433,6 @@ module RubyGBA
       def per_operator(tag, repeat_n: 500, lo: 2, hi: 8, &one)
         per_op(tag, repeat_n, lo, hi, &one) -
           per_op("#{tag}b", repeat_n, lo, hi) { |b, xv| b.set :y, xv }
-      end
-
-      # --- reaching a variable that sits further out ---
-      #
-      # Every read and write of a variable begins by building its address, and how many
-      # instructions that takes depends on the address: one for the very first variable, two
-      # for the next sixty-three, three for anything past the first 256 bytes of the console's
-      # quick memory. Every weight above is measured on an ordinary one; this is the extra a
-      # far one costs, per touch.
-      #
-      # Two ROMs with the SAME variables, differing only in which of them the loop touches —
-      # so the boot code, the loop and the statement are identical and what is left is the
-      # address. The pad puts the far one comfortably past the boundary.
-      ADDRESS_PAD_VARS = 80
-      ADDRESS_PASSES = 300
-      ADDRESS_LO = 2
-      ADDRESS_HI = 6
-
-      def address_step_busy(name, copies, far:)
-        pad = ADDRESS_PAD_VARS
-        passes = ADDRESS_PASSES
-        rom = cartridge_build(name) do
-          screen :bitmap
-          clear_screen :black
-          var :first, 0
-          near = var :near, 7
-          pad.times { |i| var :"pad#{i}", 0 }
-          distant = var :distant, 7
-          target = far ? distant : near
-          b = self
-          game_loop { b.wait_vblank; b.repeat(passes) { copies.times { target.add 1 } } }
-        end
-        @m.busy(name, rom)
-      end
-
-      # An `add` reaches its variable twice — once to read it, once to write it back — so the
-      # difference between the two ROMs is two of these.
-      def per_var_address_step
-        (address_step_rate(far: true) - address_step_rate(far: false)) / 2.0
-      end
-
-      def address_step_rate(far:)
-        tag = far ? "adrf" : "adrn"
-        Reductions.marginal(address_step_busy("#{tag}#{ADDRESS_HI}", ADDRESS_HI, far: far),
-                            address_step_busy("#{tag}#{ADDRESS_LO}", ADDRESS_LO, far: far),
-                            over: ADDRESS_PASSES * (ADDRESS_HI - ADDRESS_LO))
       end
 
       # --- a COMPARISON, which the DSL cannot put where the others go ---
@@ -580,6 +534,42 @@ module RubyGBA
         @m.busy(name, rom)
       end
 
+      # WRITING one element of a list, which is not the same as writing a variable and was
+      # charged as one until the two stopped costing alike. A variable is reached from a base
+      # this console can hold in a register plus a distance settled while building; an element
+      # is reached by working the index out first and adding it, which no base can shorten.
+      #
+      # The baseline writes a variable the same number of times, so the loop, the value and the
+      # statement around it all cancel and what is left is the indexing.
+      def indexed_write_busy(name, kind, copies, per_frame)
+        cap = INDEXED_CAPACITY
+        rom = cartridge_build(name) do
+          screen :bitmap
+          clear_screen :black
+          xs = list :xs, capacity: cap
+          cap.times { |n| xs << n }
+          out = var :out, 0
+          idx = var :idx, 3
+          b = self
+          game_loop do
+            b.wait_vblank
+            b.repeat(per_frame) do
+              copies.times { kind == :list ? xs[idx] = 7 : out.set(7) }
+            end
+          end
+        end
+        @m.busy(name, rom)
+      end
+
+      def per_indexed_write(per_frame: 300, lo: 2, hi: 6)
+        wrote = Reductions.marginal(indexed_write_busy("lsw#{hi}", :list, hi, per_frame),
+                                    indexed_write_busy("lsw#{lo}", :list, lo, per_frame),
+                                    over: per_frame * (hi - lo))
+        wrote - Reductions.marginal(indexed_write_busy("vsw#{hi}", :var, hi, per_frame),
+                                    indexed_write_busy("vsw#{lo}", :var, lo, per_frame),
+                                    over: per_frame * (hi - lo))
+      end
+
       # What one indexed read costs, with the loop and the `set` around it cancelled.
       def per_indexed_read(kind, per_frame: 300, lo: 2, hi: 6)
         tag = kind.to_s[0, 4].delete("_")
@@ -673,7 +663,6 @@ module RubyGBA
       def palette_op_busy(name, repeat_n, &body)
         rom = cartridge_build(name) do
           screen :bitmap, tear_free: true
-          var :first, 0
           lv = var :level, 50
           b = self
           game_loop { b.wait_vblank; b.repeat(repeat_n) { body.call(b, lv) } }

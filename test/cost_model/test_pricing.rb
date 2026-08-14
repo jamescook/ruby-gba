@@ -622,15 +622,22 @@ class TestCostPricing < CostModelTest
     near WEIGHTS[:op_assign] + var_reads, Cost.new.steady_cost(assignment_loop)
   end
 
-  # An operator is charged BESIDE the statement that holds it, so its weight has to be what
-  # it adds and not a statement over again. Building it out of a statement charged the
-  # statement twice, and that is what made `x.set(x + 1)` read a third over.
-  def test_a_plain_operator_costs_less_than_the_statement_that_holds_it
+  # An operator is charged BESIDE the statement that holds it, so its weight has to be what it
+  # ADDS and not a statement over again. Building it out of a statement charged the statement
+  # twice, and that is what made `x.set(x + 1)` read a third over.
+  #
+  # The check is the difference between two whole programs, which is the only form that can say
+  # this: a program with the operator, minus the same program without it, has to come to the
+  # operator's weight and nothing more. It used to be checked a second way — that an operator
+  # weighs less than the statement around it — and that has stopped being a fact about this
+  # console. A statement is now a base into a register and one store, where an operator holds
+  # one side on the stack while it works out the other; the statement is the cheaper of the two.
+  # An inequality that is no longer true guards nothing, and asserting it would only pin the
+  # model to a machine that has changed.
+  def test_a_plain_operator_is_charged_for_what_it_adds_and_not_the_statement_again
     added = arithmetic_loop { |x| x + 1 }
 
     near WEIGHTS[:op_plain], Cost.new.steady_cost(added) - Cost.new.steady_cost(assignment_loop)
-    assert_operator WEIGHTS[:op_plain], :<, WEIGHTS[:op_assign],
-                    "an operator inside a statement costs less than the statement around it"
   end
 
   # EVERY VARIABLE A STATEMENT READS IS CHARGED, and that is something no weight can do on
@@ -716,37 +723,39 @@ class TestCostPricing < CostModelTest
     near WEIGHTS[:op_mul_pow2], flipped - Cost.new.steady_cost(value_loop(Build.var_ref(:x)))
   end
 
-  # WHERE A VARIABLE SITS is part of what a statement costs, because reaching it begins by
-  # building its address and a bigger address takes another instruction to build. A list of 64
-  # claims the first 256 bytes of the console's quick memory before any variable gets a home,
-  # so in a game with a list every statement pays that at each end.
+  # WHERE A VARIABLE SITS COSTS NOTHING, and it once cost a great deal — which is why these
+  # tests are still here saying the difference is nought rather than being deleted.
   #
-  # The map comes from the build that placed them; without one every variable is priced as an
-  # ordinary one, which is what a program handed straight to the model gets.
-  ORDINARY_VAR = 0x03000010 # one of the sixty-three whose address takes two instructions
-  DISTANT_VAR = 0x03000110 # past the first 256 bytes, where it takes three
+  # Reaching a variable began by building its whole address, and a bigger address took another
+  # instruction to build: one for the very first variable, two for the next sixty-three, three
+  # past that. A list of 64 claims the first 256 bytes of the console's quick memory before any
+  # variable gets a home, so in a game with a list every statement paid that at each end — and
+  # which variables a game paid for came down to the order the build emitted things in.
+  #
+  # A read now names the BASE of that memory, which this console can hold in a register in one
+  # instruction, and carries the variable's distance inside the load. The hundredth variable
+  # costs what the first does.
+  ORDINARY_VAR = 0x03000010
+  DISTANT_VAR = 0x03000110 # past the first 256 bytes, where the address used to cost more
 
-  def test_a_statement_costs_more_when_its_variable_sits_further_out
-    near_cost = Cost.new(var_addresses: { x: ORDINARY_VAR }).steady_cost(assignment_loop)
-    far_cost = Cost.new(var_addresses: { x: DISTANT_VAR }).steady_cost(assignment_loop)
+  def test_where_a_variable_sits_costs_the_same_wherever_it_is
+    at = ->(address) { Cost.new(var_addresses: { x: address }).steady_cost(assignment_loop) }
 
-    near WEIGHTS[:op_assign] + var_reads, near_cost,
-         "an ordinary variable is what the weight was measured on"
-    # `x.set(x)` reaches x twice — once to read it, once to write it.
-    near WEIGHTS[:op_assign] + var_reads + (2 * WEIGHTS[:var_address_step]), far_cost
+    near WEIGHTS[:op_assign] + var_reads, at.call(ORDINARY_VAR)
+    near WEIGHTS[:op_assign] + var_reads, at.call(DISTANT_VAR)
+    near WEIGHTS[:op_assign] + var_reads, at.call(0x03000000), "...including the first of all"
   end
 
-  # An `add` reaches its variable at both ends where a `set` only writes, so the same distance
-  # costs an `add` twice over.
-  def test_reaching_a_far_variable_is_charged_once_per_touch
+  # An `add` reaches its variable at both ends where a `set` only writes, so distance would
+  # have cost it twice over. It costs it nothing twice over.
+  def test_a_statement_that_reaches_its_variable_twice_is_not_charged_for_distance
     changed = program do
       screen :bitmap
       x = var :x, 100
       game_loop { x.add 1 }
     end
-    far = Cost.new(var_addresses: { x: DISTANT_VAR })
 
-    near WEIGHTS[:op_step] + (2 * WEIGHTS[:var_address_step]), far.steady_cost(changed)
+    near WEIGHTS[:op_step], Cost.new(var_addresses: { x: DISTANT_VAR }).steady_cost(changed)
   end
 
   # THE TWO WAYS TO HAVE NO ANSWER, which price the same and mean different things.
@@ -773,20 +782,12 @@ class TestCostPricing < CostModelTest
     refute_predicate Cost.new.var_addresses, :known?
   end
 
-  # The one variable that is NEARER than ordinary is charged the ordinary rate rather than
-  # credited. Exactly one variable in a program is like that, and over is the safe way to be
-  # wrong.
-  def test_the_one_variable_nearer_than_ordinary_is_not_credited
-    first = Cost.new(var_addresses: { x: 0x03000000 })
-
-    near WEIGHTS[:op_assign] + var_reads, first.steady_cost(assignment_loop)
-  end
-
-  # END TO END, because the map has to travel from the build to the estimate for any of the
-  # above to matter. The two programs do the same statement; one also declares a list, which
-  # claims the first 256 bytes of quick memory before any variable gets a home and so makes
-  # every one of them dearer to reach.
-  def test_a_built_rom_prices_its_statements_where_its_variables_landed
+  # END TO END, on a really built ROM rather than a map handed to the model. The two programs
+  # do the same statement; one also declares a list, which claims the first 256 bytes of quick
+  # memory before any variable gets a home — so every variable in it sits where an address used
+  # to cost an instruction more at each end. They cost the same now, and this is the test that
+  # would notice that stopping being true.
+  def test_declaring_a_list_does_not_make_the_statements_around_it_dearer
     costs = [false, true].map do |with_list|
       rom = RubyGBA.build("VARS", code: "VARS", maker: "01", err: StringIO.new) do
         screen :bitmap
@@ -799,7 +800,7 @@ class TestCostPricing < CostModelTest
     end
 
     near WEIGHTS[:op_assign] + var_reads, costs.first
-    near WEIGHTS[:op_assign] + var_reads + (2 * WEIGHTS[:var_address_step]), costs.last
+    near WEIGHTS[:op_assign] + var_reads, costs.last
   end
 
   # `set :out, <node>` once a frame. Built straight from the IR because the surface will not

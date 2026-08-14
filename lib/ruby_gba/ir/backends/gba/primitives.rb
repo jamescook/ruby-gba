@@ -17,22 +17,59 @@ module RubyGBA
             end
           end
 
-          # Reading a variable is normally building its address and loading it — three
-          # instructions. A variable the code around us is already HOLDING in a register is one
-          # move instead, and it is the same number either way because whoever holds it is
-          # keeping memory and register in step (see Statements#emit_repeat, the only holder
-          # today: a loop's index).
+          # HOW FAR FROM THE BASE A VARIABLE CAN SIT and still be reached by naming the two
+          # together. The instruction keeps twelve bits for the distance, so a thousand
+          # variables. Past that the address is built in full, as everything used to be.
+          FURTHEST_FROM_BASE = 0xFFF
+
+          # READING A VARIABLE IS TWO INSTRUCTIONS: put the base of the variable memory in a
+          # register, then load from that register plus this variable's distance along.
+          #
+          # It used to be the whole address and then a load, and the whole address is the
+          # expensive part. This console can name a number in one instruction only when the
+          # number has eight significant bits in the right places, which an address does not,
+          # except by luck: the FIRST variable sits at the base itself and costs one, the next
+          # sixty-three cost two, and everything past that costs three. So the hundredth variable
+          # a program declares was read in four instructions and the first in two, for no reason
+          # the program could see — it was the order the backend happened to emit things in.
+          #
+          # The base is a number this console CAN name in one instruction, and the distance rides
+          # inside the load. So every variable is two, and the hundredth costs what the first
+          # does. There is more here for the taking — the base is put in the register afresh for
+          # every access, where one register held across a run of them would make each access a
+          # single instruction — but that means knowing what a register holds along every path
+          # that reaches an instruction, and being wrong about that writes to the wrong address
+          # rather than failing. This much needs no such knowledge.
+          #
+          # A variable the code around us is already HOLDING in a register is one move instead,
+          # and it is the same number either way because whoever holds it is keeping memory and
+          # register in step (see Statements#emit_repeat, the only holder today: a loop's index).
           def load_var(reg, name)
             held = held_register(name)
             return emit(ASM.mov_reg(reg, held)) if held
 
-            emit(ASM.load_immediate(ADDR, var_addr(name)))
+            offset = var_offset(name)
+            return emit(ASM.ldr_offset(reg, ADDR, offset)) if emit_var_base(offset)
+
             emit(ASM.ldr(reg, ADDR))
           end
 
           def store_var(reg, name)
-            emit(ASM.load_immediate(ADDR, var_addr(name)))
+            offset = var_offset(name)
+            return emit(ASM.str_offset(reg, ADDR, offset)) if emit_var_base(offset)
+
             emit(ASM.str(reg, ADDR))
+          end
+
+          def var_offset(name) = var_addr(name) - IWRAM_START
+
+          # Put what the load will be read from into the address register: the base of the
+          # variable memory when the variable is near enough to it, and the variable's own
+          # address when it is not. Answers whether the distance still has to be named.
+          def emit_var_base(offset)
+            near = offset.between?(0, FURTHEST_FROM_BASE)
+            emit(ASM.load_immediate(ADDR, near ? IWRAM_START : IWRAM_START + offset))
+            near
           end
 
           # The register a variable is being held in for the moment, or nil. Kept as a plain

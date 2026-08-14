@@ -137,12 +137,11 @@ module RubyGBA
     # stall, a BIOS divide, an interrupt, a write to a slow bus, a jump that throws away the
     # pipeline. Those are the ones a measurement is really for.
     #
-    # So the direction of travel is to ASK rather than restate. #extra_address_steps and
-    # #extra_var_address_steps do it already — they ask the assembler how many instructions an
-    # address really takes rather than writing the rule down a second time, so there is no pair
-    # to drift. Everywhere else that names a backend decision is a candidate for the same
-    # treatment, and pricing a node from the instructions it actually emitted is where that
-    # ends.
+    # So the direction of travel is to ASK rather than restate. #extra_address_steps does it
+    # already — it asks the assembler how many instructions a pixel's address really takes
+    # rather than writing the rule down a second time, so there is no pair to drift. Everywhere
+    # else that names a backend decision is a candidate for the same treatment, and pricing a
+    # node from the instructions it actually emitted is where that ends.
     #
     # Until then: rank what you find by what it moves in a REAL frame, not by how wrong the
     # ratio is. A regime three times out on an op no game does twice a frame matters less than
