@@ -105,4 +105,48 @@ class TestFirstPerson < Minitest::Test
     assert_equal 1, tops.uniq.length,
                  "a flat wall square-on should stand at one height, got #{tops.uniq.sort.inspect}"
   end
+
+  # A WALL YOU ARE PRESSED AGAINST STILL FILLS THE SCREEN, and this is the one that used to fail.
+  #
+  # A column's height is one number divided by the distance, and the numbers here run out at
+  # about 32768. Nearer than about a fiftieth of a cell that division has nothing left to give,
+  # and rounding the answer to the nearest pixel then adds a half to a number with no room for
+  # one — which turns it NEGATIVE. A negative height draws nothing at all, so a player who
+  # stepped one pace too close saw straight through the wall, and the same number is what the
+  # room's standing things read to know what is in front of them: every guard on the floor showed
+  # through it too.
+  #
+  # TURNED FIRST, AND THAT IS THE WHOLE OF WHY IT WAS HARD TO SEE. How far a step moves each axis
+  # depends on the angle, and a player stops on the last step that keeps their feet out of the
+  # wall — so where that leaves them is the remainder of the distance divided by the step, which
+  # is a different sliver for every approach. Walking straight in leaves seven hundredths of a
+  # cell and looks fine. Eleven turn-steps first leaves almost nothing, and the wall vanishes.
+  #
+  # Read along the eye line, which crosses whatever is ahead at every distance.
+  SEE_THROUGH_TURNS = 11
+
+  def pressed_against_a_wall(frames)
+    ->(f) { f <= SEE_THROUGH_TURNS ? [:left] : [:up] }
+  end
+
+  def test_a_wall_you_are_pressed_against_still_fills_the_screen
+    run = Reference.new.input_each_frame(&pressed_against_a_wall(0))
+                   .run(view_program, frames: SEE_THROUGH_TURNS + 180)
+    through = (0...FP::ACROSS).count do |x|
+      [FP::CEILING, FP::FLOOR_COLOR].include?(run.screen.pixel(x, FP::HORIZON))
+    end
+
+    assert_equal 0, through, "#{through} strips of the eye line are showing through the wall"
+  end
+
+  # NO CONSOLE TEST OF THE SAME WALK, and that is a decision rather than an omission. The console
+  # does not start counting frames where the interpreter does — it powers on and runs the
+  # program's setup first — so the same script of buttons leaves the player on a different sliver
+  # of floor, and which sliver is the whole trigger. A console version of the walk above passed
+  # whether the fix was there or not, which is worse than no test.
+  #
+  # What makes the one above enough is that the arithmetic underneath it is the SAME arithmetic
+  # on both, to the bit: the saturating divide and the rounding that overflows it are pinned
+  # across the backends in the framework's own suite. So the oracle can be trusted to speak for
+  # the cartridge here.
 end
