@@ -106,14 +106,14 @@ module RubyGBA
         weigh(:var_operand, operand_read,
               note: "reading a variable handed to a statement or an operator, over the number a weight assumes")
 
-        # ...and what reaching a variable costs where the variable happens to sit. The four
-        # above are measured on an ORDINARY variable — one of the sixty-three whose address
-        # takes two instructions to build. A variable past the first 256 bytes of the quick
-        # memory takes three, and a list of 64 items claims that whole 256 bytes on its own,
-        # so in a game with a list or a pool nearly every variable is the dearer kind and
-        # every statement touching one pays this at each end.
-        weigh(:var_address_step, @bench.per_var_address_step,
-              note: "the extra to reach a variable that sits past the first 256 bytes of quick memory")
+        # There is no weight here for where a variable SITS, and there used to be. A read once
+        # built the variable's whole address and then loaded from it, and the address cost one
+        # instruction for the first variable, two for the next sixty-three and three past that —
+        # so in a game with a list or a pool, whose 256 bytes are claimed before any variable
+        # gets a home, nearly every variable was the dear kind. A read now names the base of the
+        # variable memory, which is a number this console can hold in one instruction, and
+        # carries the distance inside the load. The hundredth variable costs what the first does,
+        # so the four above are measured on any variable at all and there is nothing left over.
 
         # A LOOP COSTS TWO THINGS, and they are measured apart because they scale apart: a
         # rate per pass, and a fixed cost for being entered at all.
@@ -236,14 +236,18 @@ module RubyGBA
         #
         # THE INDEX COMES BACK OUT of each. The reading and its baseline both store into the
         # same variable, so that end cancels — what does not is the INDEX, which the read has
-        # and the baseline does not. The model charges an index where it finds it, both what
-        # reading it costs and what reaching it costs, so both come out here rather than being
-        # paid for twice. (These are measured in a ROM that declares a list, whose 256 bytes are
-        # claimed before any variable gets a home — so every variable there is one of the dear
-        # ones to reach, and the reach is a real part of the reading.)
-        index = operand_read + @weights[:var_address_step]
+        # and the baseline does not. The model charges an index where it finds it, so it comes
+        # out here rather than being paid for twice.
+        index = operand_read
         weigh(:list_read, @bench.per_indexed_read(:list) - index,
               note: "reading one element of a list, apart from the index")
+        # ...and WRITING one, which was charged as a plain variable statement until the two
+        # stopped costing alike. A variable is reached from a base held in a register plus a
+        # distance settled while building; an element has its index worked out and added, which
+        # no base can shorten. Measured against writing a variable the same number of times, so
+        # what is left is the indexing.
+        weigh(:list_write, @weights[:op_assign] + @bench.per_indexed_write,
+              note: "writing one element of a list, apart from the value")
         weigh(:table_read, @bench.per_indexed_read(:table) - index,
               note: "reading one element of a table whose length is a power of two (the index wraps)")
         weigh(:table_read_clamped, @bench.per_indexed_read(:table_clamped) - index,

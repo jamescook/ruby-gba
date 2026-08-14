@@ -140,20 +140,13 @@ class TestCostCalibration < Minitest::Test
   # instructions — and getting that difference right is the whole of the pair of tests at the
   # bottom of this file.
   #
-  # :first is declared and never used, here and in the two fixtures below it. Reaching a
-  # variable starts by building its address, and the FIRST variable of a program sits at an
-  # address the console builds in one instruction where every later one takes two — so a
-  # statement touching the first variable is an instruction cheaper at each end than the same
-  # statement anywhere else. Exactly one variable in a program is like that, so the weights are
-  # measured where the other variables are, and a fixture that used the first one would be
-  # checking the one case the model deliberately over-charges.
   # HOW MANY, and it is not arbitrary — it is squeezed from both ends.
   #
   # From below: SLACK is there for the small fixed costs that survive the differencing, and in
   # a fixture of a few scanlines it is most of what the check allows, so a weight a quarter out
   # would still pass. Past about six hundred the band decides instead of the slack — and a
-  # quarter out is exactly what op_step was, measured on the program's FIRST variable (the one
-  # variable whose address the console builds in a single instruction rather than two).
+  # quarter out is exactly what op_step once was, so a fixture too small to tell would have let
+  # it through.
   #
   # From above: the arithmetic fixture is also built HOT, and a routine only gains the quick
   # memory if it fits there. Nine hundred of these no longer do.
@@ -161,7 +154,6 @@ class TestCostCalibration < Minitest::Test
 
   ARITHMETIC = lambda do |with|
     screen :bitmap
-    var :first, 0
     n = var :n, 0
     game_loop { PLAIN_STATEMENTS.times { n.add 1 } if with }
   end
@@ -171,23 +163,26 @@ class TestCostCalibration < Minitest::Test
   # and one weight was charged for both until it was measured.
   ASSIGNMENTS = lambda do |with|
     screen :bitmap
-    var :first, 0
     n = var :n, 0
     m = var :m, 7
     game_loop { PLAIN_STATEMENTS.times { n.set m } if with }
   end
 
-  # THE SAME ASSIGNMENTS, in a program that declares a list. Reaching a variable begins by
-  # building its address, and how many instructions that takes depends on the address: two for
-  # an ordinary variable, three for one past the first 256 bytes of the console's quick memory.
-  # A list of 64 items claims that whole 256 bytes before any variable gets a home, so every
-  # variable here is the dearer kind and every statement pays it at both ends — the read and
-  # the write. That is a quarter more than the same statements without the list, and the model
-  # used to charge one price for both.
+  # THE SAME ASSIGNMENTS, in a program that declares a list — so that every variable in it sits
+  # far from the start of the console's quick memory, a list of 64 items having claimed the
+  # first 256 bytes before any variable got a home.
+  #
+  # IT COSTS THE SAME, and that is the whole point of the case. Reaching a variable once began
+  # by building its whole address, and how many instructions that took depended on the address:
+  # one for the very first variable, two for the next sixty-three, three past that. So these
+  # statements cost a quarter more than the same statements without the list, and which
+  # variables a program paid extra for came down to the order the build happened to emit things
+  # in. A read now names the base of the variable memory and carries the distance inside the
+  # load, so the hundredth variable costs what the first does.
   #
   # The list is declared and never used: what is under test is where the variables landed, not
   # what a list costs.
-  FAR_VARIABLES = lambda do |with|
+  ASSIGNMENTS_PAST_A_LIST = lambda do |with|
     screen :bitmap
     list :xs, capacity: 64
     n = var :n, 0
@@ -200,7 +195,6 @@ class TestCostCalibration < Minitest::Test
   # is what made `n.set(m + 1)` — a shape every game writes — read a third over.
   PLAIN_OPERATORS = lambda do |with|
     screen :bitmap
-    var :first, 0
     n = var :n, 0
     m = var :m, 7
     game_loop { 200.times { n.set(m + 1) } if with }
@@ -212,7 +206,6 @@ class TestCostCalibration < Minitest::Test
   # only thing watching that weight — and comparisons are not a corner: every `.then` has one.
   COMPARISONS = lambda do |with|
     screen :bitmap
-    var :first, 0
     n = var :n, 0
     m = var :m, 7
     game_loop { 200.times { (m > 1).then { n.set 1 } } if with }
@@ -224,7 +217,6 @@ class TestCostCalibration < Minitest::Test
   # a model that priced only the pass would say the two were the same.
   SHORT_LOOPS = lambda do |with|
     screen :bitmap
-    var :first, 0
     n = var :n, 0
     b = self
     game_loop { 60.times { b.repeat(4) { n.add 1 } } if with }
@@ -232,7 +224,6 @@ class TestCostCalibration < Minitest::Test
 
   LONG_LOOPS = lambda do |with|
     screen :bitmap
-    var :first, 0
     n = var :n, 0
     b = self
     game_loop { 6.times { b.repeat(40) { n.add 1 } } if with }
@@ -248,7 +239,6 @@ class TestCostCalibration < Minitest::Test
   # place their variables alike and nothing but the operand is left between them.
   ONE_READ = lambda do |with|
     screen :bitmap
-    var :first, 0
     n = var :n, 0
     m = var :m, 7
     var :p, 3
@@ -257,7 +247,6 @@ class TestCostCalibration < Minitest::Test
 
   TWO_READS = lambda do |with|
     screen :bitmap
-    var :first, 0
     n = var :n, 0
     m = var :m, 7
     p = var :p, 3
@@ -362,11 +351,17 @@ class TestCostCalibration < Minitest::Test
   # build turns into a shift. It was charged a whole plain step — six instructions for one —
   # so `set :y, (x * 8)` read at twice what it costs. Nothing else here shifts, and the
   # ARITHMETIC case above is adds, so this is the only thing watching that weight.
+  #
+  # FOUR SHIFTS TO A STATEMENT, not one, so that the case is actually ABOUT shifting. With one
+  # the shift was a fifth of what the frame cost and the statement around it was the rest — and
+  # a case that is four parts something else cannot notice its own weight drifting, which is the
+  # one thing it exists to do. Sharing a single write and a single read between four shifts puts
+  # the weight in the majority.
   SHIFTS = lambda do |with|
     screen :bitmap
     x = var :x, 7
     y = var :y, 0
-    game_loop { 500.times { y.set(x * 8) } if with }
+    game_loop { 500.times { y.set(x * 8 * 8 * 8 * 8) } if with }
   end
 
   CASES = [
@@ -401,8 +396,6 @@ class TestCostCalibration < Minitest::Test
     Standing.new(name: :plain_ops, weight: :op_plain, fast_code: false, shape: PLAIN_OPERATORS,
                  predict: ->(model, program) { model.frame_cost(program) }),
     Standing.new(name: :comparisons, weight: :op_compare, fast_code: false, shape: COMPARISONS,
-                 predict: ->(model, program) { model.frame_cost(program) }),
-    Standing.new(name: :far_vars, weight: :var_address_step, fast_code: false, shape: FAR_VARIABLES,
                  predict: ->(model, program) { model.frame_cost(program) }),
     Standing.new(name: :keeping, weight: :obj_window_write, fast_code: false, shape: KEEPING,
                  predict: ->(model, program) { model.kept_sprites_cost(program) }),
@@ -553,6 +546,34 @@ class TestCostCalibration < Minitest::Test
                     "costs ~#{predicted.round(2)} scanlines and the emulator measures " \
                     "#{measured.round(2)} — :var_operand has drifted from reality. " \
                     "Re-run tools/calibrate_cost_model.rb and commit the diff."
+  end
+
+  # WHERE A VARIABLE SITS COSTS NOTHING, and this is the case that says so on the console rather
+  # than in the model.
+  #
+  # It used to cost a great deal. Reaching a variable began by building its whole address, and
+  # how many instructions that took depended on the address itself — one for the very first
+  # variable, two for the next sixty-three, three past that. A list of 64 items claims the first
+  # 256 bytes before any variable gets a home, so declaring one pushed every variable in the
+  # program into the dearest group and made every statement touching one cost a quarter more.
+  # Which variables a game paid extra for came down to the order the build happened to emit
+  # things in, which is not something an author can see, reason about or do anything about.
+  #
+  # The same statements, with and without a list in front of them, now cost the same. This is
+  # the only test that would notice that going away, and it is measured on the emulator: the
+  # model cannot be the witness here, because the model's answer is a weight this change
+  # deleted.
+  def test_where_a_variable_sits_costs_nothing
+    near = statement_case(:assigns, ASSIGNMENTS, :op_assign)
+    far = statement_case(:far_vars, ASSIGNMENTS_PAST_A_LIST, :op_assign)
+
+    assert_operator measure(near), :>, SLACK, "the statements have to be measurable work at all"
+    assert_in_delta measure(near), measure(far), (measure(near) * BAND) + SLACK,
+                    "#{PLAIN_STATEMENTS} assignments cost #{measure(near).round(2)} scanlines with " \
+                    "their variables at the front of the quick memory and #{measure(far).round(2)} " \
+                    "with a list pushing them past the first 256 bytes. Those should now be the " \
+                    "same: a variable is reached from a base held in a register, so the hundredth " \
+                    "costs what the first does."
   end
 
   # A SHORT LOOP IS NOT A LONG ONE CUT DOWN. Entering a loop costs about twenty instructions —

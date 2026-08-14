@@ -150,7 +150,11 @@ module RubyGBA
               var_reach_cost(node.src, 1) + var_reach_cost(node.dest, 1)
           when :clamp
             (2 * @weights[:op_step]) + var_reach_cost(node.var, 2) # a low compare and a high compare
-          when :list_push, :list_set, :list_drop then @weights[:op_step]
+          # Changing a list is not a plain statement, and was charged as one while the two cost
+          # alike. A variable is reached from a base this console holds in a register plus a
+          # distance settled while building; an element has its index worked out and added,
+          # which no base can shorten — so a variable got cheaper and an element did not.
+          when :list_push, :list_set, :list_drop then @weights[:list_write]
           # Every change to a save_var mirrors it back to save memory, right after the
           # change. Save memory sits on a slow bus and takes one byte at a time, so this
           # costs several times the step that triggered it — worth seeing when a game
@@ -263,46 +267,22 @@ module RubyGBA
           0
         end
 
-        # WHAT REACHING A VARIABLE COSTS BEYOND ITS WEIGHT, which is not the same for every
-        # variable in a program.
+        # WHAT REACHING A VARIABLE COSTS BEYOND ITS WEIGHT, which is nothing — every variable
+        # costs the same to reach, wherever it sits.
         #
-        # A variable lives in the console's quick memory, and every read or write of one
-        # begins by building its address. How many instructions that takes depends on the
-        # address itself: the very first variable's takes one, the next sixty-three take two,
-        # and anything past the first 256 bytes takes three. A list of 64 items claims that
-        # whole 256 bytes on its own — so in a game with a list, a pool or a grid, nearly
-        # every variable is in the third group and every statement touching one costs an
-        # instruction more at each end.
+        # IT WAS NOT ALWAYS SO, and the history is why this method still exists to say it is
+        # nought. A read used to build the variable's whole ADDRESS and then load from it, and
+        # how many instructions the address took depended on the address: the first variable's
+        # took one, the next sixty-three took two, and anything past the first 256 bytes took
+        # three. A list of 64 items claims that whole 256 bytes on its own, so in a game with a
+        # list, a pool or a grid nearly every variable was in the dearest group — and which
+        # variable was in which came down to the order the build happened to emit things in.
         #
-        # Every weight in the model was measured on an ORDINARY variable, so this adds only
-        # the difference. A variable nearer than ordinary is charged the ordinary rate rather
-        # than credited: that is one variable per program, and over is the safe way to be
-        # wrong.
-        #
-        # Where each variable landed is the BUILD'S answer, handed over rather than worked
-        # out again here (Backends::GBA::Placement#var_addresses) — the order is first-touch,
-        # a list claims its whole size at once, and the framework's own counters are in the
-        # queue too, so nothing short of the build knows it. A program with no build behind
-        # it has no map, and then every variable is priced as ordinary.
-        ORDINARY_VAR_ADDRESS_STEPS = 2
-
-        def var_reach_cost(name, touches)
-          extra = extra_var_address_steps(name)
-          return 0 if extra.zero? # no map, or an ordinary variable — the common answer
-
-          touches * extra * @weights[:var_address_step]
-        end
-
-        # The steps this variable's address needs beyond an ordinary one, never fewer than
-        # none. The assembler is ASKED, the same way #extra_address_steps asks it for a
-        # pixel, so the rule is not restated here and the two cannot drift apart.
-        def extra_var_address_steps(name)
-          address = @var_addresses[name]
-          return 0 unless address
-
-          steps = ASM.load_immediate(0, address).bytesize / ARM_INSTRUCTION_BYTES
-          [steps - ORDINARY_VAR_ADDRESS_STEPS, 0].max
-        end
+        # A read now names the BASE of the variable memory, which this console can put in a
+        # register in one instruction, and carries the variable's distance from it inside the
+        # load. So the hundredth variable costs what the first does. The weight measures
+        # nought — not by a fortunate rounding, but because there is nothing left to measure.
+        def var_reach_cost(_name, _touches) = 0
 
         # The cost of evaluating a value expression: every operator it's built from,
         # summed. A bare literal is free and a bare variable costs only what reaching it
