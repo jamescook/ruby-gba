@@ -35,6 +35,24 @@ module Wolf3D
     # held here, at a distance longer than any crossing on a map this size.
     FAR = 128.0
 
+    # ...AND THE NEAREST A WALL CAN BE SEEN AT, which is a limit of the NUMBER rather than a
+    # claim about perspective, and the two are worth keeping apart.
+    #
+    # The height of a column is one number divided by the distance, and a number here holds
+    # about 32768 before it runs out. Nearer than about a fiftieth of a cell that division has
+    # nothing left to give: it stops at 32768, and then rounding the answer to the nearest whole
+    # pixel adds a half to a number with no room for one, which turns it NEGATIVE. A negative
+    # height draws nothing, and it is written into what the room's standing things read to know
+    # what is in front of them — so a strip too close showed no wall AND let every guard in the
+    # level show through it. Walk one step too near a corner and you can see through the world.
+    #
+    # A fiftieth of a cell is nearer than a player can be pushed by anything but this, and at
+    # that distance the wall fills the screen several times over either way — what the cap
+    # changes is which two texels of the brick are stretched across it, which is nothing anyone
+    # can see. It is not the height cap this renderer used to have and does not want back: that
+    # one held a wall short across the whole last half-cell, where a player can see it plainly.
+    NEAREST = 0.02
+
     # Where the map table stops naming walls and starts naming the two things that move. Both
     # are above every picture a level could hold, so none of the three can be confused.
     DOOR = 512
@@ -756,6 +774,9 @@ module Wolf3D
       # Correct for the fan: a ray angled away from centre travels further to reach the same
       # flat wall, and without this a straight wall bows outward at the edges of the view.
       @seen.set(@dist * @sin[(col * SPREAD) + QUARTER - ((COLUMNS - 1) * SPREAD / 2)])
+
+      # ...AND NO NEARER THAN THIS, which is not about perspective. See NEAREST.
+      @seen.clamp(NEAREST, FAR)
 
       # The perspective divide, which is the whole trick: a wall twice as far away covers half
       # as much of the screen.

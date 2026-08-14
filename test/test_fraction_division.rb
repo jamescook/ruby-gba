@@ -81,6 +81,49 @@ class TestFractionDivision < Minitest::Test
     assert_equal Int32::MAX, Int32.div_fix(Int32::MIN, -1, 0), "the one overflow a plain divide has"
   end
 
+  # ...AND WHAT BEING HELD THERE DOES NOT SURVIVE, which is the trap and is worth pinning because
+  # a real game fell into it.
+  #
+  # Holding the answer at the end of the range is the safe half: a distance near nothing gives
+  # the biggest number rather than a negative one. But the number is now AT the end of the range,
+  # and one more step in the same direction has nowhere to go — an add wraps, because that is
+  # what a signed 32-bit add does, and the answer comes back very negative.
+  #
+  # Where it bit: a first-person view sizes a wall column as one number over the distance and
+  # rounds it to the nearest pixel — `(scale / seen + 0.5).to_i`. Stand near enough to a wall and
+  # the divide saturates, the half tips it over, and the height goes negative. A negative height
+  # draws nothing, so the wall vanishes and you see through it.
+  #
+  # Both backends do the same thing to the bit, which is what makes an oracle test of a game that
+  # relies on this trustworthy.
+  def test_rounding_an_answer_that_is_already_at_the_end_of_the_range_wraps_it
+    half = ONE / 2
+
+    assert_equal Int32::MAX, Int32.div_fix(ONE, 1, 16), "the divide is held at the top..."
+    assert_operator Int32.add(Int32.div_fix(ONE, 1, 16), half), :<, 0,
+                    "...and adding a half to the top of the range wraps it negative"
+  end
+
+  def test_the_console_wraps_it_the_same_way
+    program = program_for do
+      screen :bitmap
+      tiny = var :tiny, 0.0
+      rounded = var :rounded, 0
+      game_loop do
+        tiny.set 0.001
+        rounded.set((227.9 / tiny + 0.5).to_i)
+        halt
+      end
+    end
+    backend = GBA.new
+    rom = ROM.assemble(backend.lower(program), title: "SATRND", code: "ZSAT", maker: "01")
+    console = RubyGBA::Verifier.new(rom, frames: 4, vars: backend.var_addresses)
+
+    assert_operator Reference.new.run(program)[:rounded], :<, 0, "the oracle wraps it negative"
+    assert_equal Reference.new.run(program)[:rounded], Int32.wrap(console.var(:rounded)),
+                 "and the console gives the same bits, so the oracle can speak for it"
+  end
+
   # --- the surface ---------------------------------------------------------------
 
   def program_for(&block)
