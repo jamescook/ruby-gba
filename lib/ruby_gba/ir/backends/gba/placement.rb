@@ -135,7 +135,16 @@ module RubyGBA
           # `rom.explain` prints. The field names are ours, fixed when this is written, so it
           # is a value object: a reader asking for a field that is not here says so instead of
           # answering nil and printing a blank number.
-          Report = Data.define(:funcs, :code_bytes, :used_bytes, :free_bytes, :total_bytes)
+          # +sizes+ is how many bytes each routine came to, whether it moved or not, and
+          # +passed_over+ is the routines the chooser WANTED and could not fit, each with what
+          # it would have taken and what was left. That second one is the actionable half: a
+          # routine that just missed is where a program lost the whole factor above, and
+          # nothing else in the build can say so afterwards.
+          Report = Data.define(:funcs, :code_bytes, :used_bytes, :free_bytes, :total_bytes,
+                               :sizes, :passed_over)
+
+          # A routine the chooser skipped, and by how much.
+          PassedOver = Data.define(:name, :bytes, :room)
 
           # Valid after #lower.
           def iwram_report
@@ -143,7 +152,9 @@ module RubyGBA
                        code_bytes: @hot_bytes.to_i,
                        used_bytes: @next_var - IWRAM_START,
                        free_bytes: [HOT_CEILING - @next_var, 0].max,
-                       total_bytes: IWRAM_SIZE)
+                       total_bytes: IWRAM_SIZE,
+                       sizes: @routine_sizes || {},
+                       passed_over: @passed_over || [])
           end
 
           # Decide what moves. Runs before anything is emitted, and answers a set of func
@@ -156,6 +167,11 @@ module RubyGBA
             probe.lower(program, fast_funcs: Set.new) # measure the program with nothing moved
             sizes = moved_sizes(program, probe.func_sizes)
             room = HOT_CEILING - probe.iwram_high_water - ALIGNMENT_ALLOWANCE
+
+            # Kept for the report: what each routine came to, and what a reader will want to
+            # know afterwards is why theirs is not on the list.
+            @routine_sizes = sizes
+            @passed_over = []
 
             chosen = Set.new
             room = place_insisted(program, insisted, sizes, room, chosen)
@@ -361,7 +377,15 @@ module RubyGBA
               next if chosen.include?(name) || forbidden.include?(name)
 
               size = sizes[name]
-              next if size.nil? || size > room || !movable?(program, name)
+              next if size.nil? || !movable?(program, name)
+
+              # TOO BIG TO FIT, and worth remembering rather than passing over in silence: this
+              # is a routine the frame spends real time in that will run from the cartridge
+              # instead, and the report has no other way to find out afterwards.
+              if size > room
+                @passed_over << PassedOver.new(name: name, bytes: size, room: room)
+                next
+              end
 
               chosen << name
               room -= size
