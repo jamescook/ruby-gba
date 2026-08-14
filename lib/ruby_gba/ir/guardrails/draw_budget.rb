@@ -82,12 +82,19 @@ module RubyGBA
 
           # Double-buffered: it can't tear, but drawing this much every frame is
           # more than fits in a frame, so the frame rate drops below 60fps.
+          #
+          # WHAT THAT LOOKS LIKE is worth getting right, because it is how an author recognises
+          # the fault in front of them. It is not choppiness. A game moves what it moves once per
+          # pass of its loop, so fewer passes a second is less movement a second: the whole game
+          # runs in SLOW MOTION, smoothly. Saying "choppy" sends the reader looking for the wrong
+          # thing — and choppy is what the other way of pacing a game looks like.
           def buffered_message(steady, budget)
             "This game draws a lot every frame: about #{format('%.0f', steady)} scanlines, against a whole-frame " \
               "budget of about #{budget}. It does not tear, because double buffering prevents that. But it is " \
-              "more than fits in one frame. So the game runs slower than 60 frames a second, and the motion " \
-              "looks choppy. To fix this, draw less each frame: draw only what moved, not the whole screen. " \
-              "To see where the per-frame drawing goes, call `rom.explain` on the built ROM."
+              "more than fits in one frame. So the game runs at less than 60 frames a second. A game moves " \
+              "things once a frame, so everything in it will also move more slowly: the game runs in slow " \
+              "motion rather than losing frames. To fix this, draw less each frame: draw only what moved, not " \
+              "the whole screen. To see where the per-frame drawing goes, call `rom.explain` on the built ROM."
           end
         end
       end

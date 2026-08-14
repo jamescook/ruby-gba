@@ -74,10 +74,15 @@ class TestDrawBudgetGuardrail < Minitest::Test
   def test_buffered_over_a_whole_frame_warns_about_frame_rate_not_tearing
     findings = Check.new.detect(loop_of_clears(10, buffered: true))
     assert_equal 1, findings.length
-    assert_match(/frame rate|60 frames|choppy/, findings.first.message)
+    assert_match(/frame rate|60 frames/, findings.first.message)
     # It reassures ("won't tear"), it does NOT raise the alarm the single-buffer
     # message does about the picture tearing.
     refute_match(/may tear or flicker/, findings.first.message)
+    # ...and it names the SYMPTOM the author will actually see. A game paced by its own loop
+    # runs slowly and smoothly when it is late; it does not go choppy, and sending the reader
+    # to look for choppiness sends them looking for the wrong thing.
+    assert_match(/slow/i, findings.first.message)
+    refute_match(/choppy/, findings.first.message)
   end
 
   # A game that runs some scenes direct-color and others tear-free, dispatched by
@@ -109,7 +114,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
     findings = Check.new.detect(mixed(direct_clears: 1, buffered_clears: 10))
     assert_equal 1, findings.length
     assert_match(/action/, findings.first.message)
-    assert_match(/frame rate|60 frames|choppy/, findings.first.message)
+    assert_match(/frame rate|60 frames/, findings.first.message)
   end
 
   # Both scenes comfortably within their own budgets: quiet.
