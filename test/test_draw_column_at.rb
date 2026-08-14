@@ -247,6 +247,69 @@ class TestDrawColumnAt < Minitest::Test
   end
 end
 
+# A PICTURE THAT IS MOSTLY NOTHING, at every size it can be drawn.
+#
+# The console skips the see-through stretches of a column rather than asking each of its rows
+# whether there is a pixel in it, which is what makes a scaled sprite affordable. The
+# interpreter does no such thing — it walks every row — so the two agreeing IS the proof that
+# the skipping never loses a pixel.
+#
+# The sizes matter more than the picture does. Turning "rows 12 to 15 of the picture" into
+# "these screen rows" divides, and a division that rounds the wrong way at one height would
+# shave a row off an edge at that height and no other. So the same picture is drawn at every
+# height from squashed to many times the screen, and at tops above and below it.
+class TestDrawColumnAtSeeThrough < Minitest::Test
+  include GembaSupport
+  include Differential
+
+  # A ceiling light is the shape that matters: something at the top of the column, something at
+  # the bottom, and nothing in the long middle — so a player standing under one is looking at
+  # the gap. Two of these columns hold a stretch of one row, which is where an off-by-one shows.
+  LAMP = <<~ART
+    #.#.
+    #...
+    ....
+    ....
+    ....
+    ....
+    ...#
+    ##.#
+  ART
+
+  HEIGHTS = [1, 2, 3, 5, 8, 13, 16, 31, 64, 159, 160, 161, 400, 1200].freeze
+
+  def lamp_program(tear_free:)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap, tear_free: tear_free
+      image(:lamp, "." => :transparent, "#" => :white) { LAMP }
+      tall = var :tall, 0
+      game_loop do
+        clear_screen :gray
+        HEIGHTS.each_with_index do |height, n|
+          tall.set height
+          4.times do |slice|
+            # Above the screen, on it, and running off the bottom.
+            draw_column_at :lamp, slice: slice, x: (n * 4) + slice, top: 0, height: tall
+            draw_column_at :lamp, slice: slice, x: (n * 4) + slice + 60, top: -30, height: tall
+            draw_column_at :lamp, slice: slice, x: (n * 4) + slice + 120, top: 130, height: tall
+          end
+        end
+      end
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  def test_the_console_skips_the_see_through_parts_and_draws_what_the_interpreter_draws
+    assert_backends_agree(lamp_program(tear_free: false), frames: 3, name: "LAMP")
+  end
+
+  def test_the_tear_free_screen_skips_them_too
+    assert_backends_agree(lamp_program(tear_free: true), frames: 3, name: "TFLAMP")
+  end
+end
+
 # The same stretched column on the TEAR-FREE screen, which is the one a first-person view
 # actually wants: it repaints the whole screen every frame, and that is what tears.
 #

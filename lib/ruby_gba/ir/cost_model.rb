@@ -186,7 +186,13 @@ module RubyGBA
       # store, and only some colors fit inside the instruction that does it — so two
       # pictures of the same shape can differ by a tenth on their colors alone.
       # See {Rollup}#catalogue_bitmap for how the counts are taken.
-      Bitmap = Data.define(:width, :height, :transparent, :lit_pixels, :wide_color_pixels, :lit_rows)
+      Bitmap = Data.define(:width, :height, :transparent, :lit_pixels, :wide_color_pixels, :lit_rows,
+                           :column_rows) do
+        # How much of a column a stretched one really walks, as a share of its full height. A
+        # picture that is mostly see-through is drawn by walking the stretches of rows that
+        # hold pixels and skipping the rest, so its height is not what it costs.
+        def walked_share = column_rows.to_f / (width * height)
+      end
 
       # WHICH SHAPE A LOOP GOT, as the build reports it: whether its counter stayed in a
       # register, and when it did not, what in the body stopped it. A loop through memory

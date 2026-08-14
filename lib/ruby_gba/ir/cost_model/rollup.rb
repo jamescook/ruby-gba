@@ -343,15 +343,32 @@ module RubyGBA
           height = node.height
           unless see_through
             return Bitmap.new(width: width, height: height, transparent: false,
-                              lit_pixels: width * height, wide_color_pixels: 0, lit_rows: height)
+                              lit_pixels: width * height, wide_color_pixels: 0, lit_rows: height,
+                              column_rows: width * height)
           end
 
           # The pixels arrive as a run of 16-bit colors, row after row.
-          rows = node.pixels.unpack("v*").each_slice(width).map { |row| row.reject { |px| px == see_through } }
+          all = node.pixels.unpack("v*")
+          rows = all.each_slice(width).map { |row| row.reject { |px| px == see_through } }
           Bitmap.new(width: width, height: height, transparent: true,
                      lit_pixels: rows.sum(&:length),
                      wide_color_pixels: rows.sum { |row| row.count { |px| wide_color?(px) } },
-                     lit_rows: rows.count { |row| !row.empty? })
+                     lit_rows: rows.count { |row| !row.empty? },
+                     column_rows: column_rows_walked(all, width, height, see_through))
+        end
+
+        # How many rows a stretched column really walks, added up over every column of the
+        # picture: from the first row of a column that holds a pixel to the last, and nothing
+        # in a stretch of see-through between two of them.
+        #
+        # This is what stops a scaled sprite being priced as a solid square. A lamp that hangs
+        # is a picture of a lamp at the top of its square, a pool of light at the bottom, and
+        # ceiling between — and the ceiling is most of the square and none of the cost.
+        def column_rows_walked(pixels, width, height, see_through)
+          (0...width).sum do |x|
+            rows = (0...height).select { |y| pixels[(y * width) + x] != see_through }
+            rows.slice_when { |a, b| b != a + 1 }.sum { |run| run.last - run.first + 1 }
+          end
         end
 
         # Whether a color has to be built in a step of its own instead of riding inside the
