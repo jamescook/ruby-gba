@@ -149,18 +149,18 @@ class TestLayerGuardrails < Minitest::Test
     assert_match(/put the `layer` block inside the func/, error.message)
   end
 
-  # The hole this closes: `each_frame` has exactly the shape a `func` has, and used to
+  # The hole this closes: `once_a_frame` has exactly the shape a `func` has, and used to
   # say nothing at all.
-  def test_a_sprite_declared_in_an_each_frame_in_a_layer_is_refused
+  def test_a_sprite_declared_in_a_once_a_frame_in_a_layer_is_refused
     error = assert_raises(ArgumentError) do
       built do
         screen :tiled
         layers :actors
-        layer(:actors) { each_frame { sprite :red_guy, at: [10, 10] } }
+        layer(:actors) { once_a_frame { sprite :red_guy, at: [10, 10] } }
       end
     end
 
-    assert_match(/A sprite declared inside `each_frame`/, error.message)
+    assert_match(/A sprite declared inside `once_a_frame`/, error.message)
     # The advice differs from the func's on purpose: a declaration in a per-frame body
     # runs once wherever it is put, so moving it out is both the fix and what was meant.
     assert_match(/declare it outside/, error.message)
@@ -171,11 +171,11 @@ class TestLayerGuardrails < Minitest::Test
       built do
         screen :tiled
         layers :actors
-        layer(:actors) { each_frame(:wobble) { sprite :red_guy, at: [10, 10] } }
+        layer(:actors) { once_a_frame(:wobble) { sprite :red_guy, at: [10, 10] } }
       end
     end
 
-    assert_match(/`each_frame :wobble`/, error.message)
+    assert_match(/`once_a_frame :wobble`/, error.message)
   end
 
   def test_a_background_declared_in_a_deferred_body_in_a_layer_is_refused
@@ -185,11 +185,11 @@ class TestLayerGuardrails < Minitest::Test
         image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
         tiles :set, "#" => :tile
         layers :sky
-        layer(:sky) { each_frame { background :bg, tiles: :set, map: (0...4).map { "#" * 4 } } }
+        layer(:sky) { once_a_frame { background :bg, tiles: :set, map: (0...4).map { "#" * 4 } } }
       end
     end
 
-    assert_match(/A background declared inside `each_frame`/, error.message)
+    assert_match(/A background declared inside `once_a_frame`/, error.message)
   end
 
   # A scene is refused where it is WRITTEN, whatever it turns out to declare, and the
@@ -209,7 +209,7 @@ class TestLayerGuardrails < Minitest::Test
   # --- routines that must go on working, which is why the rule is on the hazard ---
   #
   # `pulse`, `camera_follows`, `fade_out` and `shake_screen` are all built on the PUBLIC
-  # `each_frame`, so a rule that refused the verb could not tell a pack from an author
+  # `once_a_frame`, so a rule that refused the verb could not tell a pack from an author
   # and would refuse `pulse coin` on the line after the coin — exactly where a game
   # writes it. Asking instead what the body DECLARED lets every one of them through,
   # because a per-frame body is behavior and puts nothing in the picture.
@@ -257,14 +257,14 @@ class TestLayerGuardrails < Minitest::Test
     assert_equal [:actors], program.walk.filter_map { |node| node.layer if node.kind == :object }
   end
 
-  def test_an_each_frame_that_declares_nothing_drawable_is_left_alone
+  def test_a_once_a_frame_that_declares_nothing_drawable_is_left_alone
     program, = built do
       screen :tiled
       layers :actors
       x = var :x, 0
       layer(:actors) do
         sprite :red_guy, at: [10, 10]
-        each_frame { x.add 1 }
+        once_a_frame { x.add 1 }
       end
       game_loop { nil }
     end

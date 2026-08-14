@@ -38,10 +38,10 @@ class TestFrameStep < Minitest::Test
     b.program
   end
 
-  # The bar's width in frames: how many WIDE-wide blocks of white are on the top row.
-  def reading(screen_pixel)
+  # The bar's width in frames: how many WIDE-wide blocks of white are on that row.
+  def reading(screen_pixel, row: 4)
     white = RubyGBA::Color.resolve(:white)
-    lit = (0...240).count { |x| screen_pixel.call(x, 4) == white }
+    lit = (0...240).count { |x| screen_pixel.call(x, row) == white }
     lit / WIDE
   end
 
@@ -68,6 +68,54 @@ class TestFrameStep < Minitest::Test
 
     assert_operator counted, :>=, 2, "a pass that cannot finish inside a frame counts more than one"
     assert_operator counted, :<, Frames::MOST, "...and this one is counting, not being held"
+  end
+
+  # --- and what reads it -----------------------------------------------------------
+
+  # A `once_a_frame` body is run once for each frame that really passed, which is the whole of
+  # the promise its name makes. Both numbers are drawn — how many frames the pass took, and how
+  # many times the body ran — so the test says they AGREE rather than merely that the body ran
+  # more than once.
+  def counting_program(busy)
+    b = RubyGBA::Builder.new
+    b.instance_eval do
+      screen :bitmap
+      step = RubyGBA::Value.new(self, RubyGBA::IR::Build.var_ref(Frames::STEP))
+      ticks = var :ticks, 0
+      last = var :last, 0
+      loops = var :loops, 0
+      spin = var :spin, 0
+      once_a_frame { ticks.add 1 }
+      game_loop do
+        loops.add 1 # ...which the loop body does once a PASS, however many frames that took
+        dma_fill_rect 0, 0, 240, 24, :black
+        draw_rect_at 0, 0, step * WIDE, 8, :white
+        draw_rect_at 0, 12, (ticks - last) * WIDE, 8, :white
+        last.set ticks
+        repeat(busy) { spin.add 1 } if busy.positive?
+      end
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  def test_a_once_a_frame_body_runs_once_per_frame_on_a_game_that_keeps_up
+    run = Reference.new.run(counting_program(0), frames: 4)
+    pixel = ->(x, y) { run.screen.pixel(x, y) }
+
+    assert_equal 1, reading(pixel), "one frame a pass"
+    assert_equal 1, reading(pixel, row: 16), "...and the body ran once"
+    assert_equal run[:loops], run[:ticks], "and on a game that keeps up, the two agree exactly"
+  end
+
+  def test_a_once_a_frame_body_runs_again_for_each_frame_a_late_pass_took
+    rom = ROM.assemble(GBA.new.lower(counting_program(30_000)), title: "OAF", code: "AOAF", maker: "01")
+    gba = assert_gemba_loads_rom(rom, frames: 40)
+    pixel = ->(x, y) { gba.pixel_gba(x, y) }
+
+    assert_operator reading(pixel), :>=, 2, "the pass should have taken more than one frame"
+    assert_equal reading(pixel), reading(pixel, row: 16),
+                 "the body should run once for each frame the pass took"
   end
 
   # ...and a pass that took a very long time is held, so that whatever reads this is never asked

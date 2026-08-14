@@ -24,23 +24,11 @@ module RubyGBA
         module Frames
           include Constants
 
-          # Frames since the machine started, added to by the screen's own interrupt.
-          COUNT = :__frames
-
-          # What that was at the top of the last pass, and the difference — how many frames this
-          # pass has to answer for. One, on a game that keeps up.
-          SEEN = :__frames_seen
-          STEP = :__frame_step
-
-          # THE MOST A SINGLE PASS MAY ANSWER FOR. A pass that took half a second is a load
-          # screen, a first frame, or a hitch — and whatever reads this would then be asked to
-          # do thirty frames' worth of work inside one already-late pass, which is how a slow
-          # game talks itself into being a stopped one.
-          #
-          # So it is capped, HERE and not in each thing that reads it, which is the point of the
-          # cap living with the number. Ten is the original engine's own limit (MAXTICS) and it
-          # is a sixth of a second — long enough that no ordinary frame reaches it.
-          MOST = 10
+          # The names and the cap are the same on every backend, so they live with the IR.
+          COUNT = IR::Frames::COUNT
+          SEEN = IR::Frames::SEEN
+          STEP = IR::Frames::STEP
+          MOST = IR::Frames::MOST
 
           # Added to the count inside the screen's interrupt. It runs sixty times a second
           # whatever the game is doing, so it is kept to what it must be: read, add, write.

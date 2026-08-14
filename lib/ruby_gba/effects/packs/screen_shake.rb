@@ -6,7 +6,7 @@ module RubyGBA
       # Screen shake — the impact effect for a hit, an explosion, a life lost.
       #
       # This is the worked example of what a pack is (see {Effects} for the rule).
-      # Every line below is written in public DSL verbs — `var`, `each_frame`,
+      # Every line below is written in public DSL verbs — `var`, `once_a_frame`,
       # `camera`, `.then` — the same ones a game is written in. Nothing here knows
       # what an IR node is, and no backend knows this file exists. That is the whole
       # point: the shake runs on the console and in the reference interpreter because
@@ -132,7 +132,7 @@ module RubyGBA
             direction = var DIRECTION, 1
             offset = var OFFSET, 0
 
-            each_frame(ROUTINE) do
+            once_a_frame(ROUTINE) do
               (left == 0).then do
                 camera 0, 0
                 left.sub 1 # -> -1, so this never runs again until the next shake

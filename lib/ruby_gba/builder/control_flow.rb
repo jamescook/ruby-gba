@@ -251,33 +251,60 @@ module RubyGBA
         end
       end
 
-      # Run a body once on every frame, wherever the game's own code happens to go.
+      # Run a body ONCE A FRAME, wherever the game's own code happens to go — and once
+      # for each frame that really passed, so a game too heavy to finish a frame runs it
+      # again rather than falling behind.
       #
-      # This is not the same as writing that code in your `game_loop`. A game loop
-      # body runs where you put it, so it is skipped by a branch that steps over it
-      # and by a scene switch that runs a different scene instead. An `each_frame`
-      # body always runs, once, in the gap between frames — the moment the screen is
-      # safe to change.
+      # This is not the same as writing that code in your `game_loop`, in two ways.
       #
-      # That makes it the home for an effect that keeps going after you set it off:
-      # you trigger it once (a hit, a pickup, a life lost), and something has to carry
-      # it along on every frame after that until it is finished, including the frames
-      # the triggering code does not run on. `shake_screen` is built on exactly this.
+      # A game loop body runs where you put it, so it is skipped by a branch that steps
+      # over it and by a scene switch that runs a different scene instead. A
+      # `once_a_frame` body always runs, in the gap between frames — the moment the
+      # screen is safe to change. That makes it the home for an effect that keeps going
+      # after you set it off: you trigger it once (a hit, a pickup, a life lost), and
+      # something has to carry it along on every frame after that until it is finished,
+      # including the frames the triggering code does not run on. `shake_screen` is
+      # built on exactly this.
       #
       #   fade = var :fade, 0
-      #   each_frame { (fade > 0).then { fade.sub 1 } }
+      #   once_a_frame { (fade > 0).then { fade.sub 1 } }
+      #
+      # AND IT KEEPS REAL TIME, which a game loop body does not. A pass of the loop is
+      # one frame on a game that fits and two on a game that does not, so a body run
+      # once per pass slows down when the game does — a half-second fade takes a second
+      # and a half, and a counter counts at two thirds speed. This one is run once per
+      # frame that really passed, so it takes as long as it says whatever the game is
+      # doing. (A very slow pass is capped, so a game can never be asked to catch up
+      # half a second inside one already-late frame.)
+      #
+      # That makes this the place for anything that has to keep time. Movement written
+      # straight in a `game_loop` runs a step per PASS, so a heavy game moves in slow
+      # motion — smoothly, uniformly, and safely, which is why it is the default. Move
+      # it in here and the world keeps real time instead:
+      #
+      #   once_a_frame { hero.walk }   # the world, once per frame that really passed
+      #   game_loop    { draw_it_all } # showing it, once per pass
       #
       # A program with no game loop has no frames, so nothing runs.
+      #
+      # ONE THING TO KNOW ABOUT WHERE IT RUNS, and it is a note rather than a rule. These
+      # bodies run in the gap between frames, which on a screen the display reads directly
+      # is also the only safe moment to DRAW. A body that only moves things is fine there
+      # however long it takes, because nothing it does can be caught half done — the risk
+      # belongs to drawing, and drawing too much for that gap is already what the frame
+      # budget warns about wherever it is written. So there is nothing here a guardrail
+      # would catch that is not caught already, and a game on the tear-free screen has no
+      # deadline at all: it is writing to the page nobody is looking at.
       #
       # @param name [Symbol, nil] a name for the routine, if something has to find it
       #   later (a pack's guardrail, a `dump_func`). It gets a hidden one otherwise.
       # @return [Symbol] the routine's name
-      def each_frame(name = nil, &block)
-        raise ArgumentError, "each_frame needs a block: each_frame { ... }" unless block
+      def once_a_frame(name = nil, &block)
+        raise ArgumentError, "once_a_frame needs a block: once_a_frame { ... }" unless block
 
         @each_frame_seq += 1
-        wrote = name ? "each_frame :#{name}" : "each_frame"
-        name ||= :"__each_frame_#{@each_frame_seq}"
+        wrote = name ? "once_a_frame :#{name}" : "once_a_frame"
+        name ||= :"__once_a_frame_body_#{@each_frame_seq}"
         declare_func(name, wrote: wrote, &block)
         @per_frame_routines << name
         name

@@ -289,7 +289,7 @@ module RubyGBA
 
             # The body is built once the game is written, not here — so by the time it
             # runs, every color the game asked for is known and each has its branch.
-            each_frame(ROUTINE) do
+            once_a_frame(ROUTINE) do
               (active == 1).then do
                 (color == BLACK).then { fade :black, level.to_i, under: @fade_place }
                 (color == WHITE).then { fade :white, level.to_i, under: @fade_place }

@@ -52,7 +52,7 @@ module RubyGBA
   #
   # When a pack turns out to need one small thing the DSL cannot say, the answer is
   # to add that thing as a kernel primitive, not to let the pack reach past the
-  # boundary. `each_frame` exists for exactly that reason.
+  # boundary. `once_a_frame` exists for exactly that reason.
   module Effects
     # Raised when a pack tries to take a verb name that is already in use.
     class DuplicateVerb < StandardError; end

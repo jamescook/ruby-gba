@@ -415,7 +415,7 @@ module RubyGBA
       # and that distinction is the whole design. Refusing every routine declared inside
       # a layer would refuse `pulse coin` on the line after the coin — which is exactly
       # where a game writes it — because `pulse`, `camera_follows`, `fade_out` and
-      # `shake_screen` are all built on the public `each_frame` and a pack cannot be told
+      # `shake_screen` are all built on the public `once_a_frame` and a pack cannot be told
       # from an author by the verb it calls. Asking instead whether the body DECLARED
       # something with a depth lets every one of them through, since a per-frame body is
       # behavior and declares nothing that sits in the picture. It also lets a plain

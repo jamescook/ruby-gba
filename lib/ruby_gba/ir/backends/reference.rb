@@ -565,9 +565,9 @@ module RubyGBA
         # company. Anything that pins what a program does when it is LATE can only be a test on
         # the console.
         def count_the_frame
-          @vars[Backends::GBA::Frames::COUNT] = @frame
-          @vars[Backends::GBA::Frames::SEEN] = @frame
-          @vars[Backends::GBA::Frames::STEP] = 1
+          @vars[IR::Frames::COUNT] = @frame
+          @vars[IR::Frames::SEEN] = @frame
+          @vars[IR::Frames::STEP] = 1
         end
 
         # A bending background's picture changes every frame even when the program draws
