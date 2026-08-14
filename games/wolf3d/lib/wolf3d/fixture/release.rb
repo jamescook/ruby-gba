@@ -46,9 +46,9 @@ module Wolf3D
       # arranges them, and a few real ones in front of those.
       DEFAULT_WALLS = Doors::DOOR_PICTURES + 4
 
-      # ...and enough sprites to reach the guard's eight standing poses, which a real release
+      # ...and enough sprites to reach the last picture a guard can wear, which a real release
       # puts after its scenery. Everything before them is unused here, and small.
-      DEFAULT_SPRITES = Guards::FIRST_STANDING_PICTURE + Guards::POSES
+      DEFAULT_SPRITES = Guards.pictures.max + 1
 
       # Where a sprite's flat colour starts counting. Far enough up the palette to be clear of
       # the walls' inks, and low enough that every sprite of a default release has its own.

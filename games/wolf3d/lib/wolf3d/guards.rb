@@ -41,6 +41,93 @@ module Wolf3D
     FIRST_STANDING_PICTURE = 50
     POSES = 8
 
+    # WHERE EACH OF A GUARD'S PICTURES SITS in his own run of them, counting from the first.
+    # Eight of him standing still, then four sets of eight walking, then the ones that do not
+    # turn: hurt, dying, dead, and firing.
+    STILL_PICTURE = 0
+    WALK_PICTURES = [8, 16, 24, 32].freeze
+    FIRE_PICTURES = [46, 47, 48].freeze
+
+    # HOW LONG A STATE LASTS is counted in the original's own units — seventieths of a second —
+    # and the numbers below are its numbers, unchanged. This is how many of them a pass of this
+    # game is worth. It is deliberately a whole number: the shortest state in the table is three
+    # units long, so a pass can never step over a whole state, and the machine never needs to
+    # advance twice in one pass.
+    TICKS_PER_PASS = 2
+
+    # THE STATE TABLE, and it is the behaviour rather than a description of it. Each row is a
+    # picture, how long to stand in it, what to think about while there, and which row comes
+    # next. Read out of the original: guessing these gives something that merely resembles
+    # Wolfenstein.
+    #
+    # Standing lasts forever (a length of nought never runs down) and only looks. The patrol is
+    # four walking pictures at twenty and fifteen with a five-unit step between the pairs; the
+    # chase is the same four at ten and eight with three-unit steps, which is why a guard who
+    # has seen you visibly hurries. Firing is three pictures at twenty each.
+    State = Data.define(:name, :picture, :turns, :ticks, :think, :becomes)
+
+    def self.state(name, picture, ticks, think, becomes, turns: true)
+      State.new(name: name, picture: picture, ticks: ticks, think: think, becomes: becomes,
+                turns: turns)
+    end
+
+    STATES = [
+      state(:stand,   STILL_PICTURE,    0,  :look,   :stand),
+
+      state(:path1,   WALK_PICTURES[0], 20, :patrol, :path1s),
+      state(:path1s,  WALK_PICTURES[0], 5,  nil,     :path2),
+      state(:path2,   WALK_PICTURES[1], 15, :patrol, :path3),
+      state(:path3,   WALK_PICTURES[2], 20, :patrol, :path3s),
+      state(:path3s,  WALK_PICTURES[2], 5,  nil,     :path4),
+      state(:path4,   WALK_PICTURES[3], 15, :patrol, :path1),
+
+      state(:chase1,  WALK_PICTURES[0], 10, :chase,  :chase1s),
+      state(:chase1s, WALK_PICTURES[0], 3,  nil,     :chase2),
+      state(:chase2,  WALK_PICTURES[1], 8,  :chase,  :chase3),
+      state(:chase3,  WALK_PICTURES[2], 10, :chase,  :chase3s),
+      state(:chase3s, WALK_PICTURES[2], 3,  nil,     :chase4),
+      state(:chase4,  WALK_PICTURES[3], 8,  :chase,  :chase1),
+
+      state(:shoot1,  FIRE_PICTURES[0], 20, nil,     :shoot2, turns: false),
+      state(:shoot2,  FIRE_PICTURES[1], 20, nil,     :shoot3, turns: false),
+      state(:shoot3,  FIRE_PICTURES[2], 20, nil,     :chase1, turns: false)
+    ].freeze
+
+    THINKING = { nil => 0, look: 1, patrol: 2, chase: 3 }.freeze
+
+    def self.state_number(name) = STATES.index { |s| s.name == name } ||
+                                  raise(ArgumentError, "there is no guard state #{name.inspect}")
+
+    # HOW FAST A GUARD WALKS, in the original's units: so many 65536ths of a cell per unit of
+    # time. A guard who has seen you moves at three times his patrolling speed.
+    PATROL_SPEED = 512
+    CHASE_TIMES = 3
+    CELL = 1 << 16
+
+    # ...and the same as this game counts it: cells per pass.
+    def self.speed(chasing: false)
+      PATROL_SPEED * (chasing ? CHASE_TIMES : 1) * TICKS_PER_PASS / CELL.to_f
+    end
+
+    # HOW NEAR IS NEAR ENOUGH TO BE SEEN WITHOUT LOOKING: a guard notices anyone this close
+    # whichever way he is facing. One and a half cells, in the original's units.
+    AUTOMATIC_SIGHT = 0x18000 / CELL.to_f
+
+    # HOW LONG A GUARD TAKES TO REACT once he has seen you, in the original's time units — one
+    # plus a quarter of a random byte, so up to about a second. This delay is why the game feels
+    # fair: you get a moment between being seen and being shot at.
+    REACTION = 64
+
+    # WHICH WAY EACH DIRECTION GOES, in the order the original numbers them: counter-clockwise
+    # from east, with the diagonals between. Eight is "nowhere", which is what a guard who
+    # cannot move in any direction is left with.
+    WAYS = [[1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1], [1, 1]].freeze
+    NOWHERE = WAYS.length
+
+    # A cell of plane 1 holding one of these is a TURNING POINT: a patrolling guard who reaches
+    # it turns to the direction it names and carries on.
+    FIRST_ARROW = 90
+
     Guard = Data.define(:x, :y, :facing, :patrolling)
 
     attr_reader :guards
@@ -58,10 +145,34 @@ module Wolf3D
     def count = @guards.length
     def empty? = @guards.empty?
 
-    # The pictures a floor needs for its guards. All eight, whichever way they were put down:
-    # which one shows depends on where the player is standing, so a guard facing east still
-    # has its back to you from the other side of the room.
-    def pictures = (0...POSES).map { |n| FIRST_STANDING_PICTURE + n }
+    # The pictures a floor needs for its guards: every one any state can wear. A state that
+    # turns needs all eight of its own, because which one shows depends on where the player is
+    # standing — a guard facing east still has his back to you from the other side of the room.
+    # A state that does not turn needs the one.
+    def self.pictures
+      @pictures ||= STATES.flat_map { |s| s.turns ? (0...POSES).map { |n| s.picture + n } : [s.picture] }
+                          .uniq.sort.map { |offset| FIRST_STANDING_PICTURE + offset }
+    end
+
+    # Where a state's first picture sits in that row.
+    def self.picture_position(state) = pictures.index(FIRST_STANDING_PICTURE + state.picture)
+
+    # Which way a guard put down facing +facing+ is pointing, as the original numbers
+    # directions: counter-clockwise from east, so the four square ones are every other number.
+    def self.direction_of(facing) = FACINGS.index(facing) * 2
+
+    def self.starting_state(guard) = state_number(guard.patrolling ? :path1 : :stand)
+
+    def pictures = self.class.pictures
+
+    # Which way a turning point sends a patrolling guard who reaches it, or nil where the cell
+    # holds no turning point.
+    def arrow_at(x, y)
+      code = @level.thing_code(x, y)
+      return nil unless code.between?(FIRST_ARROW, FIRST_ARROW + WAYS.length - 1)
+
+      code - FIRST_ARROW
+    end
 
     private
 
