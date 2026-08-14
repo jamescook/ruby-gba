@@ -38,8 +38,9 @@ module Wolf3D
     NOBODY = -1
 
     def initialize(build:, guards:, pool:, level:, world:, player:, door_open:, walls:, things:,
-                   blocked: nil)
+                   blocked: nil, dying: nil)
       @b = build
+      @dying = dying      # what to tell when a shot takes the last of the health, or nil
       @guards = guards
       @pool = pool
       @level = level
@@ -178,16 +179,22 @@ module Wolf3D
         how_far_away(guard)
         @odds.set(CHANCES - (@away * 8))
         (guard.shown == 1).then { @odds.set(CHANCES - (@away * 16)) }
-        (@b.rand(0..CHANCES - 1) < @odds).then { wound_the_player }
+        (@b.rand(0..CHANCES - 1) < @odds).then { wound_the_player(guard) }
       end
     end
 
-    def wound_the_player
+    # THE SHOT THAT TAKES THE LAST OF THE HEALTH IS THE ONE THE DEATH NEEDS TO KNOW ABOUT, and
+    # this is the only place that knows which guard fired it. The view turns to face him, so who
+    # it was has to be caught here rather than worked out afterwards from a body on the floor.
+    def wound_the_player(guard)
       @wound.set(@b.rand(0..CHANCES - 1) / 4)
       (@away >= 2).then { @wound.set(@b.rand(0..CHANCES - 1) / 8) }
       (@away >= 4).then { @wound.set(@b.rand(0..CHANCES - 1) / 16) }
       @player[:health].sub @wound
-      (@player[:health] < 0).then { @player[:health].set 0 }
+      (@player[:health] <= 0).then do
+        @player[:health].set 0
+        @dying&.struck_by(guard)
+      end
     end
 
     # --- looking for you -------------------------------------------------------------
