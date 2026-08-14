@@ -204,11 +204,17 @@ class TestScenery < Minitest::Test
   # The player is walled into a corner of the field for this one, because a guard who can walk
   # nowhere is left facing NO WAY — and a guard facing no way can see all of them. That is the
   # original's own quirk, and it would turn a test about walking into a test about being seen.
+  # LONG ENOUGH FOR A GUARD TO CROSS A CELL, worked out from his own speed rather than written
+  # down: he walks at the original's pace, which is slower than a player's, and he thinks on
+  # every other frame — so the frames it takes him are two per think. Derived, so that changing
+  # how fast a guard walks cannot quietly turn this into a test of something else.
+  GUARD_WALKING = ((1.2 / Guards.speed) * 2).ceil
+
   def test_a_barrel_stops_a_guard_too
     walking = Guards::PATROLLING + Guards::FACINGS.index(:east)
-    hemmed = watch(frames: WALKING, player: HIDING, walls: CLOSET,
+    hemmed = watch(frames: GUARD_WALKING, player: HIDING, walls: CLOSET,
                    things: { [8, 8] => walking, [9, 8] => BARREL })
-    free = watch(frames: WALKING, player: HIDING, walls: CLOSET,
+    free = watch(frames: GUARD_WALKING, player: HIDING, walls: CLOSET,
                  things: { [8, 8] => walking })
 
     assert_in_delta 8.5, guard_x(hemmed), 0.01, "he cannot set off into the barrel"

@@ -2,18 +2,23 @@
 
 require_relative "test_helper"
 
-# THE GAME MOVES BY THE CLOCK, NOT BY THE FRAME IT WAS DRAWN IN.
+# WHAT THE WORLD'S MOVEMENT IS FIXED AGAINST — both settings of it.
 #
 # Everything that moves here moves a fixed amount: the player walks a fraction of a cell, a
-# door swings a little wider, a guard's state machine advances two of the original's
-# seventieths. The question is what that fixed amount is fixed AGAINST.
+# door swings a little wider, a guard's state machine advances. The question is what that fixed
+# amount is fixed AGAINST.
 #
-# Against a pass of the game loop, a game too heavy for one frame plays in slow motion —
-# smoothly, uniformly, and at the wrong speed. Against a frame of the screen, it keeps real
-# time and what a heavy frame costs is a jerkier picture. Wolfenstein does the second (it
-# moves you `BASEMOVE * MOVESCALE * tics`, where tics is how long the last frame took), and a
-# player crossing a corridor in the original crosses it in the same number of SECONDS however
-# the game is running.
+# Against a PASS of the game loop, a game too heavy for one frame plays in slow motion —
+# smoothly, uniformly, and at the wrong speed. Against a FRAME of the screen, it keeps real
+# time and what a heavy frame costs is a jerkier picture. Wolfenstein does the second (it moves
+# you `BASEMOVE * MOVESCALE * tics`, where tics is how long the last frame took), so a player
+# crossing a corridor in the original crosses it in the same number of SECONDS whatever the
+# game is doing.
+#
+# ON A GAME THAT KEEPS UP THE TWO ARE THE SAME THING, exactly, so all of this is about a game
+# that does not. This one does not yet, and it ships paced by the pass — see
+# FirstPerson::PACING for the measurement behind that. Both settings are tested here, because a
+# setting nothing exercises is a setting that has quietly stopped working.
 #
 # THE INTERPRETER IS NEVER LATE BY CONSTRUCTION, so it is TOLD — `frames_each_pass` is how a
 # test says a pass answered for more than one frame. That is what makes all of this checkable
@@ -51,32 +56,65 @@ class TestKeepingTime < Minitest::Test
   def fixture = @fixture ||= Release.new
   def vswap = @vswap ||= Wolf3D::Vswap.new(fixture.files["VSWAP"])
 
+  # Which way the world is paced is settled while the game is BUILT, so it has to be in force
+  # while the program is made rather than while it runs.
+  def paced(how)
+    was = FP::PACING
+    FP.send(:remove_const, :PACING)
+    FP.const_set(:PACING, how)
+    yield
+  ensure
+    FP.send(:remove_const, :PACING)
+    FP.const_set(:PACING, was)
+  end
+
   # The game with no picture at all, which is what every test here wants: they read where the
-  # player got to, not what they saw on the way. The game loop calls #play, and the walking
-  # happens anyway — it is the frame boundary that drives it, which is the whole point.
-  def game(level)
+  # player got to, not what they saw on the way.
+  def game(level, pacing: :by_the_frame)
     doors = Wolf3D::Doors.new(level, vswap)
     pushwalls = Wolf3D::Pushwalls.new(level)
     guards = Guards.new(level)
     atlas = Wolf3D::WallAtlas.new(vswap, Wolf3D::Palette.game, level, doors: doors)
     things = Wolf3D::ThingAtlas.new(vswap, Wolf3D::Palette.game, guards.pictures)
 
-    RubyGBA.game("TIME", code: "ZTIM", maker: "01") do
-      screen :bitmap, tear_free: true
-      view = Wolf3D::FirstPerson.new(build: self, level: level, atlas: atlas, doors: doors,
-                                     pushwalls: pushwalls, guards: guards, things: things)
-      game_loop { view.play }
-    end.program
+    paced(pacing) do
+      RubyGBA.game("TIME", code: "ZTIM", maker: "01") do
+        screen :bitmap, tear_free: true
+        view = Wolf3D::FirstPerson.new(build: self, level: level, atlas: atlas, doors: doors,
+                                       pushwalls: pushwalls, guards: guards, things: things)
+        game_loop { view.play }
+      end.program
+    end
   end
 
   # Hold forward for +passes+ passes of the game loop, each of which answered for +late+ frames.
-  def walk_forward(passes:, late: 1, **arena_args)
-    Reference.new.hold(:up).frames_each_pass { late }.run(game(arena(**arena_args)), frames: passes)
+  def walk_forward(passes:, late: 1, pacing: :by_the_frame, **arena_args)
+    Reference.new.hold(:up).frames_each_pass { late }
+             .run(game(arena(**arena_args), pacing: pacing), frames: passes)
   end
 
   def where(run) = run[:px] / ONE
 
-  # --- the same seconds, whatever the frame rate ---------------------------------------
+  # --- the setting the game ships with -------------------------------------------------
+
+  # PACED BY THE PASS, a late pass moves the world exactly as far as a prompt one — the game
+  # runs in slow motion rather than in bigger steps. That is what this game is set to, and it is
+  # here first because it is the one a player is actually getting.
+  def test_paced_by_the_pass_a_late_frame_moves_no_further_than_a_prompt_one
+    prompt = walk_forward(passes: 8, pacing: :by_the_pass)
+    late = walk_forward(passes: 8, late: 3, pacing: :by_the_pass)
+
+    assert_in_delta where(prompt), where(late), 0.001,
+                    "eight passes is eight steps however many frames each of them took"
+    assert_operator where(prompt), :>, 8.5, "...and they really did move"
+  end
+
+  # ...and that is what the game is built as, so nothing has to be forced to get it.
+  def test_the_game_ships_paced_by_the_pass
+    assert_equal :by_the_pass, FP::PACING
+  end
+
+  # --- and the other setting: the same seconds, whatever the frame rate -----------------
 
   # THE ONE THE BEAD ASKS FOR. Twenty-four frames of the screen go by either way: as
   # twenty-four passes on a game that keeps up, or as eight passes on one that takes three

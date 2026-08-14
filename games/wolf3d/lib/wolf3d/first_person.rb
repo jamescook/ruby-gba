@@ -94,21 +94,48 @@ module Wolf3D
       declare
     end
 
-    # One pass of the game loop: what a press does, and then what you see. What MOVES is not
-    # here — see `declare_the_clock`.
+    # WHAT PACES THE WORLD, and it is a real choice with no free answer.
+    #
+    # :by_the_frame — everything moves once for each frame that really went by, so the world
+    #   keeps real time however heavy the frame is. That is what the original does (it moves you
+    #   `BASEMOVE * MOVESCALE * tics`, where tics is how long the last frame took). What it costs
+    #   is that a game running at half the frame rate moves in double steps.
+    # :by_the_pass — everything moves once per pass of the game loop, so a game too heavy for a
+    #   frame runs in slow motion: smooth, uniform, and at the wrong speed.
+    #
+    # ON A GAME THAT KEEPS UP THE TWO ARE THE SAME THING, exactly — a pass IS a frame — so this
+    # only means anything while the frame is over budget, which this one still is.
+    #
+    # WHY IT IS SET TO THE PASS. Choppiness is the world's speed times how long a pass takes, so
+    # at a fixed frame rate there is no setting that is both smooth and the right speed; the two
+    # above are the ends of one dial. Measured, a pass here takes two frames, so pacing by the
+    # frame turns a six-unit turn step into 8.4 degrees between one picture and the next where
+    # the original delivers 4.2. TURNING is what a player feels that in, because a turn moves
+    # every pixel on the screen and because turning is aiming: what you can hit is decided by the
+    # smallest turn the game will make. Played on hardware it reads as the aim being coarse, and
+    # slow motion is the better of the two faults until the frame fits.
+    #
+    # So this is a note about the frame rate rather than about pacing. Get a pass under a frame
+    # and the dial has one setting.
+    PACING = :by_the_pass
+
+    # One pass of the game loop: what happens, and then what you see of it.
     def update
       play
       draw
     end
 
-    # WHAT A PRESS DOES, and it is the half of the game that belongs to a PASS rather than to
-    # the clock: a button read on its edge has to be read once per press, not once per frame the
-    # pass answered for, or a slow frame would fire three bullets for one pull of the trigger.
+    # WHAT A PRESS DOES, plus — while the world is paced by the pass — what moves.
+    #
+    # A PRESS IS ALWAYS HERE whichever way the world is paced, because a button read on its edge
+    # has to be read once per press. Move the trigger onto the clock and one pull of it fires a
+    # bullet for every frame a late pass answered for.
     #
     # A DEAD PLAYER DOES NOT SHOOT, which is the whole of dying until there is a screen to say
     # so. The guards go on about their business around the body, which is what the original does
     # too while the death is playing out.
     def play
+      move_the_world if PACING == :by_the_pass
       still_playing.then do
         open_a_door
         fire if @mind
@@ -118,46 +145,40 @@ module Wolf3D
     # Is the game still the player's to play? Until something can kill you it always is.
     def still_playing = @dying ? @dying.alive : (@health > 0)
 
-    # ...AND WHAT MOVES, once for each frame that really passed rather than once per pass.
+    # EVERYTHING THAT MOVES, in one place so that where it is CALLED FROM is the only thing that
+    # decides how the world is paced. See PACING.
     #
-    # THIS IS THE DIFFERENCE BETWEEN SLOW MOTION AND CHOPPINESS, and it is the whole of what
-    # this routine is for. Everything below moves a fixed amount: the player walks a fraction of
-    # a cell, a door swings a little wider, a guard's state machine advances two of the
-    # original's seventieths. Run that once per PASS and a game too heavy for a frame plays at
-    # half speed — smoothly, and at the wrong speed. Run it once per FRAME and the world keeps
-    # real time however long the picture took, which is what the original does (it moves you
-    # `BASEMOVE * MOVESCALE * tics`, where tics is how long the last frame took).
-    #
-    # A LONG FRAME CANNOT PUT YOU THROUGH A WALL, and here that is true by construction rather
-    # than by a rule. The original multiplies its step by how late it is, so it needs a cap
-    # (MAXTICS) to stop a big step stepping over a wall between one collision test and the next.
-    # This runs the ordinary step again instead — each one with its own collision test — so
-    # there is no big step to guard. (The framework caps the catch-up anyway, so a very late
-    # pass is never asked to replay half a second.)
-    #
-    # It is also the half a test of doors wants. The drawing costs about a hundred times what
-    # this does — eighty rays and eighty stretched columns against a few dozen statements — so a
-    # test that walks a player across a room to see whether a door opens spends all its time on
-    # a picture it never looks at. A game loop that only calls #play still runs this, because it
-    # is the frame boundary that drives it.
     # A DEAD PLAYER'S WORLD STOPS. Once something has killed you, none of this runs — not the
     # walking, not the doors, not the guards. The death has its own short story to tell (turn
     # toward what killed you, then the view goes red) and it tells it over a still world, which
     # is what the original does and is also what makes it affordable: the eighty rays a normal
     # frame spends nearly all of itself on are simply not cast.
-    def declare_the_clock
-      @b.once_a_frame(:the_world_moves) do
-        still_playing.then { walk }
-        @dying&.turn
+    def move_the_world
+      still_playing.then { walk }
+      @dying&.turn
 
-        if @standing
-          # Which way the eye points, worked out once a frame: the shot needs it and so does
-          # everything the view draws standing in the room.
-          @vcos.set(@sin[@view + QUARTER])
-          @vsin.set(@sin[@view])
-        end
-        still_playing.then { @mind.update } if @mind
+      if @standing
+        # Which way the eye points, worked out once a move: the shot needs it and so does
+        # everything the view draws standing in the room.
+        @vcos.set(@sin[@view + QUARTER])
+        @vsin.set(@sin[@view])
       end
+      still_playing.then { @mind.update } if @mind
+    end
+
+    # ...and the other way of pacing it: once for each frame that really passed, so the world
+    # keeps real time however long the picture took.
+    #
+    # A LONG FRAME CANNOT PUT YOU THROUGH A WALL this way, and by construction rather than by a
+    # rule. The original multiplies its step by how late it is, so it needs a cap (MAXTICS) to
+    # stop a big step straddling a wall between one collision test and the next. This runs the
+    # ordinary step AGAIN instead — each one with its own collision test — so there is no big
+    # step to guard. (The framework caps the catch-up anyway, so a very late pass is never asked
+    # to replay half a second.)
+    def declare_the_clock
+      return unless PACING == :by_the_frame
+
+      @b.once_a_frame(:the_world_moves) { move_the_world }
     end
 
     # ONE PRESS, ONE BULLET. The button is read on the press rather than held, so the pistol
@@ -396,16 +417,20 @@ module Wolf3D
 
       b = @b
       @guard = b.pool :guard, x: 0.0, y: 0.0, dir: 0, state: 0, ticks: 0, wait: 0, togo: 0.0,
-                              hp: 0, shown: 0,
+                              hp: 0, shown: 0, turn: 0,
                               capacity: @guards.count,
                               estimate: { usually: @guards.count }
-      @guards.guards.each do |guard|
+      @guards.guards.each_with_index do |guard, n|
         # A guard stands in the middle of his cell, like the player does.
         state = Guards.starting_state(guard)
         @guard.spawn x: guard.x + 0.5, y: guard.y + 0.5,
                      dir: Guards.direction_of(guard.facing),
                      state: state, ticks: Guards::STATES.fetch(state).ticks,
-                     hp: Guards::HIT_POINTS
+                     hp: Guards::HIT_POINTS,
+                     # ...and thinks on every other frame, alternately with his neighbours, so
+                     # the floor's thinking is spread evenly over the frames rather than
+                     # arriving all at once.
+                     turn: n % 2
       end
 
       @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
