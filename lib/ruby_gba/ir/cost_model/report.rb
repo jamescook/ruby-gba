@@ -193,9 +193,71 @@ module RubyGBA
           return if @placement.nil? || @placement.funcs.empty?
 
           printer.puts "  kept in quick memory (code runs ~#{fmt(@weights[:fast_code_speedup])}x faster there):"
-          @placement.funcs.each { |name| printer.puts "    #{quick_memory_label(name, program)}" }
+          @placement.funcs.each do |name|
+            printer.puts "    #{routine_size(name)}#{quick_memory_label(name, program)}"
+          end
           printer.puts format("    %s of 32K used, %s free",
                               kb(@placement.used_bytes), kb(@placement.free_bytes))
+          passed_over_lines(program, printer)
+        end
+
+        # How big each routine came to, in a column ahead of its name. Size is the whole of why
+        # one routine is on this list and another is not, so it belongs beside them rather than
+        # only in the total.
+        def routine_size(name)
+          bytes = @placement.sizes[name]
+          bytes ? format("%8s  ", kb(bytes)) : " " * 10
+        end
+
+        # ...AND WHAT DID NOT FIT, which is the actionable half. A routine the frame spends real
+        # time in and that just missed is exactly where a program lost the factor above, and
+        # nothing else in a finished build can say so. The usual reason one is too big is that a
+        # helper written once was called from several places and emitted at each of them, which
+        # `func` is the answer to — so the line says that, because an author has no other way to
+        # learn it.
+        def passed_over_lines(program, printer)
+          return if @placement.passed_over.empty?
+
+          @placement.passed_over.first(3).each do |over|
+            printer.puts format("    (func :%s did not fit — it needs %s and %s was left, so it " \
+                                "runs from the cartridge.%s)",
+                                over.name, kb(over.bytes), kb(over.room), repeated_note(program, over))
+          end
+        end
+
+        # WHAT MAKES A ROUTINE TOO BIG, pointed at rather than guessed. Code is emitted where it
+        # is written, so a routine grows for one of two reasons, and they are told apart by
+        # HOW MANY LINES repeat rather than by how often one does.
+        #
+        # Several lines repeating the same number of times is a helper: a plain Ruby method
+        # called from a build block runs at every call and records its ops there, so one written
+        # once and called from eight places is emitted eight times. That one has a one-word fix,
+        # and an author has no other way to learn it — so it is said.
+        #
+        # ONE line repeating is a single verb whose own expansion is large — a live number lays
+        # out all ten shapes for every digit place — and telling that author to write a `func`
+        # would be wrong. So the count is given and the advice is not.
+        REPEATED_ENOUGH = 3
+
+        def repeated_note(program, over)
+          body = program.walk.find { |node| node.kind == :func && node.name == over.name }
+          return "" unless body
+
+          counts = body.walk.filter_map { |n| n.source&.to_s }.tally
+          where, times = counts.max_by { |_, count| count } || []
+          return "" if where.nil? || times < REPEATED_ENOUGH
+
+          format(" Its most repeated line is %s, emitted %d times.%s",
+                 where.split("/").last, times, helper_advice(counts, times))
+        end
+
+        # Said only when the evidence is there: a run of DIFFERENT lines each emitted the same
+        # number of times, which is what a helper looks like from here.
+        def helper_advice(counts, times)
+          return "" unless counts.count { |_, n| n == times } > 1
+
+          " Several lines repeat together, which is a helper called from more than one place — " \
+            "it is emitted at each of them, where a `func` is emitted once."
         end
 
         # What to call each thing that moved. Two of them are routines the machine sees but
