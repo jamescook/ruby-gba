@@ -73,6 +73,11 @@ module Wolf3D
     # all does not fit in a number.
     NEAREST = 0.34
 
+    # What the player starts with. A hundred of health and eight bullets, which is what the
+    # original hands you at the top of a floor.
+    START_HEALTH = 100
+    START_AMMO = 8
+
     CEILING = RubyGBA::Color.rgb(7, 7, 9)
     FLOOR_COLOR = RubyGBA::Color.rgb(12, 11, 10)
 
@@ -100,9 +105,30 @@ module Wolf3D
     # drawing costs about a hundred times what this does — eighty rays and eighty stretched
     # columns against a few dozen statements — so a test that walks a player across a room to
     # see whether a door opens spends all its time on a picture it never looks at.
+    # A DEAD PLAYER DOES NOTHING, which is the whole of dying until there is a screen to say so.
+    # The guards go on about their business around the body, which is what the original does
+    # too while the death is playing out.
     def play
-      walk
-      @mind&.update
+      (@health > 0).then { walk }
+      return unless @mind
+
+      # Which way the eye points, worked out once for the frame: the shot needs it and so does
+      # every guard the view draws.
+      @vcos.set(@sin[@view + QUARTER])
+      @vsin.set(@sin[@view])
+      (@health > 0).then { fire }
+      @mind.update
+    end
+
+    # ONE PRESS, ONE BULLET. The button is read on the press rather than held, so the pistol
+    # fires as fast as you can tap it and no faster.
+    def fire
+      @b.pressed(:b).then do
+        (@ammo > 0).then do
+          @ammo.sub 1
+          @mind.shoot
+        end
+      end
     end
 
     # ...and what the player sees of it: the room, a wall column per strip, then whatever is
@@ -178,6 +204,12 @@ module Wolf3D
       @px = b.var :px, start.x + 0.5
       @py = b.var :py, start.y + 0.5
       @view = b.var :view, facing_angle(start.facing)
+
+      # What the player has, and neither is on screen yet — the bar along the bottom that shows
+      # them is its own piece of work. They are ordinary variables until then, which is enough
+      # to play with and enough to test.
+      @health = b.var :health, START_HEALTH
+      @ammo = b.var :ammo, START_AMMO
 
       declare_the_standing
       declare_the_scratch
@@ -284,6 +316,7 @@ module Wolf3D
                            (0..Guards::NOWHERE).map { |n| (-n * (TURN / Guards::POSES)) % TURN }
 
       @guard = b.pool :guard, x: 0.0, y: 0.0, dir: 0, state: 0, ticks: 0, wait: 0, togo: 0.0,
+                              hp: 0, shown: 0,
                               capacity: @guards.count,
                               estimate: { usually: @guards.count }
       @guards.guards.each do |guard|
@@ -291,22 +324,22 @@ module Wolf3D
         state = Guards.starting_state(guard)
         @guard.spawn x: guard.x + 0.5, y: guard.y + 0.5,
                      dir: Guards.direction_of(guard.facing),
-                     state: state, ticks: Guards::STATES.fetch(state).ticks
+                     state: state, ticks: Guards::STATES.fetch(state).ticks,
+                     hp: Guards::HIT_POINTS
       end
 
       @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
-                            world: @world, player: { x: @px, y: @py }, door_open: @open,
-                            walls: { door: DOOR, push: PUSH })
+                            world: @world, door_open: @open, walls: { door: DOOR, push: PUSH },
+                            player: { x: @px, y: @py, health: @health,
+                                      cos: @vcos, sin: @vsin })
     end
 
     # Everything standing in the level, after the walls it has to stand behind.
     def draw_the_standing
       return if @guard.nil?
 
-      # Which way the eye is pointing, worked out once for the whole floor's worth rather than
-      # once per guard.
-      @vcos.set(@sin[@view + QUARTER])
-      @vsin.set(@sin[@view])
+      # Which way the eye is pointing was worked out once for the frame already, before the
+      # guards thought — the shot needed it too.
       @guard.each { |guard| draw_a_guard(guard) }
     end
 
@@ -326,9 +359,15 @@ module Wolf3D
       @fwd.add(@ry * @vsin)
       @fwd.sub NUDGE
 
+      # WHETHER HE CAN SEE YOU LOOKING AT HIM, which is not vanity: a guard you have your eye on
+      # misses more often, because you could be dodging. The original halves the falloff of his
+      # hit chance for a guard who is off screen, and this is where that is known.
+      guard.shown.set 0
+
       # Behind the eye, or all but touching it. Everything below costs something, and this one
       # comparison is what a guard on the far side of the floor pays.
       (@fwd > NEAREST).then do
+        guard.shown.set 1
         @sideways.set(@ry * @vcos)
         @sideways.sub(@rx * @vsin)
 

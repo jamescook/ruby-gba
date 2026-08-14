@@ -248,6 +248,101 @@ class TestGuards < Minitest::Test
     assert fired, "somewhere in there he should have been firing"
   end
 
+  # ---------------------------------------------------------------- shooting, and being shot
+
+  DEAD = Guards.state_number(:dead)
+  FALLING = (0...Guards::STATES.length).select { |n| Guards::STATES[n].name.start_with?("fall") }
+  HURT = (0...Guards::STATES.length).select { |n| Guards::STATES[n].name.start_with?("hurt") }
+
+  # A GUARD STANDING IN FRONT OF YOU CAN BE SHOT. He is close, so the pistol cannot miss and
+  # takes a good bite out of him; a few taps and he falls over and stays down.
+  def test_enough_shots_kill_a_guard
+    run = shoot_at([[10, 8, :west]], shots: 8, frames: 300)
+
+    assert_includes FALLING + [DEAD], state_of(run), "he should be going down or down"
+    assert_operator guard_hp(run), :<=, 0, "with nothing left"
+  end
+
+  def test_a_guard_left_alone_keeps_his_hit_points
+    run = watch(guards: [[10, 8, :west]], frames: 60)
+
+    assert_equal Guards::HIT_POINTS, guard_hp(run)
+  end
+
+  # ...and a body stays a body. Once he is down nothing brings him back, and he stops thinking
+  # about anything at all.
+  def test_a_dead_guard_stays_dead
+    early = shoot_at([[10, 8, :west]], shots: 8, frames: 300)
+    later = shoot_at([[10, 8, :west]], shots: 8, frames: 800)
+
+    assert_operator guard_hp(early), :<=, 0
+    assert_equal DEAD, state_of(later), "he ends as a body on the floor and stays one"
+  end
+
+  # ONE PRESS IS ONE BULLET, and eight is all you start with.
+  def test_the_pistol_spends_a_bullet_a_shot
+    assert_equal FP::START_AMMO - 3, shoot_at([[10, 8, :west]], shots: 3, frames: 90)[:ammo]
+    assert_equal 0, shoot_at([[10, 8, :west]], shots: 20, frames: 400)[:ammo],
+                 "and once they are gone the trigger does nothing"
+  end
+
+  # A SHOT GOES TO THE NEAREST ONE IN THE SIGHTS, not through him to the one behind. One bullet,
+  # two guards in a line: the near one takes it and the far one is untouched.
+  #
+  # ONE bullet on purpose. A guard who has not noticed you takes double, and a pistol at this
+  # range takes more off him than he has — so a second shot would find the near one already
+  # down and go to the far one, which is correct and would hide what this is asking.
+  def test_a_shot_stops_at_the_first_guard_in_the_way
+    near, far = guards_by_distance(shoot_at([[10, 8, :west], [13, 8, :west]], shots: 1, frames: 30), 2)
+
+    assert_operator near[:hp], :<, Guards::HIT_POINTS, "the near one is hit"
+    assert_equal Guards::HIT_POINTS, far[:hp], "and the far one is not"
+  end
+
+  # ...and one off to the side is not in the sights at all. The window is a tenth of the screen
+  # either side of the middle, so a guard a few cells across the room is missed entirely.
+  def test_a_guard_out_of_the_sights_is_not_hit
+    run = shoot_at([[10, 3, :west]], shots: 6, frames: 200)
+
+    assert_equal Guards::HIT_POINTS, guard_hp(run), "he is not down the line you are looking"
+  end
+
+  # BEING SHOT ROUSES HIM. A guard facing away has no idea you are there until the first
+  # bullet, and after it he is never back to minding his own business — he is flinching,
+  # coming, firing, or on the floor.
+  UNAWARE = (0...Guards::STATES.length).reject { |n| Guards.roused?(Guards::STATES[n]) }
+
+  def test_shooting_a_guard_who_had_not_noticed_you_brings_him_round
+    run = shoot_at([[10, 8, :east]], shots: 1, frames: 40)
+
+    refute_includes UNAWARE, state_of(run), "the shot should have brought him round"
+    assert_operator guard_hp(run), :<, Guards::HIT_POINTS, "and taken something off him"
+  end
+
+  # AND THEY SHOOT BACK. Stand in front of one and do nothing, and he closes, fires, and takes
+  # you down to nothing — which is the whole of dying until there is a screen to say so.
+  def test_a_guard_shoots_back_and_can_kill_you
+    hurt = watch(guards: [[11, 8, :west]], frames: 400)
+
+    assert_operator hurt[:health], :<, FP::START_HEALTH, "he should have hit you"
+    assert_equal 0, watch(guards: [[11, 8, :west]], frames: 2000)[:health],
+                 "and gone on until there was nothing left"
+  end
+
+  # A DEAD PLAYER STOPS. Held against himself later rather than against a place on the map,
+  # because nothing here blocks a body — a guard is something to look at and shoot, not
+  # something to bump into, so the player walks straight through one and where he ends up says
+  # nothing about when he died.
+  def test_a_dead_player_stops_where_he_fell
+    walking = view_of(arena(guards: [[11, 8, :west]]), drawing: false)
+    died = Reference.new.hold(:up).run(walking, frames: 1200)
+    later = Reference.new.hold(:up).run(walking, frames: 2400)
+
+    assert_equal 0, died[:health], "he should be dead by then"
+    assert_in_delta died[:px] / ONE, later[:px] / ONE, 0.001,
+                    "and not have moved since, however long the button is held"
+  end
+
   # ---------------------------------------------------------------- and on the console
 
   # THE CARTRIDGE DRAWS HIM TOO, and the whole picture is held against the interpreter's rather
@@ -319,9 +414,26 @@ class TestGuards < Minitest::Test
 
   ONE = (1 << RubyGBA::Fraction::DEFAULT_BITS).to_f
 
-  def pool_field(run, field) = run.instance_variable_get(:@lists)[:"__pool_guard_#{field}"].get(0)
-  def state_of(run) = pool_field(run, :state)
+  def pool_field(run, field, slot = 0) = run.instance_variable_get(:@lists)[:"__pool_guard_#{field}"].get(slot)
+  def state_of(run, slot = 0) = pool_field(run, :state, slot)
+  def guard_hp(run, slot = 0) = pool_field(run, :hp, slot)
   def guard_at(run, axis) = pool_field(run, axis) / ONE
+
+  # The guards as the player meets them, nearest first. A pool hands out its slots from the
+  # back, so the order a level put its guards down is NOT the order they are stored in — which
+  # is exactly the kind of thing a test should not quietly depend on.
+  def guards_by_distance(run, count)
+    (0...count).map { |slot| { x: pool_field(run, :x, slot) / ONE, hp: guard_hp(run, slot) } }
+               .sort_by { |guard| guard[:x] }
+  end
+
+  # Stand still and tap the trigger. The button is read on the press, so it has to go up
+  # between shots or only the first one counts.
+  def shoot_at(guards, shots:, frames:, **)
+    firing = ->(f) { f < shots * 4 && (f / 2).even? ? [:b] : [] }
+    Reference.new.input_each_frame { |f| firing.call(f) }
+             .run(view_of(arena(guards: guards, **), drawing: false), frames: frames)
+  end
 
   # Stand where the level says and look. Nothing moves, so two frames settle it.
   def look_at(**) = Reference.new.run(view_of(arena(**)), frames: 2)

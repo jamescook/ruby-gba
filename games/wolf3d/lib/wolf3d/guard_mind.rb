@@ -28,6 +28,15 @@ module Wolf3D
     # every distance rather than divided as the game runs; at arm's length it is a certainty.
     CHANCES = 256
 
+    # HOW NEAR THE MIDDLE OF THE VIEW a guard has to be for a shot to be about him: a tenth of
+    # the screen either side, which is the original's. Turned into a slope so the test needs no
+    # divide — a guard is in the sights when how far he is to the side of the line you are
+    # looking down is less than this much of how far in front of you he is.
+    AIM = (240 / 10) / FirstPerson::WALL_SCALE
+
+    # Nothing is a target.
+    NOBODY = -1
+
     def initialize(build:, guards:, pool:, level:, world:, player:, door_open:, walls:)
       @b = build
       @guards = guards
@@ -69,6 +78,8 @@ module Wolf3D
       @ticks_of = b.table :guard_ticks, states.map(&:ticks), width: :byte
       @becomes_of = b.table :guard_becomes, states.map { |s| Guards.state_number(s.becomes) }, width: :byte
       @think_of = b.table :guard_think, states.map { |s| Guards::THINKING.fetch(s.think) }, width: :byte
+      @fires_of = b.table :guard_fires, states.map { |s| s.fires ? 1 : 0 }, width: :byte
+      @roused_of = b.table :guard_roused, states.map { |s| Guards.roused?(s) ? 1 : 0 }, width: :byte
 
       # WHICH WAY EACH DIRECTION GOES, one cell at a time. Nine entries: eight ways round and
       # then nowhere, which is where a guard hemmed in on every side ends up.
@@ -86,6 +97,9 @@ module Wolf3D
 
       @chase1 = Guards.state_number(:chase1)
       @shoot1 = Guards.state_number(:shoot1)
+      @hurt1 = Guards.state_number(:hurt1)
+      @hurt2 = Guards.state_number(:hurt2)
+      @fall1 = Guards.state_number(:fall1)
       @patrol_step = Guards.speed
       @chase_step = Guards.speed(chasing: true)
       @width = @level.width
@@ -106,11 +120,11 @@ module Wolf3D
     def declare_the_scratch
       b = @b
       @state, @dir, @job, @try, @slot, @cellx, @celly, @clear, @done, @ahead, @way, @picked,
-        @tx, @ty, @away =
+        @tx, @ty, @away, @target, @odds, @wound =
         %i[gstate gdir gjob gtry gslot gcellx gcelly gclear gdone gahead gway gpicked
-           gtx gty gaway].map { |name| b.var(:"_#{name}", 0) }
-      @dx, @dy, @absx, @absy, @stepx, @stepy, @far, @atx, @aty, @pace =
-        %i[gdx gdy gabsx gabsy gstepx gstepy gfar gatx gaty gpace]
+           gtx gty gaway gtarget godds gwound].map { |name| b.var(:"_#{name}", 0) }
+      @dx, @dy, @absx, @absy, @stepx, @stepy, @far, @atx, @aty, @pace, @fwd, @sideways, @nearest =
+        %i[gdx gdy gabsx gabsy gstepx gstepy gfar gatx gaty gpace gfwd gsideways gnearest]
         .map { |name| b.var(:"_#{name}", 0.0) }
     end
 
@@ -134,10 +148,42 @@ module Wolf3D
       (@ticks_of[@state] > 0).then do
         guard.ticks.sub Guards::TICKS_PER_PASS
         (guard.ticks <= 0).then do
+          # The shot leaves as he LEAVES the state he aimed in, which is where the original
+          # hangs it: aiming, firing and lowering the arm are three pictures and the bullet
+          # belongs to the join between the second and the third.
+          (@fires_of[@state] == 1).then { fire_at_the_player(guard) }
           guard.state.set(@becomes_of[@state])
           guard.ticks.add(@ticks_of[guard.state])
         end
       end
+    end
+
+    # HIS SHOT IS NOT AIMED. It is a chance against distance, and the far half of that chance
+    # depends on whether you can SEE him — a guard you are looking at misses more, because you
+    # could be dodging. That is the game quietly being fair, and it is in the original's
+    # numbers rather than anywhere else.
+    #
+    # What it does when it lands is by distance too: a byte of randomness shifted down twice
+    # inside two cells, three times inside four, four times beyond. So a guard across the room
+    # does almost nothing and one in your face does real harm.
+    def fire_at_the_player(guard)
+      @dx.set(@player[:x] - guard.x)
+      @dy.set(@player[:y] - guard.y)
+      line_of_sight(guard)
+      (@clear == 1).then do
+        how_far_away(guard)
+        @odds.set(CHANCES - (@away * 8))
+        (guard.shown == 1).then { @odds.set(CHANCES - (@away * 16)) }
+        (@b.rand(0..CHANCES - 1) < @odds).then { wound_the_player }
+      end
+    end
+
+    def wound_the_player
+      @wound.set(@b.rand(0..CHANCES - 1) / 4)
+      (@away >= 2).then { @wound.set(@b.rand(0..CHANCES - 1) / 8) }
+      (@away >= 4).then { @wound.set(@b.rand(0..CHANCES - 1) / 16) }
+      @player[:health].sub @wound
+      (@player[:health] < 0).then { @player[:health].set 0 }
     end
 
     # --- looking for you -------------------------------------------------------------
@@ -207,9 +253,13 @@ module Wolf3D
     # the middle of the range and nine in ten take under seven — because almost every line meets
     # a wall almost at once. Not one of five hundred ever ran out of the sixty-four it is
     # allowed. So the ceiling is generous and free, and five is what a frame really pays.
-    def line_of_sight(guard)
+    def line_of_sight(guard) = walk_the_line(guard.x, guard.y)
+
+    # The same line, walked from wherever it starts — a guard looking for you, or a bullet on
+    # its way to him.
+    def walk_the_line(fromx, fromy)
       b = @b
-      aim_at_the_player(guard)
+      aim_along_it(fromx, fromy)
       @tx.set(@player[:x].to_i)
       @ty.set(@player[:y].to_i)
       @clear.set 1
@@ -232,7 +282,7 @@ module Wolf3D
     # A step along the line from the guard toward the player, sized so the longer of the two
     # directions moves one whole cell each time — which is what makes the walk visit every cell
     # the line passes through without visiting any twice.
-    def aim_at_the_player(guard)
+    def aim_along_it(fromx, fromy)
       @absx.set @dx
       @absx.abs
       @absy.set @dy
@@ -243,8 +293,8 @@ module Wolf3D
 
       @stepx.set(@dx / @far)
       @stepy.set(@dy / @far)
-      @atx.set guard.x
-      @aty.set guard.y
+      @atx.set fromx
+      @aty.set fromy
     end
 
     # Something is in this cell. A wall stops the line; a doorway stops it only while its panel
@@ -378,6 +428,112 @@ module Wolf3D
           @slot.set(@ahead - @walls[:door])
           (@open[@slot] > FirstPerson::DOOR_WALKABLE).then { @clear.set 1 }
         end
+      end
+    end
+
+    public
+
+    # --- being shot at ---------------------------------------------------------------
+
+    # THE PLAYER FIRES. A pistol shot goes to the NEAREST guard who is in the sights and has
+    # nothing between him and you — not to whatever the middle strip of the view happens to be
+    # pointing at, which is a rule people expect and the original does not have.
+    #
+    # "In the sights" is a tenth of the screen either side of the middle, as a slope: how far
+    # he is to the side of the line you are looking down, against how far in front of you he
+    # is. Written that way it is a multiply and a comparison and never a divide.
+    def shoot
+      b = @b
+      alive = RubyGBA::List.new(b, @pool.active_list)
+      @target.set NOBODY
+      @nearest.set FAR_AWAY
+
+      b.repeat(@pool.capacity) do |slot|
+        (alive[slot] == 1).then { consider(slot) }
+      end
+
+      (@target != NOBODY).then { hit_the_target }
+    end
+
+    private
+
+    # The furthest anything can be, so the first candidate always beats it.
+    FAR_AWAY = 1000.0
+
+    # Is this one in the sights, in the open, and nearer than the best so far?
+    def consider(slot)
+      hp = @pool.field_ref(:hp, slot)
+      (hp > 0).then do
+        x = @pool.field_ref(:x, slot)
+        y = @pool.field_ref(:y, slot)
+        @dx.set(x - @player[:x])
+        @dy.set(y - @player[:y])
+
+        # Where he is in front of the eye, and to the side of it.
+        @fwd.set(@dx * @player[:cos])
+        @fwd.add(@dy * @player[:sin])
+        @sideways.set(@dy * @player[:cos])
+        @sideways.sub(@dx * @player[:sin])
+        @absx.set @sideways
+        @absx.abs
+
+        ((@fwd > 0.0) & (@fwd < @nearest) & (@absx < (@fwd * AIM))).then do
+          # Only now is a line worth walking, and it is walked from him toward you — the same
+          # line either way.
+          @dx.set(@player[:x] - x)
+          @dy.set(@player[:y] - y)
+          walk_the_line(x, y)
+          (@clear == 1).then do
+            @nearest.set @fwd
+            @target.set slot
+          end
+        end
+      end
+    end
+
+    # WHAT A PISTOL DOES, by distance, and the third case can miss outright: past four cells a
+    # roll has to beat the distance or the shot goes wide, which is why a pistol across a room
+    # is a waste of a bullet.
+    def hit_the_target
+      x = @pool.field_ref(:x, @target)
+      y = @pool.field_ref(:y, @target)
+      @cellx.set((@player[:x].to_i - x.to_i))
+      (@cellx < 0).then { @cellx.set(0 - @cellx) }
+      @celly.set((@player[:y].to_i - y.to_i))
+      (@celly < 0).then { @celly.set(0 - @celly) }
+      @away.set @cellx
+      (@celly > @away).then { @away.set @celly }
+
+      @wound.set(@b.rand(0..CHANCES - 1) / 4)
+      (@away >= 2).then { @wound.set(@b.rand(0..CHANCES - 1) / 6) }
+      (@away >= 4).then do
+        # Far enough away to miss altogether.
+        (@b.rand(0..CHANCES - 1) / 12 < @away).then { @wound.set 0 }
+      end
+      (@wound > 0).then { wound_a_guard }
+    end
+
+    # A GUARD WHO HAS NOT NOTICED YOU TAKES DOUBLE, which is the original quietly rewarding you
+    # for getting the first one in. Then he either falls over or flinches and comes for you —
+    # and a guard who was not already coming starts now, however little the shot took off him.
+    def wound_a_guard
+      hp = @pool.field_ref(:hp, @target)
+      state = @pool.field_ref(:state, @target)
+      ticks = @pool.field_ref(:ticks, @target)
+
+      (@roused_of[state] == 0).then { @wound.set(@wound * 2) }
+      hp.sub @wound
+
+      (hp <= 0).then do
+        state.set @fall1
+        ticks.set(@ticks_of[@fall1])
+      end.else do
+        # Odd or even decides which of the two flinches he wears, so the same wound twice
+        # running does not look like a repeat. Landing in one of them is also what rouses a
+        # guard who had not noticed you: being shot at counts as being seen.
+        state.set @hurt1
+        ((hp % 2) == 0).then { state.set @hurt2 }
+        ticks.set(@ticks_of[state])
       end
     end
 
