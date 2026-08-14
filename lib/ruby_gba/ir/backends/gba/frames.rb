@@ -39,8 +39,21 @@ module RubyGBA
             store_var(ACC, COUNT)
           end
 
-          # ...and read at the top of each pass: the difference since last time, held to MOST,
-          # left where anything that needs it can read it.
+          # ...and read at the top of each pass: the difference since last time, held between one
+          # and MOST, left where anything that needs it can read it.
+          #
+          # HELD AT BOTH ENDS, and the low end is not tidiness. This console's memory is not zero
+          # at power-on, so on the very first pass both marks are rubbish and their difference
+          # can be anything at all — including a negative, which would tell a loop to run no
+          # times and a beat to count backwards. One is the floor because a pass is always worth
+          # at least the frame it ran in.
+          #
+          # Holding it here rather than setting the marks at boot is deliberate. Anything touched
+          # at boot is given its place in memory BEFORE the program's own variables, which pushes
+          # every one of them along — and the first variable is the only one whose address the
+          # console can name in a single instruction, so moving it makes every read of it dearer.
+          # Two instructions here cost less than that, until the day an address is cheap
+          # whichever variable it belongs to.
           def emit_frame_step
             load_var(ACC, COUNT)
             load_var(TMP, SEEN)
@@ -52,6 +65,12 @@ module RubyGBA
             emit_branch(:bcond, under, cond: :le)
             emit(ASM.load_immediate(ACC, MOST))
             place_label(under)
+
+            over = gensym
+            emit(ASM.cmp_imm(ACC, 1))
+            emit_branch(:bcond, over, cond: :ge)
+            emit(ASM.load_immediate(ACC, 1))
+            place_label(over)
             store_var(ACC, STEP)
           end
         end

@@ -118,6 +118,76 @@ class TestFrameStep < Minitest::Test
                  "the body should run once for each frame the pass took"
   end
 
+  # A BEAT GIVEN IN FRAMES IS FRAMES, not passes of the game loop. This is the one that used to
+  # be wrong, and the one an author would never have found: they wrote `every(4)`, the game got
+  # heavy, and the beat quietly slowed down with it.
+  #
+  # A game burning past a frame is run long enough for several beats, and the test asks whether
+  # the number of beats matches the number of FRAMES rather than the number of passes.
+  def beating_program(busy, period)
+    b = RubyGBA::Builder.new
+    b.instance_eval do
+      screen :bitmap
+      step = RubyGBA::Value.new(self, RubyGBA::IR::Build.var_ref(Frames::STEP))
+      beats = var :beats, 0
+      spin = var :spin, 0
+      game_loop do
+        every(period) { beats.add 1 }
+        dma_fill_rect 0, 0, 240, 24, :black
+        draw_rect_at 0, 0, step * WIDE, 8, :white
+        draw_rect_at 0, 12, beats * WIDE, 8, :white
+        repeat(busy) { spin.add 1 } if busy.positive?
+      end
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  # Six frames a pass and a beat every four frames: after four passes that is 24 frames, so six
+  # beats. Counted per PASS it would be one. The exact numbers are read off the screen rather
+  # than assumed, since how late a pass runs is the console's business.
+  def test_a_beat_in_frames_keeps_time_when_the_game_does_not
+    rom = ROM.assemble(GBA.new.lower(beating_program(90_000, 4)), title: "BEAT", code: "ABEA", maker: "01")
+    gba = assert_gemba_loads_rom(rom, frames: 40)
+    pixel = ->(x, y) { gba.pixel_gba(x, y) }
+    late = reading(pixel)
+    beats = reading(pixel, row: 16)
+
+    assert_operator late, :>=, 2, "the pass should have taken more than one frame"
+    assert_operator beats, :>=, late / 4, "the beat should have kept up with the frames, not the passes"
+    assert_operator beats, :>, 1, "counted per pass it would still be on its first beat"
+  end
+
+  # A ONE-SHOT MUST STILL GO OFF WHEN THE PASS STEPS OVER ITS FRAME. Counting one a pass, the
+  # counter landed on the target exactly and firing on equality was safe. Counting frames, a pass
+  # worth six can take a counter from nought straight past five — so a one-shot that waited for
+  # equality would wait for ever, which is the worst way for this to fail: silently, and only on
+  # the games too heavy to test by eye.
+  def one_shot_program(busy, wait)
+    b = RubyGBA::Builder.new
+    b.instance_eval do
+      screen :bitmap
+      fired = var :fired, 0
+      spin = var :spin, 0
+      game_loop do
+        after(wait) { fired.set 1 }
+        dma_fill_rect 0, 0, 240, 24, :black
+        draw_rect_at 0, 12, fired * WIDE, 8, :white
+        repeat(busy) { spin.add 1 } if busy.positive?
+      end
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  def test_a_one_shot_fires_even_when_a_pass_steps_over_its_frame
+    rom = ROM.assemble(GBA.new.lower(one_shot_program(90_000, 5)), title: "ONCE", code: "AONC", maker: "01")
+    gba = assert_gemba_loads_rom(rom, frames: 40)
+
+    assert_equal 1, reading(->(x, y) { gba.pixel_gba(x, y) }, row: 16),
+                 "a pass worth several frames jumps the counter past five, and it must still fire"
+  end
+
   # ...and a pass that took a very long time is held, so that whatever reads this is never asked
   # to do half a second of catching up inside one already-late pass.
   def test_a_very_long_pass_is_held_at_the_cap
