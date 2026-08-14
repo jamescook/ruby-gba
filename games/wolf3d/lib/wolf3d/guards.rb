@@ -46,7 +46,15 @@ module Wolf3D
     # turn: hurt, dying, dead, and firing.
     STILL_PICTURE = 0
     WALK_PICTURES = [8, 16, 24, 32].freeze
+    # The two he flinches with sit either side of the three he falls over in, which is the
+    # order they are in the file rather than an order anyone would choose.
+    HURT_PICTURES = [40, 44].freeze
+    FALL_PICTURES = [41, 42, 43].freeze
+    DEAD_PICTURE = 45
     FIRE_PICTURES = [46, 47, 48].freeze
+
+    # How much killing a guard takes. The easiest two settings agree on it.
+    HIT_POINTS = 25
 
     # HOW LONG A STATE LASTS is counted in the original's own units — seventieths of a second —
     # and the numbers below are its numbers, unchanged. This is how many of them a pass of this
@@ -64,11 +72,14 @@ module Wolf3D
     # four walking pictures at twenty and fifteen with a five-unit step between the pairs; the
     # chase is the same four at ten and eight with three-unit steps, which is why a guard who
     # has seen you visibly hurries. Firing is three pictures at twenty each.
-    State = Data.define(:name, :picture, :turns, :ticks, :think, :becomes)
+    # +fires+ marks the one state whose END is a shot: the original hangs its actions on
+    # leaving a state rather than on being in one, so a guard aims, fires, and lowers his arm
+    # across three pictures and the bullet leaves on the middle one.
+    State = Data.define(:name, :picture, :turns, :ticks, :think, :becomes, :fires)
 
-    def self.state(name, picture, ticks, think, becomes, turns: true)
+    def self.state(name, picture, ticks, think, becomes, turns: true, fires: false)
       State.new(name: name, picture: picture, ticks: ticks, think: think, becomes: becomes,
-                turns: turns)
+                turns: turns, fires: fires)
     end
 
     STATES = [
@@ -89,11 +100,31 @@ module Wolf3D
       state(:chase4,  WALK_PICTURES[3], 8,  :chase,  :chase1),
 
       state(:shoot1,  FIRE_PICTURES[0], 20, nil,     :shoot2, turns: false),
-      state(:shoot2,  FIRE_PICTURES[1], 20, nil,     :shoot3, turns: false),
-      state(:shoot3,  FIRE_PICTURES[2], 20, nil,     :chase1, turns: false)
+      state(:shoot2,  FIRE_PICTURES[1], 20, nil,     :shoot3, turns: false, fires: true),
+      state(:shoot3,  FIRE_PICTURES[2], 20, nil,     :chase1, turns: false),
+
+      # Hurt but not finished: he flinches and comes straight back at you. Which of the two
+      # pictures he wears is whether the hits he has left are an odd number, which is the
+      # original's way of making the same wound look different twice running.
+      state(:hurt1,   HURT_PICTURES[0], 10, nil,     :chase1, turns: false),
+      state(:hurt2,   HURT_PICTURES[1], 10, nil,     :chase1, turns: false),
+
+      # ...and finished: three pictures of falling and then a body on the floor, which lasts
+      # for good because its length is nought.
+      state(:fall1,   FALL_PICTURES[0], 15, nil,     :fall2, turns: false),
+      state(:fall2,   FALL_PICTURES[1], 15, nil,     :fall3, turns: false),
+      state(:fall3,   FALL_PICTURES[2], 15, nil,     :dead,  turns: false),
+      state(:dead,    DEAD_PICTURE,     0,  nil,     :dead,  turns: false)
     ].freeze
 
     THINKING = { nil => 0, look: 1, patrol: 2, chase: 3 }.freeze
+
+    # A guard who has noticed you keeps knowing it, through being hurt and into falling over.
+    # The one thing it changes: a guard who has NOT noticed you takes double from a shot, which
+    # is the original quietly rewarding you for getting the first one in.
+    def self.roused?(state) = !%i[stand path1 path1s path2 path3 path3s path4].include?(state.name)
+
+    def self.dead?(state) = state.name == :dead
 
     def self.state_number(name) = STATES.index { |s| s.name == name } ||
                                   raise(ArgumentError, "there is no guard state #{name.inspect}")

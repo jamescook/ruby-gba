@@ -25,8 +25,10 @@ require_relative "wolf3d/guards"
 require_relative "wolf3d/fixture/release"
 require_relative "wolf3d/wall_atlas"
 require_relative "wolf3d/thing_atlas"
-require_relative "wolf3d/guard_mind"
 require_relative "wolf3d/first_person"
+# ...after the view, whose constants it shares: the two agree about how wide the lens is, and
+# where the middle of the screen falls is what a shot is aimed by.
+require_relative "wolf3d/guard_mind"
 require_relative "wolf3d/map_view"
 require_relative "wolf3d/palette_view"
 require_relative "wolf3d/art_view"
