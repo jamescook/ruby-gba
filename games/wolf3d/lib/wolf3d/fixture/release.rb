@@ -46,7 +46,15 @@ module Wolf3D
       # arranges them, and a few real ones in front of those.
       DEFAULT_WALLS = Doors::DOOR_PICTURES + 4
 
-      def initialize(set: "WL1", walls: DEFAULT_WALLS, sprites: 2, sounds: 2)
+      # ...and enough sprites to reach the guard's eight standing poses, which a real release
+      # puts after its scenery. Everything before them is unused here, and small.
+      DEFAULT_SPRITES = Guards::FIRST_STANDING_PICTURE + Guards::POSES
+
+      # Where a sprite's flat colour starts counting. Far enough up the palette to be clear of
+      # the walls' inks, and low enough that every sprite of a default release has its own.
+      SPRITE_INK = 150
+
+      def initialize(set: "WL1", walls: DEFAULT_WALLS, sprites: DEFAULT_SPRITES, sounds: 2)
         @set = set
         @walls = walls
         @sprites = sprites
@@ -194,6 +202,10 @@ module Wolf3D
 
       # Columns of runs, because most of a sprite is empty. Measured against a real VSWAP: the
       # pixel pool sits BEFORE the posts, and is padded to keep the posts on a word boundary.
+      #
+      # ONE COLOUR EACH, and its number is the sprite's own. A real sprite is a picture, but a
+      # fixture is for reading answers off, and a flat colour makes the pixel on the screen say
+      # WHICH picture was drawn — which is how the eight poses of a guard are told apart.
       def sprite(index)
         first_col = 20
         last_col = 43
@@ -201,7 +213,7 @@ module Wolf3D
         top = 16
         height = 32
 
-        pool = Array.new(columns * height) { |i| (32 + index + (i % height)) & 0xFF }.pack("C*")
+        pool = Array.new(columns * height) { SPRITE_INK + index }.pack("C*")
         pool << "\x00" if pool.bytesize.odd?
 
         posts_at = 4 + (columns * 2) + pool.bytesize

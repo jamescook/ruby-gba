@@ -150,4 +150,34 @@ class TestImage < Minitest::Test
     assert_equal Color.resolve(:red),  fb.pixel(11, 10), "the lit pixel is drawn"
     assert_equal Color.resolve(:blue), fb.pixel(12, 10), "transparent -> background shows"
   end
+
+  # Art a program works out for itself arrives as a list of colors rather than as rows of
+  # characters — pictures converted out of another game's files, say. It says see-through the
+  # same way the drawn form does, so nothing has to know what marks one.
+  def test_a_picture_given_as_data_says_see_through_the_way_drawn_art_does
+    fb = screen_after do
+      screen :bitmap
+      clear_screen :blue
+      image :dot, width: 3, height: 1, data: [:transparent, :red, :transparent], transparent: true
+      blit :dot, 10, 10
+    end
+
+    assert_equal Color.resolve(:blue), fb.pixel(10, 10), "transparent -> background shows"
+    assert_equal Color.resolve(:red),  fb.pixel(11, 10), "the lit pixel is drawn"
+    assert_equal Color.resolve(:blue), fb.pixel(12, 10), "transparent -> background shows"
+  end
+
+  # ...and without saying so, a picture is solid: every pixel is a color and there is nothing
+  # to leave out, which is what keeps a picture that cannot be see-through from paying to ask.
+  def test_a_picture_given_as_data_is_solid_unless_it_says_otherwise
+    fb = screen_after do
+      screen :bitmap
+      clear_screen :blue
+      image :bar, width: 2, height: 1, data: %i[red green]
+      blit :bar, 10, 10
+    end
+
+    assert_equal Color.resolve(:red),   fb.pixel(10, 10)
+    assert_equal Color.resolve(:green), fb.pixel(11, 10)
+  end
 end

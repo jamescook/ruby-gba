@@ -62,24 +62,38 @@ module Wolf3D
     WALK = 0.07
     TURN_SPEED = 6
 
+    # HOW FAR FORWARD A STANDING THING IS NUDGED before its distance is used. A guard stands in
+    # the middle of his cell, so half of him is in the cell behind — which can be a wall, and
+    # then the wall would be drawn over his front. Moving him a quarter of a cell toward the
+    # eye settles it, and it is what the original does.
+    NUDGE = 0.25
+
+    # ...and how near he can get before he is not drawn at all. The height is one over the
+    # distance, so a thing at arm's length is thousands of pixels tall and one at nothing at
+    # all does not fit in a number.
+    NEAREST = 0.34
+
     CEILING = RubyGBA::Color.rgb(7, 7, 9)
     FLOOR_COLOR = RubyGBA::Color.rgb(12, 11, 10)
 
-    def initialize(build:, level:, atlas:, doors:, pushwalls:)
+    def initialize(build:, level:, atlas:, doors:, pushwalls:, guards: nil, things: nil)
       @b = build
       @level = level
       @atlas = atlas
       @doors = doors
       @pushwalls = pushwalls
+      @guards = guards
+      @things = things
       declare
     end
 
-    # One frame: the room, then a wall column per strip.
+    # One frame: the room, then a wall column per strip, then whatever is standing in it.
     def update
       @b.dma_fill_rect 0, 0, 240, HORIZON, CEILING
       @b.dma_fill_rect 0, HORIZON, 240, 160 - HORIZON, FLOOR_COLOR
       walk
       @b.repeat(COLUMNS) { |col| cast(col) }
+      draw_the_standing
     end
 
     private
@@ -121,15 +135,15 @@ module Wolf3D
 
       # Which picture each door wears, worked out while building — a door's panel does not
       # turn, so unlike a wall it needs no choosing as the game runs.
-      @door_picture = b.table :door_picture, door_pictures, width: :byte
-      @door_across = b.table :door_across, @doors.doors.map(&:across), width: :byte
+      @door_picture = b.table :door_picture, some(door_pictures), width: :byte
+      @door_across = b.table :door_across, some(@doors.doors.map(&:across)), width: :byte
       # Which key each door wants, as the bit the player carries. Nought wants none.
-      @door_lock = b.table :door_lock, @doors.doors.map { |d| KEY_BITS[d.lock] || 0 }, width: :byte
+      @door_lock = b.table :door_lock, some(@doors.doors.map { |d| KEY_BITS[d.lock] || 0 }), width: :byte
 
       # A push wall: where it started, what it is made of, and — as the game runs — which way
       # it was shoved, how far it has got, and how long until its next cell.
-      @push_home = b.table :push_home, @pushwalls.homes.then { |h| h.empty? ? [0] : h }
-      @push_face = b.table :push_face, push_pictures, width: :byte
+      @push_home = b.table :push_home, some(@pushwalls.homes)
+      @push_face = b.table :push_face, some(push_pictures), width: :byte
       @push_step = b.list :push_step, capacity: [@pushwalls.count, 1].max
       @push_gone = b.list :push_gone, capacity: [@pushwalls.count, 1].max
       @push_wait = b.list :push_wait, capacity: [@pushwalls.count, 1].max
@@ -137,29 +151,18 @@ module Wolf3D
       # Which keys the player is carrying, one bit each.
       @keys = b.var :keys, 0
       @key_taken = b.list :key_taken, capacity: [key_cells.length, 1].max
-      @key_cell = b.table :key_cell, key_cells.empty? ? [0] : key_cells.map { |c| c[:cell] }
-      @key_bit = b.table :key_bit, key_cells.empty? ? [0] : key_cells.map { |c| c[:bit] }, width: :byte
+      @key_cell = b.table :key_cell, some(key_cells.map { |c| c[:cell] })
+      @key_bit = b.table :key_bit, some(key_cells.map { |c| c[:bit] }), width: :byte
 
       b.image :walls, width: @atlas.width, height: @atlas.height, data: @atlas.pixels
+      declare_the_standing
 
       start = @level.start
       @px = b.var :px, start.x + 0.5
       @py = b.var :py, start.y + 0.5
       @view = b.var :view, facing_angle(start.facing)
 
-      # Whole numbers: which cell the ray is in, which way it is walking through the grid,
-      # which kind of grid line it last crossed, and what came of all that.
-      %i[_ang _hit _wall _cell _colh _top _mapx _mapy _stepmx _stepmy _side
-         _isdoor _door _edge _foot _here _wait _can _slot
-         _push _pcell _ahead _want _gone].each do |name|
-        instance_variable_set(:"@#{name.to_s.delete_prefix('_')}", b.var(name, 0))
-      end
-      # ...and the ones that hold a fraction: where the ray points, how far to each kind of
-      # line, how far it has got, where along the wall it landed, and how far a door has slid.
-      %i[_dx _dy _deltax _deltay _sidex _sidey _dist _seen _wallx _mid _slid _swing
-         _across _along _nx _ny _stepx _stepy].each do |name|
-        instance_variable_set(:"@#{name.to_s.delete_prefix('_')}", b.var(name, 0.0))
-      end
+      declare_the_scratch
 
       # Every door starts shut, and a list starts empty — so it needs its slots before anything
       # can reach one by number.
@@ -171,6 +174,209 @@ module Wolf3D
         @push_wait << 0
       end
       [key_cells.length, 1].max.times { @key_taken << 0 }
+    end
+
+    # WORKING ROOM. Every one of these is scratch — set, read and finished with inside a single
+    # step of a single frame — so they are grouped by the job that uses them rather than listed
+    # in one heap, and each group says which kind of number it holds.
+    #
+    # A variable holds whole numbers unless it is declared with a fraction, so the split is not
+    # a tidiness: it is the difference between a cell number and a place inside a cell.
+    # DO NOT REORDER THESE. Every whole-number one has to be declared before any of the ones
+    # that hold a fraction, and today that is load-bearing rather than tidy: declaring a
+    # fraction first, or mixing the two together, builds a cartridge on which doors stop
+    # opening. The same program run in Ruby behaves the same either way, so what a program
+    # MEANS does not depend on this — only what the console does with it, which means the fault
+    # is in the lowering and not here. Moving one of these is how you would find it again.
+    def declare_the_scratch
+      # The ray walk: which cell it is in, which way it steps through the grid, which kind of
+      # grid line it last crossed. Then the doors and the player's feet, which share a few —
+      # each is picked up and put down inside one step, so one of each is enough. Then the
+      # walls that move.
+      @ang, @hit, @wall, @cell, @colh, @top, @mapx, @mapy, @stepmx, @stepmy, @side,
+        @isdoor, @door, @edge, @foot, @here, @wait, @can, @slot,
+        @push, @pcell, @ahead, @want, @gone =
+        whole(:ang, :hit, :wall, :cell, :colh, :top, :mapx, :mapy, :stepmx, :stepmy, :side,
+              :isdoor, :door, :edge, :foot, :here, :wait, :can, :slot,
+              :push, :pcell, :ahead, :want, :gone)
+
+      # ...and the same three jobs again for the ones that hold a fraction: where the ray
+      # points and how far it has got, how far a door has slid, and where a step would land.
+      @dx, @dy, @deltax, @deltay, @sidex, @sidey, @dist, @seen, @wallx, @mid, @slid, @swing,
+        @across, @along, @nx, @ny, @stepx, @stepy =
+        fraction(:dx, :dy, :deltax, :deltay, :sidex, :sidey, :dist, :seen, :wallx, :mid, :slid,
+                 :swing, :across, :along, :nx, :ny, :stepx, :stepy)
+    end
+
+    # THINGS THAT STAND IN THE ROOM: which way the eye points, where one is relative to it, and
+    # what that comes to on screen — a picture, a size, and the strips it covers.
+    #
+    # Declared with the guards rather than with the rest, and only when a floor has any. Not
+    # tidiness: the quick memory a variable lives in is the same quick memory the framework
+    # keeps the busiest routines in, so twenty variables a floor never reads are twenty
+    # variables' worth of room the ray walk does not get. It measured as a frame's worth of
+    # difference on a floor with nothing standing in it.
+    def declare_the_standing_scratch
+      @vcos, @vsin, @rx, @ry = fraction(:vcos, :vsin, :rx, :ry)
+      @fwd, @sideways, @scale, @tex, @tstep = fraction(:fwd, :sideways, :scale, :tex, :tstep)
+      @pose, @pfirst, @plast, @shape, @tcol = whole(:pose, :pfirst, :plast, :shape, :tcol)
+      @cx, @theight, @ttop = whole(:cx, :theight, :ttop)
+      @lstrip, @s0, @s1, @tstrip = whole(:lstrip, :s0, :s1, :tstrip)
+    end
+
+    # Scratch variables, named with the leading underscore this project gives working room.
+    def whole(*names) = names.map { |name| @b.var(:"_#{name}", 0) }
+    def fraction(*names) = names.map { |name| @b.var(:"_#{name}", 0.0) }
+
+    # A table must hold something, and a floor need hold none of a kind of thing — there are
+    # levels with no doors and plenty with nothing secret in them. One unused entry keeps the
+    # table legal, and nothing ever reads it because nothing ever meets one of these.
+    def some(values) = values.empty? ? [0] : values
+
+    # The pictures of the things that stand in the level, the record of how far away each strip
+    # of the screen ended up, and the guards themselves.
+    def declare_the_standing
+      return if @guards.nil? || @guards.empty?
+
+      b = @b
+      declare_the_standing_scratch
+      b.image :things, width: @things.width, height: @things.height,
+                       data: @things.pixels, transparent: true
+
+      # HOW FAR AWAY EACH STRIP ENDED UP, kept as the HEIGHT the strip was drawn at rather
+      # than as a distance. The two say the same thing — a wall twice as far away is half as
+      # tall — but the height is the number the drawing already worked out, so a guard is put
+      # behind a wall by comparing two numbers that both exist rather than by working out a
+      # second distance. Taller means nearer.
+      #
+      # It is also what puts one guard in front of another: a guard that draws writes its own
+      # height here, so a further one arriving later is turned away by the nearer one and no
+      # sorting is needed.
+      @zbuf = b.list :seen_at, capacity: COLUMNS
+      COLUMNS.times { @zbuf << 0 }
+
+      poses = @guards.pictures
+      @thing_slice = @things.slice_of(poses.first)
+      @pose_first = b.table :pose_first, poses.map { |p| @things.first_column(p) }, width: :byte
+      @pose_last = b.table :pose_last, poses.map { |p| @things.last_column(p) }, width: :byte
+
+      @guard = b.pool :guard, x: 0.0, y: 0.0, facing: 0,
+                              capacity: @guards.count,
+                              estimate: { usually: @guards.count }
+      @guards.guards.each do |guard|
+        # A guard stands in the middle of his cell, like the player does.
+        @guard.spawn x: guard.x + 0.5, y: guard.y + 0.5, facing: facing_angle(guard.facing)
+      end
+    end
+
+    # Everything standing in the level, after the walls it has to stand behind.
+    def draw_the_standing
+      return if @guard.nil?
+
+      # Which way the eye is pointing, worked out once for the whole floor's worth rather than
+      # once per guard.
+      @vcos.set(@sin[@view + QUARTER])
+      @vsin.set(@sin[@view])
+      @guard.each { |guard| draw_a_guard(guard) }
+    end
+
+    # ONE GUARD, TURNED FROM A PLACE IN THE WORLD INTO A PLACE ON THE SCREEN.
+    #
+    # Two numbers do it. How far in front of the eye he is, measured along the way the player
+    # is looking, is what decides his size — the same perspective divide the walls do, against
+    # the same distance the walls are measured by, which is why he sits among them properly.
+    # How far to the SIDE of that line he is, divided by the same distance, is where he lands
+    # across the screen.
+    def draw_a_guard(guard)
+      b = @b
+      @rx.set(guard.x - @px)
+      @ry.set(guard.y - @py)
+
+      @fwd.set(@rx * @vcos)
+      @fwd.add(@ry * @vsin)
+      @fwd.sub NUDGE
+
+      # Behind the eye, or all but touching it. Everything below costs something, and this one
+      # comparison is what a guard on the far side of the floor pays.
+      (@fwd > NEAREST).then do
+        @sideways.set(@ry * @vcos)
+        @sideways.sub(@rx * @vsin)
+
+        @scale.set(WALL_SCALE / @fwd)
+        @theight.set((@scale + 0.5).to_i)
+        @cx.set((@sideways * @scale).to_i + (ACROSS / 2))
+        @ttop.set(HORIZON - (@theight / 2))
+
+        pick_a_pose(guard)
+        draw_the_strips
+      end
+    end
+
+    # WHICH OF THE EIGHT PICTURES SHOWS: the angle between the way the guard is facing and the
+    # way the player is standing from him, dropped into one of eight buckets.
+    #
+    # The angle from the player to the guard is not worked out again. The strips of this view
+    # are one angle unit apart, so where the guard landed across the screen IS that angle, and
+    # turning it half way round gives the angle from the guard back to the player. Half a
+    # bucket is added first so that a boundary falls between two poses rather than on one, and
+    # a guard looking straight at you does not flicker between two pictures as you sidestep.
+    def pick_a_pose(guard)
+      @pose.set(guard.facing - @view)
+      @pose.sub((@cx - (ACROSS / 2)) / COLUMN_W)
+      @pose.add((TURN / 2) + (TURN / (Guards::POSES * 2)))
+      @pose.set(@pose % TURN)
+      @pose.set(@pose / (TURN / Guards::POSES))
+
+      @pfirst.set(@pose_first[@pose])
+      @plast.set(@pose_last[@pose])
+      @shape.set(@thing_slice + (@pose * TEX))
+    end
+
+    # A GUARD IS A SQUARE the same size as a wall at his distance, so his width on screen is
+    # his height, and he is drawn as strips of it exactly as a wall is.
+    #
+    # Only the strips that show are walked. A guard you are nearly standing on is hundreds of
+    # pixels across and eighty of them at most are on screen, and one at the edge of the view
+    # is mostly past it.
+    def draw_the_strips
+      b = @b
+      @lstrip.set((@cx - (@theight / 2)) / COLUMN_W)
+      @s0.set @lstrip
+      @s0.clamp 0, COLUMNS
+      @s1.set(@lstrip + (@theight / COLUMN_W))
+      @s1.clamp 0, COLUMNS
+
+      (@s1 > @s0).then do
+        # How far along the picture one strip carries, and where the first strip that shows
+        # starts. One divide for the whole guard rather than one per strip.
+        @tstep.set((TEX * COLUMN_W).to_f / @theight.to_f)
+        @tex.set((@s0 - @lstrip).to_f * @tstep)
+
+        b.repeat(@s1 - @s0) do |step|
+          @tstrip.set(@s0 + step)
+          @tcol.set(@tex.to_i)
+          @tex.add @tstep
+          draw_a_strip
+        end
+      end
+    end
+
+    # One strip of a guard, if there is anything of him in it and nothing nearer in the way.
+    #
+    # THE EMPTY STRIPS ARE SKIPPED BY NAME. A guard fills about a third of the width of his
+    # square, and the rest is room showing through. Drawing those strips would cost the walk
+    # down the screen for nothing — and worse, each would claim its part of the screen in the
+    # record above, rubbing out anything standing behind him.
+    def draw_a_strip
+      (@tcol >= @pfirst).then do
+        (@tcol <= @plast).then do
+          (@theight > @zbuf[@tstrip]).then do
+            @zbuf[@tstrip] = @theight
+            @b.draw_column_at :things, slice: @shape + @tcol, x: @tstrip * COLUMN_W,
+                                       top: @ttop, height: @theight, width: COLUMN_W
+          end
+        end
+      end
     end
 
     # What one cell of the map table says. See the note where the table is declared.
@@ -566,16 +772,14 @@ module Wolf3D
     # answer picks between them for nothing — which is where the whole game gets its sense of
     # light.
     def draw_strip(col)
-      x = (col * COLUMN_W)
-
       # A door has already said where along its panel the ray landed, and which picture it
       # wears — its panel does not turn, so there is nothing to pick.
       (@isdoor == 1).then do
-        strip(x, (@wall * TEX) + texture_column)
+        strip(col, (@wall * TEX) + texture_column)
       end.else do
         (@side == 0).then { @wallx.set(@py + (@dist * @dy)) }
                     .else { @wallx.set(@px + (@dist * @dx)) }
-        strip(x, (@wall * TEX) + texture_column)
+        strip(col, (@wall * TEX) + texture_column)
       end
     end
 
@@ -586,10 +790,18 @@ module Wolf3D
     # The whole strip is one walk down the screen. Its pixels all show the same column of the
     # same picture at the same height, so asking for them one at a time worked the same answer
     # out three times over.
-    def strip(x, slice)
-      (@hit == 1).then do
-        @b.draw_column_at :walls, slice: slice, x: x, top: @top, height: @colh, width: COLUMN_W
+    #
+    # The height is also left behind for whatever stands in the room, which reads it to know
+    # what it is behind. A ray that met nothing leaves nothing, so a guard at the end of an
+    # open corridor is not held back by a wall that is not there.
+    def strip(col, slice)
+      b = @b
+      drawn = (@hit == 1).then do
+        @zbuf[col] = @colh if @zbuf
+        b.draw_column_at :walls, slice: slice, x: col * COLUMN_W, top: @top, height: @colh,
+                                 width: COLUMN_W
       end
+      drawn.else { @zbuf[col] = 0 } if @zbuf
     end
   end
 end
