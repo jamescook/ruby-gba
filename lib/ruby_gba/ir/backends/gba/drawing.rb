@@ -300,24 +300,26 @@ module RubyGBA
 
             done = gensym
             emit_column_setup(node, bmp, done)
-            emit_clip_column_rows(done)
+            emit_column_runs(node.name, bmp, done) do |leave|
+              emit_clip_column_rows(leave)
 
-            # The screen's left and right edges are settled ONCE here, because a strip has one
-            # x for its whole height. A strip wholly on screen then writes with nothing to
-            # test; one hanging off an edge takes a second copy of the rows that tests each
-            # pixel, which is the rare case and pays for itself only there. A strip one pixel
-            # wide has no second case: it is on the screen or it draws nothing.
-            clipped = gensym
-            emit(ASM.cmp_imm(COLUMN_X, 0))
-            emit_branch(:bcond, clipped, cond: :lt)
-            emit(ASM.load_immediate(TMP, SCREEN_WIDTH - width))
-            emit(ASM.cmp_reg(COLUMN_X, TMP))
-            emit_branch(:bcond, clipped, cond: :gt)
+              # The screen's left and right edges are settled ONCE here, because a strip has
+              # one x for its whole height. A strip wholly on screen then writes with nothing
+              # to test; one hanging off an edge takes a second copy of the rows that tests
+              # each pixel, which is the rare case and pays for itself only there. A strip one
+              # pixel wide has no second case: it is on the screen or it draws nothing.
+              clipped = gensym
+              emit(ASM.cmp_imm(COLUMN_X, 0))
+              emit_branch(:bcond, clipped, cond: :lt)
+              emit(ASM.load_immediate(TMP, SCREEN_WIDTH - width))
+              emit(ASM.cmp_reg(COLUMN_X, TMP))
+              emit_branch(:bcond, clipped, cond: :gt)
 
-            emit_column_rows { emit_draw_column_row(bmp, width, clipped: false) }
-            emit_branch(:b, done) if width > 1
-            place_label(clipped)
-            emit_column_rows { emit_draw_column_row(bmp, width, clipped: true) } if width > 1
+              emit_column_rows { emit_draw_column_row(bmp, width, clipped: false) }
+              emit_branch(:b, leave) if width > 1
+              place_label(clipped)
+              emit_column_rows { emit_draw_column_row(bmp, width, clipped: true) } if width > 1
+            end
             place_label(done)
           end
 
@@ -349,9 +351,77 @@ module RubyGBA
             # its rows are a whole picture width apart.
             eval_value(node.slice)
             emit_clamp_to(ACC, bmp.width - 1)
+            emit_column_runs_pointer(node.name) # ...and where THIS column holds its pixels
             emit(ASM.lsl_imm(ACC, ACC, 1)) if pixel_bytes == 2
             emit_load_data_address(COLUMN_SRC, blob)
             emit(ASM.add_reg(COLUMN_SRC, COLUMN_SRC, ACC))
+          end
+
+          # This column's list of the stretches of rows that hold pixels. ACC holds the
+          # picture's column coming in and still holds it going out.
+          def emit_column_runs_pointer(name)
+            return unless @run_bitmaps.include?(name)
+
+            emit(ASM.lsl_imm(SPARE, ACC, 1)) # a halfword a column
+            emit_load_data_address(TMP, runs_start_blob(name))
+            emit(ASM.add_reg(TMP, TMP, SPARE))
+            emit(ASM.load_halfword(SPARE, TMP))
+            emit_load_data_address(COLUMN_RUNS, runs_blob(name))
+            emit(ASM.add_reg(COLUMN_RUNS, COLUMN_RUNS, SPARE))
+          end
+
+          # THE WALK, ONCE PER STRETCH OF PIXELS instead of once down the whole square.
+          #
+          # A picture that ships no list is drawn in one pass over its full height, which is
+          # what every picture did before there were lists and what an opaque one still does.
+          # One that ships one goes round here, and the body it yields to is emitted once
+          # however many stretches a column turns out to have.
+          #
+          # +bail+ is where a column with no rows left to draw goes; the block is handed the
+          # label to jump to when ITS stretch has none, which is the next stretch rather than
+          # the end.
+          #
+          # THE PICTURE CANNOT CHANGE, however the arithmetic rounds. The walk still asks each
+          # row it does reach whether its pixel is see-through, so a stretch a row too wide
+          # costs one row and draws nothing extra; and a stretch is never too NARROW, because
+          # its first row is rounded down and its last is rounded up with a row to spare.
+          def emit_column_runs(name, bmp, bail)
+            unless @run_bitmaps.include?(name)
+              emit(ASM.load_immediate(SPARE, 0))
+              emit(ASM.mov_reg(HIGH, COLUMN_ROWS))
+              return yield(bail)
+            end
+
+            shift = bmp.height.bit_length - 1 # only shipped for a picture as tall as a power of two
+            # The full height and the unclipped top, which every stretch measures itself
+            # against and the walk itself spends. There is one register spare in a column and
+            # the list needs it, so these two wait here.
+            emit(ASM.push(COLUMN_Y, COLUMN_ROWS))
+
+            top = gensym
+            finish = gensym
+            place_label(top)
+            emit(ASM.ldrb_offset(ACC, COLUMN_RUNS, 0))
+            emit(ASM.cmp_imm(ACC, RUNS_END))
+            emit_branch(:bcond, finish, cond: :eq)
+            emit(ASM.ldrb_offset(HIGH, COLUMN_RUNS, 1))
+            emit(ASM.add_imm(COLUMN_RUNS, COLUMN_RUNS, 2))
+            emit(ASM.ldr_offset(COLUMN_Y, STACK, 0))
+            emit(ASM.ldr_offset(COLUMN_ROWS, STACK, 4))
+
+            emit(ASM.mul(TMP, ACC, COLUMN_ROWS))
+            emit(ASM.lsr_imm(SPARE, TMP, shift))  # the stretch's first screen row...
+            emit(ASM.add_imm(HIGH, HIGH, 1))
+            emit(ASM.mul(TMP, HIGH, COLUMN_ROWS))
+            emit(ASM.lsr_imm(HIGH, TMP, shift))
+            emit(ASM.add_imm(HIGH, HIGH, 1))      # ...and one past its last, with a row to spare
+
+            after = gensym
+            yield(after)
+            place_label(after)
+            emit_branch(:b, top)
+            place_label(finish)
+            emit(ASM.pop(COLUMN_Y, COLUMN_ROWS))
           end
 
           # WHICH ROWS OF THE COLUMN ARE ACTUALLY ON THE SCREEN, worked out once before the
@@ -370,19 +440,25 @@ module RubyGBA
           def emit_clip_column_rows(done)
             above = gensym
             emit(ASM.rsb_imm(ACC, COLUMN_Y, 0)) # ACC = -top: rows above the screen...
-            emit(ASM.cmp_imm(ACC, 0))
+            emit(ASM.cmp_reg(ACC, SPARE))
             emit_branch(:bcond, above, cond: :ge)
-            emit(ASM.load_immediate(ACC, 0))    # ...or none, when it starts on the screen
+            emit(ASM.mov_reg(ACC, SPARE))       # ...or where the picture's own pixels start
             place_label(above)
 
-            # Stop at the bottom of the screen, then take off the rows skipped at the top.
+            # Stop at the bottom of the screen, or after the picture's last pixel in this
+            # column, whichever comes first — then take off the rows skipped at the top.
             under = gensym
             emit(ASM.load_immediate(TMP, SCREEN_HEIGHT))
             emit(ASM.sub_reg(TMP, TMP, COLUMN_Y)) # one past the last row that shows
-            emit(ASM.cmp_reg(COLUMN_ROWS, TMP))
+            emit(ASM.cmp_reg(TMP, HIGH))
             emit_branch(:bcond, under, cond: :le)
-            emit(ASM.mov_reg(COLUMN_ROWS, TMP))
+            emit(ASM.mov_reg(TMP, HIGH))
             place_label(under)
+            past = gensym
+            emit(ASM.cmp_reg(COLUMN_ROWS, TMP))
+            emit_branch(:bcond, past, cond: :le)
+            emit(ASM.mov_reg(COLUMN_ROWS, TMP))
+            place_label(past)
             emit(ASM.sub_reg(COLUMN_ROWS, COLUMN_ROWS, ACC))
             emit(ASM.cmp_imm(COLUMN_ROWS, 0))
             emit_branch(:bcond, done, cond: :le)

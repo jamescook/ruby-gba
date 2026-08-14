@@ -620,25 +620,27 @@ module RubyGBA
 
             done = gensym
             emit_column_setup(node, bmp, done, blob: indexed_blob(node.name), pixel_bytes: 1)
-            # Clipped BEFORE the destination is worked out, so the destination points at the
-            # first row that shows rather than at a row above the screen.
-            emit_clip_column_rows(done)
-            emit_column_destination
+            emit_column_runs(node.name, bmp, done) do |leave|
+              # Clipped BEFORE the destination is worked out, so the destination points at the
+              # first row that shows rather than at a row above the screen.
+              emit_clip_column_rows(leave)
+              emit_column_destination
 
-            # A strip wholly on the screen writes with nothing to test; one hanging off an
-            # edge takes a second copy of the rows that tests each of its pixels. A strip one
-            # pixel wide has no second case — it is on the screen or it draws nothing.
-            clipped = gensym
-            emit(ASM.cmp_imm(COLUMN_X, 0))
-            emit_branch(:bcond, clipped, cond: :lt)
-            emit(ASM.load_immediate(TMP, SCREEN_WIDTH - width))
-            emit(ASM.cmp_reg(COLUMN_X, TMP))
-            emit_branch(:bcond, clipped, cond: :gt)
+              # A strip wholly on the screen writes with nothing to test; one hanging off an
+              # edge takes a second copy of the rows that tests each of its pixels. A strip one
+              # pixel wide has no second case — it is on the screen or it draws nothing.
+              clipped = gensym
+              emit(ASM.cmp_imm(COLUMN_X, 0))
+              emit_branch(:bcond, clipped, cond: :lt)
+              emit(ASM.load_immediate(TMP, SCREEN_WIDTH - width))
+              emit(ASM.cmp_reg(COLUMN_X, TMP))
+              emit_branch(:bcond, clipped, cond: :gt)
 
-            emit_buffered_column_bodies(bmp, width, clear, Parity.of(node.x))
-            emit_branch(:b, done) if width > 1
-            place_label(clipped)
-            emit_buffered_column_rows { emit_buffered_column_row(bmp, width, clear, nil) } if width > 1
+              emit_buffered_column_bodies(bmp, width, clear, Parity.of(node.x))
+              emit_branch(:b, leave) if width > 1
+              place_label(clipped)
+              emit_buffered_column_rows { emit_buffered_column_row(bmp, width, clear, nil) } if width > 1
+            end
             place_label(done)
           end
 

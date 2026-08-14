@@ -144,6 +144,30 @@ class TestCostPricing < CostModelTest
     assert_operator Cost.new.steady_cost(blit_of(0x8000)), :>, Cost.new.steady_cost(blit_of(nil))
   end
 
+  # A STRETCHED COLUMN IS PRICED BY WHAT IS IN THE PICTURE, not by how tall it is drawn. The
+  # console walks the stretches of rows that hold pixels and skips the see-through ones, so a
+  # scaled sprite of a lamp in a square of nothing costs a fraction of a solid one the same
+  # size — which is the difference between a first-person view that fits in a frame and one
+  # that does not.
+  def test_a_stretched_column_costs_what_the_picture_holds_not_its_height
+    def column_of(pixels, transparent)
+      Build.program(
+        Build.screen(:bitmap),
+        Build.bitmap(:s, width: 1, height: 8, pixels: pixels.pack("v*"), transparent: transparent),
+        Build.loop_(Build.wait_vblank,
+                    Build.draw_column_at(:s, Build.int(0), Build.int(0), Build.int(0),
+                                         Build.int(64), width: 1)),
+      )
+    end
+
+    solid = column_of(Array.new(8, 0x1234), nil)
+    # The same picture with the middle six rows see-through: a quarter of it is really there.
+    mostly_gone = column_of([0x1234, *Array.new(6, 0x8000), 0x1234], 0x8000)
+
+    assert_operator Cost.new.steady_cost(mostly_gone), :<, Cost.new.steady_cost(solid),
+                    "a picture that is mostly see-through walks fewer rows"
+  end
+
   # The cost model reads the node's font, so a denser/bigger font costs more: the
   # same digits drawn in the compact :tiny font plot fewer pixels than in :default.
   def test_the_cost_of_text_follows_the_node_font

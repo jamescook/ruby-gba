@@ -889,6 +889,11 @@ module RubyGBA
         # A strip is ONE walk down the screen whatever its width — the picture is read once and
         # the screen row found once — so the pixels beside the first are only their own writes,
         # which is far less than a second walk.
+        #
+        # ...and a SEE-THROUGH picture is charged for the rows that hold pixels rather than for
+        # its height, because those are the only ones walked. A scaled sprite is mostly nothing
+        # — a lamp in a square of ceiling, a clip of ammunition in a square of floor — so its
+        # height is a bad guide to what drawing it costs.
         def draw_column_cost(node)
           rows = const_side(node.height)
           # The divisor is the height the game works out, so this is the dear kind of divide,
@@ -896,7 +901,14 @@ module RubyGBA
           divide = runtime_divide_weight(nil)
           return divide unless rows
 
-          divide + (rows * column_row_weight(node))
+          divide + (rows * column_walked_share(node) * column_row_weight(node))
+        end
+
+        # How much of a stretched column is really walked. A picture the model has never seen
+        # is taken at its word.
+        def column_walked_share(node)
+          bmp = @bitmaps && @bitmaps[node.name]
+          bmp&.transparent ? bmp.walked_share : 1.0
         end
 
         def column_row_weight(node)
