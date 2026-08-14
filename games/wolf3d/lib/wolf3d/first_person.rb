@@ -87,11 +87,28 @@ module Wolf3D
       declare
     end
 
-    # One frame: the room, then a wall column per strip, then whatever is standing in it.
+    # One frame: what happens, and then what you see of it.
     def update
+      play
+      draw
+    end
+
+    # WHAT HAPPENS THIS FRAME and nothing about the picture: where the player went, which doors
+    # are moving, which secret wall is sliding, what was picked up.
+    #
+    # Apart from being the honest half of a frame, this is the half a test of doors wants. The
+    # drawing costs about a hundred times what this does — eighty rays and eighty stretched
+    # columns against a few dozen statements — so a test that walks a player across a room to
+    # see whether a door opens spends all its time on a picture it never looks at.
+    def play
+      walk
+    end
+
+    # ...and what the player sees of it: the room, a wall column per strip, then whatever is
+    # standing in the room, which has to go last so it can be put behind the walls.
+    def draw
       @b.dma_fill_rect 0, 0, 240, HORIZON, CEILING
       @b.dma_fill_rect 0, HORIZON, 240, 160 - HORIZON, FLOOR_COLOR
-      walk
       @b.repeat(COLUMNS) { |col| cast(col) }
       draw_the_standing
     end

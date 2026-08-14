@@ -23,7 +23,11 @@ class TestPushwalls < Minitest::Test
     @pushwalls = Wolf3D::Pushwalls.new(@level)
   end
 
-  def program
+  # THE GAME WITHOUT THE PICTURE. Everything below asks how far the wall has got and where the
+  # player is; none of it reads a pixel. Drawing costs about a hundred times what the game does,
+  # so leaving it in means casting eighty rays a frame for two hundred frames to read a counter.
+  # What the wall LOOKS like is a question of its own, and it is asked once, further down.
+  def program(drawing: false)
     atlas = Wolf3D::WallAtlas.new(@vswap, Wolf3D::Palette.game, @level, doors: @doors)
     level = @level
     doors = @doors
@@ -33,7 +37,7 @@ class TestPushwalls < Minitest::Test
       screen :bitmap, tear_free: true
       view = Wolf3D::FirstPerson.new(build: self, level: level, atlas: atlas,
                                      doors: doors, pushwalls: pushwalls)
-      game_loop { view.update }
+      game_loop { drawing ? view.update : view.play }
     end.program
   end
 
@@ -97,6 +101,65 @@ class TestPushwalls < Minitest::Test
     assert_equal 1, gone(one), "one cell along after the first stretch"
     assert_equal Wolf3D::Pushwalls::DISTANCE, gone(two), "and two after the second"
     assert_equal Wolf3D::Pushwalls::DISTANCE, gone(later), "and then it stops for good"
+  end
+
+  # WHAT A RAY SEES, which is the other half of a secret wall and the half no counter can show.
+  #
+  # The map cannot say where a push wall IS, because the map is in the cartridge and the wall
+  # moves. So the map marks every cell one could ever reach, and the ray works out where it is
+  # now: its home, plus how far it has gone. Get that wrong in either direction and the wall is
+  # either drawn where it no longer stands or invisible where it does.
+  #
+  # Standing right in front of it: shut in, the wall fills the view. Once it has slid two cells
+  # away, the same look down the same corridor shows it much smaller, and the cells it passed
+  # through are seen straight past.
+  SIDE = 16
+  WALL_AT = 12
+  BESIDE_IT = 11
+
+  # A corridor east with a secret wall across it and floor for it to slide into.
+  def secret_corridor
+    cells = Array.new(SIDE * SIDE, Wolf3D::Level::FLOOR)
+    things = Array.new(SIDE * SIDE, 0)
+    SIDE.times do |y|
+      SIDE.times do |x|
+        edge = x.zero? || y.zero? || x == SIDE - 1 || y == SIDE - 1
+        cells[(y * SIDE) + x] = Wolf3D::Fixture::Release::WALL if edge || x == WALL_AT
+      end
+    end
+    things[(8 * SIDE) + WALL_AT] = Wolf3D::Level::PUSHWALL
+    things[(8 * SIDE) + BESIDE_IT] = Wolf3D::Level::FACINGS.key(:east)
+    Wolf3D::Level.new(name: "Secret", width: SIDE, height: SIDE, walls: cells, things: things)
+  end
+
+  def secret_program(level)
+    doors = Wolf3D::Doors.new(level, @vswap)
+    pushwalls = Wolf3D::Pushwalls.new(level)
+    atlas = Wolf3D::WallAtlas.new(@vswap, Wolf3D::Palette.game, level, doors: doors)
+
+    RubyGBA.game("PUSH", code: "ZPSH", maker: "01") do
+      screen :bitmap, tear_free: true
+      view = Wolf3D::FirstPerson.new(build: self, level: level, atlas: atlas,
+                                     doors: doors, pushwalls: pushwalls)
+      game_loop { view.update }
+    end.program
+  end
+
+  # How far down the screen the wall ahead starts, at the middle of the view.
+  def wall_top(run)
+    (0...FP::HORIZON).find { |y| run.screen.pixel(120, y) != FP::CEILING } || FP::HORIZON
+  end
+
+  def test_a_ray_sees_the_wall_where_it_is_now_and_not_where_it_started
+    program = secret_program(secret_corridor)
+    gone = (Wolf3D::Pushwalls::FRAMES_PER_CELL * Wolf3D::Pushwalls::DISTANCE) + 4
+
+    before = Reference.new.run(program, frames: 3)
+    after = Reference.new.input_each_frame { |f| f == 2 ? [:a] : [] }.run(program, frames: gone)
+
+    assert_equal 0, wall_top(before), "up against it, the wall fills the view"
+    assert_operator wall_top(after), :>, 20,
+                    "two cells away it stands shorter, and the cells it left are seen past"
   end
 
   # The point of the whole thing: where it stood is now a way through.
