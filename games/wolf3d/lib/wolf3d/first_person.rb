@@ -62,17 +62,6 @@ module Wolf3D
     WALK = 0.07
     TURN_SPEED = 6
 
-    # HOW FAR FORWARD A STANDING THING IS NUDGED before its distance is used. A guard stands in
-    # the middle of his cell, so half of him is in the cell behind — which can be a wall, and
-    # then the wall would be drawn over his front. Moving him a quarter of a cell toward the
-    # eye settles it, and it is what the original does.
-    NUDGE = 0.25
-
-    # ...and how near he can get before he is not drawn at all. The height is one over the
-    # distance, so a thing at arm's length is thousands of pixels tall and one at nothing at
-    # all does not fit in a number.
-    NEAREST = 0.34
-
     # What the player starts with. A hundred of health and eight bullets, which is what the
     # original hands you at the top of a floor.
     START_HEALTH = 100
@@ -81,13 +70,15 @@ module Wolf3D
     CEILING = RubyGBA::Color.rgb(7, 7, 9)
     FLOOR_COLOR = RubyGBA::Color.rgb(12, 11, 10)
 
-    def initialize(build:, level:, atlas:, doors:, pushwalls:, guards: nil, things: nil)
+    def initialize(build:, level:, atlas:, doors:, pushwalls:, guards: nil, things: nil,
+                   scenery: nil)
       @b = build
       @level = level
       @atlas = atlas
       @doors = doors
       @pushwalls = pushwalls
       @guards = guards
+      @scenery = scenery
       @things = things
       declare
     end
@@ -110,12 +101,14 @@ module Wolf3D
     # too while the death is playing out.
     def play
       (@health > 0).then { walk }
-      return unless @mind
+      return unless @standing
 
       # Which way the eye points, worked out once for the frame: the shot needs it and so does
-      # every guard the view draws.
+      # everything the view draws standing in the room.
       @vcos.set(@sin[@view + QUARTER])
       @vsin.set(@sin[@view])
+      return unless @mind
+
       (@health > 0).then { fire }
       @mind.update
     end
@@ -137,7 +130,7 @@ module Wolf3D
       @b.dma_fill_rect 0, 0, 240, HORIZON, CEILING
       @b.dma_fill_rect 0, HORIZON, 240, 160 - HORIZON, FLOOR_COLOR
       @b.repeat(COLUMNS) { |col| cast(col) }
-      draw_the_standing
+      @standing&.draw
     end
 
     private
@@ -171,6 +164,18 @@ module Wolf3D
       # IS here does it go on to ask which kind, and by then the ray has stopped anyway.
       @world = b.table :world, @level.each_cell.map { |x, y| cell_value(x, y) }
 
+      # WHICH CELLS HOLD SOMETHING A FOOT CANNOT PASS, and it is a table of its own rather than
+      # a fifth meaning in the one above. A barrel is the first thing in this game that stops
+      # you without being made of wall: your feet must not go there, and a ray MUST — you can
+      # see past a barrel, and a ray that stopped at one would leave a barrel-shaped hole of
+      # nothing in the room behind it.
+      #
+      # The walk over the map is by far the hottest thing here and it reads the table above
+      # thousands of times a frame. Keeping this apart means the walk never learns the
+      # difference, and the cost lands where it belongs: on the two questions a pair of feet
+      # asks each frame.
+      @blocked = declare_the_blocking
+
       # How far open each door is: 0 is shut, 1 is out of the way. A door is only ever moving
       # toward one or the other, so this one number is its whole state, and the count beside it
       # is how long it still has to stand open.
@@ -197,6 +202,7 @@ module Wolf3D
       @key_taken = b.list :key_taken, capacity: [key_cells.length, 1].max
       @key_cell = b.table :key_cell, some(key_cells.map { |c| c[:cell] })
       @key_bit = b.table :key_bit, some(key_cells.map { |c| c[:bit] }), width: :byte
+      @key_thing = b.table :key_thing, some(key_cells.map { |c| c[:thing] }), width: :half
 
       b.image :walls, width: @atlas.width, height: @atlas.height, data: @atlas.pixels
 
@@ -241,7 +247,7 @@ module Wolf3D
       @sidex, @sidey, @dist, @seen, @wallx = fraction(:sidex, :sidey, :dist, :seen, :wallx)
 
       # THE PLAYER'S FEET: what is under them, where a step would land, and whether it may.
-      @foot, @here, @can = whole(:foot, :here, :can)
+      @foot, @here, @can, @spot = whole(:foot, :here, :can, :spot)
       @nx, @ny, @stepx, @stepy = fraction(:nx, :ny, :stepx, :stepy)
 
       # DOORS. Which one, how far along its panel the ray landed, and how far it has slid.
@@ -255,22 +261,6 @@ module Wolf3D
       @across, @along = fraction(:across, :along)
     end
 
-    # THINGS THAT STAND IN THE ROOM: which way the eye points, where one is relative to it, and
-    # what that comes to on screen — a picture, a size, and the strips it covers.
-    #
-    # Declared with the guards rather than with the rest, and only when a floor has any. Not
-    # tidiness: the quick memory a variable lives in is the same quick memory the framework
-    # keeps the busiest routines in, so twenty variables a floor never reads are twenty
-    # variables' worth of room the ray walk does not get. It measured as a frame's worth of
-    # difference on a floor with nothing standing in it.
-    def declare_the_standing_scratch
-      @vcos, @vsin, @rx, @ry = fraction(:vcos, :vsin, :rx, :ry)
-      @fwd, @sideways, @scale, @tex, @tstep = fraction(:fwd, :sideways, :scale, :tex, :tstep)
-      @pose, @pfirst, @plast, @shape, @tcol = whole(:pose, :pfirst, :plast, :shape, :tcol)
-      @cx, @theight, @ttop = whole(:cx, :theight, :ttop)
-      @lstrip, @s0, @s1, @tstrip = whole(:lstrip, :s0, :s1, :tstrip)
-    end
-
     # Scratch variables, named with the leading underscore this project gives working room.
     def whole(*names) = names.map { |name| @b.var(:"_#{name}", 0) }
     def fraction(*names) = names.map { |name| @b.var(:"_#{name}", 0.0) }
@@ -280,41 +270,38 @@ module Wolf3D
     # table legal, and nothing ever reads it because nothing ever meets one of these.
     def some(values) = values.empty? ? [0] : values
 
-    # The pictures of the things that stand in the level, the record of how far away each strip
-    # of the screen ended up, and the guards themselves.
+    # A floor whose scenery all lets you through — and every floor, until there is scenery at
+    # all — needs no table and pays nothing for one.
+    def declare_the_blocking
+      return nil if @scenery.nil? || @scenery.empty?
+
+      cells = @level.each_cell.map { |x, y| @scenery.blocks?(x, y) ? 1 : 0 }
+      return nil if cells.none?(1)
+
+      @b.table :blocked, cells, width: :byte
+    end
+
+    # WHAT STANDS IN THE LEVEL, and it is a piece of work of its own: the guards, the scenery,
+    # and the one way both of them get on the screen. All this end has to do is bring them into
+    # being in the right order and hand over what they need.
     def declare_the_standing
+      return unless Billboards.needed?(scenery: @scenery, guards: @guards)
+
+      # Which way the eye points, worked out once a frame. The shot needs it, every standing
+      # thing needs it, and it is here rather than with the rest of the working room because a
+      # floor with nothing standing in it never wants it.
+      @vcos, @vsin = fraction(:vcos, :vsin)
+
+      declare_the_guards
+      @standing = Billboards.new(build: @b, things: @things, scenery: @scenery,
+                                 guards: @guards, pool: @guard, mind: @mind,
+                                 eye: { x: @px, y: @py, cos: @vcos, sin: @vsin, angle: @view })
+    end
+
+    def declare_the_guards
       return if @guards.nil? || @guards.empty?
 
       b = @b
-      declare_the_standing_scratch
-      b.image :things, width: @things.width, height: @things.height,
-                       data: @things.pixels, transparent: true
-
-      # HOW FAR AWAY EACH STRIP ENDED UP, kept as the HEIGHT the strip was drawn at rather
-      # than as a distance. The two say the same thing — a wall twice as far away is half as
-      # tall — but the height is the number the drawing already worked out, so a guard is put
-      # behind a wall by comparing two numbers that both exist rather than by working out a
-      # second distance. Taller means nearer.
-      #
-      # It is also what puts one guard in front of another: a guard that draws writes its own
-      # height here, so a further one arriving later is turned away by the nearer one and no
-      # sorting is needed.
-      @zbuf = b.list :seen_at, capacity: COLUMNS
-      COLUMNS.times { @zbuf << 0 }
-
-      # WHICH COLUMNS OF EACH PICTURE hold anything, read by where the picture sits in the row
-      # rather than by which way the guard is turned — a shooting guard is a different shape
-      # from a walking one, and both are asked the same question.
-      pictures = @guards.pictures
-      @pose_first = b.table :pose_first, pictures.map { |p| @things.first_column(p) }, width: :byte
-      @pose_last = b.table :pose_last, pictures.map { |p| @things.last_column(p) }, width: :byte
-
-      # WHICH WAY A GUARD IS POINTING, as this view counts angles. The original numbers its
-      # directions counter-clockwise from east and this view runs its angles clockwise, because
-      # its y grows down the screen — so the two run opposite ways and this is where they meet.
-      @dir_angle = b.table :guard_angle,
-                           (0..Guards::NOWHERE).map { |n| (-n * (TURN / Guards::POSES)) % TURN }
-
       @guard = b.pool :guard, x: 0.0, y: 0.0, dir: 0, state: 0, ticks: 0, wait: 0, togo: 0.0,
                               hp: 0, shown: 0,
                               capacity: @guards.count,
@@ -330,126 +317,9 @@ module Wolf3D
 
       @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
                             world: @world, door_open: @open, walls: { door: DOOR, push: PUSH },
+                            things: @things, blocked: @blocked,
                             player: { x: @px, y: @py, health: @health,
                                       cos: @vcos, sin: @vsin })
-    end
-
-    # Everything standing in the level, after the walls it has to stand behind.
-    def draw_the_standing
-      return if @guard.nil?
-
-      # Which way the eye is pointing was worked out once for the frame already, before the
-      # guards thought — the shot needed it too.
-      @guard.each { |guard| draw_a_guard(guard) }
-    end
-
-    # ONE GUARD, TURNED FROM A PLACE IN THE WORLD INTO A PLACE ON THE SCREEN.
-    #
-    # Two numbers do it. How far in front of the eye he is, measured along the way the player
-    # is looking, is what decides his size — the same perspective divide the walls do, against
-    # the same distance the walls are measured by, which is why he sits among them properly.
-    # How far to the SIDE of that line he is, divided by the same distance, is where he lands
-    # across the screen.
-    def draw_a_guard(guard)
-      b = @b
-      @rx.set(guard.x - @px)
-      @ry.set(guard.y - @py)
-
-      @fwd.set(@rx * @vcos)
-      @fwd.add(@ry * @vsin)
-      @fwd.sub NUDGE
-
-      # WHETHER HE CAN SEE YOU LOOKING AT HIM, which is not vanity: a guard you have your eye on
-      # misses more often, because you could be dodging. The original halves the falloff of his
-      # hit chance for a guard who is off screen, and this is where that is known.
-      guard.shown.set 0
-
-      # Behind the eye, or all but touching it. Everything below costs something, and this one
-      # comparison is what a guard on the far side of the floor pays.
-      (@fwd > NEAREST).then do
-        guard.shown.set 1
-        @sideways.set(@ry * @vcos)
-        @sideways.sub(@rx * @vsin)
-
-        @scale.set(WALL_SCALE / @fwd)
-        @theight.set((@scale + 0.5).to_i)
-        @cx.set((@sideways * @scale).to_i + (ACROSS / 2))
-        @ttop.set(HORIZON - (@theight / 2))
-
-        pick_a_pose(guard)
-        draw_the_strips
-      end
-    end
-
-    # WHICH OF THE EIGHT PICTURES SHOWS: the angle between the way the guard is facing and the
-    # way the player is standing from him, dropped into one of eight buckets.
-    #
-    # The angle from the player to the guard is not worked out again. The strips of this view
-    # are one angle unit apart, so where the guard landed across the screen IS that angle, and
-    # turning it half way round gives the angle from the guard back to the player. Half a
-    # bucket is added first so that a boundary falls between two poses rather than on one, and
-    # a guard looking straight at you does not flicker between two pictures as you sidestep.
-    # A guard who is firing, or hurt, or falling over has ONE picture rather than eight — he is
-    # doing something you see the same way from wherever you stand — so the state says whether
-    # the answer above counts for anything at all.
-    def pick_a_pose(guard)
-      @pose.set(@dir_angle[guard.dir] - @view)
-      @pose.sub((@cx - (ACROSS / 2)) / COLUMN_W)
-      @pose.add((TURN / 2) + (TURN / (Guards::POSES * 2)))
-      @pose.set(@pose % TURN)
-      @pose.set(@pose / (TURN / Guards::POSES))
-
-      @shape.set(@mind.picture_of[guard.state] + (@pose * @mind.turns_of[guard.state]))
-      @pfirst.set(@pose_first[@shape])
-      @plast.set(@pose_last[@shape])
-      @shape.set(@shape * TEX)
-    end
-
-    # A GUARD IS A SQUARE the same size as a wall at his distance, so his width on screen is
-    # his height, and he is drawn as strips of it exactly as a wall is.
-    #
-    # Only the strips that show are walked. A guard you are nearly standing on is hundreds of
-    # pixels across and eighty of them at most are on screen, and one at the edge of the view
-    # is mostly past it.
-    def draw_the_strips
-      b = @b
-      @lstrip.set((@cx - (@theight / 2)) / COLUMN_W)
-      @s0.set @lstrip
-      @s0.clamp 0, COLUMNS
-      @s1.set(@lstrip + (@theight / COLUMN_W))
-      @s1.clamp 0, COLUMNS
-
-      (@s1 > @s0).then do
-        # How far along the picture one strip carries, and where the first strip that shows
-        # starts. One divide for the whole guard rather than one per strip.
-        @tstep.set((TEX * COLUMN_W).to_f / @theight.to_f)
-        @tex.set((@s0 - @lstrip).to_f * @tstep)
-
-        b.repeat(@s1 - @s0) do |step|
-          @tstrip.set(@s0 + step)
-          @tcol.set(@tex.to_i)
-          @tex.add @tstep
-          draw_a_strip
-        end
-      end
-    end
-
-    # One strip of a guard, if there is anything of him in it and nothing nearer in the way.
-    #
-    # THE EMPTY STRIPS ARE SKIPPED BY NAME. A guard fills about a third of the width of his
-    # square, and the rest is room showing through. Drawing those strips would cost the walk
-    # down the screen for nothing — and worse, each would claim its part of the screen in the
-    # record above, rubbing out anything standing behind him.
-    def draw_a_strip
-      (@tcol >= @pfirst).then do
-        (@tcol <= @plast).then do
-          (@theight > @zbuf[@tstrip]).then do
-            @zbuf[@tstrip] = @theight
-            @b.draw_column_at :things, slice: @shape + @tcol, x: @tstrip * COLUMN_W,
-                                       top: @ttop, height: @theight, width: COLUMN_W
-          end
-        end
-      end
     end
 
     # What one cell of the map table says. See the note where the table is declared.
@@ -484,13 +354,15 @@ module Wolf3D
       @pushwalls.codes.map { |code| wall_picture(code) - 1 }
     end
 
-    # Every key lying on this floor: which cell it is on, and which bit picking it up sets.
+    # Every key lying on this floor: which cell it is on, which bit picking it up sets, and
+    # which piece of scenery it is, so that taking it can stop it being drawn.
     def key_cells
       @key_cells ||= @level.each_cell.filter_map do |x, y|
         lock = @level.key_at(x, y)
         next unless lock
 
-        { cell: (y * @level.width) + x, bit: KEY_BITS.fetch(lock) }
+        { cell: (y * @level.width) + x, bit: KEY_BITS.fetch(lock),
+          thing: @scenery&.index_at(x, y) || 0 }
       end
     end
 
@@ -538,7 +410,8 @@ module Wolf3D
     # "and" would work out BOTH sides, and the second one reaches into the list of doors by a
     # number that is only a door number when the first side is true.
     def free?(x, y)
-      @foot.set(@world[(y * @level.width) + x])
+      @spot.set((y * @level.width) + x)
+      @foot.set(@world[@spot])
       @can.set 0
       (@foot == 0).then { @can.set 1 }
       (@foot >= PUSH).then do
@@ -546,13 +419,15 @@ module Wolf3D
         @slot.set(@foot - PUSH)
         @pcell.set(@push_home[@slot])
         @pcell.add(@push_gone[@slot] * @push_step[@slot])
-        (@pcell != (y * @level.width) + x).then { @can.set 1 }
+        (@pcell != @spot).then { @can.set 1 }
       end.else do
         (@foot >= DOOR).then do
           @slot.set(@foot - DOOR)
           (@open[@slot] > DOOR_WALKABLE).then { @can.set 1 }
         end
       end
+      # ...and a barrel in the way stops you on open floor, which nothing else here does.
+      (@blocked[@spot] == 1).then { @can.set 0 } if @blocked
       @can == 1
     end
 
@@ -628,6 +503,9 @@ module Wolf3D
 
     # Walk over a key and you have it. Each one is taken once, and what you carry is a bit per
     # kind — which is all a locked door asks about.
+    #
+    # A key is a piece of scenery like a lamp is, so taking it also has to take it off the
+    # floor: without that you would carry the key and go on seeing it lying there.
     def pick_up_a_key
       return if key_cells.empty?
 
@@ -636,6 +514,7 @@ module Wolf3D
         ((@key_taken[key] == 0) & (@key_cell[key] == @here)).then do
           @key_taken[key] = 1
           @keys.add(@key_bit[key])
+          @standing&.take(@key_thing[key])
         end
       end
     end
@@ -869,12 +748,13 @@ module Wolf3D
     # open corridor is not held back by a wall that is not there.
     def strip(col, slice)
       b = @b
+      depth = @standing&.depth
       drawn = (@hit == 1).then do
-        @zbuf[col] = @colh if @zbuf
+        depth[col] = @colh if depth
         b.draw_column_at :walls, slice: slice, x: col * COLUMN_W, top: @top, height: @colh,
                                  width: COLUMN_W
       end
-      drawn.else { @zbuf[col] = 0 } if @zbuf
+      drawn.else { depth[col] = 0 } if depth
     end
   end
 end

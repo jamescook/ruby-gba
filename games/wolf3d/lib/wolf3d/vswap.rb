@@ -115,6 +115,16 @@ module Wolf3D
 
       def opaque_pixels = @columns.sum { |col| col.count { |v| !v.nil? } }
 
+      # WHICH ROWS OF THE SQUARE HOLD ANYTHING. The file says which COLUMNS do, because that is
+      # what its own drawing walked, but nothing in it says which rows — so they are read off
+      # the pixels. It matters because a great many of these things sit on the FLOOR: a clip of
+      # ammunition fills the bottom sixth of its square and nothing else, and drawn without
+      # knowing that it is a square of see-through pixels with a clip somewhere in it.
+      def rows = @rows ||= (0...SIDE).select { |y| (0...SIDE).any? { |x| @columns[x][y] } }
+
+      def first_row = rows.first || 0
+      def last_row = rows.last || SIDE - 1
+
       private
 
       def decode(chunk)

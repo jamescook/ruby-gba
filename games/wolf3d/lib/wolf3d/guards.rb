@@ -185,8 +185,9 @@ module Wolf3D
                           .uniq.sort.map { |offset| FIRST_STANDING_PICTURE + offset }
     end
 
-    # Where a state's first picture sits in that row.
-    def self.picture_position(state) = pictures.index(FIRST_STANDING_PICTURE + state.picture)
+    # Which picture a state wears, as VSWAP numbers sprites. Where that sits in the row of
+    # pictures a floor ships is the atlas's business, because the row holds the scenery too.
+    def self.picture_of(state) = FIRST_STANDING_PICTURE + state.picture
 
     # Which way a guard put down facing +facing+ is pointing, as the original numbers
     # directions: counter-clockwise from east, so the four square ones are every other number.
