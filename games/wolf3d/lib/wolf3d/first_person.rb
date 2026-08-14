@@ -15,6 +15,11 @@ module Wolf3D
     QUARTER = TURN / 4
     CROSSINGS = 48        # grid lines a ray may cross before it gives up — about 24 cells
 
+    # ...and how many it really crosses, for the estimate only. See the note where the walk is
+    # written: measured over the first floor, from sixty-four places and four ways round each, a
+    # ray crosses four and a bit grid lines and no ray in twenty thousand ever ran out.
+    USUAL_CROSSINGS = 5
+
     # HOW WIDE THE VIEW IS, which is one angle unit per strip — about 56 degrees across, near
     # the 60 the original uses.
     #
@@ -691,7 +696,7 @@ module Wolf3D
       # first floor, from sixty-four places and four ways round each, a ray crosses four and a
       # bit grid lines and no ray in twenty thousand ever ran out. So the ceiling is generous
       # and free, and this is what a frame really pays.
-      b.repeat(CROSSINGS, stop_when: @hit == 1, estimate: { usually: 5 }) do
+      b.repeat(CROSSINGS, stop_when: @hit == 1, estimate: { usually: USUAL_CROSSINGS }) do
         (@sidex < @sidey).then do
           @sidex.add @deltax
           @mapx.add @stepmx
