@@ -227,6 +227,9 @@ module Wolf3D
 
       @dying.showing_the_world.then { draw_the_world }
       @dying.draw
+      # ...and, once that has finished, whether there is another go in you — and if there is not,
+      # the words over the red it left.
+      @lives.update
     end
 
     def draw_the_world
@@ -255,7 +258,7 @@ module Wolf3D
       # the real sine — and if this were the true reciprocal the two would not quite cancel,
       # which shows up as a flat wall whose top edge wanders by a pixel.
       @reach = b.table :reach, (0...TURN).map { |a|
-        toward = held(Math.sin(a * 2 * Math::PI / TURN)).abs
+        toward = as_a_table_holds_it(Math.sin(a * 2 * Math::PI / TURN)).abs
         toward > (1.0 / FAR) ? 1.0 / toward : FAR
       }
 
@@ -290,15 +293,15 @@ module Wolf3D
 
       # Which picture each door wears, worked out while building — a door's panel does not
       # turn, so unlike a wall it needs no choosing as the game runs.
-      @door_picture = b.table :door_picture, some(door_pictures), width: :byte
-      @door_across = b.table :door_across, some(@doors.doors.map(&:across)), width: :byte
+      @door_picture = b.table :door_picture, at_least_one(door_pictures), width: :byte
+      @door_across = b.table :door_across, at_least_one(@doors.doors.map(&:across)), width: :byte
       # Which key each door wants, as the bit the player carries. Nought wants none.
-      @door_lock = b.table :door_lock, some(@doors.doors.map { |d| KEY_BITS[d.lock] || 0 }), width: :byte
+      @door_lock = b.table :door_lock, at_least_one(@doors.doors.map { |d| KEY_BITS[d.lock] || 0 }), width: :byte
 
       # A push wall: where it started, what it is made of, and — as the game runs — which way
       # it was shoved, how far it has got, and how long until its next cell.
-      @push_home = b.table :push_home, some(@pushwalls.homes)
-      @push_face = b.table :push_face, some(push_pictures), width: :byte
+      @push_home = b.table :push_home, at_least_one(@pushwalls.homes)
+      @push_face = b.table :push_face, at_least_one(push_pictures), width: :byte
       @push_step = b.list :push_step, capacity: [@pushwalls.count, 1].max
       @push_gone = b.list :push_gone, capacity: [@pushwalls.count, 1].max
       @push_wait = b.list :push_wait, capacity: [@pushwalls.count, 1].max
@@ -306,16 +309,15 @@ module Wolf3D
       # Which keys the player is carrying, one bit each.
       @keys = b.var :keys, 0
       @key_taken = b.list :key_taken, capacity: [key_cells.length, 1].max
-      @key_cell = b.table :key_cell, some(key_cells.map { |c| c[:cell] })
-      @key_bit = b.table :key_bit, some(key_cells.map { |c| c[:bit] }), width: :byte
-      @key_thing = b.table :key_thing, some(key_cells.map { |c| c[:thing] }), width: :half
+      @key_cell = b.table :key_cell, at_least_one(key_cells.map { |c| c[:cell] })
+      @key_bit = b.table :key_bit, at_least_one(key_cells.map { |c| c[:bit] }), width: :byte
+      @key_thing = b.table :key_thing, at_least_one(key_cells.map { |c| c[:thing] }), width: :half
 
       b.image :walls, width: @atlas.width, height: @atlas.height, data: @atlas.pixels
 
-      start = @level.start
-      @px = b.var :px, start.x + 0.5
-      @py = b.var :py, start.y + 0.5
-      @view = b.var :view, facing_angle(start.facing)
+      @px = b.var :px, start_x
+      @py = b.var :py, start_y
+      @view = b.var :view, start_view
 
       # What the player has: what the bar along the bottom shows, and what the game is played by.
       @health = b.var :health, START_HEALTH
@@ -336,21 +338,24 @@ module Wolf3D
       end
       [key_cells.length, 1].max.times { @key_taken << 0 }
 
+      declare_the_floor_start
+      @lives = Lives.new(build: b, score: @score, dying: @dying)
       declare_the_bar
       declare_the_clock
     end
 
-    # HOW MANY GOES YOU GET. Fixed for now: there is nothing that can take one off you, because
-    # dying is not a thing that happens yet. It is on the bar from the start rather than added
-    # later, so that the field is there and the layout is settled when it starts changing.
-    LIVES = 3
+    # WHERE THE LEVEL PUTS YOU, in one place because it is wanted twice: once to start with, and
+    # again every time the floor is started over. The angle table runs clockwise from east.
+    def start_x = @level.start.x + 0.5
+    def start_y = @level.start.y + 0.5
+    def start_view = facing_angle(@level.start.facing)
 
     # WHICH FLOOR. One, because one is all the cartridge holds.
     FLOOR = 1
 
     def declare_the_bar
       @bar = StatusBar.new(build: @b, top: VIEW_H,
-                           shows: { floor: FLOOR, score: @score, lives: LIVES,
+                           shows: { floor: FLOOR, score: @score, lives: @lives.left,
                                     health: @health, ammo: @ammo, keys: @keys })
     end
 
@@ -390,7 +395,7 @@ module Wolf3D
     # A table must hold something, and a floor need hold none of a kind of thing — there are
     # levels with no doors and plenty with nothing secret in them. One unused entry keeps the
     # table legal, and nothing ever reads it because nothing ever meets one of these.
-    def some(values) = values.empty? ? [0] : values
+    def at_least_one(values) = values.empty? ? [0] : values
 
     # A floor whose scenery all lets you through — and every floor, until there is scenery at
     # all — needs no table and pays nothing for one.
@@ -450,12 +455,108 @@ module Wolf3D
                      # arriving all at once.
                      turn: n % 2
       end
+      declare_where_the_guards_start
 
       @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
                             world: @world, door_open: @open, walls: { door: DOOR, push: PUSH },
                             things: @things, blocked: @blocked, dying: @dying,
                             player: { x: @px, y: @py, health: @health, score: @score,
                                       cos: @vcos, sin: @vsin })
+    end
+
+    # WHERE EVERY GUARD STARTED, so the floor can be started again. All of it is settled while
+    # the cartridge is built and none of it ever changes, so it lives in the cartridge — the same
+    # facts the spawns above are made of, kept where a routine can read them back by number.
+    def declare_where_the_guards_start
+      b = @b
+      starting = @guards.guards.map { |guard| Guards.starting_state(guard) }
+      @guard_home_x = b.table :guard_home_x, @guards.guards.map { |g| g.x + 0.5 }
+      @guard_home_y = b.table :guard_home_y, @guards.guards.map { |g| g.y + 0.5 }
+      @guard_home_dir = b.table :guard_home_dir,
+                                @guards.guards.map { |g| Guards.direction_of(g.facing) }, width: :byte
+      @guard_home_state = b.table :guard_home_state, starting, width: :byte
+      @guard_home_ticks = b.table :guard_home_ticks,
+                                  starting.map { |s| Guards::STATES.fetch(s).ticks }, width: :byte
+    end
+
+    # STARTING THE FLOOR AGAIN, which is everything the level holds that CHANGES put back the way
+    # it was built. That is the whole of what a life costs and it is worth listing: where the
+    # player stands and what they carry, every door, every wall that slides, every key still lying
+    # about, everything picked up, and every guard.
+    #
+    # Everything here had its starting value applied once at boot, by the declaration that made
+    # it. This is the same values written a second time — which is why the ones that are worked
+    # out rather than written down (where the player starts, where each guard stands) are read
+    # from one place by both.
+    #
+    # A ROUTINE, not code in the game loop, and for the usual reason: it is a great deal of code
+    # that runs at most a few times a game, and the console's quick memory belongs to the eighty
+    # rays a frame spends its time in.
+    def declare_the_floor_start
+      return if @dying.nil?
+
+      view = self
+      @b.func(:start_the_floor, fast: false) { view.send(:start_the_floor_again) }
+    end
+
+    def start_the_floor_again
+      @px.set start_x
+      @py.set start_y
+      @view.set start_view
+      @health.set START_HEALTH
+      @ammo.set START_AMMO
+      @keys.set 0
+      shut_every_door
+      put_the_secret_walls_back
+      drop_every_key
+      @standing&.put_the_scenery_back
+      put_the_guards_back
+      @dying.start_again
+    end
+
+    def shut_every_door
+      return if @doors.empty?
+
+      @b.repeat(@doors.count) do |door|
+        @open[door] = 0.0
+        @linger[door] = 0
+      end
+    end
+
+    def put_the_secret_walls_back
+      return if @pushwalls.empty?
+
+      @b.repeat(@pushwalls.count) do |wall|
+        @push_step[wall] = 0
+        @push_gone[wall] = 0
+        @push_wait[wall] = 0
+      end
+    end
+
+    def drop_every_key
+      return if key_cells.empty?
+
+      @b.repeat(key_cells.length) { |key| @key_taken[key] = 0 }
+    end
+
+    # A KILLED GUARD IS NEVER TAKEN OUT OF THE POOL — he lies where he fell, in a state that
+    # lasts forever, because a body is part of the room. So every slot is still the guard the
+    # level put there and standing them up is writing their fields back, with nothing to spawn.
+    def put_the_guards_back
+      return if @guard.nil?
+
+      @b.repeat(@guards.count) do |n|
+        @guard.field_ref(:x, n).set(@guard_home_x[n])
+        @guard.field_ref(:y, n).set(@guard_home_y[n])
+        @guard.field_ref(:dir, n).set(@guard_home_dir[n])
+        @guard.field_ref(:state, n).set(@guard_home_state[n])
+        @guard.field_ref(:ticks, n).set(@guard_home_ticks[n])
+        @guard.field_ref(:hp, n).set(Guards::HIT_POINTS)
+        @guard.field_ref(:wait, n).set(0)
+        @guard.field_ref(:togo, n).set(0.0)
+        @guard.field_ref(:shown, n).set(0)
+        @guard.field_ref(:turn, n).set(n % 2)
+      end
     end
 
     # What one cell of the map table says. See the note where the table is declared.
@@ -503,8 +604,8 @@ module Wolf3D
     end
 
     # A number as a table will really hold it, to the places a variable with a fraction keeps.
-    def held(number) = RubyGBA::Fraction.scale(number, RubyGBA::Fraction::DEFAULT_BITS) /
-                       (1 << RubyGBA::Fraction::DEFAULT_BITS).to_f
+    def as_a_table_holds_it(number) = RubyGBA::Fraction.scale(number, RubyGBA::Fraction::DEFAULT_BITS) /
+                                      (1 << RubyGBA::Fraction::DEFAULT_BITS).to_f
 
     # Plane 1 says which way the player starts; the angle table runs clockwise from east.
     def facing_angle(facing)
