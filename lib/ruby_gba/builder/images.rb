@@ -28,6 +28,11 @@ module RubyGBA
       #
       #   image :friend, from: "cutout.png", width: 16, height: 16, transparent: true
       #
+      # It works for the array form too, where a pixel written as :transparent is the
+      # see-through one:
+      #
+      #   image :things, width: 64, height: 64, data: pixels, transparent: true
+      #
       # ASCII-art form — hand-drawn, with a char=>color map and a block of art. The
       # dimensions come from the art's shape, and one char may map to :transparent
       # (those pixels aren't drawn, so the background shows through):
@@ -96,6 +101,12 @@ module RubyGBA
       # left untouched while every other pixel is resolved — otherwise resolving it
       # would mask the marker away — and it's recorded on the bitmap so `blit`
       # skips those pixels, letting the background show through.
+      #
+      # `transparent: true` is the same thing said the way the art form says it:
+      # pixels written as :transparent are see-through and everything else is a
+      # color. That's for art a program builds itself — pictures converted out of
+      # some other game's files, say — which arrives as an array rather than as
+      # rows of characters, and otherwise had to know the marker color's value.
       def define_pixel_image(name, width:, height:, data:, transparent: nil)
         positive_dims!(name, width, height)
         expected = width * height
@@ -104,6 +115,8 @@ module RubyGBA
                 "image :#{name} is #{width}x#{height}, so it needs #{expected} pixels. Got #{data.length}."
         end
 
+        transparent = TRANSPARENT_PIXEL if transparent == true
+        data = data.map { |c| c == :transparent ? transparent : c } if transparent == TRANSPARENT_PIXEL
         pixels = data.map { |c| c == transparent ? transparent : Color.resolve(c) }.pack("v*")
         record(Build.bitmap(name, width: width, height: height, pixels: pixels, transparent: transparent))
         @images[name] = [width, height] # remember the shape, so a sprite can size itself from it
