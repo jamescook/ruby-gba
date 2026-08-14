@@ -357,11 +357,22 @@ module RubyGBA
           # as a small sub-tree and emitted through the shared statement emitters
           # (rather than hand-written instructions), so it reuses the tested add/if
           # lowering.
+          # COUNTED IN FRAMES, NOT IN TIMES THIS CODE RAN. A pass of the game loop is one frame
+          # on a game that fits and two on a game that does not, so adding one a pass makes a
+          # beat given in seconds take longer than that many seconds on a heavy game.
+          #
+          # Taking the period off rather than clearing to nought keeps the remainder, so a beat
+          # that overshoots does not lose the overshoot and drift further every time. With one
+          # frame a pass the counter lands on the period exactly and the two are the same thing.
+          #
+          # A beat shorter than the frames a pass took fires once and catches up on the next
+          # pass rather than firing several times in one — a bounded lag, against a body running
+          # three times where the author wrote it once.
           def emit_every(node)
             counter = node.counter
             reached = Build.binop(:>=, Build.var_ref(counter), Build.int(node.period))
-            gate = Build.if_(reached, Build.set(counter, Build.int(0)), *node.children)
-            emit_statement(Build.add(counter, 1))
+            gate = Build.if_(reached, Build.sub(counter, node.period), *node.children)
+            emit_statement(Build.add(counter, Build.var_ref(IR::Frames::STEP)))
             emit_statement(gate)
           end
 
@@ -369,12 +380,17 @@ module RubyGBA
           # the target — so the counter never overflows or fires twice — and run the
           # body on the one frame it lands on. Built as a sub-tree emitted through the
           # shared statement emitters, reusing the tested add/if lowering.
+          # ...and the same for a one-shot. Counted in frames for the same reason — and the test
+          # is REACHED rather than LANDED ON, because a pass worth two frames can step over the
+          # frame it was waiting for. Landing exactly is what one-a-pass counting guaranteed;
+          # counting frames does not, and a body that never fires is a worse fault than one that
+          # fires a frame late. The outer test is what still keeps it to once.
           def emit_after(node)
             counter = node.counter
             frames = node.frames
-            lands = Build.if_(Build.binop(:==, Build.var_ref(counter), Build.int(frames)), *node.children)
+            lands = Build.if_(Build.binop(:>=, Build.var_ref(counter), Build.int(frames)), *node.children)
             not_yet = Build.if_(Build.binop(:<, Build.var_ref(counter), Build.int(frames)),
-                                Build.add(counter, 1), lands)
+                                Build.add(counter, Build.var_ref(IR::Frames::STEP)), lands)
             emit_statement(not_yet)
           end
         end

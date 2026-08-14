@@ -379,20 +379,22 @@ module RubyGBA
               i += 1
             end
           when :every
-            # A repeating timer: tick the hidden frame counter, and each time it
-            # reaches the period, reset it and run the body — so the body fires once
-            # per interval.
-            @vars[node.counter] = Int32.add(@vars[node.counter], 1)
+            # A repeating timer, counted in FRAMES rather than in times this code ran: a pass of
+            # the game loop is one frame on a program that keeps up and more on one that does
+            # not, and a beat given in seconds has to be that many seconds either way. Taking
+            # the period off rather than clearing to nought keeps the remainder, so a beat that
+            # overshoots does not drift further every time.
+            @vars[node.counter] = Int32.add(@vars[node.counter], frame_step)
             if @vars[node.counter] >= node.period
-              @vars[node.counter] = 0
+              @vars[node.counter] = Int32.sub(@vars[node.counter], node.period)
               node.children.each { |child| exec(child) }
             end
           when :after
-            # A one-shot timer: count up only until the target frame, running the
-            # body on the single frame the counter lands exactly on it.
+            # A one-shot timer, likewise — and the test is REACHED rather than LANDED ON,
+            # because a pass worth two frames can step over the frame it was waiting for.
             if @vars[node.counter] < node.frames
-              @vars[node.counter] = Int32.add(@vars[node.counter], 1)
-              node.children.each { |child| exec(child) } if @vars[node.counter] == node.frames
+              @vars[node.counter] = Int32.add(@vars[node.counter], frame_step)
+              node.children.each { |child| exec(child) } if @vars[node.counter] >= node.frames
             end
           when :layers
             nil # a declaration, gathered up front (collect_definitions) — nothing to run
@@ -564,6 +566,14 @@ module RubyGBA
         # console takes over it — and it is the one place the two backends genuinely part
         # company. Anything that pins what a program does when it is LATE can only be a test on
         # the console.
+        # How many frames the pass that just ended took — one here, always, for the reason above.
+        # A program with no frames at all has never set it, and then a beat is worth one pass,
+        # which is what it was worth before any of this existed.
+        def frame_step
+          step = @vars[IR::Frames::STEP]
+          step.nil? || step.zero? ? 1 : step
+        end
+
         def count_the_frame
           @vars[IR::Frames::COUNT] = @frame
           @vars[IR::Frames::SEEN] = @frame

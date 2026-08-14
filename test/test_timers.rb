@@ -180,9 +180,13 @@ class TestTimers < Minitest::Test
     explicit_form = Build.program(
       Build.screen(:bitmap), Build.set(:c, 0),
       Build.loop_(Build.wait_vblank,
-                  Build.add(:c, 1), # counter += 1
+                  # ...by however many FRAMES the last pass took, not by one a pass — a beat
+                  # given in seconds has to be that many seconds on a game that misses frames.
+                  Build.add(:c, Build.var_ref(RubyGBA::IR::Frames::STEP)),
                   Build.if_(Build.binop(:>=, Build.var_ref(:c), Build.int(3)),
-                            Build.set(:c, 0), Build.set(:hit, 1)), # on reach: reset, then body
+                            # ...and take the period off rather than clearing, so a beat that
+                            # overshoots keeps the remainder instead of drifting.
+                            Build.sub(:c, 3), Build.set(:hit, 1)),
                   Build.halt),
     )
     assert_equal GBA.new(fast_code: false).lower(explicit_form),
@@ -198,9 +202,12 @@ class TestTimers < Minitest::Test
       Build.screen(:bitmap), Build.set(:c, 0),
       Build.loop_(Build.wait_vblank,
                   Build.if_(Build.binop(:<, Build.var_ref(:c), Build.int(5)),
-                            Build.add(:c, 1), # count up only until the target...
-                            Build.if_(Build.binop(:==, Build.var_ref(:c), Build.int(5)),
-                                      Build.set(:hit, 1))), # ...and fire on the frame it lands on
+                            # count up only until the target, by the frames the pass took...
+                            Build.add(:c, Build.var_ref(RubyGBA::IR::Frames::STEP)),
+                            # ...and fire once it is REACHED, since a late pass can step over
+                            # the frame it was waiting for.
+                            Build.if_(Build.binop(:>=, Build.var_ref(:c), Build.int(5)),
+                                      Build.set(:hit, 1))),
                   Build.halt),
     )
     assert_equal GBA.new(fast_code: false).lower(explicit_form),
