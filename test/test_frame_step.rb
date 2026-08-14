@@ -118,6 +118,63 @@ class TestFrameStep < Minitest::Test
                  "the body should run once for each frame the pass took"
   end
 
+  # --- and what the oracle can be TOLD ---------------------------------------------
+
+  # THE INTERPRETER HAS NO CLOCK, so a test says how late a pass ran instead of it finding out.
+  # That is what makes everything a program does about being late checkable in-process, where
+  # before it could only be seen by burning a console past a frame and reading the screen.
+  def test_the_interpreter_answers_what_a_test_says_a_pass_was_worth
+    run = Reference.new.frames_each_pass { 3 }.run(counting_program(0), frames: 4)
+    pixel = ->(x, y) { run.screen.pixel(x, y) }
+
+    assert_equal 3, reading(pixel), "the pass answered for three frames"
+    assert_equal 3, reading(pixel, row: 16), "...so the body ran three times"
+    assert_equal run[:loops] * 3, run[:ticks], "three frames a pass, all the way through"
+  end
+
+  # ...and it is held at the same cap the console holds it at, so a body asked to catch up can
+  # never be asked to catch up further here than it would there.
+  def test_a_test_that_says_something_wild_is_held_at_the_cap
+    run = Reference.new.frames_each_pass { 500 }.run(counting_program(0), frames: 3)
+
+    assert_equal Frames::MOST, reading(->(x, y) { run.screen.pixel(x, y) })
+  end
+
+  # A pass can be late once and not again, which is what a hitch is — and the number is read
+  # per pass, not fixed for the run.
+  def test_lateness_is_answered_pass_by_pass
+    run = Reference.new.frames_each_pass { |pass| pass == 2 ? 4 : 1 }
+                       .run(counting_program(0), frames: 4)
+
+    assert_equal 4 + 3, run[:ticks], "one pass worth four frames, three worth one each"
+    assert_equal 4, run[:loops], "...over four passes of the loop"
+  end
+
+  # THE WHOLE THESIS IN TWO NUMBERS. The same movement, written the two ways round, on a game
+  # whose every pass takes three frames: written in the game loop it moves once a PASS, so the
+  # world runs at a third speed and the game is in slow motion; written in `once_a_frame` it
+  # moves once a FRAME, so it keeps real time and what a slow game costs is a jerkier picture.
+  # Neither is a bug — the choice is the author's — but they are different games.
+  def slow_motion_or_choppy
+    b = RubyGBA::Builder.new
+    b.instance_eval do
+      screen :bitmap
+      by_pass = var :by_pass, 0
+      by_clock = var :by_clock, 0
+      once_a_frame { by_clock.add 1 }
+      game_loop { by_pass.add 1 }
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  def test_movement_on_the_clock_keeps_real_time_where_movement_in_the_loop_does_not
+    run = Reference.new.frames_each_pass { 3 }.run(slow_motion_or_choppy, frames: 5)
+
+    assert_equal 5, run[:by_pass], "five passes, so five steps — a third of the way in real time"
+    assert_equal 15, run[:by_clock], "fifteen frames really went by, and it moved on every one"
+  end
+
   # A BEAT GIVEN IN FRAMES IS FRAMES, not passes of the game loop. This is the one that used to
   # be wrong, and the one an author would never have found: they wrote `every(4)`, the game got
   # heavy, and the beat quietly slowed down with it.

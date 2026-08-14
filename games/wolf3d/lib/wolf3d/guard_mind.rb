@@ -118,7 +118,7 @@ module Wolf3D
     def shot_chance(away)
       return CHANCES if away.zero?
 
-      [(16 * Guards::TICKS_PER_PASS) / away, CHANCES].min
+      [(16 * Guards::TICKS_PER_FRAME) / away, CHANCES].min
     end
 
     def declare_the_scratch
@@ -146,11 +146,11 @@ module Wolf3D
     end
 
     # A state with no length never runs down — that is how standing goes on forever. One step a
-    # pass is enough for every other: the shortest state in the table is three units long and a
-    # pass is worth two, so a pass can never step clean over one.
+    # frame is enough for every other: the shortest state in the table is three units long and a
+    # frame is worth two, so a frame can never step clean over one.
     def step_the_state(guard)
       (@ticks_of[@state] > 0).then do
-        guard.ticks.sub Guards::TICKS_PER_PASS
+        guard.ticks.sub Guards::TICKS_PER_FRAME
         (guard.ticks <= 0).then do
           # The shot leaves as he LEAVES the state he aimed in, which is where the original
           # hangs it: aiming, firing and lowering the arm are three pictures and the bullet
@@ -197,7 +197,7 @@ module Wolf3D
     # you get a beat between being seen and being come after.
     def look(guard)
       (guard.wait > 0).then do
-        guard.wait.sub Guards::TICKS_PER_PASS
+        guard.wait.sub Guards::TICKS_PER_FRAME
         (guard.wait <= 0).then do
           guard.wait.set 0
           first_sighting(guard)

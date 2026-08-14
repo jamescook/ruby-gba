@@ -104,6 +104,7 @@ module RubyGBA
           @held = Set.new          # buttons down right now
           @prev_held = Set.new     # buttons down at the previous vblank (for edges)
           @input_script = nil      # optional ->(frame) { buttons } to drive input over time
+          @frames_script = nil     # optional ->(pass) { frames } to say a pass ran late
           @frame = 0               # vblanks elapsed
           @screen_mode = nil       # the mode a `screen` op selected, if any
           @buffered = false        # whether that mode opted into double buffering
@@ -218,6 +219,29 @@ module RubyGBA
         # observer; it changes nothing about how the program runs. Returns self.
         def each_vblank(&block)
           @on_vblank = block
+          self
+        end
+
+        # SAY THAT A PASS RAN LATE. The block is called at each pass with the pass number
+        # (1, 2, 3, …) and gives back how many frames that pass took — one on a program
+        # that keeps up, more on one that does not. Held between one and the same cap the
+        # console holds it at, so a block that says a hundred is answered with ten.
+        #
+        # This is here because being late is the one thing this interpreter cannot find out
+        # for itself: it has no clock, a frame is over when the program says so, and a pass
+        # can never overrun one. That is the right answer for an oracle — but it leaves
+        # everything a program does ABOUT being late untestable here, and what a program
+        # does about being late is exactly the interesting part. So a test says it instead,
+        # the way it says which buttons are held.
+        #
+        # WHAT IT MOVES, and it is only this: how many frames the pass just ended answers
+        # for. A `once_a_frame` body runs that many times, a beat in frames counts that
+        # many, a one-shot's counter jumps that far. It does NOT make the interpreter slow —
+        # a timer still accrues a pass's worth, the input script is still called once a
+        # pass, and `frames:` still counts passes. Nothing here pretends to be a clock; it
+        # pins what a program MEANS when the console tells it the truth. Returns self.
+        def frames_each_pass(&block)
+          @frames_script = block
           self
         end
 
@@ -559,25 +583,34 @@ module RubyGBA
         # HOW MANY FRAMES THIS PASS TOOK, kept where the other backend keeps it so that a
         # program can read the same two names on either.
         #
-        # ALWAYS ONE HERE, and it is worth saying why rather than leaving it to be discovered.
-        # This interpreter has no clock. A frame is over when the program says it is, so a pass
-        # can never overrun one and there is nothing for the count to be but one. That is the
-        # right answer for what it is — an oracle for what a program MEANS, not for how long a
-        # console takes over it — and it is the one place the two backends genuinely part
-        # company. Anything that pins what a program does when it is LATE can only be a test on
-        # the console.
-        # How many frames the pass that just ended took — one here, always, for the reason above.
-        # A program with no frames at all has never set it, and then a beat is worth one pass,
-        # which is what it was worth before any of this existed.
+        # ONE UNLESS A TEST SAYS OTHERWISE, and it is worth saying why rather than leaving it to
+        # be discovered. This interpreter has no clock. A frame is over when the program says it
+        # is, so a pass can never overrun one and there is nothing for it to find out. That is
+        # the right answer for what it is — an oracle for what a program MEANS, not for how long
+        # a console takes over it — so being late is SAID to it, by #frames_each_pass, rather
+        # than measured. How long a pass really takes is still the console's question alone.
+        # How many frames the pass that just ended took, for whatever reads it. A program with no
+        # frames at all has never set it, and then a beat is worth one pass, which is what it was
+        # worth before any of this existed.
         def frame_step
           step = @vars[IR::Frames::STEP]
           step.nil? || step.zero? ? 1 : step
         end
 
+        # What the test said this pass was worth, held between one and the same cap the console
+        # holds it at — so a body asked to catch up can never be asked to catch up further here
+        # than it would there.
+        def frames_this_pass
+          return 1 unless @frames_script
+
+          @frames_script.call(@frame).to_i.clamp(1, IR::Frames::MOST)
+        end
+
         def count_the_frame
-          @vars[IR::Frames::COUNT] = @frame
-          @vars[IR::Frames::SEEN] = @frame
-          @vars[IR::Frames::STEP] = 1
+          took = frames_this_pass
+          @vars[IR::Frames::COUNT] += took
+          @vars[IR::Frames::SEEN] = @vars[IR::Frames::COUNT]
+          @vars[IR::Frames::STEP] = took
         end
 
         # A bending background's picture changes every frame even when the program draws

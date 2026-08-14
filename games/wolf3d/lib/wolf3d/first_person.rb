@@ -89,34 +89,61 @@ module Wolf3D
       declare
     end
 
-    # One frame: what happens, and then what you see of it.
+    # One pass of the game loop: what a press does, and then what you see. What MOVES is not
+    # here — see `declare_the_clock`.
     def update
       play
       draw
     end
 
-    # WHAT HAPPENS THIS FRAME and nothing about the picture: where the player went, which doors
-    # are moving, which secret wall is sliding, what was picked up.
+    # WHAT A PRESS DOES, and it is the half of the game that belongs to a PASS rather than to
+    # the clock: a button read on its edge has to be read once per press, not once per frame the
+    # pass answered for, or a slow frame would fire three bullets for one pull of the trigger.
     #
-    # Apart from being the honest half of a frame, this is the half a test of doors wants. The
-    # drawing costs about a hundred times what this does — eighty rays and eighty stretched
-    # columns against a few dozen statements — so a test that walks a player across a room to
-    # see whether a door opens spends all its time on a picture it never looks at.
-    # A DEAD PLAYER DOES NOTHING, which is the whole of dying until there is a screen to say so.
-    # The guards go on about their business around the body, which is what the original does
+    # A DEAD PLAYER DOES NOT SHOOT, which is the whole of dying until there is a screen to say
+    # so. The guards go on about their business around the body, which is what the original does
     # too while the death is playing out.
     def play
-      (@health > 0).then { walk }
-      return unless @standing
+      (@health > 0).then do
+        open_a_door
+        fire if @mind
+      end
+    end
 
-      # Which way the eye points, worked out once for the frame: the shot needs it and so does
-      # everything the view draws standing in the room.
-      @vcos.set(@sin[@view + QUARTER])
-      @vsin.set(@sin[@view])
-      return unless @mind
+    # ...AND WHAT MOVES, once for each frame that really passed rather than once per pass.
+    #
+    # THIS IS THE DIFFERENCE BETWEEN SLOW MOTION AND CHOPPINESS, and it is the whole of what
+    # this routine is for. Everything below moves a fixed amount: the player walks a fraction of
+    # a cell, a door swings a little wider, a guard's state machine advances two of the
+    # original's seventieths. Run that once per PASS and a game too heavy for a frame plays at
+    # half speed — smoothly, and at the wrong speed. Run it once per FRAME and the world keeps
+    # real time however long the picture took, which is what the original does (it moves you
+    # `BASEMOVE * MOVESCALE * tics`, where tics is how long the last frame took).
+    #
+    # A LONG FRAME CANNOT PUT YOU THROUGH A WALL, and here that is true by construction rather
+    # than by a rule. The original multiplies its step by how late it is, so it needs a cap
+    # (MAXTICS) to stop a big step stepping over a wall between one collision test and the next.
+    # This runs the ordinary step again instead — each one with its own collision test — so
+    # there is no big step to guard. (The framework caps the catch-up anyway, so a very late
+    # pass is never asked to replay half a second.)
+    #
+    # It is also the half a test of doors wants. The drawing costs about a hundred times what
+    # this does — eighty rays and eighty stretched columns against a few dozen statements — so a
+    # test that walks a player across a room to see whether a door opens spends all its time on
+    # a picture it never looks at. A game loop that only calls #play still runs this, because it
+    # is the frame boundary that drives it.
+    def declare_the_clock
+      @b.once_a_frame(:the_world_moves) do
+        (@health > 0).then { walk }
 
-      (@health > 0).then { fire }
-      @mind.update
+        if @standing
+          # Which way the eye points, worked out once a frame: the shot needs it and so does
+          # everything the view draws standing in the room.
+          @vcos.set(@sin[@view + QUARTER])
+          @vsin.set(@sin[@view])
+        end
+        @mind&.update
+      end
     end
 
     # ONE PRESS, ONE BULLET. The button is read on the press rather than held, so the pistol
@@ -247,6 +274,7 @@ module Wolf3D
       [key_cells.length, 1].max.times { @key_taken << 0 }
 
       declare_the_bar
+      declare_the_clock
     end
 
     # HOW MANY GOES YOU GET. Fixed for now: there is nothing that can take one off you, because
@@ -429,7 +457,6 @@ module Wolf3D
       end
 
       pick_up_a_key
-      open_a_door
       move_the_doors
       move_the_walls
     end
@@ -464,6 +491,10 @@ module Wolf3D
 
     # Press the button facing a door and it opens. The reach is short on purpose: you have to
     # be at the door, not merely pointing at it from across the room.
+    #
+    # A PRESS, so this is on the pass with the trigger rather than on the clock with the walk:
+    # the button is read on its edge, and a routine run again for each frame a late pass
+    # answered for would read the same press two or three times.
     def open_a_door
       b = @b
       b.pressed(:a).then do
