@@ -33,15 +33,29 @@ module Wolf3D
     # does not fit in a number.
     NEAREST = 0.34
 
-    # HOW FAR AWAY EACH STRIP OF THE SCREEN ENDED UP, kept as the HEIGHT the strip was drawn at
+    # HOW MANY STANDING THINGS ONE FRAME CAN DRAW. Everything that will actually show goes on the
+    # queue, and the queue has to end somewhere. The original keeps fifty and stops adding there.
+    #
+    # IT IS PAID FOR IN THE CONSOLE'S QUICK MEMORY, which is the same 32K the framework keeps the
+    # game loop in — so every slot here is a slot the loop does not get, and a queue long enough
+    # to be comfortable is a queue that pushes the whole frame out to the cartridge and costs two
+    # and a half times more than it saves.
+    #
+    # SO THE NUMBER IS MEASURED RATHER THAN CHOSEN. Standing in open cells of all sixty floors of
+    # the real game in turn and looking sixteen ways from each: at most 42 things could be seen
+    # at once anywhere in the game. This is half again as many.
+    MOST_AT_ONCE = 64
+
+    # HOW FAR AWAY EACH STRIP OF THE SCREEN ENDED UP, kept as the HEIGHT the wall was drawn at
     # rather than as a distance. The two say the same thing — a wall twice as far away is half
     # as tall — but the height is the number the drawing already worked out, so a guard is put
     # behind a wall by comparing two numbers that both exist rather than by working out a second
-    # distance. Taller means nearer.
+    # distance. Taller means nearer, and a strip where the ray met nothing holds nought.
     #
-    # It is also what puts one thing in front of another: a thing that draws writes its own
-    # height here, so a further one arriving later is turned away by the nearer one and nothing
-    # has to be sorted. That is why the scenery and the guards can be drawn in either order.
+    # IT IS ABOUT WALLS AND ONLY WALLS. A wall fills its strip from the ceiling to the floor, so
+    # anything further off in that strip is behind all of it and nothing of that thing shows —
+    # one number an answer. A standing thing is a picture with holes in it and settles nothing of
+    # the kind, which is why the things sort themselves out among each other instead.
     attr_reader :depth
 
     # +eye+ is where the player is and which way they are pointing, as the view keeps them:
@@ -63,12 +77,21 @@ module Wolf3D
       !(scenery.nil? || scenery.empty?) || !(guards.nil? || guards.empty?)
     end
 
-    # Everything standing in the level, after the walls it has to stand behind.
+    # EVERYTHING STANDING IN THE LEVEL, after the walls it has to stand behind. Look at all of
+    # it first and draw it afterwards, FURTHEST FIRST — so a nearer thing paints over a further
+    # one, and where the nearer one is see-through the further one is simply left showing.
+    #
+    # That order is the whole of putting one standing thing in front of another, and it is the
+    # original's own answer. Nothing else works: a thing cannot claim the strips it covers the
+    # way a wall does, because a lamp is its picture at the top of its square and its light at
+    # the bottom with a hole between, and a guard standing in that hole is looked at THROUGH it.
     def draw
-      draw_the_scenery
+      @seen.set 0
+      look_at_the_scenery
       # Which way the eye is pointing was worked out once for the frame already, before the
       # guards thought — the shot needed it too.
-      @pool&.each { |guard| draw_a_guard(guard) }
+      @pool&.each { |guard| look_at_a_guard(guard) }
+      @b.call :draw_what_is_on_screen
     end
 
     # Stop drawing one piece of scenery, which is what picking a thing up amounts to. A floor
@@ -87,6 +110,13 @@ module Wolf3D
 
       @depth = b.list :seen_at, capacity: FP::COLUMNS
       FP::COLUMNS.times { @depth << 0 }
+
+      # WHAT IS ON SCREEN THIS FRAME, and it is a queue rather than a record of the screen: the
+      # picture each thing wears, where it lands across the screen, and how tall it stands. Kept
+      # furthest first, which is the order they are drawn in.
+      @seen_shape = slots(:seen_shape)
+      @seen_across = slots(:seen_across)
+      @seen_height = slots(:seen_height)
 
       # WHICH COLUMNS OF EACH PICTURE hold anything, read by where the picture sits in the row
       # rather than by what is wearing it — a shooting guard is a different shape from a walking
@@ -114,6 +144,15 @@ module Wolf3D
         read_the_shape
         any_of_it_on_screen.then { draw_the_strips }
       end
+
+      # ...and so is putting one on the queue, for the same reason and not for tidiness. It is
+      # written once and wanted by a lamp and a guard alike, so inline it lands in the frame
+      # twice — and the game loop had two thousand bytes of that quick memory to spare, which
+      # two copies of this were enough to spend. Nothing about the game changes when that
+      # happens except that all of it runs from the cartridge, at about two and a half times
+      # the price.
+      b.func(:remember_a_standing_thing) { remember_it }
+      b.func(:draw_what_is_on_screen) { draw_the_queue }
     end
 
     # WORKING ROOM: where a thing is relative to the eye, and what that comes to on screen — a
@@ -131,10 +170,20 @@ module Wolf3D
       @cx, @theight, @ttop = whole(:cx, :theight, :ttop)
       @ptop, @pbottom, @band_top, @band_bottom = whole(:ptop, :pbottom, :bandtop, :bandbot)
       @lstrip, @s0, @s1, @tstrip = whole(:lstrip, :s0, :s1, :tstrip)
+      @seen, @at, @shows = whole(:seen, :at, :shows)
     end
 
     def whole(*names) = names.map { |name| @b.var(:"_#{name}", 0) }
     def fraction(*names) = names.map { |name| @b.var(:"_#{name}", 0.0) }
+
+    # A list used as a row of slots rather than as something that grows: made full at boot and
+    # written by index from then on, so the start of a frame is one number set to nought rather
+    # than a list emptied an item at a time.
+    def slots(name)
+      list = @b.list name, capacity: MOST_AT_ONCE
+      MOST_AT_ONCE.times { list << 0 }
+      list
+    end
 
     # THE SCENERY, and every word of it is fixed while the cartridge is built: a piece stands in
     # the middle of its cell and stays there for the whole floor. So it is kept in tables, which
@@ -223,15 +272,15 @@ module Wolf3D
     # off to one side, and what they pay for that is the one comparison below: whether the piece
     # is in front of the eye at all. Everything dearer than that happens only for the ones that
     # can be seen.
-    def draw_the_scenery
+    def look_at_the_scenery
       return if @piece_x.nil?
 
-      @b.repeat(@scenery.count) { |piece| draw_a_piece(piece) }
+      @b.repeat(@scenery.count) { |piece| look_at_a_piece(piece) }
     end
 
     # One piece of scenery: the same billboard a guard is, with nothing to decide. Its picture
     # was settled while the cartridge was built, so there is no pose to work out.
-    def draw_a_piece(piece)
+    def look_at_a_piece(piece)
       place(@piece_x[piece], @piece_y[piece], SCENERY_NUDGE)
       (@fwd > NEAREST).then do
         # Asked here rather than first: a piece you have picked up is one of a few hundred, and
@@ -239,14 +288,14 @@ module Wolf3D
         (@taken[piece] == 0).then do
           size_it_up
           @shape.set(@piece_shape[piece])
-          @b.call :draw_a_standing_thing
+          @b.call :remember_a_standing_thing
         end
       end
     end
 
     # --- the guards ------------------------------------------------------------------
 
-    def draw_a_guard(guard)
+    def look_at_a_guard(guard)
       place(guard.x, guard.y, NUDGE)
 
       # WHETHER HE CAN SEE YOU LOOKING AT HIM, which is not vanity: a guard you have your eye on
@@ -260,7 +309,7 @@ module Wolf3D
         guard.shown.set 1
         size_it_up
         pick_a_pose(guard)
-        @b.call :draw_a_standing_thing
+        @b.call :remember_a_standing_thing
       end
     end
 
@@ -285,6 +334,79 @@ module Wolf3D
       @shape.set(@mind.picture_of[guard.state] + (@pose * @mind.turns_of[guard.state]))
     end
 
+    # --- what is on screen, furthest first -------------------------------------------
+
+    # WHETHER TO QUEUE ONE AT ALL, in two questions of rising price: does any of its square fall
+    # across the screen, and is any of that in front of the walls. Only what passes both is drawn
+    # this frame, and only what is drawn takes a place in the queue.
+    def remember_it
+      b = @b
+      strips_it_covers.then do
+        anything_shows.then do
+          put_it_on_the_queue
+        end
+      end
+    end
+
+    # IS ANY OF IT IN FRONT OF THE WALLS? Walk the strips it covers until one is found where it
+    # stands taller than the wall there, and give up at the first one that does.
+    #
+    # THIS IS WHAT KEEPS THE QUEUE SHORT, and the queue is short or the game loop leaves the
+    # console's quick memory. Being in front of the eye and across the screen is a weak test: a
+    # floor of the real game puts up to 327 things through it at once, because it says nothing
+    # about walls, and a floor is mostly walls. Asking the walls as well takes that to 42 — the
+    # rest are in rooms you cannot see into.
+    #
+    # It costs nothing in pixels: a thing that fails this draws nothing anywhere, because every
+    # strip of it would meet the same test again on the way down. That only holds because the
+    # things themselves no longer write that record — a wall wrote every number in it, and no
+    # wall moves between here and the drawing.
+    def anything_shows
+      @shows.set 0
+      @b.repeat(@s1 - @s0, stop_when: @shows == 1, estimate: { usually: 2 }) do |step|
+        (@theight > @depth[@s0 + step]).then { @shows.set 1 }
+      end
+      @shows == 1
+    end
+
+    # ...and where it goes, which is what makes the drawing come out in order: the things
+    # themselves turn up in whatever order the level lists them, so its place is found by moving
+    # the nearer ones along one and dropping this one into the hole. That is dearer the longer
+    # the queue gets, which is the other reason the two tests above are worth their price.
+    #
+    # A FULL QUEUE TURNS THE NEXT ONE AWAY, which is what the original does too.
+    def put_it_on_the_queue
+      b = @b
+      (@seen < MOST_AT_ONCE).then do
+        @at.set(@seen - 1)
+        b.repeat(@seen, stop_when: @seen_height[@at] <= @theight,
+                        estimate: { usually: 2 }) do
+          @seen_height[@at + 1] = @seen_height[@at]
+          @seen_across[@at + 1] = @seen_across[@at]
+          @seen_shape[@at + 1] = @seen_shape[@at]
+          @at.sub 1
+        end
+
+        @seen_height[@at + 1] = @theight
+        @seen_across[@at + 1] = @cx
+        @seen_shape[@at + 1] = @shape
+        @seen.add 1
+      end
+    end
+
+    # ...and then draw them, in that order. Where a thing lands and how tall it is were both
+    # worked out while it was being looked at, so nothing is measured twice; where it starts up
+    # the screen follows from its height, which is cheaper to work out again than to carry.
+    def draw_the_queue
+      @b.repeat(@seen) do |n|
+        @theight.set @seen_height[n]
+        @cx.set @seen_across[n]
+        @shape.set @seen_shape[n]
+        @ttop.set(FP::HORIZON - (@theight / 2))
+        @b.call :draw_a_standing_thing
+      end
+    end
+
     # --- drawing it ------------------------------------------------------------------
 
     # A STANDING THING IS A SQUARE the same size as a wall at its distance, so its width on
@@ -293,15 +415,21 @@ module Wolf3D
     # Only the strips that show are walked. A guard you are nearly standing on is hundreds of
     # pixels across and eighty of them at most are on screen, and one at the edge of the view is
     # mostly past it.
-    def draw_the_strips
-      b = @b
+    # WHICH STRIPS OF THE SCREEN ITS SQUARE FALLS ACROSS, held to the ones that exist. If none
+    # are left there is nothing to draw, and that is the test a thing off to the side of the view
+    # is thrown out by before it ever reaches the queue.
+    def strips_it_covers
       @lstrip.set((@cx - (@theight / 2)) / FP::COLUMN_W)
       @s0.set @lstrip
       @s0.clamp 0, FP::COLUMNS
       @s1.set(@lstrip + (@theight / FP::COLUMN_W))
       @s1.clamp 0, FP::COLUMNS
+      @s1 > @s0
+    end
 
-      (@s1 > @s0).then do
+    def draw_the_strips
+      b = @b
+      strips_it_covers.then do
         # How far along the picture one strip carries, and where the first strip that shows
         # starts. One divide for the whole thing rather than one per strip.
         @tstep.set((FP::TEX * FP::COLUMN_W).to_f / @theight.to_f)
@@ -316,17 +444,19 @@ module Wolf3D
       end
     end
 
-    # One strip, if there is anything of the picture in it and nothing nearer in the way.
+    # One strip, if there is anything of the picture in it and no wall nearer in the way.
     #
     # THE EMPTY STRIPS ARE SKIPPED BY NAME. A guard fills about a third of the width of his
     # square, a lamp far less, and the rest is room showing through. Drawing those strips would
-    # cost the walk down the screen for nothing — and worse, each would claim its part of the
-    # screen in the depth record, rubbing out anything standing behind it.
+    # cost the walk down the screen for nothing at all.
+    #
+    # The wall's height is read and never written. What is drawn here is a picture with holes in
+    # it, so it settles nothing about the strip for whatever comes next — and nothing needs it
+    # to, because whatever comes next is nearer and paints over.
     def draw_a_strip
       (@tcol >= @pfirst).then do
         (@tcol <= @plast).then do
           (@theight > @depth[@tstrip]).then do
-            @depth[@tstrip] = @theight
             @b.draw_column_at :things, slice: @shape + @tcol, x: @tstrip * FP::COLUMN_W,
                                        top: @ttop, height: @theight, width: FP::COLUMN_W
           end

@@ -200,24 +200,38 @@ module Wolf3D
         pixels.pack("C*")
       end
 
+      # WHICH ROWS OF ITS SQUARE A SPRITE FILLS, as bands. Nearly everything here is one band
+      # across the middle, which is what a thing standing on the floor in front of you looks
+      # like.
+      #
+      # THE CEILING LIGHT IS THE ONE EXCEPTION, and it is the shape worth having: the lamp high
+      # in the square, the light it throws low in it, and see-through nothing between. Anything
+      # further off that lands in that gap is looked at THROUGH the lamp, so this is the piece
+      # that asks whether one thing standing in a room can be seen past another.
+      BAND = [[16, 48]].freeze
+      HANGS = [[4, 20], [52, 60]].freeze
+
+      def self.hanging_picture = Scenery.picture_of(Scenery::CEILING_LIGHT)
+
       # Columns of runs, because most of a sprite is empty. Measured against a real VSWAP: the
       # pixel pool sits BEFORE the posts, and is padded to keep the posts on a word boundary.
       #
       # ONE COLOUR EACH, and its number is the sprite's own. A real sprite is a picture, but a
       # fixture is for reading answers off, and a flat colour makes the pixel on the screen say
-      # WHICH picture was drawn — which is how the eight poses of a guard are told apart.
+      # WHICH picture was drawn — which is how the eight poses of a guard are told apart. The
+      # hanging one keeps that: both of its bands are the same colour, and only the gap differs.
       def sprite(index)
         first_col = 20
         last_col = 43
         columns = last_col - first_col + 1
-        top = 16
-        height = 32
+        bands = index == self.class.hanging_picture ? HANGS : BAND
+        rows = bands.sum { |top, bottom| bottom - top }
 
-        pool = Array.new(columns * height) { SPRITE_INK + index }.pack("C*")
+        pool = Array.new(columns * rows) { SPRITE_INK + index }.pack("C*")
         pool << "\x00" if pool.bytesize.odd?
 
         posts_at = 4 + (columns * 2) + pool.bytesize
-        post = [(top + height) * 2, 0, top * 2].pack("v3") + [0].pack("v")
+        post = bands.map { |top, bottom| [bottom * 2, 0, top * 2].pack("v3") }.join + [0].pack("v")
         offsets = Array.new(columns) { |i| posts_at + (i * post.bytesize) }
 
         [first_col, last_col].pack("v2") + offsets.pack("v*") + pool + (post * columns)

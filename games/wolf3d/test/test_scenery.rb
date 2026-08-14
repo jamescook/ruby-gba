@@ -25,6 +25,7 @@ class TestScenery < Minitest::Test
   BARREL = Scenery::FIRST_CODE + 1
   TABLE = Scenery::FIRST_CODE + 2
   CHANDELIER = Scenery::FIRST_CODE + 4
+  CEILING_LIGHT = Scenery::CEILING_LIGHT
   GOLD_KEY = Wolf3D::Level::KEYS.key(:gold)
 
   # A standing thing is drawn in a square centred on the eye line, and the fixture fills the
@@ -107,8 +108,46 @@ class TestScenery < Minitest::Test
     end
   end
 
+  # A CEILING LIGHT HAS A HOLE THROUGH THE MIDDLE OF IT: the lamp hangs high in its square and
+  # the light it throws falls low in it, and the eye line runs through the nothing between. So a
+  # guard on the far side of one is looked at THROUGH it and must be drawn — which he is not if
+  # the lamp is allowed to claim the whole of every strip it covers.
+  #
+  def test_a_guard_is_seen_through_the_gap_in_a_hanging_lamp
+    behind = look_at(things: { [10, 8] => CEILING_LIGHT }, guards: [[13, 8, :west]])
+
+    assert_empty columns_of(behind, CEILING_LIGHT), "the lamp is see-through along the eye line"
+    refute_empty guard_columns(behind), "so the guard behind it shows through the gap"
+    refute_empty rows_of(behind, CEILING_LIGHT), "and the lamp itself is drawn, where its art is"
+  end
+
+  # ...and the same lamp is still covered by what stands in FRONT of it, which is the other half
+  # of the answer: turned round, the guard is the near one and nothing of the lamp is left.
+  def test_a_hanging_lamp_is_covered_by_a_guard_in_front_of_it
+    in_front = look_at(things: { [13, 8] => CEILING_LIGHT }, guards: [[10, 8, :west]])
+
+    refute_empty guard_columns(in_front), "the guard is the near one now"
+    assert_empty rows_of(in_front, CEILING_LIGHT), "and no part of the lamp shows through him"
+  end
+
+  # WHAT A WALL SAVES. Everything standing in front of the eye and across the screen has to be
+  # put in order before any of it is drawn, and there is only so much room to put it in — so the
+  # walls are asked first. A floor is mostly walls, and the room next door can hold a great many
+  # things that no strip of the screen could ever show.
+  #
+  # It is measured as the length of the queue rather than by reading pixels, because what is
+  # being asked is what the frame CARRIED, and both answers draw the same picture.
+  def test_things_behind_a_wall_take_no_place_in_the_queue
+    crowd = (11..14).to_a.product((7..9).to_a).to_h { |cell| [cell, BARREL] }
+    open_room = look_at(things: crowd)
+    walled = look_at(things: crowd, walls: (5..11).map { |y| [10, y] })
+
+    assert_equal crowd.length, queued(open_room), "with nothing in the way, every one is drawn"
+    assert_equal 0, queued(walled), "and behind a wall not one of them takes a place"
+  end
+
   # A guard stands among the scenery, not in a world of his own: one hides the other by
-  # whichever is nearer, because both write the same record of how far away each strip ended up.
+  # whichever is nearer, because the far ones are drawn first and the near ones paint over them.
   def test_scenery_and_a_guard_hide_each_other_by_which_is_nearer
     near = look_at(things: { [11, 8] => BARREL }, guards: [[14, 8, :west]])
     far = look_at(things: { [14, 8] => BARREL }, guards: [[11, 8, :west]])
@@ -196,6 +235,29 @@ class TestScenery < Minitest::Test
     assert_empty columns_of(taken, GOLD_KEY), "so it is not lying there any more"
   end
 
+  # ---------------------------------------------------------------- and on the console
+
+  # THE CARTRIDGE DRAWS IT TOO, and the whole picture is held against the interpreter's rather
+  # than the lamp alone. Two things standing in one room is what makes this worth its own check:
+  # the queue that puts them in order is code the interpreter and the console each run their own
+  # way, and one strip drawn in the wrong order would show here as a pixel that differs.
+  #
+  # The guard faces away so that he neither notices the player nor moves, which is what lets the
+  # two backends be read at different frames and still be looking at the same room.
+  def test_the_console_draws_a_guard_behind_a_lamp_the_way_the_interpreter_does
+    program = view_of(arena(things: { [10, 8] => CEILING_LIGHT }, guards: [[13, 8, :east]]))
+    interp = Reference.new.run(program, frames: 3)
+    rom = ROM.assemble(GBA.new.lower(program), title: "LAMP", code: "ZLMP", maker: "01")
+    gba = RubyGBA::Verifier.new(rom, frames: 12)
+
+    refute_empty guard_columns(interp), "the interpreter draws him through the gap, so there is a match to make"
+    differ = (0...240).to_a.product((0...160).to_a).reject do |x, y|
+      (interp.screen.pixel(x, y) || 0) == gba.pixel_gba(x, y)
+    end
+
+    assert_empty differ.first(8), "these pixels differ between the interpreter and the console"
+  end
+
   private
 
   # Where the player is far enough off to be seen by nobody: across the room, off the guard's
@@ -267,6 +329,9 @@ class TestScenery < Minitest::Test
 
   def guard_x(run) = run.instance_variable_get(:@lists)[:__pool_guard_x].get(0) / ONE
 
+  # How many standing things the frame that just finished queued up to draw.
+  def queued(run) = run[:_seen]
+
   # The flat colour the fixture gave the picture a code wears, and which strips of the screen
   # are showing it.
   def colour_of(code) = palette[Release::SPRITE_INK + picture_of(code)]
@@ -274,6 +339,14 @@ class TestScenery < Minitest::Test
   def columns_of(run, code, row: EYE_LINE)
     ink = colour_of(code)
     (0...240).select { |x| run.screen.pixel(x, row) == ink }
+  end
+
+  # Which rows of the whole screen show a picture anywhere along them. For a thing whose art is
+  # not on the eye line — a lamp hanging above it — that is the only way to ask whether it was
+  # drawn at all, without naming a row and hoping.
+  def rows_of(run, code)
+    ink = colour_of(code)
+    (0...160).select { |y| (0...240).any? { |x| run.screen.pixel(x, y) == ink } }
   end
 
   def guard_colours
