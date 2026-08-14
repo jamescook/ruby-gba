@@ -15,6 +15,7 @@ require_relative "gba/expressions"
 require_relative "gba/primitives"
 require_relative "gba/collision"
 require_relative "gba/timers"
+require_relative "gba/frames" # how many frames a pass of the game loop really took
 require_relative "gba/raster"
 require_relative "gba/direct_sound"
 require_relative "gba/mixer"
@@ -75,6 +76,7 @@ module RubyGBA
         include Primitives
         include Collision
         include Timers
+        include Frames
         include Raster
         include DirectSound
         include Mixer
@@ -533,7 +535,11 @@ module RubyGBA
           emit_irq_source(IRQ_HBLANK) { emit_row_bend_handler } if interrupts_rows?
           # VBlank must ack in TWO places — the hardware flag (REG_IF) and the BIOS's own
           # copy (REG_IFBIOS) that VBlankIntrWait polls — or the CPU would never wake.
-          emit_irq_source(IRQ_VBLANK, bios_ack: true) if @uses_vblank
+          # ...and the screen's own frame, whose handler used to be nothing but the ack. It
+          # counts frames now, which is what lets a pass of the game loop know how many of them
+          # it took: the screen keeps time whatever the game is doing, and this is where that
+          # time is written down.
+          emit_irq_source(IRQ_VBLANK, bios_ack: true) { emit_frame_count } if @uses_vblank
           irq_timers.each do |_, info|
             emit_irq_source(timer_irq_bit(info[:rate])) do
               info[:handler].children.each { |child| emit_statement(child) }

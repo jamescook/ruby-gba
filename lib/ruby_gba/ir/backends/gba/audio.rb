@@ -189,6 +189,11 @@ module RubyGBA
           def emit_wait_vblank
             emit(ASM.swi(SWI_VBLANK_INTR_WAIT << 16))
 
+            # How many frames the pass that just ended really took. First thing after the wait,
+            # because everything below is entitled to ask — and it is the difference between two
+            # marks, so it has to be taken before anything else moves either of them.
+            emit_frame_step
+
             # A new frame just started — build the next slice of mixed sound and hand it to
             # the DMA. This is the mixer's heartbeat: one refill per displayed frame.
             emit_mixer_tick if @plays_samples

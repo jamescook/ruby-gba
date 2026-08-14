@@ -550,7 +550,24 @@ module RubyGBA
           @held = to_button_set(Array(@input_script.call(@frame))) if @input_script
           @log << [:vblank, @frame]
           @on_vblank&.call(@frame)
+          count_the_frame
           repaint_bent_backgrounds
+        end
+
+        # HOW MANY FRAMES THIS PASS TOOK, kept where the other backend keeps it so that a
+        # program can read the same two names on either.
+        #
+        # ALWAYS ONE HERE, and it is worth saying why rather than leaving it to be discovered.
+        # This interpreter has no clock. A frame is over when the program says it is, so a pass
+        # can never overrun one and there is nothing for the count to be but one. That is the
+        # right answer for what it is — an oracle for what a program MEANS, not for how long a
+        # console takes over it — and it is the one place the two backends genuinely part
+        # company. Anything that pins what a program does when it is LATE can only be a test on
+        # the console.
+        def count_the_frame
+          @vars[Backends::GBA::Frames::COUNT] = @frame
+          @vars[Backends::GBA::Frames::SEEN] = @frame
+          @vars[Backends::GBA::Frames::STEP] = 1
         end
 
         # A bending background's picture changes every frame even when the program draws
