@@ -39,6 +39,37 @@ module Wolf3D
 
     LAST_CODE = FIRST_CODE + PICTURES.length - 1
 
+    # WHAT WALKING ONTO A PIECE GIVES YOU, and about a third of the list gives something. The
+    # numbers are the original's own (wl_agent.cpp, GetBonus) rather than remembered.
+    #
+    # Each is a KIND and an AMOUNT, which is what lets one piece of machinery serve all of them:
+    # every one is "add this much of that, unless you are already full of it". The kinds differ
+    # only in what being full means — a hundred of health, ninety-nine rounds, or nothing at all
+    # for treasure, which you can never have too much of.
+    #
+    # THE TWO WEAPONS GIVE ONLY THEIR ROUNDS for now, which is not a stand-in: the original's
+    # GiveWeapon hands you six rounds first and then the weapon, so the rounds are half of what a
+    # machine gun really is. The other half waits on there being weapons to hold.
+    BONUSES = {
+      6 => [:health, 4],        # bad food — worth having, and not much
+      20 => [:key, :gold],
+      21 => [:key, :silver],
+      24 => [:health, 10],      # good food
+      25 => [:health, 25],      # a first aid box
+      26 => [:ammunition, 8],   # a clip
+      27 => [:ammunition, 6],   # a machine gun...
+      28 => [:ammunition, 6],   # ...and a gatling gun
+      29 => [:treasure, 100],   # a cross
+      30 => [:treasure, 500],   # a chalice
+      31 => [:treasure, 1000],  # a bible
+      32 => [:treasure, 5000],  # a crown
+      33 => [:extra_life, 0],   # the one-up: full health and another go
+      # WHAT IS LEFT OF SOMEBODY, which heals one and which you can only bring yourself to take
+      # when you are nearly dead. That last part is a rule of its own, so it is a kind of its own.
+      34 => [:scraps, 1],
+      38 => [:scraps, 1]
+    }.freeze
+
     # THE CEILING LIGHT, named because its SHAPE matters and not only its rules. It is the lamp
     # high in its square and the light it throws low in it, with see-through nothing between —
     # so whatever stands further away and lands in that gap is looked at through the middle of
@@ -48,7 +79,15 @@ module Wolf3D
     # Which picture a code wears, in the numbering VSWAP's sprites use.
     def self.picture_of(code) = FIRST_PICTURE + PICTURES.fetch(code - FIRST_CODE)
 
-    Piece = Data.define(:x, :y, :picture, :blocks)
+    # Which picture the clip a dead guard leaves behind wears. It is the same clip that lies on
+    # the floor of a level, so a floor that ships none of its own still needs this one.
+    CLIP = 26
+
+    def self.clip_picture = picture_of(FIRST_CODE + CLIP)
+
+    # +bonus+ is what walking onto it gives you, as a [kind, amount] pair, or nil for a piece
+    # that is only something to look at.
+    Piece = Data.define(:x, :y, :picture, :blocks, :bonus)
 
     attr_reader :pieces
 
@@ -79,7 +118,8 @@ module Wolf3D
       return nil unless code.between?(FIRST_CODE, LAST_CODE)
 
       Piece.new(x: x, y: y, picture: self.class.picture_of(code),
-                blocks: BLOCKING.include?(code - FIRST_CODE))
+                blocks: BLOCKING.include?(code - FIRST_CODE),
+                bonus: BONUSES[code - FIRST_CODE])
     end
   end
 end

@@ -38,7 +38,8 @@ class TestScenery < Minitest::Test
     scenery = Scenery.new(arena(things: { [12, 8] => BARREL }))
 
     assert_equal 1, scenery.count
-    assert_equal [12, 8, picture_of(BARREL), true], scenery.pieces.first.deconstruct
+    assert_equal({ x: 12, y: 8, picture: picture_of(BARREL), blocks: true, bonus: nil },
+                 scenery.pieces.first.to_h)
   end
 
   # HALF OF THEM STOP YOU AND HALF DO NOT, and which is which is the original's own table. The

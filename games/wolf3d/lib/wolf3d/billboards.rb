@@ -60,7 +60,8 @@ module Wolf3D
 
     # +eye+ is where the player is and which way they are pointing, as the view keeps them:
     # { x:, y:, cos:, sin:, angle: }.
-    def initialize(build:, things:, eye:, scenery: nil, guards: nil, pool: nil, mind: nil)
+    def initialize(build:, things:, eye:, scenery: nil, guards: nil, pool: nil, mind: nil,
+                   pickups: nil)
       @b = build
       @things = things
       @eye = eye
@@ -68,6 +69,7 @@ module Wolf3D
       @guards = guards
       @pool = pool
       @mind = mind
+      @pickups = pickups  # what is still lying on the floor, and where a guard dropped one
       declare
     end
 
@@ -92,19 +94,6 @@ module Wolf3D
       # guards thought — the shot needed it too.
       @pool&.each { |guard| look_at_a_guard(guard) }
       @b.call :draw_what_is_on_screen
-    end
-
-    # Stop drawing one piece of scenery, which is what picking a thing up amounts to. A floor
-    # with no scenery on it has nothing to take, and says so by doing nothing.
-    def take(piece) = @taken && (@taken[piece] = 1)
-
-    # ...and the other way round: everything back on the floor, for a floor being started again.
-    # Whether a piece is still there is the only thing about the scenery that ever changes — the
-    # rest of it is in the cartridge — so this one list is the whole of putting it back.
-    def put_the_scenery_back
-      return unless @taken
-
-      @b.repeat(@scenery.count) { |piece| @taken[piece] = 0 }
     end
 
     private
@@ -140,6 +129,7 @@ module Wolf3D
                           width: :byte
 
       declare_the_scenery
+      declare_what_guards_leave
       declare_the_guards
 
       # DRAWING ONE OF THEM IS A ROUTINE, and it has to be. It is by far the biggest piece of
@@ -208,7 +198,8 @@ module Wolf3D
     # hundred pieces and none of them needs a place to change in.
     #
     # The one thing that does change is whether a piece is still THERE, because the things you
-    # pick up are scenery too and a key you have taken must stop being drawn.
+    # pick up are scenery too and a key you have taken must stop being drawn. That one fact is
+    # kept by Pickups rather than here: it is a fact about the game, and this only asks.
     def declare_the_scenery
       return if @scenery.nil? || @scenery.empty?
 
@@ -218,8 +209,24 @@ module Wolf3D
       @piece_y = b.table :thing_y, pieces.map { |p| p.y + 0.5 }
       @piece_shape = b.table :thing_shape, pieces.map { |p| @things.position_of(p.picture) },
                              width: :half
-      @taken = b.list :thing_gone, capacity: @scenery.count
-      @scenery.count.times { @taken << 0 }
+    end
+
+    # THE CLIP A GUARD LEAVES WHERE HE FALLS is a billboard like any other — one picture standing
+    # in the middle of a cell — and the only thing about it that is not like a piece of scenery is
+    # that the cartridge cannot know it is there. So its place is read from Pickups, which is
+    # where the game puts it, and everything after that is the same road every other thing takes.
+    #
+    # A FLOOR WHOSE PICTURES DO NOT INCLUDE A CLIP DRAWS NONE, which is how a test that ships only
+    # the guards' own pictures stays honest: the ammunition still works, there is simply nothing
+    # to draw. A built game asks for the picture (see Pickups.pictures).
+    # WHERE THE CLIP A GUARD LEFT IS DRAWN FROM. A floor whose pictures do not include a clip
+    # draws none, which is how a test that ships only the guards' own pictures stays honest: the
+    # ammunition still works, there is simply nothing to draw. A built game asks for the picture
+    # (see Pickups.pictures).
+    def declare_what_guards_leave
+      return if @pickups.nil? || @pool.nil?
+
+      @drop_shape = @things.position_of(@pickups.dropped_picture)
     end
 
     def declare_the_guards
@@ -302,7 +309,7 @@ module Wolf3D
       (@fwd > NEAREST).then do
         # Asked here rather than first: a piece you have picked up is one of a few hundred, and
         # this way only the ones you could see pay for the question at all.
-        (@taken[piece] == 0).then do
+        @pickups.still_there(piece).then do
           size_it_on_screen
           @shape.set(@piece_shape[piece])
           @b.call :remember_a_standing_thing
@@ -326,6 +333,19 @@ module Wolf3D
         guard.shown.set 1
         size_it_on_screen
         pick_a_pose(guard)
+        @b.call :remember_a_standing_thing
+        # ...AND THE CLIP HE LEFT, if he is lying beside one, which costs almost nothing to put
+        # here: a body never moves again, so the clip stands exactly where he does and the place
+        # and the size are both worked out already. Only its picture differs.
+        leave_his_clip_on_the_floor(guard)
+      end
+    end
+
+    def leave_his_clip_on_the_floor(guard)
+      return if @drop_shape.nil?
+
+      @pickups.still_dropped(guard).then do
+        @shape.set @drop_shape
         @b.call :remember_a_standing_thing
       end
     end

@@ -46,6 +46,15 @@ module Wolf3D
     # What the bar along the bottom shows.
     def left = @left
 
+    # ANOTHER GO, which is what the one-up lying on the floor hands you. The original stops at
+    # nine, and so does this: the bar keeps one figure for it.
+    MOST = 9
+
+    def give_one
+      @left.add 1
+      @left.clamp 0, MOST
+    end
+
     # ONE PASS OF THE GAME LOOP, and it does nothing at all until the death has finished telling
     # its story.
     #

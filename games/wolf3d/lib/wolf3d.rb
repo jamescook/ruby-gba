@@ -32,6 +32,9 @@ require_relative "wolf3d/first_person"
 require_relative "wolf3d/dying"
 # ...and after dying, which is the only thing that ever spends one.
 require_relative "wolf3d/lives"
+# ...and after the view, whose START_HEALTH and KEY_BITS say what a full player is and what a key
+# is worth, and after lives, which a one-up on the floor hands another of.
+require_relative "wolf3d/pickups"
 # ...after the view, whose constants they share: the three agree about how wide the lens is, and
 # where the middle of the screen falls is what a shot is aimed by.
 require_relative "wolf3d/billboards"
@@ -83,7 +86,8 @@ module Wolf3D
       scenery = Wolf3D::Scenery.new(level)
       atlas = Wolf3D::WallAtlas.new(Wolf3D.vswap, Wolf3D.palette, level, doors: doors)
       things = Wolf3D::ThingAtlas.new(Wolf3D.vswap, Wolf3D.palette,
-                                      (guards.pictures + scenery.pictures).uniq.sort)
+                                      (guards.pictures + scenery.pictures +
+                                       Wolf3D::Pickups.pictures(guards)).uniq.sort)
       view = Wolf3D::FirstPerson.new(build: self, level: level, atlas: atlas, doors: doors,
                                      pushwalls: pushwalls, guards: guards, things: things,
                                      scenery: scenery)
