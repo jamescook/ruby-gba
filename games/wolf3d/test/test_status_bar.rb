@@ -42,8 +42,27 @@ class TestStatusBar < Minitest::Test
     assert_equal FP::START_HEALTH, figure(run, :health)
     assert_equal FP::START_AMMO, figure(run, :ammo)
     assert_equal 0, figure(run, :score)
-    assert_equal FP::LIVES, figure(run, :lives)
+    assert_equal Wolf3D::Lives::START, figure(run, :lives)
     assert_equal FP::FLOOR, figure(run, :floor)
+  end
+
+  # A LIFE COMES OFF AND THE BAR SAYS SO. Read off the screen like every other field, because the
+  # whole point of the field is that a player can see how many goes are left.
+  #
+  # A RING OF GUARDS RATHER THAN ONE, because this has to be played all the way to a death and one
+  # guard takes several hundred frames to manage it — every one of which draws the whole view.
+  # Six standing round the player do it in a fifth of that. The step budget is raised to match:
+  # left alone the oracle stops after about a hundred and fifty frames of this, and a test that
+  # was cut short before anything happened would pass by saying nothing.
+  RING = [[9, 8, :west], [7, 8, :east], [8, 9, :north], [8, 7, :south],
+          [9, 9, :west], [7, 7, :east]].freeze
+
+  def test_the_lives_on_the_bar_come_down_when_you_die
+    died = Reference.new.run(view_of(arena(guards: RING)), frames: 210, max_steps: 8_000_000)
+
+    assert_equal Wolf3D::Lives::START - 1, died[:lives], "one go should have been spent by now"
+    assert_equal died[:lives], figure(died, :lives), "and the bar should say what is left"
+    assert_equal FP::START_HEALTH, figure(died, :health), "with a fresh hundred of health on it"
   end
 
   # A HUD that does not follow the game is wallpaper. Stand in front of a guard and let him

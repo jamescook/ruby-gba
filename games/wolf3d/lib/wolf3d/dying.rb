@@ -45,7 +45,7 @@ module Wolf3D
     ALIVE = 0
     TURNING = 1   # facing whatever killed you
     FIZZLING = 2  # the view dotting over to red
-    GONE = 3      # nothing left to do — lives and starting again are their own piece of work
+    GONE = 3      # the story is told — what happens next is Lives's business, not this one's
 
     # The red, out of the game's own 256, which is the one the original fills with.
     INK = 4
@@ -99,6 +99,26 @@ module Wolf3D
     # What the rest of the game asks before it moves or draws.
     def alive = @state == ALIVE
     def showing_the_world = @state <= TURNING
+
+    # ...and what the thing that counts your lives asks: the last dot is down and the view is
+    # wholly red, so it is time either to start the floor again or to say the game is over. This
+    # stays true until somebody does one of the two.
+    def finished = @state == GONE
+
+    # BACK TO THE TOP, for another go at the floor. Everything the death remembered is dropped:
+    # which way it was turning and how far it had got, and both walkers back to where they start.
+    # They start at 1 rather than 0 because nought is the one number a step like theirs can never
+    # leave — see #scatter.
+    def start_again
+      @state.set ALIVE
+      @was.set 0
+      @turned.set 0
+      @held.set 0
+      @lead.set 1
+      @lag.set 1
+      @lead_done.set 0
+      @lag_done.set 0
+    end
 
     # A shot has landed and taken the last of the health. Remember where it came from — the turn
     # is the whole reason a death needs to know.
@@ -186,10 +206,10 @@ module Wolf3D
     # about a page to spare.
     def declare_the_scattering
       dying = self
-      @b.func(:scatter_the_red) { dying.send(:scatter_a_frames_worth) }
+      @b.func(:scatter_the_red) { dying.send(:scatter_the_next_dots) }
     end
 
-    def scatter_a_frames_worth
+    def scatter_the_next_dots
       (@lead_done < MODULUS - 1).then do
         scatter(@lead)
         @lead_done.add PER_FRAME

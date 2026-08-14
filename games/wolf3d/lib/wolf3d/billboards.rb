@@ -98,6 +98,15 @@ module Wolf3D
     # with no scenery on it has nothing to take, and says so by doing nothing.
     def take(piece) = @taken && (@taken[piece] = 1)
 
+    # ...and the other way round: everything back on the floor, for a floor being started again.
+    # Whether a piece is still there is the only thing about the scenery that ever changes — the
+    # rest of it is in the cartridge — so this one list is the whole of putting it back.
+    def put_the_scenery_back
+      return unless @taken
+
+      @b.repeat(@scenery.count) { |piece| @taken[piece] = 0 }
+    end
+
     private
 
     FP = FirstPerson
@@ -159,7 +168,7 @@ module Wolf3D
       # two copies of this were enough to spend. Nothing about the game changes when that
       # happens except that all of it runs from the cartridge, at about two and a half times
       # the price.
-      b.func(:remember_a_standing_thing) { remember_it }
+      b.func(:remember_a_standing_thing) { remember_a_standing_thing }
       b.func(:draw_what_is_on_screen) { draw_the_queue }
     end
 
@@ -240,7 +249,7 @@ module Wolf3D
     # ...and the second half, once something is known to be in front of you: how far to the SIDE
     # of the line you are looking down it is, divided by that same distance, is where it lands
     # across the screen. A standing thing is as wide as it is tall, so one size does for both.
-    def size_it_up
+    def size_it_on_screen
       @sideways.set(@ry * @eye[:cos])
       @sideways.sub(@rx * @eye[:sin])
 
@@ -294,7 +303,7 @@ module Wolf3D
         # Asked here rather than first: a piece you have picked up is one of a few hundred, and
         # this way only the ones you could see pay for the question at all.
         (@taken[piece] == 0).then do
-          size_it_up
+          size_it_on_screen
           @shape.set(@piece_shape[piece])
           @b.call :remember_a_standing_thing
         end
@@ -315,7 +324,7 @@ module Wolf3D
       # comparison is what a guard on the far side of the floor pays.
       (@fwd > NEAREST).then do
         guard.shown.set 1
-        size_it_up
+        size_it_on_screen
         pick_a_pose(guard)
         @b.call :remember_a_standing_thing
       end
@@ -347,11 +356,11 @@ module Wolf3D
     # WHETHER TO QUEUE ONE AT ALL, in two questions of rising price: does any of its square fall
     # across the screen, and is any of that in front of the walls. Only what passes both is drawn
     # this frame, and only what is drawn takes a place in the queue.
-    def remember_it
+    def remember_a_standing_thing
       b = @b
-      strips_it_covers.then do
-        anything_shows.then do
-          put_it_on_the_queue
+      covers_any_strips.then do
+        in_front_of_the_walls.then do
+          add_it_to_the_queue
         end
       end
     end
@@ -369,7 +378,7 @@ module Wolf3D
     # strip of it would meet the same test again on the way down. That only holds because the
     # things themselves no longer write that record — a wall wrote every number in it, and no
     # wall moves between here and the drawing.
-    def anything_shows
+    def in_front_of_the_walls
       @shows.set 0
       @b.repeat(@s1 - @s0, stop_when: @shows == 1, estimate: { usually: 2 }) do |step|
         (@theight > @depth[@s0 + step]).then { @shows.set 1 }
@@ -383,7 +392,7 @@ module Wolf3D
     # the queue gets, which is the other reason the two tests above are worth their price.
     #
     # A FULL QUEUE TURNS THE NEXT ONE AWAY, which is what the original does too.
-    def put_it_on_the_queue
+    def add_it_to_the_queue
       b = @b
       (@seen < MOST_AT_ONCE).then do
         @at.set(@seen - 1)
@@ -426,7 +435,7 @@ module Wolf3D
     # WHICH STRIPS OF THE SCREEN ITS SQUARE FALLS ACROSS, held to the ones that exist. If none
     # are left there is nothing to draw, and that is the test a thing off to the side of the view
     # is thrown out by before it ever reaches the queue.
-    def strips_it_covers
+    def covers_any_strips
       @lstrip.set((@cx - (@theight / 2)) / FP::COLUMN_W)
       @s0.set @lstrip
       @s0.clamp 0, FP::COLUMNS
@@ -437,7 +446,7 @@ module Wolf3D
 
     def draw_the_strips
       b = @b
-      strips_it_covers.then do
+      covers_any_strips.then do
         # How far along the picture one strip carries, and where the first strip that shows
         # starts. One divide for the whole thing rather than one per strip.
         @tstep.set((FP::TEX * FP::COLUMN_W).to_f / @theight.to_f)

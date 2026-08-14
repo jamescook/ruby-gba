@@ -281,7 +281,7 @@ module Wolf3D
     # the middle of the range and nine in ten take under seven — because almost every line meets
     # a wall almost at once. Not one of five hundred ever ran out of the sixty-four it is
     # allowed. So the ceiling is generous and free, and five is what a frame really pays.
-    def line_of_sight(guard) = walk_the_line(guard.x, guard.y)
+    def line_of_sight(guard) = walk_the_sight_line_from(guard.x, guard.y)
 
     # ONE COPY OF THE WALK, NOT FOUR, and that is what this indirection buys.
     #
@@ -294,21 +294,21 @@ module Wolf3D
     #
     # Every one of its inputs is working room already, so all a caller has to hand over is where
     # the line starts.
-    def walk_the_line(fromx, fromy)
+    def walk_the_sight_line_from(fromx, fromy)
       @fromx.set fromx
       @fromy.set fromy
       @b.call :walk_the_sight_line
     end
 
     def declare_the_line_walk
-      @b.func(:walk_the_sight_line) { the_sight_line }
+      @b.func(:walk_the_sight_line) { walk_the_sight_line }
     end
 
     # The line itself, walked from wherever it was told to start — a guard looking for you, or a
     # bullet on its way to him.
-    def the_sight_line
+    def walk_the_sight_line
       b = @b
-      aim_along_it(@fromx, @fromy)
+      aim_along_the_line(@fromx, @fromy)
       @tx.set(@player[:x].to_i)
       @ty.set(@player[:y].to_i)
       @clear.set 1
@@ -346,7 +346,7 @@ module Wolf3D
     # And when the two are both under a cell apart the scaling is held at one, so neither is
     # divided at all: the step IS the direction. That is the near case, which is the one a guard
     # about to shoot you is in.
-    def aim_along_it(fromx, fromy)
+    def aim_along_the_line(fromx, fromy)
       @absx.set @dx
       @absx.abs
       @absy.set @dy
@@ -496,10 +496,10 @@ module Wolf3D
     # picking a way to go tries as many as eight of them, and each try used to emit the whole
     # question again. It reads and writes nothing but working room, so it needs nothing passed
     # to it at all — the caller says which cell in @cellx and @celly, which it was doing anyway.
-    def free_to_walk = @b.call(:can_a_body_walk_there)
+    def free_to_walk = @b.call(:can_a_guard_walk_there)
 
     def declare_the_walkable_test
-      @b.func(:can_a_body_walk_there) { walkable }
+      @b.func(:can_a_guard_walk_there) { walkable }
     end
 
     # A cell a guard can walk into: open floor, or a doorway whose panel has slid out of the
@@ -537,7 +537,7 @@ module Wolf3D
       @nearest.set FAR_AWAY
 
       b.repeat(@pool.capacity) do |slot|
-        (alive[slot] == 1).then { consider(slot) }
+        (alive[slot] == 1).then { consider_as_a_target(slot) }
       end
 
       (@target != NOBODY).then { hit_the_target }
@@ -549,7 +549,7 @@ module Wolf3D
     FAR_AWAY = 1000.0
 
     # Is this one in the sights, in the open, and nearer than the best so far?
-    def consider(slot)
+    def consider_as_a_target(slot)
       hp = @pool.field_ref(:hp, slot)
       (hp > 0).then do
         x = @pool.field_ref(:x, slot)
@@ -570,7 +570,7 @@ module Wolf3D
           # line either way.
           @dx.set(@player[:x] - x)
           @dy.set(@player[:y] - y)
-          walk_the_line(x, y)
+          walk_the_sight_line_from(x, y)
           (@clear == 1).then do
             @nearest.set @fwd
             @target.set slot

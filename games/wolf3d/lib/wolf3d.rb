@@ -30,6 +30,8 @@ require_relative "wolf3d/status_bar"
 require_relative "wolf3d/first_person"
 # ...after the view, whose constants say how big the part of the screen that goes red is.
 require_relative "wolf3d/dying"
+# ...and after dying, which is the only thing that ever spends one.
+require_relative "wolf3d/lives"
 # ...after the view, whose constants they share: the three agree about how wide the lens is, and
 # where the middle of the screen falls is what a shot is aimed by.
 require_relative "wolf3d/billboards"
