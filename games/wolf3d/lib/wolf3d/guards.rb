@@ -60,11 +60,15 @@ module Wolf3D
     POINTS = 100
 
     # HOW LONG A STATE LASTS is counted in the original's own units — seventieths of a second —
-    # and the numbers below are its numbers, unchanged. This is how many of them a pass of this
-    # game is worth. It is deliberately a whole number: the shortest state in the table is three
-    # units long, so a pass can never step over a whole state, and the machine never needs to
-    # advance twice in one pass.
-    TICKS_PER_PASS = 2
+    # and the numbers below are its numbers, unchanged. This is how many of them one FRAME of
+    # this game is worth, which is a frame of the screen and not a pass of the game loop: the
+    # machine is advanced once for each frame that really went by, so a heavy frame moves the
+    # guards on twice rather than running them at half speed.
+    #
+    # It is deliberately a whole number: the shortest state in the table is three units long, so
+    # a frame can never step over a whole state, and the machine never needs to advance twice
+    # for one frame.
+    TICKS_PER_FRAME = 2
 
     # THE STATE TABLE, and it is the behaviour rather than a description of it. Each row is a
     # picture, how long to stand in it, what to think about while there, and which row comes
@@ -138,9 +142,9 @@ module Wolf3D
     CHASE_TIMES = 3
     CELL = 1 << 16
 
-    # ...and the same as this game counts it: cells per pass.
+    # ...and the same as this game counts it: cells per frame.
     def self.speed(chasing: false)
-      PATROL_SPEED * (chasing ? CHASE_TIMES : 1) * TICKS_PER_PASS / CELL.to_f
+      PATROL_SPEED * (chasing ? CHASE_TIMES : 1) * TICKS_PER_FRAME / CELL.to_f
     end
 
     # HOW NEAR IS NEAR ENOUGH TO BE SEEN WITHOUT LOOKING: a guard notices anyone this close

@@ -647,6 +647,7 @@ module RubyGBA
           count = node.count
           early = early_exit_passes(node, typical: typical)
           return early if early
+          return frames_answered_for(typical: typical) if counts_frames?(count)
           return [count.value, "x#{count.value}"] if count.is_a?(Node) && count.kind == :int
           if count.is_a?(Node) && count.kind == :list_len && @capacities[count.name]
             cap = @capacities[count.name]
@@ -656,6 +657,26 @@ module RubyGBA
             return [usual, "x#{usual} (#{count.name} usually)"]
           end
           [0, "x? (unbounded)"]
+        end
+
+        # THE ONE VARIABLE COUNT THAT IS NOT A GUESS. Every `once_a_frame` body is called from a
+        # loop counted by how many frames the pass that just ended answered for — so its count
+        # is a variable, and a variable count has no provable bound and is charged nothing.
+        #
+        # This one does have a bound, at both ends, and neither comes from reading the program.
+        # A pass that keeps up is one frame, which is what every frame of a game that fits
+        # costs; and a pass is held at a cap however late it runs, which is the most it can ever
+        # cost. Left to the unbounded rule, moving work into a `once_a_frame` made a frame look
+        # CHEAPER — the estimate is what an author decides by, and a screen shake, a fade, or a
+        # whole game's movement would have been free in it.
+        def counts_frames?(count)
+          count.is_a?(Node) && count.kind == :var_ref && count.name == IR::Frames::STEP
+        end
+
+        def frames_answered_for(typical:)
+          return [1, "x1 (a frame)"] if typical
+
+          [IR::Frames::MOST, "x<=#{IR::Frames::MOST} (a pass this late is held here)"]
         end
 
         # Ask the every-frame question AS THOUGH EVERYTHING WERE FULL, for the length of a

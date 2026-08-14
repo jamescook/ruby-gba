@@ -48,12 +48,9 @@ module RubyGBA
           # times and a beat to count backwards. One is the floor because a pass is always worth
           # at least the frame it ran in.
           #
-          # Holding it here rather than setting the marks at boot is deliberate. Anything touched
-          # at boot is given its place in memory BEFORE the program's own variables, which pushes
-          # every one of them along — and the first variable is the only one whose address the
-          # console can name in a single instruction, so moving it makes every read of it dearer.
-          # Two instructions here cost less than that, until the day an address is cheap
-          # whichever variable it belongs to.
+          # Held HERE rather than by clearing the two marks at boot, because a guard that lives
+          # with the number it guards cannot be undone from a distance: nothing added to the
+          # boot sequence later, in any order, can put a wild difference back.
           def emit_frame_step
             load_var(ACC, COUNT)
             load_var(TMP, SEEN)

@@ -75,7 +75,16 @@ i.stopped_at_budget?               # true if it was still looping when cut off
 
 Reference.new.hold(:left, :a).run(prog)              # buttons held for the whole run
 Reference.new.input_each_frame { |f| [:left] }.run(prog)  # per-frame input; needed to observe `pressed` edges
+Reference.new.frames_each_pass { |pass| 3 }.run(prog)     # say a pass ran late: 3 frames of catch-up
 ```
+
+`frames_each_pass` is the one thing the interpreter cannot find out for itself — it has no
+clock and is never late by construction — so a test says it. The block gives how many frames
+each pass answered for, held between 1 and `IR::Frames::MOST` exactly as the console holds it.
+That drives `once_a_frame` (the body runs that many times), a beat in frames, and a one-shot's
+counter. It does **not** make the interpreter slow: timers still accrue a pass's worth, the
+input script is still called once a pass, and `frames:` still counts passes. Use it to pin what
+a program *means* when the console says it is late; use gemba to find out whether it really is.
 
 Screen default fill is `0` (black). For clip/overwrite tests, `clear_screen` to a
 **distinct** background first so "clipped/absent" reads as that colour, and the
