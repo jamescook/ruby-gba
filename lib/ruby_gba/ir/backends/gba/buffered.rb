@@ -22,6 +22,13 @@ module RubyGBA
           # Clear the hidden page to a solid color: one DMA that repeats the packed
           # index word across the whole page.
           def emit_clear_screen_buffered(node)
+            # Inside an area, "the whole page" is that area — which is a rectangle, and there is
+            # already one way to fill one of those.
+            if clipping?
+              return emit_buffered_rect(clip_left, clip_top, clip_right - clip_left,
+                                        clip_bottom - clip_top, node.color)
+            end
+
             scratch = hold_index_word(node.color)
             store_word_immediate(scratch, REG_DMA3SAD)
             point_dma_dest_at_backbuf
@@ -42,11 +49,34 @@ module RubyGBA
           def emit_fill_rect_buffered(node)
             x, y, w, h = constant_ints!(node, x: node.x, y: node.y, w: node.w, h: node.h)
             even_width!(w, node.kind)
-            scratch = hold_index_word(node.color)
-            index = @palette.index_of(node.color)
-            edges = x.odd?
-            middle_x = edges ? x + 1 : x
-            middle_w = edges ? w - 2 : w # a two-pixel rect at an odd column is all edge
+            emit_buffered_rect(x, y, w, h, node.color)
+          end
+
+          # ...and the same rectangle without the even-width promise, because an area can cut a
+          # row down to an odd number of pixels however even the author's own rectangle was.
+          def emit_buffered_rect(x, y, w, h, color)
+            # Held to the area sideways once, before any row is emitted: every row of a
+            # rectangle spans the same columns, so where it starts and stops is one answer.
+            left = [x, clip_left].max
+            right = [x + w, clip_right].min
+            return if right <= left || h <= 0
+
+            x = left
+            w = right - left
+            scratch = hold_index_word(color)
+            index = @palette.index_of(color)
+
+            # WHICH PIXELS CANNOT GO IN AS PAIRS. A fill moves whole 16-bit units, so a run that
+            # starts on an odd column shares its first unit with a pixel outside the rectangle,
+            # and one holding an odd number of pixels shares its last. Either is written on its
+            # own — read the unit, change that half, write it back — and the pairs between them
+            # go in as one block.
+            first_alone = x.odd?
+            last_x = x + w - 1
+            middle_x = first_alone ? x + 1 : x
+            middle_w = w - (first_alone ? 1 : 0)
+            last_alone = middle_w.odd?
+            middle_w -= 1 if last_alone
 
             base = 6
             load_var(base, BACKBUF) # the hidden page base, held for the whole rect
@@ -65,19 +95,22 @@ module RubyGBA
 
             h.times do |dy|
               row = y + dy
-              next unless (0...SCREEN_HEIGHT).cover?(row)
+              next unless (clip_top...clip_bottom).cover?(row)
 
-              emit_write_index_pixel_const(base, x, row, index) if edges && in_bounds?(x, row)
+              emit_write_index_pixel_const(base, x, row, index) if first_alone
               emit_buffered_row_fill(base: base, x: middle_x, row: row, w: middle_w, scratch: scratch) if middle_w.positive?
-              emit_write_index_pixel_const(base, x + w - 1, row, index) if edges && in_bounds?(x + w - 1, row)
+              emit_write_index_pixel_const(base, last_x, row, index) if last_alone
             end
           end
 
-          # Can this rect go in as one transfer? Only if it spans the full screen width
-          # (so its rows are contiguous) and every row of it is on screen (so there is
-          # nothing to clip away in the middle of the run).
+          # Can this rect go in as one transfer? Only if it spans the full screen width (so its
+          # rows are contiguous) and every row of it may be painted (so there is nothing to skip
+          # in the middle of the run). An area narrower than the screen breaks the first of
+          # those, and one that starts below the top or stops above the bottom the second.
           def full_width_rows?(x:, y:, w:, h:)
-            x.zero? && w == SCREEN_WIDTH && h.positive? && y >= 0 && (y + h) <= SCREEN_HEIGHT
+            x.zero? && w == SCREEN_WIDTH && h.positive? &&
+              y >= clip_top && (y + h) <= clip_bottom &&
+              clip_left.zero? && clip_right == SCREEN_WIDTH
           end
 
           # One row of a rect into the hidden page: +w+ pixels from the even column +x+ of
@@ -626,13 +659,13 @@ module RubyGBA
               emit_clip_column_rows(leave)
               emit_column_destination
 
-              # A strip wholly on the screen writes with nothing to test; one hanging off an
+              # A strip wholly inside the edges writes with nothing to test; one hanging over an
               # edge takes a second copy of the rows that tests each of its pixels. A strip one
-              # pixel wide has no second case — it is on the screen or it draws nothing.
+              # pixel wide has no second case — it is inside or it draws nothing.
               clipped = gensym
-              emit(ASM.cmp_imm(COLUMN_X, 0))
+              emit(ASM.cmp_imm(COLUMN_X, clip_left))
               emit_branch(:bcond, clipped, cond: :lt)
-              emit(ASM.load_immediate(TMP, SCREEN_WIDTH - width))
+              emit(ASM.load_immediate(TMP, clip_right - width))
               emit(ASM.cmp_reg(COLUMN_X, TMP))
               emit_branch(:bcond, clipped, cond: :gt)
 
@@ -773,9 +806,9 @@ module RubyGBA
           def emit_buffered_column_pixel_clipped(offset)
             past = gensym
             emit(ASM.add_imm(SPARE, COLUMN_X, offset))
-            emit(ASM.cmp_imm(SPARE, 0))
+            emit(ASM.cmp_imm(SPARE, clip_left))
             emit_branch(:bcond, past, cond: :lt)
-            emit(ASM.cmp_imm(SPARE, SCREEN_WIDTH))
+            emit(ASM.cmp_imm(SPARE, clip_right))
             emit_branch(:bcond, past, cond: :ge)
 
             # The pixel's own byte, then the pair it sits in and which half of it that is.

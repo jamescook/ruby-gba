@@ -247,6 +247,24 @@ module RubyGBA
         operands name: :name, fast: :flag
       end
 
+      # A part of the picture that everything inside this stays within. Whatever the children
+      # draw is cut off at these edges, exactly as it is cut off at the edges of the picture —
+      # so the pixels outside are not merely covered up afterwards, they are never worked out.
+      #
+      # A program that shows one part of the picture over another — a strip of the world with a
+      # panel of numbers under it — needs this to say which part is which. Without it the world
+      # is drawn over the whole picture and the panel painted on top, and everything under the
+      # panel was worked out for nothing.
+      #
+      # The edges are settled while building. Where the parts of a picture are is a fact about
+      # how a program is laid out, not something it works out as it goes.
+      class Inside
+        include Node
+        kind :inside
+        category :control
+        operands x: :int, y: :int, w: :int, h: :int
+      end
+
       class Halt
         include Node
         kind :halt

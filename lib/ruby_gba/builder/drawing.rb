@@ -80,6 +80,56 @@ module RubyGBA
         record(Build.screen(mode, buffered: tear_free, colors: given_colors(colors, tear_free)))
       end
 
+      # Everything the block draws stays inside this part of the screen. What falls outside is
+      # CUT OFF rather than covered up: those pixels are never worked out, so the drawing costs
+      # what fits and not what was asked for.
+      #
+      #   inside 0, 0, 240, 128 do
+      #     ...the game...
+      #   end
+      #   draw_the_status_bar   # ...and this is outside it, so it draws
+      #
+      # This is what a game with a panel wants — a strip of world with a row of numbers under
+      # it, a map beside it, a letterboxed cut scene. Without it the world is drawn over the
+      # whole screen and the panel painted on top, and everything under the panel was drawn for
+      # nothing. In a first-person view, where a near wall is drawn taller than the screen, that
+      # is most of a near wall.
+      #
+      # It clips; it does not move. A pixel drawn at (10, 10) is at (10, 10) whatever area is in
+      # force — so an area can be put round drawing that already works, and only the parts that
+      # were falling outside change.
+      #
+      # The edges are settled while you write the program, because where a panel goes is part of
+      # how a screen is laid out rather than something a game works out as it runs. Areas do not
+      # nest inside each other.
+      #
+      # @param x [Integer] left edge
+      # @param y [Integer] top edge
+      # @param w [Integer] width in pixels
+      # @param h [Integer] height in pixels
+      def inside(x, y, w, h, &block)
+        raise ArgumentError, "inside needs a block: inside(x, y, w, h) { ... }" unless block
+
+        [["x", x], ["y", y], ["w", w], ["h", h]].each do |name, value|
+          next if value.is_a?(Integer)
+
+          raise ArgumentError,
+                "`inside` needs edges settled while you build. Got #{name}: #{value.inspect}. " \
+                "Where a part of the screen is belongs to how the screen is laid out, not to " \
+                "something the game works out as it runs."
+        end
+        if @inside_area
+          raise ArgumentError,
+                "`inside` cannot go inside another `inside`. One area is in force at a time. " \
+                "Close the one you are in, or give this one the edges you want."
+        end
+
+        @inside_area = [x, y, w, h]
+        push_container(Build.inside(x, y, w, h)) { run_block(&block) }
+      ensure
+        @inside_area = nil
+      end
+
       # Draw a single pixel in bitmap mode (MODE_3).
       # Writes a 15-bit color to VRAM at the (x, y) offset.
       #

@@ -131,16 +131,21 @@ module Wolf3D
     end
 
     # ...and what the player sees of it: the room, a wall column per strip, then whatever is
-    # standing in the room, which has to go last so it can be put behind the walls.
-    # ...and the status bar last of all, over whatever the view spilled into its rows. A wall
-    # column near enough to fill the screen is drawn past the bottom of the view, and nothing in
-    # the framework can yet be told to stop at a line — so the bar covers it rather than the
-    # view stopping short of it.
+    # standing in the room, which has to go last so it can be put behind the walls. Then the
+    # status bar, which is outside the view and so is not held to it.
+    #
+    # THE VIEW IS DRAWN INSIDE ITS OWN ROWS rather than over the whole screen with the bar
+    # painted on top afterwards, and that is worth its one line. A wall you are close to is
+    # drawn taller than the screen — that is what perspective says and the renderer no longer
+    # argues with it — so without this the rows under the bar are worked out, written, and then
+    # covered. Measured over a floor of the real game, one row in twelve.
     def draw
-      @b.dma_fill_rect 0, 0, ACROSS, HORIZON, CEILING
-      @b.dma_fill_rect 0, HORIZON, ACROSS, VIEW_H - HORIZON, FLOOR_COLOR
-      @b.repeat(COLUMNS) { |col| cast(col) }
-      @standing&.draw
+      @b.inside 0, 0, ACROSS, VIEW_H do
+        @b.dma_fill_rect 0, 0, ACROSS, HORIZON, CEILING
+        @b.dma_fill_rect 0, HORIZON, ACROSS, VIEW_H - HORIZON, FLOOR_COLOR
+        @b.repeat(COLUMNS) { |col| cast(col) }
+        @standing&.draw
+      end
       @bar.draw
     end
 
