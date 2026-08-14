@@ -14,11 +14,17 @@ module Wolf3D
   # the same fields in the framework's own font on a flat ground, so the game is playable and the
   # layout is settled; the art goes in underneath afterwards without moving a field.
   #
-  # IT IS REPAINTED EVERY FRAME, and that is forced rather than chosen. The screen this game
-  # draws on keeps two pages and shows them in turn, so anything painted once is only on one of
-  # them; and a wall column near enough to fill the screen is drawn straight down through where
-  # the bar sits, because nothing in the framework can yet be told to stop at a line. So the bar
-  # goes on last, over the top of whatever the view left there.
+  # IT IS REPAINTED EVERY FRAME, and only one of the two reasons for that is still true.
+  #
+  # It used to be that a wall column near enough to fill the screen was drawn straight down
+  # through where the bar sits, because nothing could be told to stop at a line. That is no
+  # longer so: the view is drawn `inside` its own rows and a column too tall for them is clipped,
+  # on both backends. Nothing paints over the bar any more.
+  #
+  # What is left is the screen. It keeps two pages and shows them in turn, so anything painted
+  # once is only on one of them — which needs TWO repaints whenever a field changes, not one
+  # every frame. Painting it regardless measures about a twentieth of the frame, nearly always
+  # to put back a picture identical to the one already there.
   class StatusBar
     # How many rows along the bottom it takes. The original gives its bar a fifth of the screen
     # and so does this.
