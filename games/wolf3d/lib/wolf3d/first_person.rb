@@ -837,12 +837,24 @@ module Wolf3D
     # The height is also left behind for whatever stands in the room, which reads it to know
     # what it is behind. A ray that met nothing leaves nothing, so a guard at the end of an
     # open corridor is not held back by a wall that is not there.
+    # HOW TALL A WALL COLUMN USUALLY IS, for the estimate only — nothing about how the game runs
+    # reads it. Every height here is worked out as the game runs, because that is what
+    # perspective is, so nothing at build time can know how far down the screen a walk goes. The
+    # estimate would otherwise guess half the view.
+    #
+    # Measured on a running cartridge rather than reasoned about: the column heights this
+    # renderer produces, sampled over a full turn on the first floor, average about half the
+    # view — near walls are clipped at the top rather than drawn shorter, which piles the tall
+    # ones up at the ceiling instead of spreading them out.
+    USUALLY_TALL = VIEW_H / 2
+
     def strip(col, slice)
       b = @b
       depth = @standing&.depth
       drawn = (@hit == 1).then do
         depth[col] = @colh if depth
         b.draw_column_at :walls, slice: slice, x: col * COLUMN_W, top: @top, height: @colh,
+                                 estimate: { usually: USUALLY_TALL },
                                  width: COLUMN_W
       end
       drawn.else { depth[col] = 0 } if depth

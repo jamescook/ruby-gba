@@ -301,7 +301,7 @@ module RubyGBA
       # @param top [Symbol, Integer, Value] the screen row it starts on
       # @param height [Symbol, Integer, Value] how tall to stretch it
       # @param width [Integer] how many pixels across, settled while building
-      def draw_column_at(name, slice:, x:, top:, height:, width: 1)
+      def draw_column_at(name, slice:, x:, top:, height:, width: 1, estimate: nil)
         unless @images.key?(name)
           raise ArgumentError,
                 "draw_column_at needs a picture. There is no image :#{name}. " \
@@ -315,7 +315,8 @@ module RubyGBA
         end
 
         record(Build.draw_column_at(name, Value.node_for(slice), Value.node_for(x),
-                                    Value.node_for(top), Value.node_for(height), width: width))
+                                    Value.node_for(top), Value.node_for(height), width: width,
+                                    usually: column_usually(height, estimate)))
         [slice, x, top, height].each { |operand| ensure_var(operand) }
       end
 
@@ -366,6 +367,21 @@ module RubyGBA
       end
 
       private
+
+      # What `estimate: { usually: N }` said about how tall this column normally is. Only a
+      # height the game works out can be told: one written in the program is already known, and
+      # saying it twice invites the two to disagree.
+      def column_usually(height, estimate)
+        return nil if estimate.nil?
+
+        if height.is_a?(Integer)
+          raise ArgumentError,
+                "`estimate:` belongs on a column whose height the game works out. This one is " \
+                "#{height} rows tall every time, so the estimate already knows. Remove it."
+        end
+
+        usual_length(estimate, SCREEN_HEIGHT)
+      end
 
       # The colors a screen was told to show, resolved the same way every draw verb
       # resolves one, so a name, a hex string and a raw value all mean the same thing

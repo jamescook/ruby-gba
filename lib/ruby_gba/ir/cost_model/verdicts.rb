@@ -775,6 +775,41 @@ module RubyGBA
           end
         end
 
+        # HOW TALL EACH STRETCHED COLUMN WAS COUNTED AT. A height the game works out is what
+        # perspective produces, so this is every column of a first-person view — the most
+        # expensive thing such a game does, and the one the estimate used to count as nothing at
+        # all. It has a ceiling where most computed sizes do not (a column is clipped), so it can
+        # be guessed rather than skipped, and the guess is worth saying out loud.
+        def stretched_column_verdicts(program)
+          index(program)
+          program.walk.filter_map do |node|
+            next unless node.kind == :draw_column_at
+            next if node.height.is_a?(Node) && node.height.kind == :int
+
+            ceiling = column_ceiling_for(node)
+            Verdict::StretchedColumn.new(name: node.name, counted: node.usually || (ceiling / 2),
+                                         ceiling: ceiling, said: !node.usually.nil?)
+          end
+        end
+
+        # The most rows this column could walk: the height of the part of the screen it is being
+        # drawn into, since it is clipped to that, or the whole screen where it is in no area.
+        # Found by looking up rather than down, because the walk here is flat.
+        #
+        # A column inside a ROUTINE called from an area reads the whole screen, because a
+        # routine's body is not written inside the area — the area is in force when it is
+        # CALLED. That makes the ceiling generous rather than wrong, and the author can say the
+        # height where it matters.
+        def column_ceiling_for(node)
+          at = node.parent
+          while at
+            return const_side(at.h) || IR::Screen::HEIGHT if at.kind == :inside
+
+            at = at.parent
+          end
+          IR::Screen::HEIGHT
+        end
+
         # Whether the program has a repeat whose trip count has no provable bound — not a
         # literal, not a capacity-bounded list — so the estimate counts its body as zero.
         def unbounded_loop?(program)

@@ -378,6 +378,7 @@ module RubyGBA
           list_walk_line(program, printer)
           live_slot_line(program, printer)
           early_exit_line(program, printer)
+          stretched_column_line(program, printer)
 
           if frame_total > recurring + 0.1
             printer.puts "    (a heavier frame reaches #{fmt(frame_total)} — the worst case for everything on it, " \
@@ -441,6 +442,24 @@ module RubyGBA
           else
             printer.puts "    (a loop that stops early counts the passes it usually makes — #{at}, " \
                          "a guess. To give the real number, write estimate: { usually: N } on the repeat.)"
+          end
+        end
+
+        # HOW TALL A STRETCHED COLUMN WAS COUNTED AT. The fourth assumption in the budget, and
+        # for a first-person view it is by far the biggest: every height in one is worked out as
+        # the game runs, because that is what perspective IS, so this decides what the whole
+        # renderer costs.
+        def stretched_column_line(program, printer)
+          columns = stretched_column_verdicts(program)
+          return if columns.empty?
+
+          at = columns.map { |c| ":#{c.name} #{c.counted} of #{c.ceiling}" }.uniq.join(", ")
+          if columns.all?(&:said)
+            printer.puts "    (a stretched column counts the rows it usually draws — " \
+                         "#{at}, the height you gave)"
+          else
+            printer.puts "    (a stretched column counts the rows it usually draws — #{at}, a " \
+                         "guess. To give the real height, write estimate: { usually: N } on the column.)"
           end
         end
 

@@ -197,7 +197,12 @@ module RubyGBA
         include Node
         kind :draw_column_at
         category :draw
-        operands name: :name, slice: :value, x: :value, top: :value, height: :value, width: :int
+        # +usually+ is how many rows this column normally draws — the estimate's, not the
+        # program's. A height the game works out has no size a build can prove, and this is the
+        # rare case where it has a known ceiling to be measured against (see the note on
+        # Pricing#column_rows), so the author can say rather than let it guess.
+        operands name: :name, slice: :value, x: :value, top: :value, height: :value,
+                 width: :int, usually: :int
       end
 
       class DrawText

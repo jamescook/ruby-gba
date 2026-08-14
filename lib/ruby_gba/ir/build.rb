@@ -159,9 +159,14 @@ module RubyGBA
         Nodes.build(:draw_rect_at, x: wrap(x), y: wrap(y), w: wrap(w), h: wrap(h), color: color)
       end
 
-      def draw_column_at(name, slice, x, top, height, width: 1)
+      # +usually+ is how many rows this column normally draws, for the estimate only — nothing
+      # about how the program runs reads it. A height the game works out has no size a build can
+      # prove, and unlike most such numbers this one has a known ceiling (a column is clipped to
+      # the screen), so the estimate can be told rather than left to guess.
+      def draw_column_at(name, slice, x, top, height, width: 1, usually: nil)
         Nodes.build(:draw_column_at, name: name, slice: wrap(slice), x: wrap(x),
-                                     top: wrap(top), height: wrap(height), width: width)
+                                     top: wrap(top), height: wrap(height), width: width,
+                                     usually: usually)
       end
 
       # Fill a rectangle at a fixed position and size — same picture as
