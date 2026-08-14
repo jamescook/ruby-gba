@@ -25,6 +25,10 @@ class TestDoors < Minitest::Test
   # The room's own door, the one the player can reach. The other is in the outer border.
   def room_door = @doors.doors.index { |door| door.y == 36 }
 
+  # THE GAME WITHOUT THE PICTURE, which is what everything below the drawing tests wants. These
+  # ask how far a door has slid and where the player got to; not one of them reads a pixel. The
+  # drawing costs about a hundred times what the game does, so running it would mean walking a
+  # player across a room eighty rays at a time to look at a variable.
   def program
     atlas = Wolf3D::WallAtlas.new(@vswap, Wolf3D::Palette.game, @level, doors: @doors)
     level = @level
@@ -34,7 +38,7 @@ class TestDoors < Minitest::Test
     RubyGBA.game("DOORS", code: "ZDRS", maker: "01") do
       screen :bitmap, tear_free: true
       view = Wolf3D::FirstPerson.new(build: self, level: level, atlas: atlas, doors: doors, pushwalls: pushwalls)
-      game_loop { view.update }
+      game_loop { view.play }
     end.program
   end
 
@@ -204,7 +208,7 @@ class TestDoors < Minitest::Test
 
   # A corridor running east with a door across it. The even door code is the panel that runs
   # north-south, which is the one you walk through going east.
-  def corridor
+  def corridor(start: START_AT)
     side = CORRIDOR
     cells = Array.new(side * side, Wolf3D::Level::FLOOR)
     things = Array.new(side * side, 0)
@@ -215,7 +219,7 @@ class TestDoors < Minitest::Test
       end
     end
     cells[(START_AT * side) + DOOR_AT] = Wolf3D::Level::DOORS.first
-    things[(START_AT * side) + START_AT] = Wolf3D::Level::FACINGS.key(:east)
+    things[(START_AT * side) + start] = Wolf3D::Level::FACINGS.key(:east)
     Wolf3D::Level.new(name: "Corridor", width: side, height: side, walls: cells, things: things)
   end
 
@@ -229,6 +233,29 @@ class TestDoors < Minitest::Test
       view = FP.new(build: self, level: level, atlas: atlas, doors: doors, pushwalls: pushwalls)
       game_loop { view.update }
     end.program
+  end
+
+  # A DOOR IS SOMETHING YOU SEE, not only something you walk through, and the ray that meets one
+  # does the most delicate thing in this renderer. A panel stands across the MIDDLE of its cell,
+  # so the ray cannot stop where the cell begins: it carries half a cell further and asks what
+  # is there. Shut, the panel is what you see, and it is close. Open, the ray goes through and
+  # meets the far end of the corridor — further away, and so standing shorter on the screen.
+  #
+  # This is the only test that looks at a door. The rest read how far one has slid, which is a
+  # different question and a hundred times cheaper to ask.
+  def test_a_shut_door_is_seen_and_an_open_one_is_seen_through
+    beside_it = corridor_program(corridor(start: DOOR_AT - 1))
+    shut = Reference.new.run(beside_it, frames: 3)
+    opened = Reference.new.input_each_frame { |f| f == 2 ? [:a] : [] }.run(beside_it, frames: 40)
+
+    assert_equal 0, wall_top(shut), "shut, the panel is right in front of you and fills the view"
+    assert_operator wall_top(opened), :>, 20,
+                    "open, the ray goes through and the far end of the corridor stands shorter"
+  end
+
+  # How far down the screen the wall ahead starts, at the middle of the view.
+  def wall_top(run)
+    (0...FP::HORIZON).find { |y| run.screen.pixel(120, y) != FP::CEILING } || FP::HORIZON
   end
 
   def test_the_console_opens_the_door_too
