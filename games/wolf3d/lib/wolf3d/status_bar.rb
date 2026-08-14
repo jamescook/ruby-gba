@@ -74,22 +74,59 @@ module Wolf3D
       declare
     end
 
-    def draw = @b.call(:draw_the_status_bar)
+    # HOW MANY TIMES A CHANGED BAR IS PAINTED, and it is two because the screen keeps two pages
+    # and shows them in turn. Painted once, half the frames would show the old figure.
+    PAGES = 2
+
+    # PAINT IT WHEN IT CHANGED, AND NOT OTHERWISE. Health changes when you are shot, ammunition
+    # when you fire, the score when you kill something; the floor and the lives hardly ever. On
+    # every other frame the bar is asked to put back a picture identical to the one already
+    # there, which measures about a twentieth of the frame.
+    #
+    # Testing costs a comparison per live field, which is nothing beside the painting.
+    def draw
+      notice_a_change
+      (@todo > 0).then do
+        @todo.sub 1
+        @b.call(:draw_the_status_bar)
+      end
+    end
 
     private
+
+    # Did any field move since it was last painted? Each keeps a copy of what it last showed, and
+    # the copy is taken here rather than in the painting — so a change asks for both pages and
+    # the second of the two does not think it has found another one.
+    def notice_a_change
+      @changed.set 0
+      @remembered.each do |name, last|
+        value = @shows.fetch(name)
+        (value != last).then do
+          @changed.set 1
+          last.set value
+        end
+      end
+      (@changed == 1).then { @todo.set PAGES }
+    end
 
     # PAINTING THE BAR IS A ROUTINE, and it has to be. A live number drawn into a picture is not
     # one instruction: the framework cannot know which digit will be there, so it lays out the
     # pixels of all ten and picks between them, for every digit place of every field. That comes
-    # to about twenty thousand bytes, and written straight it lands in the game loop — which the
-    # framework keeps in the console's quick memory, and which has about a page to spare. Losing
-    # that costs about two and a half times on every instruction in the game.
-    #
-    # As a routine it is called once a frame, so the call costs nothing worth measuring and the
-    # twenty thousand bytes sit in the cartridge where they belong.
+    # to about eighteen thousand bytes — too big to keep in the console's quick memory, which
+    # `rom.explain` now says out loud — and written straight into the game loop it would push the
+    # loop itself out of that memory, which costs about two and a half times on every instruction
+    # in the game.
     def declare
       bar = self
       @b.func(:draw_the_status_bar) { bar.send(:paint) }
+
+      # What each live field showed when it was last painted, and how many pages still want the
+      # new picture. Both start so that the first frame paints: nothing has been shown yet.
+      @changed = @b.var :_bar_changed, 0
+      @todo = @b.var :_bar_todo, PAGES
+      @remembered = @shows.filter_map do |name, value|
+        [name, @b.var(:"_bar_last_#{name}", -1)] unless value.is_a?(Integer)
+      end.to_h
     end
 
     def paint
