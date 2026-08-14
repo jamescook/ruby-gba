@@ -39,6 +39,15 @@ module Wolf3D
 
     LAST_CODE = FIRST_CODE + PICTURES.length - 1
 
+    # THE CEILING LIGHT, named because its SHAPE matters and not only its rules. It is the lamp
+    # high in its square and the light it throws low in it, with see-through nothing between —
+    # so whatever stands further away and lands in that gap is looked at through the middle of
+    # it. Every awkward question about drawing one thing behind another is asked by this piece.
+    CEILING_LIGHT = FIRST_CODE + 14
+
+    # Which picture a code wears, in the numbering VSWAP's sprites use.
+    def self.picture_of(code) = FIRST_PICTURE + PICTURES.fetch(code - FIRST_CODE)
+
     Piece = Data.define(:x, :y, :picture, :blocks)
 
     attr_reader :pieces
@@ -69,8 +78,8 @@ module Wolf3D
       code = @level.thing_code(x, y)
       return nil unless code.between?(FIRST_CODE, LAST_CODE)
 
-      at = code - FIRST_CODE
-      Piece.new(x: x, y: y, picture: FIRST_PICTURE + PICTURES.fetch(at), blocks: BLOCKING.include?(at))
+      Piece.new(x: x, y: y, picture: self.class.picture_of(code),
+                blocks: BLOCKING.include?(code - FIRST_CODE))
     end
   end
 end
