@@ -140,9 +140,17 @@ module Wolf3D
       # copy of this was enough to push the whole game loop out. Everything then runs from the
       # cartridge instead, which costs about two and a half times as much — a frame that was
       # slow becomes a frame that crawls, and none of it shows up as the scenery's fault.
+      # IT CARRIES ITS OWN EDGES, and that is not belt and braces. The view wraps its drawing in
+      # the rows it owns so that a thing too tall for them is cut off rather than painted over
+      # the status bar — but a routine's body is built where it is DECLARED, not where it is
+      # called, and this one is declared out here. So the view's edges never reached it: walk
+      # into a thing standing on the floor and it is drawn far taller than the view, straight
+      # down through the bar. Saying the edges again here is what puts them back.
       b.func(:draw_a_standing_thing) do
-        read_the_shape
-        any_of_it_on_screen.then { draw_the_strips }
+        b.inside 0, 0, FP::ACROSS, FP::VIEW_H do
+          read_the_shape
+          any_of_it_on_screen.then { draw_the_strips }
+        end
       end
 
       # ...and so is putting one on the queue, for the same reason and not for tidiness. It is

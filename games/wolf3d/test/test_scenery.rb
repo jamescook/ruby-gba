@@ -88,6 +88,36 @@ class TestScenery < Minitest::Test
                     "and stand about in the middle, since the player is looking straight at it"
   end
 
+  # WALK INTO SOMETHING AND IT MUST NOT SMEAR ACROSS THE STATUS BAR. A thing is drawn taller the
+  # nearer it is, and there is no nearer than standing in it — so a puddle you walk over is drawn
+  # far taller than the view is deep, and every row past the bottom of the view belongs to the
+  # bar.
+  #
+  # ON THE CONSOLE, WHICH IS THE ONLY PLACE IT SHOWED. The view wraps its drawing in the rows it
+  # owns, and a wall column too tall for them is cut off — but a routine's body is built where it
+  # is declared rather than where it is called, and the routine that draws a standing thing is
+  # declared outside those rows. The interpreter clips it anyway (it keeps the edges while it
+  # runs); the cartridge did not, and painted seven thousand of the bar's seven and a half
+  # thousand pixels. Held here on both, because only one of them can see it.
+  def test_walking_into_a_piece_of_scenery_does_not_paint_over_the_bar
+    underfoot = arena(things: { [9, 8] => PUDDLE })
+    program = view_of(underfoot)
+    rom = ROM.assemble(GBA.new.lower(program), title: "SCENERY", code: "ASCN", maker: "01")
+    walked = Reference.new.hold(:up).run(program, frames: 20)
+    gba = RubyGBA::Verifier.new(rom, frames: 26, keys: RubyGBA::Constants::KEY_UP)
+    inks = Scenery.new(underfoot).pictures.map { |p| palette[Release::SPRITE_INK + p] }
+    below = (0...FP::ACROSS).to_a.product((FP::VIEW_H...FP::DOWN).to_a)
+
+    refute_empty inks, "the puddle must have a colour of its own, or this counts nothing"
+
+    [["the interpreter", ->(x, y) { walked.screen.pixel(x, y) }],
+     ["the console", ->(x, y) { gba.pixel_gba(x, y) }]].each do |name, pixel|
+      spilled = below.count { |x, y| inks.include?(pixel.call(x, y)) }
+
+      assert_equal 0, spilled, "#{name} painted #{spilled} pixels of scenery over the bar"
+    end
+  end
+
   def test_a_piece_of_scenery_behind_a_wall_is_not_drawn_at_all
     open_room = look_at(things: { [12, 8] => BARREL })
     walled = look_at(things: { [12, 8] => BARREL }, walls: [[10, 7], [10, 8], [10, 9]])
