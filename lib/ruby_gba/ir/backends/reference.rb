@@ -352,6 +352,16 @@ module RubyGBA
             end
           when :loop
             loop { node.children.each { |child| exec(child) } }
+          when :inside
+            # Hold every cell the children paint inside these edges. The screen answers that
+            # question once, for everything, which is why the interpreter needs no per-shape
+            # arithmetic here and the other backend does.
+            @screen.draw_inside(node.x, node.y, node.w, node.h)
+            begin
+              node.children.each { |child| exec(child) }
+            ensure
+              @screen.draw_anywhere
+            end
           when :repeat
             # A counted loop: the index counts 0..count-1. Evaluate count once,
             # like a for-loop bound. tick! guards the step budget even when the

@@ -81,7 +81,7 @@ module RubyGBA
         play_sample: :portable, stop_sample: :portable,
 
         # control flow
-        if: :portable, else: :portable, loop: :portable, repeat: :portable,
+        if: :portable, else: :portable, loop: :portable, repeat: :portable, inside: :portable,
         func: :portable, call: :portable, case: :portable, wait_vblank: :portable, halt: :portable,
         every: :portable, after: :portable, # timed triggers: plain counter logic any backend can run
         # hardware timers: the node carries a rate in Hz (portable intent) — a backend

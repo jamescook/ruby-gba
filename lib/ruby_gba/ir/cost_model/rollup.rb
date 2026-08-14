@@ -140,7 +140,10 @@ module RubyGBA
         # here that sums the drawing on its own.
         def steady(node, worst: false)
           case node.kind
-          when :program, :loop, :else then node.children.sum { |child| steady(child, worst: worst) }
+          # An area costs nothing of its own — it is edges the shapes below cut themselves
+          # against, not work — so its children are counted exactly as they would be anywhere.
+          when :program, :loop, :else, :inside
+            node.children.sum { |child| steady(child, worst: worst) }
           # The condition is tested every frame, whichever way it goes — that's where a
           # collision test's comparison chain lives, and a pool's walk asks whether a slot is
           # live on every slot it has — so it's priced whole here; only the branch bodies are
@@ -406,7 +409,9 @@ module RubyGBA
         # and splice their children; a non-draw leaf contributes nothing).
         def build(node)
           case node.kind
-          when :program, :loop then node.children.flat_map { |child| build(child) }
+          # An area is see-through to the report as well: what it holds is what it costs, and
+          # a reader wants to see the shapes, not a box round them.
+          when :program, :loop, :inside then node.children.flat_map { |child| build(child) }
           when :if
             # The test itself runs every frame, whichever way it branches, so its cost is
             # real per-frame work and shown as its own leaf — a per-pixel collision test

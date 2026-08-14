@@ -149,6 +149,13 @@ module ConformanceFixture
       # ...and as a STRIP, whose pixels share one walk down the screen. At an odd column, so a
       # backend whose pixels are packed in pairs has to splice rather than write whole ones.
       B.draw_column_at(:sprite, B.int(1), B.int(71), B.int(30), B.var_ref(:x), width: 3),
+      # ...and one held to a part of the picture, which cuts it off short of where it asked to
+      # reach. A backend that clips per shape has to reach the same answer the one that clips
+      # per pixel does, and the rows past the edge must not be drawn AND covered — the whole
+      # point is that they cost nothing.
+      B.inside(80, 30, 8, 4,
+               B.draw_column_at(:sprite, B.int(1), B.int(82), B.int(28), B.int(12)),
+               B.dma_fill_rect(78, 28, 12, 8, :white)),
       B.draw_text("HI", 10, 10, :white),
       B.draw_digit(B.var_ref(:x), 20, 10, :white), # one run-time digit glyph
       B.blit(:sprite, :x, :y),

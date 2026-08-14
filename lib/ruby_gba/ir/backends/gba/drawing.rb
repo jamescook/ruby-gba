@@ -8,6 +8,31 @@ module RubyGBA
         module Drawing
           include Constants
 
+          # WHERE DRAWING MAY LAND. The whole screen, unless an `inside` says otherwise — and
+          # then these four are what every shape below cuts itself against.
+          #
+          # They are the ONLY thing that changes inside an area. In particular the stride never
+          # does: a row of the picture is 240 pixels long wherever you are allowed to paint on
+          # it, so an address is still worked out from the screen's own width. Confusing the two
+          # is the way to make a clipped picture come out slanted.
+          def clip_left = @draw_area ? @draw_area[0] : 0
+          def clip_top = @draw_area ? @draw_area[1] : 0
+          def clip_right = @draw_area ? @draw_area[0] + @draw_area[2] : SCREEN_WIDTH
+          def clip_bottom = @draw_area ? @draw_area[1] + @draw_area[3] : SCREEN_HEIGHT
+          def clipping? = !@draw_area.nil?
+
+          # Fill the area itself, which is what clearing means when only part of the picture may
+          # be painted: a row-at-a-time block fill over exactly those edges. It does not go
+          # through the rectangle verb because that one holds authors to an even width, and an
+          # area's width is whatever the author said.
+          def emit_fill_area(color)
+            scratch = hold_fill_word(color)
+            control = fill_control_for_column(clip_left, clip_right - clip_left)
+            (clip_top...clip_bottom).each do |row|
+              fire_dma_fill(scratch, VRAM_START + ((row * SCREEN_WIDTH) + clip_left) * 2, control)
+            end
+          end
+
           # Turn the screen on by writing the chosen mode to the display-control
           # register. Until this runs the screen stays black.
           #
@@ -220,11 +245,11 @@ module RubyGBA
             emit(ASM.load_immediate(ACC, color))
             h.times do |dy|
               row = y + dy
-              next unless (0...SCREEN_HEIGHT).cover?(row)
+              next unless (clip_top...clip_bottom).cover?(row)
 
               w.times do |dx|
                 col = x + dx
-                next unless (0...SCREEN_WIDTH).cover?(col)
+                next unless (clip_left...clip_right).cover?(col)
 
                 emit(ASM.load_immediate(TMP, VRAM_START + ((row * SCREEN_WIDTH) + col) * 2))
                 emit(ASM.store_halfword(ACC, TMP))
@@ -236,6 +261,9 @@ module RubyGBA
           # word across VRAM. The DMA engine copies far faster than a pixel loop.
           def emit_clear_screen(node)
             return emit_clear_screen_buffered(node) if @lower_mode == :buffered
+            # Inside an area, "the whole screen" is that area — which is a rectangle, and there
+            # is already one way to fill one of those.
+            return emit_fill_area(node.color) if clipping?
 
             color = Color.resolve(node.color)
             word = (color << 16) | color
@@ -256,14 +284,20 @@ module RubyGBA
 
             x, y, w, h = constant_ints!(node, x: node.x, y: node.y, w: node.w, h: node.h)
             even_width!(w, :dma_fill_rect)
+            # Held to the area sideways before a single row is emitted: every row of a rectangle
+            # spans the same columns, so where it starts and how far it reaches is one answer.
+            left = [x, clip_left].max
+            right = [x + w, clip_right].min
+            return if right <= left
+
             scratch = hold_fill_word(node.color)
-            control = fill_control_for_column(x, w)
+            control = fill_control_for_column(left, right - left)
 
             h.times do |dy|
               row = y + dy
-              next unless (0...SCREEN_HEIGHT).cover?(row)
+              next unless (clip_top...clip_bottom).cover?(row)
 
-              row_addr = VRAM_START + ((row * SCREEN_WIDTH) + x) * 2
+              row_addr = VRAM_START + ((row * SCREEN_WIDTH) + left) * 2
               fire_dma_fill(scratch, row_addr, control)
             end
           end
@@ -303,15 +337,15 @@ module RubyGBA
             emit_column_runs(node.name, bmp, done) do |leave|
               emit_clip_column_rows(leave)
 
-              # The screen's left and right edges are settled ONCE here, because a strip has
-              # one x for its whole height. A strip wholly on screen then writes with nothing
-              # to test; one hanging off an edge takes a second copy of the rows that tests
-              # each pixel, which is the rare case and pays for itself only there. A strip one
-              # pixel wide has no second case: it is on the screen or it draws nothing.
+              # The left and right edges are settled ONCE here, because a strip has one x for
+              # its whole height. A strip wholly inside them then writes with nothing to test;
+              # one hanging over an edge takes a second copy of the rows that tests each pixel,
+              # which is the rare case and pays for itself only there. A strip one pixel wide
+              # has no second case: it is inside or it draws nothing.
               clipped = gensym
-              emit(ASM.cmp_imm(COLUMN_X, 0))
+              emit(ASM.cmp_imm(COLUMN_X, clip_left))
               emit_branch(:bcond, clipped, cond: :lt)
-              emit(ASM.load_immediate(TMP, SCREEN_WIDTH - width))
+              emit(ASM.load_immediate(TMP, clip_right - width))
               emit(ASM.cmp_reg(COLUMN_X, TMP))
               emit_branch(:bcond, clipped, cond: :gt)
 
@@ -439,16 +473,16 @@ module RubyGBA
           # nothing of the column shows at all.
           def emit_clip_column_rows(done)
             above = gensym
-            emit(ASM.rsb_imm(ACC, COLUMN_Y, 0)) # ACC = -top: rows above the screen...
+            emit(ASM.rsb_imm(ACC, COLUMN_Y, clip_top)) # rows above where drawing may land...
             emit(ASM.cmp_reg(ACC, SPARE))
             emit_branch(:bcond, above, cond: :ge)
             emit(ASM.mov_reg(ACC, SPARE))       # ...or where the picture's own pixels start
             place_label(above)
 
-            # Stop at the bottom of the screen, or after the picture's last pixel in this
-            # column, whichever comes first — then take off the rows skipped at the top.
+            # Stop at the bottom edge, or after the picture's last pixel in this column,
+            # whichever comes first — then take off the rows skipped at the top.
             under = gensym
-            emit(ASM.load_immediate(TMP, SCREEN_HEIGHT))
+            emit(ASM.load_immediate(TMP, clip_bottom))
             emit(ASM.sub_reg(TMP, TMP, COLUMN_Y)) # one past the last row that shows
             emit(ASM.cmp_reg(TMP, HIGH))
             emit_branch(:bcond, under, cond: :le)
@@ -530,9 +564,9 @@ module RubyGBA
 
             past = gensym
             emit(ASM.add_imm(SPARE, COLUMN_X, offset))
-            emit(ASM.cmp_imm(SPARE, 0))
+            emit(ASM.cmp_imm(SPARE, clip_left))
             emit_branch(:bcond, past, cond: :lt)
-            emit(ASM.cmp_imm(SPARE, SCREEN_WIDTH))
+            emit(ASM.cmp_imm(SPARE, clip_right))
             emit_branch(:bcond, past, cond: :ge)
             emit(ASM.store_halfword_offset(ACC, TMP, offset * 2))
             place_label(past)
@@ -1710,8 +1744,11 @@ module RubyGBA
           # known at build time (an even one keeps the fast two-pixel transfer), or
           # nil when the program computes it at run time and either parity is
           # possible — then correctness decides and we fill a pixel at a time.
+          # A whole-word transfer moves two pixels at once, so it needs a run that both STARTS on
+          # an even column and holds an even number. A run held to an area can fail either test,
+          # and then it goes a pixel at a time.
           def fill_control_for_column(x, w)
-            return dma_fill_control(w / 2) if x&.even?
+            return dma_fill_control(w / 2) if x&.even? && w.even?
 
             dma_fill_control_halfwords(w)
           end

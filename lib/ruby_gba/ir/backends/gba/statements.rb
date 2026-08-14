@@ -24,6 +24,7 @@ module RubyGBA
             when :if then emit_if(node)
             when :loop then emit_loop(node)
             when :repeat then emit_repeat(node)
+            when :inside then emit_inside(node)
             when :every then emit_every(node)
             when :after then emit_after(node)
             when :list_new then emit_list_new(node)
@@ -179,6 +180,21 @@ module RubyGBA
           # thing worth keeping in the console's quick memory. When it has been chosen for
           # that (see {Placement}) the loop becomes a call into it and the body is emitted
           # with the other moved routines; otherwise it stays inline, exactly as it was.
+          # EVERYTHING INSIDE STAYS INSIDE THESE EDGES. There is nothing to emit for the area
+          # itself: it is not a thing the console knows about, it is the edges every shape below
+          # is cut against — so it is remembered while the children are emitted and each of them
+          # works its own clipping out against these instead of against the whole screen.
+          #
+          # Which is why the edges must be settled while building. A shape clips by comparing
+          # against a number, and a number known here is an instruction; a number the game works
+          # out would be a register held across every shape in the block.
+          def emit_inside(node)
+            @draw_area = [node.x, node.y, node.w, node.h]
+            node.children.each { |stmt| emit_statement(stmt) }
+          ensure
+            @draw_area = nil
+          end
+
           def emit_loop(node)
             top = gensym
             place_label(top)

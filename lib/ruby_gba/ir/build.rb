@@ -303,6 +303,11 @@ module RubyGBA
         Nodes.build(:loop, children: body)
       end
 
+      # Everything +body+ draws is cut off at the edges of this part of the picture.
+      def inside(x, y, w, h, *body)
+        Nodes.build(:inside, children: body, x: x, y: y, w: w, h: h)
+      end
+
       # A counted loop: run +body+ +count+ times, with +index+ (a variable name)
       # counting 0..count-1 at run time. The runtime counterpart to Ruby's
       # build-time N.times — where N.times unrolls the loop and its counter is a

@@ -43,7 +43,17 @@ module RubyGBA
             @paint_steps = 0
             @through_steps = 0
             @blending = false
+            @area = nil
           end
+
+          # WHERE DRAWING IS ALLOWED TO LAND, or nil for the whole picture. Everything that
+          # paints a cell goes through #in_bounds?, so saying it here says it once — and a
+          # backend that must instead work the same edges out per shape has this to agree with.
+          def draw_inside(x, y, width, height)
+            @area = [x, y, x + width, y + height]
+          end
+
+          def draw_anywhere = @area = nil
 
           # Move the visible window over the stored picture: after this, screen (0, 0)
           # shows what was drawn at (x, y). Nothing stored moves — a camera changes what
@@ -166,9 +176,12 @@ module RubyGBA
             end
           end
 
-          # Paint the entire screen one color.
+          # Paint the entire screen one color — or, where drawing is held to a part of it, that
+          # part and no more.
           def clear(color)
-            @pixels.fill(painted(color))
+            return @pixels.fill(painted(color)) unless @area
+
+            fill_rect(@area[0], @area[1], @area[2] - @area[0], @area[3] - @area[1], color)
           end
 
           # A flat, row-major copy of every cell as it is STORED — for counting how many
@@ -300,7 +313,10 @@ module RubyGBA
           end
 
           def in_bounds?(x, y)
-            x >= 0 && x < @width && y >= 0 && y < @height
+            return false unless x >= 0 && x < @width && y >= 0 && y < @height
+            return true unless @area
+
+            x >= @area[0] && x < @area[2] && y >= @area[1] && y < @area[3]
           end
         end
       end

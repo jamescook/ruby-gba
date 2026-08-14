@@ -103,8 +103,11 @@ module RubyGBA
             end
           end
 
+          # Is this cell one drawing may land on? The screen, held further to whatever area is in
+          # force — so a shape whose place is known while building is simply not emitted for the
+          # parts that fall outside.
           def in_bounds?(x, y)
-            (0...SCREEN_WIDTH).cover?(x) && (0...SCREEN_HEIGHT).cover?(y)
+            (clip_left...clip_right).cover?(x) && (clip_top...clip_bottom).cover?(y)
           end
 
           # Run +body+ once per row of a rect whose height the program works out as it
