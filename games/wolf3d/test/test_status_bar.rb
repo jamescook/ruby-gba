@@ -87,6 +87,42 @@ class TestStatusBar < Minitest::Test
                     "and picking one up lights it"
   end
 
+  # --- painted only when it changed ----------------------------------------------------
+
+  # THE BAR IS NOT REPAINTED ON A FRAME WHERE NOTHING ON IT MOVED, which is nearly every frame.
+  # Read as the count of passes that painted: standing still with nobody about, the bar should be
+  # painted for the two pages at the start and then left alone however long the game runs.
+  def test_a_bar_that_did_not_change_is_not_painted_again
+    still = Reference.new.run(view_of(arena), frames: 90)
+
+    assert_equal 0, still[:_bar_todo],
+                 "nothing on the bar moved, so nothing should still be waiting to be painted"
+  end
+
+  # ...and when something DOES move it is painted twice, because the screen keeps two pages and
+  # shows them in turn. THIS IS THE ONE THE INTERPRETER CANNOT SEE: it models a single
+  # framebuffer, so a bar painted once reads right there and flickers on the console. Two
+  # consecutive frames of the cartridge, well after the change, must show the same bar.
+  def test_the_console_shows_the_changed_bar_on_both_pages
+    program = view_of(arena(guards: [[13, 8, :east]]))
+    rom = ROM.assemble(GBA.new.lower(program), title: "BAR", code: "ABAR", maker: "01")
+    fire = ->(frame) { frame.between?(8, 9) ? RubyGBA::Constants::KEY_B : 0 }
+
+    bars = [40, 41].map do |frames|
+      gba = RubyGBA::Verifier.new(rom, frames: frames, keys: fire)
+      pixels = (0...FP::ACROSS).step(2).flat_map do |x|
+        (FP::VIEW_H...FP::DOWN).step(2).map { |y| gba.pixel_gba(x, y) }
+      end
+      # A digest rather than the pixels themselves: a thousand numbers side by side says only
+      # that they differ, and takes a screenful to say it.
+      [frames, pixels.hash, pixels.count { |c| c != ground }]
+    end
+
+    assert_equal bars.first[1..], bars.last[1..],
+                 "frame #{bars.first[0]} and #{bars.last[0]} show different bars, so one page is " \
+                 "a frame behind and the figures flicker between two values"
+  end
+
   private
 
   def fixture = @fixture ||= Release.new
