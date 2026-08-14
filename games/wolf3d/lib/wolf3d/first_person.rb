@@ -102,6 +102,7 @@ module Wolf3D
     # see whether a door opens spends all its time on a picture it never looks at.
     def play
       walk
+      @mind&.update
     end
 
     # ...and what the player sees of it: the room, a wall column per strip, then whatever is
@@ -172,13 +173,13 @@ module Wolf3D
       @key_bit = b.table :key_bit, some(key_cells.map { |c| c[:bit] }), width: :byte
 
       b.image :walls, width: @atlas.width, height: @atlas.height, data: @atlas.pixels
-      declare_the_standing
 
       start = @level.start
       @px = b.var :px, start.x + 0.5
       @py = b.var :py, start.y + 0.5
       @view = b.var :view, facing_angle(start.facing)
 
+      declare_the_standing
       declare_the_scratch
 
       # Every door starts shut, and a list starts empty — so it needs its slots before anything
@@ -269,18 +270,33 @@ module Wolf3D
       @zbuf = b.list :seen_at, capacity: COLUMNS
       COLUMNS.times { @zbuf << 0 }
 
-      poses = @guards.pictures
-      @thing_slice = @things.slice_of(poses.first)
-      @pose_first = b.table :pose_first, poses.map { |p| @things.first_column(p) }, width: :byte
-      @pose_last = b.table :pose_last, poses.map { |p| @things.last_column(p) }, width: :byte
+      # WHICH COLUMNS OF EACH PICTURE hold anything, read by where the picture sits in the row
+      # rather than by which way the guard is turned — a shooting guard is a different shape
+      # from a walking one, and both are asked the same question.
+      pictures = @guards.pictures
+      @pose_first = b.table :pose_first, pictures.map { |p| @things.first_column(p) }, width: :byte
+      @pose_last = b.table :pose_last, pictures.map { |p| @things.last_column(p) }, width: :byte
 
-      @guard = b.pool :guard, x: 0.0, y: 0.0, facing: 0,
+      # WHICH WAY A GUARD IS POINTING, as this view counts angles. The original numbers its
+      # directions counter-clockwise from east and this view runs its angles clockwise, because
+      # its y grows down the screen — so the two run opposite ways and this is where they meet.
+      @dir_angle = b.table :guard_angle,
+                           (0..Guards::NOWHERE).map { |n| (-n * (TURN / Guards::POSES)) % TURN }
+
+      @guard = b.pool :guard, x: 0.0, y: 0.0, dir: 0, state: 0, ticks: 0, wait: 0, togo: 0.0,
                               capacity: @guards.count,
                               estimate: { usually: @guards.count }
       @guards.guards.each do |guard|
         # A guard stands in the middle of his cell, like the player does.
-        @guard.spawn x: guard.x + 0.5, y: guard.y + 0.5, facing: facing_angle(guard.facing)
+        state = Guards.starting_state(guard)
+        @guard.spawn x: guard.x + 0.5, y: guard.y + 0.5,
+                     dir: Guards.direction_of(guard.facing),
+                     state: state, ticks: Guards::STATES.fetch(state).ticks
       end
+
+      @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
+                            world: @world, player: { x: @px, y: @py }, door_open: @open,
+                            walls: { door: DOOR, push: PUSH })
     end
 
     # Everything standing in the level, after the walls it has to stand behind.
@@ -334,16 +350,20 @@ module Wolf3D
     # turning it half way round gives the angle from the guard back to the player. Half a
     # bucket is added first so that a boundary falls between two poses rather than on one, and
     # a guard looking straight at you does not flicker between two pictures as you sidestep.
+    # A guard who is firing, or hurt, or falling over has ONE picture rather than eight — he is
+    # doing something you see the same way from wherever you stand — so the state says whether
+    # the answer above counts for anything at all.
     def pick_a_pose(guard)
-      @pose.set(guard.facing - @view)
+      @pose.set(@dir_angle[guard.dir] - @view)
       @pose.sub((@cx - (ACROSS / 2)) / COLUMN_W)
       @pose.add((TURN / 2) + (TURN / (Guards::POSES * 2)))
       @pose.set(@pose % TURN)
       @pose.set(@pose / (TURN / Guards::POSES))
 
-      @pfirst.set(@pose_first[@pose])
-      @plast.set(@pose_last[@pose])
-      @shape.set(@thing_slice + (@pose * TEX))
+      @shape.set(@mind.picture_of[guard.state] + (@pose * @mind.turns_of[guard.state]))
+      @pfirst.set(@pose_first[@shape])
+      @plast.set(@pose_last[@shape])
+      @shape.set(@shape * TEX)
     end
 
     # A GUARD IS A SQUARE the same size as a wall at his distance, so his width on screen is

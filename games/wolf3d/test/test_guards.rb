@@ -166,6 +166,88 @@ class TestGuards < Minitest::Test
     assert_equal({ east: 0, south: 6, west: 4, north: 2 }, seen)
   end
 
+  # ---------------------------------------------------------------- what he does
+
+  # These read where a guard is and what he is doing, never a pixel, so they run the game
+  # without drawing it — a hundred times cheaper, and the same answers.
+
+  STAND = Guards.state_number(:stand)
+  CHASING = (1...Guards::STATES.length).select { |n| Guards::STATES[n].name.start_with?("chase") }
+  FIRING = (1...Guards::STATES.length).select { |n| Guards::STATES[n].name.start_with?("shoot") }
+
+  # A GUARD WHO CAN SEE YOU COMES AFTER YOU. He is facing your way with nothing in between, so
+  # he notices, waits out his moment of reaction, and then closes.
+  def test_a_guard_who_can_see_you_comes_after_you
+    run = watch(guards: [[12, 8, :west]], frames: 200)
+
+    assert_includes CHASING + FIRING, state_of(run), "he should have set off"
+    assert_operator guard_at(run, :x), :<, 12.5, "and closed some of the distance"
+  end
+
+  # ...but not through a wall. This is the line of sight doing its job, and it is the only
+  # thing different between this and the test above.
+  def test_a_guard_cannot_see_you_through_a_wall
+    run = watch(guards: [[12, 8, :west]], walls: [[10, 8]], frames: 200)
+
+    assert_equal STAND, state_of(run), "a wall between them is a wall between them"
+    assert_in_delta 12.5, guard_at(run, :x), 0.001, "so he has not moved"
+  end
+
+  # ...and not behind him either. A guard facing away sees nothing that way, which is what
+  # makes sneaking up on one possible.
+  def test_a_guard_does_not_see_you_behind_him
+    run = watch(guards: [[12, 8, :east]], frames: 200)
+
+    assert_equal STAND, state_of(run)
+  end
+
+  # HE DOES NOT SET OFF THE MOMENT HE SEES YOU. Noticing and reacting are two things: he sees
+  # you on one pass and starts his count, and only when that runs down does he come. That beat
+  # is why the game feels fair, and one pass is enough to show the two are separate.
+  def test_seeing_you_and_coming_after_you_are_not_the_same_pass
+    assert_equal STAND, state_of(watch(guards: [[12, 8, :west]], frames: 1)),
+                 "on the pass he sees you he is still standing"
+  end
+
+  # A guard put down to walk a beat walks it. The player is kept BEHIND him and off his row,
+  # which is what keeps this about the beat rather than about noticing anybody — a patrolling
+  # guard looks as he goes, and one who sees you stops patrolling and comes.
+  #
+  # Off his ROW as well as behind him because of where a guard's sight ends. "In front" is one
+  # comparison per facing in the original, so a guard facing north sees everything at his own
+  # y or above it — and a player exactly level with him is on that line, and seen the moment he
+  # turns to face along it.
+  HIDING = [2, 12].freeze
+
+  def test_a_patrolling_guard_walks_his_beat
+    beat = Guards::PATROLLING + Guards::FACINGS.index(:east)
+    run = watch(things: { [10, 8] => beat }, player: HIDING, frames: 120)
+
+    assert_operator guard_at(run, :x), :>, 10.5, "he should have walked east"
+    assert_in_delta 8.5, guard_at(run, :y), 0.001, "and only east"
+  end
+
+  # A TURNING POINT TURNS HIM. Plane 1 holds an arrow in a cell, and a patrolling guard who
+  # reaches it goes the way it points instead of straight on.
+  def test_a_turning_point_sends_a_patrolling_guard_a_new_way
+    beat = Guards::PATROLLING + Guards::FACINGS.index(:east)
+    north = Guards::FIRST_ARROW + 2
+    run = watch(things: { [10, 8] => beat, [11, 8] => north }, player: HIDING, frames: 260)
+
+    assert_in_delta 11.5, guard_at(run, :x), 0.001, "he should have stopped going east at it"
+    assert_operator guard_at(run, :y), :<, 8.4, "and turned north"
+  end
+
+  # A guard with a clear line at you stops to take a shot, which is a chance against distance
+  # taken every pass — so it is a matter of when rather than whether. This looks for the moment.
+  def test_a_guard_that_reaches_you_goes_for_his_gun
+    fired = (40..200).step(20).any? do |frames|
+      FIRING.include?(state_of(watch(guards: [[10, 8, :west]], frames: frames)))
+    end
+
+    assert fired, "somewhere in there he should have been firing"
+  end
+
   # ---------------------------------------------------------------- and on the console
 
   # THE CARTRIDGE DRAWS HIM TOO, and the whole picture is held against the interpreter's rather
@@ -214,7 +296,7 @@ class TestGuards < Minitest::Test
     Wolf3D::Level.new(name: "Arena", width: SIDE, height: SIDE, walls: cells, things: standing)
   end
 
-  def view_of(level)
+  def view_of(level, drawing: true)
     doors = Wolf3D::Doors.new(level, vswap)
     pushwalls = Wolf3D::Pushwalls.new(level)
     guards = Guards.new(level)
@@ -225,9 +307,21 @@ class TestGuards < Minitest::Test
       screen :bitmap, tear_free: true
       view = Wolf3D::FirstPerson.new(build: self, level: level, atlas: atlas, doors: doors,
                                      pushwalls: pushwalls, guards: guards, things: things)
-      game_loop { view.update }
+      game_loop { drawing ? view.update : view.play }
     end.program
   end
+
+  # Run the game without drawing it, for the tests that watch what a guard does rather than
+  # what he looks like.
+  def watch(frames:, **)
+    Reference.new.run(view_of(arena(**), drawing: false), frames: frames)
+  end
+
+  ONE = (1 << RubyGBA::Fraction::DEFAULT_BITS).to_f
+
+  def pool_field(run, field) = run.instance_variable_get(:@lists)[:"__pool_guard_#{field}"].get(0)
+  def state_of(run) = pool_field(run, :state)
+  def guard_at(run, axis) = pool_field(run, axis) / ONE
 
   # Stand where the level says and look. Nothing moves, so two frames settle it.
   def look_at(**) = Reference.new.run(view_of(arena(**)), frames: 2)
