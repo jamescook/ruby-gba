@@ -56,6 +56,9 @@ module Wolf3D
     # How much killing a guard takes. The easiest two settings agree on it.
     HIT_POINTS = 25
 
+    # ...and what killing one is worth, which is the original's own number.
+    POINTS = 100
+
     # HOW LONG A STATE LASTS is counted in the original's own units — seventieths of a second —
     # and the numbers below are its numbers, unchanged. This is how many of them a pass of this
     # game is worth. It is deliberately a whole number: the shortest state in the table is three

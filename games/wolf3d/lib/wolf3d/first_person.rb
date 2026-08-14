@@ -48,8 +48,14 @@ module Wolf3D
 
     TEX = WallAtlas::SIDE # a wall picture is this many columns across...
     PAIR = TEX * 2        # ...and each wall keeps two of them, lit then dark
-    HORIZON = 76          # the eye line
     ACROSS = 240          # pixels across the screen
+    DOWN = 160            # ...and down it
+
+    # HOW MUCH OF THE SCREEN THE VIEW GETS. The status bar takes the rest, along the bottom, the
+    # way the original arranges it — and the eye line sits in the middle of what is left, because
+    # the middle of the VIEW is what a horizon is, not the middle of the screen.
+    VIEW_H = DOWN - StatusBar::HEIGHT
+    HORIZON = VIEW_H / 2
 
     # HOW TALL A WALL ONE CELL AWAY STANDS, and it is not a free choice. It is the distance
     # from the eye to the screen measured in pixels, and that follows from how wide the view
@@ -126,11 +132,16 @@ module Wolf3D
 
     # ...and what the player sees of it: the room, a wall column per strip, then whatever is
     # standing in the room, which has to go last so it can be put behind the walls.
+    # ...and the status bar last of all, over whatever the view spilled into its rows. A wall
+    # column near enough to fill the screen is drawn past the bottom of the view, and nothing in
+    # the framework can yet be told to stop at a line — so the bar covers it rather than the
+    # view stopping short of it.
     def draw
-      @b.dma_fill_rect 0, 0, 240, HORIZON, CEILING
-      @b.dma_fill_rect 0, HORIZON, 240, 160 - HORIZON, FLOOR_COLOR
+      @b.dma_fill_rect 0, 0, ACROSS, HORIZON, CEILING
+      @b.dma_fill_rect 0, HORIZON, ACROSS, VIEW_H - HORIZON, FLOOR_COLOR
       @b.repeat(COLUMNS) { |col| cast(col) }
       @standing&.draw
+      @bar.draw
     end
 
     private
@@ -211,11 +222,10 @@ module Wolf3D
       @py = b.var :py, start.y + 0.5
       @view = b.var :view, facing_angle(start.facing)
 
-      # What the player has, and neither is on screen yet — the bar along the bottom that shows
-      # them is its own piece of work. They are ordinary variables until then, which is enough
-      # to play with and enough to test.
+      # What the player has: what the bar along the bottom shows, and what the game is played by.
       @health = b.var :health, START_HEALTH
       @ammo = b.var :ammo, START_AMMO
+      @score = b.var :score, 0
 
       declare_the_standing
       declare_the_scratch
@@ -230,6 +240,22 @@ module Wolf3D
         @push_wait << 0
       end
       [key_cells.length, 1].max.times { @key_taken << 0 }
+
+      declare_the_bar
+    end
+
+    # HOW MANY GOES YOU GET. Fixed for now: there is nothing that can take one off you, because
+    # dying is not a thing that happens yet. It is on the bar from the start rather than added
+    # later, so that the field is there and the layout is settled when it starts changing.
+    LIVES = 3
+
+    # WHICH FLOOR. One, because one is all the cartridge holds.
+    FLOOR = 1
+
+    def declare_the_bar
+      @bar = StatusBar.new(build: @b, top: VIEW_H,
+                           shows: { floor: FLOOR, score: @score, lives: LIVES,
+                                    health: @health, ammo: @ammo, keys: @keys })
     end
 
     # WORKING ROOM. Every one of these is scratch — set, read and finished with inside a single
@@ -318,7 +344,7 @@ module Wolf3D
       @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
                             world: @world, door_open: @open, walls: { door: DOOR, push: PUSH },
                             things: @things, blocked: @blocked,
-                            player: { x: @px, y: @py, health: @health,
+                            player: { x: @px, y: @py, health: @health, score: @score,
                                       cos: @vcos, sin: @vsin })
     end
 

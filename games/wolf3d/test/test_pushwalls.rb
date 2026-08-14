@@ -150,6 +150,12 @@ class TestPushwalls < Minitest::Test
     (0...FP::HORIZON).find { |y| run.screen.pixel(120, y) != FP::CEILING } || FP::HORIZON
   end
 
+  # ...and how TALL it therefore stands, which is what a distance actually shows as. The eye line
+  # is the middle of a wall, so twice the drop from the top of the view down to its top edge is
+  # the whole height — and unlike the top edge, that is a fact about the wall rather than about
+  # where the eye line happens to sit.
+  def wall_height(run) = (FP::HORIZON - wall_top(run)) * 2
+
   def test_a_ray_sees_the_wall_where_it_is_now_and_not_where_it_started
     program = secret_program(secret_corridor)
     gone = (Wolf3D::Pushwalls::FRAMES_PER_CELL * Wolf3D::Pushwalls::DISTANCE) + 4
@@ -157,8 +163,8 @@ class TestPushwalls < Minitest::Test
     before = Reference.new.run(program, frames: 3)
     after = Reference.new.input_each_frame { |f| f == 2 ? [:a] : [] }.run(program, frames: gone)
 
-    assert_equal 0, wall_top(before), "up against it, the wall fills the view"
-    assert_operator wall_top(after), :>, 20,
+    assert_equal FP::VIEW_H, wall_height(before), "up against it, the wall fills the view"
+    assert_operator wall_height(after), :<, FP::VIEW_H * 3 / 4,
                     "two cells away it stands shorter, and the cells it left are seen past"
   end
 
