@@ -104,11 +104,14 @@ module Wolf3D
     # so. The guards go on about their business around the body, which is what the original does
     # too while the death is playing out.
     def play
-      (@health > 0).then do
+      still_playing.then do
         open_a_door
         fire if @mind
       end
     end
+
+    # Is the game still the player's to play? Until something can kill you it always is.
+    def still_playing = @dying ? @dying.alive : (@health > 0)
 
     # ...AND WHAT MOVES, once for each frame that really passed rather than once per pass.
     #
@@ -132,9 +135,15 @@ module Wolf3D
     # test that walks a player across a room to see whether a door opens spends all its time on
     # a picture it never looks at. A game loop that only calls #play still runs this, because it
     # is the frame boundary that drives it.
+    # A DEAD PLAYER'S WORLD STOPS. Once something has killed you, none of this runs — not the
+    # walking, not the doors, not the guards. The death has its own short story to tell (turn
+    # toward what killed you, then the view goes red) and it tells it over a still world, which
+    # is what the original does and is also what makes it affordable: the eighty rays a normal
+    # frame spends nearly all of itself on are simply not cast.
     def declare_the_clock
       @b.once_a_frame(:the_world_moves) do
-        (@health > 0).then { walk }
+        still_playing.then { walk }
+        @dying&.turn
 
         if @standing
           # Which way the eye points, worked out once a frame: the shot needs it and so does
@@ -142,7 +151,7 @@ module Wolf3D
           @vcos.set(@sin[@view + QUARTER])
           @vsin.set(@sin[@view])
         end
-        @mind&.update
+        still_playing.then { @mind.update } if @mind
       end
     end
 
@@ -166,7 +175,17 @@ module Wolf3D
     # drawn taller than the screen — that is what perspective says and the renderer no longer
     # argues with it — so without this the rows under the bar are worked out, written, and then
     # covered. Measured over a floor of the real game, one row in twelve.
+    # ONCE THE VIEW STARTS GOING RED IT IS NOT REDRAWN. The dots are added to the picture that is
+    # already there, so anything painting over it would rub them out — and the whole of what the
+    # fizzle costs is affordable precisely because none of this is being done underneath it.
     def draw
+      return draw_the_world unless @dying
+
+      @dying.showing_the_world.then { draw_the_world }
+      @dying.draw
+    end
+
+    def draw_the_world
       @b.inside 0, 0, ACROSS, VIEW_H do
         @b.dma_fill_rect 0, 0, ACROSS, HORIZON, CEILING
         @b.dma_fill_rect 0, HORIZON, ACROSS, VIEW_H - HORIZON, FLOOR_COLOR
@@ -351,10 +370,20 @@ module Wolf3D
       # floor with nothing standing in it never wants it.
       @vcos, @vsin = fraction(:vcos, :vsin)
 
+      declare_the_dying
       declare_the_guards
       @standing = Billboards.new(build: @b, things: @things, scenery: @scenery,
                                  guards: @guards, pool: @guard, mind: @mind,
                                  eye: { x: @px, y: @py, cos: @vcos, sin: @vsin, angle: @view })
+    end
+
+    # DYING NEEDS SOMETHING THAT CAN KILL YOU, so a floor with no guards on it declares none of
+    # this and pays for none of it. It is declared before the guards because the guard who lands
+    # the last shot is the one that sets it off.
+    def declare_the_dying
+      return if @guards.nil? || @guards.empty?
+
+      @dying = Dying.new(build: @b, eye: { x: @px, y: @py, angle: @view, sin: @sin })
     end
 
     def declare_the_guards
@@ -376,7 +405,7 @@ module Wolf3D
 
       @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
                             world: @world, door_open: @open, walls: { door: DOOR, push: PUSH },
-                            things: @things, blocked: @blocked,
+                            things: @things, blocked: @blocked, dying: @dying,
                             player: { x: @px, y: @py, health: @health, score: @score,
                                       cos: @vcos, sin: @vsin })
     end
