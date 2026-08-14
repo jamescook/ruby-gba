@@ -534,6 +534,9 @@ module Wolf3D
       (hp <= 0).then do
         state.set @fall1
         ticks.set(@ticks_of[@fall1])
+        # A guard is worth a hundred, which is the original's own number. He also drops a clip
+        # of ammunition where he falls, and that waits on there being things to pick up at all.
+        @player[:score]&.add(Guards::POINTS)
       end.else do
         # Odd or even decides which of the two flinches he wears, so the same wound twice
         # running does not look like a repeat. Landing in one of them is also what rouses a

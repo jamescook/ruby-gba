@@ -55,7 +55,9 @@ class TestFirstPerson < Minitest::Test
     run = Reference.new.run(view_program, frames: 3)
 
     assert_equal FP::CEILING, run.screen.pixel(120, 2), "ceiling at the top"
-    assert_equal FP::FLOOR_COLOR, run.screen.pixel(120, 158), "floor at the bottom"
+    assert_equal FP::FLOOR_COLOR, run.screen.pixel(120, FP::VIEW_H - 2), "floor at the bottom"
+    assert_equal Wolf3D::Palette.game[Wolf3D::StatusBar::GROUND], run.screen.pixel(2, 158),
+                 "and the status bar under the view, not more floor"
 
     band = (40...110).count { |y| ![FP::CEILING, FP::FLOOR_COLOR].include?(run.screen.pixel(120, y)) }
     assert_operator band, :>, 4, "a wall should stand around the eye line"
