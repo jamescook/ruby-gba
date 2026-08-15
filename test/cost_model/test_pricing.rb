@@ -77,6 +77,53 @@ class TestCostPricing < CostModelTest
          Cost.new(fast_frame: true).frame_cost(adding))
   end
 
+  # WHERE A ROUTINE LIVES IS ITS OWN BUSINESS, not its caller's — and this is the one the
+  # estimate got wrong for long enough to matter.
+  #
+  # A routine is emitted once and jumped to, so a routine the build could NOT fit into quick
+  # memory runs from the cartridge however it was reached. Priced the other way round — the
+  # frame's own body carrying its speed into everything it calls — a game is charged for quick
+  # memory it does not have, and the report of what the build TURNED AWAY costs the same as the
+  # report of what it kept. That is a hole rather than an approximation: the "did not fit" note
+  # and the number underneath it would disagree, and only the note would be right.
+  def calling_game
+    program do
+      screen :bitmap
+      total = var :total, 0
+      func(:worker) { 200.times { total.add 1 } }
+      game_loop { call :worker }
+    end
+  end
+
+  def test_a_routine_left_in_the_cartridge_is_priced_there_though_its_caller_moved
+    left_behind = Cost.new(fast_frame: true).steady_cost(calling_game)
+    moved = Cost.new(fast_frame: true, fast_routines: [:worker]).steady_cost(calling_game)
+
+    assert_operator left_behind, :>, moved,
+                    "a routine that did not fit cannot cost what one that did costs"
+    near(moved * WEIGHTS[:fast_code_speedup], left_behind)
+  end
+
+  # ...and the frame body's own placement still counts for the frame body's own statements,
+  # which is what stops the fix above from simply turning the discount off.
+  def test_the_frames_own_body_still_gains_when_it_moved
+    inline = program do
+      screen :bitmap
+      total = var :total, 0
+      game_loop { 200.times { total.add 1 } }
+    end
+
+    near(Cost.new.steady_cost(inline) / WEIGHTS[:fast_code_speedup],
+         Cost.new(fast_frame: true).steady_cost(inline))
+  end
+
+  # A routine that DID move gains, even when whatever called it did not — the same rule read
+  # the other way, and the reason this is about the routine rather than about nesting.
+  def test_a_routine_that_moved_gains_though_its_caller_did_not
+    near(Cost.new(fast_routines: [:worker]).steady_cost(calling_game) * WEIGHTS[:fast_code_speedup],
+         Cost.new.steady_cost(calling_game))
+  end
+
   # The arithmetic in between, stated exactly: a fill's register writes are discounted, its
   # engine start-up and its pixels are not.
   def test_a_fill_discounts_its_register_writes_and_not_its_transfer
