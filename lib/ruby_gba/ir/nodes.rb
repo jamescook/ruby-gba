@@ -505,7 +505,7 @@ module RubyGBA
         include Node
         kind :repeat
         category :control
-        operands count: :value, index: :name, stop_when: :value, usually: :int
+        operands count: :value, index: :name, stop_when: :value, usually: :int, most: :int
       end
 
       class RestoreRegion

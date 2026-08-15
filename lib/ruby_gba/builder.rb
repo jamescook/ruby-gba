@@ -211,7 +211,10 @@ module RubyGBA
     # A KEY IT DOES NOT KNOW IS AN ERROR rather than a shrug. A hint that quietly does
     # nothing is worse than no hint at all: the report goes on calling the number a guess
     # while the author believes they answered it.
-    ESTIMATE_HINTS = %i[usually].freeze
+    # `most:` is only meaningful where nothing in the program bounds the thing — a `repeat`
+    # counted by a value the game works out. Everywhere else the capacity or the count is the
+    # ceiling and saying it again would be a second answer to a settled question.
+    ESTIMATE_HINTS = %i[usually most].freeze
 
     def usual_length(estimate, capacity)
       return nil if estimate.nil?
