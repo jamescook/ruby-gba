@@ -145,7 +145,20 @@ module Wolf3D
       # called, and this one is declared out here. So the view's edges never reached it: walk
       # into a thing standing on the floor and it is drawn far taller than the view, straight
       # down through the bar. Saying the edges again here is what puts them back.
-      b.func(:draw_a_standing_thing) do
+      # AND IT IS INSISTED ON, which is a thing to do with evidence and not otherwise.
+      #
+      # The framework works out for itself which routines a frame spends its time in and keeps
+      # those in the console's quick memory. It has 32K, this game wants more than that, and
+      # something has to run from the cartridge at about two and a half times the price. Adding
+      # sound tipped the balance: the mixer takes a few hundred bytes of that memory for its own
+      # routine, and this was the routine that fell off the end.
+      #
+      # MEASURED, on the fixture floor: without this the cartridge went from thirty passes a
+      # second to twenty the moment sound was switched on, with nothing playing. With it, thirty
+      # either way. What it displaces instead is :remember_a_standing_thing, which the estimate
+      # ranks higher and which measurement says costs less — so this is the estimate being
+      # overruled by a reading, which is what the switch is for.
+      b.func(:draw_a_standing_thing, fast: true) do
         b.inside 0, 0, FP::ACROSS, FP::VIEW_H do
           read_the_shape
           any_of_it_on_screen.then { draw_the_strips }

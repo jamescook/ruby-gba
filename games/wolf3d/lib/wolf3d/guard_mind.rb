@@ -38,10 +38,11 @@ module Wolf3D
     NOBODY = -1
 
     def initialize(build:, guards:, pool:, level:, world:, player:, door_open:, walls:, things:,
-                   blocked: nil, dying: nil, pickups: nil)
+                   blocked: nil, dying: nil, pickups: nil, sounds: nil)
       @b = build
       @dying = dying      # what to tell when a shot takes the last of the health, or nil
       @pickups = pickups  # what to tell when a guard falls, so he can leave a clip behind
+      @sounds = sounds    # the recorded sounds, or nil on a build with none
       @guards = guards
       @pool = pool
       @level = level
@@ -190,6 +191,9 @@ module Wolf3D
     # inside two cells, three times inside four, four times beyond. So a guard across the room
     # does almost nothing and one in your face does real harm.
     def fire_at_the_player(guard)
+      # HEARD WHETHER OR NOT IT LANDS, and before either question is asked. A guard fires; the
+      # chance and the line of sight decide what it does to you, not whether he pulled.
+      @sounds&.guard_fires
       @dx.set(@player[:x] - guard.x)
       @dy.set(@player[:y] - guard.y)
       line_of_sight(guard)
@@ -238,6 +242,9 @@ module Wolf3D
       guard.state.set @chase1
       guard.ticks.set(@ticks_of[@chase1])
       guard.togo.set 0.0
+      # "Halt!" — which is the one sound in this game that tells you something you could not
+      # otherwise know: that you have been seen, and by how many.
+      @sounds&.notices_you
     end
 
     # CAN HE SEE YOU? Three questions in order, cheapest first. Are you near enough that it does
@@ -621,6 +628,9 @@ module Wolf3D
         # ...and he leaves half a clip of ammunition in the cell he fell in, which is the loop
         # the whole game runs on: shoot a guard, take what he was carrying, shoot the next one.
         @pickups&.a_guard_fell(@target)
+        # ...and one of his eight screams, picked as the game runs so a firefight does not
+        # sound like a loop.
+        @sounds&.a_guard_dies
       end.else do
         # Odd or even decides which of the two flinches he wears, so the same wound twice
         # running does not look like a repeat. Landing in one of them is also what rouses a
