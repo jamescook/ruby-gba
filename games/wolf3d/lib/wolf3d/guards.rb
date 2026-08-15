@@ -62,29 +62,42 @@ module Wolf3D
     # HOW LONG A STATE LASTS is counted in the original's own units — seventieths of a second —
     # and the numbers in the table below are its numbers, unchanged.
     #
-    # THE COUNTER RUNS IN THIRDS OF ONE, and that is what makes the sums come out whole. This
-    # console shows sixty frames a second where the original counted seventy, so one frame is
-    # worth 70/60 of its units — not a whole number, and a counter that steps by a whole number
-    # cannot be told to step by 7/6. In thirds it can: seven thirds.
+    # THE COUNTER RUNS IN THIRDS OF ONE, so that a rate which is not a whole number of the
+    # original's units can still be carried by a counter that steps in whole numbers. A guard
+    # moves once every two passes and the rate wanted is a little over one unit a pass, which is
+    # not a whole number either way round; in thirds it is.
     SCALE = 3
 
-    # A guard thinks on every OTHER move of the world, so thirty times a second on a game that
-    # keeps up, and seventy of the original's units a second divided thirty ways is seven thirds
-    # each — which in thirds is SEVEN, exactly. So a guard runs at the speed he was designed at;
-    # he used to run 71% fast, at two of the original's units every frame against the 7/6 owed.
+    # HOW FAST A GUARD'S CLOCK RUNS, and the unit it is measured in is the thing to get right.
     #
-    # A game that does NOT keep up moves its world less often, and the guards slow down with
-    # everything else rather than apart from it — which is the whole point of pacing by the pass
-    # (see FirstPerson::PACING).
+    # MEASURE IT PER PASS, NOT PER SECOND. Everything in this game moves once per pass of the
+    # game loop: the player walks WALK of a cell, doors slide DOOR_STEP, push walls count down
+    # one. That is what FirstPerson::PACING means, and it is why a heavy frame slows the whole
+    # world down together instead of tearing it apart. A guard is in that world, so his clock is
+    # per pass too — a think every other pass, this many thirds each time.
     #
-    # WHY EVERY OTHER FRAME. Thinking is the most expensive thing a guard does and half of it is
-    # asking a question whose answer cannot change in a sixtieth of a second — can he see you,
-    # is anything in the way. Measured, a guard costs about eleven scanlines of a frame, and a
-    # real floor has ten of them; halving that is worth more than anything else available here,
-    # and it costs a reaction that is on average a sixtieth of a second later.
+    # SECONDS ARE NOT A UNIT THIS GAME HAS. On a game that keeps up a pass is a frame and the
+    # two agree, so it is easy to derive this number from "sixty passes a second" and not notice
+    # the assumption. On a game that does NOT keep up the seconds answer is wrong, and it is
+    # wrong in a way that is invisible in the code and shows up in play as guards moving at a
+    # different speed from the world they stand in. Derive it from a pass.
     #
-    # The guards are split between the two frames rather than all thinking on the same one, so
-    # the cost is the same every frame instead of nothing then double.
+    # WHAT THE RIGHT ANSWER IS, then, is whatever puts a guard on the same footing as the player,
+    # and the player says what that is. He walks 0.07 of a cell a pass where the original walks
+    # 0.0801 of one a unit, so a pass is worth 0.87 of a unit; he turns 4.2 degrees a pass where
+    # the original turns 3.5 a unit running, so a pass is worth 1.21. A pass of this game is
+    # worth about ONE of the original's units, and a think — every other pass — about two.
+    # Seven thirds is 2.33 a think, 1.17 a pass, which sits inside that band.
+    # TestGuards holds it there; see the test for what going outside it costs.
+    #
+    # WHY EVERY OTHER PASS. Thinking is the most expensive thing a guard does and half of it is
+    # asking a question whose answer cannot change in one pass — can he see you, is anything in
+    # the way. Measured, a guard costs about eleven scanlines of a frame, and a real floor has
+    # ten of them; halving that is worth more than anything else available here, and it costs a
+    # reaction that is on average half a pass later.
+    #
+    # The guards are split between the two passes rather than all thinking on the same one, so
+    # the cost is the same every pass instead of nothing then double.
     #
     # It never steps over a state: the shortest in the table is three of the original's units,
     # which is nine of ours, and a think advances seven.

@@ -302,6 +302,63 @@ class TestGuards < Minitest::Test
     assert_equal DEAD, state_of(later), "he ends as a body on the floor and stays one"
   end
 
+  # ------------------------------------------------- how fast a guard's clock runs
+
+  # A GUARD MOVES AT THE SAME RATE AS THE WORLD HE STANDS IN, and the only way to say what that
+  # rate is is to hold both against the original's own clock.
+  #
+  # This game moves everything once per PASS of the game loop — see FirstPerson::PACING — so the
+  # question "how fast should a guard's clock run" is really "how much of the original's time is
+  # one pass worth", and the player already answers it two ways over.
+  #
+  # It is worth a test because the wrong answer is the easy one to reach. On a game that keeps up
+  # a pass is a frame, so "sixty passes a second" looks true and the number can be derived from
+  # seconds without anyone noticing the assumption. On a game that does not keep up — this one,
+  # today — that derivation is wrong, and it is wrong invisibly: nothing in the code says which
+  # unit was meant, and in play it shows only as guards moving at a different speed from the
+  # world around them.
+  ORIGINAL_WALK = 35 * 150 / 65_536.0 # BASEMOVE * MOVESCALE, in cells per unit of its time
+  ORIGINAL_TURN = 70 / 20.0           # RUNMOVE / ANGLESCALE, in degrees per unit
+
+  def test_a_pass_is_worth_about_one_of_the_originals_units_of_time
+    walking = FP::WALK / ORIGINAL_WALK
+    turning = (FP::TURN_SPEED * 360.0 / FP::TURN) / ORIGINAL_TURN
+
+    assert_in_delta 1.0, walking, 0.2, "the player walks about a unit's worth of ground a pass"
+    assert_in_delta 1.0, turning, 0.25, "and turns about a unit's worth of angle a pass"
+  end
+
+  # ...so a guard's clock belongs in the same band. A think happens every other pass and carries
+  # TICKS_PER_THINK thirds, which is the rate this pins.
+  #
+  # THE BAND IS THE ASSERTION, not a number, because there is no exact answer to have: the
+  # player's own two rates disagree by a third and either is defensible. What is NOT defensible
+  # is landing outside them both, and that is what a clock set in seconds does.
+  def test_a_guards_clock_runs_at_the_same_rate_the_player_moves_at
+    walking = FP::WALK / ORIGINAL_WALK
+    turning = (FP::TURN_SPEED * 360.0 / FP::TURN) / ORIGINAL_TURN
+    guard = Guards::TICKS_PER_THINK / Guards::SCALE.to_f / 2 # a think is every other pass
+
+    assert_operator guard, :>=, walking * 0.9, "a guard is not slower than the world he is in"
+    assert_operator guard, :<=, turning * 1.1, "nor faster than it"
+  end
+
+  # WHAT THE PLAYER SEES IT AS, which is the reading that made this worth chasing down: how far
+  # he can walk while a guard he shot is falling over. The original gives him three and a half
+  # cells of it, and this is the number a wrong clock moves.
+  #
+  # It is deliberately not tight. Falling over is quantised by the think, so the count moves in
+  # steps rather than smoothly, and the point is the size of the thing rather than its last
+  # digit — the clock this bead was filed against would have put it near one and a half.
+  def test_a_guard_takes_about_as_long_to_fall_as_the_original_gives_him
+    falling = Guards::STATES.select { |s| s.name.to_s.start_with?("fall") }.sum(&:ticks)
+    passes = falling / (Guards::TICKS_PER_THINK / 2.0)
+    original = (falling / Guards::SCALE) * ORIGINAL_WALK
+
+    assert_in_delta original, passes * FP::WALK, 1.0,
+                    "the player covers about as much ground watching him fall as he used to"
+  end
+
   # ONE PRESS IS ONE BULLET, and eight is all you start with.
   def test_the_pistol_spends_a_bullet_a_shot
     assert_equal FP::START_AMMO - 3, shoot_at([[10, 8, :west]], shots: 3, frames: 90)[:ammo]
