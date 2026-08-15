@@ -571,8 +571,7 @@ module Wolf3D
     def declare_the_floor_start
       return if @dying.nil?
 
-      view = self
-      @b.func(:start_the_floor, fast: false) { view.send(:start_the_floor_again) }
+      @b.func(:start_the_floor, fast: false) { start_the_floor_again }
     end
 
     def start_the_floor_again
