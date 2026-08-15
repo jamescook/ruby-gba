@@ -185,14 +185,18 @@ module RubyGBA
           total
         end
 
-        # Run a block as though it were inside a routine that lives in faster memory, so
-        # every op it prices is charged at what it really costs there (see
-        # Pricing#fast_memory_factor). Nested routines that also moved change nothing —
-        # they are inside the same block of memory and are already being charged for it.
+        # Price a routine's body where that routine actually lives, so every op in it is
+        # charged what it really costs there (see Pricing#fast_memory_factor).
+        #
+        # WHERE IT LIVES IS ITS OWN BUSINESS, not its caller's, and that is the whole point
+        # of this. A routine is emitted once and jumped to, so a routine left in the
+        # cartridge runs from the cartridge even when the frame's own body — which called
+        # it — was moved into quick memory. Reading this the other way round says a game
+        # gets quick memory it does not have: a frame body that moved would carry its
+        # speed into every routine it reached, and a report of what the build KEPT would
+        # cost the same as a report of what it turned away.
         def in_fast_memory(name)
-          return yield unless @fast_routines.include?(name)
-
-          in_fast_code { yield }
+          in_code(fast: @fast_routines.include?(name)) { yield }
         end
 
         # The same, for the frame's own body — which is a routine to the machine once it
@@ -200,7 +204,7 @@ module RubyGBA
         def in_fast_frame
           return yield unless @fast_frame
 
-          in_fast_code { yield }
+          in_code(fast: true) { yield }
         end
 
         # And for the routine an announcement from the display or a timer is answered in,
@@ -208,12 +212,12 @@ module RubyGBA
         def in_fast_interrupts
           return yield unless @fast_interrupts
 
-          in_fast_code { yield }
+          in_code(fast: true) { yield }
         end
 
-        def in_fast_code
+        def in_code(fast:)
           was = @in_fast_code
-          @in_fast_code = true
+          @in_fast_code = fast
           yield
         ensure
           @in_fast_code = was

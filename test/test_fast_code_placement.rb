@@ -159,13 +159,33 @@ class TestFastCodePlacement < Minitest::Test
   # The estimate has to follow the code. Moving a routine makes it genuinely cheaper, so
   # an estimate that ignored the move would read nearly three times over for any game
   # whose loop went — which is most of them.
+  #
+  # EVERYTHING THIS PROGRAM SPENDS ITS FRAME ON IS INSIDE :work, so :work is what has to
+  # move for the frame to get cheaper. Naming only the frame's own body would leave the
+  # routine in the cartridge, and a game whose loop moved while its routine did not is a
+  # real build rather than a hypothetical one — that is what quick memory running out
+  # looks like.
   def test_the_estimate_follows_the_code_into_quick_memory
     program = looping_program(passes: 200)
     cart = RubyGBA::IR::CostModel.new.steady_cost(program)
-    quick = RubyGBA::IR::CostModel.new(fast_frame: true).steady_cost(program)
+    quick = RubyGBA::IR::CostModel.new(fast_frame: true, fast_routines: [:work]).steady_cost(program)
     speedup = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS[:fast_code_speedup]
 
     assert_in_delta cart / speedup, quick, 0.01
+  end
+
+  # ...and the half of that which is easy to lose: moving the frame's own body does NOT carry
+  # the routine it calls along with it. A routine is emitted once and jumped to, so one left
+  # behind runs from the cartridge whoever called it.
+  def test_moving_the_frame_body_does_not_move_the_routine_it_calls
+    program = looping_program(passes: 200)
+    cart = RubyGBA::IR::CostModel.new.steady_cost(program)
+    loop_only = RubyGBA::IR::CostModel.new(fast_frame: true).steady_cost(program)
+    both = RubyGBA::IR::CostModel.new(fast_frame: true, fast_routines: [:work]).steady_cost(program)
+
+    assert_operator loop_only, :>, both * 1.5,
+                    "the routine is still in the cartridge, so most of the frame is undiscounted"
+    assert_operator loop_only, :<, cart, "though the loop's own statements did move"
   end
 
   # A routine that is NOT in the quick memory is priced as it always was — the discount is
