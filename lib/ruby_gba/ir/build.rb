@@ -288,13 +288,15 @@ module RubyGBA
       # with six in use is counted at sixty-four bodies a frame, since a build can prove
       # the slot count and nothing else. `over` names the set the author named, so a
       # report can say which one it counted.
-      def if_(cond, *body, over: nil, usually: nil, of: nil)
+      # +over+/+usually+/+of+ say a pool's live slots; +runs+/+per+ say how many frames in
+      # every +per+ the body runs. Both are read by the estimate only.
+      def if_(cond, *body, over: nil, usually: nil, of: nil, runs: nil, per: nil)
         if usually && !Whole.within?(usually, 1..of.to_i)
           raise ArgumentError,
                 "`usually:` must be between 1 and the #{of.inspect} slots of :#{over}. " \
                 "You gave #{usually.inspect}."
         end
-        hints = { over: over, usually: usually, of: of }.compact
+        hints = { over: over, usually: usually, of: of, runs: runs, per: per }.compact
         Nodes.build(:if, children: body, cond: cond, **hints)
       end
 

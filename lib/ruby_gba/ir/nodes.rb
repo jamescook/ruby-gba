@@ -287,10 +287,12 @@ module RubyGBA
         include Node
         kind :if
         category :control
-        # over/usually/of are the estimate's, not the program's — a test that guards one
-        # slot of a walk over `of` of them says how many are usually in use, and which set
-        # they belong to. Nothing runs differently; see Build#if_.
-        operands cond: :value, else: :branch, over: :name, usually: :int, of: :int
+        # over/usually/of and runs/per are the estimate's, not the program's. The first three
+        # say how many slots of a walk over `of` of them are usually in use, and which set
+        # they belong to; runs/per say the body runs on `runs` frames in every `per`. Nothing
+        # runs differently either way; see Build#if_.
+        operands cond: :value, else: :branch, over: :name, usually: :int, of: :int,
+                 runs: :int, per: :int
       end
 
       class Int

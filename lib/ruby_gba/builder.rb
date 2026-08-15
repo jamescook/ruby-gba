@@ -400,8 +400,8 @@ module RubyGBA
     # The estimate hints (over/usually/of — see Build#if_) come in here rather than through
     # `.then`, because the one thing that sets them is a {Pool}'s walk over its slots, and
     # they would be noise on every conditional an author writes.
-    def record_conditional(cond_node, over: nil, usually: nil, of: nil, &block)
-      if_node = Build.if_(cond_node, over: over, usually: usually, of: of)
+    def record_conditional(cond_node, over: nil, usually: nil, of: nil, runs: nil, per: nil, &block)
+      if_node = Build.if_(cond_node, over: over, usually: usually, of: of, runs: runs, per: per)
       push_container(if_node) do
         run_block(&block)
       end
