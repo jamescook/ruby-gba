@@ -9,9 +9,45 @@ module Wolf3D
   # rooms you can walk through.
   class FirstPerson
     # These are the view the game should have, not the view that happens to fit a frame.
-    COLUMNS = 80          # strips across the screen...
-    COLUMN_W = 3          # ...three pixels each
-    TURN = 512            # angle units in a full turn
+    # HOW THE SCREEN IS DIVIDED ACROSS, and the width is not a free choice — it is what the
+    # screen's memory wants, and picking it right makes the strips cheaper than picking it
+    # small does.
+    #
+    # This screen keeps a colour NUMBER per pixel, one byte each, and its memory cannot take
+    # a single byte — the smallest thing that can be written is a PAIR of them. So a strip
+    # that starts on an even pixel and is an even number wide writes whole pairs and nothing
+    # else; one that does not has to read the pair the odd end lands in, change one half of
+    # it, and put both back, at every row of every strip.
+    #
+    # Four is the width where that goes away. A strip starts at `col * COLUMN_W`, and four
+    # times anything is even, which is something the BUILD can prove rather than the game
+    # having to test it — so the walk down the strip is emitted once instead of once for each
+    # answer, and every row is two clean writes. Three could never be even, so it cost a
+    # read-and-patch at one end of every row and both copies of the walk in the bargain.
+    #
+    # And a wider strip means FEWER of them: sixty rays where there were eighty, for the same
+    # 240 pixels. A ray is the expensive half of this renderer, so that is a quarter of the
+    # expensive half gone for nothing given up — the picture is the same number of pixels
+    # either way, drawn in wider pieces.
+    COLUMNS = 60
+    COLUMN_W = 4
+
+    # HOW FINELY AN ANGLE IS COUNTED, and it went up when the strips got wider so that the
+    # view did not get narrower with them.
+    #
+    # How wide the view is comes out as COLUMNS * SPREAD, and SPREAD has to be a whole number
+    # because it is what an angle steps by to reach the next strip, and an angle is a place in
+    # a table. With 512 units in a turn, sixty strips one unit apart would have been a 42
+    # degree view — a keyhole. Counting a turn in 1024 units instead makes each unit half as
+    # much, so three of them is about what one of the old ones was, and sixty strips three
+    # apart is a 62 degree view: WIDER than the 56 this had before, and nearer the 60 the
+    # original uses.
+    #
+    # The tables that hold a sine and a distance for every angle double in length. They live
+    # in the cartridge and are read, never written, so that costs nothing but room — and 1024
+    # is still a power of two, which is what keeps an angle that walked off either end cheap
+    # to bring back round (see the note on `table` about wrapping against clamping).
+    TURN = 1024
     QUARTER = TURN / 4
     CROSSINGS = 48        # grid lines a ray may cross before it gives up — about 24 cells
 
@@ -20,15 +56,15 @@ module Wolf3D
     # ray crosses four and a bit grid lines and no ray in twenty thousand ever ran out.
     USUAL_CROSSINGS = 5
 
-    # HOW WIDE THE VIEW IS, which is one angle unit per strip — about 56 degrees across, near
-    # the 60 the original uses.
+    # HOW WIDE THE VIEW IS: three angle units per strip, which over sixty strips is about 62
+    # degrees across — a shade wider than the 60 the original uses.
     #
-    # It was two units, and that made a view of 111 degrees. A wide view is not a neutral
-    # choice: perspective genuinely stretches whatever is at the edge of it, and at 111
-    # degrees the strip at the edge covers three times the world the strip in the middle does,
-    # where at 60 degrees it covers one and a third. That stretch is what reads as a bend when
-    # you look along a wall rather than at it.
-    SPREAD = 1
+    # A wide view is not a neutral choice. Perspective genuinely stretches whatever sits at
+    # the edge of it, and that stretch is what reads as a bend when you look ALONG a wall
+    # rather than at it. This was once two units of a 512-unit turn, which made a view of 111
+    # degrees, and at 111 the strip at the edge covers three times the world the strip in the
+    # middle does; at 60 it covers one and a third.
+    SPREAD = 3
 
     # The furthest one crossing can be worth. A ray running almost along an axis meets that
     # axis's lines almost never, and one over almost-nothing is too big to hold — so it is
@@ -89,7 +125,13 @@ module Wolf3D
     WALL_SCALE = (ACROSS / 2) / Math.tan(HALF_VIEW * 2 * Math::PI / TURN)
 
     WALK = 0.07
-    TURN_SPEED = 6
+
+    # How far a press of left or right turns you in one pass. Twelve of the turn's 1024 units
+    # is 4.2 degrees, which is what the original turns in one of its own units of time — and
+    # is the same speed this turned at before, when a unit was twice as big and six of them
+    # said it. A finer angle count does not mean a faster player; it means a smaller step is
+    # available, which is what let the view be cut into sixty strips without narrowing it.
+    TURN_SPEED = 12
 
     # What the player starts with. A hundred of health and eight bullets, which is what the
     # original hands you at the top of a floor.
