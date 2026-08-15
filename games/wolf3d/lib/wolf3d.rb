@@ -35,6 +35,7 @@ require_relative "wolf3d/lives"
 # ...and after the view, whose START_HEALTH and KEY_BITS say what a full player is and what a key
 # is worth, and after lives, which a one-up on the floor hands another of.
 require_relative "wolf3d/pickups"
+require_relative "wolf3d/sounds"
 # ...after the view, whose constants they share: the three agree about how wide the lens is, and
 # where the middle of the screen falls is what a shot is aimed by.
 require_relative "wolf3d/billboards"
@@ -90,7 +91,7 @@ module Wolf3D
                                        Wolf3D::Pickups.pictures(guards)).uniq.sort)
       view = Wolf3D::FirstPerson.new(build: self, level: level, atlas: atlas, doors: doors,
                                      pushwalls: pushwalls, guards: guards, things: things,
-                                     scenery: scenery)
+                                     scenery: scenery, vswap: Wolf3D.vswap)
       game_loop { view.update }
     else
       title = Title.new(self)

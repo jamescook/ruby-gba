@@ -100,7 +100,7 @@ module Wolf3D
     FLOOR_COLOR = RubyGBA::Color.rgb(12, 11, 10)
 
     def initialize(build:, level:, atlas:, doors:, pushwalls:, guards: nil, things: nil,
-                   scenery: nil)
+                   scenery: nil, vswap: nil)
       @b = build
       @level = level
       @atlas = atlas
@@ -109,6 +109,7 @@ module Wolf3D
       @guards = guards
       @scenery = scenery
       @things = things
+      @vswap = vswap # the player's own copy of the recorded sounds, or nil for a silent build
       declare
     end
 
@@ -205,6 +206,7 @@ module Wolf3D
       @b.pressed(:b).then do
         (@ammo > 0).then do
           @ammo.sub 1
+          @sounds.pistol
           @mind.shoot
         end
       end
@@ -335,6 +337,9 @@ module Wolf3D
       # ...then the guards, then what is lying on the floor (which every floor has whether
       # anything DRAWS it or not — a level with a locked door has a key on it), then the guards'
       # minds, and last the drawing. Each needs the one before it; see each for why.
+      # The recorded sounds come before the guards' minds, because a guard shouting, shooting and
+      # dying is most of what there is to hear.
+      @sounds = Sounds.new(build: b, vswap: @vswap)
       declare_the_guards
       declare_the_pickups
       declare_the_guards_minds
@@ -488,6 +493,7 @@ module Wolf3D
       @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
                             world: @world, door_open: @open, walls: { door: DOOR, push: PUSH },
                             things: @things, blocked: @blocked, dying: @dying, pickups: @pickups,
+                            sounds: @sounds,
                             player: { x: @px, y: @py, health: @health, score: @score,
                                       cos: @vcos, sin: @vsin })
     end
@@ -705,7 +711,12 @@ module Wolf3D
               @can.set 0
               (@want == 0).then { @can.set 1 }
               (@want > 0).then { ((@keys / @want) % 2 == 1).then { @can.set 1 } }
-              (@can == 1).then { @linger[@slot] = DOOR_LINGER }
+              (@can == 1).then do
+                # ...and it is heard only when it was SHUT. Pressing at a door already open tops
+                # its count back up, which is not a door opening and does not sound like one.
+                (@open[@slot] == 0.0).then { @sounds.door_opens }
+                @linger[@slot] = DOOR_LINGER
+              end
             end
           end
       end
@@ -729,6 +740,7 @@ module Wolf3D
                              .else { @push_step[@slot] = -@level.width }
         end
         @push_wait[@slot] = Pushwalls::FRAMES_PER_CELL
+        @sounds.secret_wall
       end
     end
 
@@ -766,6 +778,9 @@ module Wolf3D
         @swing.set(@open[door])
         (@wait > 0).then do
           @linger[door] = @wait - 1
+          # The last frame of standing open: after this one it starts to swing shut, which is
+          # the moment to hear it. Tested here rather than on the way down so it sounds once.
+          (@wait == 1).then { @sounds.door_shuts }
           @swing.approach DOOR_WIDE, DOOR_STEP
         end.else do
           @swing.approach 0.0, DOOR_STEP

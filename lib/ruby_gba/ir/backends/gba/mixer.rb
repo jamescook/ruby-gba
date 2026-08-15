@@ -34,7 +34,17 @@ module RubyGBA
           # fetch, so at boot the routine is copied into IWRAM (zero-wait-state internal RAM)
           # and called there. This is the IWRAM budget reserved for the copy; the build
           # fails if the emitted routine ever outgrows it.
-          MIX_ROUTINE_IWRAM_MAX = 1024
+          # KEPT SNUG, because every byte of it is a byte the routines a frame spends its time in
+          # do not get — this reservation and the game's own hot code come out of the same 32K.
+          # The routine emits at 256 or 264 bytes (two of its immediates are the samples-per-frame
+          # count, which takes one instruction or two depending on the number), so this is about
+          # half as much again for room to grow into. Outgrow it and the build says so by name
+          # rather than running over whatever is next — see #guard_mix_routine_fits!.
+          #
+          # It was 1024, which is four times what the routine has ever needed, and a real game
+          # paid for it: on games/wolf3d the difference was exactly enough to push the routine
+          # that draws every guard and every lamp out of the quick memory.
+          MIX_ROUTINE_IWRAM_MAX = 384
 
           # Timer 0 clocks the mixer's output rate (how fast the DMA hands bytes to the sound
           # FIFO). It's the only hardware timer the mixer needs.
