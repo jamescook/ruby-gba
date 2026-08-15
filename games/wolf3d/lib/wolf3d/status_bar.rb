@@ -84,9 +84,19 @@ module Wolf3D
     # there, which measures about a twentieth of the frame.
     #
     # Testing costs a comparison per live field, which is nothing beside the painting.
+    # HOW OFTEN IT REALLY PAINTS, for the estimate's sake: about one frame in ten. Firing
+    # spends a bullet and being hit spends health, and each of those asks for both pages —
+    # so a busy second or two of shooting is a handful of painted frames out of sixty, and
+    # walking down a corridor is none at all. Ten is the cautious end of that.
+    #
+    # Unsaid it would be counted on EVERY frame, which is what this whole arrangement exists
+    # to avoid, and the report would show the bar costing what it cost before it was made
+    # conditional.
+    PAINTS_IN = 10
+
     def draw
       notice_a_change
-      (@todo > 0).then do
+      (@todo > 0).then(estimate: { usually: 1, in: PAINTS_IN }) do
         @todo.sub 1
         @b.call(:draw_the_status_bar)
       end
@@ -117,8 +127,7 @@ module Wolf3D
     # loop itself out of that memory, which costs about two and a half times on every instruction
     # in the game.
     def declare
-      bar = self
-      @b.func(:draw_the_status_bar) { bar.send(:paint) }
+      @b.func(:draw_the_status_bar) { paint }
 
       # What each live field showed when it was last painted, and how many pages still want the
       # new picture. Both start so that the first frame paints: nothing has been shown yet.

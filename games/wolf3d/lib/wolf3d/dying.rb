@@ -159,7 +159,11 @@ module Wolf3D
 
     # ...and one frame of the fizzle, which is the whole of what a frame does once it starts.
     def draw
-      (@state == FIZZLING).then { @b.call(:scatter_the_red) }
+      # Not on a normal frame: this runs for a second or two at the end of a life and never
+      # otherwise. Unsaid, the estimate counts it on every frame — it cannot see through a
+      # test the game works out — and then this reads as one of the most expensive things
+      # in the game rather than one of the rarest.
+      (@state == FIZZLING).then(estimate: { usually: 0 }) { @b.call(:scatter_the_red) }
     end
 
     private
@@ -204,9 +208,19 @@ module Wolf3D
     # A ROUTINE RATHER THAN WRITTEN STRAIGHT IN THE LOOP, for the same reason the status bar is
     # one: the game loop is what the framework keeps in the console's quick memory and it has
     # about a page to spare.
+    #
+    # AND IT HAS TO STAY IN THAT MEMORY, which is not obvious and was tried the other way.
+    #
+    # This runs on almost no frames — a second or two at the end of a life — so it looks like
+    # an easy thing to turn out of quick memory in favour of something that runs every frame.
+    # It is not. A frame that IS fizzling has the whole frame to itself and only just fits in
+    # it: run from the cartridge, one frame of the scatter costs more than a frame holds, and
+    # the effect stops keeping up — measurably, it stops covering the view at all.
+    #
+    # So rare is not the same as cheap-to-slow-down. What decides this is the worst frame it
+    # ever takes part in, and there it is the only thing running.
     def declare_the_scattering
-      dying = self
-      @b.func(:scatter_the_red) { dying.send(:scatter_the_next_dots) }
+      @b.func(:scatter_the_red) { scatter_the_next_dots }
     end
 
     def scatter_the_next_dots

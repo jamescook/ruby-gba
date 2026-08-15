@@ -278,6 +278,10 @@ module RubyGBA
         def selectivity(node)
           return 1 unless node.kind == :if
           return @at_full_capacity ? 1 : live_share(node) if node.of
+          # What the author said: this body runs on `runs` frames in every `per`. The worst
+          # frame is one where it DOES run, so a worst-case walk ignores it — the same way
+          # a list's usual length gives way to its capacity.
+          return @at_full_capacity ? 1 : Rational(node.runs, node.per) if node.runs
 
           case node.cond&.kind
           when :pressed then 0
