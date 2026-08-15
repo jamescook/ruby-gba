@@ -121,9 +121,8 @@ module Wolf3D
       @ended = @b.var :game_over, 0
       @todo = @b.var :_over_todo, 0
 
-      lives = self
-      @b.func(:after_a_death, fast: false) { lives.send(:count_a_death) }
-      @b.func(:draw_the_game_over) { lives.send(:paint) }
+      @b.func(:after_a_death, fast: false) { count_a_death }
+      @b.func(:draw_the_game_over) { paint }
     end
 
     def paint
