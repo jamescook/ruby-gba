@@ -43,6 +43,7 @@ module RubyGBA
       @var_addresses = vars
       @pixels = nil
       @audio = nil
+      @audio_by_frame = nil
       @width = SCREEN_WIDTH
       @height = SCREEN_HEIGHT
       Emulator.load! # fail fast if the emulator backend isn't built
@@ -212,6 +213,18 @@ module RubyGBA
       !silent?
     end
 
+    # ...and the same figure FRAME BY FRAME: one energy per displayed frame, in order.
+    #
+    # What this answers that #audio_energy cannot is whether the sound arrived EVENLY. A game
+    # that hands the hardware sound more slowly than the hardware plays it still makes plenty
+    # of noise over a run — the total says nothing — but the noise comes in bursts with holes
+    # between them, and a run of frames with far less energy than their neighbours is what a
+    # hole looks like from here.
+    def audio_energy_by_frame
+      ensure_rendered!
+      @audio_by_frame.map { |chunk| chunk.unpack("s<*").sum(&:abs) }
+    end
+
     # Dump a text grid showing what colors are on screen.
     # Each character represents an 8x8 tile area.
     # @return [String] visual map of the screen
@@ -281,10 +294,13 @@ module RubyGBA
       @tempfile.flush
       @core = Emulator.open(@tempfile.path)
       @audio = +"".b
+      @audio_by_frame = []
       @frames.times do |frame|
         @core.set_keys(keys_for(frame)) if @keys
         @core.run_frame
-        @audio << @core.audio_buffer
+        chunk = @core.audio_buffer
+        @audio_by_frame << chunk
+        @audio << chunk
       end
       @pixels = @core.video_buffer
     end

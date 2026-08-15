@@ -349,9 +349,17 @@ module RubyGBA
           emit_waitcnt_setup if @fast_cartridge && !raw_escape_hatch?(program)
           emit_copy_divide_routines_to_iwram if @divide_routine_iwram || @divide_fix_routine_iwram
           emit_copy_hot_code_to_iwram unless @fast_funcs.empty?
+          # THE MIXER IS BROUGHT UP BEFORE THE INTERRUPTS ARE ARMED, and the order is load-bearing
+          # rather than tidy. The screen's interrupt builds the next slice of sound (see
+          # #emit_irq_handler), and it does that by jumping into a routine that boot copies into
+          # the console's quick memory. Armed first, the very first frame can arrive while that
+          # copy has not happened — and the jump lands in whatever the memory held at power-on,
+          # which never comes back. It bit exactly as a race does: the boot code between the two
+          # is where the sound buffers are silenced, so how long it takes depends on the sample
+          # rate, and the machine hung above one rate and ran below it with nothing else changed.
+          emit_mixer_boot if @plays_samples # start the sound DMA + clock; voices added by `play`
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
-          emit_mixer_boot if @plays_samples # start the sound DMA + clock; voices added by `play`
           emit_boot_screen if @manage_modes # set the boot mode (+ palette for buffered)
           # Upload the tiled assets once at boot only when the program stays in tiled
           # mode. When it crosses the bitmap/tiled boundary, a bitmap scene overwrites
@@ -535,11 +543,17 @@ module RubyGBA
           emit_irq_source(IRQ_HBLANK) { emit_row_bend_handler } if interrupts_rows?
           # VBlank must ack in TWO places — the hardware flag (REG_IF) and the BIOS's own
           # copy (REG_IFBIOS) that VBlankIntrWait polls — or the CPU would never wake.
-          # ...and the screen's own frame, whose handler used to be nothing but the ack. It
-          # counts frames now, which is what lets a pass of the game loop know how many of them
-          # it took: the screen keeps time whatever the game is doing, and this is where that
-          # time is written down.
-          emit_irq_source(IRQ_VBLANK, bios_ack: true) { emit_frame_count } if @uses_vblank
+          # ...and the screen's own frame, whose handler used to be nothing but the ack. Two
+          # things ride on it now, and both for the same reason: THE SCREEN KEEPS TIME WHATEVER
+          # THE GAME IS DOING. It counts frames, which is what lets a pass of the game loop know
+          # how many of them it took; and it builds the next slice of sound, because a sixtieth
+          # of a second of sound is a fact about the display and not about how long the game
+          # took to think. A game whose pass spans two frames comes round here twice, and gets
+          # two slices — see Mixer#emit_mixer_tick for what went wrong when it did not.
+          emit_irq_source(IRQ_VBLANK, bios_ack: true) do
+            emit_frame_count
+            emit_mixer_tick if @plays_samples
+          end if @uses_vblank
           irq_timers.each do |_, info|
             emit_irq_source(timer_irq_bit(info[:rate])) do
               info[:handler].children.each { |child| emit_statement(child) }
