@@ -16,8 +16,9 @@ module RubyGBA
         # A "voice" is one sounding sample: where its data is in the cartridge, how far it
         # has played, its length, and whether it loops. There are a fixed number of voice
         # slots; `play` fills a free one, the mix drains and retires it (or loops it), and
-        # `stop` clears a sample's slots. The mix runs once per frame, right after the
-        # program waits for vblank — so playing samples needs a game loop.
+        # `stop` clears a sample's slots. The mix runs once per DISPLAYED FRAME, from the
+        # screen's own interrupt — so playing samples needs a game loop, which is what arms
+        # that interrupt.
         #
         # (For now every voice plays at the one mixer rate; a later feature steps each voice
         # at its own pitch. That's why one recorded note can't yet become a whole keyboard.)
@@ -76,7 +77,8 @@ module RubyGBA
           # Decide the mixer's output rate and per-frame buffer size, and reserve its memory:
           # two output buffers in EWRAM and the voice slots in IWRAM. The rate follows the
           # samples, so a single-rate game plays at its recorded pitch. Reserves only timer 0
-          # (the sample clock) — the refill is driven by the frame loop, not another timer.
+          # (the sample clock) — the refill rides on the screen's own interrupt, not on a
+          # second timer and not on the game loop.
           def prepare_mixer(program)
             return unless @plays_samples
 
@@ -202,10 +204,26 @@ module RubyGBA
             emit_branch(:bcond, loop_lbl, cond: :lt)
           end
 
-          # The per-frame refill (emitted right after wait_vblank): fill the buffer that is
-          # NOT playing with the next slice of mixed sound, then swap — point the DMA at the
-          # freshly filled buffer so it plays next. Which buffer is which is held in a hidden
-          # variable and flipped each frame.
+          # The per-frame refill: fill the buffer that is NOT playing with the next slice of
+          # mixed sound, then swap — point the DMA at the freshly filled buffer so it plays
+          # next. Which buffer is which is held in a hidden variable and flipped each frame.
+          #
+          # EMITTED INSIDE THE SCREEN'S OWN INTERRUPT, not in the game loop, and that is the
+          # whole of what keeps sound whole. This fills ONE SIXTIETH OF A SECOND, and the
+          # hardware plays it on the sample clock — in real time, which has nothing to do with
+          # how long a pass of the game loop takes. Called once per pass, a game whose pass
+          # spans two frames handed the hardware a sixtieth of a second of sound every
+          # thirtieth: half of every sound missing, every other slice, for as long as the game
+          # was late. Called from the interrupt it is exactly in step with what plays it,
+          # whatever the game is doing, with nothing to predict and no deficit to carry.
+          #
+          # SAFE TO RUN FROM AN INTERRUPT, and both halves of that are worth writing down
+          # because neither is obvious. The registers: the mix routine works in r0-r12, and the
+          # dispatcher saves r4-r11 and lr while the BIOS saves r0-r3 and r12, so between them
+          # every one is covered. The voice slots: `play` fills a slot and writes its SOUNDING
+          # flag LAST, and `stop` clears that flag FIRST, so a slot half-written by the game is
+          # never a slot this will read. Nothing else touches them, and a slot the game sees as
+          # free stays free — this can retire a voice but never start one.
           def emit_mixer_tick
             load_var(0, MIX_FRONT)          # r0 = the buffer now playing (front)
             emit(ASM.cmp_imm(0, 0))

@@ -58,7 +58,7 @@ module RubyGBA
         tearfree_digit_pixel: 0.05096,
         sound_write: 0.01606,
         mix_voice_sample: 0.03001,
-        mix_overhead_sample: 0.01152,
+        mix_overhead_sample: 0.01146,
         music_voice: 0.05114,
         dma_cpu_start: 0.04817,
         dma_engine_start: 0.00607,

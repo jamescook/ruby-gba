@@ -194,9 +194,10 @@ module RubyGBA
             # marks, so it has to be taken before anything else moves either of them.
             emit_frame_step
 
-            # A new frame just started — build the next slice of mixed sound and hand it to
-            # the DMA. This is the mixer's heartbeat: one refill per displayed frame.
-            emit_mixer_tick if @plays_samples
+            # The next slice of mixed sound was built by the screen's own interrupt, which is
+            # what just woke us — not here. See the vblank handler in #emit_irq_handler: sound
+            # is played by a clock the game does not own, so it cannot be refilled once per PASS
+            # of a loop whose length the game decides.
 
             # A new frame begins now, so refresh the input snapshot: last frame's
             # keys become "previous", and we latch this frame's keys as "current".
