@@ -161,7 +161,7 @@ module RubyGBA
       def repeat(count, stop_when: nil, estimate: nil, &block)
         raise ArgumentError, "repeat needs a block: repeat(n) { |i| ... }" unless block
 
-        usually = repeat_usually(count, stop_when, estimate)
+        usually, most = repeat_estimate(count, stop_when, estimate)
 
         @repeat_seq += 1
         index = :"__repeat_#{@repeat_seq}"
@@ -179,27 +179,45 @@ module RubyGBA
             Value.node_for(stop_when)
           end
         push_container(Build.repeat(Value.node_for(count), index,
-                                    stop_when: leave, usually: usually)) do
+                                    stop_when: leave, usually: usually, most: most)) do
           run_block(i, &block)
         end
       end
 
-      # What `estimate: { usually: N }` said, as a number of passes. Only a loop that can stop
-      # early has anything to say here: one that runs its count every time already knows how
-      # many passes it makes, so a hint would be either a repetition or a contradiction.
-      def repeat_usually(count, stop_when, estimate)
-        return nil if estimate.nil?
+      # What `estimate:` said, as a number of passes it usually makes and the most it can make.
+      #
+      # TWO KINDS OF LOOP HAVE SOMETHING TO SAY HERE and one has nothing. A loop counted by a
+      # NUMBER YOU WROTE knows exactly how many passes it makes, so a hint would be a repetition
+      # or a contradiction. A loop that can STOP EARLY has a ceiling in its count and an unknown
+      # real figure, so `usually:` is the missing half. And a loop counted by SOMETHING THE GAME
+      # WORKS OUT has neither half: nothing in the program says how many passes it makes, and
+      # nothing bounds it — so that one can say `most:` as well, and it is the only one that can.
+      #
+      # Unsaid, a run-time count is charged NOTHING, which is worse than a guess: a loop that
+      # draws every thing standing in a room reads as free, and the report's own reader has no
+      # way to tell the difference between "cheap" and "not counted".
+      def repeat_estimate(count, stop_when, estimate)
+        return [nil, nil] if estimate.nil?
 
-        unless stop_when
+        worked_out = !count.is_a?(Integer)
+        unless stop_when || worked_out
           raise ArgumentError,
-                "`estimate:` belongs on a loop that can stop early. `repeat` without " \
-                "`stop_when:` runs every pass, so the estimate already knows how many " \
-                "there are. Remove the estimate, or say when the loop leaves."
+                "`estimate:` belongs on a loop the estimate cannot count for itself. " \
+                "`repeat(#{count})` runs that many times every pass, so it already knows. " \
+                "Remove the estimate, or say when the loop leaves with `stop_when:`."
         end
 
-        usual_length(estimate, count.is_a?(Integer) ? count : nil)
+        ceiling = count.is_a?(Integer) ? count : nil
+        most = usual_top(estimate[:most], nil) if estimate.is_a?(Hash)
+        if most && !worked_out
+          raise ArgumentError,
+                "`most:` says the largest number of passes a loop can make, and " \
+                "`repeat(#{count})` already says that. Give `usually:` on its own."
+        end
+
+        [usual_length(estimate, ceiling || most), most]
       end
-      private :repeat_usually
+      private :repeat_estimate
 
       # The console refreshes the screen ~59.73 times a second; like every game, we
       # count that as a round 60 frames per second. It's what lets a timer be given

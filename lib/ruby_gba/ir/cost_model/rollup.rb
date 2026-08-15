@@ -704,6 +704,26 @@ module RubyGBA
             usual = list_length(count.name)
             return [usual, "x#{usual} (#{count.name} usually)"]
           end
+          worked_out_passes(node, typical: typical)
+        end
+
+        # A LOOP COUNTED BY SOMETHING THE GAME WORKS OUT. Nothing in the program says how many
+        # passes it makes and nothing bounds it, so unsaid it is charged nothing — which is not
+        # a cautious guess but a hole, and the report says so where it lands.
+        #
+        # It is worth a hole rather than a guess because there is nothing to guess FROM: a
+        # capacity or a ceiling can be shared out (a list gets a quarter of its capacity), and
+        # here there is no number at all. What the author can say is `estimate: { usually: N,
+        # most: M }`, and then this counts properly — which matters, because the loop that draws
+        # everything standing in a room is this shape, and read as free it hid a game's largest
+        # cost from the one report meant to find it.
+        def worked_out_passes(node, typical:)
+          usually = node.usually
+          most = node.most
+          return [usually || 0, "x#{usually} (usually, worked out)"] if typical && usually
+          return [most, "x<=#{most} (at most, worked out)"] if !typical && most
+          return [usually, "x#{usually} (usually, worked out — the most is not said)"] if usually
+
           [0, "x? (unbounded)"]
         end
 

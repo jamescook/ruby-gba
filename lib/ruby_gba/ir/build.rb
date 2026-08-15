@@ -321,9 +321,14 @@ module RubyGBA
       # +stop_when+ is always present, because a value slot that is sometimes there is a slot
       # every reader has to remember to check. Zero is "nothing to stop for", which is what a
       # plain counted loop has, and both backends recognise the constant and emit nothing.
-      def repeat(count, index, *body, stop_when: nil, usually: nil)
+      # +usually+ is how many passes it normally makes and +most+ how many it can ever make.
+      # Both are for the estimate only and change nothing about how the loop runs. A loop counted
+      # by a number needs neither — the count IS both — and one that stops early carries its
+      # ceiling in the count, so `most` is only ever wanted where the count is worked out as the
+      # game runs and nothing in the program bounds it.
+      def repeat(count, index, *body, stop_when: nil, usually: nil, most: nil)
         Nodes.build(:repeat, children: body, count: wrap(count), index: index,
-                             stop_when: wrap(stop_when || 0), usually: usually)
+                             stop_when: wrap(stop_when || 0), usually: usually, most: most)
       end
 
       # A repeating timer: run +body+ once every +period+ frames. +counter+ names
