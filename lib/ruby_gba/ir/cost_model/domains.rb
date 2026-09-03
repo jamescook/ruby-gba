@@ -46,7 +46,13 @@ module RubyGBA
       #   4. Only when it is material. A weight a sixth wrong about 0.2 scanlines is not a
       #      finding, and a report that says so anyway teaches people to skip the section. That
       #      threshold is what keeps this from becoming noise.
-      module Domains
+      class Domains
+        def initialize(weights:, pricing:, verdicts:)
+          @weights = weights
+          @pricing = pricing
+          @verdicts = verdicts
+        end
+
         # Below this many scanlines of the frame, being wrong about a weight does not change any
         # decision, so there is nothing worth saying.
         MATERIAL = 1.0
@@ -67,9 +73,8 @@ module RubyGBA
         # measured, and it matters. Each entry:
         #   { weight:, varies:, from:, to:, count:, cost:, what: }
         def domain_notes(program)
-          index(program)
           PROBES.flat_map do |weight, probe|
-            domain = weight_domain(weight)
+            domain = self.class.weight_domain(weight)
             next [] unless domain[:varies] && domain[:from]
 
             send(probe, program).filter_map { |use| note_for(weight, domain, use) }
@@ -78,8 +83,11 @@ module RubyGBA
 
         # What the calibration recorded about where +weight+ was measured, as a plain Hash
         # ({} when it recorded nothing). Written by tools/calibrate_cost_model.rb.
-        def weight_domain(weight)
-          domains = self.class.const_defined?(:WEIGHT_DOMAINS) ? self.class::WEIGHT_DOMAINS : {}
+        #
+        # A class method — it names no program and touches no pricing or verdict, so it
+        # needs no instance to answer.
+        def self.weight_domain(weight)
+          domains = defined?(WEIGHT_DOMAINS) ? WEIGHT_DOMAINS : {}
           domains[weight] || {}
         end
 
@@ -94,14 +102,12 @@ module RubyGBA
           domain_notes(program).each do |note|
             printer.puts "!! #{note.what}: #{note.weight} was measured over " \
                          "#{fmt_count(note.from)}..#{fmt_count(note.to)} #{note.varies}, so " \
-                         "~#{fmt(note.cost)} scanlines of this frame reads LOW. A marginal rate " \
+                         "~#{CostModel.fmt(note.cost)} scanlines of this frame reads LOW. A marginal rate " \
                          "leaves out what a thing pays once. Re-measure #{note.weight} near " \
                          "#{fmt_count(note.count)} to be sure.",
                          emphasis: :banner
           end
         end
-
-        private
 
         def fmt_count(count) = count.to_i == count ? count.to_i.to_s : format("%.1f", count)
 
@@ -115,7 +121,7 @@ module RubyGBA
 
         # Every timer that runs a tick handler, with how many times a frame it ticks.
         def tick_uses(program)
-          (tick_verdict(program)&.timers || []).map do |timer|
+          (@verdicts.tick_verdict(program)&.timers || []).map do |timer|
             Verdict::Use.new(what: "timer :#{timer.name} at #{timer.hz} a second",
                              count: timer.ticks, cost: timer.interrupts)
           end
@@ -124,7 +130,7 @@ module RubyGBA
         # Every per-pixel collision test, with how many cells its overlap can cover at worst.
         def overlap_uses(program)
           program.walk.select { |node| node.kind == :pixels_overlap }.filter_map do |node|
-            cells = overlap_cells(node)
+            cells = @pricing.overlap_cells(node)
             next nil unless cells.positive?
 
             Verdict::Use.new(what: "a per-pixel collision over #{cells} cells", count: cells,
