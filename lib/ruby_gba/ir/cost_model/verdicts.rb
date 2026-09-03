@@ -17,7 +17,23 @@ module RubyGBA
       # The blind spots matter as much as the verdict. A loop whose trip count is only
       # known at run time counts as zero here, and an op nobody taught the model to price
       # counts as free — so both are reported rather than quietly folded into a pass.
-      module Verdicts
+      #
+      # +tree+ is wired in AFTER construction (see #tree=), not taken as a constructor
+      # argument: #residual_note asks {Tree}#category_tree for the estimate it checks
+      # against a measurement, and Tree asks back for the standing costs here (a bend, a
+      # timer's ticks, the mixer) — the same two-phase dance {Walker} and {Pricing} do,
+      # for the same reason.
+      class Verdicts
+        attr_writer :tree
+
+        def initialize(weights:, catalogue:, walker:, pricing:, fast_frame:, fast_interrupts:)
+          @weights = weights
+          @catalogue = catalogue
+          @walker = walker
+          @pricing = pricing
+          @fast_frame = fast_frame
+          @fast_interrupts = fast_interrupts
+        end
         # The VERDICT scale, as fractions of the frame budget — the one place red comes
         # from. `:hot` is exactly `cost > budget`, the same test the over-budget verdict
         # uses, so a red verdict and the "over budget" wording can never disagree; the
@@ -98,7 +114,6 @@ module RubyGBA
         # go quiet for exactly the games it is for. A pool alongside is held full for the same
         # reason: the list's break-even has to be solved against the rest of a full frame.
         def budget_thresholds(program)
-          index(program)
           return [] unless looping?(program)
 
           budget = budget_for(program)
@@ -106,7 +121,7 @@ module RubyGBA
           # On a single screen the risk is tearing, and what races the brief safe window is
           # everything the frame does up to its last write to the screen. A double-buffered
           # game cannot tear at all, so its risk is the whole frame's work against 60fps.
-          steady = at_full_capacity { frame_load(program) }
+          steady = @walker.at_full_capacity { frame_load(program) }
           return [] if steady <= budget # fits even at full capacity — nothing tips it over
 
           # ONE ANSWER PER LIST, not per loop, and the walks over a list are summed to get
@@ -120,8 +135,8 @@ module RubyGBA
             # get that long, and the rounding is headroom for the mask rather than for the
             # game: a snake whose board holds 340 cells was told its frame gives out at 459.
             cap = @catalogue.declared[name]
-            body = at_full_capacity do
-              loops.sum { |node| node.children.sum { |child| steady(child) } }
+            body = @walker.at_full_capacity do
+              loops.sum { |node| node.children.sum { |child| @walker.steady(child) } }
             end
             next unless body.positive? # what one item of the list costs the frame
 
@@ -138,9 +153,9 @@ module RubyGBA
         # the safe window when what is at risk is a tear, the whole frame (the mixer
         # included) when it is the frame rate.
         def frame_load(program)
-          return steady_tear_cost(program) unless buffered?(program)
+          return @walker.steady_tear_cost(program) unless buffered?(program)
 
-          steady_cost(program) + mixer_cost(program)
+          @walker.steady_cost(program) + mixer_cost(program)
         end
 
         # The reachable repeat loops whose trip count is a list's length — so their
@@ -163,13 +178,12 @@ module RubyGBA
         def scene_verdicts(program)
           return [] unless looping?(program)
 
-          # Asked for here rather than read off the index, so a program whose routines
+          # Asked for here rather than read off the catalogue, so a program whose routines
           # can't be resolved to one screen each raises instead of being judged anyway.
           modes = Modes.resolve(program)
-          index(program)
           modes.scene_funcs.map do |name|
             mode = modes.mode_of(name)
-            cost = steady_func(name)
+            cost = @walker.steady_func(name)
             budget = mode_budget(mode)
             Verdict::Scene.new(name: Modes.friendly_name(name), node: @catalogue.funcs[name], mode: mode,
                                steady_cost: cost, budget: budget)
@@ -184,13 +198,12 @@ module RubyGBA
         # music budget, so the guardrail can flag a tune long enough to matter. Each
         # entry: { name:, notes:, steady_cost:, budget:, over: }
         def song_verdicts(program)
-          index(program)
           names = program.walk.select { |node| node.kind == :play_song }.map { |node| node.name }.uniq
           names.filter_map do |name|
             next unless @catalogue.songs[name]
 
-            cost = song_cost(name)
-            Verdict::Song.new(name: name, notes: song_notes(name), steady_cost: cost,
+            cost = @pricing.song_cost(name)
+            Verdict::Song.new(name: name, notes: @pricing.song_notes(name), steady_cost: cost,
                               budget: MUSIC_STEADY_BUDGET, source: @catalogue.songs[name].source)
           end
         end
@@ -225,11 +238,6 @@ module RubyGBA
         # the same reader would rewrite the block and find most of the cost still there.
         # Each entry: { layers:, lowering:, lines:, cost:, budget:, over: }
         def bend_verdict(program)
-          # Pricing the block a bend runs needs what every other entry point catalogues
-          # first — a bend's offset is usually a table lookup, and what a table read costs
-          # depends on how long the table is. Without this the length is not known here and
-          # the read is charged at the dearer of its two prices.
-          index(program)
           bends = program.walk.select { |node| node.kind == :scroll_rows }
           return nil if bends.empty?
 
@@ -252,7 +260,7 @@ module RubyGBA
 
         def bend_offsets_cost(bends, latched)
           each = -> { bends.sum { |node| VISIBLE_LINES * bend_offset_cost(node) } }
-          latched ? in_fast_frame { each.call } : in_fast_interrupts { each.call }
+          latched ? @walker.in_fast_frame { each.call } : @walker.in_fast_interrupts { each.call }
         end
 
         # What keeping sprites out of a placed fade costs per frame, or nil when nothing is
@@ -268,7 +276,6 @@ module RubyGBA
           layers = program.walk.filter_map { |node| node.under if node.kind == :fade }.uniq
           return nil if layers.empty?
 
-          index(program) # settles which routines the build keeps in the quick memory
           picture = Stacking.picture(program)
           kept = layers.flat_map { |layer| twinned_sprites(picture, layer) }.uniq
           return nil if kept.empty?
@@ -280,7 +287,7 @@ module RubyGBA
           # A window has a weight of its own, measured, and it is about four fifths of a
           # sprite write: it rides its sprite's numbers rather than working out its own, so
           # the frame copies each attribute on the way past and tests where the fade sits.
-          cost = in_fast_frame { kept.length * @weights[:obj_window_write] * fast_memory_factor }
+          cost = @walker.in_fast_frame { kept.length * @weights[:obj_window_write] * @pricing.fast_memory_factor }
           Verdict::KeptSprites.new(layers: layers, sprites: kept.length,
                                    cost: cost, budget: FRAME_BUDGET)
         end
@@ -321,13 +328,12 @@ module RubyGBA
         # background costs nothing once it is up however big it is, and a zero is the
         # thing worth seeing there.
         def layer_verdicts(program)
-          index(program)
           picture = Stacking.picture(program)
           return [] if picture.stack.empty?
 
           layer_of = (picture.scenery + picture.objects).to_h { |node| [node.name, node.layer] }
           costs = Hash.new(0)
-          in_fast_frame { tally_frame_layer_costs(costs, program, layer_of) }
+          @walker.in_fast_frame { tally_frame_layer_costs(costs, program, layer_of) }
           tally_bend_layer_costs(costs, program, layer_of)
           picture.stack.map { |name| Verdict::Layer.new(name: name, cost: costs[name]) }
         end
@@ -336,13 +342,13 @@ module RubyGBA
         # layer lands under nil and is never read back — it is in no layer, and the share
         # the report prints is what says so.
         def tally_frame_layer_costs(costs, program, layer_of)
-          steady_statements(program).each do |node|
+          @walker.steady_statements(program).each do |node|
             case node.kind
             when :present_objects
-              share_out(costs, op_cost(node), node.names.to_h { |name| [name, present_object_cost(name)] },
-                        layer_of)
+              share_out(costs, @pricing.op_cost(node),
+                        node.names.to_h { |name| [name, @pricing.present_object_cost(name)] }, layer_of)
             when :scroll_background
-              costs[layer_of[node.name]] += op_cost(node)
+              costs[layer_of[node.name]] += @pricing.op_cost(node)
             end
           end
         end
@@ -398,7 +404,7 @@ module RubyGBA
         # it put in the block before it. The register write and the row bookkeeping are
         # already in the per-line weight.
         def bend_offset_cost(node)
-          expr_cost(node.offset) + node.children.sum { |child| op_cost(child) }
+          @pricing.expr_cost(node.offset) + node.children.sum { |child| @pricing.op_cost(child) }
         end
 
         # The bend's per-frame cost as a plain number (0 when nothing bends), for adding to
@@ -422,7 +428,6 @@ module RubyGBA
         # steps — so a body of one or two statements is mostly interrupt, and only a long
         # body outweighs it. Each entry: { timers:, cost:, budget:, over: }
         def tick_verdict(program)
-          index(program)
           entries = program.walk.select { |node| node.kind == :on_timer }
                            .filter_map { |node| tick_entry(program, node) }
           return nil if entries.empty?
@@ -438,7 +443,7 @@ module RubyGBA
           hz = timer_rate(program, node.timer)
           return nil unless hz
 
-          each = tick_interrupt_weight + in_fast_interrupts { node.children.sum { |child| steady(child) } }
+          each = tick_interrupt_weight + @walker.in_fast_interrupts { node.children.sum { |child| @walker.steady(child) } }
           delivered = deliverable_rate(hz, each)
           ticks = delivered / FULL_FRAME_RATE.to_f
           Verdict::Timer.new(name: node.timer, hz: hz, delivered: delivered, ticks: ticks,
@@ -513,9 +518,9 @@ module RubyGBA
         # as idle and lose the room to something that matters less.
         def frame_body_cost(program)
           bend = bend_verdict(program)
-          return steady_cost(program) unless bend && Backends::GBA::BendForm.latched?(program)
+          return @walker.steady_cost(program) unless bend && Backends::GBA::BendForm.latched?(program)
 
-          steady_cost(program) + bend.filling + bend.offsets
+          @walker.steady_cost(program) + bend.filling + bend.offsets
         end
 
         # The rate the mixer runs at — the one most of the program's samples were recorded
@@ -539,9 +544,8 @@ module RubyGBA
         # catch an op nobody priced was reading two free statements and finding nothing
         # to say.
         def unpriced_kinds(program)
-          index(program) # resets the set, and catalogues what pricing an op needs
           program.walk { |node| audit_price(node) }
-          @unpriced.dup
+          @pricing.unpriced.dup
         end
 
         # Price one node for no reason but to find out whether the model knows how.
@@ -549,9 +553,9 @@ module RubyGBA
         # on its own, so asking it would flag every `if` in the program.
         def audit_price(node)
           case node.category
-          when :value then expr_cost(node)
+          when :value then @pricing.expr_cost(node)
           when :root, :control then nil
-          else op_cost(node) # a statement — including a kind the table has never heard of
+          else @pricing.op_cost(node) # a statement — including a kind the table has never heard of
           end
         end
 
@@ -576,7 +580,7 @@ module RubyGBA
         def residual_note(program, measured)
           return nil unless measured && looping?(program)
 
-          estimate = category_tree(program).sum(&:cost)
+          estimate = @tree.category_tree(program).sum(&:cost)
           # The tree is the heaviest frame the program can reach and the reading is the
           # worst frame found, so they answer the same question. Across scenes, take the
           # dearest — the tree costs a case_var at its heaviest branch too.
@@ -615,8 +619,8 @@ module RubyGBA
             else
               "Some of this frame is not priced."
             end
-          printer.puts "!! the breakdown accounts for #{pct(note[:estimate], note[:measured])} of the " \
-                       "measured frame (~#{fmt(note[:estimate])} of ~#{fmt(note[:measured])} scanlines). " \
+          printer.puts "!! the breakdown accounts for #{CostModel.pct(note[:estimate], note[:measured])} of the " \
+                       "measured frame (~#{CostModel.fmt(note[:estimate])} of ~#{CostModel.fmt(note[:measured])} scanlines). " \
                        "#{missing} So the largest line below is not always the largest cost. The share " \
                        "is a net: an over-count and an under-count can cancel. So a low share shows a " \
                        "problem, but a high share does not show that there is none.", emphasis: :banner
@@ -632,8 +636,6 @@ module RubyGBA
           printer.puts "!! cannot estimate: #{kinds.sort.join(', ')} — counted as FREE, so the real " \
                        "cost can be higher. Teach the cost model to price it.", emphasis: :banner
         end
-
-        private
 
         # Which verdict band +cost+ falls in against +budget+ (see {Printer} for colours).
         # Red means "over the frame budget — it will tear or drop frames"; a missing or
@@ -669,8 +671,8 @@ module RubyGBA
         # over budget in red, in a sentence that argued with itself.
         def measured_verdict_text(result)
           held = held_suffix(result)
-          measured = "measured ~#{fmt(result[:scanlines])} of #{FRAME_BUDGET} scanlines " \
-                     "(#{pct(result[:scanlines], FRAME_BUDGET)})"
+          measured = "measured ~#{CostModel.fmt(result[:scanlines])} of #{FRAME_BUDGET} scanlines " \
+                     "(#{CostModel.pct(result[:scanlines], FRAME_BUDGET)})"
           return "#{measured}#{held}" unless result[:saturated]
           return "#{measured}#{held} — still #{FULL_FRAME_RATE} fps" if holds_full_rate?(result)
           return "measured over budget — running at ~#{result[:fps]} fps#{held}" if result[:fps]
@@ -724,14 +726,13 @@ module RubyGBA
         # either what the author said (`estimate: { usually: 12 }`) or a guess, and the
         # report says which.
         def list_walk_verdicts(program)
-          index(program)
           walks = program.walk.filter_map do |node|
             next unless node.kind == :repeat
 
             count = node.count
             next unless count.is_a?(Node) && count.kind == :list_len && @catalogue.capacities[count.name]
 
-            Verdict::ListLength.new(name: count.name, counted: list_length(count.name),
+            Verdict::ListLength.new(name: count.name, counted: @walker.list_length(count.name),
                                     capacity: @catalogue.capacities[count.name],
                                     said: @catalogue.list_lengths.key?(count.name))
           end
@@ -746,11 +747,10 @@ module RubyGBA
         # A pool's walk goes round for every slot however few are live — those passes are real
         # and are counted whole — and what the guess decides is how many times the BODY runs.
         def live_slot_verdicts(program)
-          index(program)
           guards = program.walk.filter_map do |node|
             next unless node.kind == :if && node.of
 
-            Verdict::LiveSlots.new(name: node.over, counted: node.usually || unsaid_share(node.of),
+            Verdict::LiveSlots.new(name: node.over, counted: node.usually || @walker.unsaid_share(node.of),
                                    slots: node.of, said: !node.usually.nil?)
           end
           guards.uniq(&:name)
@@ -764,13 +764,12 @@ module RubyGBA
         # over-count multiplies: a ray that gives up after forty-eight crossings meets a wall
         # in a handful, and eighty rays make that the whole frame.
         def early_exit_verdicts(program)
-          index(program)
           program.walk.filter_map do |node|
-            next unless node.kind == :repeat && stops_early?(node)
+            next unless node.kind == :repeat && @walker.stops_early?(node)
 
             count = node.count
             ceiling = count.is_a?(Node) && count.kind == :int ? count.value : nil
-            Verdict::EarlyExit.new(counted: node.usually || (ceiling && unsaid_share(ceiling)) || 0,
+            Verdict::EarlyExit.new(counted: node.usually || (ceiling && @walker.unsaid_share(ceiling)) || 0,
                                    ceiling: ceiling, said: !node.usually.nil?)
           end
         end
@@ -781,7 +780,6 @@ module RubyGBA
         # all. It has a ceiling where most computed sizes do not (a column is clipped), so it can
         # be guessed rather than skipped, and the guess is worth saying out loud.
         def stretched_column_verdicts(program)
-          index(program)
           program.walk.filter_map do |node|
             next unless node.kind == :draw_column_at
             next if node.height.is_a?(Node) && node.height.kind == :int
@@ -803,7 +801,7 @@ module RubyGBA
         def column_ceiling_for(node)
           at = node.parent
           while at
-            return const_side(at.h) || IR::Screen::HEIGHT if at.kind == :inside
+            return @pricing.const_side(at.h) || IR::Screen::HEIGHT if at.kind == :inside
 
             at = at.parent
           end
@@ -813,15 +811,14 @@ module RubyGBA
         # Whether the program has a repeat whose trip count has no provable bound — not a
         # literal, not a capacity-bounded list — so the estimate counts its body as zero.
         def unbounded_loop?(program)
-          index(program)
-          program.walk.any? { |node| node.kind == :repeat && repeat_factor(node).last.include?("unbounded") }
+          program.walk.any? { |node| node.kind == :repeat && @walker.repeat_factor(node).last.include?("unbounded") }
         end
 
         # Whether the program fills a rectangle whose width or height it works out as it
         # runs. The estimate counts that fill as zero for the same reason it counts an
         # unbounded loop as zero — there is no provable size to charge for.
         def runtime_sized_rect_anywhere?(program)
-          program.walk.any? { |node| runtime_sized_rect?(node) }
+          program.walk.any? { |node| @pricing.runtime_sized_rect?(node) }
         end
       end
     end

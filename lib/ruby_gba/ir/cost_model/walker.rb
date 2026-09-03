@@ -30,16 +30,21 @@ module RubyGBA
       # had to change to reach them; they're one-line forwards to a Walker instance
       # built fresh by every #index.
       #
-      # +pricing+ is whatever can answer #op_cost / #expr_cost / #own_cost /
-      # #arithmetic_kind / #const_side / #fast_memory_factor / #category_of / #label_of
-      # — today that's the CostModel instance itself (Pricing and Tree are still mixed
-      # into it), so this class never has to change shape when gba-nkfk gives them
-      # classes of their own.
+      # +pricing+ answers #op_cost / #expr_cost / #own_cost / #arithmetic_kind /
+      # #const_side / #fast_memory_factor; +tree+ answers #label_of — how a priced leaf
+      # reads to a person, {Tree}'s job, not this one's (#category_of needs no instance
+      # and is called on the class directly, Tree.category_of). Both +pricing+ and
+      # +tree+ are wired in AFTER construction (see #pricing=/#tree=) rather than taken
+      # as constructor arguments, because the dependency runs the other way too:
+      # {Pricing} needs a Walker to ask #current_mode/#tear_free? of, and {Tree}'s own
+      # #category_tree calls back into #analyze — so whichever of the three is built
+      # first has to exist before the other two can be, and a Walker is what the other
+      # two are built from.
       class Walker
-        def initialize(catalogue:, pricing:, weights:, fast_routines:, fast_frame:, fast_interrupts:,
-                       loop_shapes:)
+        attr_writer :pricing, :tree
+
+        def initialize(catalogue:, weights:, fast_routines:, fast_frame:, fast_interrupts:, loop_shapes:)
           @catalogue = catalogue
-          @pricing = pricing
           @weights = weights
           @fast_routines = fast_routines
           @fast_frame = fast_frame
@@ -426,7 +431,7 @@ module RubyGBA
           c = @pricing.op_cost(node)
           return [] unless c.positive?
 
-          arithmetic = arithmetic_leaves(node, category: @pricing.category_of(node.kind), source: node.source)
+          arithmetic = arithmetic_leaves(node, category: Tree.category_of(node.kind), source: node.source)
           arithmetic + statement_leaf(node, c - sum(arithmetic))
         end
 
@@ -441,7 +446,7 @@ module RubyGBA
           # A rectangle's size rides along so aggregation can tell a 33x60 stripe from a 4x4
           # corner; a pixel, a clear or a text draw has no size and they all fold together.
           size = node.sized? ? { w: node.w, h: node.h } : {}
-          [Entry.new(op: node.kind, label: @pricing.label_of(node), cost: cost, source: node.source, **size)]
+          [Entry.new(op: node.kind, label: @tree.label_of(node), cost: cost, source: node.source, **size)]
         end
 
         # The arithmetic a statement or a test does before it can run, as cost leaves of

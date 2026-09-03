@@ -152,12 +152,152 @@ module RubyGBA
     # one a tenth out on the op every game does a thousand times, and the corpus in examples/
     # is the thing to ask (`rake emitted` prints it per example).
     class CostModel
-      include Pricing
       include Rollup
-      include Tree
-      include Verdicts
-      include Domains
       include Report
+
+      # A scanline cost for a human: one decimal, "<0.1" for a tiny nonzero, "0" for
+      # nothing. Keeps the drill-down readable when ops cost fractions. Shared by
+      # {Report}, {Verdicts}, and {Domains}, so it lives here rather than on any one
+      # of them.
+      def self.fmt(cost)
+        return "0" if cost.zero?
+        return "<0.1" if cost.abs < 0.1
+
+        format("%.1f", cost)
+      end
+
+      # A cost as a whole-percent share of a budget, e.g. "66%".
+      def self.pct(cost, budget)
+        "#{((cost.to_f / budget) * 100).round}%"
+      end
+
+      # {Verdicts}, {Tree}, and {Domains} answer most of their questions about a
+      # PROGRAM, so a CostModel instance is where a caller (a guardrail, a test) still
+      # reaches them directly — one line each, index then delegate, exactly {Rollup}'s
+      # own shape. gba-vn0s removes this file once CostModel's own few entry points
+      # (analyze/frame_cost/steady_cost/report/render) are the only door in.
+      #
+      # A handful of {Tree}/{Domains} methods need no program at all — they shape an
+      # already-built tree, or look up a weight's measured range — and those are class
+      # methods on their own class with no forwarding needed here; see aggregate,
+      # collapse_repeats, group_by_source, prune, hot_ops, and Domains.weight_domain.
+      def budget_for(program)
+        index(program)
+        @verdicts.budget_for(program)
+      end
+
+      def budget_thresholds(program)
+        index(program)
+        @verdicts.budget_thresholds(program)
+      end
+
+      def buffered?(program)
+        index(program)
+        @verdicts.buffered?(program)
+      end
+
+      def mixer_verdict(program)
+        index(program)
+        @verdicts.mixer_verdict(program)
+      end
+
+      def mixed?(program)
+        index(program)
+        @verdicts.mixed?(program)
+      end
+
+      def scene_verdicts(program)
+        index(program)
+        @verdicts.scene_verdicts(program)
+      end
+
+      def looping?(program)
+        index(program)
+        @verdicts.looping?(program)
+      end
+
+      def tick_verdict(program)
+        index(program)
+        @verdicts.tick_verdict(program)
+      end
+
+      def bend_cost(program)
+        index(program)
+        @verdicts.bend_cost(program)
+      end
+
+      def bend_verdict(program)
+        index(program)
+        @verdicts.bend_verdict(program)
+      end
+
+      def frame_body_cost(program)
+        index(program)
+        @verdicts.frame_body_cost(program)
+      end
+
+      def interrupt_frame_cost(program)
+        index(program)
+        @verdicts.interrupt_frame_cost(program)
+      end
+
+      def kept_sprites_cost(program)
+        index(program)
+        @verdicts.kept_sprites_cost(program)
+      end
+
+      def kept_sprites_verdict(program)
+        index(program)
+        @verdicts.kept_sprites_verdict(program)
+      end
+
+      def layer_verdicts(program)
+        index(program)
+        @verdicts.layer_verdicts(program)
+      end
+
+      def residual_note(program, measured)
+        index(program)
+        @verdicts.residual_note(program, measured)
+      end
+
+      def song_verdicts(program)
+        index(program)
+        @verdicts.song_verdicts(program)
+      end
+
+      def standing_costs(program)
+        index(program)
+        @verdicts.standing_costs(program)
+      end
+
+      def tick_cost(program)
+        index(program)
+        @verdicts.tick_cost(program)
+      end
+
+      def unpriced_kinds(program)
+        index(program)
+        @verdicts.unpriced_kinds(program)
+      end
+
+      def category_tree(program, focus: nil)
+        index(program)
+        @tree.category_tree(program, focus: focus)
+      end
+
+      def aggregate(nodes) = Tree.aggregate(nodes)
+      def collapse_repeats(nodes) = Tree.collapse_repeats(nodes)
+      def group_by_source(nodes) = Tree.group_by_source(nodes)
+      def prune(nodes, max_depth, depth = 0) = Tree.prune(nodes, max_depth, depth)
+      def hot_ops(nodes, top = 5) = Tree.hot_ops(nodes, top)
+
+      def domain_notes(program)
+        index(program)
+        @domains.domain_notes(program)
+      end
+
+      def weight_domain(weight) = Domains.weight_domain(weight)
 
       SCREEN_W = 240
       SCREEN_H = 160

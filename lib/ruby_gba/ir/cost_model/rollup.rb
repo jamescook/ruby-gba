@@ -82,15 +82,33 @@ module RubyGBA
         # call's toggles (at_full_capacity, in_fast_code, the current area's height)
         # survive the re-index instead of silently resetting (see Walker#reindex).
         def index(program)
-          @unpriced = [] # kinds seen with no estimate — reset each analysis (see #unpriced_kinds)
           @catalogue = Catalogue.build(program)
           if @walker
             @walker.reindex(@catalogue)
           else
-            @walker = Walker.new(catalogue: @catalogue, pricing: self, weights: @weights,
-                                 fast_routines: @fast_routines, fast_frame: @fast_frame,
-                                 fast_interrupts: @fast_interrupts, loop_shapes: @loop_shapes)
+            @walker = Walker.new(catalogue: @catalogue, weights: @weights, fast_routines: @fast_routines,
+                                 fast_frame: @fast_frame, fast_interrupts: @fast_interrupts,
+                                 loop_shapes: @loop_shapes)
           end
+
+          # Pricing, Verdicts, Tree, and Domains are all rebuilt fresh here, every time —
+          # unlike the walker, none of them carry state that a nested re-index (steady_cost
+          # called from inside an at_full_capacity block) could drop. Two pairs need each
+          # other both ways (Walker asks Pricing to price an op; Pricing asks Walker where
+          # the walk is now — and Tree asks Verdicts for the standing costs; Verdicts asks
+          # Tree for the estimate #residual_note checks a measurement against), so each pair
+          # is built one side first and wired back after (see Walker#pricing=/#tree= and
+          # Verdicts#tree=).
+          @pricing = Pricing.new(weights: @weights, catalogue: @catalogue, walker: @walker,
+                                 palette_entries: @palette_entries)
+          @walker.pricing = @pricing
+          @verdicts = Verdicts.new(weights: @weights, catalogue: @catalogue, walker: @walker,
+                                   pricing: @pricing, fast_frame: @fast_frame,
+                                   fast_interrupts: @fast_interrupts)
+          @tree = Tree.new(catalogue: @catalogue, pricing: @pricing, walker: @walker, verdicts: @verdicts)
+          @walker.tree = @tree
+          @verdicts.tree = @tree
+          @domains = Domains.new(weights: @weights, pricing: @pricing, verdicts: @verdicts)
         end
 
         def steady(node, worst: false) = @walker.steady(node, worst: worst)

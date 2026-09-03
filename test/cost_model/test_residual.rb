@@ -134,7 +134,7 @@ class TestCostResidual < CostModelTest
       screen :bitmap
       game_loop { fill_rect 0, 0, 10, 10, :red }
     end
-    assert_operator estimate(tiny), :<, Cost::RESIDUAL_GAP
+    assert_operator estimate(tiny), :<, Cost::Verdicts::RESIDUAL_GAP
     assert_nil Cost.new.residual_note(tiny, measurement(4.0))
   end
 

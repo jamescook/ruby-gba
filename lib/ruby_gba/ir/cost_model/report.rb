@@ -26,14 +26,15 @@ module RubyGBA
         # the frame budget for a game loop, or the one-time boot cost otherwise. (The
         # full drill-down tree comes later; this is the at-a-glance summary.)
         def report(program, out: $stdout, color: :auto, measured: nil)
+          index(program)
           printer = Printer.for(out, color: color)
-          tree = category_tree(program)
+          tree = @tree.category_tree(program)
           frame_total = tree.sum(&:cost)
-          emit_unpriced_banner(printer, program)
-          emit_domain_banner(printer, program)
-          emit_residual_banner(printer, program, measured)
+          @verdicts.emit_unpriced_banner(printer, program)
+          @domains.emit_domain_banner(printer, program)
+          @verdicts.emit_residual_banner(printer, program, measured)
           printer.puts header_line(measured)
-          printer.puts "  per frame ~ #{fmt(frame_total)} scanlines" # the roll-up; the verdict/red is at the bottom
+          printer.puts "  per frame ~ #{CostModel.fmt(frame_total)} scanlines" # the roll-up; the verdict/red is at the bottom
           tree.each { |cat| category_line(cat, printer, frame_total) } # section subtotals, no detail
           glyph_footprint_lines(program, printer)
           budget_summary_lines(program, printer, frame_total, measured: measured)
@@ -43,17 +44,18 @@ module RubyGBA
         # then the hottest ops. +focus+ roots the tree at a named func; +max_depth+
         # bounds how deep it prints (deeper subtrees collapse to a rollup line).
         def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5, color: :auto, measured: nil)
+          index(program)
           printer = Printer.for(out, color: color)
-          tree = category_tree(program, focus: focus)
+          tree = @tree.category_tree(program, focus: focus)
           frame_total = tree.sum(&:cost) # the reference for a node's share-of-frame heat
-          emit_unpriced_banner(printer, program)
-          emit_domain_banner(printer, program) # loud, at the very top, before the estimate itself
-          emit_residual_banner(printer, program, measured) unless focus # the tree below is one func, not the frame
+          @verdicts.emit_unpriced_banner(printer, program)
+          @domains.emit_domain_banner(printer, program) # loud, at the very top, before the estimate itself
+          @verdicts.emit_residual_banner(printer, program, measured) unless focus # the tree below is one func, not the frame
           printer.puts header_line(measured)
           if focus
-            printer.puts "  func :#{focus} ~ #{fmt(frame_total)} scanlines"
+            printer.puts "  func :#{focus} ~ #{CostModel.fmt(frame_total)} scanlines"
           else
-            printer.puts "  per frame ~ #{fmt(frame_total)} scanlines" # the roll-up; the verdict/red is at the bottom
+            printer.puts "  per frame ~ #{CostModel.fmt(frame_total)} scanlines" # the roll-up; the verdict/red is at the bottom
           end
           render_category_tree(tree, printer, frame_total, max_depth)
           render_hottest(tree, printer, top)
@@ -95,7 +97,7 @@ module RubyGBA
           return if held_by.each_value.all?(&:empty?)
 
           levels = Backends::GBA::MAX_LEVELS
-          costs = layer_verdicts(program).to_h { |v| [v.name, v.cost] }
+          costs = @verdicts.layer_verdicts(program).to_h { |v| [v.name, v.cost] }
           printer.puts "  the stack, back to front (the console keeps #{levels} levels):"
           held_by.each do |layer, held|
             next if held.empty?
@@ -114,7 +116,7 @@ module RubyGBA
         # tiled screen: a background is drawn by the display for free once it is up,
         # however big it is. Only what the framework has to write again each frame charges.
         def layer_cost_column(cost)
-          (cost.nil? || cost.zero? ? "" : "~#{fmt(cost)}").ljust(8)
+          (cost.nil? || cost.zero? ? "" : "~#{CostModel.fmt(cost)}").ljust(8)
         end
 
         # THE HONEST LINE, and the section needs it more than it needs the numbers above.
@@ -132,8 +134,8 @@ module RubyGBA
           total = costs.values.sum
           return "these layers cost nothing a frame — the display draws what they hold" if total.zero?
 
-          recurring = steady_cost(program) + standing_costs(program)
-          "these layers cost ~#{fmt(total)} of the ~#{fmt(recurring)} scanlines a frame pays " \
+          recurring = steady_cost(program) + @verdicts.standing_costs(program)
+          "these layers cost ~#{CostModel.fmt(total)} of the ~#{CostModel.fmt(recurring)} scanlines a frame pays " \
             "every time; the rest of it sits at no depth"
         end
 
@@ -192,7 +194,7 @@ module RubyGBA
         def fast_memory_lines(program, printer)
           return if @placement.nil? || @placement.funcs.empty?
 
-          printer.puts "  kept in quick memory (code runs ~#{fmt(@weights[:fast_code_speedup])}x faster there):"
+          printer.puts "  kept in quick memory (code runs ~#{CostModel.fmt(@weights[:fast_code_speedup])}x faster there):"
           @placement.funcs.each do |name|
             printer.puts "    #{routine_size(name)}#{quick_memory_label(name, program)}"
           end
@@ -272,7 +274,7 @@ module RubyGBA
           when :__frame then "the game loop"
           when :__interrupt
             "the routine that answers the display and the timers " \
-              "(~#{fmt(interrupt_gain(program))}x here — part of an interrupt is the " \
+              "(~#{CostModel.fmt(interrupt_gain(program))}x here — part of an interrupt is the " \
               "console's own work, which does not move)"
           else "func :#{name}"
           end
@@ -284,7 +286,7 @@ module RubyGBA
         # _fast twins). A program that bends is judged on the bend, since that is what fires
         # 228 times a frame against a timer's handful.
         def interrupt_gain(program)
-          if bend_verdict(program)
+          if @verdicts.bend_verdict(program)
             @weights[:bend_line] / @weights[:bend_line_fast]
           else
             @weights[:tick_interrupt] / @weights[:tick_interrupt_fast]
@@ -308,30 +310,30 @@ module RubyGBA
             # everything on a frame, including the standing costs the op tree can't show:
             # the sound mixer, a row-by-row bend's per-line interrupt, a timer's ticks, and
             # the sprites a placed fade has to hold itself off
-            frame_cost: frame_cost(program) + standing_costs(program),
+            frame_cost: frame_cost(program) + @verdicts.standing_costs(program),
             steady_cost: steady_cost(program), # what recurs every frame from the op tree (the tear risk)
             frame_budget: FRAME_BUDGET,        # the whole-frame 60fps deadline
-            budget: budget_for(program),       # the drawing/tear budget (vblank, or the whole frame when buffered)
-            buffered: buffered?(program),      # double-buffered? (drawing can't tear, over frame = a dropped frame)
-            looping: looping?(program),
-            categories: category_tree(program).map { |c| { category: c.category, cost: c.cost } }, # drawing/sound/logic subtotals
+            budget: @verdicts.budget_for(program),       # the drawing/tear budget (vblank, or the whole frame when buffered)
+            buffered: @verdicts.buffered?(program),      # double-buffered? (drawing can't tear, over frame = a dropped frame)
+            looping: @verdicts.looping?(program),
+            categories: @tree.category_tree(program).map { |c| { category: c.category, cost: c.cost } }, # drawing/sound/logic subtotals
             # The verdicts, flattened for the same reason the tree is (see #verdict_json).
-            scenes: scene_verdicts(program).map { |v| verdict_json(v) }, # per-scene cost vs its own budget
-            songs: song_verdicts(program).map { |v| verdict_json(v) },   # per-song music cost vs the music budget
-            mixer: verdict_json(mixer_verdict(program)), # the mixer's per-frame CPU (nil if no sampled sound)
-            bend: verdict_json(bend_verdict(program)),   # a bend's per-frame CPU (nil if nothing bends)
-            ticks: verdict_json(tick_verdict(program)),  # each timer's handler (nil if no timer runs one)
-            kept: verdict_json(kept_sprites_verdict(program)), # sprites held out of a fade (nil if none are)
+            scenes: @verdicts.scene_verdicts(program).map { |v| verdict_json(v) }, # per-scene cost vs its own budget
+            songs: @verdicts.song_verdicts(program).map { |v| verdict_json(v) },   # per-song music cost vs the music budget
+            mixer: verdict_json(@verdicts.mixer_verdict(program)), # the mixer's per-frame CPU (nil if no sampled sound)
+            bend: verdict_json(@verdicts.bend_verdict(program)),   # a bend's per-frame CPU (nil if nothing bends)
+            ticks: verdict_json(@verdicts.tick_verdict(program)),  # each timer's handler (nil if no timer runs one)
+            kept: verdict_json(@verdicts.kept_sprites_verdict(program)), # sprites held out of a fade (nil if none are)
             # what a frame spends at each declared depth — the other axis from the tree
             # below, and empty for a program that declares no layers
-            layers: layer_verdicts(program).map { |v| verdict_json(v) },
+            layers: @verdicts.layer_verdicts(program).map { |v| verdict_json(v) },
             # per-font reachable-glyph footprint, flattened here because this hash is the
             # serialized output and a value object has no meaning once it is JSON
             glyphs: IR::GlyphUsage.footprint(program).map(&:to_h),
-            unestimated: unpriced_kinds(program).sort,  # op kinds the model can't price (counted as free)
+            unestimated: @verdicts.unpriced_kinds(program).sort,  # op kinds the model can't price (counted as free)
             # the frame's cost as drawing / sound / logic sections, flattened all the way down
             # because this hash is the serialized output (see #entry_json)
-            tree: category_tree(program).map { |entry| entry_json(entry) },
+            tree: @tree.category_tree(program).map { |entry| entry_json(entry) },
           }
         end
 
@@ -361,7 +363,7 @@ module RubyGBA
         def render_category_tree(categories, printer, frame_total, max_depth)
           categories.each do |cat|
             category_line(cat, printer, frame_total)
-            detail = collapse_repeats(prune(aggregate(cat.children), max_depth))
+            detail = Tree.collapse_repeats(Tree.prune(Tree.aggregate(cat.children), max_depth))
             render_tree(detail, 3, printer, frame_total)
           end
         end
@@ -369,13 +371,13 @@ module RubyGBA
         # One section header: its name and rolled-up cost, tinted by its share of the
         # frame (like the rest of the tree). Shared by the full tree and the summary.
         def category_line(cat, printer, frame_total)
-          printer.puts "    #{cat.category.to_s.ljust(9)}~ #{fmt(cat.cost)}", severity: heat_for(cat.cost, frame_total)
+          printer.puts "    #{cat.category.to_s.ljust(9)}~ #{CostModel.fmt(cat.cost)}", severity: heat_for(cat.cost, frame_total)
         end
 
         # The costliest ops as a tight, aligned bullet list — "where the time really
         # goes" at a glance, rather than one dense run-on line.
         def render_hottest(tree, printer, top)
-          hot = hot_ops(tree, top)
+          hot = Tree.hot_ops(tree, top)
           return if hot.empty?
 
           printer.puts "  hottest:"
@@ -383,7 +385,7 @@ module RubyGBA
           # body that happens to loop — which is often the number that explains the cost.
           labels = hot.map { |h| h.count > 1 ? "#{h.name} ×#{h.count}" : h.name.to_s }
           width = labels.map(&:length).max
-          hot.zip(labels) { |h, label| printer.puts "    • #{label.ljust(width)}  ~#{fmt(h.cost)}" }
+          hot.zip(labels) { |h, label| printer.puts "    • #{label.ljust(width)}  ~#{CostModel.fmt(h.cost)}" }
         end
 
         # The drawing section's cost from the categorized tree (0 if it draws nothing) —
@@ -398,8 +400,8 @@ module RubyGBA
         # ~68-line vblank). A static program reports its one-time boot cost; a scene-
         # switching game reports each scene against its own mode's budget.
         def budget_summary_lines(program, printer, frame_total, measured: nil)
-          unless looping?(program)
-            printer.puts "  budget: boot cost #{fmt(frame_total)} scanlines, done once   ok", severity: :good
+          unless @verdicts.looping?(program)
+            printer.puts "  budget: boot cost #{CostModel.fmt(frame_total)} scanlines, done once   ok", severity: :good
             return
           end
 
@@ -408,7 +410,7 @@ module RubyGBA
           # spike (a transition repaint, an every() tick) is named separately below, not
           # judged as if it ran every frame: 60fps against the whole recurring load,
           # tearing against the work that runs before the frame's last write to the screen.
-          recurring = steady_cost(program) + standing_costs(program)
+          recurring = steady_cost(program) + @verdicts.standing_costs(program)
           recurring_tear = steady_tear_cost(program)
           if measured
             # A measurement is the verdict: the real per-frame cost / frame rate, per scene
@@ -417,15 +419,15 @@ module RubyGBA
             # Tearing stays an estimate: the emulator reads a settled framebuffer, so it
             # can't see a mid-frame tear.
             measured_verdict_lines(printer, measured)
-            tear_budget_line(program, printer, recurring_tear) unless mixed?(program)
-          elsif mixed?(program)
+            tear_budget_line(program, printer, recurring_tear) unless @verdicts.mixed?(program)
+          elsif @verdicts.mixed?(program)
             scene_verdict_lines(program, printer)
           else
             frame_budget_line(program, printer, recurring)
             tear_budget_line(program, printer, recurring_tear)
           end
 
-          if (mv = mixer_verdict(program))
+          if (mv = @verdicts.mixer_verdict(program))
             printer.puts "    (sound is the worst case — all #{mv.voices} mixer voices at once; a typical frame sounds fewer)"
           end
 
@@ -433,7 +435,7 @@ module RubyGBA
           tick_lines(program, printer)
 
           if (cw = collision_worst_case(program)).positive?
-            printer.puts "    (collision is the worst case — ~#{fmt(cw)} if every per-pixel test lands on one frame. " \
+            printer.puts "    (collision is the worst case — ~#{CostModel.fmt(cw)} if every per-pixel test lands on one frame. " \
                          "Most frames the sprites miss and stop at the cheap box test.)"
           end
 
@@ -443,7 +445,7 @@ module RubyGBA
           stretched_column_line(program, printer)
 
           if frame_total > recurring + 0.1
-            printer.puts "    (a heavier frame reaches #{fmt(frame_total)} — the worst case for everything on it, " \
+            printer.puts "    (a heavier frame reaches #{CostModel.fmt(frame_total)} — the worst case for everything on it, " \
                          "not the every-frame cost)"
           end
 
@@ -459,7 +461,7 @@ module RubyGBA
         # else, and a list sized so it can never overflow is nearly never full — so this is
         # the one assumption in the budget an author can correct, and it says how.
         def list_walk_line(program, printer)
-          walks = list_walk_verdicts(program)
+          walks = @verdicts.list_walk_verdicts(program)
           return if walks.empty?
 
           at = walks.map { |walk| ":#{walk.name} #{walk.counted} of #{walk.capacity}" }.join(", ")
@@ -476,7 +478,7 @@ module RubyGBA
         # sized for the worst moment of a game rather than a normal one. So this is the
         # second assumption in the budget an author can correct, and it says how.
         def live_slot_line(program, printer)
-          guards = live_slot_verdicts(program)
+          guards = @verdicts.live_slot_verdicts(program)
           return if guards.empty?
 
           at = guards.map { |g| ":#{g.name} #{g.counted} of #{g.slots}" }.join(", ")
@@ -494,7 +496,7 @@ module RubyGBA
         # be reached, and this kind of loop usually sits inside another, so the over-count
         # multiplies.
         def early_exit_line(program, printer)
-          loops = early_exit_verdicts(program)
+          loops = @verdicts.early_exit_verdicts(program)
           return if loops.empty?
 
           at = loops.map { |l| "#{l.counted} of #{l.ceiling || '?'}" }.join(", ")
@@ -512,7 +514,7 @@ module RubyGBA
         # the game runs, because that is what perspective IS, so this decides what the whole
         # renderer costs.
         def stretched_column_line(program, printer)
-          columns = stretched_column_verdicts(program)
+          columns = @verdicts.stretched_column_verdicts(program)
           return if columns.empty?
 
           at = columns.map { |c| ":#{c.name} #{c.counted} of #{c.ceiling}" }.uniq.join(", ")
@@ -533,7 +535,7 @@ module RubyGBA
           width = measured.keys.map { |scene| (scene ? "scene :#{scene}" : "frame").length }.max
           measured.each do |scene, result|
             label = (scene ? "scene :#{scene}" : "frame").ljust(width)
-            printer.puts "    #{label}  #{measured_verdict_text(result)}", severity: measured_severity(result)
+            printer.puts "    #{label}  #{@verdicts.measured_verdict_text(result)}", severity: @verdicts.measured_severity(result)
           end
           how_it_was_played_note(printer, measured)
         end
@@ -562,12 +564,12 @@ module RubyGBA
         # apart that a reader comparing two games, or the same game before and after an edit
         # to the block, would otherwise have no idea what changed (see BendForm).
         def bend_line(program, printer)
-          verdict = bend_verdict(program) or return
+          verdict = @verdicts.bend_verdict(program) or return
 
           layers = verdict.layers.map { |name| ":#{name}" }.join(", ")
           printer.puts format("    bending %s costs ~%s a frame — %s, and each row's own offset is " \
-                              "worked out (~%s)", layers, fmt(verdict.cost), bend_feeding_phrase(verdict),
-                              fmt(verdict.offsets))
+                              "worked out (~%s)", layers, CostModel.fmt(verdict.cost), bend_feeding_phrase(verdict),
+                              CostModel.fmt(verdict.offsets))
           kept_interrupt_note(program, printer) unless verdict.copied?
         end
 
@@ -575,14 +577,14 @@ module RubyGBA
         def bend_feeding_phrase(verdict)
           if verdict.copied?
             format("the display's own copier hands each row its offset with no interruption at all, " \
-                   "from a table this costs ~%s to fill", fmt(verdict.filling))
+                   "from a table this costs ~%s to fill", CostModel.fmt(verdict.filling))
           elsif verdict.filling.positive?
             format("the display is interrupted on all %d of its lines (~%s) to read each row out of a " \
                    "table that costs ~%s to fill",
-                   verdict.lines, fmt(verdict.interrupting), fmt(verdict.filling))
+                   verdict.lines, CostModel.fmt(verdict.interrupting), CostModel.fmt(verdict.filling))
           else
             format("the display is interrupted on all %d of its lines (~%s)",
-                   verdict.lines, fmt(verdict.interrupting))
+                   verdict.lines, CostModel.fmt(verdict.interrupting))
           end
         end
 
@@ -610,15 +612,15 @@ module RubyGBA
         # ~<0.1" in the budget section only teaches a reader to skip the section. It is still
         # in the tree above, which is where everything is.
         def tick_lines(program, printer)
-          verdict = tick_verdict(program) or return
+          verdict = @verdicts.tick_verdict(program) or return
 
           verdict.timers.each do |t|
             next if t.cost < TICK_WORTH_SAYING
 
             printer.puts format("    timer :%s costs ~%s a frame — it ticks %d times a second, so its body " \
                                 "runs %s (interrupts ~%s, the body ~%s)",
-                                t.name, fmt(t.cost), t.delivered, tick_rate_phrase(t),
-                                fmt(t.interrupts), fmt(t.body))
+                                t.name, CostModel.fmt(t.cost), t.delivered, @tree.tick_rate_phrase(t),
+                                CostModel.fmt(t.interrupts), CostModel.fmt(t.body))
             # Said here as well as in the guardrail, because this is the line where a reader
             # is working out where the frame went and the answer is "not where you asked".
             next if t.delivered >= t.hz
@@ -634,7 +636,7 @@ module RubyGBA
         # is the only way to be sure. There is no flag to name — a build measures on its own
         # when it can.
         def estimate_only_hint(program, printer)
-          blind = estimate_blind_spots(program)
+          blind = @verdicts.estimate_blind_spots(program)
           reason = blind.any? ? " — #{blind.join(' and ')} here can't be priced, so run it to be sure" : ""
           printer.puts "  estimate only — the emulator did not run, so the frame rate is not measured#{reason}"
         end
@@ -643,7 +645,7 @@ module RubyGBA
         # loop, an unpriced op) ARE counted in the measured verdict — so the tree's zero for
         # them is not the whole story.
         def blind_spot_note(program, printer)
-          blind = estimate_blind_spots(program)
+          blind = @verdicts.estimate_blind_spots(program)
           return if blind.empty?
 
           printer.puts "    (#{blind.join(' and ')} the tree can't price is included in the measured verdict above)"
@@ -655,14 +657,14 @@ module RubyGBA
         # unpriced op — can't be called "within budget": the estimate says it can't tell.
         def frame_budget_line(program, printer, frame_total)
           over = frame_total > FRAME_BUDGET
-          blind = over ? [] : estimate_blind_spots(program)
+          blind = over ? [] : @verdicts.estimate_blind_spots(program)
           verdict =
             if over then "! estimate over budget"
             elsif blind.any? then "estimate can't tell — #{blind.join(' and ')} here isn't counted"
             else "estimate within budget"
             end
-          printer.puts "    frame    ~#{fmt(frame_total)} of #{FRAME_BUDGET} scanlines (#{pct(frame_total, FRAME_BUDGET)})   #{verdict}",
-                       severity: blind.any? ? :warm : severity_for(frame_total, FRAME_BUDGET)
+          printer.puts "    frame    ~#{CostModel.fmt(frame_total)} of #{FRAME_BUDGET} scanlines (#{CostModel.pct(frame_total, FRAME_BUDGET)})   #{verdict}",
+                       severity: blind.any? ? :warm : @verdicts.severity_for(frame_total, FRAME_BUDGET)
         end
 
         # The tear check: everything the frame does up to its last write to the screen must
@@ -674,23 +676,23 @@ module RubyGBA
         # still pushes the last write later, and a frame that spends the window thinking
         # tears just as surely as one that spends it drawing.
         def tear_budget_line(program, printer, cost)
-          if buffered?(program)
+          if @verdicts.buffered?(program)
             printer.puts "    tearing  double-buffered — drawing can't tear   ok", severity: :good
             return
           end
 
           over = cost > VBLANK_BUDGET
-          printer.puts "    tearing  #{fmt(cost)} of the #{VBLANK_BUDGET}-line vblank, everything " \
-                       "up to the last draw (#{pct(cost, VBLANK_BUDGET)})   " \
+          printer.puts "    tearing  #{CostModel.fmt(cost)} of the #{VBLANK_BUDGET}-line vblank, everything " \
+                       "up to the last draw (#{CostModel.pct(cost, VBLANK_BUDGET)})   " \
                        "#{over ? '! over — the screen tears' : 'ok — no tearing'}",
-                       severity: severity_for(cost, VBLANK_BUDGET)
+                       severity: @verdicts.severity_for(cost, VBLANK_BUDGET)
         end
 
         # One verdict line per scene, each against its own mode's budget — the report
         # for a game that runs some scenes direct-color and others tear-free.
         def scene_verdict_lines(program, printer)
-          blind = estimate_blind_spots(program)
-          scene_verdicts(program).each do |s|
+          blind = @verdicts.estimate_blind_spots(program)
+          @verdicts.scene_verdicts(program).each do |s|
             mode_label = s.mode == Modes::BUFFERED ? "tear-free" : "direct"
             note =
               if s.over?
@@ -701,9 +703,9 @@ module RubyGBA
                 s.mode == Modes::BUFFERED ? "estimate within budget" : "ok — fits the safe window"
               end
             hedged = !s.over? && blind.any?
-            printer.puts "  scene :#{s.name} (#{mode_label}) ~ #{fmt(s.steady_cost)} of ~#{s.budget} scanlines " \
-                         "(#{pct(s.steady_cost, s.budget)})   #{note}",
-                         severity: hedged ? :warm : severity_for(s.steady_cost, s.budget)
+            printer.puts "  scene :#{s.name} (#{mode_label}) ~ #{CostModel.fmt(s.steady_cost)} of ~#{s.budget} scanlines " \
+                         "(#{CostModel.pct(s.steady_cost, s.budget)})   #{note}",
+                         severity: hedged ? :warm : @verdicts.severity_for(s.steady_cost, s.budget)
           end
         end
 
@@ -713,24 +715,10 @@ module RubyGBA
         def render_tree(nodes, depth, printer, frame_total)
           nodes.each do |node|
             tag = node.collapsed ? "  (+#{node.collapsed} ops collapsed)" : ""
-            printer.cost_line(("  " * depth) + node.label + tag, fmt(node.cost),
+            printer.cost_line(("  " * depth) + node.label + tag, CostModel.fmt(node.cost),
                               severity: heat_for(node.cost, frame_total), group: node.op == :group)
             render_tree(node.children, depth + 1, printer, frame_total) unless node.children.empty?
           end
-        end
-
-        # Format a scanline cost for a human: one decimal, "<0.1" for a tiny nonzero,
-        # "0" for nothing. Keeps the drill-down readable when ops cost fractions.
-        def fmt(cost)
-          return "0" if cost.zero?
-          return "<0.1" if cost.abs < 0.1
-
-          format("%.1f", cost)
-        end
-
-        # A cost as a whole-percent share of a budget, e.g. "66%".
-        def pct(cost, budget)
-          "#{((cost.to_f / budget) * 100).round}%"
         end
 
         def heat_for(cost, frame_total)

@@ -12,6 +12,8 @@ require_relative "helper"
 class TestWalker < CostModelTest
   Walker = RubyGBA::IR::CostModel::Walker
   Catalogue = RubyGBA::IR::CostModel::Catalogue
+  Pricing = RubyGBA::IR::CostModel::Pricing
+  Tree = RubyGBA::IR::CostModel::Tree
 
   def empty_catalogue
     Catalogue.new(modes: nil, funcs: {}, capacities: {}, declared: {}, list_lengths: {},
@@ -19,21 +21,17 @@ class TestWalker < CostModelTest
                   sees_through: false)
   end
 
-  # +pricing+ needs to be able to answer #tear_free?/#current_mode on ITS OWN when the
-  # walk under test asks it to price an op — which, in production, works because
-  # `pricing:` is the very CostModel instance whose #index just built the walker. A
-  # bare Cost.new hasn't been indexed and has no walker of its own yet, so it's warmed
-  # up here with one cheap #analyze first (any program will do — this is scaffolding
-  # for Pricing's own_op_cost, not a fact under test).
-  def wired_pricing
-    p = Cost.new
-    p.analyze(Build.program(Build.halt))
-    p
-  end
-
+  # A walker wired the way Rollup#index wires the real one — its own Pricing (for
+  # #tear_free?/#current_mode, which #own_op_cost asks of it) and Tree (for #label_of,
+  # which every priced leaf asks for) — minus Verdicts, which none of these tests'
+  # programs exercise (see Tree#label_of: only :play_song's leaf needs it).
   def walker(catalogue: empty_catalogue)
-    Walker.new(catalogue: catalogue, pricing: wired_pricing, weights: WEIGHTS,
-              fast_routines: [], fast_frame: false, fast_interrupts: false, loop_shapes: {})
+    w = Walker.new(catalogue: catalogue, weights: WEIGHTS, fast_routines: [], fast_frame: false,
+                   fast_interrupts: false, loop_shapes: {})
+    pricing = Pricing.new(weights: WEIGHTS, catalogue: catalogue, walker: w, palette_entries: {})
+    w.pricing = pricing
+    w.tree = Tree.new(catalogue: catalogue, pricing: pricing, walker: w, verdicts: nil)
+    w
   end
 
   def test_current_mode_falls_back_to_direct_with_no_build_behind_it

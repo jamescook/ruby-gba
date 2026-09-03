@@ -16,8 +16,26 @@ module RubyGBA
       # console's quick memory: how much of it is a transfer engine copying rather than the
       # CPU running instructions, since only the second half of that gets any faster there.
       # See ENGINE_WEIGHTS.
-      module Pricing
-        private
+      #
+      # +catalogue+ answers what a declaration means (a bitmap's size, a song's notes);
+      # +walker+ answers where the walk is right now (the screen mode, whether the code
+      # being priced runs from fast memory) — see {Catalogue} and {Walker}.
+      class Pricing
+        # Kinds this Pricing has been asked to price and had no estimate for (see
+        # #note_unpriced) — a fresh, empty list every analysis, since a fresh Pricing is
+        # built for every one (see Rollup#index).
+        attr_reader :unpriced
+
+        def initialize(weights:, catalogue:, walker:, palette_entries:)
+          @weights = weights
+          # The same table with everything but the transfer engine's own work zeroed, so an
+          # op can be priced twice over and the two answers differenced (see #ENGINE_WEIGHTS).
+          @engine_weights = @weights.transform_values { 0.0 }.merge(@weights.slice(*ENGINE_WEIGHTS))
+          @catalogue = catalogue
+          @walker = walker
+          @palette_entries = palette_entries
+          @unpriced = []
+        end
 
         # What one statement costs: the op itself, plus the arithmetic in whatever operands
         # it was given. The split is the same one #expr_cost makes, and for the same reason —
@@ -87,15 +105,15 @@ module RubyGBA
 
         def own_op_cost(node, worst = true)
           case node.kind
-          when :pixel then tear_free? ? @weights[:tearfree_pixel] : @weights[:plot_pixel]
+          when :pixel then @walker.tear_free? ? @weights[:tearfree_pixel] : @weights[:plot_pixel]
           # The two screens draw a rectangle in shapes that have nothing in common, so
           # which screen this one is on decides the whole price (see #tearfree_fill_cost).
           when :fill_rect
-            tear_free? ? tearfree_fill_cost(node) : plot_rect_cost(node)
+            @walker.tear_free? ? tearfree_fill_cost(node) : plot_rect_cost(node)
           when :dma_fill_rect
-            tear_free? ? tearfree_fill_cost(node) : dma_rows_cost(node.w, node.h)
+            @walker.tear_free? ? tearfree_fill_cost(node) : dma_rows_cost(node.w, node.h)
           when :draw_rect_at
-            tear_free? ? tearfree_moving_rect_cost(node) : dma_rows_cost(node.w, node.h)
+            @walker.tear_free? ? tearfree_moving_rect_cost(node) : dma_rows_cost(node.w, node.h)
           when :draw_column_at then draw_column_cost(node, worst)
           when :clear_screen then clear_screen_cost
           when :draw_text then Fonts.get(node.font).text_pixels(node.text) * glyph_pixel_weight(node)
@@ -195,7 +213,7 @@ module RubyGBA
           return @weights[:fade_set] if const_side(node.amount)
 
           @weights[:fade_set] + @weights[:op_mul] + @weights[:op_div_const] +
-            (sees_through_a_layer? ? @weights[:op_compare] : 0)
+            (@catalogue.sees_through_a_layer? ? @weights[:op_compare] : 0)
         end
 
         # SEEING THROUGH A LAYER IS FREE, and this is the one arrangement where it is not.
@@ -249,14 +267,14 @@ module RubyGBA
         # Is the op being priced on a screen that draws through a color table? Both of
         # them are — the tear-free bitmap screen and the tiled screen — so this is the
         # direct-color screen's opposite rather than a question about tiles.
-        def palette_screen? = current_mode != Modes::DIRECT
+        def palette_screen? = @walker.current_mode != Modes::DIRECT
 
         # How many colors this screen draws through. The build knows exactly, and hands
         # it over; with no build behind the estimate a full table is assumed, so an
         # estimate with nothing to go on quotes the dearest answer rather than a cheap
         # guess.
         def tint_palette_entries
-          @palette_entries[current_mode] || Palette::CAPACITY
+          @palette_entries[@walker.current_mode] || Palette::CAPACITY
         end
 
         # A kind that fell through to the zero-cost fallback: 0 if it's a declared-free
@@ -628,7 +646,7 @@ module RubyGBA
         # twice as many pixels there — the fill is half the work for the same picture.
         def clear_screen_cost
           pixels = SCREEN_W * SCREEN_H
-          return dma_blob_cost(pixels) unless tear_free?
+          return dma_blob_cost(pixels) unless @walker.tear_free?
 
           dma_start_weight + (pixels * @weights[:dma_pixel] / 2)
         end
@@ -665,7 +683,7 @@ module RubyGBA
         # changed and written back, which is two and a half times the direct screen's plain
         # write.
         def digit_stamp_weight
-          tear_free? ? @weights[:tearfree_digit_pixel] : @weights[:digit_pixel]
+          @walker.tear_free? ? @weights[:tearfree_digit_pixel] : @weights[:digit_pixel]
         end
 
         # What one lit pixel of a font glyph costs. It is a pixel of a RUN — the color is
@@ -675,7 +693,7 @@ module RubyGBA
         # read-modify-write of the pair the pixel shares with its neighbour, which is
         # dearer than either.
         def glyph_pixel_weight(node)
-          return @weights[:tearfree_glyph] if tear_free?
+          return @weights[:tearfree_glyph] if @walker.tear_free?
 
           run_pixel_weight(const_side(node.x), const_side(node.y))
         end
@@ -921,7 +939,7 @@ module RubyGBA
         end
 
         def column_row_weight(node)
-          first, extra = if tear_free?
+          first, extra = if @walker.tear_free?
                            %i[tearfree_column_row tearfree_column_extra_pixel]
                          else
                            %i[column_row column_extra_pixel]
@@ -1023,12 +1041,6 @@ module RubyGBA
           w, h = @catalogue && @catalogue.backing[name]
           w ? dma_rows_cost(w, h) : 0
         end
-
-        # {Walker} calls these on its +pricing+ collaborator (today, this same CostModel
-        # instance) with an explicit receiver, which only reaches a public method —
-        # everything else here stays private, reached the ordinary way (a bare call,
-        # same instance) by whatever in cost_model/ still calls it that way.
-        public :op_cost, :expr_cost, :own_cost, :arithmetic_kind, :const_side, :fast_memory_factor
       end
     end
   end
