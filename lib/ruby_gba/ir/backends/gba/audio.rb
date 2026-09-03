@@ -162,7 +162,7 @@ module RubyGBA
                 [frame, note_reg_value(writes, regs[:reg_a]), note_reg_value(writes, regs[:reg_b])].pack("Vvv")
               end
               rows << [song.total_frames, 0, 0].pack("Vvv") # sentinel: never matches while the tune plays
-              @data_blobs[:"_music_events_#{name}_#{index}"] = rows.join
+              @emit.data_blobs[:"_music_events_#{name}_#{index}"] = rows.join
               :"_music_idx_#{name}_#{index}"
             end
           end

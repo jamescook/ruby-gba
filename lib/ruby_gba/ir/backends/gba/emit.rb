@@ -4,9 +4,31 @@ module RubyGBA
   module IR
     module Backends
       class GBA
-        # Low-level emitting and the two-pass label/branch fixup machinery.
-        module Emit
+        # Low-level emitting and the two-pass label/branch fixup machinery — the one
+        # collaborator nearly every other lowering concern depends on, since writing
+        # machine code is the point of a code generator. GBA#lower builds exactly one
+        # and hands it to everything else as `emitter:`.
+        #
+        # Two of the fixup kinds a placeholder can carry — :fast_addr, :hot_size —
+        # belong to {Placement}, not here: Emit has no idea what "the quick memory" or
+        # "a DMA transfer's size" mean, only how to remember a placeholder and patch it
+        # once its answer is known. #resolve_fixups takes a resolver for each one this
+        # class doesn't own, so a caller can add its own fixup kinds without this class
+        # knowing their names — the two kinds it does own (:data_addr, :label_addr) and
+        # a plain branch are resolved directly.
+        class Emit
           include Constants
+
+          attr_reader :code, :labels, :fixups, :data_blobs, :data_positions
+
+          def initialize
+            @code = +"".b          # emitted machine code; byte 0 is where execution starts
+            @labels = {}           # label name -> byte offset within @code
+            @fixups = []           # branch placeholders to resolve once labels are known
+            @label_seq = 0
+            @data_blobs = {}       # name -> bytes (embedded data, appended after code)
+            @data_positions = {}   # name -> byte offset of its blob within @code
+          end
 
           def emit(bytes)
             @code << bytes
@@ -34,15 +56,17 @@ module RubyGBA
           end
 
           # Second pass: every label and data-blob position is known now, so patch
-          # each placeholder — a branch to a label, or a load of a blob's / label's address.
-          def resolve_fixups
+          # each placeholder — a branch to a label, or a load of a blob's / label's
+          # address, or (via +extra_resolvers+) a fixup kind only the caller
+          # understands, keyed by that kind and called as resolver.call(fix).
+          def resolve_fixups(extra_resolvers = {})
             @fixups.each do |fix|
               case fix[:kind]
               when :data_addr then resolve_data_address(fix)
               when :label_addr then resolve_label_address(fix)
-              when :fast_addr then resolve_fast_address(fix)
-              when :hot_size then resolve_hot_size(fix)
-              else resolve_branch(fix)
+              else
+                resolver = extra_resolvers[fix[:kind]]
+                resolver ? resolver.call(fix) : resolve_branch(fix)
               end
             end
           end
@@ -122,6 +146,21 @@ module RubyGBA
           def emit_load_data_address(reg, name)
             @fixups << { pos: pos, kind: :data_addr, reg: reg, target: name }
             emit(ASM.load_immediate_fixed(reg, 0))
+          end
+
+          # A memory-mapped register / VRAM halfword write — the one ASM primitive
+          # nearly every lowering concern reaches for, so it lives beside emit rather
+          # than with the rest of Primitives.
+          def write_reg16(address, value)
+            emit(ASM.load_immediate(ACC, value))
+            emit(ASM.load_immediate(TMP, address))
+            emit(ASM.store_halfword(ACC, TMP))
+          end
+
+          # Patch a fixed 16-byte placeholder in place — the shape every custom fixup
+          # resolver (Placement's :fast_addr/:hot_size included) writes back with.
+          def patch16(pos, bytes)
+            @code[pos, 16] = bytes
           end
         end
       end

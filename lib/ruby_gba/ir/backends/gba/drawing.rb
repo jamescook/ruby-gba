@@ -1021,11 +1021,11 @@ module RubyGBA
           def pack_blob(blob_name)
             return @blob_codecs[blob_name] if @blob_codecs.key?(blob_name)
 
-            raw = @data_blobs[blob_name]
+            raw = @emit.data_blobs[blob_name]
             codec, blob = BiosCompress.best(raw)
             unless codec == :none
               @blob_raw_bytes[blob_name] = raw.bytesize # remember the before size for the savings line
-              @data_blobs[blob_name] = blob
+              @emit.data_blobs[blob_name] = blob
             end
             @blob_codecs[blob_name] = codec
           end
@@ -1702,9 +1702,9 @@ module RubyGBA
           # (it simply draws nothing), matching the fan-out's skip.
           def ensure_digit_table(name, font)
             blob = :"__digits_#{name}"
-            unless @data_blobs.key?(blob)
+            unless @emit.data_blobs.key?(blob)
               bytes = (0..9).flat_map { |d| font.glyph(d.to_s) || Array.new(font.height, 0) }
-              @data_blobs[blob] = bytes.pack("C*")
+              @emit.data_blobs[blob] = bytes.pack("C*")
             end
             blob
           end

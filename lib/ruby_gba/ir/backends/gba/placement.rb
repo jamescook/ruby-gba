@@ -185,7 +185,7 @@ module RubyGBA
           def fast_func_address(name)
             return nil unless @fast_funcs.include?(name)
 
-            @hot_base + (@labels.fetch(func_label(name)) - @labels.fetch(HOT_START))
+            @hot_base + (@emit.labels.fetch(func_label(name)) - @emit.labels.fetch(HOT_START))
           end
 
           # How far the variables (and lists, and the mixer's memory) reached. Read off
@@ -237,7 +237,7 @@ module RubyGBA
 
             @next_var += (-@next_var) % 4 # the copy moves whole words, so start on one
             @hot_base = @next_var
-            @hot_bytes = @labels.fetch(HOT_END) - @labels.fetch(HOT_START)
+            @hot_bytes = @emit.labels.fetch(HOT_END) - @emit.labels.fetch(HOT_START)
             @next_var += @hot_bytes
             guard_fast_code_fits
           end
@@ -258,16 +258,18 @@ module RubyGBA
             emit_load_fast_address(ACC, HOT_START)
             emit(ASM.load_immediate(TMP, REG_DMA3DAD))
             emit(ASM.str(ACC, TMP))              # destination = where it is going
-            @fixups << { pos: pos, kind: :hot_size, reg: ACC }
+            @emit.fixups << { pos: pos, kind: :hot_size, reg: ACC }
             emit(ASM.load_immediate_fixed(ACC, 0)) # ...and how much, patched once it is known
             emit(ASM.load_immediate(TMP, REG_DMA3CNT))
             emit(ASM.str(ACC, TMP))
           end
 
           # Patch in the transfer's size and start it: whole words, both ends advancing.
+          # A custom fixup kind #resolve_fixups doesn't know about — Emit hands it here
+          # via the resolver map GBA#lower builds (see GBA#lower).
           def resolve_hot_size(fix)
             words = @hot_bytes / 4
-            @code[fix[:pos], 16] = ASM.load_immediate_fixed(fix[:reg], words | DMA_32BIT | DMA_ENABLE)
+            @emit.patch16(fix[:pos], ASM.load_immediate_fixed(fix[:reg], words | DMA_32BIT | DMA_ENABLE))
           end
 
           # Call a routine. A call that stays on one side of the cartridge/quick-memory
@@ -292,13 +294,15 @@ module RubyGBA
           # fixed-size placeholder patched in the second pass — the same trick a
           # reference to embedded data uses.
           def emit_load_fast_address(reg, label)
-            @fixups << { pos: pos, kind: :fast_addr, reg: reg, target: label }
+            @emit.fixups << { pos: pos, kind: :fast_addr, reg: reg, target: label }
             emit(ASM.load_immediate_fixed(reg, 0))
           end
 
+          # Also a custom fixup kind, handed to Emit's resolver map the same way
+          # #resolve_hot_size is.
           def resolve_fast_address(fix)
-            offset = @labels.fetch(fix[:target]) - @labels.fetch(HOT_START)
-            @code[fix[:pos], 16] = ASM.load_immediate_fixed(fix[:reg], @hot_base + offset)
+            offset = @emit.labels.fetch(fix[:target]) - @emit.labels.fetch(HOT_START)
+            @emit.patch16(fix[:pos], ASM.load_immediate_fixed(fix[:reg], @hot_base + offset))
           end
 
           private

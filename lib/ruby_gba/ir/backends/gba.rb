@@ -64,7 +64,6 @@ module RubyGBA
       #   * the CPU stack holds intermediate values inside a nested expression
       class GBA
         include RubyGBA::Constants
-        include Emit
         include Statements
         include Lists
         include Drawing
@@ -75,7 +74,6 @@ module RubyGBA
         include Divide
         include Primitives
         include Collision
-        include Timers
         include Frames
         include Raster
         include DirectSound
@@ -221,7 +219,13 @@ module RubyGBA
           :== => %i[eq ne], :!= => %i[ne eq],
         }.freeze
 
-        attr_reader :code, :labels, :func_ranges
+        attr_reader :func_ranges
+
+        # The emitted machine code / the label table / where each embedded blob landed
+        # — read straight from @emit, which is where they actually live (see {Emit}).
+        def code = @emit.code
+        def labels = @emit.labels
+        def data_positions = @emit.data_positions
 
         # +fast_cartridge+ picks the cartridge timing this ROM asks for at boot. True
         # (the default) is the quick timing every real cartridge handles; false leaves
@@ -238,17 +242,13 @@ module RubyGBA
           @emitting_hot = false  # are we emitting into the block that gets copied there?
           @hot_base = nil        # where that block lands, once every variable has a home
           @hot_bytes = 0
-          @code = +"".b          # emitted machine code; byte 0 is where execution starts
-          @labels = {}           # label name -> byte offset within @code
-          @fixups = []           # branch placeholders to resolve once labels are known
+          @emit = Emit.new       # the code buffer + two-pass label/fixup machinery
           @vars = {}             # variable name -> IWRAM address
           @next_var = IWRAM_START
           @funcs = {}            # func name -> its IR node (emitted after the main body)
           @func_ranges = {}      # func name -> byte span in @code (for dump_func)
           @defined_sounds = {}   # name -> musical params (from define_sound)
           @songs = {}            # name -> :song node (from song)
-          @data_blobs = {}       # name -> bytes (embedded data, appended after code)
-          @data_positions = {}   # name -> byte offset of its blob within @code
           @blob_codecs = {}      # name -> :lz77/:rle/:none (how a VRAM blob was packed, if at all)
           @blob_raw_bytes = {}   # name -> its size before packing (for the build's savings line)
           @bitmaps = {}          # name -> { width:, height: } (a blob that has a shape)
@@ -258,9 +258,7 @@ module RubyGBA
           @layer_stack = []      # the layers the program declared, backmost first
           @samples = {}          # name -> { rate:, length: } (a Direct Sound PCM sample)
           @plays_samples = false # does the program play any sample (uses Direct Sound)?
-          @timers = {}           # name -> { rate:, count: } (which hardware timer(s) back it)
-          @next_hw_timer = 0     # next free hardware timer index (0-3)
-          @label_seq = 0
+          @timers = Timers.new(emitter: @emit) # named timer -> which hardware timer(s) back it
           @uses_pressed = false  # whether the program reads edge-detected input
           @palette = nil         # the color table, built once when any scene is buffered
           @indexed_bitmaps = {}  # name -> the number meaning see-through, for pictures drawn indexed
@@ -294,7 +292,7 @@ module RubyGBA
           BiosCompress::Report.new(
             count: packed.size,
             raw_bytes: packed.sum { |name, _codec| @blob_raw_bytes[name] },
-            packed_bytes: packed.sum { |name, _codec| @data_blobs[name].bytesize },
+            packed_bytes: packed.sum { |name, _codec| @emit.data_blobs[name].bytesize },
             schemes: packed.values.uniq.sort,
           )
         end
@@ -393,8 +391,11 @@ module RubyGBA
           # Only now does every variable have a home, so only now is it known where the
           # quick memory's spare room begins — which is where the moved block goes.
           place_hot_code
-          resolve_fixups
-          @code
+          # :fast_addr/:hot_size are Placement's own fixup kinds — Emit doesn't know
+          # what "the quick memory" or "a DMA transfer's size" mean, so Placement
+          # hands its own resolvers in rather than Emit reaching for them by name.
+          @emit.resolve_fixups(fast_addr: method(:resolve_fast_address), hot_size: method(:resolve_hot_size))
+          @emit.code
         end
 
         # Each variable's allocated IWRAM address (name => address), known once the
@@ -438,6 +439,27 @@ module RubyGBA
         end
 
         private
+
+        # Forwards to @emit — the code buffer + two-pass label/fixup collaborator built
+        # in #initialize. Every other lowering concern in this class calls these as bare
+        # methods, exactly as it always did back when Emit was mixed in directly; only
+        # its state moved out into a real object (see {Emit}).
+        def emit(bytes) = @emit.emit(bytes)
+        def pos = @emit.pos
+        def place_label(name) = @emit.place_label(name)
+        def gensym = @emit.gensym
+        def emit_branch(kind, target, cond: nil) = @emit.emit_branch(kind, target, cond: cond)
+        def emit_data_region = @emit.emit_data_region
+        def emit_load_data_address(reg, name) = @emit.emit_load_data_address(reg, name)
+        def emit_load_label_address(reg, label) = @emit.emit_load_label_address(reg, label)
+        def write_reg16(address, value) = @emit.write_reg16(address, value)
+
+        # Forwards to @timers — the hardware-timer collaborator built in #initialize.
+        def register_timers(program) = @timers.register_timers(program)
+        def irq_timers = @timers.irq_timers
+        def emit_timer_start(node) = @timers.emit_timer_start(node)
+        def emit_timer_stop(node) = @timers.emit_timer_stop(node)
+        def eval_timer_ticks(node) = @timers.eval_timer_ticks(node)
 
         # Does the program need any interrupt at all — VBlank (for wait_vblank) or a timer
         # (for an on_tick handler)? The mixer needs none: it refills on the frame loop, in
@@ -630,7 +652,7 @@ module RubyGBA
             when :table
               register_table(node)
             when :data
-              @data_blobs[node.name] = node.bytes
+              @emit.data_blobs[node.name] = node.bytes
             when :bitmap
               @bitmaps[node.name] = Assets::Image.of(node)
               # An opaque bitmap streams from ROM via DMA, so embed its pixels. A
@@ -641,7 +663,7 @@ module RubyGBA
               # into the code, so it needs no copy — unless a stretched column reads it, which
               # walks the picture as it runs and so needs it there. A scaled sprite in a
               # first-person view is exactly that case.
-              @data_blobs[node.name] = node.pixels if !node.transparent || @column_bitmaps.include?(node.name)
+              @emit.data_blobs[node.name] = node.pixels if !node.transparent || @column_bitmaps.include?(node.name)
               register_column_runs(node)
             when :list_new
               # Reserve the list's IWRAM storage once, up front, so every op that
@@ -673,7 +695,7 @@ module RubyGBA
         # can index it. A power-of-two length lets the read wrap with a cheap mask.
         def register_table(node)
           elem_bytes, directive = TABLE_ELEM.fetch(node.width)
-          @data_blobs[node.name] = node.values.pack(directive)
+          @emit.data_blobs[node.name] = node.values.pack(directive)
           count = node.values.length
           @tables[node.name] = TableLayout.new(
             count: count, elem_bytes: elem_bytes, signed: node.signed,
@@ -689,7 +711,7 @@ module RubyGBA
         # 256-entry table (see IR::Palette::Overflow for the friendly limit error).
         def prepare_palette(program)
           @palette = IR::Palette.build(program, scopes: @modes.buffered_scopes)
-          @data_blobs[PALETTE_BLOB] = @palette.entries.pack("v*") # 15-bit entries, little-endian
+          @emit.data_blobs[PALETTE_BLOB] = @palette.entries.pack("v*") # 15-bit entries, little-endian
           prepare_indexed_bitmaps(program)
         end
 
@@ -709,7 +731,7 @@ module RubyGBA
             next unless node.kind == :bitmap
 
             bytes, clear = @palette.indices_for(node)
-            @data_blobs[indexed_blob(node.name)] = bytes
+            @emit.data_blobs[indexed_blob(node.name)] = bytes
             @indexed_bitmaps[node.name] = clear
           end
         end
@@ -750,10 +772,10 @@ module RubyGBA
           # past that ships none and walks its whole height, as it always did.
           return if at > RUNS_MAX_BYTES
 
-          @data_blobs[runs_blob(node.name)] =
+          @emit.data_blobs[runs_blob(node.name)] =
             runs.flat_map { |column| column.flat_map { |run| [run.first, run.last] } << RUNS_END }
                 .pack("C*")
-          @data_blobs[runs_start_blob(node.name)] = starts.pack("v*")
+          @emit.data_blobs[runs_start_blob(node.name)] = starts.pack("v*")
           @run_bitmaps << node.name
         end
 
@@ -816,8 +838,8 @@ module RubyGBA
           end
 
           colors = palette.sort_by { |_color, index| index }.map { |color, _index| color }
-          @data_blobs[BG_SHARED_PAL] = colors.pack("v*")
-          @data_blobs[BG_SHARED_CHAR] = char
+          @emit.data_blobs[BG_SHARED_PAL] = colors.pack("v*")
+          @emit.data_blobs[BG_SHARED_CHAR] = char
           @bg_shared = { pal_units: colors.size, char_units: char.bytesize / 2 }
         end
 
@@ -859,7 +881,7 @@ module RubyGBA
           end
 
           map_blob = :"__bg_map_#{name}"
-          @data_blobs[map_blob] = entries.pack("v*")
+          @emit.data_blobs[map_blob] = entries.pack("v*")
           @backgrounds[name] = BackgroundPlacement.new(
             map: map_blob, map_units: entries.size,
             bg: layer,                           # hardware layer (BG0..BG3), in stack order
@@ -1062,7 +1084,7 @@ module RubyGBA
                   "most #{MAX_AFFINE_GROUPS} at once. Turn or resize fewer sprites at the same time."
           end
           transformed.each_with_index { |node, group| @objects[node.name][:affine_slot] = group }
-          @data_blobs[OBJ_SINE_BLOB] = build_sine_table
+          @emit.data_blobs[OBJ_SINE_BLOB] = build_sine_table
         end
 
         # Does this object turn or change size? It does unless BOTH its angle and its
@@ -1212,7 +1234,7 @@ module RubyGBA
           @obj_palette.each { |color, index| colors[index] = color }
           @obj_palette_blob = :__obj_palette
           @obj_palette_units = colors.size
-          @data_blobs[@obj_palette_blob] = colors.pack("v*")
+          @emit.data_blobs[@obj_palette_blob] = colors.pack("v*")
         end
 
         # Add every non-see-through color in a sprite picture to the shared palette,
@@ -1245,7 +1267,7 @@ module RubyGBA
           per_pose = (tiles.bytesize / 32) / poses.size # tile-number stride between poses (32-byte units)
 
           tile_blob = :"__obj_tiles_#{name}"
-          @data_blobs[tile_blob] = tiles
+          @emit.data_blobs[tile_blob] = tiles
           @objects[name] = {
             slot: slot,
             tiles: tile_blob, tile_units: tiles.bytesize / 32, # sprite memory counts in 32-byte units
