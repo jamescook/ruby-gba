@@ -33,8 +33,7 @@ module RubyGBA
                     "(#{existing[:capacity]} and #{capacity})"
             end
 
-            base = @next_var
-            @next_var += capacity * 4 # the ring's slots
+            base = @memory.alloc(capacity * 4) # the ring's slots
             var_addr(head_var(name))  # head and length, allocated alongside
             var_addr(length_var(name))
             @lists[name] = { capacity: capacity, mask: capacity - 1, base: base }
@@ -62,8 +61,7 @@ module RubyGBA
                     "(#{existing[:width]}x#{existing[:height]} and #{width}x#{height})"
             end
 
-            base = @next_var
-            @next_var += ((width * height * 2) + 3) & ~3 # bytes, rounded up to a word
+            base = @memory.alloc(((width * height * 2) + 3) & ~3) # bytes, rounded up to a word
             @backing[name] = { width: width, height: height, base: base }
           end
 

@@ -131,9 +131,8 @@ module RubyGBA
             # reads one past the bottom of the picture, on a line nothing is drawn on.
             engines = @copies_row_bends ? BendForm.engines(program) : []
             @row_bends.each_key.with_index do |name, i|
-              @row_bend_table[name] = @next_var
+              @row_bend_table[name] = @memory.alloc(TABLE_BYTES)
               @row_bend_engine[name] = engines[i] if @copies_row_bends
-              @next_var += TABLE_BYTES
             end
           end
 
