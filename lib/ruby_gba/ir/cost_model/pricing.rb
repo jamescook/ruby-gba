@@ -170,7 +170,7 @@ module RubyGBA
         # that also changes size pays a division on top of that — the dearest of the
         # three, and the only one the author never wrote (see {Sprite}).
         def present_object_cost(name)
-          sprite = @objects && @objects[name]
+          sprite = @catalogue && @catalogue.objects[name]
           return @weights[:obj_write] unless sprite
 
           @weights[:obj_write] +
@@ -355,7 +355,7 @@ module RubyGBA
         # hand are the second kind, so charging the cheap one for both would under-charge the
         # common case. A table the walk never saw is charged the dearer of the two.
         def table_read_weight(node)
-          length = @table_lengths && @table_lengths[node.name]
+          length = @catalogue && @catalogue.table_lengths[node.name]
           wraps = length && length.positive? && (length & (length - 1)).zero?
           @weights[wraps ? :table_read : :table_read_clamped]
         end
@@ -398,7 +398,7 @@ module RubyGBA
 
         # A sprite's pixel dimensions from its (same-size) poses, or [0, 0] if unknown.
         def mask_dims(poses)
-          bmp = @bitmaps && @bitmaps[poses.first]
+          bmp = @catalogue && @catalogue.bitmaps[poses.first]
           bmp ? [bmp.width, bmp.height] : [0, 0]
         end
 
@@ -916,7 +916,7 @@ module RubyGBA
         # How much of a stretched column is really walked. A picture the model has never seen
         # is taken at its word.
         def column_walked_share(node)
-          bmp = @bitmaps && @bitmaps[node.name]
+          bmp = @catalogue && @catalogue.bitmaps[node.name]
           bmp&.transparent ? bmp.walked_share : 1.0
         end
 
@@ -969,7 +969,7 @@ module RubyGBA
         # a long tune costs the same as a short one, the same way a real GBA sound
         # driver works. An unknown name costs nothing (the backend reports it).
         def song_cost(name)
-          song = @songs && @songs[name]
+          song = @catalogue && @catalogue.songs[name]
           return 0 unless song
 
           song.voices.length * @weights[:music_voice]
@@ -978,7 +978,7 @@ module RubyGBA
         # How many notes a song holds — summed across its parts. Informational (shown in the
         # music-budget message); the per-frame cost is per VOICE and does not depend on it.
         def song_notes(name)
-          song = @songs && @songs[name]
+          song = @catalogue && @catalogue.songs[name]
           return 0 unless song
 
           song.voices.sum { |voice| voice[:events].to_a.length }
@@ -994,7 +994,7 @@ module RubyGBA
         # runs. That means every pixel is tested against the screen edges on its own before
         # it is written, which is why a pixel here costs over twice what a pixel of a
         # fixed-size fill does. Only the LIT pixels are drawn, and a row with none is
-        # skipped whole, so those are what is counted (see Rollup#catalogue_bitmap) —
+        # skipped whole, so those are what is counted (see Catalogue.build_bitmap) —
         # charging a sprite for its cut-out background would price a small figure like a
         # solid block.
         #
@@ -1007,7 +1007,7 @@ module RubyGBA
         # The size and the counts live on the image definition, catalogued in #index. An
         # unknown image costs nothing.
         def blit_cost(name)
-          bmp = @bitmaps && @bitmaps[name]
+          bmp = @catalogue && @catalogue.bitmaps[name]
           return 0 unless bmp
           return dma_rows_cost(bmp.width, bmp.height) unless bmp.transparent
 
@@ -1020,7 +1020,7 @@ module RubyGBA
         # cost as an opaque blit of that size. The size lives on the backing_buffer
         # declaration, catalogued in #index. An unknown buffer costs nothing.
         def region_cost(name)
-          w, h = @backing && @backing[name]
+          w, h = @catalogue && @catalogue.backing[name]
           w ? dma_rows_cost(w, h) : 0
         end
       end
