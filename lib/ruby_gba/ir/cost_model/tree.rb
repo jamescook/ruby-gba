@@ -376,6 +376,10 @@ module RubyGBA
 
           "tint — #{tint_palette_entries} colors, when it changes"
         end
+
+        # {Walker} calls this on its +pricing+ collaborator (today, this same CostModel
+        # instance) with an explicit receiver, which only reaches a public method.
+        public :label_of
       end
     end
   end

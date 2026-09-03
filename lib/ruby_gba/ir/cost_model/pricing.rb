@@ -40,7 +40,7 @@ module RubyGBA
         # code running from the cartridge, which is where code runs unless the build
         # decides otherwise, so this is the one place the other case is priced.
         def fast_memory_factor
-          @in_fast_code ? 1.0 / @weights[:fast_code_speedup] : 1
+          (@walker && @walker.in_fast_code?) ? 1.0 / @weights[:fast_code_speedup] : 1
         end
 
         # THE PART OF AN OP THAT IS NOT INSTRUCTIONS, and so gains nothing from being kept in
@@ -66,7 +66,7 @@ module RubyGBA
                             tearfree_engine_stall tearfree_fill_pixel].freeze
 
         def engine_op_cost(node, worst = true)
-          return 0 unless @in_fast_code # nothing is being discounted, so there is nothing to hold back
+          return 0 unless @walker&.in_fast_code? # nothing is being discounted, so there is nothing to hold back
 
           with_engine_weights { own_op_cost(node, worst) }
         end
@@ -911,7 +911,7 @@ module RubyGBA
         # first-person view with a status bar under it draws in a shorter window and its columns
         # are clipped to that, which is most of the difference between a guess that is close and
         # one that is a quarter out.
-        def column_ceiling = @draw_height || IR::Screen::HEIGHT
+        def column_ceiling = (@walker && @walker.draw_height) || IR::Screen::HEIGHT
 
         # How much of a stretched column is really walked. A picture the model has never seen
         # is taken at its word.
@@ -1023,6 +1023,12 @@ module RubyGBA
           w, h = @catalogue && @catalogue.backing[name]
           w ? dma_rows_cost(w, h) : 0
         end
+
+        # {Walker} calls these on its +pricing+ collaborator (today, this same CostModel
+        # instance) with an explicit receiver, which only reaches a public method —
+        # everything else here stays private, reached the ordinary way (a bare call,
+        # same instance) by whatever in cost_model/ still calls it that way.
+        public :op_cost, :expr_cost, :own_cost, :arithmetic_kind, :const_side, :fast_memory_factor
       end
     end
   end
