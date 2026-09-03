@@ -107,6 +107,34 @@ class TestPool < Minitest::Test
     assert_equal 3, i[:__pool_p_count], "the pool filled to capacity and the extra spawns were dropped"
   end
 
+  # b.index hands back an instance's own slot as a Value. Save it in a variable while
+  # comparing across a pool (an each), then reach that exact instance's fields again
+  # after the loop with field_ref — proving the slot round-trips to the right instance,
+  # not just any one of them.
+  def test_index_remembers_which_instance_won_a_comparison
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      found = var :found, -1
+      things = pool :thing, x: 0, y: 0, tag: 0, capacity: 8
+      things.spawn x: 10, y: 40, tag: 1
+      things.spawn x: 20, y: 40, tag: 2
+      things.spawn x: 30, y: 40, tag: 3
+      game_loop do
+        wait_vblank
+        clear_screen :black
+        things.each { |t| (t.tag == 2).then { found.set t.index } }
+        draw_rect_at things.field_ref(:x, found), 100, 2, 2, :green
+      end
+    end
+    b.emit_pending_functions
+    i = Reference.new.run(b.program)
+
+    assert_equal GREEN, i.screen.pixel(20, 100), "index led back to the instance tagged 2 (x=20)"
+    assert_equal BLACK, i.screen.pixel(10, 100), "not the instance tagged 1"
+    assert_equal BLACK, i.screen.pixel(30, 100), "not the instance tagged 3"
+  end
+
   # --- baked guardrails (build-time, friendly errors) ---
 
   def test_an_insane_capacity_is_a_friendly_error

@@ -539,14 +539,10 @@ module Wolf3D
     # he is to the side of the line you are looking down, against how far in front of you he
     # is. Written that way it is a multiply and a comparison and never a divide.
     def shoot
-      b = @b
-      alive = RubyGBA::List.new(b, @pool.active_list)
       @target.set NOBODY
       @nearest.set FAR_AWAY
 
-      b.repeat(@pool.capacity) do |slot|
-        (alive[slot] == 1).then { consider_as_a_target(slot) }
-      end
+      @pool.each { |guard| consider_as_a_target(guard) }
 
       (@target != NOBODY).then { hit_the_target }
     end
@@ -557,11 +553,10 @@ module Wolf3D
     FAR_AWAY = 1000.0
 
     # Is this one in the sights, in the open, and nearer than the best so far?
-    def consider_as_a_target(slot)
-      hp = @pool.field_ref(:hp, slot)
-      (hp > 0).then do
-        x = @pool.field_ref(:x, slot)
-        y = @pool.field_ref(:y, slot)
+    def consider_as_a_target(guard)
+      (guard.hp > 0).then do
+        x = guard.x
+        y = guard.y
         @dx.set(x - @player[:x])
         @dy.set(y - @player[:y])
 
@@ -581,7 +576,7 @@ module Wolf3D
           walk_the_sight_line_from(x, y)
           (@clear == 1).then do
             @nearest.set @fwd
-            @target.set slot
+            @target.set guard.index
           end
         end
       end

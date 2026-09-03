@@ -62,7 +62,11 @@ module RubyGBA
     # The per-slot sprite object's name (one hardware sprite per slot).
     def object_name(slot) = :"__pool_#{@name}_obj_#{slot}"
 
-    # --- backing-storage names (also used by Builder#pool to set the storage up) ---
+    # --- backing-storage names ---------------------------------------------------
+    #
+    # Framework-internal: `Builder#pool` (builder/composition.rb) calls these to wire
+    # the pool's storage up. They are not part of the pool authoring interface — a
+    # game reaches an instance's data through `each`/`spawn`/`field_ref`, never these.
 
     def field_list(field) = :"__pool_#{@name}_#{field}"
     def active_list = :"__pool_#{@name}_active"
@@ -224,9 +228,11 @@ module RubyGBA
     def record(node) = @builder.record_statement(node)
 
     # One live instance, as the block sees it: a row handle over a pool slot. Its fields
-    # are reached by name (`b.x`, `b.hp`) — each a mutable {FieldRef} at this slot — and
-    # `b.remove` retires it. The instance is only valid inside the `each` iteration that
-    # yielded it (it's bound to the loop's current slot), not something to keep around.
+    # are reached by name (`b.x`, `b.hp`) — each a mutable {FieldRef} at this slot —
+    # `b.remove` retires it, and `b.index` hands back its slot as a Value, to remember
+    # which instance won a comparison and act on it after the loop. The instance is only
+    # valid inside the `each` iteration that yielded it (it's bound to the loop's current
+    # slot), not something to keep around — but `index` is just a number, so keep that.
     #
     # A spriteful pool's instance also has a rectangle (its x/y fields plus the image's
     # collision box), so it gains `overlaps?`, the screen-edge tests, and
@@ -243,6 +249,12 @@ module RubyGBA
       def remove
         @pool.remove_at(@index)
       end
+
+      # This instance's own slot, as a Value. The instance handle itself doesn't survive
+      # past the `each` iteration that yielded it, but a slot number is just a number —
+      # save it in a variable to remember which instance won a comparison (the nearest
+      # enemy, the one just hit) and act on it after the loop ends, with `pool.field_ref`.
+      def index = @index
 
       # This instance's collision-box edges, as Values — its x/y fields plus the image's
       # box. These need a spriteful pool (one with an image, hence a size).
