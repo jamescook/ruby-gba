@@ -73,13 +73,10 @@ module RubyGBA
         include Audio
         include Expressions
         include Divide
-        include Primitives
         include Collision
-        include Frames
         include Raster
         include DirectSound
         include Mixer
-        include Save
         include PaletteTint
         include LayerBlend
 
@@ -244,8 +241,10 @@ module RubyGBA
           @hot_base = nil        # where that block lands, once every variable has a home
           @hot_bytes = 0
           @emit = Emit.new       # the code buffer + two-pass label/fixup machinery
-          @vars = {}             # variable name -> IWRAM address
           @memory = Memory.new(start: IWRAM_START) # the IWRAM bump allocator
+          @primitives = Primitives.new(emitter: @emit, memory: @memory)
+          @frames = Frames.new(emitter: @emit, primitives: @primitives)
+          @save = Save.new(emitter: @emit, primitives: @primitives)
           @funcs = {}            # func name -> its IR node (emitted after the main body)
           @func_ranges = {}      # func name -> byte span in @code (for dump_func)
           @defined_sounds = {}   # name -> musical params (from define_sound)
@@ -403,8 +402,18 @@ module RubyGBA
         # program has been lowered. This backend — not the builder — decides where a
         # variable lives, so this is the authoritative map a hardware test uses to
         # read a variable's value back from memory (see RubyGBA::Verifier#var).
+        #
+        # The cost model reads this too, and the reason is not bookkeeping. Reaching a
+        # variable starts by building its address, and how many instructions that takes
+        # depends on the address — so two identical statements cost different amounts
+        # depending on which variable each touches. Nothing but this build knows where a
+        # variable landed: the order is first-touch, a list or a save-under buffer takes
+        # its whole size at once, and the framework's own counters and slots are in the
+        # queue too. Handing the map over is what lets the estimate price a statement
+        # where the variable actually is, instead of reproducing all of that and
+        # drifting from it.
         def var_addresses
-          @vars.dup
+          @primitives.vars.dup
         end
 
         # Which shape each loop was given, keyed by its index — whether its counter stayed in
@@ -461,6 +470,28 @@ module RubyGBA
         def emit_timer_start(node) = @timers.emit_timer_start(node)
         def emit_timer_stop(node) = @timers.emit_timer_stop(node)
         def eval_timer_ticks(node) = @timers.eval_timer_ticks(node)
+
+        # Forwards to @primitives — variable addressing, register stores, constant
+        # folding (see {Primitives}).
+        def var_addr(name) = @primitives.var_addr(name)
+        def load_var(reg, name) = @primitives.load_var(reg, name)
+        def store_var(reg, name) = @primitives.store_var(reg, name)
+        def var_offset(name) = @primitives.var_offset(name)
+        def not_holding(name, &block) = @primitives.not_holding(name, &block)
+        def holding(name, reg, &block) = @primitives.holding(name, reg, &block)
+        def store_word_acc(address) = @primitives.store_word_acc(address)
+        def store_halfword_acc(address) = @primitives.store_halfword_acc(address)
+        def store_word_immediate(value, address) = @primitives.store_word_immediate(value, address)
+        def const_int(node) = @primitives.const_int(node)
+        def constant_ints!(node, **sides) = @primitives.constant_ints!(node, **sides)
+        def emit_row_loop(counter, &block) = @primitives.emit_row_loop(counter, &block)
+
+        # Forwards to @frames and @save — both stateless (see {Frames}, {Save}).
+        def emit_frame_count = @frames.emit_frame_count
+        def emit_frame_step = @frames.emit_frame_step
+        def emit_save_init(node) = @save.emit_save_init(node)
+        def emit_save_store(node) = @save.emit_save_store(node)
+        def emit_save_signature = @save.emit_save_signature
 
         # Does the program need any interrupt at all — VBlank (for wait_vblank) or a timer
         # (for an on_tick handler)? The mixer needs none: it refills on the frame loop, in
