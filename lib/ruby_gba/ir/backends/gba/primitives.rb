@@ -4,9 +4,19 @@ module RubyGBA
   module IR
     module Backends
       class GBA
-        # Small shared primitives: variable addresses, stores, constant folding, bounds.
-        module Primitives
+        # Small shared primitives: variable addresses, stores, constant folding.
+        class Primitives
           include Constants
+
+          def initialize(emitter:, memory:)
+            @emitter = emitter
+            @memory = memory
+            @vars = {}             # variable name -> IWRAM address
+            @held_registers = {}
+          end
+
+          # Every variable's allocated address (name => address) — read by GBA#var_addresses.
+          attr_reader :vars
 
           # A variable is 4 bytes in IWRAM, addresses handed out on first mention.
           def var_addr(name)
@@ -42,36 +52,27 @@ module RubyGBA
           # register in step (see Statements#emit_repeat, the only holder today: a loop's index).
           def load_var(reg, name)
             held = held_register(name)
-            return emit(ASM.mov_reg(reg, held)) if held
+            return @emitter.emit(ASM.mov_reg(reg, held)) if held
 
             offset = var_offset(name)
-            return emit(ASM.ldr_offset(reg, ADDR, offset)) if emit_var_base(offset)
+            return @emitter.emit(ASM.ldr_offset(reg, ADDR, offset)) if emit_var_base(offset)
 
-            emit(ASM.ldr(reg, ADDR))
+            @emitter.emit(ASM.ldr(reg, ADDR))
           end
 
           def store_var(reg, name)
             offset = var_offset(name)
-            return emit(ASM.str_offset(reg, ADDR, offset)) if emit_var_base(offset)
+            return @emitter.emit(ASM.str_offset(reg, ADDR, offset)) if emit_var_base(offset)
 
-            emit(ASM.str(reg, ADDR))
+            @emitter.emit(ASM.str(reg, ADDR))
           end
 
           def var_offset(name) = var_addr(name) - IWRAM_START
 
-          # Put what the load will be read from into the address register: the base of the
-          # variable memory when the variable is near enough to it, and the variable's own
-          # address when it is not. Answers whether the distance still has to be named.
-          def emit_var_base(offset)
-            near = offset.between?(0, FURTHEST_FROM_BASE)
-            emit(ASM.load_immediate(ADDR, near ? IWRAM_START : IWRAM_START + offset))
-            near
-          end
-
           # The register a variable is being held in for the moment, or nil. Kept as a plain
           # map rather than an allocator: exactly one thing puts anything in it, and it puts
           # the entry back the way it found it.
-          def held_register(name) = (@held_registers ||= {})[name]
+          def held_register(name) = @held_registers[name]
 
           # For a moment, read this variable from its memory rather than from the register that
           # was holding it — because the register is about to be lent to something else and put
@@ -79,7 +80,6 @@ module RubyGBA
           def not_holding(name, &block) = holding(name, nil, &block)
 
           def holding(name, reg)
-            @held_registers ||= {}
             was = @held_registers[name]
             @held_registers[name] = reg
             yield
@@ -90,22 +90,22 @@ module RubyGBA
 
           # Store the full 32-bit word in r0 to a fixed address.
           def store_word_acc(address)
-            emit(ASM.load_immediate(TMP, address))
-            emit(ASM.str(ACC, TMP))
+            @emitter.emit(ASM.load_immediate(TMP, address))
+            @emitter.emit(ASM.str(ACC, TMP))
           end
 
           # Store the low 16 bits of r0 to a fixed address — for a register that is a
           # halfword wide and holds a value the program worked out as it ran.
           def store_halfword_acc(address)
-            emit(ASM.load_immediate(TMP, address))
-            emit(ASM.store_halfword(ACC, TMP))
+            @emitter.emit(ASM.load_immediate(TMP, address))
+            @emitter.emit(ASM.store_halfword(ACC, TMP))
           end
 
           # Write a full 32-bit word to an address (used for the DMA registers).
           def store_word_immediate(value, address)
-            emit(ASM.load_immediate(ACC, value))
-            emit(ASM.load_immediate(TMP, address))
-            emit(ASM.str(ACC, TMP))
+            @emitter.emit(ASM.load_immediate(ACC, value))
+            @emitter.emit(ASM.load_immediate(TMP, address))
+            @emitter.emit(ASM.str(ACC, TMP))
           end
 
           # The value of an operand the author fixed, or nil if the game works it out. The
@@ -129,13 +129,6 @@ module RubyGBA
             end
           end
 
-          # Is this cell one drawing may land on? The screen, held further to whatever area is in
-          # force — so a shape whose place is known while building is simply not emitted for the
-          # parts that fall outside.
-          def in_bounds?(x, y)
-            (clip_left...clip_right).cover?(x) && (clip_top...clip_bottom).cover?(y)
-          end
-
           # Run +body+ once per row of a rect whose height the program works out as it
           # runs. +counter+ is the register holding how many rows are left; +body+ emits
           # one row and must leave the counter alone.
@@ -144,15 +137,26 @@ module RubyGBA
           # zero — or a negative one, from a bar that ran past empty — draw nothing
           # instead of wrapping round to four thousand million rows.
           def emit_row_loop(counter)
-            top = gensym
-            done = gensym
-            place_label(top)
-            emit(ASM.cmp_imm(counter, 0))
-            emit_branch(:bcond, done, cond: :le)
+            top = @emitter.gensym
+            done = @emitter.gensym
+            @emitter.place_label(top)
+            @emitter.emit(ASM.cmp_imm(counter, 0))
+            @emitter.emit_branch(:bcond, done, cond: :le)
             yield
-            emit(ASM.sub_imm(counter, counter, 1))
-            emit_branch(:b, top)
-            place_label(done)
+            @emitter.emit(ASM.sub_imm(counter, counter, 1))
+            @emitter.emit_branch(:b, top)
+            @emitter.place_label(done)
+          end
+
+          private
+
+          # Put what the load will be read from into the address register: the base of the
+          # variable memory when the variable is near enough to it, and the variable's own
+          # address when it is not. Answers whether the distance still has to be named.
+          def emit_var_base(offset)
+            near = offset.between?(0, FURTHEST_FROM_BASE)
+            @emitter.emit(ASM.load_immediate(ADDR, near ? IWRAM_START : IWRAM_START + offset))
+            near
           end
         end
       end

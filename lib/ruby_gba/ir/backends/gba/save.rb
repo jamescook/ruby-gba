@@ -20,7 +20,11 @@ module RubyGBA
         # 4-byte little-endian value in its slot. The marker tells a fresh cartridge
         # (whose save memory is uninitialized garbage) apart from one that already
         # holds real saved data.
-        module Save
+        #
+        # Holds no state of its own — a slot's address is worked out fresh from its
+        # number each time. Takes emitter: and primitives: purely to reach load_var/
+        # store_var/emit/etc without going through GBA's shared self.
+        class Save
           include Constants
 
           # The 4-byte header (the marker) that sits before the saved values.
@@ -30,6 +34,11 @@ module RubyGBA
           # save chip and map it in. Without it, writes to SRAM go nowhere. The trailing
           # digits are a version the detector ignores; padded to a word so it stays aligned.
           SRAM_SIGNATURE = "SRAM_V123\x00\x00\x00".b
+
+          def initialize(emitter:, primitives:)
+            @emitter = emitter
+            @primitives = primitives
+          end
 
           # The byte offset of a variable's 4-byte slot within save memory.
           def save_slot_offset(slot)
@@ -47,18 +56,18 @@ module RubyGBA
             stored = 6
             saved = 7
 
-            emit(ASM.load_immediate(base, SRAM_START))
-            emit(ASM.load_immediate(marker, Int32.wrap(node.magic)))
+            @emitter.emit(ASM.load_immediate(base, SRAM_START))
+            @emitter.emit(ASM.load_immediate(marker, Int32.wrap(node.magic)))
             emit_assemble_word(stored, base, 0, scratch: 2) # the marker actually in save memory
-            emit(ASM.cmp_reg(stored, marker))               # equal? -> the save is real
+            @emitter.emit(ASM.cmp_reg(stored, marker))       # equal? -> the save is real
 
             node.vars.each do |var|
               offset = save_slot_offset(var[:slot])
               emit_assemble_word(saved, base, offset, scratch: 2)
-              emit(ASM.mov_reg_cond(:eq, ACC, saved))       # real save -> take the saved value
-              emit(ASM.load_immediate(3, Int32.wrap(var[:default])))
-              emit(ASM.mov_reg_cond(:ne, ACC, 3))           # fresh cartridge -> take the default
-              store_var(ACC, var[:name])                    # into the live variable in IWRAM
+              @emitter.emit(ASM.mov_reg_cond(:eq, ACC, saved))       # real save -> take the saved value
+              @emitter.emit(ASM.load_immediate(3, Int32.wrap(var[:default])))
+              @emitter.emit(ASM.mov_reg_cond(:ne, ACC, 3))           # fresh cartridge -> take the default
+              @primitives.store_var(ACC, var[:name])                # into the live variable in IWRAM
               emit_store_word_to_sram(ACC, base, offset, scratch: 3) # and back to save memory
             end
 
@@ -69,12 +78,12 @@ module RubyGBA
           # after the variable changes, so the save always matches what the player sees.
           def emit_save_store(node)
             offset = save_slot_offset(node.slot)
-            load_var(ACC, node.var)
-            emit(ASM.load_immediate(TMP, SRAM_START + offset)) # the slot's address
-            emit(ASM.strb(ACC, TMP))                           # low byte
+            @primitives.load_var(ACC, node.var)
+            @emitter.emit(ASM.load_immediate(TMP, SRAM_START + offset)) # the slot's address
+            @emitter.emit(ASM.strb(ACC, TMP))                           # low byte
             [8, 16, 24].each_with_index do |shift, i|
-              emit(ASM.lsr_imm(2, ACC, shift))
-              emit(ASM.strb_offset(2, TMP, i + 1))
+              @emitter.emit(ASM.lsr_imm(2, ACC, shift))
+              @emitter.emit(ASM.strb_offset(2, TMP, i + 1))
             end
           end
 
@@ -82,8 +91,8 @@ module RubyGBA
           # It's plain data placed after all the code, never executed; word-aligned so
           # the scanner (which steps a word at a time) can find it.
           def emit_save_signature
-            emit("\x00".b * ((-pos) % 4))
-            emit(SRAM_SIGNATURE)
+            @emitter.emit("\x00".b * ((-@emitter.pos) % 4))
+            @emitter.emit(SRAM_SIGNATURE)
           end
 
           private
@@ -92,11 +101,11 @@ module RubyGBA
           # rebuilding the 32-bit value. +base+ points at the start of save memory;
           # +offset+ is where this value's slot begins.
           def emit_assemble_word(dest, base, offset, scratch:)
-            emit(ASM.ldrb_offset(dest, base, offset)) # byte 0 (lowest)
+            @emitter.emit(ASM.ldrb_offset(dest, base, offset)) # byte 0 (lowest)
             [8, 16, 24].each_with_index do |shift, i|
-              emit(ASM.ldrb_offset(scratch, base, offset + i + 1))
-              emit(ASM.lsl_imm(scratch, scratch, shift))
-              emit(ASM.orr_reg(dest, dest, scratch))
+              @emitter.emit(ASM.ldrb_offset(scratch, base, offset + i + 1))
+              @emitter.emit(ASM.lsl_imm(scratch, scratch, shift))
+              @emitter.emit(ASM.orr_reg(dest, dest, scratch))
             end
           end
 
@@ -104,10 +113,10 @@ module RubyGBA
           # +offset+ from +base+. STRB stores a register's low byte, so each higher byte
           # is shifted down into place first.
           def emit_store_word_to_sram(src, base, offset, scratch:)
-            emit(ASM.strb_offset(src, base, offset)) # byte 0 (lowest)
+            @emitter.emit(ASM.strb_offset(src, base, offset)) # byte 0 (lowest)
             [8, 16, 24].each_with_index do |shift, i|
-              emit(ASM.lsr_imm(scratch, src, shift))
-              emit(ASM.strb_offset(scratch, base, offset + i + 1))
+              @emitter.emit(ASM.lsr_imm(scratch, src, shift))
+              @emitter.emit(ASM.strb_offset(scratch, base, offset + i + 1))
             end
           end
         end

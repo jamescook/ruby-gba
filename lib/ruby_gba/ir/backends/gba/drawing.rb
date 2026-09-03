@@ -21,6 +21,14 @@ module RubyGBA
           def clip_bottom = @draw_area ? @draw_area[1] + @draw_area[3] : SCREEN_HEIGHT
           def clipping? = !@draw_area.nil?
 
+          # Is this cell one drawing may land on? The screen, held further to whatever area is in
+          # force — so a shape whose place is known while building is simply not emitted for the
+          # parts that fall outside. (Lives here, not with the rest of Primitives, because it's
+          # this file's @draw_area it reads.)
+          def in_bounds?(x, y)
+            (clip_left...clip_right).cover?(x) && (clip_top...clip_bottom).cover?(y)
+          end
+
           # Fill the area itself, which is what clearing means when only part of the picture may
           # be painted: a row-at-a-time block fill over exactly those edges. It does not go
           # through the rectangle verb because that one holds authors to an even width, and an

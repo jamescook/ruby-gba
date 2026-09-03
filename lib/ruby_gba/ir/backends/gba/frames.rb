@@ -21,7 +21,12 @@ module RubyGBA
         # frame wakes two interrupts later than it started, and the difference is two. There is
         # no drift to accumulate and no fraction to carry, because a console is late by whole
         # frames or not at all.
-        module Frames
+        #
+        # Holds no state of its own — the count and its marks live in named variables (below),
+        # not ivars, so this is two emission recipes rather than a real collaborator with
+        # anything to encapsulate. Takes emitter: and primitives: purely to reach load_var/
+        # store_var/emit/etc without going through GBA's shared self.
+        class Frames
           include Constants
 
           # The names and the cap are the same on every backend, so they live with the IR.
@@ -30,13 +35,18 @@ module RubyGBA
           STEP = IR::Frames::STEP
           MOST = IR::Frames::MOST
 
+          def initialize(emitter:, primitives:)
+            @emitter = emitter
+            @primitives = primitives
+          end
+
           # Added to the count inside the screen's interrupt. It runs sixty times a second
           # whatever the game is doing, so it is kept to what it must be: read, add, write.
           # r0 and r12 are both saved by the BIOS before it enters here.
           def emit_frame_count
-            load_var(ACC, COUNT)
-            emit(ASM.add_imm(ACC, ACC, 1))
-            store_var(ACC, COUNT)
+            @primitives.load_var(ACC, COUNT)
+            @emitter.emit(ASM.add_imm(ACC, ACC, 1))
+            @primitives.store_var(ACC, COUNT)
           end
 
           # ...and read at the top of each pass: the difference since last time, held between one
@@ -52,23 +62,23 @@ module RubyGBA
           # with the number it guards cannot be undone from a distance: nothing added to the
           # boot sequence later, in any order, can put a wild difference back.
           def emit_frame_step
-            load_var(ACC, COUNT)
-            load_var(TMP, SEEN)
-            store_var(ACC, SEEN)          # this pass's mark, for the next one to measure from
-            emit(ASM.sub_reg(ACC, ACC, TMP))
+            @primitives.load_var(ACC, COUNT)
+            @primitives.load_var(TMP, SEEN)
+            @primitives.store_var(ACC, SEEN)  # this pass's mark, for the next one to measure from
+            @emitter.emit(ASM.sub_reg(ACC, ACC, TMP))
 
-            under = gensym
-            emit(ASM.cmp_imm(ACC, MOST))
-            emit_branch(:bcond, under, cond: :le)
-            emit(ASM.load_immediate(ACC, MOST))
-            place_label(under)
+            under = @emitter.gensym
+            @emitter.emit(ASM.cmp_imm(ACC, MOST))
+            @emitter.emit_branch(:bcond, under, cond: :le)
+            @emitter.emit(ASM.load_immediate(ACC, MOST))
+            @emitter.place_label(under)
 
-            over = gensym
-            emit(ASM.cmp_imm(ACC, 1))
-            emit_branch(:bcond, over, cond: :ge)
-            emit(ASM.load_immediate(ACC, 1))
-            place_label(over)
-            store_var(ACC, STEP)
+            over = @emitter.gensym
+            @emitter.emit(ASM.cmp_imm(ACC, 1))
+            @emitter.emit_branch(:bcond, over, cond: :ge)
+            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @emitter.place_label(over)
+            @primitives.store_var(ACC, STEP)
           end
         end
       end

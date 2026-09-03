@@ -302,7 +302,7 @@ module RubyGBA
     def build_for_measuring(program, options = {})
       backend = IR::Backends::GBA.new(**options)
       rom = ROM.assemble(backend.lower(program), title: "PROFILE", code: "BPRF", maker: "01")
-      { rom: rom, vars: backend.instance_variable_get(:@vars) }
+      { rom: rom, vars: backend.var_addresses }
     end
 
     def in_temp_rom(rom)
