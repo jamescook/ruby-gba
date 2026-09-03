@@ -70,16 +70,25 @@ module RubyGBA
     # every column does draw), but it is why a game whose score is still small reads a
     # little over.
     #
-    # The work is split by the question each part answers, one file each:
+    # The work is split by the question each part answers, one file each. Catalogue,
+    # Pricing, Walker, Tree, Verdicts, and Domains are each a standalone class with its
+    # collaborators named in its constructor — CostModel builds and wires them in
+    # #index (see rollup.rb) and holds explicit references to what it built. Rollup and
+    # Report are not collaborator classes; they're this same CostModel class reopened
+    # across two more files, one method each for #index's own entry points (the walk)
+    # and for rendering what #index already built (the tree, the verdicts, the
+    # domains) — there is only one instance either file's methods ever run on, so
+    # nothing was gained by mixing them in as separate modules.
     #
     #   {Catalogue} what does the program declare? (settled once, read by the rest)
     #   {Pricing}   what does one op cost?
     #   {Walker}    how many times does a frame pay for it? (the walk itself)
-    #   {Rollup}    an #index that builds a Walker, and its old public methods forwarded
+    #   rollup.rb   #index, which builds and wires a Catalogue/Walker/Pricing/
+    #               Verdicts/Tree/Domains, plus the walk's own entry points
     #   {Tree}      how does that read to a person? (folding, grouping, pruning)
     #   {Verdicts}  does it fit, and what can't the estimate see?
     #   {Domains}   is this program inside where the weights were measured?
-    #   {Report}    print it, or hand it back as a Hash
+    #   report.rb   print it, or hand it back as a Hash
     #
     # This file is the class itself: the shared constants and the weights. A constant
     # only one part uses lives with that part.
@@ -152,9 +161,6 @@ module RubyGBA
     # one a tenth out on the op every game does a thousand times, and the corpus in examples/
     # is the thing to ask (`rake emitted` prints it per example).
     class CostModel
-      include Rollup
-      include Report
-
       # A scanline cost for a human: one decimal, "<0.1" for a tiny nonzero, "0" for
       # nothing. Keeps the drill-down readable when ops cost fractions. Shared by
       # {Report}, {Verdicts}, and {Domains}, so it lives here rather than on any one
@@ -173,9 +179,8 @@ module RubyGBA
 
       # {Verdicts}, {Tree}, and {Domains} answer most of their questions about a
       # PROGRAM, so a CostModel instance is where a caller (a guardrail, a test) still
-      # reaches them directly — one line each, index then delegate, exactly {Rollup}'s
-      # own shape. gba-vn0s removes this file once CostModel's own few entry points
-      # (analyze/frame_cost/steady_cost/report/render) are the only door in.
+      # reaches them directly — one line each, index then delegate, the same shape
+      # rollup.rb's own entry points (#analyze, #frame_cost, #steady_cost, ...) use.
       #
       # A handful of {Tree}/{Domains} methods need no program at all — they shape an
       # already-built tree, or look up a weight's measured range — and those are class
