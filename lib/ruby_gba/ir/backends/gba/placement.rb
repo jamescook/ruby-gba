@@ -150,8 +150,8 @@ module RubyGBA
           def iwram_report
             Report.new(funcs: @fast_funcs.to_a,
                        code_bytes: @hot_bytes.to_i,
-                       used_bytes: @next_var - IWRAM_START,
-                       free_bytes: [HOT_CEILING - @next_var, 0].max,
+                       used_bytes: @memory.high_water - IWRAM_START,
+                       free_bytes: [HOT_CEILING - @memory.high_water, 0].max,
                        total_bytes: IWRAM_SIZE,
                        sizes: @routine_sizes || {},
                        passed_over: @passed_over || [])
@@ -190,7 +190,7 @@ module RubyGBA
 
           # How far the variables (and lists, and the mixer's memory) reached. Read off
           # the throwaway pass to know how much room is left for code.
-          def iwram_high_water = @next_var
+          def iwram_high_water = @memory.high_water
 
           # Each func's size in bytes, likewise read off the throwaway pass.
           def func_sizes
@@ -235,10 +235,9 @@ module RubyGBA
           def place_hot_code
             return if @fast_funcs.empty?
 
-            @next_var += (-@next_var) % 4 # the copy moves whole words, so start on one
-            @hot_base = @next_var
+            @memory.align!(4) # the copy moves whole words, so start on one
             @hot_bytes = @emit.labels.fetch(HOT_END) - @emit.labels.fetch(HOT_START)
-            @next_var += @hot_bytes
+            @hot_base = @memory.alloc(@hot_bytes)
             guard_fast_code_fits
           end
 
@@ -311,11 +310,11 @@ module RubyGBA
           # would quietly overwrite the console's own startup stack, so say so instead,
           # and say what to do about it.
           def guard_fast_code_fits
-            return if @next_var <= HOT_CEILING
+            return if @memory.high_water <= HOT_CEILING
 
-            over = @next_var - HOT_CEILING
+            over = @memory.high_water - HOT_CEILING
             raise LoweringError,
-                  "this program needs #{@next_var - IWRAM_START} bytes of the console's quick memory, " \
+                  "this program needs #{@memory.high_water - IWRAM_START} bytes of the console's quick memory, " \
                   "which is #{over} more than there is. #{@hot_bytes} of it is routines kept there to " \
                   "run faster. To fix this, mark a routine `func :name, fast: false` to leave it in the " \
                   "cartridge, or build with `fast_code: false` to keep them all there."

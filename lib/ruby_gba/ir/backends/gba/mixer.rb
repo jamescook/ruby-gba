@@ -96,10 +96,8 @@ module RubyGBA
             @mixer_spf = [(@mixer_rate + MIXER_FPS - 1) / MIXER_FPS, 1].max # samples per frame (ceil)
             @mix_buf0 = ewram_alloc(@mixer_spf)
             @mix_buf1 = ewram_alloc(@mixer_spf)
-            @voice_base = @next_var
-            @next_var += MAX_VOICES * SLOT_BYTES
-            @mix_routine_iwram = @next_var # the mix routine is copied here from ROM at boot
-            @next_var += MIX_ROUTINE_IWRAM_MAX
+            @voice_base = @memory.alloc(MAX_VOICES * SLOT_BYTES)
+            @mix_routine_iwram = @memory.alloc(MIX_ROUTINE_IWRAM_MAX) # the mix routine is copied here from ROM at boot
             @timers.reserve!(CLOCK_TIMER + 1) # reserve timer 0 only
           end
 

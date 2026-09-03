@@ -10,11 +10,7 @@ module RubyGBA
 
           # A variable is 4 bytes in IWRAM, addresses handed out on first mention.
           def var_addr(name)
-            @vars[name] ||= begin
-              address = @next_var
-              @next_var += 4
-              address
-            end
+            @vars[name] ||= @memory.alloc(4)
           end
 
           # HOW FAR FROM THE BASE A VARIABLE CAN SIT and still be reached by naming the two
@@ -90,13 +86,6 @@ module RubyGBA
           ensure
             @held_registers[name] = was
             @held_registers.delete(name) if was.nil?
-          end
-
-          # Write a 16-bit value to a memory-mapped register / VRAM halfword.
-          def write_reg16(address, value)
-            emit(ASM.load_immediate(ACC, value))
-            emit(ASM.load_immediate(TMP, address))
-            emit(ASM.store_halfword(ACC, TMP))
           end
 
           # Store the full 32-bit word in r0 to a fixed address.

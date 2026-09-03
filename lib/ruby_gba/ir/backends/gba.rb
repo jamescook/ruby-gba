@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "gba/emit"
+require_relative "gba/memory"
 require_relative "gba/loop_form" # which shape a repeat gets; the cost model asks it too
 require_relative "gba/bend_form" # ...and which way a row-by-row bend is lowered, likewise
 require_relative "gba/statements"
@@ -244,7 +245,7 @@ module RubyGBA
           @hot_bytes = 0
           @emit = Emit.new       # the code buffer + two-pass label/fixup machinery
           @vars = {}             # variable name -> IWRAM address
-          @next_var = IWRAM_START
+          @memory = Memory.new(start: IWRAM_START) # the IWRAM bump allocator
           @funcs = {}            # func name -> its IR node (emitted after the main body)
           @func_ranges = {}      # func name -> byte span in @code (for dump_func)
           @defined_sounds = {}   # name -> musical params (from define_sound)

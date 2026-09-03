@@ -141,7 +141,7 @@ module RubyGBA
           # The variables grow toward the routines, so a program with a great many of
           # them has to be told rather than quietly overwriting one.
           def guard_variables_clear_of_routines
-            return unless @divide_routine_iwram && @next_var > ROUTINES_TOP
+            return unless @divide_routine_iwram && @memory.high_water > ROUTINES_TOP
 
             raise LoweringError,
                   "this program uses more internal memory for its variables than there is " \
