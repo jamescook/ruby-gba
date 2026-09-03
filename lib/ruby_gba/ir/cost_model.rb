@@ -9,6 +9,7 @@ require_relative "cost_model/entry"
 require_relative "cost_model/verdict"
 require_relative "cost_model/catalogue"
 require_relative "cost_model/pricing"
+require_relative "cost_model/walker"
 require_relative "cost_model/rollup"
 require_relative "cost_model/tree"
 require_relative "cost_model/verdicts"
@@ -73,7 +74,8 @@ module RubyGBA
     #
     #   {Catalogue} what does the program declare? (settled once, read by the rest)
     #   {Pricing}   what does one op cost?
-    #   {Rollup}    how many times does a frame pay for it?
+    #   {Walker}    how many times does a frame pay for it? (the walk itself)
+    #   {Rollup}    an #index that builds a Walker, and its old public methods forwarded
     #   {Tree}      how does that read to a person? (folding, grouping, pruning)
     #   {Verdicts}  does it fit, and what can't the estimate see?
     #   {Domains}   is this program inside where the weights were measured?
