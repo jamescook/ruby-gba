@@ -119,14 +119,14 @@ module RubyGBA
             # to. Whether this warning is worth making turns on whether the list can really
             # get that long, and the rounding is headroom for the mask rather than for the
             # game: a snake whose board holds 340 cells was told its frame gives out at 459.
-            cap = @declared[name]
+            cap = @catalogue.declared[name]
             body = at_full_capacity do
               loops.sum { |node| node.children.sum { |child| steady(child) } }
             end
             next unless body.positive? # what one item of the list costs the frame
 
             # cost(N) = (slots - N)*body less than the whole, so it crosses the budget at:
-            break_even = (@capacities[name] - ((steady - budget) / body)).floor
+            break_even = (@catalogue.capacities[name] - ((steady - budget) / body)).floor
             next unless break_even.between?(0, cap - 1)
 
             Verdict::ListWalk.new(list: name, break_even: break_even, cap: cap, budget: budget,
@@ -150,7 +150,7 @@ module RubyGBA
             next false unless node.kind == :repeat
 
             count = node.count
-            count.is_a?(Node) && count.kind == :list_len && @capacities[count.name]
+            count.is_a?(Node) && count.kind == :list_len && @catalogue.capacities[count.name]
           end
         end
 
@@ -171,7 +171,7 @@ module RubyGBA
             mode = modes.mode_of(name)
             cost = steady_func(name)
             budget = mode_budget(mode)
-            Verdict::Scene.new(name: Modes.friendly_name(name), node: @funcs[name], mode: mode,
+            Verdict::Scene.new(name: Modes.friendly_name(name), node: @catalogue.funcs[name], mode: mode,
                                steady_cost: cost, budget: budget)
           end
         end
@@ -187,11 +187,11 @@ module RubyGBA
           index(program)
           names = program.walk.select { |node| node.kind == :play_song }.map { |node| node.name }.uniq
           names.filter_map do |name|
-            next unless @songs[name]
+            next unless @catalogue.songs[name]
 
             cost = song_cost(name)
             Verdict::Song.new(name: name, notes: song_notes(name), steady_cost: cost,
-                              budget: MUSIC_STEADY_BUDGET, source: @songs[name].source)
+                              budget: MUSIC_STEADY_BUDGET, source: @catalogue.songs[name].source)
           end
         end
 
@@ -729,11 +729,11 @@ module RubyGBA
             next unless node.kind == :repeat
 
             count = node.count
-            next unless count.is_a?(Node) && count.kind == :list_len && @capacities[count.name]
+            next unless count.is_a?(Node) && count.kind == :list_len && @catalogue.capacities[count.name]
 
             Verdict::ListLength.new(name: count.name, counted: list_length(count.name),
-                                    capacity: @capacities[count.name],
-                                    said: @list_lengths.key?(count.name))
+                                    capacity: @catalogue.capacities[count.name],
+                                    said: @catalogue.list_lengths.key?(count.name))
           end
           walks.uniq(&:name)
         end

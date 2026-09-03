@@ -29,7 +29,7 @@ module RubyGBA
         def analyze(program, focus: nil)
           index(program)
           if focus
-            func = @funcs.fetch(focus)
+            func = @catalogue.funcs.fetch(focus)
             @stack.push(focus)
             return func.children.flat_map { |node| build(node) }
           end
@@ -97,7 +97,7 @@ module RubyGBA
         def func_draws?(name, seen)
           return false if seen.include?(name)
 
-          func = @funcs[name] or return false
+          func = @catalogue.funcs[name] or return false
           seen.push(name)
           func.children.any? { |child| draws?(child, seen) }
         ensure
@@ -178,7 +178,7 @@ module RubyGBA
 
         def steady_func(name, worst: false)
           return 0 if @stack.include?(name)
-          func = @funcs[name] or return 0
+          func = @catalogue.funcs[name] or return 0
           @stack.push(name)
           total = in_fast_memory(name) { func.children.sum { |child| steady(child, worst: worst) } }
           @stack.pop
@@ -328,120 +328,13 @@ module RubyGBA
         #
         # Every analysis starts here, so the walk's own state — which routines it is
         # inside, and which screen each of them draws on — is reset here too.
+        # Everything a price needs to know before it can be asked — which routine draws
+        # where, every declaration in the program — is settled once here rather than at
+        # every place that would otherwise ask the program itself (see {Catalogue}).
         def index(program)
           @unpriced = [] # kinds seen with no estimate — reset each analysis (see #unpriced_kinds)
           @stack = []
-          @modes = resolve_modes(program)
-          @funcs = {}
-          @capacities = {}
-          @declared = {}
-          @list_lengths = {}
-          @table_lengths = {}
-          @songs = {}
-          @bitmaps = {}
-          @backing = {}
-          @objects = {}
-          @sees_through = false
-          program.walk do |node|
-            # Whether any layer can be seen through, which changes what a FADE costs — the
-            # two share the display's one blend unit, so a fade in such a game decides
-            # whether it is running or handing the blend back (see Pricing#fade_cost).
-            @sees_through ||= node.kind == :layers && node.transparency &&
-                              Value.fixed_number(node.transparency) != 0
-            @funcs[node.name] = node if node.kind == :func
-            @capacities[node.name] = node.capacity if node.kind == :list_new
-            # ...and the length the AUTHOR asked for, which is the most the list can really
-            # reach. The ring rounds its size up to a power of two, and that headroom is for
-            # the mask rather than for the game (see Build#list_new).
-            @declared[node.name] = node.declared || node.capacity if node.kind == :list_new
-            # ...and how long the author says it usually is, which is a different question
-            # and the only one a frame's real cost turns on (see #list_length).
-            @list_lengths[node.name] = node.usually if node.kind == :list_new && node.usually
-            # How long a table is decides what a read of it costs, so it is read once here
-            # from the declaration rather than at every read (see Pricing#table_read_weight).
-            @table_lengths[node.name] = node.values.length if node.kind == :table
-            @songs[node.name] = node if node.kind == :song
-            @bitmaps[node.name] = catalogue_bitmap(node) if node.kind == :bitmap
-            @objects[node.name] = catalogue_object(node) if node.kind == :object
-            @backing[node.name] = [node.width, node.height] if node.kind == :backing_buffer
-          end
-        end
-
-        # What drawing one sprite costs, in the two ways a sprite can be more than a
-        # position: it can be turned to an angle, and it can be drawn at a size. Both are
-        # settled on the declaration — a sprite that never turns keeps a fixed angle
-        # there — so they are read once here rather than at every frame's draw.
-        def catalogue_object(node)
-          turns = !constant_operand?(node.angle, 0)
-          Sprite.new(turns: turns || resizes?(node), resizes: resizes?(node))
-        end
-
-        def resizes?(node) = !constant_operand?(node.scale, Build::SCALE_ONE)
-
-        def constant_operand?(node, value)
-          node.kind == :int && node.value == value
-        end
-
-        # What an image costs to draw, worked out once here rather than at every blit of
-        # it. An image with no see-through color streams onto the screen in whole rows and
-        # is priced by its size alone.
-        #
-        # One WITH a see-through color is drawn a pixel at a time, and then three numbers
-        # matter. How many pixels are actually LIT (a see-through one is never written).
-        # How many ROWS hold at least one (a row with none is skipped whole). And how many
-        # of the lit pixels carry a color that needs a step of its own to build — because
-        # drawing a pixel at a time means writing the color into every store, and only some
-        # colors fit inside that instruction.
-        #
-        # Counting them is what stops a sprite that is mostly cut-out background from being
-        # priced as a solid rectangle.
-        def catalogue_bitmap(node)
-          see_through = node.transparent
-          width = node.width
-          height = node.height
-          unless see_through
-            return Bitmap.new(width: width, height: height, transparent: false,
-                              lit_pixels: width * height, wide_color_pixels: 0, lit_rows: height,
-                              column_rows: width * height)
-          end
-
-          # The pixels arrive as a run of 16-bit colors, row after row.
-          all = node.pixels.unpack("v*")
-          rows = all.each_slice(width).map { |row| row.reject { |px| px == see_through } }
-          Bitmap.new(width: width, height: height, transparent: true,
-                     lit_pixels: rows.sum(&:length),
-                     wide_color_pixels: rows.sum { |row| row.count { |px| wide_color?(px) } },
-                     lit_rows: rows.count { |row| !row.empty? },
-                     column_rows: column_rows_walked(all, width, height, see_through))
-        end
-
-        # How many rows a stretched column really walks, added up over every column of the
-        # picture: from the first row of a column that holds a pixel to the last, and nothing
-        # in a stretch of see-through between two of them.
-        #
-        # This is what stops a scaled sprite being priced as a solid square. A lamp that hangs
-        # is a picture of a lamp at the top of its square, a pool of light at the bottom, and
-        # ceiling between — and the ceiling is most of the square and none of the cost.
-        def column_rows_walked(pixels, width, height, see_through)
-          (0...width).sum do |x|
-            rows = (0...height).select { |y| pixels[(y * width) + x] != see_through }
-            rows.slice_when { |a, b| b != a + 1 }.sum { |run| run.last - run.first + 1 }
-          end
-        end
-
-        # Whether a color has to be built in a step of its own instead of riding inside the
-        # instruction that writes it. The assembler makes this exact call every time it
-        # loads a constant, so it is asked rather than restated here.
-        def wide_color?(color) = ASM.encode_rotated_immediate(color).nil?
-
-        # Which screen each routine of the program draws on. A program that reaches one
-        # drawing routine from two different screens can't be lowered at all, so there is
-        # no mode to read and no cost to quote either — the build will say so, and every
-        # op falls back to the boot screen here rather than guessing.
-        def resolve_modes(program)
-          Modes.resolve(program)
-        rescue Modes::Conflict
-          nil
+          @catalogue = Catalogue.build(program)
         end
 
         # The screen the op being priced draws on: the mode of the routine the walk is
@@ -450,9 +343,9 @@ module RubyGBA
         # different things on the two — so which one is being priced has to be known
         # before the price is (see Pricing#own_op_cost).
         def current_mode
-          return Modes::DIRECT unless @modes
+          return Modes::DIRECT unless @catalogue.modes
 
-          @stack.last ? @modes.mode_of(@stack.last) : @modes.default_mode
+          @stack.last ? @catalogue.modes.mode_of(@stack.last) : @catalogue.modes.default_mode
         end
 
         # Whether the op being priced draws on the tear-free (double-buffered) screen,
@@ -678,7 +571,7 @@ module RubyGBA
 
         def func_children(name)
           return [] if @stack.include?(name)
-          func = @funcs[name] or return []
+          func = @catalogue.funcs[name] or return []
           @stack.push(name)
           kids = in_fast_memory(name) { func.children.flat_map { |child| build(child) } }
           @stack.pop
@@ -705,8 +598,8 @@ module RubyGBA
           return early if early
           return frames_answered_for(typical: typical) if counts_frames?(count)
           return [count.value, "x#{count.value}"] if count.is_a?(Node) && count.kind == :int
-          if count.is_a?(Node) && count.kind == :list_len && @capacities[count.name]
-            cap = @capacities[count.name]
+          if count.is_a?(Node) && count.kind == :list_len && @catalogue.capacities[count.name]
+            cap = @catalogue.capacities[count.name]
             return [cap, "x<=#{cap} (#{count.name} capacity)"] unless typical && !@at_full_capacity
 
             usual = list_length(count.name)
@@ -818,10 +711,10 @@ module RubyGBA
         # say it (`list :body, capacity: 256, estimate: { usually: 12 }`) and then this is
         # simply what they said; otherwise it is the guess above, and the report says so.
         def list_length(name)
-          @list_lengths[name] || unsaid_share(@capacities[name])
+          @catalogue.list_lengths[name] || unsaid_share(@catalogue.capacities[name])
         end
 
-        def sees_through_a_layer? = @sees_through
+        def sees_through_a_layer? = @catalogue.sees_through_a_layer?
       end
     end
   end

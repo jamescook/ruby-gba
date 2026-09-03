@@ -337,7 +337,7 @@ module RubyGBA
         # those are called out — a sprite that resizes costs about three times one that
         # only moves, and the reader has no other way to see that from a single line.
         def sprite_tally(names)
-          sprites = names.filter_map { |name| @objects && @objects[name] }
+          sprites = names.filter_map { |name| @catalogue && @catalogue.objects[name] }
           turning = sprites.count { |sprite| sprite.turns && !sprite.resizes }
           resizing = sprites.count(&:resizes)
           parts = ["#{names.length} sprite#{'s' unless names.length == 1}"]
