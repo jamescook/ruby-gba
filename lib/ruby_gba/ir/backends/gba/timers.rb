@@ -15,7 +15,12 @@ module RubyGBA
         # timer whose overflow count is read reserves a PAIR — the rate timer, plus the
         # cascade timer immediately after it that counts its overflows — and reading the
         # count is just reading the cascade timer's counter register.
-        module Timers
+        #
+        # Its only state (@timers, @next_hw_timer) is its own — nothing else reaches
+        # into it by name. The one hardware timer Mixer claims for its own sample clock,
+        # ahead of anything the program named, goes through #reserve! rather than the
+        # ivar poke it used to be (see Mixer#prepare_mixer).
+        class Timers
           include Constants
 
           # The GBA CPU clock: ~16.78 MHz (2**24 Hz). A timer at prescaler P ticks this
@@ -27,6 +32,19 @@ module RubyGBA
           PRESCALERS = [[0x0000, 1], [0x0001, 64], [0x0002, 256], [0x0003, 1024]].freeze
 
           NUM_HW_TIMERS = 4
+
+          def initialize(emitter:)
+            @emitter = emitter
+            @timers = {}
+            @next_hw_timer = 0
+          end
+
+          # Claim the first +count+ hardware timer indices before any named timer is
+          # allocated — Mixer's sample clock reserves timer 0 this way, ahead of
+          # anything the program named with timer_start.
+          def reserve!(count)
+            @next_hw_timer = [@next_hw_timer, count].max
+          end
 
           # Assign each named timer its hardware timer index (0-3) up front, so a
           # timer_start/timer_stop/timer_ticks anywhere in the tree already knows which
@@ -73,47 +91,44 @@ module RubyGBA
             # which the dispatcher services.
             rate_ctrl = TIMER_ENABLE | prescaler
             rate_ctrl |= TIMER_IRQ if info[:handler]
-            write_reg16(timer_reg_h(info[:rate]), 0)             # off
-            write_reg16(timer_reg_l(info[:rate]), reload)        # reload value
-            write_reg16(timer_reg_h(info[:rate]), rate_ctrl)     # on
+            @emitter.write_reg16(timer_reg_h(info[:rate]), 0)             # off
+            @emitter.write_reg16(timer_reg_l(info[:rate]), reload)        # reload value
+            @emitter.write_reg16(timer_reg_h(info[:rate]), rate_ctrl)     # on
             return unless info[:count]
 
-            write_reg16(timer_reg_h(info[:count]), 0)                     # off
-            write_reg16(timer_reg_l(info[:count]), 0)                     # count up from zero
-            write_reg16(timer_reg_h(info[:count]), TIMER_ENABLE | TIMER_CASCADE)
+            @emitter.write_reg16(timer_reg_h(info[:count]), 0)                     # off
+            @emitter.write_reg16(timer_reg_l(info[:count]), 0)                     # count up from zero
+            @emitter.write_reg16(timer_reg_h(info[:count]), TIMER_ENABLE | TIMER_CASCADE)
           end
 
           # Stop a timer (and its cascade partner): clear the enable bit; the counter
           # freezes at its current value.
           def emit_timer_stop(node)
             info = timer_info(node.name)
-            write_reg16(timer_reg_h(info[:rate]), 0)
-            write_reg16(timer_reg_h(info[:count]), 0) if info[:count]
+            @emitter.write_reg16(timer_reg_h(info[:rate]), 0)
+            @emitter.write_reg16(timer_reg_h(info[:count]), 0) if info[:count]
           end
 
           # Read a timer's overflow count into the accumulator — the cascade partner's
           # live counter (a 16-bit halfword load, like reading any hardware register).
           def eval_timer_ticks(node)
             info = timer_info(node.name)
-            emit(ASM.load_immediate(TMP, timer_reg_l(info[:count])))
-            emit(ASM.load_halfword(ACC, TMP))
-          end
-
-          private
-
-          def timer_info(name)
-            @timers[name] ||
-              raise(LoweringError, "timer #{name.inspect} was used before it was started with timer_start")
+            @emitter.emit(ASM.load_immediate(TMP, timer_reg_l(info[:count])))
+            @emitter.emit(ASM.load_halfword(ACC, TMP))
           end
 
           # The reload/counter and control registers for hardware timer +index+ — each
-          # timer's pair sits 4 bytes after the previous one's.
+          # timer's pair sits 4 bytes after the previous one's. Public because Mixer's
+          # own clock timer (which never goes through register_timer) still needs to
+          # address hardware timer 0 by hand.
           def timer_reg_l(index) = REG_TM0CNT_L + (index * 4)
           def timer_reg_h(index) = REG_TM0CNT_H + (index * 4)
 
           # The [prescaler bits, reload value] that make a timer overflow +hz+ times a
           # second: pick the finest prescaler whose overflow period fits 16 bits, then
-          # reload = 65536 - period so it takes `period` ticks to roll over.
+          # reload = 65536 - period so it takes `period` ticks to roll over. Public for
+          # the same reason timer_reg_l/timer_reg_h are — Mixer's own clock timer needs
+          # it too, and never goes through register_timer.
           def timer_config(hz)
             PRESCALERS.each do |bits, divisor|
               period = CPU_CLOCK_HZ / divisor / hz
@@ -122,6 +137,13 @@ module RubyGBA
               return [bits, 65_536 - period]
             end
             raise LoweringError, "timer rate #{hz}Hz is outside the range the hardware can clock"
+          end
+
+          private
+
+          def timer_info(name)
+            @timers[name] ||
+              raise(LoweringError, "timer #{name.inspect} was used before it was started with timer_start")
           end
         end
       end

@@ -274,7 +274,7 @@ class TestIRBackendGBA < Minitest::Test
     # address.)
     gba = GBA.new
     gba.lower(program(data(:odd, "\x01\x02\x03".b), data(:after, "\xAA\xBB\xCC\xDD".b), halt))
-    positions = gba.instance_variable_get(:@data_positions)
+    positions = gba.data_positions
     positions.each do |name, pos|
       assert_equal 0, pos % 4, "data blob #{name.inspect} sits at byte #{pos}, not a word boundary"
     end

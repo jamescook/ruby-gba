@@ -60,7 +60,7 @@ module RubyGBA
               first = @bitmaps.fetch(poses.first)
               bytes = poses.each_with_object(+"".b) { |image, acc| acc << mask_bytes(@bitmaps.fetch(image)) }
               blob = :"__pixmask_#{@pixel_masks.size}"
-              @data_blobs[blob] = bytes
+              @emit.data_blobs[blob] = bytes
               { blob: blob, w: first.width, h: first.height }
             end
           end

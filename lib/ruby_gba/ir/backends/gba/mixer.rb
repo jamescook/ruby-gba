@@ -100,7 +100,7 @@ module RubyGBA
             @next_var += MAX_VOICES * SLOT_BYTES
             @mix_routine_iwram = @next_var # the mix routine is copied here from ROM at boot
             @next_var += MIX_ROUTINE_IWRAM_MAX
-            @next_hw_timer = CLOCK_TIMER + 1 # reserve timer 0 only
+            @timers.reserve!(CLOCK_TIMER + 1) # reserve timer 0 only
           end
 
           # Bring the mixer up at boot: silence the voice slots and both buffers, power on
@@ -120,9 +120,9 @@ module RubyGBA
             store_word_immediate(REG_FIFO_A, REG_DMA1DAD)          # DMA dest = the sound FIFO
             store_word_immediate(dma_fifo_control, REG_DMA1CNT)    # feed the FIFO continuously
 
-            prescaler, reload = timer_config(@mixer_rate)          # timer 0 = the mixer's sample rate
-            write_reg16(timer_reg_l(CLOCK_TIMER), reload)
-            write_reg16(timer_reg_h(CLOCK_TIMER), TIMER_ENABLE | prescaler)
+            prescaler, reload = @timers.timer_config(@mixer_rate)  # timer 0 = the mixer's sample rate
+            write_reg16(@timers.timer_reg_l(CLOCK_TIMER), reload)
+            write_reg16(@timers.timer_reg_h(CLOCK_TIMER), TIMER_ENABLE | prescaler)
 
             emit_copy_mix_routine_to_iwram
           end
