@@ -124,7 +124,7 @@ module RubyGBA
               return
             end
 
-            eval_value(Build.binop(:/, Build.binop(:*, node.amount, Build.int(BLD_MAX)),
+            @lowering.value(Build.binop(:/, Build.binop(:*, node.amount, Build.int(BLD_MAX)),
                                    Build.int(100)))
             emit_clamp_blend_steps
             emit(ASM.mov_reg(TINT_STEPS, ACC))                      # kept while the state is compared

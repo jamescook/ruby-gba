@@ -114,7 +114,7 @@ module RubyGBA
 
             emit_slot_address(info, node.name)         # r12 = &slot[(head+length)&mask]
             emit(ASM.push(ADDR))                         # hold the address across the value eval
-            eval_value(node.value)                     # r0 = value
+            @lowering.value(node.value)                     # r0 = value
             emit(ASM.pop(TMP))                           # r1 = address
             emit(ASM.str(ACC, TMP))                      # slot = value
 
@@ -156,10 +156,10 @@ module RubyGBA
           def emit_list_set(node)
             info = list_info(node.name)
 
-            eval_value(node.index)                     # r0 = index
+            @lowering.value(node.index)                     # r0 = index
             emit_slot_address(info, node.name)         # r12 = &slot[(head+index)&mask]
             emit(ASM.push(ADDR))
-            eval_value(node.value)                     # r0 = value
+            @lowering.value(node.value)                     # r0 = value
             emit(ASM.pop(TMP))                           # r1 = address
             emit(ASM.str(ACC, TMP))                      # slot = value
           end
@@ -167,7 +167,7 @@ module RubyGBA
           # list_get: read the item at an index into the accumulator (a value).
           def eval_list_get(node)
             info = list_info(node.name)
-            eval_value(node.index)                     # r0 = index
+            @lowering.value(node.index)                     # r0 = index
             emit_slot_address(info, node.name)         # r12 = &slot[(head+index)&mask]
             emit(ASM.ldr(ACC, ADDR))                     # r0 = slot
           end
@@ -213,9 +213,10 @@ module RubyGBA
             emit(ASM.push(14))                          # push {lr}
             # Draws in this func lower in its resolved mode; a scene (a per-frame
             # entry point) also switches the hardware to that mode as it takes over.
-            @lower_mode = @func_mode.fetch(name, @default_mode)
-            emit_scene_preamble(name) if @manage_modes && @scene_funcs.include?(name)
-            fnode.children.each { |stmt| emit_statement(stmt) }
+            @lowering.in_mode(@func_mode.fetch(name, @default_mode)) do
+              emit_scene_preamble(name) if @manage_modes && @scene_funcs.include?(name)
+              fnode.children.each { |stmt| @lowering.statement(stmt) }
+            end
             emit(ASM.pop(15))                           # pop {pc}  (return)
             @func_ranges[name] = (start...pos)          # byte span, for dump_func
           end
@@ -231,7 +232,7 @@ module RubyGBA
           def emit_case(node)
             node.clauses.each do |value, target|
               test = Build.binop(:==, Build.var_ref(node.var), Build.int(value))
-              emit_statement(Build.if_(test, Build.call(target)))
+              @lowering.statement(Build.if_(test, Build.call(target)))
             end
           end
         end

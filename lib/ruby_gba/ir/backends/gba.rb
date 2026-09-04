@@ -266,6 +266,39 @@ module RubyGBA
             list_len: method(:eval_list_len), read_scanline: method(:eval_read_scanline),
             timer_ticks: method(:eval_timer_ticks),
           )
+          # Every statement kind's handler, registered once in one place — see {Lowering}.
+          # The 12 definition kinds are collected during the definitions pass, earlier in
+          # #lower, and emit nothing here — Lowering::NOTHING says so explicitly.
+          @lowering.statements(
+            func: Lowering::NOTHING, set: method(:emit_set), add: method(:emit_add),
+            sub: method(:emit_sub), copy: method(:emit_copy), negate: method(:emit_negate),
+            abs: method(:emit_abs), negate_abs: method(:emit_negate_abs), clamp: method(:emit_clamp),
+            save_init: method(:emit_save_init), save_store: method(:emit_save_store),
+            if: method(:emit_if), loop: method(:emit_loop), repeat: method(:emit_repeat),
+            inside: method(:emit_inside), every: method(:emit_every), after: method(:emit_after),
+            list_new: method(:emit_list_new), list_push: method(:emit_list_push),
+            list_drop: method(:emit_list_drop), list_set: method(:emit_list_set),
+            call: method(:emit_call), case: method(:emit_case), raw: method(:emit_raw),
+            halt: method(:emit_halt), wait_vblank: method(:emit_wait_vblank), screen: method(:emit_screen),
+            pixel: method(:emit_pixel), fill_rect: method(:emit_fill_rect),
+            clear_screen: method(:emit_clear_screen), dma_fill_rect: method(:emit_dma_fill_rect),
+            draw_rect_at: method(:emit_draw_rect_at), draw_column_at: method(:emit_draw_column_at),
+            draw_text: method(:emit_draw_text), draw_digit: method(:emit_draw_digit),
+            blit: method(:emit_blit), blit_pose: method(:emit_blit_pose),
+            background: method(:emit_background), scroll_background: method(:emit_scroll_background),
+            scroll_rows: Lowering::NOTHING, camera: method(:emit_camera), fade: method(:emit_fade),
+            tint: method(:emit_tint), see_through: method(:emit_see_through),
+            present_objects: method(:emit_present_objects), save_region: method(:emit_save_region),
+            restore_region: method(:emit_restore_region), enable_sound: method(:emit_enable_sound),
+            define_sound: Lowering::NOTHING, song: Lowering::NOTHING, data: Lowering::NOTHING,
+            bitmap: Lowering::NOTHING, backing_buffer: Lowering::NOTHING, object: Lowering::NOTHING,
+            table: Lowering::NOTHING, layers: Lowering::NOTHING, beep: method(:emit_beep),
+            noise: method(:emit_noise), wave: method(:emit_wave), stop_wave: method(:emit_stop_wave),
+            play_song: method(:emit_play_song), stop_music: method(:emit_stop_music),
+            timer_start: method(:emit_timer_start), timer_stop: method(:emit_timer_stop),
+            on_timer: Lowering::NOTHING, sample: Lowering::NOTHING, play_sample: method(:emit_play_sample),
+            stop_sample: method(:emit_stop_sample),
+          )
           @tables = {}           # name -> { count:, elem_bytes:, signed:, pow2: } (a ROM lookup table)
           @backing = {}          # name -> { width:, height:, base: } (a sprite's save-under RAM)
           @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)
@@ -284,7 +317,6 @@ module RubyGBA
           @default_mode = :direct # the boot screen mode (from the top-level `screen`)
           @func_mode = {}        # func name -> :direct | :buffered (resolved from the call graph)
           @scene_funcs = []      # funcs entered per frame, which switch the mode on entry
-          @lower_mode = :direct  # the mode draws currently lower in (set per func)
           @tiled = false         # does the program use tile mode (screen :tiled)?
           @backgrounds = {}      # name -> resolved tiled-background layer (map blob, BG number, screen block, priority)
           @row_bends = {}        # name -> :scroll_rows node giving each of that layer's rows its own offset
@@ -389,8 +421,9 @@ module RubyGBA
           # overwrite.
           emit_boot_row_bends if latches_row_bends?
           emit_tint_state_init if @palette_tint # the color tables start as they were drawn
-          @lower_mode = @default_mode
-          program.children.each { |stmt| emit_statement(stmt) }
+          @lowering.in_mode(@default_mode) do
+            program.children.each { |stmt| @lowering.statement(stmt) }
+          end
           guard_variables_clear_of_routines
           emit_functions
           emit_hot_functions # the routines worth running from the quick memory, as one block
@@ -627,7 +660,7 @@ module RubyGBA
           end if @uses_vblank
           irq_timers.each do |_, info|
             emit_irq_source(timer_irq_bit(info[:rate])) do
-              info[:handler].children.each { |child| emit_statement(child) }
+              info[:handler].children.each { |child| @lowering.statement(child) }
             end
           end
           emit(ASM.pop(*IRQ_SAVED_REGS))

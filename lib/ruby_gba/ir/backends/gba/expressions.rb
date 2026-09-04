@@ -8,21 +8,17 @@ module RubyGBA
         module Expressions
           include Constants
 
-          # Emit code that leaves the value of +node+ in the accumulator (r0), by way of
-          # the kind-keyed dispatch table built in GBA#initialize (see {Lowering}).
-          def eval_value(node) = @lowering.value(node)
-
           def eval_int(node) = emit(ASM.load_immediate(ACC, Int32.wrap(node.value)))
           def eval_var_ref(node) = load_var(ACC, node.name)
 
           def eval_neg(node)
-            eval_value(node.operand)
+            @lowering.value(node.operand)
             emit(ASM.rsb_imm(ACC, ACC, 0))
           end
 
           # A chance is "the random draw is below the threshold" — evaluate it as
           # exactly that comparison.
-          def eval_chance(node) = eval_value(Build.binop(:<, node.draw, Build.int(node.percent)))
+          def eval_chance(node) = @lowering.value(Build.binop(:<, node.draw, Build.int(node.percent)))
           def eval_held_node(node) = eval_held(node.button)
           def eval_pressed_node(node) = eval_pressed(node.button)
 
@@ -48,7 +44,7 @@ module RubyGBA
             info = @tables.fetch(node.name) do
               raise LoweringError, "read of undefined table #{node.name.inspect}"
             end
-            eval_value(node.index)                               # r0 = index
+            @lowering.value(node.index)                               # r0 = index
             if info.pow2
               emit_and_const(ACC, ACC, info.count - 1, TMP)        # wrap: index & (count - 1)
             else
@@ -98,9 +94,9 @@ module RubyGBA
           def eval_binop(node)
             return if emit_constant_binop(node)
 
-            eval_value(node.lhs)
+            @lowering.value(node.lhs)
             emit(ASM.push(ACC))
-            eval_value(node.rhs)
+            @lowering.value(node.rhs)
             emit(ASM.pop(TMP))             # r1 = lhs, r0 = rhs
 
             op = node.op
@@ -188,7 +184,7 @@ module RubyGBA
           # negative and all zeros for anything else. Three instructions, no branch, and
           # no call.
           def emit_divide_by_power_of_two(lhs, bits)
-            eval_value(lhs)
+            @lowering.value(lhs)
             emit(ASM.asr_imm(TMP, ACC, 31))                  # r1 = -1 when negative, else 0
             emit(ASM.add_reg_lsr(ACC, ACC, TMP, 32 - bits))  # + (2**bits - 1) when negative
             emit(ASM.asr_imm(ACC, ACC, bits))
@@ -210,7 +206,7 @@ module RubyGBA
           # both for the correction some divisors want and by the wrap below.
           def emit_reciprocal_divide(lhs, divisor)
             recipe = Reciprocal.for(divisor)
-            eval_value(lhs)
+            @lowering.value(lhs)
             emit(ASM.mov_reg(SPARE, ACC))                      # r2 = the numerator, kept
             emit(ASM.load_immediate(TMP, recipe.multiplier))
             emit(ASM.smull(ACC, HIGH, TMP, SPARE))             # r3:r0 = multiplier * numerator
@@ -237,7 +233,7 @@ module RubyGBA
           # number IS that answer for a positive power of two, sign and all: -1 keeps all
           # its low bits and comes out as the range's top value.
           def emit_wrap_to_power_of_two(lhs, bits)
-            eval_value(lhs)
+            @lowering.value(lhs)
             emit_and_mask(ACC, (1 << bits) - 1)
             true
           end
@@ -275,7 +271,7 @@ module RubyGBA
           # x * 2**bits — one instruction, and exact: the low 32 bits of the product are
           # what a multiply would have left anyway.
           def emit_multiply_by_power_of_two(lhs, bits)
-            eval_value(lhs)
+            @lowering.value(lhs)
             emit(ASM.lsl_imm(ACC, ACC, bits))
             true
           end
@@ -304,9 +300,9 @@ module RubyGBA
           # r2/r3 take the product (they're scratch inside an expression), leaving the
           # answer in the accumulator like every other value.
           def eval_mul_fix(node)
-            eval_value(node.lhs)
+            @lowering.value(node.lhs)
             emit(ASM.push(ACC))
-            eval_value(node.rhs)
+            @lowering.value(node.rhs)
             emit(ASM.pop(TMP))                        # r1 = lhs, r0 = rhs
             emit(ASM.smull(SPARE, HIGH, ACC, TMP))    # r3:r2 = lhs * rhs, all 64 bits of it
 
@@ -334,9 +330,9 @@ module RubyGBA
                                             node.rhs))
             end
 
-            eval_value(node.lhs)
+            @lowering.value(node.lhs)
             emit(ASM.push(ACC))
-            eval_value(node.rhs)
+            @lowering.value(node.rhs)
             emit(ASM.pop(TMP)) # r1 = the numerator, r0 = the divisor
             emit_call_divide_fix_routine(node.fraction_bits)
           end
@@ -349,7 +345,7 @@ module RubyGBA
           # of moving the register. So the whole thing is ONE instruction, against a
           # call for the division that would otherwise be written here.
           def eval_shift_right(node)
-            eval_value(node.operand)
+            @lowering.value(node.operand)
             bits = node.bits
             emit(ASM.asr_imm(ACC, ACC, bits)) if bits.positive? # shifting by none is nothing to do
           end

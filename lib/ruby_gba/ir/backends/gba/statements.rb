@@ -8,88 +8,22 @@ module RubyGBA
         module Statements
           include Constants
 
-          def emit_statement(node)
-            case node.kind
-            when :func then nil # emitted separately, after the main body
-            when :set then emit_set(node)
-            when :add then emit_accumulate(node, :add_reg)
-            when :sub then emit_accumulate(node, :sub_reg)
-            when :copy then emit_copy(node)
-            when :negate then emit_negate(node)
-            when :abs then emit_conditional_negate(node.var, skip_when: :ge)
-            when :negate_abs then emit_conditional_negate(node.var, skip_when: :le)
-            when :clamp then emit_clamp(node)
-            when :save_init then emit_save_init(node)
-            when :save_store then emit_save_store(node)
-            when :if then emit_if(node)
-            when :loop then emit_loop(node)
-            when :repeat then emit_repeat(node)
-            when :inside then emit_inside(node)
-            when :every then emit_every(node)
-            when :after then emit_after(node)
-            when :list_new then emit_list_new(node)
-            when :list_push then emit_list_push(node)
-            when :list_drop then emit_list_drop(node)
-            when :list_set then emit_list_set(node)
-            when :call then emit_call_func(node.target)
-            when :case then emit_case(node)
-            when :raw then emit(node.bytes) # escape hatch: pre-assembled bytes, verbatim
-            when :halt then emit(ASM.loop_forever)
-            when :wait_vblank then emit_wait_vblank
-            when :screen then emit_screen(node)
-            when :pixel then emit_pixel(node)
-            when :fill_rect then emit_fill_rect(node)
-            when :clear_screen then emit_clear_screen(node)
-            when :dma_fill_rect then emit_dma_fill_rect(node)
-            when :draw_rect_at then emit_draw_rect_at(node)
-            when :draw_column_at then emit_draw_column_at(node)
-            when :draw_text then emit_draw_text(node)
-            when :draw_digit then emit_draw_digit(node)
-            when :blit then emit_blit(node)
-            when :blit_pose then emit_blit_pose(node)
-            when :background then emit_background(node)
-            when :scroll_background then emit_scroll_background(node)
-            when :scroll_rows then nil # a standing declaration — its body runs per line, from the dispatcher
-            when :camera then emit_camera(node)
-            when :fade then emit_fade(node)
-            when :tint then emit_tint(node)
-            when :see_through then emit_see_through(node)
-            when :present_objects then emit_present_objects(node)
-            when :save_region then emit_save_region(node)
-            when :restore_region then emit_restore_region(node)
-            when :enable_sound then emit_enable_sound
-            when :define_sound, :song, :data, :bitmap, :backing_buffer, :object, :table,
-                 :layers then nil # definitions: collected, nothing to emit
-            when :beep then emit_beep(node)
-            when :noise then emit_noise(node)
-            when :wave then emit_wave(node)
-            when :stop_wave then emit_stop_wave
-            when :play_song then emit_play_song(node)
-            when :stop_music then emit_stop_music
-            when :timer_start then emit_timer_start(node)
-            when :timer_stop then emit_timer_stop(node)
-            when :on_timer then nil # a handler definition — its body is emitted in the interrupt dispatcher
-            when :sample then nil # a definition — its PCM data is embedded, nothing to emit here
-            when :play_sample then emit_play_sample(node)
-            when :stop_sample then emit_stop_sample(node)
-            else
-              raise LoweringError, "the GBA backend cannot lower #{node.kind.inspect} yet"
-            end
-          end
-
           def emit_set(node)
-            eval_value(node.value)
+            @lowering.value(node.value)
             store_var(ACC, node.var)
           end
 
           # add/sub: new value = var (op) operand. Evaluate the operand into the
           # accumulator, load the variable alongside it, combine, store back.
           def emit_accumulate(node, op)
-            eval_value(node.operand)       # r0 = operand
+            @lowering.value(node.operand)       # r0 = operand
             load_var(TMP, node.var)        # r1 = current value
             emit(ASM.send(op, ACC, TMP, ACC)) # r0 = r1 (op) r0
             store_var(ACC, node.var)
           end
+
+          def emit_add(node) = emit_accumulate(node, :add_reg)
+          def emit_sub(node) = emit_accumulate(node, :sub_reg)
 
           def emit_copy(node)
             load_var(ACC, node.src)
@@ -101,6 +35,9 @@ module RubyGBA
             emit(ASM.rsb_imm(ACC, ACC, 0))   # r0 = 0 - r0
             store_var(ACC, node.var)
           end
+
+          def emit_abs(node) = emit_conditional_negate(node.var, skip_when: :ge)
+          def emit_negate_abs(node) = emit_conditional_negate(node.var, skip_when: :le)
 
           # Negate a variable only when it sits on one side of zero — the shared
           # shape of abs (|v|: negate when < 0, so skip when >= 0) and negate_abs
@@ -136,7 +73,7 @@ module RubyGBA
               emit(ASM.load_immediate(TMP, fixed))
             else
               emit(ASM.push(ACC))         # hold the value being clamped
-              eval_value(bound)           # r0 = the bound
+              @lowering.value(bound)      # r0 = the bound
               emit(ASM.mov_reg(TMP, ACC)) # r1 = the bound
               emit(ASM.pop(ACC))          # r0 = the value again
             end
@@ -152,7 +89,7 @@ module RubyGBA
           # false condition jumps past the body. With an else, a false condition
           # jumps to the else-body, and the then-body jumps over it to the end.
           def emit_if(node)
-            eval_value(node.cond)
+            @lowering.value(node.cond)
             emit(ASM.cmp_imm(ACC, 0))
             else_node = node.else
 
@@ -160,15 +97,15 @@ module RubyGBA
               else_label = gensym
               end_label = gensym
               emit_branch(:bcond, else_label, cond: :eq) # false => run the else
-              node.children.each { |stmt| emit_statement(stmt) }
+              node.children.each { |stmt| @lowering.statement(stmt) }
               emit_branch(:b, end_label)                 # then done => skip the else
               place_label(else_label)
-              else_node.children.each { |stmt| emit_statement(stmt) }
+              else_node.children.each { |stmt| @lowering.statement(stmt) }
               place_label(end_label)
             else
               skip = gensym
               emit_branch(:bcond, skip, cond: :eq) # zero => condition false => skip
-              node.children.each { |stmt| emit_statement(stmt) }
+              node.children.each { |stmt| @lowering.statement(stmt) }
               place_label(skip)
             end
           end
@@ -189,10 +126,9 @@ module RubyGBA
           # against a number, and a number known here is an instruction; a number the game works
           # out would be a register held across every shape in the block.
           def emit_inside(node)
-            @draw_area = [node.x, node.y, node.w, node.h]
-            node.children.each { |stmt| emit_statement(stmt) }
-          ensure
-            @draw_area = nil
+            @lowering.inside(node.x, node.y, node.w, node.h) do
+              node.children.each { |stmt| @lowering.statement(stmt) }
+            end
           end
 
           def emit_loop(node)
@@ -202,7 +138,7 @@ module RubyGBA
               emit_call_func(Placement::FRAME_ROUTINE)
             else
               start = pos
-              node.children.each { |stmt| emit_statement(stmt) }
+              node.children.each { |stmt| @lowering.statement(stmt) }
               # Remember how big it came out: the measuring pass reads this to decide
               # whether moving it would fit.
               @func_ranges[Placement::FRAME_ROUTINE] = (start...pos)
@@ -248,7 +184,7 @@ module RubyGBA
             index = node.index
             limit = :"#{index}__limit"
 
-            eval_value(node.count)        # r0 = count
+            @lowering.value(node.count)   # r0 = count
             store_var(ACC, limit)           # limit = count (once)
             emit(ASM.load_immediate(ACC, 0))
             store_var(ACC, index)           # counter = 0
@@ -264,12 +200,12 @@ module RubyGBA
             # ...and the other way out: a loop given something to stop for asks before every
             # pass, so one already answered on its first pass runs the body no times at all.
             if LoopForm.stops_early?(node)
-              eval_value(node.stop_when)
+              @lowering.value(node.stop_when)
               emit(ASM.cmp_imm(ACC, 0))
               emit_branch(:bcond, done, cond: :ne)
             end
 
-            node.children.each { |stmt| emit_statement(stmt) }
+            node.children.each { |stmt| @lowering.statement(stmt) }
 
             load_var(ACC, index)
             emit(ASM.add_imm(ACC, ACC, 1))  # counter += 1
@@ -289,7 +225,7 @@ module RubyGBA
           # the value it would have seen anyway.
           def emit_repeat_held(node)
             emit_repeat_loop(node) do
-              node.children.each { |stmt| emit_statement(stmt) }
+              node.children.each { |stmt| @lowering.statement(stmt) }
             end
           end
 
@@ -314,9 +250,9 @@ module RubyGBA
 
             emit_repeat_loop(node) do
               node.children.each do |statement|
-                next emit_statement(statement) unless bracketed.include?(statement)
+                next @lowering.statement(statement) unless bracketed.include?(statement)
 
-                emit_bracketed(index) { emit_statement(statement) }
+                emit_bracketed(index) { @lowering.statement(statement) }
               end
             end
           end
@@ -334,7 +270,7 @@ module RubyGBA
           # The counting the two register shapes share: set up, test, run the body, step on.
           # Only what happens to the body differs between them, so only that is passed in.
           def emit_repeat_loop(node)
-            eval_value(node.count)
+            @lowering.value(node.count)
             emit(ASM.mov_reg(LoopForm::LIMIT, ACC))
             emit(ASM.load_immediate(LoopForm::COUNTER, 0))
 
@@ -372,8 +308,8 @@ module RubyGBA
             counter = node.counter
             reached = Build.binop(:>=, Build.var_ref(counter), Build.int(node.period))
             gate = Build.if_(reached, Build.sub(counter, node.period), *node.children)
-            emit_statement(Build.add(counter, Build.var_ref(IR::Frames::STEP)))
-            emit_statement(gate)
+            @lowering.statement(Build.add(counter, Build.var_ref(IR::Frames::STEP)))
+            @lowering.statement(gate)
           end
 
           # after: run the body exactly once, `frames` frames in. Count up only until
@@ -391,8 +327,12 @@ module RubyGBA
             lands = Build.if_(Build.binop(:>=, Build.var_ref(counter), Build.int(frames)), *node.children)
             not_yet = Build.if_(Build.binop(:<, Build.var_ref(counter), Build.int(frames)),
                                 Build.add(counter, Build.var_ref(IR::Frames::STEP)), lands)
-            emit_statement(not_yet)
+            @lowering.statement(not_yet)
           end
+
+          def emit_call(node) = emit_call_func(node.target)
+          def emit_raw(node) = emit(node.bytes) # escape hatch: pre-assembled bytes, verbatim
+          def emit_halt(_node) = emit(ASM.loop_forever)
         end
       end
     end

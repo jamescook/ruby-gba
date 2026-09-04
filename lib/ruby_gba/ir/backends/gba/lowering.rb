@@ -20,6 +20,8 @@ module RubyGBA
           def initialize
             @values = {}
             @statements = {}
+            @mode = :direct  # the mode draws currently lower in (set per func)
+            @draw_area = nil # x, y, w, h while inside a clipped area; nil otherwise
           end
 
           # Register value/statement handlers — kind => a callable taking (node). Safe to
@@ -37,9 +39,35 @@ module RubyGBA
           def value(node) = @values.fetch(node.kind) { unknown_value(node) }.call(node)
           def statement(node) = @statements.fetch(node.kind) { unknown_statement(node) }.call(node)
 
-          # Every kind with a value handler — read by the coverage test that checks this
-          # table against IR::Nodes.by_kind.
+          # Every kind with a value/statement handler — read by the coverage test that
+          # checks these tables against IR::Nodes.by_kind.
           def value_kinds = @values.keys
+          def statement_kinds = @statements.keys
+
+          # Which mode the draws inside +block+ lower in — :direct, :buffered, or :tiled.
+          # Restored on the way out, so a nested call (a func called from within another
+          # func's body) can't leak its mode past its own return.
+          attr_reader :mode
+
+          def in_mode(mode)
+            was = @mode
+            @mode = mode
+            yield
+          ensure
+            @mode = was
+          end
+
+          # The screen area every shape below +block+ clips against — [x, y, w, h], or
+          # nil for the whole screen. `inside` doesn't nest at the surface (a guardrail
+          # error there), so this doesn't need to model a stack either.
+          attr_reader :draw_area
+
+          def inside(x, y, w, h)
+            @draw_area = [x, y, w, h]
+            yield
+          ensure
+            @draw_area = nil
+          end
 
           private
 
