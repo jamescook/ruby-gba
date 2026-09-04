@@ -519,13 +519,49 @@ module RubyGBA
           def emit_draw_rect_at(node)
             return @buffered.emit_draw_rect_at_buffered(node) if @lowering.mode == :buffered
 
+            x_const = const_int(node.x)
+            y_const = const_int(node.y)
             width = const_int(node.w)
-            return if width && width < 1 # a rect with no width draws nothing
+            height = const_int(node.h)
+            return if width && width < 1   # a rect with no width draws nothing
+            return if height && height < 1 # ...or no height
 
+            # Every edge settled while building: clip it here, in Ruby, once, and fire
+            # the fill straight at plain addresses — nothing for the console to check.
+            # A bar or column at a fixed place and size costs exactly what it always did.
+            return emit_draw_rect_at_fixed(x_const, y_const, width, height, node.color) if x_const && y_const && width && height
+
+            emit_draw_rect_at_computed(node, width, height)
+          end
+
+          # A rect whose x, y, width and height are ALL known while building.
+          def emit_draw_rect_at_fixed(x, y, width, height, color)
+            left = [x, @framebuffer.clip_left].max
+            right = [x + width, @framebuffer.clip_right].min
+            return if right <= left
+
+            top = [y, @framebuffer.clip_top].max
+            bottom = [y + height, @framebuffer.clip_bottom].min
+            return if bottom <= top
+
+            scratch = @framebuffer.hold_fill_word(color)
+            control = @framebuffer.fill_control_for_column(nil, right - left)
+            (top...bottom).each do |row|
+              row_addr = VRAM_START + ((row * SCREEN_WIDTH) + left) * 2
+              @framebuffer.fire_dma_fill(scratch, row_addr, control)
+            end
+          end
+
+          # A rect with at least one edge the game works out as it runs, so the clip has
+          # to happen at run time.
+          #
+          # x and width settle to one on-screen span before any row fires — a rect has
+          # one x for its whole height, the same reason draw_column_at settles its
+          # column once instead of testing it every row. Every row THEN checks its own
+          # y against the area, because a run-time y or height means a run-time set of
+          # rows survives: an unclipped row is what wrapped a rect onto its neighbor.
+          def emit_draw_rect_at_computed(node, width, height)
             scratch = @framebuffer.hold_fill_word(node.color)
-            # x is computed at run time, so it can be an odd column on any given
-            # frame — fill a pixel at a time so the rect lands where it was asked to.
-            control = width ? @framebuffer.fill_control_for_column(nil, width) : CONTROL_REG
 
             x_reg = 2
             y_reg = 3
@@ -533,43 +569,73 @@ module RubyGBA
             @framebuffer.eval_rect_position(node, x_reg: x_reg, y_reg: y_reg, rows_reg: rows_left,
                                                    width_reg: CONTROL_REG)
 
-            # A width of zero asks the hardware for 65536 transfers, not none, so a rect
-            # the game has shrunk to nothing must skip the fill outright. Checked before
-            # the count becomes a control word, while it is still a plain width.
             skip = gensym
-            unless width
-              emit(ASM.cmp_imm(CONTROL_REG, 0))
-              emit_branch(:bcond, skip, cond: :le)
-              emit(ASM.load_immediate(TMP, @framebuffer.dma_fill_control_halfwords(0)))
-              emit(ASM.orr_reg(CONTROL_REG, CONTROL_REG, TMP)) # ...now it is one
+
+            # right = x + width, unclipped, worked out before x itself is touched.
+            if width
+              emit_add_const(ACC, x_reg, width, TMP)
+            else
+              emit(ASM.add_reg(ACC, x_reg, CONTROL_REG)) # CONTROL_REG still holds the raw width here
             end
 
-            height = const_int(node.h)
+            # right := min(right, clip_right)
+            keep_right = gensym
+            emit(ASM.cmp_imm(ACC, @framebuffer.clip_right))
+            emit_branch(:bcond, keep_right, cond: :le)
+            emit(ASM.load_immediate(ACC, @framebuffer.clip_right))
+            place_label(keep_right)
+
+            # x_reg := max(x_reg, clip_left)
+            keep_left = gensym
+            emit(ASM.cmp_imm(x_reg, @framebuffer.clip_left))
+            emit_branch(:bcond, keep_left, cond: :ge)
+            emit(ASM.load_immediate(x_reg, @framebuffer.clip_left))
+            place_label(keep_left)
+
+            # width := right - x_reg. Nothing left of the row to draw at all bails the
+            # whole rect, the same way a width of zero already did — a rect the game
+            # shrank to nothing, or slid entirely off the area, draws nothing either way.
+            emit(ASM.sub_reg(TMP, ACC, x_reg))
+            emit(ASM.cmp_imm(TMP, 0))
+            emit_branch(:bcond, skip, cond: :le)
+            emit(ASM.mov_reg(CONTROL_REG, TMP))
+            emit(ASM.load_immediate(ACC, @framebuffer.dma_fill_control_halfwords(0)))
+            emit(ASM.orr_reg(CONTROL_REG, CONTROL_REG, ACC)) # ...now it is a control word
+
             if height
-              height.times { |dy| emit_mode3_rect_row(dy, x_reg, y_reg, scratch, control) }
+              height.times { |dy| emit_mode3_rect_row(dy, x_reg, y_reg, scratch) }
             else
               emit_row_loop(rows_left) do
-                emit_mode3_rect_row(0, x_reg, y_reg, scratch, control)
+                emit_mode3_rect_row(0, x_reg, y_reg, scratch)
                 emit(ASM.add_imm(y_reg, y_reg, 1)) # ...and on to the next row down
               end
             end
-            place_label(skip) unless width
+            place_label(skip)
           end
 
           # The register a computed width, and then the fill's control word built from
           # it, lives in for the whole rect.
           CONTROL_REG = 7
 
-          # One row of a run-time rect: work out where it lands in video memory, then
-          # fire the fill at it. +dy+ is how far below the rect's y this row is.
-          # +control+ is either the word itself or CONTROL_REG, the register holding it.
-          def emit_mode3_rect_row(dy, x_reg, y_reg, scratch, control)
-            # r4 = VRAM_START + ((y + dy) * width + x) * 2
+          # One row of a run-time-positioned rect: skip it outright if its y falls
+          # outside the area (a row above or below it draws NOTHING, not a row wrapped
+          # onto its neighbor), else work out where it lands in video memory and fire
+          # the fill. +dy+ is how far below the rect's y this row is; the fill's control
+          # word always lives in CONTROL_REG by the time this runs.
+          def emit_mode3_rect_row(dy, x_reg, y_reg, scratch)
+            row_skip = gensym
+
+            # r4 = y + dy, checked against the area before it becomes an address.
             if dy.zero?
               emit(ASM.mov_reg(4, y_reg))
             else
               emit(ASM.add_imm(4, y_reg, dy))
             end
+            emit(ASM.cmp_imm(4, @framebuffer.clip_top))
+            emit_branch(:bcond, row_skip, cond: :lt)
+            emit(ASM.cmp_imm(4, @framebuffer.clip_bottom))
+            emit_branch(:bcond, row_skip, cond: :ge)
+
             emit(ASM.load_immediate(5, SCREEN_WIDTH))
             emit(ASM.mul(4, 5, 4))           # r4 = width * (y + dy)
             emit(ASM.add_reg(4, 4, x_reg))   # + x
@@ -580,12 +646,10 @@ module RubyGBA
             store_word_immediate(scratch, REG_DMA3SAD)
             emit(ASM.load_immediate(TMP, REG_DMA3DAD))
             emit(ASM.str(4, TMP))            # destination is the computed address
-            if control == CONTROL_REG
-              emit(ASM.load_immediate(TMP, REG_DMA3CNT))
-              emit(ASM.str(CONTROL_REG, TMP))
-            else
-              store_word_immediate(control, REG_DMA3CNT)
-            end
+            emit(ASM.load_immediate(TMP, REG_DMA3CNT))
+            emit(ASM.str(CONTROL_REG, TMP))
+
+            place_label(row_skip)
           end
 
           # Draw a defined bitmap at a runtime (x, y). An opaque bitmap streams from

@@ -801,10 +801,26 @@ module RubyGBA
         # A rectangle whose position the game works out, drawn on the tear-free screen —
         # what `draw_rect_at` lowers to there. It walks down the rows stepping one address
         # along, so a row costs what its own pixels cost and almost nothing else.
+        #
+        # Every edge settled while building takes the exact shape `fill_rect` does
+        # instead — the backend redirects there outright
+        # (Backends::GBA::Buffered#emit_draw_rect_at_buffered) once nothing is left for
+        # the console to clip at run time — so there is no "moving" rectangle at all to
+        # price, and #tearfree_fill_cost already prices that shape.
+        #
+        # A width settled while building but at least one other edge not is priced as if
+        # it always fits the area whole — the shape #emit_draw_rect_at_buffered_fixed_width
+        # actually takes for the overwhelming common case, and the one this shares with a
+        # fixed rectangle's own row. A rect that turns out to cross an edge at run time
+        # falls back to the general clip there, which is not priced — the same "cannot be
+        # known while building" gap an unbounded loop leaves, not a new one.
         def tearfree_moving_rect_cost(node)
           w = const_side(node.w)
           h = const_side(node.h)
           return 0 unless w && h && w.positive?
+
+          x = const_side(node.x)
+          return tearfree_fill_cost(node) if x && const_side(node.y)
 
           @weights[:tearfree_moving_start] + (h * tearfree_moving_row_cost(w, node.x))
         end
@@ -862,8 +878,9 @@ module RubyGBA
         end
 
         # Whether a run is long enough to be worth starting the engine for, rather than
-        # writing out as pairs. (Backends::GBA::Buffered#emit_buffered_rect_row_middle
-        # decides this; if that moves, this must.)
+        # writing out as pairs. (Backends::GBA::Buffered#direct_fill? decides this, for
+        # a FIXED rectangle's row — the only shape that still makes the choice; if that
+        # moves, this must.)
         def engine_worth_starting?(middle)
           middle.positive? && (middle / 2) > TEARFREE_DIRECT_PAIRS
         end
