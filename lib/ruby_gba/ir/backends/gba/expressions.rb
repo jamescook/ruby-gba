@@ -8,38 +8,27 @@ module RubyGBA
         module Expressions
           include Constants
 
-          # Emit code that leaves the value of +node+ in the accumulator (r0).
-          def eval_value(node)
-            case node.kind
-            when :int then emit(ASM.load_immediate(ACC, Int32.wrap(node.value)))
-            when :var_ref then load_var(ACC, node.name)
-            when :neg
-              eval_value(node.operand)
-              emit(ASM.rsb_imm(ACC, ACC, 0))
-            when :binop then eval_binop(node)
-            when :mul_fix then eval_mul_fix(node)
-            when :div_fix then eval_div_fix(node)
-            when :shift_right then eval_shift_right(node)
-            when :held then eval_held(node.button)
-            when :pressed then eval_pressed(node.button)
-            # A chance is "the random draw is below the threshold" — evaluate it as
-            # exactly that comparison.
-            when :chance then eval_value(Build.binop(:<, node.draw, Build.int(node.percent)))
-            when :pixels_overlap then eval_pixels_overlap(node)
-            when :data_byte then eval_data_byte(node)
-            when :table_get then eval_table_get(node)
-            when :list_get then eval_list_get(node)
-            when :list_len then eval_list_len(node)
-            when :read_scanline then eval_read_scanline
-            when :timer_ticks then eval_timer_ticks(node)
-            else
-              raise LoweringError, "the GBA backend cannot evaluate #{node.kind.inspect}"
-            end
+          # Emit code that leaves the value of +node+ in the accumulator (r0), by way of
+          # the kind-keyed dispatch table built in GBA#initialize (see {Lowering}).
+          def eval_value(node) = @lowering.value(node)
+
+          def eval_int(node) = emit(ASM.load_immediate(ACC, Int32.wrap(node.value)))
+          def eval_var_ref(node) = load_var(ACC, node.name)
+
+          def eval_neg(node)
+            eval_value(node.operand)
+            emit(ASM.rsb_imm(ACC, ACC, 0))
           end
+
+          # A chance is "the random draw is below the threshold" — evaluate it as
+          # exactly that comparison.
+          def eval_chance(node) = eval_value(Build.binop(:<, node.draw, Build.int(node.percent)))
+          def eval_held_node(node) = eval_held(node.button)
+          def eval_pressed_node(node) = eval_pressed(node.button)
 
           # Read VCOUNT — the scanline being drawn right now (0..227) — into the
           # accumulator. A halfword load straight from the display's scanline register.
-          def eval_read_scanline
+          def eval_read_scanline(_node = nil)
             emit(ASM.load_immediate(TMP, REG_VCOUNT))
             emit(ASM.load_halfword(ACC, TMP))
           end
