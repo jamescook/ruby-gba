@@ -1344,6 +1344,13 @@ module RubyGBA
             end
           end
 
+          def backing_region_unsupported_in_buffered!
+            raise LoweringError,
+                  "A sprite's save and restore cannot run on the tear-free screen (`tear_free: true`). Its " \
+                  "backing store holds direct colors, and that screen stores colors as color-table indices. " \
+                  "To use sprites, use the direct-color screen: drop `tear_free:`."
+          end
+
           # Save the screen patch under a moving object into its RAM backing store:
           # read the screen (VRAM) INTO the buffer. Same row engine as a blit, run in
           # the other direction.

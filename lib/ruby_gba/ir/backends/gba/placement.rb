@@ -173,7 +173,7 @@ module RubyGBA
           def fast_func_address(name)
             return nil unless @fast_funcs.include?(name)
 
-            @hot_base + (@emit.labels.fetch(func_label(name)) - @emit.labels.fetch(HOT_START))
+            @hot_base + (@emit.labels.fetch(@functions.func_label(name)) - @emit.labels.fetch(HOT_START))
           end
 
           # How far the variables (and lists, and the mixer's memory) reached. Read off
@@ -182,7 +182,7 @@ module RubyGBA
 
           # Each func's size in bytes, likewise read off the throwaway pass.
           def func_sizes
-            @func_ranges.transform_values(&:size)
+            @functions.func_ranges.transform_values(&:size)
           end
 
           # Once the game loop's body is going to the quick memory it needs a name and a
@@ -193,7 +193,7 @@ module RubyGBA
             return unless @fast_funcs.include?(FRAME_ROUTINE)
 
             loop_node = program.walk.find { |node| node.kind == :loop }
-            @funcs[FRAME_ROUTINE] = loop_node if loop_node
+            @functions.funcs[FRAME_ROUTINE] = loop_node if loop_node
           end
 
           # Emit the moved routines, back to back, between the two labels boot copies
@@ -205,7 +205,7 @@ module RubyGBA
             emit(ASM.loop_forever) # fall-through guard, outside the block so it is not copied
             place_label(HOT_START)
             @emitting_hot = true
-            @funcs.each { |name, node| emit_one_function(name, node) if @fast_funcs.include?(name) }
+            @functions.funcs.each { |name, node| @functions.emit_one_function(name, node) if @fast_funcs.include?(name) }
             emit_irq_handler if irq_runs_fast?
             @emitting_hot = false
             place_label(HOT_END)
@@ -265,12 +265,12 @@ module RubyGBA
           # to reach.
           def emit_call_func(name)
             target_is_fast = @fast_funcs.include?(name)
-            return emit_branch(:bl, func_label(name)) if target_is_fast == @emitting_hot
+            return emit_branch(:bl, @functions.func_label(name)) if target_is_fast == @emitting_hot
 
             if target_is_fast
-              emit_load_fast_address(ADDR, func_label(name))
+              emit_load_fast_address(ADDR, @functions.func_label(name))
             else
-              emit_load_label_address(ADDR, func_label(name))
+              emit_load_label_address(ADDR, @functions.func_label(name))
             end
             emit(ASM.mov_reg(14, 15)) # lr = the instruction after the jump below
             emit(ASM.bx(ADDR))
