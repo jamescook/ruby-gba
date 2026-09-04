@@ -305,16 +305,20 @@ module RubyGBA
           # +width+ is the digits' shared width (the caller checked all ten match) and
           # the cell is on-screen, so the walk needs no clipping.
           #
+          # Called once per font, to build the ONE shared routine each screen mode's
+          # digit calls reach with a BL rather than a copy of this loop apiece (see
+          # Drawing#emit_digit_routines) — the digit itself already sits in r0 when
+          # this runs, left there by whichever call evaluated it before branching in.
+          #
           # The block is called with :hold once — after the glyph pointer is set up, to
           # load any register the plot keeps for the whole glyph — and with :plot for
           # each lit pixel, when r5 (row) and r4 (column) are live. Registers held
           # across the loop: r4 column, r5 row, r6 the glyph's row pointer, r7 the
           # current row byte; r0–r3 are per-pixel scratch and the plot owns r8 up.
-          def emit_digit_glyph_loop(node, font, width)
-            table = ensure_digit_table(node.font, font)
+          def emit_digit_glyph_loop(font_name, font, width)
+            table = ensure_digit_table(font_name, font)
             top_bit = 1 << (width - 1)
 
-            @lowering.value(node.value)              # r0 = the digit (0..9)
             @emitter.emit_load_data_address(1, table) # r1 = the glyph table's ROM address
             @emitter.emit(ASM.load_immediate(2, font.height))
             @emitter.emit(ASM.mul(3, 0, 2))          # r3 = digit * height (its row offset)

@@ -297,12 +297,13 @@ module RubyGBA
           @layer_blend = LayerBlend.new(emitter: @emit, lowering: @lowering, primitives: @primitives,
                                         drawing: self)
           @buffered = Buffered.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
-                                   framebuffer: @framebuffer)
+                                   framebuffer: @framebuffer, call_cold_routine: method(:emit_call_cold_routine))
           @drawing = Drawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                  divide: @divide, framebuffer: @framebuffer, raster: @raster,
                                  palette_tint: @palette_tint, layer_blend: @layer_blend, buffered: @buffered,
                                  backing_info: method(:backing_info), fade_targets: method(:fade_targets),
-                                 effect_line: method(:effect_line))
+                                 effect_line: method(:effect_line),
+                                 call_cold_routine: method(:emit_call_cold_routine))
           # Every value kind's handler, registered once in one place — see {Lowering}.
           @lowering.values(
             int: @expressions.method(:eval_int), var_ref: @expressions.method(:eval_var_ref),
@@ -489,6 +490,11 @@ module RubyGBA
           guard_variables_clear_of_routines
           emit_functions
           emit_hot_functions # the routines worth running from the quick memory, as one block
+          # After both: a hot func's body is only ever lowered here, inside
+          # emit_hot_functions, so a digit routine a hot func alone reaches would
+          # still be unregistered before this if it came any earlier.
+          @drawing.emit_digit_routines  # the shared glyph loop each font's draw_number/draw_digit calls
+          @buffered.emit_digit_routines # ...and its tear-free counterpart
           emit_mix_routine # the mixer's inner loop, placed in ROM and copied to IWRAM at boot
           emit_divide_routine # likewise the divide routine, for a divisor worked out at run time
           emit_divide_fix_routine # and the one for dividing numbers that hold a fraction

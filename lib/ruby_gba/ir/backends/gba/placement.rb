@@ -276,6 +276,21 @@ module RubyGBA
             emit(ASM.bx(ADDR))
           end
 
+          # Call a routine that never itself moves to the quick memory — always in the
+          # cartridge, whichever call reaches it. Digit routines are the one caller
+          # (see Drawing#emit_digit_routines): plain when the call is cold too, and
+          # the same address-and-jump-through #emit_call_func's own crossing call
+          # uses when the call is running from inside the moved block, since a label
+          # back in the cartridge is too far from the quick memory for a relative
+          # branch to reach.
+          def emit_call_cold_routine(label)
+            return emit_branch(:bl, label) unless @emitting_hot
+
+            emit_load_label_address(ADDR, label)
+            emit(ASM.mov_reg(14, 15)) # lr = the instruction after the jump below
+            emit(ASM.bx(ADDR))
+          end
+
           # Load the quick-memory address of a label inside the moved block. Where the
           # block lands is not known until every variable has one, so this is a
           # fixed-size placeholder patched in the second pass — the same trick a

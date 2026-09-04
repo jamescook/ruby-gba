@@ -24,7 +24,8 @@ module RubyGBA
           include Constants
 
           def initialize(emitter:, primitives:, lowering:, divide:, framebuffer:, raster:, palette_tint:,
-                          layer_blend:, buffered:, backing_info:, fade_targets:, effect_line:)
+                          layer_blend:, buffered:, backing_info:, fade_targets:, effect_line:,
+                          call_cold_routine:)
             @emitter = emitter
             @primitives = primitives
             @lowering = lowering
@@ -37,6 +38,7 @@ module RubyGBA
             @backing_info = backing_info
             @fade_targets = fade_targets
             @effect_line = effect_line
+            @call_cold_routine = call_cold_routine
             @layout = nil
           end
 
@@ -229,6 +231,7 @@ module RubyGBA
           def backing_info(name) = @backing_info.call(name)
           def fade_targets(under) = @fade_targets.call(under)
           def effect_line(under) = @effect_line.call(under)
+          def emit_call_cold_routine(label) = @call_cold_routine.call(label)
 
           # At the vblank boundary, flip the pages — but only while a buffered scene is
           # live (a direct scene draws straight to the screen and has nothing to flip).
@@ -1447,27 +1450,73 @@ module RubyGBA
             end
           end
 
-          # Render one run-time digit from an embedded glyph table (direct color). Walk
-          # the chosen glyph and write the color straight to VRAM at each lit pixel — the
-          # shared glyph loop does the walking; this supplies the direct-color plot.
+          # Render one run-time digit from an embedded glyph table (direct color): call
+          # the shared glyph-walking routine for this font (see #emit_digit_routines)
+          # rather than laying its loop out again at every digit place. The digit is
+          # already in r0 from evaluating node.value; x, y and color follow as plain
+          # arguments in r1-r3, the same way a func's own arguments would (except a
+          # func takes none — this is the one internal routine that does).
           def emit_draw_digit_data(node, font, width, x, y)
             color = Color.resolve(node.color)
-            @framebuffer.emit_digit_glyph_loop(node, font, width) do |phase|
-              case phase
-              when :hold then emit(ASM.load_immediate(8, color)) # r8 = the fill color, held
-              when :plot then emit_plot_digit_pixel(x, y)
+            @lowering.value(node.value)             # r0 = the digit (0..9)
+            emit(ASM.load_immediate(1, x))
+            emit(ASM.load_immediate(2, y))
+            emit(ASM.load_immediate(3, color))
+            emit_call_cold_routine(digit_routine_label(node.font, font, width))
+          end
+
+          # The shared routine's label for a font, reserved the first time a digit in
+          # that font is drawn and emitted once, later, by #emit_digit_routines. Every
+          # other draw_number/draw_digit in the same font reuses the same label — this
+          # is the memoization that turns "one copy of the loop per call site" into
+          # "one copy of the loop per font actually used this way".
+          def digit_routine_label(font_name, font, width)
+            @digit_routines ||= {}
+            @digit_routines[font_name] ||= begin
+              @pending_digit_routines ||= []
+              @pending_digit_routines << [font_name, font, width]
+              :"__digit_routine_#{font_name}"
+            end
+          end
+
+          # Emit every shared digit routine this program actually used, once each, after
+          # the program's own code (see GBA#lower) — a fall-through guard, a label, a
+          # body, a return, the same shape Functions#emit_one_function gives a func,
+          # because like a func this is only ever reached by a call.
+          #
+          # x, y and the fill color arrive as arguments (r1, r2, r3) rather than being
+          # baked into the routine, which is what lets one routine serve every call
+          # site. They move into r10-r12 first, because the glyph table lookup that
+          # follows needs r1-r3 back as scratch.
+          def emit_digit_routines
+            return unless @pending_digit_routines
+
+            @pending_digit_routines.each do |font_name, font, width|
+              emit(ASM.loop_forever) # fall-through guard: only ever entered by the call above
+              place_label(:"__digit_routine_#{font_name}")
+              emit(ASM.push(14))
+              emit(ASM.mov_reg(10, 1)) # r10 = x, held across the routine
+              emit(ASM.mov_reg(11, 2)) # r11 = y
+              emit(ASM.mov_reg(12, 3)) # r12 = the fill color
+              @framebuffer.emit_digit_glyph_loop(font_name, font, width) do |phase|
+                case phase
+                when :hold then emit(ASM.mov_reg(8, 12)) # r8 = the fill color, held
+                when :plot then emit_plot_digit_pixel(10, 11)
+                end
               end
+              emit(ASM.pop(15))
             end
           end
 
           # Stamp the current glyph pixel: screen = VRAM + ((y+row)*W + (x+col))*2, in
-          # the held color (r8). x/y are the constant cell origin; r5/r4 are the live
+          # the held color (r8). x_reg/y_reg hold the cell's origin — arguments to the
+          # shared routine, not constants baked in here — and r5/r4 are the live
           # row/col. Uses r0–r3 as scratch and leaves the loop registers alone.
-          def emit_plot_digit_pixel(x, y)
-            emit_add_const(0, 5, y, 1)            # r0 = screen_y = y + row
+          def emit_plot_digit_pixel(x_reg, y_reg)
+            emit(ASM.add_reg(0, y_reg, 5))        # r0 = screen_y = y + row
             emit(ASM.load_immediate(1, SCREEN_WIDTH))
             emit(ASM.mul(2, 0, 1))                # r2 = screen_y * width
-            emit_add_const(0, 4, x, 1)            # r0 = screen_x = x + col
+            emit(ASM.add_reg(0, x_reg, 4))        # r0 = screen_x = x + col
             emit(ASM.add_reg(2, 2, 0))            # r2 = screen_y*width + screen_x
             emit(ASM.lsl_imm(2, 2, 1))            # * 2 bytes per pixel
             emit(ASM.load_immediate(1, VRAM_START))
