@@ -1523,32 +1523,6 @@ module RubyGBA
             end
           end
 
-          # rd = rn + imm. A small immediate rides directly in the ADD; a larger one
-          # (a wide bitmap's row offset, say) is loaded into +scratch+ first, since
-          # ARM can only fold an 8-bit rotated immediate into the instruction.
-          def emit_add_const(rd, rn, imm, scratch)
-            if imm.zero?
-              emit(ASM.mov_reg(rd, rn)) unless rd == rn
-            elsif ASM.encode_rotated_immediate(imm)
-              emit(ASM.add_imm(rd, rn, imm))
-            else
-              emit(ASM.load_immediate(scratch, imm))
-              emit(ASM.add_reg(rd, rn, scratch))
-            end
-          end
-
-          # rd = rn & imm — the ring-wrap mask. A mask that fits an 8-bit rotated
-          # immediate (capacity up to 256) rides directly in the AND; a wider one is
-          # loaded into +scratch+ first, since ARM can't fold it into the instruction.
-          def emit_and_const(rd, rn, imm, scratch)
-            if ASM.encode_rotated_immediate(imm)
-              emit(ASM.and_imm(rd, rn, imm))
-            else
-              emit(ASM.load_immediate(scratch, imm))
-              emit(ASM.and_reg(rd, rn, scratch))
-            end
-          end
-
           # Draw a line of text with the built-in bitmap font. The color loads once,
           # then every set pixel of every glyph is a single halfword store at its
           # fixed VRAM address; off-screen pixels are dropped. Positions are constant.

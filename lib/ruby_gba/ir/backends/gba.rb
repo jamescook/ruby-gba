@@ -72,8 +72,6 @@ module RubyGBA
         include Placement
         include Buffered
         include Audio
-        include Expressions
-        include Divide
         include Raster
         include DirectSound
         include Mixer
@@ -243,6 +241,8 @@ module RubyGBA
           @emit = Emit.new       # the code buffer + two-pass label/fixup machinery
           @memory = Memory.new(start: IWRAM_START) # the IWRAM bump allocator
           @primitives = Primitives.new(emitter: @emit, memory: @memory)
+          @divide = Divide.new(emitter: @emit, memory: @memory, primitives: @primitives,
+                               scales_objects: method(:object_scales?))
           @frames = Frames.new(emitter: @emit, primitives: @primitives)
           @save = Save.new(emitter: @emit, primitives: @primitives)
           @lowering = Lowering.new # the kind-keyed dispatch that replaces eval_value's case
@@ -253,18 +253,22 @@ module RubyGBA
           @blob_codecs = {}      # name -> :lz77/:rle/:none (how a VRAM blob was packed, if at all)
           @blob_raw_bytes = {}   # name -> its size before packing (for the build's savings line)
           @bitmaps = {}          # name -> { width:, height: } (a blob that has a shape)
+          @tables = {}           # name -> { count:, elem_bytes:, signed:, pow2: } (a ROM lookup table)
           @collision = Collision.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                      bitmaps: @bitmaps)
+          @expressions = Expressions.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
+                                         divide: @divide, tables: @tables)
           # Every value kind's handler, registered once in one place — see {Lowering}.
           @lowering.values(
-            int: method(:eval_int), var_ref: method(:eval_var_ref), neg: method(:eval_neg),
-            binop: method(:eval_binop), mul_fix: method(:eval_mul_fix), div_fix: method(:eval_div_fix),
-            shift_right: method(:eval_shift_right), held: method(:eval_held_node),
-            pressed: method(:eval_pressed_node), chance: method(:eval_chance),
-            pixels_overlap: @collision.method(:eval_pixels_overlap), data_byte: method(:eval_data_byte),
-            table_get: method(:eval_table_get), list_get: method(:eval_list_get),
-            list_len: method(:eval_list_len), read_scanline: method(:eval_read_scanline),
-            timer_ticks: method(:eval_timer_ticks),
+            int: @expressions.method(:eval_int), var_ref: @expressions.method(:eval_var_ref),
+            neg: @expressions.method(:eval_neg), binop: @expressions.method(:eval_binop),
+            mul_fix: @expressions.method(:eval_mul_fix), div_fix: @expressions.method(:eval_div_fix),
+            shift_right: @expressions.method(:eval_shift_right), held: @expressions.method(:eval_held_node),
+            pressed: @expressions.method(:eval_pressed_node), chance: @expressions.method(:eval_chance),
+            pixels_overlap: @collision.method(:eval_pixels_overlap),
+            data_byte: @expressions.method(:eval_data_byte), table_get: @expressions.method(:eval_table_get),
+            list_get: method(:eval_list_get), list_len: method(:eval_list_len),
+            read_scanline: @expressions.method(:eval_read_scanline), timer_ticks: method(:eval_timer_ticks),
           )
           # Every statement kind's handler, registered once in one place — see {Lowering}.
           # The 12 definition kinds are collected during the definitions pass, earlier in
@@ -299,7 +303,6 @@ module RubyGBA
             on_timer: Lowering::NOTHING, sample: Lowering::NOTHING, play_sample: method(:emit_play_sample),
             stop_sample: method(:emit_stop_sample),
           )
-          @tables = {}           # name -> { count:, elem_bytes:, signed:, pow2: } (a ROM lookup table)
           @backing = {}          # name -> { width:, height:, base: } (a sprite's save-under RAM)
           @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)
           @layer_stack = []      # the layers the program declared, backmost first
@@ -391,7 +394,7 @@ module RubyGBA
           # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
           # the console's cautious power-on timing.
           emit_waitcnt_setup if @fast_cartridge && !raw_escape_hatch?(program)
-          emit_copy_divide_routines_to_iwram if @divide_routine_iwram || @divide_fix_routine_iwram
+          emit_copy_divide_routines_to_iwram # a no-op when neither routine was reserved
           emit_copy_hot_code_to_iwram unless @fast_funcs.empty?
           # THE MIXER IS BROUGHT UP BEFORE THE INTERRUPTS ARE ARMED, and the order is load-bearing
           # rather than tidy. The screen's interrupt builds the next slice of sound (see
@@ -532,6 +535,23 @@ module RubyGBA
         def const_int(node) = @primitives.const_int(node)
         def constant_ints!(node, **sides) = @primitives.constant_ints!(node, **sides)
         def emit_row_loop(counter, &block) = @primitives.emit_row_loop(counter, &block)
+        def emit_add_const(rd, rn, imm, scratch) = @primitives.emit_add_const(rd, rn, imm, scratch)
+        def emit_and_const(rd, rn, imm, scratch) = @primitives.emit_and_const(rd, rn, imm, scratch)
+
+        # Forwards to @divide (see {Divide}).
+        def needs_divide_routine?(program) = @divide.needs_divide_routine?(program)
+        def needs_divide_fix_routine?(program) = @divide.needs_divide_fix_routine?(program)
+        def reserve_divide_routine = @divide.reserve_divide_routine
+        def reserve_divide_fix_routine = @divide.reserve_divide_fix_routine
+        def guard_variables_clear_of_routines = @divide.guard_variables_clear_of_routines
+        def emit_copy_divide_routines_to_iwram = @divide.emit_copy_divide_routines_to_iwram
+        def emit_divide_routine = @divide.emit_divide_routine
+        def emit_divide_fix_routine = @divide.emit_divide_fix_routine
+        def emit_call_divide_routine = @divide.emit_call_divide_routine
+
+        # Forwards to @expressions (see {Expressions}).
+        def emit_input_init = @expressions.emit_input_init
+        def snapshot_keys = @expressions.snapshot_keys
 
         # Forwards to @collision (see {Collision}).
         def prepare_pixel_masks(program) = @collision.prepare_pixel_masks(program)
