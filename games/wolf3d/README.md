@@ -39,7 +39,7 @@ redistribute, so it would fail on every machine but yours — and a library shou
 know the names of the games built on it. Tests that need the data skip and say so; the rest
 always run.
 
-It lives in this repository only because ruby-gba is pre-alpha and the two move together. A
+It lives in this repository only because ruby-gba is pre-1.0 and the two move together. A
 separate repository would mean a version bump for every experiment.
 
 ## What works so far
