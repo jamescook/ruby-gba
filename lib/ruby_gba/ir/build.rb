@@ -514,9 +514,20 @@ module RubyGBA
       # This says *what* the background is, not how a machine draws it: one backend
       # stamps the tiles pixel by pixel, another can hand the grid to tile hardware,
       # but the picture is the same.
-      def background(name, tiles:, map:, tile_w:, tile_h:, layer: nil)
+      def background(name, tiles:, map:, tile_w:, tile_h:, layer: nil, affine: false)
         Nodes.build(:background, name: name, tiles: tiles, map: map,
-                                 tile_w: tile_w, tile_h: tile_h, **in_layer(layer))
+                                 tile_w: tile_w, tile_h: tile_h, affine: affine, **in_layer(layer))
+      end
+
+      # Turn and resize the named background as a whole, this frame — the affine
+      # counterpart to scroll_background's plain pan. +angle+ is degrees clockwise from
+      # upright; +scale+ is 1.0 at the size it was drawn, following the same value
+      # operand shape scroll_background's x/y do (a run-time value the game works out).
+      # Only a background declared under `screen :affine` can carry this — the console's
+      # rotate/scale hardware is a different pair of layers (BG2/BG3) from the ones a
+      # `screen :tiled` background scrolls on.
+      def affine_background(name, angle:, scale:)
+        Nodes.build(:affine_background, name: name, angle: wrap(angle), scale: wrap(scale))
       end
 
       # Show the named background scrolled to the offset (+x+, +y+) in pixels — the

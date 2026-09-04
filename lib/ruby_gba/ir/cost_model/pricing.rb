@@ -126,6 +126,11 @@ module RubyGBA
           # writes when a background moves.
           when :present_objects then node.names.to_a.sum { |name| present_object_cost(name) }
           when :scroll_background then @weights[:scroll_write]
+          # The affine matrix a background's rotate/scale rewrites every frame is the
+          # same shape of work a sprite that both turns and resizes does (a sine-table
+          # matrix plus a size reciprocal) — reusing those two measured weights rather
+          # than guessing a new one, until this gets its own calibration run.
+          when :affine_background then @weights[:obj_turn] + @weights[:obj_resize]
           # Telling the display what to show, without redrawing a pixel: where the window
           # over the picture sits, and how far the whole picture is blended toward a color.
           # Cheap next to drawing, but not free, and `shake_screen` moves the camera on

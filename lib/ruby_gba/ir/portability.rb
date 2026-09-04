@@ -63,6 +63,7 @@ module RubyGBA
         blit_pose: :portable,  # pick one of a set of images by a run-time index — any backend can
         background: :portable, # stamp a grid of tiles — pixels or tile hardware, any backend can
         scroll_background: :portable, # move the window over a map — re-render or nudge scroll regs
+        affine_background: :portable, # turn/resize a whole background — sample it transformed, or hand it to rotate/scale hardware
         scroll_rows: :portable,       # a sideways offset per row — read it per row, or per scanline
         camera: :portable,            # offset the whole picture — a display offset anywhere
         fade: :portable,              # blend the whole picture toward a color — any backend can

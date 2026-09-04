@@ -42,7 +42,18 @@ module RubyGBA
         kind :background
         category :draw
         operands name: :name, tiles: :list, map: :list, tile_w: :int, tile_h: :int,
-                 layer: :name
+                 layer: :name, affine: :flag
+      end
+
+      # The per-frame write that turns and resizes an affine background as a whole (see
+      # ScrollBackground, its sibling for plain panning). +angle+ is degrees clockwise,
+      # +scale+ is in Build::SCALE_ONE-ths (1.0 = drawn size) — the same units a hardware
+      # sprite's rotation/scale carry, so both go through the shared {IR::Affine} rules.
+      class AffineBackground
+        include Node
+        kind :affine_background
+        category :draw
+        operands name: :name, angle: :value, scale: :value
       end
 
       class BackingBuffer

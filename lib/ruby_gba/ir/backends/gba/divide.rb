@@ -103,6 +103,11 @@ module RubyGBA
               # A stretched column divides the picture's height by the height asked for, and
               # that height is only known as the game runs.
               when :draw_column_at then true
+              # An affine background always works out one over its current size (see
+              # Drawing#emit_bg_affine_scale_reciprocal), even the frame it only turns —
+              # rotate and scale share one pair of variables, so there's no "never resizes"
+              # case to skip the divide the way a sprite's does.
+              when :affine_background then true
               else false
               end
             end

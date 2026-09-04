@@ -29,12 +29,16 @@ module RubyGBA
     # @param scroll_y [Symbol] the variable holding the window's top edge (in pixels)
     # @param walls [Array<Array(Integer,Integer,Integer,Integer)>] the solid-tile
     #   rectangles [x, y, w, h] in pixels, if the tileset marked any tiles `solid:`
-    def initialize(builder, name:, scroll_x:, scroll_y:, walls: [])
+    # @param affine [Boolean] built under `screen :affine` — the console's rotate/scale
+    #   layer, which pans by moving the whole matrix (see #rotate / #scale) rather than
+    #   the plain scroll registers a `screen :tiled` layer pans with
+    def initialize(builder, name:, scroll_x:, scroll_y:, walls: [], affine: false)
       @builder = builder
       @name = name
       @scroll_x = scroll_x
       @scroll_y = scroll_y
       @walls = walls
+      @affine = affine
     end
 
     # The background's walls as {Box}es a sprite can be tested against — the merged
@@ -48,6 +52,7 @@ module RubyGBA
     # Slide the view by (+dx+, +dy+) pixels from where it is now — the usual way to
     # scroll as the player moves. dx/dy may be numbers or {Value} expressions.
     def scroll_by(dx, dy)
+      ensure_not_affine!("scroll_by")
       record(Build.add(@scroll_x, Value.node_for(dx)))
       record(Build.add(@scroll_y, Value.node_for(dy)))
       apply
@@ -56,6 +61,7 @@ module RubyGBA
     # Put the view's top-left corner at an exact (+x+, +y+) on the map — for snapping
     # the camera to a spot. x/y may be numbers or {Value} expressions.
     def scroll_to(x, y)
+      ensure_not_affine!("scroll_to")
       record(Build.set(@scroll_x, Value.node_for(x)))
       record(Build.set(@scroll_y, Value.node_for(y)))
       apply
@@ -98,7 +104,102 @@ module RubyGBA
       self
     end
 
+    # Turn the whole background to point +degrees+ clockwise from upright, pivoting on
+    # the middle of the screen — the affine counterpart to a sprite's `face_angle`, done
+    # to a background layer instead of one picture. +degrees+ can be a whole number or a
+    # {Value} (an angle the game works out at run time). Needs `screen :affine` — see
+    # {Builder::Tiled#make_background_affine} for why.
+    #
+    #   world = background :world, tiles: :terrain, map: MAP
+    #   world.rotate 15          # tilt the whole picture
+    #   world.rotate spin        # or however far `spin` says
+    #
+    # The angle wraps, so 370 is the same as 10. A background that never turns keeps its
+    # upright angle and costs nothing extra.
+    def rotate(degrees)
+      angle_var, = affine_vars
+      fixed = Value.fixed_number(degrees)
+      if fixed
+        record(Build.set(angle_var, Build.int(fixed % 360)))
+      else
+        angle.set(degrees)
+        wrap_angle
+      end
+      apply_affine
+      self
+    end
+
+    # Draw the background bigger or smaller as a whole, about the middle of the screen —
+    # the affine counterpart to a sprite's `scale`. 1.0 is the size it was drawn at, 2.0
+    # twice as big, 0.5 half — a title screen that zooms in, a warp that zooms out. With
+    # no argument it hands back the size as a {Value} you can read, compare and ease
+    # (`world.scale.approach 1.0, 0.05`). Needs `screen :affine`.
+    def scale(size = nil)
+      affine_vars # ensure the size variable exists even if only read below
+      return affine_scale_value if size.nil?
+
+      if size.is_a?(Numeric) && size <= 0
+        raise ArgumentError,
+              "a background's size must be more than 0. You gave #{size.inspect}. " \
+              "1.0 is the size it was drawn at, 0.5 is half."
+      end
+      affine_scale_value.set(size)
+      apply_affine
+      self
+    end
+
+    # The background's heading as a {Value}, degrees clockwise from upright, 0..359.
+    # Reading it needs `screen :affine`, same as {#rotate}.
+    def angle
+      angle_var, = affine_vars
+      Value.new(@builder, Build.var_ref(angle_var), name: angle_var)
+    end
+
     private
+
+    # A plain scroll moves a `screen :tiled` layer's own pan registers, which an affine
+    # (`screen :affine`) layer doesn't have — it pans by moving its whole matrix instead
+    # (see #rotate / #scale). Friendly error rather than a register write that does
+    # nothing on real hardware.
+    def ensure_not_affine!(verb)
+      return unless @affine
+
+      raise ArgumentError,
+            "#{@name}.#{verb} scrolls a `screen :tiled` background. This one is `screen :affine`, " \
+            "which turns and resizes instead of scrolling straight. Use #{@name}.rotate or " \
+            "#{@name}.scale here."
+    end
+
+    # Allocate (once) and cache this background's angle/scale variables. A friendly
+    # error if the screen can't turn or resize a background at all (see
+    # Builder::Tiled#make_background_affine).
+    def affine_vars
+      @affine_vars ||= @builder.make_background_affine(@name)
+    end
+
+    # The size variable as a fraction-carrying handle, the same way a sprite's does.
+    def affine_scale_value
+      _, scale_var = affine_vars
+      Value.new(@builder, Build.var_ref(scale_var), name: scale_var,
+                          fraction_bits: Fraction::DEFAULT_BITS)
+    end
+
+    # A turn past 359 or below 0 wraps around, same as a sprite's #face_angle — see
+    # HardwareSprite#wrap_angle, whose exact steps this mirrors.
+    def wrap_angle
+      a = angle
+      a.set(a - (a / 360 * 360))
+      (angle < 0).then { angle.add(360) }
+    end
+
+    # Write this frame's angle/scale to the display — recorded at the call site, like
+    # #apply for a scroll, and moved to the frame boundary at finalize (see
+    # Builder#finalize_background_affine) so the console never shows a half-turned frame.
+    def apply_affine
+      angle_var, scale_var = affine_vars
+      node = record(Build.affine_background(@name, angle: Build.var_ref(angle_var), scale: Build.var_ref(scale_var)))
+      @builder.record_inline_affine_node(node)
+    end
 
     # The variable the row number is put in before the block's offset is worked out —
     # one per background, so two bending backgrounds cannot tread on each other.

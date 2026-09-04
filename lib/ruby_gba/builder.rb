@@ -111,6 +111,9 @@ module RubyGBA
       @frame_boundaries = []   # each frame's wait node, the anchor the scroll writes are inserted after at finalize
       @scrolled_backgrounds = {} # name → [x var, y var] for every background the game scrolls
       @inline_scroll_nodes = []  # scroll nodes recorded at their call site, dropped once a frame boundary exists
+      @bg_affine_vars = {}       # name → [angle var, scale var] for every screen :affine background ever turned/resized
+      @affine_backgrounds = {}   # name → [angle var, scale var], the affine counterpart to @scrolled_backgrounds
+      @inline_affine_nodes = []  # affine_background nodes recorded at their call site, moved to the frame boundary
       @per_frame_routines = []   # func names `once_a_frame` declared, called at every frame boundary
       @each_frame_seq = 0        # counts once_a_frame bodies, to name each one's hidden routine
       @scene_gates = {}        # scene func name → [state_var, value] it's dispatched on (from case_var), for gating its presentation
@@ -346,6 +349,7 @@ module RubyGBA
 
       finalize_present_lists
       finalize_background_scrolls
+      finalize_background_affine
       finalize_layer_blend
       finalize_per_frame_routines
       verify_targets_defined!
@@ -373,6 +377,25 @@ module RubyGBA
     def scroll_each_frame(name, x_var, y_var, node)
       @scrolled_backgrounds[name] = [x_var, y_var]
       @inline_scroll_nodes << node
+    end
+
+    # The affine counterpart to {#scroll_each_frame}: remember that +name+ turns or
+    # resizes, so its matrix is written once a frame in the gap between frames rather
+    # than wherever the game happened to change its angle or size. Called once, as soon
+    # as a background is made affine (see Builder::Tiled#make_background_affine) — not
+    # only from `rotate`/`scale` themselves — so the matrix stays live even for a
+    # program that reaches into the angle/scale {Value}s directly (`bg.scale.approach`)
+    # rather than through those two verbs.
+    def affine_each_frame(name, angle_var, scale_var)
+      @affine_backgrounds[name] = [angle_var, scale_var]
+    end
+
+    # An affine_background write recorded at its call site (by {Background#rotate} /
+    # {Background#scale}) — kept so {#finalize_background_affine} can drop it once it
+    # knows there's a frame boundary to move the write to instead, the same as
+    # {#scroll_each_frame}'s inline scroll nodes.
+    def record_inline_affine_node(node)
+      @inline_affine_nodes << node
     end
 
     # Remember this frame boundary, so the per-frame scroll writes can be inserted
@@ -608,6 +631,29 @@ module RubyGBA
 
         @scrolled_backgrounds.reverse_each do |name, (x_var, y_var)|
           node = Build.scroll_background(name, x: Build.var_ref(x_var), y: Build.var_ref(y_var))
+          container.children.insert(at + 1, node)
+          node.parent = container
+        end
+      end
+    end
+
+    # Move every affine background's matrix write to the frame boundary — the same
+    # reason {#finalize_background_scrolls} moves scroll writes there: the console reads
+    # a background's rotate/scale registers for the whole frame it draws, so writing them
+    # mid-frame would show two different pictures on one screen. See that method for the
+    # rest of the reasoning; this is its `rotate`/`scale` sibling.
+    def finalize_background_affine
+      return if @affine_backgrounds.empty? || @frame_boundaries.empty?
+
+      @inline_affine_nodes.each { |node| node.parent&.children&.delete(node) }
+
+      @frame_boundaries.each do |wait_node|
+        container = wait_node.parent
+        at = container&.children&.index(wait_node)
+        next unless at
+
+        @affine_backgrounds.reverse_each do |name, (angle_var, scale_var)|
+          node = Build.affine_background(name, angle: Build.var_ref(angle_var), scale: Build.var_ref(scale_var))
           container.children.insert(at + 1, node)
           node.parent = container
         end
