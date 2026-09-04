@@ -8,6 +8,7 @@ require_relative "gba/bend_form" # ...and which way a row-by-row bend is lowered
 require_relative "gba/statements"
 require_relative "gba/lists"
 require_relative "gba/functions"
+require_relative "gba/framebuffer"
 require_relative "gba/drawing"
 require_relative "gba/placement"
 require_relative "gba/buffered"
@@ -66,9 +67,7 @@ module RubyGBA
       #   * the CPU stack holds intermediate values inside a nested expression
       class GBA
         include RubyGBA::Constants
-        include Drawing
         include Placement
-        include Buffered
 
         class LoweringError < StandardError; end
 
@@ -219,6 +218,20 @@ module RubyGBA
         def data_positions = @emit.data_positions
         def palette_entries = @palette_tint.palette_entries
         # A test reads a voice's/the mix buffers' state back (see {Mixer}).
+        def bitmaps = @bitmaps
+        def blob_codecs = @blob_codecs
+        def backgrounds = @backgrounds
+        # Reached via `drawing: self` by Audio (still, until Drawing exists a few lines
+        # into #initialize) and by PaletteTint/LayerBlend (Drawing isn't their own
+        # object's collaborator name — this instance stands in), so these have to be
+        # public: an explicit-receiver call ignores privacy on the DEFINING class, not
+        # on whatever the receiver happens to evaluate to.
+        def emit_flip_if_buffered = @drawing.emit_flip_if_buffered
+        def fade_steps(percent) = @drawing.fade_steps(percent)
+        def fade_steps_value(amount) = @drawing.fade_steps_value(amount)
+        def emit_clamp_blend_steps = @drawing.emit_clamp_blend_steps
+        def emit_blend_weights_from_acc = @drawing.emit_blend_weights_from_acc
+        def emit_plain_dma_blob(blob_name, dest, units) = @drawing.emit_plain_dma_blob(blob_name, dest, units)
         def mix_buf0 = @mixer.mix_buf0
         def mix_buf1 = @mixer.mix_buf1
         def voice_base = @mixer.voice_base
@@ -253,30 +266,43 @@ module RubyGBA
           @bitmaps = {}          # name -> { width:, height: } (a blob that has a shape)
           @tables = {}           # name -> { count:, elem_bytes:, signed:, pow2: } (a ROM lookup table)
           @backgrounds = {}      # name -> resolved tiled-background layer (map blob, BG number, screen block, priority)
+          @run_bitmaps = []      # pictures that ship where each of their columns holds pixels
           @timers = Timers.new(emitter: @emit) # named timer -> which hardware timer(s) back it
           @collision = Collision.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                      bitmaps: @bitmaps)
           @expressions = Expressions.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                          divide: @divide, tables: @tables)
           @lists = Lists.new(memory: @memory, primitives: @primitives, emitter: @emit, lowering: @lowering)
-          # `placement: self` / `drawing: self` — Placement and Drawing are not their own
-          # objects yet (see the class comment on Placement); their methods live directly
-          # on this instance, so handing self in is what makes the dependency an explicit
-          # constructor argument instead of a bare cross-file call.
+          # `placement: self` — Placement is not its own object yet (see its class
+          # comment); its methods live directly on this instance, so handing self in is
+          # what makes the dependency an explicit constructor argument instead of a bare
+          # cross-file call. `drawing: self` below is the same shape, for the same
+          # reason, until @drawing itself exists a few lines down — GBA forwards to it
+          # once it does, so the call resolves fine the first time anything actually
+          # emits (see the private forwarders).
           @functions = Functions.new(emitter: @emit, lowering: @lowering, placement: self,
                                      scene_preamble: method(:emit_scene_preamble))
           @statements = Statements.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                        placement: self, functions: @functions)
+          @framebuffer = Framebuffer.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
+                                         divide: @divide, run_bitmaps: @run_bitmaps)
           @raster = Raster.new(emitter: @emit, primitives: @primitives, memory: @memory,
-                               lowering: @lowering, backgrounds: @backgrounds, drawing: self)
+                               lowering: @lowering, backgrounds: @backgrounds, framebuffer: @framebuffer)
           @mixer = Mixer.new(emitter: @emit, memory: @memory, timers: @timers, primitives: @primitives)
           @audio = Audio.new(emitter: @emit, primitives: @primitives, sounds: @defined_sounds, songs: @songs,
-                             frames: @frames, expressions: @expressions, raster: @raster, buffered: self,
+                             frames: @frames, expressions: @expressions, raster: @raster, drawing: self,
                              uses_pressed: -> { @uses_pressed }, any_buffered: -> { @any_buffered })
           @palette_tint = PaletteTint.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                           drawing: self)
           @layer_blend = LayerBlend.new(emitter: @emit, lowering: @lowering, primitives: @primitives,
                                         drawing: self)
+          @buffered = Buffered.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
+                                   framebuffer: @framebuffer)
+          @drawing = Drawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
+                                 divide: @divide, framebuffer: @framebuffer, raster: @raster,
+                                 palette_tint: @palette_tint, layer_blend: @layer_blend, buffered: @buffered,
+                                 backing_info: method(:backing_info), fade_targets: method(:fade_targets),
+                                 effect_line: method(:effect_line))
           # Every value kind's handler, registered once in one place — see {Lowering}.
           @lowering.values(
             int: @expressions.method(:eval_int), var_ref: @expressions.method(:eval_var_ref),
@@ -305,17 +331,17 @@ module RubyGBA
             list_drop: @lists.method(:emit_list_drop), list_set: @lists.method(:emit_list_set),
             call: @statements.method(:emit_call), case: @functions.method(:emit_case),
             raw: @statements.method(:emit_raw), halt: @statements.method(:emit_halt),
-            wait_vblank: @audio.method(:emit_wait_vblank), screen: method(:emit_screen),
-            pixel: method(:emit_pixel), fill_rect: method(:emit_fill_rect),
-            clear_screen: method(:emit_clear_screen), dma_fill_rect: method(:emit_dma_fill_rect),
-            draw_rect_at: method(:emit_draw_rect_at), draw_column_at: method(:emit_draw_column_at),
-            draw_text: method(:emit_draw_text), draw_digit: method(:emit_draw_digit),
-            blit: method(:emit_blit), blit_pose: method(:emit_blit_pose),
-            background: method(:emit_background), scroll_background: method(:emit_scroll_background),
-            scroll_rows: Lowering::NOTHING, camera: method(:emit_camera), fade: method(:emit_fade),
-            tint: method(:emit_tint), see_through: @layer_blend.method(:emit_see_through),
-            present_objects: method(:emit_present_objects), save_region: method(:emit_save_region),
-            restore_region: method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
+            wait_vblank: @audio.method(:emit_wait_vblank), screen: @drawing.method(:emit_screen),
+            pixel: @drawing.method(:emit_pixel), fill_rect: @drawing.method(:emit_fill_rect),
+            clear_screen: @drawing.method(:emit_clear_screen), dma_fill_rect: @drawing.method(:emit_dma_fill_rect),
+            draw_rect_at: @drawing.method(:emit_draw_rect_at), draw_column_at: @drawing.method(:emit_draw_column_at),
+            draw_text: @drawing.method(:emit_draw_text), draw_digit: @drawing.method(:emit_draw_digit),
+            blit: @drawing.method(:emit_blit), blit_pose: @drawing.method(:emit_blit_pose),
+            background: @drawing.method(:emit_background), scroll_background: @drawing.method(:emit_scroll_background),
+            scroll_rows: Lowering::NOTHING, camera: @drawing.method(:emit_camera), fade: @drawing.method(:emit_fade),
+            tint: @drawing.method(:emit_tint), see_through: @layer_blend.method(:emit_see_through),
+            present_objects: @drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
+            restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
             define_sound: Lowering::NOTHING, song: Lowering::NOTHING, data: Lowering::NOTHING,
             bitmap: Lowering::NOTHING, backing_buffer: Lowering::NOTHING, object: Lowering::NOTHING,
             table: Lowering::NOTHING, layers: Lowering::NOTHING, beep: @audio.method(:emit_beep),
@@ -330,7 +356,6 @@ module RubyGBA
           @uses_pressed = false  # whether the program reads edge-detected input
           @palette = nil         # the color table, built once when any scene is buffered
           @indexed_bitmaps = {}  # name -> the number meaning see-through, for pictures drawn indexed
-          @run_bitmaps = []      # pictures that ship where each of their columns holds pixels
           @modes = nil           # IR::Modes: which screen mode each scene resolves to
           @any_buffered = false  # does any scene use double buffering?
           @mixed_display = false # does the program cross the bitmap/tiled boundary?
@@ -411,6 +436,20 @@ module RubyGBA
                                                           blob_codecs: @blob_codecs)
           @palette_tint.prepare_palette_tint(program)
           @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
+          # Everything the prepare passes above decided that Drawing/Buffered read, bundled
+          # into one record rather than twenty keyword arguments (see Drawing's class
+          # comment) — settled now, so handed over right before the first thing that emits.
+          layout = Drawing::Layout.new(
+            bitmaps: @bitmaps, objects: @objects, window_twins: @window_twins, backgrounds: @backgrounds,
+            bg_shared: @bg_shared, palette: @palette, indexed_bitmaps: @indexed_bitmaps,
+            run_bitmaps: @run_bitmaps, blob_codecs: @blob_codecs, blob_raw_bytes: @blob_raw_bytes,
+            picture: @picture, modes: @modes, tiled: @tiled, has_objects: @has_objects,
+            obj_palette_blob: @obj_palette_blob, obj_palette_units: @obj_palette_units,
+            default_mode: @default_mode, any_buffered: @any_buffered, mixed_display: @mixed_display,
+            manage_modes: @manage_modes, func_mode: @func_mode,
+          )
+          @drawing.layout = layout
+          @buffered.layout = layout
           # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
           # the console's cautious power-on timing.
           emit_waitcnt_setup if @fast_cartridge && !raw_escape_hatch?(program)
@@ -594,7 +633,6 @@ module RubyGBA
         def emit_boot_row_bends = @raster.emit_boot_row_bends
         def emit_row_bend_handler = @raster.emit_row_bend_handler
         def interrupts_rows? = @raster.interrupts_rows?
-        def row_bends = @raster.row_bends
 
         # Forwards to @mixer (see {Mixer}) — the whole sampled-audio picture, including
         # what used to be a separate DirectSound module.
@@ -604,17 +642,18 @@ module RubyGBA
 
         # Forwards to @palette_tint (see {PaletteTint}).
         def palette_tint? = @palette_tint.palette_tint?
-        def palette_screen?(node) = @palette_tint.palette_screen?(node)
-        def emit_palette_tint(node) = @palette_tint.emit_palette_tint(node)
-        def emit_lift_palette_tint(mode) = @palette_tint.emit_lift_palette_tint(mode)
         def emit_tint_state_init = @palette_tint.emit_tint_state_init
-        def emit_tint_state_reset = @palette_tint.emit_tint_state_reset
 
         # Forwards to @layer_blend (see {LayerBlend}).
-        def see_through? = @layer_blend.see_through?
         def see_through_object?(node) = @layer_blend.see_through_object?(node)
         def emit_boot_layer_blend = @layer_blend.emit_boot_layer_blend
-        def emit_layer_blend_again = @layer_blend.emit_layer_blend_again
+
+        # Forwards to @drawing (see {Drawing}) — the boot/frame/IRQ entry points #lower
+        # and #emit_irq_handler call directly, rather than through the Lowering table.
+        def emit_boot_screen = @drawing.emit_boot_screen
+        def emit_boot_backgrounds = @drawing.emit_boot_backgrounds
+        def emit_boot_objects = @drawing.emit_boot_objects
+        def emit_scene_preamble(name) = @drawing.emit_scene_preamble(name)
 
         # Does the program need any interrupt at all — VBlank (for wait_vblank) or a timer
         # (for an on_tick handler)? The mixer needs none: it refills on the frame loop, in

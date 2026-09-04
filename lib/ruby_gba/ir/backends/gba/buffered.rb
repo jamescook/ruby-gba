@@ -5,35 +5,64 @@ module RubyGBA
     module Backends
       class GBA
         # Double-buffered (Mode 4) drawing, onto the hidden page.
-        module Buffered
+        #
+        # These mirror the direct-color fills Drawing makes, with two differences
+        # forced by the indexed screen: a pixel is one byte (an index into the color
+        # table), not two, so addresses and counts are in bytes; and video memory
+        # can't be written a single byte at a time (a lone byte write hits both
+        # halves of its 16-bit slot), so fills move whole 16-bit units — two pixels —
+        # at once, and a block fill must start on an even column (a rect asked for an
+        # odd one gets its two edge pixels written singly instead). The destination is
+        # the hidden page, whose address lives in a run-time variable (BACKBUF) and
+        # swaps every flip.
+        #
+        # Reaches Drawing's clip/column/digit-glyph helpers through {Framebuffer}
+        # rather than through Drawing itself — the two screens share how they work,
+        # not an object.
+        class Buffered
           include Constants
 
-          #
-          # These mirror the direct-color fills above, with two differences forced by
-          # the indexed screen: a pixel is one byte (an index into the color table),
-          # not two, so addresses and counts are in bytes; and video memory can't be
-          # written a single byte at a time (a lone byte write hits both halves of its
-          # 16-bit slot), so fills move whole 16-bit units — two pixels — at once, and
-          # a block fill must start on an even column (a rect asked for an odd one
-          # gets its two edge pixels written singly instead). The destination is the
-          # hidden page, whose address lives in a run-time variable (BACKBUF) and
-          # swaps every flip.
+          def initialize(emitter:, primitives:, lowering:, framebuffer:)
+            @emitter = emitter
+            @primitives = primitives
+            @lowering = lowering
+            @framebuffer = framebuffer
+            @layout = nil
+          end
+
+          attr_writer :layout
+
+          # Forwards to @emitter/@primitives, exactly as every other converted
+          # collaborator's do (see e.g. {Collision}).
+          def emit(bytes) = @emitter.emit(bytes)
+          def pos = @emitter.pos
+          def place_label(name) = @emitter.place_label(name)
+          def gensym = @emitter.gensym
+          def emit_branch(kind, target, cond: nil) = @emitter.emit_branch(kind, target, cond: cond)
+          def emit_load_data_address(reg, name) = @emitter.emit_load_data_address(reg, name)
+          def var_addr(name) = @primitives.var_addr(name)
+          def load_var(reg, name) = @primitives.load_var(reg, name)
+          def const_int(node) = @primitives.const_int(node)
+          def constant_ints!(node, **sides) = @primitives.constant_ints!(node, **sides)
+          def store_word_immediate(value, address) = @primitives.store_word_immediate(value, address)
+          def emit_row_loop(counter, &block) = @primitives.emit_row_loop(counter, &block)
+          def emit_add_const(rd, rn, imm, scratch) = @primitives.emit_add_const(rd, rn, imm, scratch)
 
           # Clear the hidden page to a solid color: one DMA that repeats the packed
           # index word across the whole page.
           def emit_clear_screen_buffered(node)
             # Inside an area, "the whole page" is that area — which is a rectangle, and there is
             # already one way to fill one of those.
-            if clipping?
-              return emit_buffered_rect(clip_left, clip_top, clip_right - clip_left,
-                                        clip_bottom - clip_top, node.color)
+            if @framebuffer.clipping?
+              return emit_buffered_rect(@framebuffer.clip_left, @framebuffer.clip_top, @framebuffer.clip_right - @framebuffer.clip_left,
+                                        @framebuffer.clip_bottom - @framebuffer.clip_top, node.color)
             end
 
             scratch = hold_index_word(node.color)
             store_word_immediate(scratch, REG_DMA3SAD)
             point_dma_dest_at_backbuf
             count = SCREEN_WIDTH * SCREEN_HEIGHT / 4 # 32-bit words, 4 indices each
-            store_word_immediate(dma_fill_control(count), REG_DMA3CNT)
+            store_word_immediate(@framebuffer.dma_fill_control(count), REG_DMA3CNT)
           end
 
           # A rectangle at a constant position/size, filled per row into the hidden
@@ -48,7 +77,7 @@ module RubyGBA
           # building, so which of the two shapes a row takes is settled here.
           def emit_fill_rect_buffered(node)
             x, y, w, h = constant_ints!(node, x: node.x, y: node.y, w: node.w, h: node.h)
-            even_width!(w, node.kind)
+            @framebuffer.even_width!(w, node.kind)
             emit_buffered_rect(x, y, w, h, node.color)
           end
 
@@ -57,14 +86,14 @@ module RubyGBA
           def emit_buffered_rect(x, y, w, h, color)
             # Held to the area sideways once, before any row is emitted: every row of a
             # rectangle spans the same columns, so where it starts and stops is one answer.
-            left = [x, clip_left].max
-            right = [x + w, clip_right].min
+            left = [x, @framebuffer.clip_left].max
+            right = [x + w, @framebuffer.clip_right].min
             return if right <= left || h <= 0
 
             x = left
             w = right - left
             scratch = hold_index_word(color)
-            index = @palette.index_of(color)
+            index = @layout.palette.index_of(color)
 
             # WHICH PIXELS CANNOT GO IN AS PAIRS. A fill moves whole 16-bit units, so a run that
             # starts on an odd column shares its first unit with a pixel outside the rectangle,
@@ -95,7 +124,7 @@ module RubyGBA
 
             h.times do |dy|
               row = y + dy
-              next unless (clip_top...clip_bottom).cover?(row)
+              next unless (@framebuffer.clip_top...@framebuffer.clip_bottom).cover?(row)
 
               emit_write_index_pixel_const(base, x, row, index) if first_alone
               emit_buffered_row_fill(base: base, x: middle_x, row: row, w: middle_w, scratch: scratch) if middle_w.positive?
@@ -109,8 +138,8 @@ module RubyGBA
           # those, and one that starts below the top or stops above the bottom the second.
           def full_width_rows?(x:, y:, w:, h:)
             x.zero? && w == SCREEN_WIDTH && h.positive? &&
-              y >= clip_top && (y + h) <= clip_bottom &&
-              clip_left.zero? && clip_right == SCREEN_WIDTH
+              y >= @framebuffer.clip_top && (y + h) <= @framebuffer.clip_bottom &&
+              @framebuffer.clip_left.zero? && @framebuffer.clip_right == SCREEN_WIDTH
           end
 
           # One row of a rect into the hidden page: +w+ pixels from the even column +x+ of
@@ -165,10 +194,10 @@ module RubyGBA
             return if w < 1 # a rect with no width draws nothing
 
             scratch = hold_index_word(node.color)
-            index = @palette.index_of(node.color)
+            index = @layout.palette.index_of(node.color)
             rows = { w: w, h: const_int(node.h), scratch: scratch, index: index }
 
-            eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y, rows_reg: RECT_ROWS_LEFT)
+            @framebuffer.eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y, rows_reg: RECT_ROWS_LEFT)
 
             parity = Parity.of(node.x)
             return emit_buffered_rect_rows(**rows, starts_odd: parity == :odd) if parity
@@ -299,9 +328,9 @@ module RubyGBA
           # single pixel is spliced by one end or the other, and no middle at all.
           def emit_buffered_rect_computed_width(node)
             scratch = hold_index_word(node.color)
-            index = @palette.index_of(node.color)
+            index = @layout.palette.index_of(node.color)
 
-            eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y,
+            @framebuffer.eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y,
                                      rows_reg: RECT_ROWS_LEFT, width_reg: RECT_MIDDLE)
 
             # A rect the game has shrunk to nothing draws nothing — and a block fill
@@ -465,7 +494,7 @@ module RubyGBA
           # return its address — the fixed source a Mode 4 DMA fill re-reads. A 16-bit
           # fill reads its low half (two indices); a 32-bit fill reads all four.
           def hold_index_word(color)
-            index = @palette.index_of(color)
+            index = @layout.palette.index_of(color)
             word = index * 0x01010101 # the same index in all four bytes
             scratch = var_addr(:_dma_scratch)
             store_word_immediate(word, scratch)
@@ -493,14 +522,14 @@ module RubyGBA
           # is settled here, not at run time. Off-screen pixels are dropped.
           def emit_draw_text_buffered(node)
             x, y = constant_ints!(node, x: node.x, y: node.y)
-            index = @palette.index_of(node.color)
+            index = @layout.palette.index_of(node.color)
             base = 6
             load_var(base, BACKBUF) # the hidden page base, held for the whole line
 
             Fonts.get(node.font).each_pixel(node.text) do |dx, dy|
               px = x + dx
               py = y + dy
-              next unless in_bounds?(px, py)
+              next unless @framebuffer.in_bounds?(px, py)
 
               emit_write_index_pixel_const(base, px, py, index)
             end
@@ -512,8 +541,8 @@ module RubyGBA
           # instead of a color. The hidden page base flips each frame, so it's held live
           # in r9 for the whole glyph; the index is a build-time constant.
           def emit_draw_digit_data_buffered(node, font, width, x, y)
-            index = @palette.index_of(node.color)
-            emit_digit_glyph_loop(node, font, width) do |phase|
+            index = @layout.palette.index_of(node.color)
+            @framebuffer.emit_digit_glyph_loop(node, font, width) do |phase|
               case phase
               when :hold then load_var(9, BACKBUF)         # r9 = the hidden page base, held
               when :plot then emit_plot_digit_index(x, y, index)
@@ -554,12 +583,12 @@ module RubyGBA
           # half is known while building; with a computed coordinate it's found from
           # the live x at run time.
           def emit_pixel_buffered(node)
-            index = @palette.index_of(node.color)
+            index = @layout.palette.index_of(node.color)
             xi = const_int(node.x)
             yi = const_int(node.y)
 
             if xi && yi
-              return unless in_bounds?(xi, yi)
+              return unless @framebuffer.in_bounds?(xi, yi)
 
               base = 6
               load_var(base, BACKBUF)
@@ -645,27 +674,27 @@ module RubyGBA
           #     rounding as it walks: it starts on the pair the column sits in and steps one
           #     screen width per row.
           def emit_draw_column_at_buffered(node)
-            bmp = @bitmaps.fetch(node.name) do
+            bmp = @layout.bitmaps.fetch(node.name) do
               raise LoweringError, "draw_column_at of undefined image #{node.name.inspect}"
             end
             width = node.width || 1
-            clear = @indexed_bitmaps[node.name]
+            clear = @layout.indexed_bitmaps[node.name]
 
             done = gensym
-            emit_column_setup(node, bmp, done, blob: indexed_blob(node.name), pixel_bytes: 1)
-            emit_column_runs(node.name, bmp, done) do |leave|
+            @framebuffer.emit_column_setup(node, bmp, done, blob: @framebuffer.indexed_blob(node.name), pixel_bytes: 1)
+            @framebuffer.emit_column_runs(node.name, bmp, done) do |leave|
               # Clipped BEFORE the destination is worked out, so the destination points at the
               # first row that shows rather than at a row above the screen.
-              emit_clip_column_rows(leave)
+              @framebuffer.emit_clip_column_rows(leave)
               emit_column_destination
 
               # A strip wholly inside the edges writes with nothing to test; one hanging over an
               # edge takes a second copy of the rows that tests each of its pixels. A strip one
               # pixel wide has no second case — it is inside or it draws nothing.
               clipped = gensym
-              emit(ASM.cmp_imm(COLUMN_X, clip_left))
+              emit(ASM.cmp_imm(COLUMN_X, @framebuffer.clip_left))
               emit_branch(:bcond, clipped, cond: :lt)
-              emit(ASM.load_immediate(TMP, clip_right - width))
+              emit(ASM.load_immediate(TMP, @framebuffer.clip_right - width))
               emit(ASM.cmp_reg(COLUMN_X, TMP))
               emit_branch(:bcond, clipped, cond: :gt)
 
@@ -806,9 +835,9 @@ module RubyGBA
           def emit_buffered_column_pixel_clipped(offset)
             past = gensym
             emit(ASM.add_imm(SPARE, COLUMN_X, offset))
-            emit(ASM.cmp_imm(SPARE, clip_left))
+            emit(ASM.cmp_imm(SPARE, @framebuffer.clip_left))
             emit_branch(:bcond, past, cond: :lt)
-            emit(ASM.cmp_imm(SPARE, clip_right))
+            emit(ASM.cmp_imm(SPARE, @framebuffer.clip_right))
             emit_branch(:bcond, past, cond: :ge)
 
             # The pixel's own byte, then the pair it sits in and which half of it that is.

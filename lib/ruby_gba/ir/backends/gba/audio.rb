@@ -22,7 +22,7 @@ module RubyGBA
           # is just "put this 16-bit value at this register address."
 
           def initialize(emitter:, primitives:, sounds:, songs:, frames:, expressions:, raster:,
-                          buffered:, uses_pressed:, any_buffered:)
+                          drawing:, uses_pressed:, any_buffered:)
             @emitter = emitter
             @primitives = primitives
             @defined_sounds = sounds
@@ -30,7 +30,7 @@ module RubyGBA
             @frames = frames
             @expressions = expressions
             @raster = raster
-            @buffered = buffered
+            @drawing = drawing
             @uses_pressed = uses_pressed
             @any_buffered = any_buffered
           end
@@ -220,7 +220,7 @@ module RubyGBA
             # This is the safe moment to swap pages when a buffered scene is live:
             # show the frame just drawn and hand the program the other page. Which mode
             # is live can change frame to frame, so the flip is decided at run time.
-            @buffered.emit_flip_if_buffered if @any_buffered.call
+            @drawing.emit_flip_if_buffered if @any_buffered.call
 
             # This is the safe moment to point the copier back at the top of the table it
             # just walked down, ready for the frame that starts when we leave. It goes

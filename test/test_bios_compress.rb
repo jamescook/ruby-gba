@@ -205,7 +205,7 @@ class TestBiosCompress < Minitest::Test
   def test_the_backend_packs_the_tile_block
     gba = GBA.new
     gba.lower(solid_board)
-    codecs = gba.instance_variable_get(:@blob_codecs).values
+    codecs = gba.blob_codecs.values
     assert(codecs.any? { |c| %i[lz77 rle].include?(c) },
            "at least one video-memory blob should pack (got #{codecs.inspect})")
   end

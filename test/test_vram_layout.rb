@@ -42,7 +42,7 @@ class TestVramLayout < Minitest::Test
   def test_each_layer_gets_its_own_screen_block
     backend = GBA.new
     backend.lower(four_layer_program)
-    backgrounds = backend.instance_variable_get(:@backgrounds)
+    backgrounds = backend.backgrounds
 
     blocks = backgrounds.values.map(&:screen_block)
     assert_equal blocks.uniq, blocks, "two layers must never share a screen block"
