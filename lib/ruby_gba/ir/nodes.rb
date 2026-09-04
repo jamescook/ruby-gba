@@ -53,7 +53,7 @@ module RubyGBA
         include Node
         kind :affine_background
         category :draw
-        operands name: :name, angle: :value, scale: :value
+        operands name: :name, angle: :value, scale: :value, active: :value
       end
 
       class BackingBuffer

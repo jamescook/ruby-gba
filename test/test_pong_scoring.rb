@@ -104,13 +104,16 @@ class TestPongScoring < Minitest::Test
   # The dashed center line is drawn plain gray every frame, so any red SHIFT in it (the
   # red channel above the green) is the tint and nothing else. The frame numbers are
   # where the CPU's first point actually lands with nobody touching the pad — if the
-  # ball or paddle speeds change, these move, and that is worth being told about.
+  # ball or paddle speeds change, these move, and that is worth being told about. They
+  # also move whenever the title's own timing changes (the zoom-in on START runs for
+  # ZOOM_FRAMES before handing off to :playing), which is why these are ~23 frames later
+  # than they once were.
 
   LINE_X = 120
   LINE_Y = 6
-  THE_POINT = 334
-  JUST_AFTER_THE_POINT = 338
-  ONCE_IT_HAS_EASED_OFF = 352
+  THE_POINT = 357
+  JUST_AFTER_THE_POINT = 361
+  ONCE_IT_HAS_EASED_OFF = 375
 
   # The center line's three channels, as red / green / blue.
   def pong_line_at(frames)

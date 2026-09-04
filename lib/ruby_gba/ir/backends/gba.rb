@@ -118,11 +118,12 @@ module RubyGBA
         # live, so a scene only touches the display registers when the mode actually
         # changes (a transition), not every frame. Direct = single-buffered Mode 3,
         # Buffered = double-buffered Mode 4, Tiled = tile backgrounds + hardware
-        # sprites (Mode 0).
+        # sprites (Mode 0), Affine = the rotate/scale background layer (Mode 2).
         MODE_STATE = :__mode
         MODE_DIRECT = 0
         MODE_BUFFERED = 1
         MODE_TILED = 2
+        MODE_AFFINE = 3
 
         # This backend's mapping of the shared button vocabulary (IR::Buttons) to
         # hardware: each name → its bit in the key register. The key register is

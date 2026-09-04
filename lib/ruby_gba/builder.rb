@@ -386,8 +386,18 @@ module RubyGBA
     # only from `rotate`/`scale` themselves — so the matrix stays live even for a
     # program that reaches into the angle/scale {Value}s directly (`bg.scale.approach`)
     # rather than through those two verbs.
+    #
+    # Also captures the CURRENT scene gate (whatever scene this first `rotate`/`scale`/
+    # `angle` call happens inside, if any — see #scene_gate), so a background declared
+    # and turned only inside one scene writes its matrix only while that scene is
+    # active. Without this, the write would land at every frame boundary in the whole
+    # program regardless of which scene is running — and BG2's affine registers are
+    # never inert the way a plain scroll's are: `screen :bitmap`'s Mode 3/4 framebuffer
+    # is itself rendered through these same registers, so an untouched write from an
+    # affine title screen would keep distorting a bitmap gameplay scene that never asked
+    # for it.
     def affine_each_frame(name, angle_var, scale_var)
-      @affine_backgrounds[name] = [angle_var, scale_var]
+      @affine_backgrounds[name] = [angle_var, scale_var, @current_scene_gate]
     end
 
     # An affine_background write recorded at its call site (by {Background#rotate} /
@@ -642,6 +652,10 @@ module RubyGBA
     # a background's rotate/scale registers for the whole frame it draws, so writing them
     # mid-frame would show two different pictures on one screen. See that method for the
     # rest of the reasoning; this is its `rotate`/`scale` sibling.
+    #
+    # Each write is gated to its owning scene's `active` condition (see #affine_each_frame),
+    # the same as a scene-owned sprite or HUD glyph — a background turned only inside one
+    # scene must stop writing BG2's registers once that scene isn't the live one.
     def finalize_background_affine
       return if @affine_backgrounds.empty? || @frame_boundaries.empty?
 
@@ -652,8 +666,10 @@ module RubyGBA
         at = container&.children&.index(wait_node)
         next unless at
 
-        @affine_backgrounds.reverse_each do |name, (angle_var, scale_var)|
-          node = Build.affine_background(name, angle: Build.var_ref(angle_var), scale: Build.var_ref(scale_var))
+        @affine_backgrounds.reverse_each do |name, (angle_var, scale_var, gate)|
+          active = gate ? Build.binop(:==, Build.var_ref(gate[0]), Build.int(gate[1])) : Build.int(1)
+          node = Build.affine_background(name, angle: Build.var_ref(angle_var), scale: Build.var_ref(scale_var),
+                                                active: active)
           container.children.insert(at + 1, node)
           node.parent = container
         end

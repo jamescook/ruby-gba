@@ -29,17 +29,22 @@ module RubyGBA
         class BitmapDrawOnTiled
           NAME = :bitmap_draw_on_tiled
 
+          # The screen modes this check covers — both paint with tile hardware
+          # (backgrounds + sprites), neither has a framebuffer a bitmap draw can land in.
+          TILE_HARDWARE_MODES = [Modes::TILED, Modes::AFFINE].freeze
+
           def detect(program)
             modes = Modes.resolve(program)
-            return [] unless modes.any_tiled?
+            return [] unless modes.any_tiled? || modes.any_affine?
             return [] unless TiledDisplay.paints?(program)
 
             program.each.filter_map do |node|
               next unless TiledDisplay::BITMAP_DRAWS.include?(node.kind)
-              next unless modes.mode_at(node) == Modes::TILED
+              mode = modes.mode_at(node)
+              next unless TILE_HARDWARE_MODES.include?(mode)
 
               Finding.new(check: NAME, severity: :error,
-                          message: message(TiledDisplay.verb_for(node.kind)), node: node)
+                          message: message(TiledDisplay.verb_for(node.kind), mode), node: node)
             end
           rescue Modes::Conflict
             # The program already has a worse problem — one drawing routine reached
@@ -49,11 +54,13 @@ module RubyGBA
 
           private
 
-          def message(verb)
-            "`#{verb}` cannot draw on a tiled screen. A tiled screen shows " \
+          def message(verb, mode)
+            screen = mode == Modes::AFFINE ? "screen :affine" : "screen :tiled"
+            noun = mode == Modes::AFFINE ? "an affine" : "a tiled"
+            "`#{verb}` cannot draw on #{noun} screen. #{noun.capitalize} screen shows " \
               "backgrounds and sprites only, so this drawing never appears. There " \
               "is no crash or error to point at it.\n\n" \
-              "This game already uses `screen :tiled` for its backgrounds and " \
+              "This game already uses `#{screen}` for its backgrounds and " \
               "sprites, so it is on the right screen. To show something here, put " \
               "it in a `background` or draw it with a `sprite`. Or remove this line."
           end

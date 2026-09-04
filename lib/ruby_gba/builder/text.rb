@@ -14,6 +14,13 @@ module RubyGBA
       # number's width isn't known until the game runs, so it draws in a fixed field.
       DEFAULT_DIGITS = 4
 
+      # The screen modes with no framebuffer to paint into — text on either of these
+      # is drawn as little hardware-sprite glyphs (see #draw_text_tiled), not written
+      # into pixels. `screen :affine` is tile hardware too (see IR::Modes::AFFINE):
+      # a different pair of background layers from `screen :tiled`'s four, but the
+      # same sprite hardware composites glyphs over it exactly the same way.
+      TILE_HARDWARE_MODES = %i[tiled affine].freeze
+
       # Draw a line of words at (x, y) with the built-in font: a label, a title, a
       # line of dialogue. The string is fixed when the ROM is built.
       #
@@ -71,7 +78,7 @@ module RubyGBA
         # A tiled screen has no framebuffer to paint into, so text is drawn as little
         # sprite glyphs the console composites each frame — declared once, like a
         # sprite (see #draw_text_tiled).
-        if @screen_mode == :tiled
+        if TILE_HARDWARE_MODES.include?(@screen_mode)
           require_hud_declared_once!("draw_text")
           return draw_text_tiled(text, x, y, color, font)
         end
@@ -103,7 +110,7 @@ module RubyGBA
 
         # On a tiled screen, a number is drawn as sprite glyphs, declared once and
         # left to update itself each frame (see #draw_number_tiled).
-        if @screen_mode == :tiled
+        if TILE_HARDWARE_MODES.include?(@screen_mode)
           require_hud_declared_once!("draw_number")
           return draw_number_tiled(value, x, y, color, digits, font)
         end

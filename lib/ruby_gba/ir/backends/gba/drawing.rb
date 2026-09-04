@@ -119,6 +119,7 @@ module RubyGBA
             upload_palette if @layout.any_buffered # the palette exists only for the buffered path
             case @layout.default_mode
             when :tiled then enter_tiled_mode
+            when :affine then enter_affine_mode
             when :buffered then enter_buffered_mode
             else enter_direct_mode
             end
@@ -128,6 +129,7 @@ module RubyGBA
           # so a flip is a cheap bit-toggle, draw into page 1 first, show page 0, and
           # record that buffered is now the live mode.
           def enter_buffered_mode
+            reset_bg2_affine_if_needed
             base = MODE_4 | BG2_ENABLE
             @primitives.store_word_immediate(base, @primitives.var_addr(DISPCNT_STATE))
             @primitives.store_word_immediate(PAGE1, @primitives.var_addr(BACKBUF))
@@ -146,6 +148,7 @@ module RubyGBA
           # tiled scene left on screen bleeds under the bitmap one — only BG2 (the
           # framebuffer) shows, which the bitmap scene redraws.
           def enter_direct_mode
+            reset_bg2_affine_if_needed
             @emitter.write_reg16(REG_DISPCNT, MODE_3 | BG2_ENABLE)
             @primitives.store_word_immediate(MODE_DIRECT, @primitives.var_addr(MODE_STATE))
           end
@@ -158,6 +161,7 @@ module RubyGBA
           # Each background's map and control register are re-set by its own node in the
           # scene body, which runs right after this preamble.
           def enter_tiled_mode
+            reset_bg2_affine_if_needed
             emit_boot_backgrounds if @layout.tiled && !@layout.backgrounds.empty? # shared BG palette + tile pictures
             emit_boot_objects if @layout.has_objects                             # sprite palette + tiles, and clear OAM
             @layer_blend.emit_layer_blend_again if @layer_blend.see_through?     # ...and which one is see-through
@@ -165,6 +169,22 @@ module RubyGBA
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @emitter.write_reg16(REG_DISPCNT, value)
             @primitives.store_word_immediate(MODE_TILED, @primitives.var_addr(MODE_STATE))
+          end
+
+          # Switch the hardware into the affine layer (Mode 2): re-upload the shared BG
+          # palette/tile pictures on entry, same reason #enter_tiled_mode does — bitmap
+          # and tile VRAM overlap, so a bitmap scene overwrites what the affine
+          # background's tiles need. Its own map/matrix are re-set right after this by
+          # the background's own node in the scene body (see #emit_background_hardware),
+          # the same as a regular tiled layer's.
+          def enter_affine_mode
+            emit_boot_backgrounds if @layout.tiled && !@layout.backgrounds.empty?
+            emit_boot_objects if @layout.has_objects
+            @layer_blend.emit_layer_blend_again if @layer_blend.see_through?
+            value = MODE_2 | BG2_ENABLE
+            value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
+            @emitter.write_reg16(REG_DISPCNT, value)
+            @primitives.store_word_immediate(MODE_AFFINE, @primitives.var_addr(MODE_STATE))
           end
 
           # Emitted at the top of each scene when a program switches the hardware per
@@ -187,6 +207,7 @@ module RubyGBA
           def mode_state_marker(mode)
             case mode
             when :tiled then MODE_TILED
+            when :affine then MODE_AFFINE
             when :buffered then MODE_BUFFERED
             else MODE_DIRECT
             end
@@ -195,6 +216,7 @@ module RubyGBA
           def enter_mode(mode)
             case mode
             when :tiled then enter_tiled_mode
+            when :affine then enter_affine_mode
             when :buffered then enter_buffered_mode
             else enter_direct_mode
             end
@@ -636,6 +658,25 @@ module RubyGBA
           # turned or resized (no `rotate`/`scale` call reaches #emit_affine_background)
           # stays exactly here and draws like any other tiled background, just through a
           # different pair of registers.
+          # Put BG2's rotate/scale registers back to "no transform" — matrix identity,
+          # zero reference point — the same state #emit_affine_background_hardware boots
+          # an affine background to. Only a program with an affine background at all
+          # needs this: those registers are also what Modes 3/4/5 render their bitmap
+          # framebuffer through (see #emit_affine_background's comment), so switching
+          # INTO any other mode has to leave BG2 neutral, or a bitmap/tiled scene
+          # entered right after an affine one keeps showing whatever turn or zoom the
+          # affine scene last left sitting in hardware.
+          def reset_bg2_affine_if_needed
+            return unless @layout.backgrounds.values.any?(&:affine)
+
+            write_reg16(REG_BG2PA, FIXED_ONE)
+            write_reg16(REG_BG2PB, 0)
+            write_reg16(REG_BG2PC, 0)
+            write_reg16(REG_BG2PD, FIXED_ONE)
+            store_word_immediate(0, REG_BG2X)
+            store_word_immediate(0, REG_BG2Y)
+          end
+
           def emit_affine_background_hardware(bg)
             emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
             write_reg16(REG_BG2CNT,
@@ -671,13 +712,24 @@ module RubyGBA
             # Outside `screen :affine` there's no rotate/scale layer prepared for this
             # background to write into — and unlike a plain scroll's fallback registers
             # (harmlessly inert when that layer isn't on), BG2's affine registers are
-            # never inert: a bitmap screen reads them too (see #emit_camera). So rather
-            # than fall back onto them, this does nothing at all, the same choice
-            # #emit_scroll_background makes for a background outside tile mode.
+            # never inert: a bitmap screen reads them too (Modes 3/4's framebuffer is
+            # itself rendered through this same BG2 matrix). So rather than fall back
+            # onto them, this does nothing at all, the same choice #emit_scroll_background
+            # makes for a background outside tile mode.
             return unless @layout.backgrounds[node.name]&.affine
 
+            # A background turned only inside one scene (see Builder#affine_each_frame)
+            # carries an `active` condition the same shape a sprite's does — skip the
+            # write entirely on a frame where its scene isn't the live one, so a
+            # zoomed title screen can never keep distorting a bitmap gameplay scene
+            # that's since taken over BG2 for its own framebuffer.
+            @lowering.value(node.active)
+            emit(ASM.cmp_imm(ACC, 0))
+            skip = gensym
+            emit_branch(:bcond, skip, cond: :eq)
             emit_bg_affine_matrix(node)
             emit_bg_affine_reference_point
+            place_label(skip)
           end
 
           # The same numbers a turning hardware sprite reads (see

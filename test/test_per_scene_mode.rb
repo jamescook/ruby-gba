@@ -126,4 +126,83 @@ class TestPerSceneMode < Minitest::Test
     assert_match(/paint/, err.message)
     assert_match(/shared across screen modes/, err.message)
   end
+
+  # --- a per-frame routine (once_a_frame) is not a scene ---
+  #
+  # `once_a_frame` (the machinery behind `flash_screen`/`pulse`/`shake_screen`/
+  # `camera_follows`/`fade_out`/`fade_in`) compiles to a plain func called directly
+  # from the main loop body, every real frame, regardless of which scene (if any)
+  # is active. It must never be treated as an entry point that "owns" a display
+  # mode the way a case_var scene does — if it were, its own mode-switch preamble
+  # would fight whatever scene is actually live, forcing the hardware back to its
+  # mode every frame. Concretely: in a program that also switches screen modes per
+  # scene, that fight makes the active scene re-run ITS OWN mode-entry preamble
+  # every frame too — which, for a tiled/affine scene, means the OAM sprite table
+  # gets cleared again right after this frame's sprites were written, so nothing
+  # composited ever reaches the screen. See IR::Modes#scene_targets /
+  # #main_body_call_targets, and examples/pong.rb's title screen for the real case
+  # this was found in (a `flash_screen` inside an unrelated, unreached func was
+  # enough to trigger it).
+  def test_a_per_frame_routine_is_not_a_scene
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      var :state, 0
+      once_a_frame(:tick) { }
+      scene(:a) { }
+      game_loop { wait_vblank; case_var(:state) { when_val 0, :a } }
+    end
+    b.emit_pending_functions
+    modes = RubyGBA::IR::Modes.resolve(b.program)
+
+    refute_includes modes.scene_funcs, :tick,
+                     "a per-frame routine must not be treated as a mode-owning scene"
+    assert_includes modes.scene_funcs.map { |n| RubyGBA::IR::Modes.friendly_name(n) }, "a",
+                     "a real case_var scene must still be tracked"
+  end
+
+  # The full-size regression: an affine title with text, a once_a_frame effect
+  # declared ANYWHERE in the program (even in code the title scene never calls),
+  # and a plain bitmap play scene after it. Both the title's text and the play
+  # scene's undistorted picture must survive — this is the exact shape that broke
+  # in examples/pong.rb (a `flash_screen` inside `update_ball`, a func the title
+  # screen never reaches, silently erased the title's own text every frame).
+  def test_affine_title_with_a_once_a_frame_effect_elsewhere_still_shows_its_text
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      var :state, 0
+
+      func :unrelated do
+        flash_screen :red, frames: 4 # never called — presence alone must not break anything
+      end
+
+      scene :title do
+        screen :affine
+        image(:dark, "#" => :blue) { (["########"] * 8).join("\n") }
+        tiles :ground, "#" => :dark
+        board = background :board, tiles: :ground, map: (["#" * 32] * 32)
+        board.scale(1.0)
+        draw_text "HI", 100, 20, :white
+        pressed(:start).then { set :state, 1 }
+      end
+      scene(:playing) { clear_screen :black }
+
+      game_loop do
+        wait_vblank
+        case_var(:state) { when_val 0, :title; when_val 1, :playing }
+      end
+    end
+    b.emit_pending_functions
+    prog = b.program
+
+    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "AFMD", code: "BAFM", maker: "01")
+
+    v = assert_gemba_loads_rom(rom, frames: 10)
+    white_shows = (100..112).any? { |x| (20..27).any? { |y| v.pixel_is?(x, y, :white) } }
+    assert white_shows, "the affine scene's text should show somewhere in its glyph area"
+
+    v2 = assert_gemba_loads_rom(rom, frames: 10, keys: KEY_START)
+    assert v2.black?(0, 0), "the bitmap play scene must not be distorted by a leftover affine matrix"
+  end
 end
