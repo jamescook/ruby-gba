@@ -83,6 +83,32 @@ module RubyGBA
             emit_buffered_rect(x, y, w, h, node.color)
           end
 
+          # Up to this many pairs of pixels, writing them out beats starting the block-fill
+          # engine — and up to here it beats it TWICE OVER, in time and in the code it takes.
+          #
+          # Counted off the emitted code, a row that starts the engine is fifteen
+          # instructions whatever it then moves, and a row written out is two instructions
+          # plus one per pair. So the written-out row is the SMALLER one up to thirteen
+          # pairs, and it stays the faster one much further than that: starting the engine
+          # costs about what fourteen pairs do — the register writes AND the stall while the
+          # engine copies, which stops the CPU dead — so the engine does not win on time
+          # until a row is nearly thirty pairs wide.
+          #
+          # This sits at the point where those two agree, so nothing is traded for anything.
+          # Past it the written-out row is still faster and starts to cost more code, and a
+          # rectangle's rows are unrolled — so going further needs a size budget the
+          # framework does not have, and it would spend the quick memory that a game's hot
+          # routines are competing for.
+          DIRECT_STORE_UNITS = 12
+
+          def direct_fill?(w) = w.positive? && (w / 2) <= DIRECT_STORE_UNITS
+
+          # The fill colour as one 16-bit unit — the same palette index in both of its
+          # pixels — held for as long as a fixed-position rect's narrow rows need it.
+          # (The run-time-positioned rect's own middle-width path uses this register for
+          # its transfer count instead; the two never run together.)
+          RECT_FILL = 7
+
           # ...and the same rectangle without the even-width promise, because an area can cut a
           # row down to an odd number of pixels however even the author's own rectangle was.
           def emit_buffered_rect(x, y, w, h, color)
@@ -175,57 +201,66 @@ module RubyGBA
           def fill_unit(index) = (index * 0x0101) & 0xFFFF
 
           # A rectangle at a run-time position, filled per row into the hidden page.
-          # Only its row moves in the general case — but an odd column fills
-          # differently from an even one (see emit_fill_rect_buffered), so the shape of
-          # a row depends on a number the game works out as it runs.
           #
-          # A rect whose column is settled while building emits only that one shape.
-          # The column does not have to be a plain number to be settled: a game that
-          # lays its world out on a grid writes `cell * 8`, and eight times anything is
-          # even however the game works `cell` out (IR::Parity proves it). Then there is
-          # nothing to test and half the code is not there at all.
-          #
-          # Otherwise the low bit of x is tested ONCE here and each case gets its own
-          # copy of the rows: every row of a rect starts on the same column, so a test
-          # inside the loop would ask the same question over and over, and the common
-          # even column keeps costing exactly what it did. r2/r3 hold x/y across both
-          # copies.
+          # Every edge settled while building goes straight to the same fixed-rect fill
+          # fill_rect uses (#emit_buffered_rect) — clipped in Ruby, once, nothing for the
+          # console to check. A width settled while building but at least one other edge
+          # not gets the fits-whole check (#emit_draw_rect_at_buffered_fixed_width): the
+          # overwhelming common case is a rect that never actually crosses an edge, and
+          # that one still gets the size-chosen, parity-branched shape a fixed rect does.
+          # Anything else always needs the clip worked out at run time
+          # (#emit_buffered_rect_at_computed), since neither the width nor the position is
+          # known well enough while building to rule an edge out.
           def emit_draw_rect_at_buffered(node)
+            x = const_int(node.x)
+            y = const_int(node.y)
             w = const_int(node.w)
-            return emit_buffered_rect_computed_width(node) unless w
-            return if w < 1 # a rect with no width draws nothing
+            h = const_int(node.h)
+            return if w && w < 1 # a rect with no width draws nothing
+            return if h && h < 1 # ...or no height
 
-            scratch = hold_index_word(node.color)
-            index = @layout.palette.index_of(node.color)
-            rows = { w: w, h: const_int(node.h), scratch: scratch, index: index }
+            return emit_buffered_rect(x, y, w, h, node.color) if x && y && w && h
+            return emit_buffered_rect_at_computed(node, w) unless w
 
-            @framebuffer.eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y, rows_reg: RECT_ROWS_LEFT)
-
-            parity = Parity.of(node.x)
-            return emit_buffered_rect_rows(**rows, starts_odd: parity == :odd) if parity
-
-            odd_column = gensym
-            done = gensym
-            emit(ASM.and_imm(ACC, RECT_X, 1))
-            emit(ASM.cmp_imm(ACC, 0))
-            emit_branch(:bcond, odd_column, cond: :ne)
-            emit_buffered_rect_rows(**rows, starts_odd: false)
-            emit_branch(:b, done)
-            place_label(odd_column)
-            emit_buffered_rect_rows(**rows, starts_odd: true)
-            place_label(done)
+            emit_draw_rect_at_buffered_fixed_width(node, w, h)
           end
 
-          # The rows of a run-time-positioned rect. +edges+ says the column is odd, so
-          # each row's first and last pixel are spliced in one at a time and the DMA
-          # covers only the even middle. Registers through the whole run: r2 the rect's
-          # x, r3 its y, r4 the address of the row's first column, r5 scratch, r6 how
-          # many rows are left when the height is one the game works out.
+          # Registers through the whole run: r2 the rect's (clipped, once it needs to be)
+          # x, r3 its y — a running row number once #emit_row_address_setup has used it to
+          # seed r4 — r4 the address of the row's first column, r5 scratch, r6 how many
+          # rows are left when the height is one the game works out.
           RECT_X = 2
           RECT_Y = 3
           RECT_ROW = 4
           RECT_ADDR = 5
           RECT_ROWS_LEFT = 6
+
+          # Put the hidden page's address of column 0 on the rect's FIRST row in r4, once
+          # for the whole rect.
+          #
+          # Every row after that starts exactly one screen width further on, so the rows
+          # walk it down with a single add (#emit_advance_row) instead of working it out
+          # again. Working it out again is what this used to do on every row: a multiply
+          # by the screen width, a load of the hidden page's address, and an add — five
+          # instructions before a single pixel was written. On a tall thin column, which is
+          # what a per-column renderer draws hundreds of, that WAS the column: measured, a
+          # rect cost the same per row at 2 pixels wide as at 16, because almost none of
+          # the cost was the pixels.
+          def emit_row_address_setup
+            emit(ASM.load_immediate(RECT_ADDR, SCREEN_WIDTH))
+            emit(ASM.mul(RECT_ROW, RECT_ADDR, RECT_Y)) # r4 = SCREEN_WIDTH * y, 1 byte/pixel
+            load_var(RECT_ADDR, BACKBUF)               # r5 = hidden page base
+            emit(ASM.add_reg(RECT_ROW, RECT_ROW, RECT_ADDR))
+          end
+
+          # One row down the screen: the address (240 bytes a row on this display, which
+          # the chip can add in one instruction) and the row NUMBER — r3 is done seeding
+          # r4 by the time the first row runs, so from here it tracks which row this is,
+          # for #emit_buffered_computed_row's own top/bottom check.
+          def emit_advance_row
+            emit(ASM.add_imm(RECT_ROW, RECT_ROW, SCREEN_WIDTH))
+            emit(ASM.add_imm(RECT_Y, RECT_Y, 1))
+          end
 
           # +h+ is the height when it is settled while building — then the rows are
           # unrolled. It is nil when the game works the height out, and then the same
@@ -248,30 +283,6 @@ module RubyGBA
               emit_buffered_rect_row(**row)
               emit_advance_row
             end
-          end
-
-          # Put the hidden page's address of column 0 on the rect's FIRST row in r4, once
-          # for the whole rect.
-          #
-          # Every row after that starts exactly one screen width further on, so the rows
-          # walk it down with a single add (#emit_advance_row) instead of working it out
-          # again. Working it out again is what this used to do on every row: a multiply
-          # by the screen width, a load of the hidden page's address, and an add — five
-          # instructions before a single pixel was written. On a tall thin column, which is
-          # what a per-column renderer draws hundreds of, that WAS the column: measured, a
-          # rect cost the same per row at 2 pixels wide as at 16, because almost none of
-          # the cost was the pixels.
-          def emit_row_address_setup
-            emit(ASM.load_immediate(RECT_ADDR, SCREEN_WIDTH))
-            emit(ASM.mul(RECT_ROW, RECT_ADDR, RECT_Y)) # r4 = SCREEN_WIDTH * y, 1 byte/pixel
-            load_var(RECT_ADDR, BACKBUF)               # r5 = hidden page base
-            emit(ASM.add_reg(RECT_ROW, RECT_ROW, RECT_ADDR))
-          end
-
-          # One row down the screen. The screen is 240 bytes a row on this display, which
-          # the chip can add in one instruction.
-          def emit_advance_row
-            emit(ASM.add_imm(RECT_ROW, RECT_ROW, SCREEN_WIDTH))
           end
 
           # +starts_odd+ says the rect begins on an odd column, which is settled by here
@@ -306,43 +317,125 @@ module RubyGBA
           RECT_LEFT = 8
           RECT_RIGHT = 9
 
-          # A rect on the tear-free screen whose WIDTH the game works out as it runs.
+          # A rect whose width is settled while building but at least one other edge is
+          # not — an author's own fixed size at a position the game works out, the health
+          # bar every doc example for this verb draws. Checked once, at run time, whether
+          # it already fits the area whole: if so, exactly the size-chosen, parity-branched
+          # shape #emit_buffered_rect_rows gives a fixed rectangle runs, just with its
+          # address built from a run-time x/y instead of one settled while building — the
+          # overwhelming common case, and the one worth keeping cheap. Only a rect that
+          # would actually cross an edge falls through to the general run-time clip
+          # (#emit_buffered_rect_at_computed's tail), because that shape cannot promise
+          # the width stays a plain number once the console has trimmed it.
+          def emit_draw_rect_at_buffered_fixed_width(node, w, h)
+            scratch = hold_index_word(node.color)
+            index = @layout.palette.index_of(node.color)
+
+            @framebuffer.eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y, rows_reg: RECT_ROWS_LEFT)
+
+            needs_clip = gensym
+            done = gensym
+
+            emit(ASM.cmp_imm(RECT_X, @framebuffer.clip_left))
+            emit_branch(:bcond, needs_clip, cond: :lt)
+            emit_add_const(ACC, RECT_X, w, TMP)
+            emit(ASM.cmp_imm(ACC, @framebuffer.clip_right))
+            emit_branch(:bcond, needs_clip, cond: :gt)
+            emit(ASM.cmp_imm(RECT_Y, @framebuffer.clip_top))
+            emit_branch(:bcond, needs_clip, cond: :lt)
+            if h
+              emit_add_const(ACC, RECT_Y, h, TMP)
+            else
+              emit(ASM.add_reg(ACC, RECT_Y, RECT_ROWS_LEFT))
+            end
+            emit(ASM.cmp_imm(ACC, @framebuffer.clip_bottom))
+            emit_branch(:bcond, needs_clip, cond: :gt)
+
+            parity = Parity.of(node.x)
+            rows = { w: w, h: h, scratch: scratch, index: index }
+            if parity
+              emit_buffered_rect_rows(**rows, starts_odd: parity == :odd)
+            else
+              odd_column = gensym
+              emit(ASM.and_imm(ACC, RECT_X, 1))
+              emit(ASM.cmp_imm(ACC, 0))
+              emit_branch(:bcond, odd_column, cond: :ne)
+              emit_buffered_rect_rows(**rows, starts_odd: false)
+              emit_branch(:b, done)
+              place_label(odd_column)
+              emit_buffered_rect_rows(**rows, starts_odd: true)
+            end
+            emit_branch(:b, done)
+
+            place_label(needs_clip)
+            emit(ASM.load_immediate(RECT_MIDDLE, w))
+            emit_buffered_rect_clip_and_rows(node, scratch, index)
+
+            place_label(done)
+          end
+
+          # A rect with at least one edge the game works out as it runs, so the clip has
+          # to happen at run time.
           #
           # Here a pixel is one byte, but video memory refuses to write a lone byte — the
           # smallest write covers two side-by-side pixels, one unit. So a rect that
           # starts or ends halfway through a unit has to have that pixel spliced in on
           # its own: read the unit, change only this pixel's half, write it back. The
           # rest, an even number of pixels starting on an even column, goes in as a
-          # block fill.
-          #
-          # With the width fixed, which pixels need splicing follows from the column
-          # alone, and each case gets its own copy of the rows. Computed, it does not:
-          # the rect's LAST column depends on a number that is not known yet. Both ends
-          # come down to one rule, though, and these three are worked out once, above the
-          # rows, because every row of a rect starts and ends in the same columns:
+          # block fill. Both ends come down to one rule, worked out once above the rows
+          # because every row of a rect starts and ends in the same columns:
           #
           #   - the first pixel needs splicing when the rect starts on an ODD column;
           #   - the last one needs splicing when it ends on an EVEN column;
           #   - what is left between them is always an even number of pixels beginning
           #     on an even column, which is exactly what a block fill wants.
           #
-          # A width of one is not a special case under that rule — it is a rect whose
-          # single pixel is spliced by one end or the other, and no middle at all.
-          def emit_buffered_rect_computed_width(node)
+          # x and width settle to one CLIPPED span before any row fires — a rect has one
+          # x for its whole height — and every row then checks its own y against the
+          # area (#emit_buffered_computed_row), because a run-time y or height means a
+          # run-time set of rows survives: an unclipped row is what wrapped a rect onto
+          # its neighbor.
+          def emit_buffered_rect_at_computed(node, w)
             scratch = hold_index_word(node.color)
             index = @layout.palette.index_of(node.color)
 
             @framebuffer.eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y,
                                      rows_reg: RECT_ROWS_LEFT, width_reg: RECT_MIDDLE)
+            emit(ASM.load_immediate(RECT_MIDDLE, w)) if w # a fixed width isn't loaded above
 
-            # A rect the game has shrunk to nothing draws nothing — and a block fill
-            # asked for zero units would move 65536 of them, so this is not optional.
+            emit_buffered_rect_clip_and_rows(node, scratch, index)
+          end
+
+          # The clip, and the rows it leaves for, shared by #emit_buffered_rect_at_computed
+          # (always this shape) and #emit_draw_rect_at_buffered_fixed_width (the fallback
+          # once a fits-whole rect turns out not to). Assumes r2/r3 (x/y) and r7 (the raw,
+          # unclipped width) are already loaded, and r6 (rows left) is too when the height
+          # is not settled while building.
+          def emit_buffered_rect_clip_and_rows(node, scratch, index)
             done = gensym
+
+            # right = x + width, unclipped, worked out before x itself is touched.
+            emit(ASM.add_reg(RECT_RIGHT, RECT_X, RECT_MIDDLE))
+            keep_right = gensym
+            emit(ASM.cmp_imm(RECT_RIGHT, @framebuffer.clip_right))
+            emit_branch(:bcond, keep_right, cond: :le)
+            emit(ASM.load_immediate(RECT_RIGHT, @framebuffer.clip_right))
+            place_label(keep_right)
+
+            keep_left = gensym
+            emit(ASM.cmp_imm(RECT_X, @framebuffer.clip_left))
+            emit_branch(:bcond, keep_left, cond: :ge)
+            emit(ASM.load_immediate(RECT_X, @framebuffer.clip_left))
+            place_label(keep_left)
+
+            # A rect the game shrank to nothing, or slid entirely off the area, draws
+            # nothing — and a block fill asked for zero units would move 65536 of them,
+            # so this is not optional.
+            emit(ASM.sub_reg(RECT_MIDDLE, RECT_RIGHT, RECT_X))
             emit(ASM.cmp_imm(RECT_MIDDLE, 0))
             emit_branch(:bcond, done, cond: :le)
 
-            emit(ASM.add_reg(RECT_RIGHT, RECT_X, RECT_MIDDLE)) # the column past the end...
-            emit(ASM.sub_imm(RECT_RIGHT, RECT_RIGHT, 1))       # ...so the last one is one back
+            emit(ASM.sub_imm(RECT_RIGHT, RECT_RIGHT, 1))       # the last column, one back from "past the end"
             emit(ASM.and_imm(RECT_LEFT, RECT_X, 1))            # starts on an odd column?
             emit(ASM.and_imm(ACC, RECT_RIGHT, 1))
             emit(ASM.rsb_imm(ACC, ACC, 1))                     # ends on an even one?
@@ -368,10 +461,17 @@ module RubyGBA
             place_label(done)
           end
 
-          # One row of a computed-width rect: at most two spliced pixels with a block
-          # fill between them. Which of the three actually run was decided above the
-          # loop; each is a test away.
+          # One row of a computed-width rect: skipped outright if its y falls outside
+          # the area (a row above or below it draws NOTHING, not a row wrapped onto its
+          # neighbor); else at most two spliced pixels with a block fill between them,
+          # which of the three actually run having been decided above the loop.
           def emit_buffered_computed_row(index:, scratch:)
+            row_skip = gensym
+            emit(ASM.cmp_imm(RECT_Y, @framebuffer.clip_top))
+            emit_branch(:bcond, row_skip, cond: :lt)
+            emit(ASM.cmp_imm(RECT_Y, @framebuffer.clip_bottom))
+            emit_branch(:bcond, row_skip, cond: :ge)
+
             skip_left = gensym
             emit(ASM.cmp_imm(RECT_LEFT, 0))
             emit_branch(:bcond, skip_left, cond: :eq)
@@ -396,6 +496,8 @@ module RubyGBA
             emit_branch(:bcond, skip_right, cond: :ne) # ends on an odd column: nothing to splice
             emit_splice_column(index: index, col_reg: RECT_RIGHT, high: false)
             place_label(skip_right)
+
+            place_label(row_skip)
           end
 
           # Splice one pixel of a rect into the hidden page: the pixel in the column
@@ -414,8 +516,13 @@ module RubyGBA
             emit(ASM.store_halfword(ACC, RECT_ADDR))
           end
 
-          # Fill the middle of one row of a run-time-positioned rect: +w+ pixels starting
-          # +offset+ columns right of the rect's x, on the row whose address r4 holds.
+          def emit_rect_fill_value(index)
+            emit(ASM.load_immediate(RECT_FILL, (index << 8) | index))
+          end
+
+          # Fill the middle of one row of a fits-whole, run-time-positioned rect: +w+
+          # pixels starting +offset+ columns right of the rect's x, on the row whose
+          # address r4 holds.
           #
           # A NARROW middle is written straight out, one 16-bit store per pair of pixels,
           # rather than handing it to the block-fill engine. Starting that engine costs the
@@ -423,7 +530,7 @@ module RubyGBA
           # — so for a pair or two the starting is nearly all of the work, and a two-pixel
           # column would cost more per row than a one-pixel one that only splices.
           #
-          # Past DIRECT_STORE_UNITS the engine is worth starting; see the constant below for
+          # Past DIRECT_STORE_UNITS the engine is worth starting; see the constant above for
           # where that line sits and what it is measured against.
           def emit_buffered_rect_row_middle(offset:, w:, scratch:)
             return emit_buffered_rect_row_dma(offset: offset, w: w, scratch: scratch) unless direct_fill?(w)
@@ -433,37 +540,8 @@ module RubyGBA
             (w / 2).times { |unit| emit(ASM.store_halfword_offset(RECT_FILL, RECT_ADDR, unit * 2)) }
           end
 
-          # Up to this many pairs of pixels, writing them out beats starting the block-fill
-          # engine — and up to here it beats it TWICE OVER, in time and in the code it takes.
-          #
-          # Counted off the emitted code, a row that starts the engine is fifteen
-          # instructions whatever it then moves, and a row written out is two instructions
-          # plus one per pair. So the written-out row is the SMALLER one up to thirteen
-          # pairs, and it stays the faster one much further than that: starting the engine
-          # costs about what fourteen pairs do — the register writes AND the stall while the
-          # engine copies, which stops the CPU dead — so the engine does not win on time
-          # until a row is nearly thirty pairs wide.
-          #
-          # This sits at the point where those two agree, so nothing is traded for anything.
-          # Past it the written-out row is still faster and starts to cost more code, and a
-          # rectangle's rows are unrolled — so going further needs a size budget the
-          # framework does not have, and it would spend the quick memory that a game's hot
-          # routines are competing for.
-          DIRECT_STORE_UNITS = 12
-
-          def direct_fill?(w) = w.positive? && (w / 2) <= DIRECT_STORE_UNITS
-
-          # The fill colour as one 16-bit unit — the same palette index in both of its
-          # pixels — held in r7 for as long as the rows need it. (The computed-width path
-          # uses r7 for its middle's transfer count; the two never run together.)
-          RECT_FILL = 7
-
-          def emit_rect_fill_value(index)
-            emit(ASM.load_immediate(RECT_FILL, (index << 8) | index))
-          end
-
-          # DMA one row of a run-time-positioned rect: +w+ pixels starting +offset+
-          # columns right of the rect's x, on the row whose address r4 holds.
+          # DMA one row of a fits-whole, run-time-positioned rect: +w+ pixels starting
+          # +offset+ columns right of the rect's x, on the row whose address r4 holds.
           def emit_buffered_rect_row_dma(offset:, w:, scratch:)
             emit(ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
             emit_add_const(RECT_ADDR, RECT_ADDR, offset, ACC)
@@ -473,13 +551,13 @@ module RubyGBA
             store_word_immediate(dma_fill_control_16(w / 2), REG_DMA3CNT)
           end
 
-          # Splice one edge pixel of a run-time-positioned rect into the hidden page:
-          # the pixel +offset+ columns right of the rect's x, on the row whose address
-          # r4 holds. Its 16-bit unit also holds a pixel outside the rect, so read the
-          # unit, replace only this pixel's half, and write it back. The rect's x is
-          # odd here, which makes the left edge the high half of its unit and the right
-          # edge (x + w - 1, an even column, since the width is even) the low half of
-          # its own — so only the left edge's address needs its low bit cleared.
+          # Splice one edge pixel of a fits-whole, run-time-positioned rect into the
+          # hidden page: the pixel +offset+ columns right of the rect's x, on the row
+          # whose address r4 holds. Its 16-bit unit also holds a pixel outside the rect,
+          # so read the unit, replace only this pixel's half, and write it back. The
+          # rect's x is odd here, which makes the left edge the high half of its unit and
+          # the right edge (x + w - 1, an even column, since the width is even) the low
+          # half of its own — so only the left edge's address needs its low bit cleared.
           def emit_splice_rect_edge(index:, offset:, high:)
             emit(ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
             emit_add_const(RECT_ADDR, RECT_ADDR, offset, ACC)

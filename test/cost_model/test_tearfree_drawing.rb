@@ -112,9 +112,18 @@ class TestTearFreeDrawing < CostModelTest
   # engine for. So the price per row climbs gently with width and then steps up at the
   # width where the engine takes over — past twenty-four pixels, which is where the console
   # says the two cross on speed and on code size alike.
+  #
+  # x is `(k * 8) + 2` rather than a written-in number: every edge settled while building
+  # sends `draw_rect_at` down the exact fixed-rect path `fill_rect` takes instead (nothing
+  # left to clip), which is not this shape at all. The expression proves even the same way
+  # a grid layout's column would, and it is the SAME shape at every width tested, so its
+  # own cost is a flat amount that cancels out of every difference below.
   def test_a_narrow_run_is_written_out_and_a_wide_one_is_block_filled
     per_row = lambda do |w|
-      prog = tear_free { game_loop { draw_rect_at 40, 0, w, 100, :red } }
+      prog = tear_free do
+        k = var :k, 5
+        game_loop { draw_rect_at (k * 8) + 2, 0, w, 100, :red }
+      end
       Cost.new.steady_cost(prog) / 100
     end
 
@@ -131,8 +140,15 @@ class TestTearFreeDrawing < CostModelTest
   # twentieth of each other. The model used to charge the moving one the step AND the fixed
   # one's whole setup, which is the address work twice, and made it read a third dearer
   # than the console says it is.
+  #
+  # `x` has to be a PROVABLY EVEN expression here, not a written-in number: a `draw_rect_at`
+  # whose every edge is settled while building takes the exact fixed-rect shape `fill_rect`
+  # does (nothing is left for the console to clip), so a literal x would compare that shape
+  # against itself and prove nothing. `(k * 8) + 2` keeps the row itself splice-free — an
+  # unprovable column would also pay for two spliced ends on top, which is a genuinely
+  # different, dearer shape and not what this is asking about.
   def test_a_wide_moving_rectangle_costs_about_what_a_fixed_one_does
-    moving = tear_free { game_loop { draw_rect_at 40, 20, 40, 40, :red } }
+    moving = tear_free { k = var :k, 5; game_loop { draw_rect_at (k * 8) + 2, 20, 40, 40, :red } }
     fixed  = tear_free { game_loop { fill_rect 40, 20, 40, 40, :red } }
 
     ratio = Cost.new.steady_cost(moving) / Cost.new.steady_cost(fixed)
@@ -144,9 +160,14 @@ class TestTearFreeDrawing < CostModelTest
   # with the same instructions either way — so it is the same weight either way. It used
   # to have a second weight of its own for wide rows, worth a third more, which was really
   # the row's unaccounted address work hiding inside an averaged figure.
+  #
+  # `(k * 8) + 2` / `+ 1` rather than written-in numbers, for the same reason every test
+  # in this section reaches for that shape now: a literal x sends `draw_rect_at` down the
+  # fixed-rect path instead. Both sides read the same variable through the same multiply,
+  # differing only in which constant flips the proof even or odd, so that cost cancels.
   def test_a_row_splices_its_ends_at_the_same_price_whatever_its_middle_does
-    even = tear_free { game_loop { draw_rect_at 40, 20, 40, 40, :red } } # a middle for the engine
-    odd  = tear_free { game_loop { draw_rect_at 41, 20, 40, 40, :red } }
+    even = tear_free { k = var :k, 5; game_loop { draw_rect_at (k * 8) + 2, 20, 40, 40, :red } } # a middle for the engine
+    odd  = tear_free { k = var :k, 5; game_loop { draw_rect_at (k * 8) + 1, 20, 40, 40, :red } }
 
     # An odd column splices both ends and so has three parts where the even row had one;
     # the two spliced pixels also leave the run the engine moves.
@@ -159,9 +180,12 @@ class TestTearFreeDrawing < CostModelTest
   # clear a bit to name the pair its pixel sits in; the far one is already on a pair
   # boundary. A rectangle one pixel wide is exactly one end and nothing else, so the two
   # can be told apart by which column it stands in.
+  #
+  # `(k * 8) + 2` / `+ 1` again, so the column stays provably even or odd without a
+  # written-in x turning this into the fixed-rect shape instead.
   def test_the_near_end_of_a_row_costs_more_than_the_far_end
-    far  = tear_free { game_loop { draw_rect_at 40, 0, 1, 100, :red } } # even: only a far end
-    near_end = tear_free { game_loop { draw_rect_at 41, 0, 1, 100, :red } } # odd: only a near end
+    far  = tear_free { k = var :k, 5; game_loop { draw_rect_at (k * 8) + 2, 0, 1, 100, :red } } # even: only a far end
+    near_end = tear_free { k = var :k, 5; game_loop { draw_rect_at (k * 8) + 1, 0, 1, 100, :red } } # odd: only a near end
 
     near 100 * (WEIGHTS[:tearfree_edge_near] - WEIGHTS[:tearfree_edge]),
          Cost.new.steady_cost(near_end) - Cost.new.steady_cost(far)
@@ -173,9 +197,12 @@ class TestTearFreeDrawing < CostModelTest
   # each one after it has to work out where in memory it goes. Charging that once a row
   # however many parts it had is what made a rectangle at an odd column read at seven
   # tenths of its cost: three parts were paying for one.
+  #
+  # `(k * 8) + 2` keeps x even and off the fixed-rect path in both calls, so only the
+  # width — and so the row's parts — changes between them.
   def test_each_part_of_a_row_after_the_first_pays_to_be_reached
-    one  = tear_free { game_loop { draw_rect_at 40, 0, 2, 100, :red } } # a middle, and that is all
-    two  = tear_free { game_loop { draw_rect_at 40, 0, 3, 100, :red } } # a middle and a far end
+    one  = tear_free { k = var :k, 5; game_loop { draw_rect_at (k * 8) + 2, 0, 2, 100, :red } } # a middle, and that is all
+    two  = tear_free { k = var :k, 5; game_loop { draw_rect_at (k * 8) + 2, 0, 3, 100, :red } } # a middle and a far end
 
     # The extra pixel is a spliced far end, and reaching it is a part of its own.
     near 100 * (WEIGHTS[:tearfree_part] + WEIGHTS[:tearfree_edge]),
@@ -186,8 +213,12 @@ class TestTearFreeDrawing < CostModelTest
   # building is known exactly. When the game works it out, both columns are possible and
   # only one of them is emitted — so it is priced at the dearer, the same call the model
   # makes for a scene dispatch, where only one branch runs a frame.
+  #
+  # "Settled while building" cannot mean a written-in number here — that takes the whole
+  # rect down the fixed-rect path instead of this one — so `fixed` is `(k * 8) + 2`, an
+  # expression IR::Parity still proves even without knowing what the game runs `k` out to.
   def test_a_column_the_game_works_out_is_priced_at_the_dearer_parity
-    fixed  = tear_free { game_loop { draw_rect_at 40, 0, 8, 100, :red } } # an even column, known
+    fixed  = tear_free { k = var :k, 5; game_loop { draw_rect_at (k * 8) + 2, 0, 8, 100, :red } } # an even column, proved
     moving = tear_free do
       x = var :x, 40
       game_loop { draw_rect_at x, 0, 8, 100, :red }
@@ -195,10 +226,11 @@ class TestTearFreeDrawing < CostModelTest
 
     assert_operator Cost.new.steady_cost(moving), :>, Cost.new.steady_cost(fixed)
     # Two spliced ends taking the place of one of the pairs the even row wrote, and the
-    # two extra parts they make of the row — plus reading the column, which the rectangle
-    # at a written-in one never does.
-    near var_reads + (100 * ((2 * WEIGHTS[:tearfree_part]) + WEIGHTS[:tearfree_edge_near] +
-                             WEIGHTS[:tearfree_edge] - WEIGHTS[:tearfree_pair])),
+    # two extra parts they make of the row — minus what `fixed` spends proving its column
+    # even (a multiply and an add) that `moving`'s bare variable read never does.
+    near (100 * ((2 * WEIGHTS[:tearfree_part]) + WEIGHTS[:tearfree_edge_near] +
+                WEIGHTS[:tearfree_edge] - WEIGHTS[:tearfree_pair])) -
+         (WEIGHTS[:op_mul_pow2] + WEIGHTS[:op_plain]),
          Cost.new.steady_cost(moving) - Cost.new.steady_cost(fixed)
   end
 
@@ -208,13 +240,11 @@ class TestTearFreeDrawing < CostModelTest
   # dearer one there over-charges by three — and the backend emits one shape too, from the
   # same proof, so the two cannot disagree about which row was priced.
   #
-  # These two columns take exactly the same work to arrive at — a variable, a shift, an
-  # add — and differ only in landing on an even column or an odd one. So the difference
-  # between them is the difference between the two ROWS, and it must be the same
-  # difference the written-in columns show.
+  # The row this actually runs depends on the PARITY that gets proved, not on which sum
+  # proved it. `cell * 6` proves even the same way `cell * 8` does (6 is even too), but by
+  # a real multiply instead of a shift — a different arrival cost. So `grid_even` and
+  # `alt_even` must land on the exact same even row once that one difference is told apart.
   def test_a_provable_column_is_priced_as_the_row_it_will_actually_run
-    fixed_even = tear_free { game_loop { draw_rect_at 40, 0, 8, 100, :red } }
-    fixed_odd  = tear_free { game_loop { draw_rect_at 41, 0, 8, 100, :red } }
     grid_even = tear_free do
       cell = var :cell, 5
       game_loop { draw_rect_at (cell * 8) + 2, 0, 8, 100, :red }
@@ -223,11 +253,15 @@ class TestTearFreeDrawing < CostModelTest
       cell = var :cell, 5
       game_loop { draw_rect_at (cell * 8) + 1, 0, 8, 100, :red }
     end
+    alt_even = tear_free do
+      cell = var :cell, 5
+      game_loop { draw_rect_at (cell * 6) + 2, 0, 8, 100, :red }
+    end
 
-    # Working the column out costs the same in both, so what is left over each side is the
-    # row — and each side landed on the written-in column that matches it.
-    near Cost.new.steady_cost(grid_odd) - Cost.new.steady_cost(fixed_odd),
-         Cost.new.steady_cost(grid_even) - Cost.new.steady_cost(fixed_even)
+    # *8 is a shift; *6 is a real multiply — the only thing that may differ between them,
+    # so it is the only correction it takes to land back on the same even row.
+    near WEIGHTS[:op_mul] - WEIGHTS[:op_mul_pow2],
+         Cost.new.steady_cost(alt_even) - Cost.new.steady_cost(grid_even)
     assert_operator Cost.new.steady_cost(grid_odd), :>, Cost.new.steady_cost(grid_even),
                     "and the odd one is still the dearer, which is the whole reason to ask"
   end
