@@ -85,7 +85,7 @@ class TestInstrument < Minitest::Test
     v = assert_gemba_loads_rom(rom, frames: 6)
 
     chord = %i[C4 E4 G4]
-    steps = chord.each_index.map { |i| v.mem32(gba.voice_base + (i * GBA::SLOT_BYTES) + GBA::SLOT_STEP) }
+    steps = chord.each_index.map { |i| v.mem32(gba.voice_base + (i * GBA::Mixer::SLOT_BYTES) + GBA::Mixer::SLOT_STEP) }
     expected = chord.map { |n| (NOTES[n].to_f / NOTES[:C4] * (1 << 16)).round }
 
     assert v.sound?, "the chord should be audible (energy #{v.audio_energy})"

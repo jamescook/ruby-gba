@@ -102,7 +102,7 @@ class TestCrossBackendConformance < Minitest::Test
     gba.lower(program)
 
     assert_equal registry(Reference.new.tap { |r| r.run(program) }, :@samples),
-                 registry(gba, :@samples)
+                 registry(gba.instance_variable_get(:@mixer), :@samples)
   end
 
   # A program that declares one of each and then stops.

@@ -75,14 +75,14 @@ class TestPitchedVoices < Minitest::Test
     rom = ROM.assemble(gba.lower(b.program), title: "PIT0", code: "BPIT", maker: "01")
     v = assert_gemba_loads_rom(rom, frames: 6)
 
-    base_pos = v.mem32(gba.voice_base + GBA::SLOT_POS)
-    high_pos = v.mem32(gba.voice_base + GBA::SLOT_BYTES + GBA::SLOT_POS)
+    base_pos = v.mem32(gba.voice_base + GBA::Mixer::SLOT_POS)
+    high_pos = v.mem32(gba.voice_base + GBA::Mixer::SLOT_BYTES + GBA::Mixer::SLOT_POS)
     assert_operator base_pos, :>, 0, "the base voice advanced through its sample"
     ratio = high_pos.to_f / base_pos
     assert_operator ratio, :>, 1.7, "the octave-up voice advanced ~2x as far (#{high_pos} vs #{base_pos})"
     assert_operator ratio, :<, 2.3, "...and not more than ~2x (#{high_pos} vs #{base_pos})"
 
-    high_step = v.mem32(gba.voice_base + GBA::SLOT_BYTES + GBA::SLOT_STEP)
+    high_step = v.mem32(gba.voice_base + GBA::Mixer::SLOT_BYTES + GBA::Mixer::SLOT_STEP)
     expected = (523.0 / 262 * (1 << 16)).round # C5/C4, 16.16 fixed
     assert_in_delta expected, high_step, 2, "the octave step is the C5/C4 ratio in 16.16"
   end
