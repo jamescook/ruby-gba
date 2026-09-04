@@ -194,6 +194,7 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Hardware sprites / OAM — poses (`facing:`), flipbook animation (`frames:` / `rate:`), stacking, sprite/tile collision
 - [x] Sprite rotation + scaling — `face_angle` / `turn` / `scale`, done by the console's affine hardware
 - [x] Tiled backgrounds (Mode 0) — text or CSV maps, scrolling, stacked parallax layers
+- [x] Rotozoom backgrounds — a whole tiled layer that turns and resizes as one piece (`screen :rotozoom`), for a zooming title screen or a spinning race track; sprites already do both
 - [x] Layers — name the stack once (`layers :sky, :world, :ui`), then say where a thing belongs; one layer can be see-through
 - [x] Screen effects — `fade` / `tint` / `flash_screen` / `fade_out` / `fade_in`, and a fade can be placed *in* the stack (dim the game, keep the HUD)
 - [x] Camera — `camera`, `camera_follows` (the follow-you camera), `shake_screen`, `pulse`
@@ -216,7 +217,6 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 
 **Planned / Ideas**
 
-- [ ] Affine backgrounds — rotating and scaling a whole tiled layer (Mode 7-style); sprites already do both
 - [ ] Tiled TMX import + larger streamed maps (beyond one 32×32 screenblock)
 - [ ] More motion verbs — lerp / wrap / bounce / snap
 - [ ] Target-neutral draw layer (decouple draw intent from the framebuffer)

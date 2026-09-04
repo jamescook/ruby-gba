@@ -18,7 +18,7 @@ module RubyGBA
       SCREEN_MODES = {
         bitmap: MODE_3 | BG2_ENABLE, # 240x160 pixel canvas, 15-bit direct color
         tiled:  MODE_0 | BG0_ENABLE, # 4 regular tile/sprite background layers (most games)
-        affine: MODE_2 | BG2_ENABLE, # 2 rotatable/scalable background layers
+        rotozoom: MODE_2 | BG2_ENABLE, # 2 rotatable/scalable background layers
       }.freeze
 
       # Choose what kind of screen you're drawing on.

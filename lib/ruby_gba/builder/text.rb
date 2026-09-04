@@ -16,10 +16,10 @@ module RubyGBA
 
       # The screen modes with no framebuffer to paint into — text on either of these
       # is drawn as little hardware-sprite glyphs (see #draw_text_tiled), not written
-      # into pixels. `screen :affine` is tile hardware too (see IR::Modes::AFFINE):
+      # into pixels. `screen :rotozoom` is tile hardware too (see IR::Modes::AFFINE):
       # a different pair of background layers from `screen :tiled`'s four, but the
       # same sprite hardware composites glyphs over it exactly the same way.
-      TILE_HARDWARE_MODES = %i[tiled affine].freeze
+      TILE_HARDWARE_MODES = %i[tiled rotozoom].freeze
 
       # Draw a line of words at (x, y) with the built-in font: a label, a title, a
       # line of dialogue. The string is fixed when the ROM is built.

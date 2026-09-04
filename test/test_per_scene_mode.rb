@@ -178,7 +178,7 @@ class TestPerSceneMode < Minitest::Test
       end
 
       scene :title do
-        screen :affine
+        screen :rotozoom
         image(:dark, "#" => :blue) { (["########"] * 8).join("\n") }
         tiles :ground, "#" => :dark
         board = background :board, tiles: :ground, map: (["#" * 32] * 32)
@@ -223,7 +223,7 @@ class TestPerSceneMode < Minitest::Test
       var :state, 0
       zoom = var :zoom, 1.0
       scene :title do
-        screen :affine
+        screen :rotozoom
         image(:dark, "#" => :blue) { (["########"] * 8).join("\n") }
         image(:light, "#" => :green) { (["########"] * 8).join("\n") }
         tiles :ground, "#" => :dark, "$" => :light

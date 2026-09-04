@@ -81,7 +81,7 @@ module RubyGBA
                       # Tile mode turns on exactly the background layers the program declared,
                       # so a stack of two or three composites; a single background is just BG0.
                       MODE_0 | tiled_bg_enable_bits
-                    elsif mode == :affine
+                    elsif mode == :rotozoom
                       # The rotate/scale layer: this feature always lands the one affine
                       # background it supports on BG2 (see AFFINE_BG in gba.rb), so that's the
                       # one layer Mode 2 needs on here. A single-mode program never runs
@@ -722,7 +722,7 @@ module RubyGBA
           # pivots on the middle of the screen (see #emit_bg_affine_reference_point for
           # why that needs its own step).
           def emit_affine_background(node)
-            # Outside `screen :affine` there's no rotate/scale layer prepared for this
+            # Outside `screen :rotozoom` there's no rotate/scale layer prepared for this
             # background to write into — and unlike a plain scroll's fallback registers
             # (harmlessly inert when that layer isn't on), BG2's affine registers are
             # never inert: a bitmap screen reads them too (Modes 3/4's framebuffer is

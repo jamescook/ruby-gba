@@ -1,10 +1,6 @@
 {
   "version": 1,
   "examples": {
-    "affine_bg": {
-      "code": 3884,
-      "data": 0
-    },
     "animate": {
       "code": 49596,
       "data": 0
@@ -14,7 +10,7 @@
       "data": 0
     },
     "breakout": {
-      "code": 84640,
+      "code": 84456,
       "data": 0
     },
     "buffered_bounce": {
@@ -74,11 +70,15 @@
       "data": 0
     },
     "pong": {
-      "code": 28146,
+      "code": 32190,
       "data": 0
     },
     "raycaster": {
       "code": 6428,
+      "data": 0
+    },
+    "rotozoom_bg": {
+      "code": 3896,
       "data": 0
     },
     "scroll": {
