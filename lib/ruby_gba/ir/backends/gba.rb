@@ -7,6 +7,7 @@ require_relative "gba/loop_form" # which shape a repeat gets; the cost model ask
 require_relative "gba/bend_form" # ...and which way a row-by-row bend is lowered, likewise
 require_relative "gba/statements"
 require_relative "gba/lists"
+require_relative "gba/functions"
 require_relative "gba/drawing"
 require_relative "gba/placement"
 require_relative "gba/buffered"
@@ -66,8 +67,6 @@ module RubyGBA
       #   * the CPU stack holds intermediate values inside a nested expression
       class GBA
         include RubyGBA::Constants
-        include Statements
-        include Lists
         include Drawing
         include Placement
         include Buffered
@@ -215,7 +214,10 @@ module RubyGBA
           :== => %i[eq ne], :!= => %i[ne eq],
         }.freeze
 
-        attr_reader :func_ranges, :lowering
+        attr_reader :lowering
+
+        # Each func's byte span in @code (for dump_func) — lives on @functions.
+        def func_ranges = @functions.func_ranges
 
         # The emitted machine code / the label table / where each embedded blob landed
         # — read straight from @emit, which is where they actually live (see {Emit}).
@@ -246,8 +248,6 @@ module RubyGBA
           @frames = Frames.new(emitter: @emit, primitives: @primitives)
           @save = Save.new(emitter: @emit, primitives: @primitives)
           @lowering = Lowering.new # the kind-keyed dispatch that replaces eval_value's case
-          @funcs = {}            # func name -> its IR node (emitted after the main body)
-          @func_ranges = {}      # func name -> byte span in @code (for dump_func)
           @defined_sounds = {}   # name -> musical params (from define_sound)
           @songs = {}            # name -> :song node (from song)
           @blob_codecs = {}      # name -> :lz77/:rle/:none (how a VRAM blob was packed, if at all)
@@ -258,6 +258,14 @@ module RubyGBA
                                      bitmaps: @bitmaps)
           @expressions = Expressions.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                          divide: @divide, tables: @tables)
+          @lists = Lists.new(memory: @memory, primitives: @primitives, emitter: @emit, lowering: @lowering)
+          # `placement: self` — Placement is not its own object (see the class comment there);
+          # its methods live directly on this instance, so handing self in is what makes the
+          # dependency an explicit constructor argument instead of a bare cross-file call.
+          @functions = Functions.new(emitter: @emit, lowering: @lowering, placement: self,
+                                     scene_preamble: method(:emit_scene_preamble))
+          @statements = Statements.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
+                                       placement: self, functions: @functions)
           # Every value kind's handler, registered once in one place — see {Lowering}.
           @lowering.values(
             int: @expressions.method(:eval_int), var_ref: @expressions.method(:eval_var_ref),
@@ -267,23 +275,26 @@ module RubyGBA
             pressed: @expressions.method(:eval_pressed_node), chance: @expressions.method(:eval_chance),
             pixels_overlap: @collision.method(:eval_pixels_overlap),
             data_byte: @expressions.method(:eval_data_byte), table_get: @expressions.method(:eval_table_get),
-            list_get: method(:eval_list_get), list_len: method(:eval_list_len),
+            list_get: @lists.method(:eval_list_get), list_len: @lists.method(:eval_list_len),
             read_scanline: @expressions.method(:eval_read_scanline), timer_ticks: method(:eval_timer_ticks),
           )
           # Every statement kind's handler, registered once in one place — see {Lowering}.
           # The 12 definition kinds are collected during the definitions pass, earlier in
           # #lower, and emit nothing here — Lowering::NOTHING says so explicitly.
           @lowering.statements(
-            func: Lowering::NOTHING, set: method(:emit_set), add: method(:emit_add),
-            sub: method(:emit_sub), copy: method(:emit_copy), negate: method(:emit_negate),
-            abs: method(:emit_abs), negate_abs: method(:emit_negate_abs), clamp: method(:emit_clamp),
+            func: Lowering::NOTHING, set: @statements.method(:emit_set), add: @statements.method(:emit_add),
+            sub: @statements.method(:emit_sub), copy: @statements.method(:emit_copy),
+            negate: @statements.method(:emit_negate), abs: @statements.method(:emit_abs),
+            negate_abs: @statements.method(:emit_negate_abs), clamp: @statements.method(:emit_clamp),
             save_init: method(:emit_save_init), save_store: method(:emit_save_store),
-            if: method(:emit_if), loop: method(:emit_loop), repeat: method(:emit_repeat),
-            inside: method(:emit_inside), every: method(:emit_every), after: method(:emit_after),
-            list_new: method(:emit_list_new), list_push: method(:emit_list_push),
-            list_drop: method(:emit_list_drop), list_set: method(:emit_list_set),
-            call: method(:emit_call), case: method(:emit_case), raw: method(:emit_raw),
-            halt: method(:emit_halt), wait_vblank: method(:emit_wait_vblank), screen: method(:emit_screen),
+            if: @statements.method(:emit_if), loop: @statements.method(:emit_loop),
+            repeat: @statements.method(:emit_repeat), inside: @statements.method(:emit_inside),
+            every: @statements.method(:emit_every), after: @statements.method(:emit_after),
+            list_new: @lists.method(:emit_list_new), list_push: @lists.method(:emit_list_push),
+            list_drop: @lists.method(:emit_list_drop), list_set: @lists.method(:emit_list_set),
+            call: @statements.method(:emit_call), case: @functions.method(:emit_case),
+            raw: @statements.method(:emit_raw), halt: @statements.method(:emit_halt),
+            wait_vblank: method(:emit_wait_vblank), screen: method(:emit_screen),
             pixel: method(:emit_pixel), fill_rect: method(:emit_fill_rect),
             clear_screen: method(:emit_clear_screen), dma_fill_rect: method(:emit_dma_fill_rect),
             draw_rect_at: method(:emit_draw_rect_at), draw_column_at: method(:emit_draw_column_at),
@@ -303,8 +314,6 @@ module RubyGBA
             on_timer: Lowering::NOTHING, sample: Lowering::NOTHING, play_sample: method(:emit_play_sample),
             stop_sample: method(:emit_stop_sample),
           )
-          @backing = {}          # name -> { width:, height:, base: } (a sprite's save-under RAM)
-          @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)
           @layer_stack = []      # the layers the program declared, backmost first
           @samples = {}          # name -> { rate:, length: } (a Direct Sound PCM sample)
           @plays_samples = false # does the program play any sample (uses Direct Sound)?
@@ -471,7 +480,7 @@ module RubyGBA
         # lowered, because this backend is what decides it, and handed to the cost estimate so
         # that it charges for the loop that will really run (see Statements#emit_repeat).
         def loop_shapes
-          (@loop_shapes || {}).dup
+          @statements.loop_shapes.dup
         end
 
         # Work out which screen mode each scene draws in. A program that never uses
@@ -483,6 +492,7 @@ module RubyGBA
         # surface it as a lowering error.
         def resolve_modes(program)
           @modes = IR::Modes.resolve(program)
+          @functions.modes = @modes
           @default_mode = @modes.default_mode
           @func_mode = @modes.func_mode
           @scene_funcs = @modes.scene_funcs
@@ -548,6 +558,12 @@ module RubyGBA
         def emit_divide_routine = @divide.emit_divide_routine
         def emit_divide_fix_routine = @divide.emit_divide_fix_routine
         def emit_call_divide_routine = @divide.emit_call_divide_routine
+
+        # Forwards to @lists (see {Lists}).
+        def backing_info(name) = @lists.backing_info(name)
+
+        # Forwards to @functions (see {Functions}).
+        def emit_functions = @functions.emit_functions
 
         # Forwards to @expressions (see {Expressions}).
         def emit_input_init = @expressions.emit_input_init
@@ -687,7 +703,7 @@ module RubyGBA
           emit(ASM.return) # BX LR back to the BIOS dispatcher
           # Its byte span, so the build can weigh keeping it in the quick memory against
           # everything else that wants the room (see Placement#IRQ_ROUTINE).
-          @func_ranges[Placement::IRQ_ROUTINE] = (start...pos)
+          @functions.func_ranges[Placement::IRQ_ROUTINE] = (start...pos)
         end
 
         # The IE/IF bit for the interrupt hardware timer +index+ raises (timer 0 -> bit
@@ -743,7 +759,7 @@ module RubyGBA
           program.walk do |node|
             case node.kind
             when :func
-              @funcs[node.name] = node
+              @functions.funcs[node.name] = node
             when :define_sound
               @defined_sounds[node.name] = {
                 frequency: node.frequency, duty: node.duty,
@@ -772,12 +788,12 @@ module RubyGBA
               # touches it (anywhere in the tree, including funcs emitted later)
               # already knows its base address and capacity. list_new *executing*
               # only resets it to empty; the storage itself is allocated here.
-              register_list(node.name, node.capacity)
+              @lists.register_list(node.name, node.capacity)
             when :backing_buffer
               # Reserve the save-under patch's RAM once, up front, so a save/restore
               # anywhere in the tree already knows its address. Nothing is emitted
               # when the declaration is reached inline — it's pure reservation.
-              register_backing(node.name, node.width, node.height)
+              @lists.register_backing(node.name, node.width, node.height)
             when :layers
               # The stack of depths the picture is built from, backmost first. Things
               # name a layer wherever they're declared, so the order has to be known

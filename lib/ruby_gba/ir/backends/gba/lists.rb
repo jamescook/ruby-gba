@@ -4,22 +4,32 @@ module RubyGBA
   module IR
     module Backends
       class GBA
-        # Lists and the sprite backing store — their IWRAM layout and ops — plus func/case.
-        module Lists
+        # A list is stored as a ring buffer in IWRAM: a fixed block of `capacity`
+        # 4-byte slots, plus two hidden variables — `head` (the index of the oldest
+        # item) and `length` (how many items are live). The item logically at
+        # position i sits in the physical slot (head + i) & mask, where mask is
+        # capacity-1. Because capacity is a power of two, that wrap is a single
+        # bitwise AND — no division — and because the AND confines every access to
+        # the list's own block, a bad index can read a stale slot but can never
+        # reach a neighbouring variable. This mirrors the interpreter's list exactly
+        # (same items readable, same length, same overflow point); the interpreter's
+        # friendly errors catch logic bugs in testing, and here the hardware just
+        # stays bounded.
+        #
+        # A sprite's save-under backing buffer shares this file because it shares this
+        # IWRAM allocation story — a name registered once, a layout looked up
+        # afterward — not because it's a list; see #register_backing/#backing_info.
+        class Lists
           include Constants
 
-          #
-          # A list is stored as a ring buffer in IWRAM: a fixed block of `capacity`
-          # 4-byte slots, plus two hidden variables — `head` (the index of the oldest
-          # item) and `length` (how many items are live). The item logically at
-          # position i sits in the physical slot (head + i) & mask, where mask is
-          # capacity-1. Because capacity is a power of two, that wrap is a single
-          # bitwise AND — no division — and because the AND confines every access to
-          # the list's own block, a bad index can read a stale slot but can never
-          # reach a neighbouring variable. This mirrors the interpreter's list exactly
-          # (same items readable, same length, same overflow point); the interpreter's
-          # friendly errors catch logic bugs in testing, and here the hardware just
-          # stays bounded.
+          def initialize(memory:, primitives:, emitter:, lowering:)
+            @memory = memory
+            @primitives = primitives
+            @emitter = emitter
+            @lowering = lowering
+            @lists = {}
+            @backing = {}
+          end
 
           # Reserve a list's IWRAM layout: the slot block, then the head and length
           # variables. Called once per name during the definitions pass; a name
@@ -34,8 +44,8 @@ module RubyGBA
             end
 
             base = @memory.alloc(capacity * 4) # the ring's slots
-            var_addr(head_var(name))  # head and length, allocated alongside
-            var_addr(length_var(name))
+            @primitives.var_addr(head_var(name))  # head and length, allocated alongside
+            @primitives.var_addr(length_var(name))
             @lists[name] = { capacity: capacity, mask: capacity - 1, base: base }
           end
 
@@ -73,13 +83,6 @@ module RubyGBA
                     "declare it first (a sprite does this for you)")
           end
 
-          def backing_region_unsupported_in_buffered!
-            raise LoweringError,
-                  "A sprite's save and restore cannot run on the tear-free screen (`tear_free: true`). Its " \
-                  "backing store holds direct colors, and that screen stores colors as color-table indices. " \
-                  "To use sprites, use the direct-color screen: drop `tear_free:`."
-          end
-
           def head_var(name)
             :"#{name}__head"
           end
@@ -93,9 +96,9 @@ module RubyGBA
           # left as-is — nothing reads them until a push makes them live.
           def emit_list_new(node)
             list_info(node.name)
-            emit(ASM.load_immediate(ACC, 0))
-            store_var(ACC, head_var(node.name))
-            store_var(ACC, length_var(node.name))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, head_var(node.name))
+            @primitives.store_var(ACC, length_var(node.name))
           end
 
           # list_push: append at the tail — slot (head + length) & mask — then grow
@@ -106,22 +109,22 @@ module RubyGBA
             info = list_info(node.name)
             length = length_var(node.name)
 
-            load_var(ACC, length)                        # r0 = length (the tail offset)
-            emit(ASM.load_immediate(TMP, info[:capacity]))
-            emit(ASM.cmp_reg(ACC, TMP))                  # length - capacity
-            skip = gensym
-            emit_branch(:bcond, skip, cond: :ge)         # full => drop the push
+            @primitives.load_var(ACC, length)            # r0 = length (the tail offset)
+            @emitter.emit(ASM.load_immediate(TMP, info[:capacity]))
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))                  # length - capacity
+            skip = @emitter.gensym
+            @emitter.emit_branch(:bcond, skip, cond: :ge)         # full => drop the push
 
             emit_slot_address(info, node.name)         # r12 = &slot[(head+length)&mask]
-            emit(ASM.push(ADDR))                         # hold the address across the value eval
+            @emitter.emit(ASM.push(ADDR))                         # hold the address across the value eval
             @lowering.value(node.value)                     # r0 = value
-            emit(ASM.pop(TMP))                           # r1 = address
-            emit(ASM.str(ACC, TMP))                      # slot = value
+            @emitter.emit(ASM.pop(TMP))                           # r1 = address
+            @emitter.emit(ASM.str(ACC, TMP))                      # slot = value
 
-            load_var(ACC, length)                        # length += 1
-            emit(ASM.add_imm(ACC, ACC, 1))
-            store_var(ACC, length)
-            place_label(skip)
+            @primitives.load_var(ACC, length)                        # length += 1
+            @emitter.emit(ASM.add_imm(ACC, ACC, 1))
+            @primitives.store_var(ACC, length)
+            @emitter.place_label(skip)
           end
 
           # list_drop: remove one item. A shift (:front) advances head past the oldest
@@ -132,22 +135,22 @@ module RubyGBA
             head = head_var(node.name)
             length = length_var(node.name)
 
-            load_var(ACC, length)
-            emit(ASM.cmp_imm(ACC, 0))
-            skip = gensym
-            emit_branch(:bcond, skip, cond: :eq)         # empty => nothing to drop
+            @primitives.load_var(ACC, length)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            skip = @emitter.gensym
+            @emitter.emit_branch(:bcond, skip, cond: :eq)         # empty => nothing to drop
 
             if node.from == :front
-              load_var(ACC, head)                        # head = (head + 1) & mask
-              emit(ASM.add_imm(ACC, ACC, 1))
-              emit_and_const(ACC, ACC, info[:mask], TMP)
-              store_var(ACC, head)
+              @primitives.load_var(ACC, head)                        # head = (head + 1) & mask
+              @emitter.emit(ASM.add_imm(ACC, ACC, 1))
+              @primitives.emit_and_const(ACC, ACC, info[:mask], TMP)
+              @primitives.store_var(ACC, head)
             end
 
-            load_var(ACC, length)                        # length -= 1
-            emit(ASM.sub_imm(ACC, ACC, 1))
-            store_var(ACC, length)
-            place_label(skip)
+            @primitives.load_var(ACC, length)                        # length -= 1
+            @emitter.emit(ASM.sub_imm(ACC, ACC, 1))
+            @primitives.store_var(ACC, length)
+            @emitter.place_label(skip)
           end
 
           # list_set: overwrite the item at an index. The masked address confines the
@@ -158,10 +161,10 @@ module RubyGBA
 
             @lowering.value(node.index)                     # r0 = index
             emit_slot_address(info, node.name)         # r12 = &slot[(head+index)&mask]
-            emit(ASM.push(ADDR))
+            @emitter.emit(ASM.push(ADDR))
             @lowering.value(node.value)                     # r0 = value
-            emit(ASM.pop(TMP))                           # r1 = address
-            emit(ASM.str(ACC, TMP))                      # slot = value
+            @emitter.emit(ASM.pop(TMP))                           # r1 = address
+            @emitter.emit(ASM.str(ACC, TMP))                      # slot = value
           end
 
           # list_get: read the item at an index into the accumulator (a value).
@@ -169,71 +172,27 @@ module RubyGBA
             info = list_info(node.name)
             @lowering.value(node.index)                     # r0 = index
             emit_slot_address(info, node.name)         # r12 = &slot[(head+index)&mask]
-            emit(ASM.ldr(ACC, ADDR))                     # r0 = slot
+            @emitter.emit(ASM.ldr(ACC, ADDR))                     # r0 = slot
           end
 
           # list_len: read the length variable into the accumulator (a value).
           def eval_list_len(node)
             list_info(node.name)
-            load_var(ACC, length_var(node.name))
+            @primitives.load_var(ACC, length_var(node.name))
           end
+
+          private
 
           # Turn an offset-from-head (already in r0 — an index, or length for a push)
           # into the physical slot address in r12: base + ((head + offset) & mask)*4.
           # Clobbers r0/r1; leaves the address in ADDR (r12), ready for ldr/str.
           def emit_slot_address(info, name)
-            load_var(TMP, head_var(name))                # r1 = head
-            emit(ASM.add_reg(ACC, TMP, ACC))             # r0 = head + offset
-            emit_and_const(ACC, ACC, info[:mask], TMP)   # r0 = slot (ring-wrapped)
-            emit(ASM.lsl_imm(ACC, ACC, 2))               # r0 = slot * 4 bytes
-            emit(ASM.load_immediate(TMP, info[:base]))   # r1 = base address
-            emit(ASM.add_reg(ADDR, TMP, ACC))            # r12 = base + slot*4
-          end
-
-          # Func bodies live after the main code. A leading endless loop guards
-          # against the main flow running off its end into the first body. Each func
-          # saves the return address and restores it as the program counter.
-          # The routines that stay in the cartridge. The ones chosen to run from the
-          # console's quick memory are emitted separately, as one block (see
-          # {Placement}#emit_hot_functions), because that block is copied wholesale.
-          def emit_functions
-            cold = @funcs.reject { |name, _| @fast_funcs.include?(name) }
-            return if cold.empty?
-
-            emit(ASM.loop_forever) # fall-through guard
-            cold.each { |name, fnode| emit_one_function(name, fnode) }
-          end
-
-          # One routine: save the return address, run the body, return. Shared by both
-          # places routines are emitted, so where a routine lives cannot change what it
-          # does.
-          def emit_one_function(name, fnode)
-            start = pos
-            place_label(func_label(name))
-            emit(ASM.push(14))                          # push {lr}
-            # Draws in this func lower in its resolved mode; a scene (a per-frame
-            # entry point) also switches the hardware to that mode as it takes over.
-            @lowering.in_mode(@func_mode.fetch(name, @default_mode)) do
-              emit_scene_preamble(name) if @manage_modes && @scene_funcs.include?(name)
-              fnode.children.each { |stmt| @lowering.statement(stmt) }
-            end
-            emit(ASM.pop(15))                           # pop {pc}  (return)
-            @func_ranges[name] = (start...pos)          # byte span, for dump_func
-          end
-
-          def func_label(name)
-            "func_#{name}"
-          end
-
-          # Multi-way dispatch lowers to one "if the variable equals this value, call
-          # that scene" per clause — reusing the ordinary if/compare/call path. Each
-          # comparison reloads the variable from memory itself, so a scene call is free
-          # to clobber every register without disturbing the dispatch.
-          def emit_case(node)
-            node.clauses.each do |value, target|
-              test = Build.binop(:==, Build.var_ref(node.var), Build.int(value))
-              @lowering.statement(Build.if_(test, Build.call(target)))
-            end
+            @primitives.load_var(TMP, head_var(name))                # r1 = head
+            @emitter.emit(ASM.add_reg(ACC, TMP, ACC))             # r0 = head + offset
+            @primitives.emit_and_const(ACC, ACC, info[:mask], TMP)   # r0 = slot (ring-wrapped)
+            @emitter.emit(ASM.lsl_imm(ACC, ACC, 2))               # r0 = slot * 4 bytes
+            @emitter.emit(ASM.load_immediate(TMP, info[:base]))   # r1 = base address
+            @emitter.emit(ASM.add_reg(ADDR, TMP, ACC))            # r12 = base + slot*4
           end
         end
       end
