@@ -38,8 +38,8 @@ WIN_SCORE    = 5
 STING_FRAMES = 18       # how long the red sting takes to fall away when the cpu scores
 LEFT_X       = 8        # player paddle x
 RIGHT_X      = 228      # cpu paddle x
-ZOOM_FRAMES    = 24     # how long the title's zoom-in takes once START is pressed
-ZOOM_PER_FRAME = 0.12   # how much bigger the title backdrop gets each of those frames
+ZOOM_FRAMES    = 60     # how long the title's zoom-in takes once START is pressed (1 second)
+ZOOM_PER_FRAME = 0.05   # how much bigger the title backdrop gets each of those frames
 
 Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   screen :bitmap
@@ -201,8 +201,8 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     # and nothing there has to know this scene used BG2 for something else.
     screen :affine
 
-    image :dark, "#" => rgb(2, 2, 7) do "########\n" * 8 end
-    image :light, "#" => rgb(4, 4, 12) do "########\n" * 8 end
+    image :dark, "#" => :black do "########\n" * 8 end
+    image :light, "#" => rgb(2, 2, 2) do "########\n" * 8 end
     tiles :backdrop, "#" => :dark, "$" => :light
     checker = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "#" : "$" }.join }
     title_board = background :title_board, tiles: :backdrop, map: checker

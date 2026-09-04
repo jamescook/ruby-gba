@@ -131,6 +131,7 @@ module RubyGBA
       # func body) while its block runs.
       @program = Build.program
       @container_stack = [@program]
+      @shown_while = []        # the conditions open right here, for a declaration that is only presented under them
 
       # Persisted variables (from `save_var`), in declaration order — each is
       # { name:, default:, slot: }, the slot being its place in save memory. Drives
@@ -501,9 +502,14 @@ module RubyGBA
     def record_else(if_node, &block)
       else_node = Build.else_
       @container_stack.push(else_node)
+      # The other side of the same test: what is declared here is shown when the `if`'s
+      # condition is FALSE. A copy of that condition, because a node belongs to one place
+      # in the tree and this one already belongs to the `if`.
+      @shown_while.push(Build.binop(:==, if_node.cond.copy, Build.int(0)))
       begin
         run_block(&block)
       ensure
+        @shown_while.pop
         @container_stack.pop
       end
       if_node.else = else_node
@@ -583,6 +589,25 @@ module RubyGBA
 
       state_var, value = @current_scene_gate
       Build.binop(:*, active_node, Build.binop(:==, Build.var_ref(state_var), Build.int(value)))
+    end
+
+    # Gate a declaration's visibility on the conditions it was WRITTEN under, so a
+    # blinking prompt is the plain thing an author would write:
+    #
+    #   (blink == 1).then { draw_text "PRESS START", 76, 100, :gray }
+    #
+    # Text on a tiled screen is not painted where the call sits — it becomes little glyph
+    # sprites the console composites every frame, from a list settled once at build time.
+    # So the `.then` around the call would otherwise decide nothing at all: the glyphs are
+    # declared inside it, and then shown on every frame regardless, which reads as a
+    # prompt that never blinks. Carrying the condition onto the glyph itself is what makes
+    # the two agree — it is shown exactly while the test holds, which is what the line says.
+    #
+    # A condition is 0 or 1, so several nested ones multiply together, the same way
+    # #scene_gate folds in "and this scene is the live one". Each is copied because a node
+    # belongs to one place in the tree, and these already belong to their `if`.
+    def condition_gate(active_node)
+      @shown_while.reduce(active_node) { |node, cond| Build.binop(:*, node, cond.copy) }
     end
 
     # Fill every frame's present-objects node with the complete object list once all
@@ -901,8 +926,13 @@ module RubyGBA
     def push_container(node)
       record(node)
       @container_stack.push(node)
+      # A test the block is written under is also a test anything DECLARED in the block is
+      # only shown under (see #condition_gate) — the same statement reads both ways, and a
+      # thing the framework redraws for you every frame has no other way to hear about it.
+      @shown_while.push(node.cond) if node.kind == :if
       yield
     ensure
+      @shown_while.pop if node.kind == :if
       @container_stack.pop
     end
 

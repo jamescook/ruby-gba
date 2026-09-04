@@ -106,14 +106,14 @@ class TestPongScoring < Minitest::Test
   # where the CPU's first point actually lands with nobody touching the pad — if the
   # ball or paddle speeds change, these move, and that is worth being told about. They
   # also move whenever the title's own timing changes (the zoom-in on START runs for
-  # ZOOM_FRAMES before handing off to :playing), which is why these are ~23 frames later
-  # than they once were.
+  # ZOOM_FRAMES before handing off to :playing) — they've moved twice now, first when
+  # the zoom was added and again when it was slowed down to be visible.
 
   LINE_X = 120
   LINE_Y = 6
-  THE_POINT = 357
-  JUST_AFTER_THE_POINT = 361
-  ONCE_IT_HAS_EASED_OFF = 375
+  THE_POINT = 393
+  JUST_AFTER_THE_POINT = 397
+  ONCE_IT_HAS_EASED_OFF = 411
 
   # The center line's three channels, as red / green / blue.
   def pong_line_at(frames)
