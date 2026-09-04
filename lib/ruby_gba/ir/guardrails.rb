@@ -210,6 +210,7 @@ require_relative "guardrails/tiled_display" # shared by the two tiled-screen che
 require_relative "guardrails/screen_mode_set"
 require_relative "guardrails/empty_tiled_screen"
 require_relative "guardrails/bitmap_draw_on_tiled"
+require_relative "guardrails/call_inside_area"
 require_relative "guardrails/fade_never_lifted"
 require_relative "guardrails/tint_never_lifted"
 require_relative "guardrails/dropped_frame_sync"
@@ -244,6 +245,7 @@ module RubyGBA
         Checks::ScreenModeSet.new,
         Checks::EmptyTiledScreen.new,
         Checks::BitmapDrawOnTiled.new,
+        Checks::CallInsideArea.new,
         Checks::FadeNeverLifted.new,
         Checks::TintNeverLifted.new,
         Checks::VblankSync.new,
