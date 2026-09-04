@@ -273,15 +273,16 @@ module RubyGBA
       end
 
       # Declare one glyph sprite (an object) at a fixed screen spot and remember it so
-      # every frame's repaint draws it, on top of the game. active is always 1 — a HUD
-      # glyph is simply always shown.
+      # every frame's repaint draws it, on top of the game.
       def hud_glyph_object(poses:, pose:, x:, y:)
         name = :"__hud#{@sprite_seq += 1}"
-        # active is 1 (a HUD glyph is always shown) unless it's declared inside a scene,
-        # where scene_gate scopes it to when that scene is active — so a scene's HUD comes
-        # and goes with the scene, with nothing to toggle by hand.
-        record(Build.object(name, poses: poses, pose: pose,
-                                  x: Build.int(x), y: Build.int(y), active: scene_gate(Build.int(1))))
+        # A HUD glyph is always shown, so active starts at 1 — and then picks up the two
+        # things that can narrow it. scene_gate scopes it to when its scene is the live
+        # one, so a scene's HUD comes and goes with the scene. condition_gate carries the
+        # tests it was written under, so `(blink == 1).then { draw_text ... }` blinks
+        # instead of standing still. Neither needs anything toggled by hand.
+        record(Build.object(name, poses: poses, pose: pose, x: Build.int(x), y: Build.int(y),
+                                  active: condition_gate(scene_gate(Build.int(1)))))
         @hud_objects << name
         name
       end
@@ -324,6 +325,11 @@ module RubyGBA
               "Use a smaller font (the built-in :default and :tiny fit), or draw this text on a `screen :bitmap`."
       end
 
+      # The containers that are a test rather than a per-frame body — a `.then` and its
+      # `.else`. Text declared under one of these is declared once, like text at the top
+      # level, and shown while the test holds.
+      CONDITION_CONTAINERS = %i[if else].freeze
+
       # Tiled text is declared once and redrawn for you every frame, so it belongs at
       # the top level (before game_loop), not inside the loop — declared inside, it
       # would be re-added every frame and never make it into the frame's sprite list.
@@ -331,6 +337,11 @@ module RubyGBA
       def require_hud_declared_once!(verb)
         return if @container_stack.length == 1 # only the program itself is open
         return if @building_scene # a scene declares its own HUD in its body (built once, off the loop)
+        # A test around the call is still one declaration, not a per-frame one: the block
+        # runs once while the program is built, and the condition rides onto the glyph so
+        # it is shown while the test holds (see Builder#condition_gate). That is how a
+        # prompt blinks, so it is allowed — what stays refused is a per-frame body.
+        return if @container_stack.drop(1).all? { |open| CONDITION_CONTAINERS.include?(open.kind) }
 
         raise ArgumentError,
               "Call #{verb} once, above your game_loop. Do not call it inside the loop. " \

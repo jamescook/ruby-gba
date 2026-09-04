@@ -112,6 +112,95 @@ class TestTiledText < Minitest::Test
     assert_glyph(s, "5", 100, 20, WHITE)
   end
 
+  # --- text declared under a condition: a blinking prompt ---
+  #
+  # A tiled glyph is not painted where the call sits — it is a sprite the console
+  # redraws every frame from a list settled at build time — so a `.then` around the
+  # call has to reach the glyph itself, or a prompt written to blink stands still.
+
+  # A prompt that flips on and off every frame: shown while `blink` is 1, gone while
+  # it's 0, with a second label beside it that named no condition and therefore never
+  # goes away (so "gone" reads as this glyph, not as a blank screen).
+  def blinking_prompt_program
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      blink = var :blink, 1
+      draw_text "A", 100, 20, :white                       # always on: the control
+      (blink == 1).then { draw_text "B", 140, 20, :white }  # only while blink is 1
+      game_loop do
+        (blink == 1).then { blink.set 0 }.else { blink.set 1 }
+      end
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  def test_text_under_a_condition_is_shown_only_while_it_holds
+    on = Reference.new.run(blinking_prompt_program, frames: 1).screen
+    off = Reference.new.run(blinking_prompt_program, frames: 2).screen
+
+    assert_glyph(on, "A", 100, 20, WHITE)
+    assert_glyph(on, "B", 140, 20, WHITE)
+    assert_glyph(off, "A", 100, 20, WHITE) # the unconditional label stays
+    refute_glyph(off, "B", 140, 20, WHITE) # ...the conditional one has gone
+  end
+
+  # The other side of the same test: a declaration in the `.else` shows when the
+  # condition is false.
+  def test_text_in_an_else_is_shown_while_the_condition_is_false
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      blink = var :blink, 1
+      (blink == 1).then { draw_text "A", 100, 20, :white }.else { draw_text "B", 140, 20, :white }
+      game_loop do
+        (blink == 1).then { blink.set 0 }.else { blink.set 1 }
+      end
+    end
+    b.emit_pending_functions
+    prog = b.program
+
+    first = Reference.new.run(prog, frames: 1).screen
+    second = Reference.new.run(prog, frames: 2).screen
+
+    assert_glyph(first, "A", 100, 20, WHITE)
+    refute_glyph(first, "B", 140, 20, WHITE)
+    refute_glyph(second, "A", 100, 20, WHITE)
+    assert_glyph(second, "B", 140, 20, WHITE)
+  end
+
+  # ...and the console does the same thing with it. The emulator runs one boot frame
+  # before the loop a tiled program's first present happens in, so the console is a
+  # frame ahead of the interpreter's count (see Differential::BOOT_FRAMES).
+  def test_a_blinking_prompt_blinks_on_the_console
+    prog = blinking_prompt_program
+    rom = ROM.assemble(GBA.new.lower(prog), title: "BLINK", code: "BBLI", maker: "01")
+    on = assert_gemba_loads_rom(rom, frames: 2)
+    off = assert_gemba_loads_rom(rom, frames: 3)
+
+    assert lit_pixels(on, "A", 100, 20).all? { |x, y| on.white?(x, y) }, "the plain label shows"
+    assert lit_pixels(on, "B", 140, 20).all? { |x, y| on.white?(x, y) }, "the prompt shows while blink is 1"
+    assert lit_pixels(off, "A", 100, 20).all? { |x, y| off.white?(x, y) }, "the plain label still shows"
+    refute lit_pixels(off, "B", 140, 20).any? { |x, y| off.white?(x, y) }, "the prompt is gone while blink is 0"
+  end
+
+  # No lit pixel of +char+'s glyph is painted in +color+ at (gx, gy) — the negative of
+  # #assert_glyph, for a glyph that should not be on screen at all.
+  def refute_glyph(screen, char, gx, gy, color)
+    Fonts.get(:default).each_pixel(char) do |dx, dy|
+      refute_equal color, screen.pixel(gx + dx, gy + dy),
+                   "glyph #{char.inspect} pixel (#{dx},#{dy}) should NOT be painted at (#{gx + dx},#{gy + dy})"
+    end
+  end
+
+  # The screen coordinates of every lit pixel of +char+'s glyph drawn at (gx, gy).
+  def lit_pixels(_verifier, char, gx, gy)
+    pixels = []
+    Fonts.get(:default).each_pixel(char) { |dx, dy| pixels << [gx + dx, gy + dy] }
+    pixels
+  end
+
   # --- friendly guardrails ---
 
   def test_declaring_tiled_text_inside_the_loop_is_a_friendly_error
