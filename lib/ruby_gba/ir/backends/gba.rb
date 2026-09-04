@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "gba/emit"
+require_relative "gba/lowering"
 require_relative "gba/memory"
 require_relative "gba/loop_form" # which shape a repeat gets; the cost model asks it too
 require_relative "gba/bend_form" # ...and which way a row-by-row bend is lowered, likewise
@@ -73,7 +74,6 @@ module RubyGBA
         include Audio
         include Expressions
         include Divide
-        include Collision
         include Raster
         include DirectSound
         include Mixer
@@ -217,7 +217,7 @@ module RubyGBA
           :== => %i[eq ne], :!= => %i[ne eq],
         }.freeze
 
-        attr_reader :func_ranges
+        attr_reader :func_ranges, :lowering
 
         # The emitted machine code / the label table / where each embedded blob landed
         # — read straight from @emit, which is where they actually live (see {Emit}).
@@ -245,6 +245,7 @@ module RubyGBA
           @primitives = Primitives.new(emitter: @emit, memory: @memory)
           @frames = Frames.new(emitter: @emit, primitives: @primitives)
           @save = Save.new(emitter: @emit, primitives: @primitives)
+          @lowering = Lowering.new # the kind-keyed dispatch that replaces eval_value's case
           @funcs = {}            # func name -> its IR node (emitted after the main body)
           @func_ranges = {}      # func name -> byte span in @code (for dump_func)
           @defined_sounds = {}   # name -> musical params (from define_sound)
@@ -252,6 +253,19 @@ module RubyGBA
           @blob_codecs = {}      # name -> :lz77/:rle/:none (how a VRAM blob was packed, if at all)
           @blob_raw_bytes = {}   # name -> its size before packing (for the build's savings line)
           @bitmaps = {}          # name -> { width:, height: } (a blob that has a shape)
+          @collision = Collision.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
+                                     bitmaps: @bitmaps)
+          # Every value kind's handler, registered once in one place — see {Lowering}.
+          @lowering.values(
+            int: method(:eval_int), var_ref: method(:eval_var_ref), neg: method(:eval_neg),
+            binop: method(:eval_binop), mul_fix: method(:eval_mul_fix), div_fix: method(:eval_div_fix),
+            shift_right: method(:eval_shift_right), held: method(:eval_held_node),
+            pressed: method(:eval_pressed_node), chance: method(:eval_chance),
+            pixels_overlap: @collision.method(:eval_pixels_overlap), data_byte: method(:eval_data_byte),
+            table_get: method(:eval_table_get), list_get: method(:eval_list_get),
+            list_len: method(:eval_list_len), read_scanline: method(:eval_read_scanline),
+            timer_ticks: method(:eval_timer_ticks),
+          )
           @tables = {}           # name -> { count:, elem_bytes:, signed:, pow2: } (a ROM lookup table)
           @backing = {}          # name -> { width:, height:, base: } (a sprite's save-under RAM)
           @lists = {}            # name -> { capacity:, mask:, base: } (a list's IWRAM layout)
@@ -485,6 +499,9 @@ module RubyGBA
         def const_int(node) = @primitives.const_int(node)
         def constant_ints!(node, **sides) = @primitives.constant_ints!(node, **sides)
         def emit_row_loop(counter, &block) = @primitives.emit_row_loop(counter, &block)
+
+        # Forwards to @collision (see {Collision}).
+        def prepare_pixel_masks(program) = @collision.prepare_pixel_masks(program)
 
         # Forwards to @frames and @save — both stateless (see {Frames}, {Save}).
         def emit_frame_count = @frames.emit_frame_count
