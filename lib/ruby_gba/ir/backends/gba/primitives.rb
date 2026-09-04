@@ -148,6 +148,32 @@ module RubyGBA
             @emitter.place_label(done)
           end
 
+          # rd = rn + imm. A small immediate rides directly in the ADD; a larger one
+          # (a wide bitmap's row offset, say) is loaded into +scratch+ first, since
+          # ARM can only fold an 8-bit rotated immediate into the instruction.
+          def emit_add_const(rd, rn, imm, scratch)
+            if imm.zero?
+              @emitter.emit(ASM.mov_reg(rd, rn)) unless rd == rn
+            elsif ASM.encode_rotated_immediate(imm)
+              @emitter.emit(ASM.add_imm(rd, rn, imm))
+            else
+              @emitter.emit(ASM.load_immediate(scratch, imm))
+              @emitter.emit(ASM.add_reg(rd, rn, scratch))
+            end
+          end
+
+          # rd = rn & imm — the ring-wrap mask. A mask that fits an 8-bit rotated
+          # immediate (capacity up to 256) rides directly in the AND; a wider one is
+          # loaded into +scratch+ first, since ARM can't fold it into the instruction.
+          def emit_and_const(rd, rn, imm, scratch)
+            if ASM.encode_rotated_immediate(imm)
+              @emitter.emit(ASM.and_imm(rd, rn, imm))
+            else
+              @emitter.emit(ASM.load_immediate(scratch, imm))
+              @emitter.emit(ASM.and_reg(rd, rn, scratch))
+            end
+          end
+
           private
 
           # Put what the load will be read from into the address register: the base of the
