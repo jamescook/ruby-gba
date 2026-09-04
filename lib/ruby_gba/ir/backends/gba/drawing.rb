@@ -6,21 +6,20 @@ module RubyGBA
       class GBA
         # Direct-color (Mode 3) drawing, and the screen-mode/page management around it.
         #
-        # What the prepare passes in gba.rb decided (which images/objects/backgrounds a
-        # program has, the shared palette, the picture, the mode facts...) arrives as ONE
-        # record, `layout`, handed over once those passes finish — not twenty keyword
-        # arguments, and not the GBA (see `layout=` below; the shape mirrors
-        # Functions#modes=, set the same way for the same reason: it isn't known yet when
-        # this object is built). Clip/column/digit-glyph work shared with the tear-free
-        # screen lives in {Framebuffer}; the tear-free screen's own drawing lives in
-        # {Buffered}, reached here as an explicit collaborator rather than a bare
-        # cross-file call — the ten places this file forks on which screen is live
-        # (`return emit_x_buffered(node) if @lowering.mode == :buffered`) stay written out,
-        # rather than moving into the Lowering's dispatch table: Drawing and Buffered
-        # between them are some 2600 lines and dozens of methods, and turning eight
-        # statement kinds into two-handler table entries would teach the registry a second
-        # dispatch shape for a page of `if`s saved — not worth it against the size and risk
-        # of this conversion.
+        # What the prepare passes in gba.rb decide about a program — which images,
+        # objects, and backgrounds it has, the shared palette, the picture, the mode
+        # facts — arrives as one record, `layout`, handed over through `layout=` once
+        # those passes finish (the same shape Functions#modes= is set in: none of it
+        # exists yet when this object is built). Clip/column/digit-glyph work shared
+        # with the tear-free screen lives in {Framebuffer}; the tear-free screen's own
+        # drawing lives in {Buffered}, an explicit collaborator here rather than a bare
+        # cross-file call.
+        #
+        # Ten statement kinds fork on which screen is live —
+        # `return @buffered.emit_x_buffered(node) if @lowering.mode == :buffered` — and
+        # that fork stays written out here rather than moving into the Lowering's
+        # dispatch table, which would otherwise have to pick one of two handlers per
+        # kind instead of one.
         class Drawing
           include Constants
 
@@ -205,9 +204,9 @@ module RubyGBA
             @palette_tint.emit_tint_state_reset # the table now holds the originals again
           end
 
-          # Forwards to @emitter/@primitives/@divide, exactly as every other converted
+          # Forwards to @emitter/@primitives/@divide, the same shape every other
           # collaborator's do (see e.g. {Collision}) — this file calls them as bare
-          # methods throughout, unchanged from when Drawing was mixed into GBA directly.
+          # methods throughout.
           def emit(bytes) = @emitter.emit(bytes)
           def pos = @emitter.pos
           def place_label(name) = @emitter.place_label(name)

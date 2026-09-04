@@ -3,15 +3,15 @@
 module RubyGBA
   module IR
     class CostModel
-      # Everything Rollup#index used to work out once, by walking the whole program a
-      # single time, before any per-node price is asked: which screen each routine
-      # draws on, every func/list/table/song/bitmap/object/backing-buffer declaration,
-      # and whether any layer can be seen through.
+      # Everything settled by walking the whole program once, before any per-node
+      # price is asked: which screen each routine draws on, every
+      # func/list/table/song/bitmap/object/backing-buffer declaration, and whether
+      # any layer can be seen through.
       #
       # Built once per #analyze call (see #build) and handed to Pricing, Verdicts,
-      # Tree, and Report as one immutable value — this is the seam that used to be a
-      # dozen ivars splatted onto the CostModel instance, one per module that read
-      # them, with nothing saying which module was allowed to touch which.
+      # Tree, and Report as one immutable value — one seam, so it is always clear
+      # which of them owns which fact, rather than each reading its own slice of a
+      # dozen ivars on the CostModel instance.
       Catalogue = Data.define(:modes, :funcs, :capacities, :declared, :list_lengths,
                               :table_lengths, :songs, :bitmaps, :objects, :backing,
                               :sees_through) do

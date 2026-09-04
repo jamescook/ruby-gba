@@ -10,11 +10,11 @@ module RubyGBA
         # program ever gives its memory back.
         #
         # Nothing fancy: a pointer that only ever moves up. What earns this its own
-        # class is that "bump the pointer and remember where it was" used to be
-        # reimplemented by hand at each of six call sites (divide, lists, mixer,
-        # placement, primitives, raster) reaching into @next_var directly — six
-        # chances for one of them to get the bump-then-return order backwards, and
-        # no single place that says "this is how IWRAM gets handed out."
+        # class is that six call sites (divide, lists, mixer, placement, primitives,
+        # raster) all need exactly this — "bump the pointer and remember where it
+        # was" — and doing it by hand at each one is six chances to get the
+        # bump-then-return order backwards, with no single place that says "this is
+        # how IWRAM gets handed out."
         class Memory
           def initialize(start:)
             @next = start

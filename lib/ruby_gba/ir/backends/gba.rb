@@ -563,8 +563,7 @@ module RubyGBA
 
         # Forwards to @emit — the code buffer + two-pass label/fixup collaborator built
         # in #initialize. Every other lowering concern in this class calls these as bare
-        # methods, exactly as it always did back when Emit was mixed in directly; only
-        # its state moved out into a real object (see {Emit}).
+        # methods (see {Emit}).
         def emit(bytes) = @emit.emit(bytes)
         def pos = @emit.pos
         def place_label(name) = @emit.place_label(name)
@@ -634,8 +633,8 @@ module RubyGBA
         def emit_row_bend_handler = @raster.emit_row_bend_handler
         def interrupts_rows? = @raster.interrupts_rows?
 
-        # Forwards to @mixer (see {Mixer}) — the whole sampled-audio picture, including
-        # what used to be a separate DirectSound module.
+        # Forwards to @mixer (see {Mixer}) — the whole sampled-audio picture, from
+        # registering samples as ROM data to mixing and playing them.
         def emit_mixer_boot = @mixer.emit_mixer_boot
         def emit_mixer_tick = @mixer.emit_mixer_tick
         def emit_mix_routine = @mixer.emit_mix_routine
