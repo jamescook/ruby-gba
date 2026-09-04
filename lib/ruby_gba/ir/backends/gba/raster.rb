@@ -96,16 +96,15 @@ module RubyGBA
 
           attr_reader :row_bends # name -> :scroll_rows node (Drawing reads this to skip a bending layer's own scroll)
 
-          def initialize(emitter:, primitives:, memory:, lowering:, backgrounds:, drawing:)
+          def initialize(emitter:, primitives:, memory:, lowering:, backgrounds:, framebuffer:)
             @emitter = emitter
             @primitives = primitives
             @memory = memory
             @lowering = lowering
             @backgrounds = backgrounds
-            # Drawing isn't its own object yet (see Statements/Functions's `placement:
-            # self` for the same situation) — dma_fill_control is one of its emission
-            # recipes, so `self`, the whole backend, stands in for it here.
-            @drawing = drawing
+            # dma_fill_control lives on Framebuffer, alongside the other shared clip/fill
+            # machinery a bend's boot table also needs.
+            @framebuffer = framebuffer
             @row_bends = {}         # name -> :scroll_rows node giving each of that layer's rows its own offset
             @row_bend_base = {}     # name -> the layer's own scroll, which a row's offset is measured from
             @row_bend_table = {}    # name -> where its table of row offsets sits, worked out each frame
@@ -192,7 +191,7 @@ module RubyGBA
             @row_bend_table.each do |name, base|
               @primitives.store_word_immediate(scratch, REG_DMA3SAD) # one word of zeroes, read over and over
               @primitives.store_word_immediate(base, REG_DMA3DAD)
-              @primitives.store_word_immediate(@drawing.dma_fill_control(TABLE_BYTES / 4), REG_DMA3CNT)
+              @primitives.store_word_immediate(@framebuffer.dma_fill_control(TABLE_BYTES / 4), REG_DMA3CNT)
               next unless copies_row_bends?
 
               @primitives.store_word_immediate(Drawing::BG_HOFS_REGS[bg_number(name)], COPIER_DAD[engine_for(name)])

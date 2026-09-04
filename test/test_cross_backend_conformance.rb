@@ -92,8 +92,7 @@ class TestCrossBackendConformance < Minitest::Test
     gba = GBA.new
     gba.lower(program)
 
-    assert_equal registry(Reference.new.tap { |r| r.run(program) }, :@bitmaps),
-                 registry(gba, :@bitmaps)
+    assert_equal registry(Reference.new.tap { |r| r.run(program) }, :@bitmaps), gba.bitmaps
   end
 
   def test_both_backends_describe_a_recorded_sound_the_same_way

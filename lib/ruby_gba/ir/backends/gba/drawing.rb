@@ -5,39 +5,62 @@ module RubyGBA
     module Backends
       class GBA
         # Direct-color (Mode 3) drawing, and the screen-mode/page management around it.
-        module Drawing
+        #
+        # What the prepare passes in gba.rb decided (which images/objects/backgrounds a
+        # program has, the shared palette, the picture, the mode facts...) arrives as ONE
+        # record, `layout`, handed over once those passes finish — not twenty keyword
+        # arguments, and not the GBA (see `layout=` below; the shape mirrors
+        # Functions#modes=, set the same way for the same reason: it isn't known yet when
+        # this object is built). Clip/column/digit-glyph work shared with the tear-free
+        # screen lives in {Framebuffer}; the tear-free screen's own drawing lives in
+        # {Buffered}, reached here as an explicit collaborator rather than a bare
+        # cross-file call — the ten places this file forks on which screen is live
+        # (`return emit_x_buffered(node) if @lowering.mode == :buffered`) stay written out,
+        # rather than moving into the Lowering's dispatch table: Drawing and Buffered
+        # between them are some 2600 lines and dozens of methods, and turning eight
+        # statement kinds into two-handler table entries would teach the registry a second
+        # dispatch shape for a page of `if`s saved — not worth it against the size and risk
+        # of this conversion.
+        class Drawing
           include Constants
 
-          # WHERE DRAWING MAY LAND. The whole screen, unless an `inside` says otherwise — and
-          # then these four are what every shape below cuts itself against.
-          #
-          # They are the ONLY thing that changes inside an area. In particular the stride never
-          # does: a row of the picture is 240 pixels long wherever you are allowed to paint on
-          # it, so an address is still worked out from the screen's own width. Confusing the two
-          # is the way to make a clipped picture come out slanted.
-          def clip_left = (area = @lowering.draw_area) ? area[0] : 0
-          def clip_top = (area = @lowering.draw_area) ? area[1] : 0
-          def clip_right = (area = @lowering.draw_area) ? area[0] + area[2] : SCREEN_WIDTH
-          def clip_bottom = (area = @lowering.draw_area) ? area[1] + area[3] : SCREEN_HEIGHT
-          def clipping? = !@lowering.draw_area.nil?
-
-          # Is this cell one drawing may land on? The screen, held further to whatever area is in
-          # force — so a shape whose place is known while building is simply not emitted for the
-          # parts that fall outside. (Lives here, not with the rest of Primitives, because it's
-          # this file's draw area it reads.)
-          def in_bounds?(x, y)
-            (clip_left...clip_right).cover?(x) && (clip_top...clip_bottom).cover?(y)
+          def initialize(emitter:, primitives:, lowering:, divide:, framebuffer:, raster:, palette_tint:,
+                          layer_blend:, buffered:, backing_info:, fade_targets:, effect_line:)
+            @emitter = emitter
+            @primitives = primitives
+            @lowering = lowering
+            @divide = divide
+            @framebuffer = framebuffer
+            @raster = raster
+            @palette_tint = palette_tint
+            @layer_blend = layer_blend
+            @buffered = buffered
+            @backing_info = backing_info
+            @fade_targets = fade_targets
+            @effect_line = effect_line
+            @layout = nil
           end
+
+          attr_writer :layout
+
+          # The prepare-pass results this file reads, bundled into one record and handed
+          # over through #layout= once every pass that decides them has run.
+          Layout = Data.define(:bitmaps, :objects, :window_twins, :backgrounds, :bg_shared, :palette,
+                                :indexed_bitmaps, :run_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
+                                :modes, :tiled, :has_objects, :obj_palette_blob, :obj_palette_units,
+                                :default_mode, :any_buffered, :mixed_display, :manage_modes, :func_mode)
 
           # Fill the area itself, which is what clearing means when only part of the picture may
           # be painted: a row-at-a-time block fill over exactly those edges. It does not go
           # through the rectangle verb because that one holds authors to an even width, and an
           # area's width is whatever the author said.
           def emit_fill_area(color)
-            scratch = hold_fill_word(color)
-            control = fill_control_for_column(clip_left, clip_right - clip_left)
-            (clip_top...clip_bottom).each do |row|
-              fire_dma_fill(scratch, VRAM_START + ((row * SCREEN_WIDTH) + clip_left) * 2, control)
+            scratch = @framebuffer.hold_fill_word(color)
+            control = @framebuffer.fill_control_for_column(@framebuffer.clip_left,
+                                                            @framebuffer.clip_right - @framebuffer.clip_left)
+            (@framebuffer.clip_top...@framebuffer.clip_bottom).each do |row|
+              @framebuffer.fire_dma_fill(scratch, VRAM_START + ((row * SCREEN_WIDTH) + @framebuffer.clip_left) * 2,
+                                         control)
             end
           end
 
@@ -50,7 +73,7 @@ module RubyGBA
           # preamble, so a `screen` node is only a build-time declaration of a scene's
           # mode and emits nothing here. Otherwise it's the plain one-time register write.
           def emit_screen(node)
-            return if @manage_modes
+            return if @layout.manage_modes
 
             mode = node.mode
             value = if mode == :tiled
@@ -66,18 +89,18 @@ module RubyGBA
                     end
             # Turn the sprite layer on alongside the chosen mode when the program has
             # sprites, and pick the simple 1D tile arrangement they're packed for.
-            value |= OBJ_ENABLE | OBJ_1D_MAP if @has_objects
-            write_reg16(REG_DISPCNT, value)
+            value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
+            @emitter.write_reg16(REG_DISPCNT, value)
           end
 
           # The DISPCNT enable bit per layer, and the OR of them for the layers this
           # program declared — at least BG0, so a tiled screen always has one layer on.
           BG_ENABLES = [BG0_ENABLE, BG1_ENABLE, BG2_ENABLE, BG3_ENABLE].freeze
           def tiled_bg_enable_bits
-            layers = [@backgrounds.size, 1].max
+            layers = [@layout.backgrounds.size, 1].max
             bits = BG_ENABLES.first(layers).reduce(0, :|)
             # ...and the object window, for a program that keeps sprites out of a fade.
-            bits |= OBJ_WINDOW_ENABLE unless @window_twins.empty?
+            bits |= OBJ_WINDOW_ENABLE unless @layout.window_twins.empty?
             bits
           end
 
@@ -87,8 +110,8 @@ module RubyGBA
           # showing page 0 and drawing into page 1; a tiled default brings up the tile
           # layers and sprites; a direct default is the plain Mode 3 write.
           def emit_boot_screen
-            upload_palette if @any_buffered # the palette exists only for the buffered path
-            case @default_mode
+            upload_palette if @layout.any_buffered # the palette exists only for the buffered path
+            case @layout.default_mode
             when :tiled then enter_tiled_mode
             when :buffered then enter_buffered_mode
             else enter_direct_mode
@@ -100,16 +123,16 @@ module RubyGBA
           # record that buffered is now the live mode.
           def enter_buffered_mode
             base = MODE_4 | BG2_ENABLE
-            store_word_immediate(base, var_addr(DISPCNT_STATE))
-            store_word_immediate(PAGE1, var_addr(BACKBUF))
-            write_reg16(REG_DISPCNT, base)
-            store_word_immediate(MODE_BUFFERED, var_addr(MODE_STATE))
+            @primitives.store_word_immediate(base, @primitives.var_addr(DISPCNT_STATE))
+            @primitives.store_word_immediate(PAGE1, @primitives.var_addr(BACKBUF))
+            @emitter.write_reg16(REG_DISPCNT, base)
+            @primitives.store_word_immediate(MODE_BUFFERED, @primitives.var_addr(MODE_STATE))
             # A scene that tints leaves its color table blended, and one that remembers a
             # tint has to be able to trust what is in the table. In a program that crosses
             # to the tiled screen, that screen's own colors have been in this table since —
             # so put the originals back, which is also what makes the remembered tint true
             # again.
-            upload_palette if palette_tint? && @mixed_display
+            upload_palette if @palette_tint.palette_tint? && @layout.mixed_display
           end
 
           # Switch the hardware into direct-color (Mode 3) and record it as live. Writing
@@ -117,8 +140,8 @@ module RubyGBA
           # tiled scene left on screen bleeds under the bitmap one — only BG2 (the
           # framebuffer) shows, which the bitmap scene redraws.
           def enter_direct_mode
-            write_reg16(REG_DISPCNT, MODE_3 | BG2_ENABLE)
-            store_word_immediate(MODE_DIRECT, var_addr(MODE_STATE))
+            @emitter.write_reg16(REG_DISPCNT, MODE_3 | BG2_ENABLE)
+            @primitives.store_word_immediate(MODE_DIRECT, @primitives.var_addr(MODE_STATE))
           end
 
           # Switch the hardware into tiled mode (Mode 0). Because the bitmap framebuffer
@@ -129,13 +152,13 @@ module RubyGBA
           # Each background's map and control register are re-set by its own node in the
           # scene body, which runs right after this preamble.
           def enter_tiled_mode
-            emit_boot_backgrounds if @tiled && !@backgrounds.empty? # shared BG palette + tile pictures
-            emit_boot_objects if @has_objects                       # sprite palette + tiles, and clear OAM
-            emit_layer_blend_again if see_through?                  # ...and which one is see-through
+            emit_boot_backgrounds if @layout.tiled && !@layout.backgrounds.empty? # shared BG palette + tile pictures
+            emit_boot_objects if @layout.has_objects                             # sprite palette + tiles, and clear OAM
+            @layer_blend.emit_layer_blend_again if @layer_blend.see_through?     # ...and which one is see-through
             value = MODE_0 | tiled_bg_enable_bits
-            value |= OBJ_ENABLE | OBJ_1D_MAP if @has_objects
-            write_reg16(REG_DISPCNT, value)
-            store_word_immediate(MODE_TILED, var_addr(MODE_STATE))
+            value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
+            @emitter.write_reg16(REG_DISPCNT, value)
+            @primitives.store_word_immediate(MODE_TILED, @primitives.var_addr(MODE_STATE))
           end
 
           # Emitted at the top of each scene when a program switches the hardware per
@@ -143,13 +166,13 @@ module RubyGBA
           # transition). Steady frames — the same scene running again — cost just the
           # compare, and a buffered scene's DISPCNT is left to the page flip.
           def emit_scene_preamble(name)
-            mode = @func_mode[name]
-            load_var(ACC, MODE_STATE)
-            emit(ASM.cmp_imm(ACC, mode_state_marker(mode)))
-            skip = gensym
-            emit_branch(:bcond, skip, cond: :eq) # already in this mode? nothing to do
+            mode = @layout.func_mode[name]
+            @primitives.load_var(ACC, MODE_STATE)
+            @emitter.emit(ASM.cmp_imm(ACC, mode_state_marker(mode)))
+            skip = @emitter.gensym
+            @emitter.emit_branch(:bcond, skip, cond: :eq) # already in this mode? nothing to do
             enter_mode(mode)
-            place_label(skip)
+            @emitter.place_label(skip)
           end
 
           # A scene's resolved mode -> the marker stored in MODE_STATE, and the routine
@@ -178,9 +201,35 @@ module RubyGBA
             emit(ASM.load_immediate(TMP, REG_DMA3SAD))
             emit(ASM.str(ACC, TMP))                       # DMA source = the table
             store_word_immediate(BG_PALETTE, REG_DMA3DAD) # DMA destination = palette memory
-            store_word_immediate(@palette.size | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
-            emit_tint_state_reset # the table now holds the originals again
+            store_word_immediate(@layout.palette.size | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
+            @palette_tint.emit_tint_state_reset # the table now holds the originals again
           end
+
+          # Forwards to @emitter/@primitives/@divide, exactly as every other converted
+          # collaborator's do (see e.g. {Collision}) — this file calls them as bare
+          # methods throughout, unchanged from when Drawing was mixed into GBA directly.
+          def emit(bytes) = @emitter.emit(bytes)
+          def pos = @emitter.pos
+          def place_label(name) = @emitter.place_label(name)
+          def gensym = @emitter.gensym
+          def emit_branch(kind, target, cond: nil) = @emitter.emit_branch(kind, target, cond: cond)
+          def emit_load_data_address(reg, name) = @emitter.emit_load_data_address(reg, name)
+          def emit_load_label_address(reg, label) = @emitter.emit_load_label_address(reg, label)
+          def write_reg16(address, value) = @emitter.write_reg16(address, value)
+          def var_addr(name) = @primitives.var_addr(name)
+          def load_var(reg, name) = @primitives.load_var(reg, name)
+          def store_var(reg, name) = @primitives.store_var(reg, name)
+          def store_word_acc(address) = @primitives.store_word_acc(address)
+          def store_halfword_acc(address) = @primitives.store_halfword_acc(address)
+          def store_word_immediate(value, address) = @primitives.store_word_immediate(value, address)
+          def const_int(node) = @primitives.const_int(node)
+          def constant_ints!(node, **sides) = @primitives.constant_ints!(node, **sides)
+          def emit_row_loop(counter, &block) = @primitives.emit_row_loop(counter, &block)
+          def emit_add_const(rd, rn, imm, scratch) = @primitives.emit_add_const(rd, rn, imm, scratch)
+          def emit_call_divide_routine = @divide.emit_call_divide_routine
+          def backing_info(name) = @backing_info.call(name)
+          def fade_targets(under) = @fade_targets.call(under)
+          def effect_line(under) = @effect_line.call(under)
 
           # At the vblank boundary, flip the pages — but only while a buffered scene is
           # live (a direct scene draws straight to the screen and has nothing to flip).
@@ -217,14 +266,14 @@ module RubyGBA
           # so it's a single store. With a computed coordinate (e.g. a variable) the
           # address is built at run time from the evaluated x/y.
           def emit_pixel(node)
-            return emit_pixel_buffered(node) if @lowering.mode == :buffered
+            return @buffered.emit_pixel_buffered(node) if @lowering.mode == :buffered
 
             color = Color.resolve(node.color)
             xi = const_int(node.x)
             yi = const_int(node.y)
 
             if xi && yi
-              return unless in_bounds?(xi, yi) # off-screen: clip, like the framebuffer
+              return unless @framebuffer.in_bounds?(xi, yi) # off-screen: clip, like the framebuffer
 
               write_reg16(VRAM_START + ((yi * SCREEN_WIDTH) + xi) * 2, color)
             else
@@ -246,18 +295,18 @@ module RubyGBA
           # Fill a rectangle of constant size. Load the color once, then write each
           # on-screen pixel (off-screen pixels are clipped).
           def emit_fill_rect(node)
-            return emit_fill_rect_buffered(node) if @lowering.mode == :buffered
+            return @buffered.emit_fill_rect_buffered(node) if @lowering.mode == :buffered
 
             x, y, w, h = constant_ints!(node, x: node.x, y: node.y, w: node.w, h: node.h)
             color = Color.resolve(node.color)
             emit(ASM.load_immediate(ACC, color))
             h.times do |dy|
               row = y + dy
-              next unless (clip_top...clip_bottom).cover?(row)
+              next unless (@framebuffer.clip_top...@framebuffer.clip_bottom).cover?(row)
 
               w.times do |dx|
                 col = x + dx
-                next unless (clip_left...clip_right).cover?(col)
+                next unless (@framebuffer.clip_left...@framebuffer.clip_right).cover?(col)
 
                 emit(ASM.load_immediate(TMP, VRAM_START + ((row * SCREEN_WIDTH) + col) * 2))
                 emit(ASM.store_halfword(ACC, TMP))
@@ -268,10 +317,10 @@ module RubyGBA
           # Clear the whole screen with one DMA transfer: repeat a packed two-pixel
           # word across VRAM. The DMA engine copies far faster than a pixel loop.
           def emit_clear_screen(node)
-            return emit_clear_screen_buffered(node) if @lowering.mode == :buffered
+            return @buffered.emit_clear_screen_buffered(node) if @lowering.mode == :buffered
             # Inside an area, "the whole screen" is that area — which is a rectangle, and there
             # is already one way to fill one of those.
-            return emit_fill_area(node.color) if clipping?
+            return emit_fill_area(node.color) if @framebuffer.clipping?
 
             color = Color.resolve(node.color)
             word = (color << 16) | color
@@ -281,32 +330,32 @@ module RubyGBA
             store_word_immediate(word, scratch)                 # hold the fill word in IWRAM
             store_word_immediate(scratch, REG_DMA3SAD)          # source: the fixed word
             store_word_immediate(VRAM_START, REG_DMA3DAD)       # destination: the screen
-            store_word_immediate(dma_fill_control(count), REG_DMA3CNT) # kick off the transfer
+            store_word_immediate(@framebuffer.dma_fill_control(count), REG_DMA3CNT) # kick off the transfer
           end
 
           # A rectangle at a fixed position and size, filled fast with per-row DMA:
           # each row is one block transfer of a repeated two-pixel word. Rows off the
           # top/bottom of the screen are skipped.
           def emit_dma_fill_rect(node)
-            return emit_fill_rect_buffered(node) if @lowering.mode == :buffered
+            return @buffered.emit_fill_rect_buffered(node) if @lowering.mode == :buffered
 
             x, y, w, h = constant_ints!(node, x: node.x, y: node.y, w: node.w, h: node.h)
-            even_width!(w, :dma_fill_rect)
+            @framebuffer.even_width!(w, :dma_fill_rect)
             # Held to the area sideways before a single row is emitted: every row of a rectangle
             # spans the same columns, so where it starts and how far it reaches is one answer.
-            left = [x, clip_left].max
-            right = [x + w, clip_right].min
+            left = [x, @framebuffer.clip_left].max
+            right = [x + w, @framebuffer.clip_right].min
             return if right <= left
 
-            scratch = hold_fill_word(node.color)
-            control = fill_control_for_column(left, right - left)
+            scratch = @framebuffer.hold_fill_word(node.color)
+            control = @framebuffer.fill_control_for_column(left, right - left)
 
             h.times do |dy|
               row = y + dy
-              next unless (clip_top...clip_bottom).cover?(row)
+              next unless (@framebuffer.clip_top...@framebuffer.clip_bottom).cover?(row)
 
               row_addr = VRAM_START + ((row * SCREEN_WIDTH) + left) * 2
-              fire_dma_fill(scratch, row_addr, control)
+              @framebuffer.fire_dma_fill(scratch, row_addr, control)
             end
           end
 
@@ -333,17 +382,17 @@ module RubyGBA
           # across is not an optimisation — calling this once per pixel instead asks for the
           # same answer that many times over.
           def emit_draw_column_at(node)
-            return emit_draw_column_at_buffered(node) if @lowering.mode == :buffered
+            return @buffered.emit_draw_column_at_buffered(node) if @lowering.mode == :buffered
 
-            bmp = @bitmaps.fetch(node.name) do
+            bmp = @layout.bitmaps.fetch(node.name) do
               raise LoweringError, "draw_column_at of undefined image #{node.name.inspect}"
             end
             width = node.width || 1
 
             done = gensym
-            emit_column_setup(node, bmp, done)
-            emit_column_runs(node.name, bmp, done) do |leave|
-              emit_clip_column_rows(leave)
+            @framebuffer.emit_column_setup(node, bmp, done)
+            @framebuffer.emit_column_runs(node.name, bmp, done) do |leave|
+              @framebuffer.emit_clip_column_rows(leave)
 
               # The left and right edges are settled ONCE here, because a strip has one x for
               # its whole height. A strip wholly inside them then writes with nothing to test;
@@ -351,9 +400,9 @@ module RubyGBA
               # which is the rare case and pays for itself only there. A strip one pixel wide
               # has no second case: it is inside or it draws nothing.
               clipped = gensym
-              emit(ASM.cmp_imm(COLUMN_X, clip_left))
+              emit(ASM.cmp_imm(COLUMN_X, @framebuffer.clip_left))
               emit_branch(:bcond, clipped, cond: :lt)
-              emit(ASM.load_immediate(TMP, clip_right - width))
+              emit(ASM.load_immediate(TMP, @framebuffer.clip_right - width))
               emit(ASM.cmp_reg(COLUMN_X, TMP))
               emit_branch(:bcond, clipped, cond: :gt)
 
@@ -363,152 +412,6 @@ module RubyGBA
               emit_column_rows { emit_draw_column_row(bmp, width, clipped: true) } if width > 1
             end
             place_label(done)
-          end
-
-          # Everything a column needs before its first row: how many rows, how far down the
-          # picture each one moves, where it starts on screen, and where its pixels come from.
-          #
-          # +blob+ and +pixel_bytes+ differ by screen: the direct-color one reads the picture's
-          # colors, two bytes each, and the tear-free one reads the same picture as palette
-          # numbers, one byte each.
-          def emit_column_setup(node, bmp, done, blob: node.name, pixel_bytes: 2)
-            @lowering.value(node.height)
-            emit(ASM.mov_reg(COLUMN_ROWS, ACC))
-            emit(ASM.cmp_imm(COLUMN_ROWS, 0))
-            emit_branch(:bcond, done, cond: :le) # a column of no height draws nothing
-
-            # step = (picture height << 16) / height, by the shared divide routine — which takes
-            # the numerator in TMP and the divisor in ACC, and hands the answer back in ACC.
-            emit(ASM.load_immediate(TMP, bmp.height << COLUMN_FIXED))
-            emit(ASM.mov_reg(ACC, COLUMN_ROWS))
-            emit_call_divide_routine
-            emit(ASM.mov_reg(COLUMN_STEP, ACC))
-
-            @lowering.value(node.x)
-            emit(ASM.mov_reg(COLUMN_X, ACC))
-            @lowering.value(node.top)
-            emit(ASM.mov_reg(COLUMN_Y, ACC))
-
-            # The picture's column: its first pixel is `slice` pixels along its first row, and
-            # its rows are a whole picture width apart.
-            @lowering.value(node.slice)
-            emit_clamp_to(ACC, bmp.width - 1)
-            emit_column_runs_pointer(node.name) # ...and where THIS column holds its pixels
-            emit(ASM.lsl_imm(ACC, ACC, 1)) if pixel_bytes == 2
-            emit_load_data_address(COLUMN_SRC, blob)
-            emit(ASM.add_reg(COLUMN_SRC, COLUMN_SRC, ACC))
-          end
-
-          # This column's list of the stretches of rows that hold pixels. ACC holds the
-          # picture's column coming in and still holds it going out.
-          def emit_column_runs_pointer(name)
-            return unless @run_bitmaps.include?(name)
-
-            emit(ASM.lsl_imm(SPARE, ACC, 1)) # a halfword a column
-            emit_load_data_address(TMP, runs_start_blob(name))
-            emit(ASM.add_reg(TMP, TMP, SPARE))
-            emit(ASM.load_halfword(SPARE, TMP))
-            emit_load_data_address(COLUMN_RUNS, runs_blob(name))
-            emit(ASM.add_reg(COLUMN_RUNS, COLUMN_RUNS, SPARE))
-          end
-
-          # THE WALK, ONCE PER STRETCH OF PIXELS instead of once down the whole square.
-          #
-          # A picture that ships no list is drawn in one pass over its full height, which is
-          # what every picture did before there were lists and what an opaque one still does.
-          # One that ships one goes round here, and the body it yields to is emitted once
-          # however many stretches a column turns out to have.
-          #
-          # +bail+ is where a column with no rows left to draw goes; the block is handed the
-          # label to jump to when ITS stretch has none, which is the next stretch rather than
-          # the end.
-          #
-          # THE PICTURE CANNOT CHANGE, however the arithmetic rounds. The walk still asks each
-          # row it does reach whether its pixel is see-through, so a stretch a row too wide
-          # costs one row and draws nothing extra; and a stretch is never too NARROW, because
-          # its first row is rounded down and its last is rounded up with a row to spare.
-          def emit_column_runs(name, bmp, bail)
-            unless @run_bitmaps.include?(name)
-              emit(ASM.load_immediate(SPARE, 0))
-              emit(ASM.mov_reg(HIGH, COLUMN_ROWS))
-              return yield(bail)
-            end
-
-            shift = bmp.height.bit_length - 1 # only shipped for a picture as tall as a power of two
-            # The full height and the unclipped top, which every stretch measures itself
-            # against and the walk itself spends. There is one register spare in a column and
-            # the list needs it, so these two wait here.
-            emit(ASM.push(COLUMN_Y, COLUMN_ROWS))
-
-            top = gensym
-            finish = gensym
-            place_label(top)
-            emit(ASM.ldrb_offset(ACC, COLUMN_RUNS, 0))
-            emit(ASM.cmp_imm(ACC, RUNS_END))
-            emit_branch(:bcond, finish, cond: :eq)
-            emit(ASM.ldrb_offset(HIGH, COLUMN_RUNS, 1))
-            emit(ASM.add_imm(COLUMN_RUNS, COLUMN_RUNS, 2))
-            emit(ASM.ldr_offset(COLUMN_Y, STACK, 0))
-            emit(ASM.ldr_offset(COLUMN_ROWS, STACK, 4))
-
-            emit(ASM.mul(TMP, ACC, COLUMN_ROWS))
-            emit(ASM.lsr_imm(SPARE, TMP, shift))  # the stretch's first screen row...
-            emit(ASM.add_imm(HIGH, HIGH, 1))
-            emit(ASM.mul(TMP, HIGH, COLUMN_ROWS))
-            emit(ASM.lsr_imm(HIGH, TMP, shift))
-            emit(ASM.add_imm(HIGH, HIGH, 1))      # ...and one past its last, with a row to spare
-
-            after = gensym
-            yield(after)
-            place_label(after)
-            emit_branch(:b, top)
-            place_label(finish)
-            emit(ASM.pop(COLUMN_Y, COLUMN_ROWS))
-          end
-
-          # WHICH ROWS OF THE COLUMN ARE ACTUALLY ON THE SCREEN, worked out once before the
-          # walk starts.
-          #
-          # A wall you are nose-to-nose with is many times taller than the screen. Walking
-          # every one of its rows and throwing away the ones above and below is work that
-          # grows with how close you stand — and it is why a game would otherwise have to hold
-          # its wall heights to a ceiling, which is a lie about perspective at exactly the
-          # moment the player can see it best. So the walk starts on the first row that shows
-          # and stops after the last, and a column of any height costs what is on screen.
-          #
-          # COLUMN_ROWS holds the height coming in and how many rows to walk going out;
-          # COLUMN_Y and COLUMN_POS are moved to that first visible row. Jumps to +done+ when
-          # nothing of the column shows at all.
-          def emit_clip_column_rows(done)
-            above = gensym
-            emit(ASM.rsb_imm(ACC, COLUMN_Y, clip_top)) # rows above where drawing may land...
-            emit(ASM.cmp_reg(ACC, SPARE))
-            emit_branch(:bcond, above, cond: :ge)
-            emit(ASM.mov_reg(ACC, SPARE))       # ...or where the picture's own pixels start
-            place_label(above)
-
-            # Stop at the bottom edge, or after the picture's last pixel in this column,
-            # whichever comes first — then take off the rows skipped at the top.
-            under = gensym
-            emit(ASM.load_immediate(TMP, clip_bottom))
-            emit(ASM.sub_reg(TMP, TMP, COLUMN_Y)) # one past the last row that shows
-            emit(ASM.cmp_reg(TMP, HIGH))
-            emit_branch(:bcond, under, cond: :le)
-            emit(ASM.mov_reg(TMP, HIGH))
-            place_label(under)
-            past = gensym
-            emit(ASM.cmp_reg(COLUMN_ROWS, TMP))
-            emit_branch(:bcond, past, cond: :le)
-            emit(ASM.mov_reg(COLUMN_ROWS, TMP))
-            place_label(past)
-            emit(ASM.sub_reg(COLUMN_ROWS, COLUMN_ROWS, ACC))
-            emit(ASM.cmp_imm(COLUMN_ROWS, 0))
-            emit_branch(:bcond, done, cond: :le)
-
-            # Start the walk where it becomes visible, which is what keeps the picture in the
-            # same place: the rows skipped are stepped over rather than left out.
-            emit(ASM.add_reg(COLUMN_Y, COLUMN_Y, ACC))
-            emit(ASM.mul(COLUMN_POS, ACC, COLUMN_STEP))
           end
 
           # The walk down the screen, one pass per row of the column that shows.
@@ -572,47 +475,30 @@ module RubyGBA
 
             past = gensym
             emit(ASM.add_imm(SPARE, COLUMN_X, offset))
-            emit(ASM.cmp_imm(SPARE, clip_left))
+            emit(ASM.cmp_imm(SPARE, @framebuffer.clip_left))
             emit_branch(:bcond, past, cond: :lt)
-            emit(ASM.cmp_imm(SPARE, clip_right))
+            emit(ASM.cmp_imm(SPARE, @framebuffer.clip_right))
             emit_branch(:bcond, past, cond: :ge)
             emit(ASM.store_halfword_offset(ACC, TMP, offset * 2))
             place_label(past)
           end
 
-          # Hold a register between 0 and +top+, so a slice or a row worked out past the edge of
-          # the picture reads its last pixel rather than whatever is next in memory.
-          def emit_clamp_to(reg, top)
-            keep = gensym
-            emit(ASM.cmp_imm(reg, 0))
-            emit_branch(:bcond, keep, cond: :ge)
-            emit(ASM.load_immediate(reg, 0))
-            place_label(keep)
-
-            under = gensym
-            emit(ASM.load_immediate(TMP, top))
-            emit(ASM.cmp_reg(reg, TMP))
-            emit_branch(:bcond, under, cond: :le)
-            emit(ASM.mov_reg(reg, TMP))
-            place_label(under)
-          end
-
           def emit_draw_rect_at(node)
-            return emit_draw_rect_at_buffered(node) if @lowering.mode == :buffered
+            return @buffered.emit_draw_rect_at_buffered(node) if @lowering.mode == :buffered
 
             width = const_int(node.w)
             return if width && width < 1 # a rect with no width draws nothing
 
-            scratch = hold_fill_word(node.color)
+            scratch = @framebuffer.hold_fill_word(node.color)
             # x is computed at run time, so it can be an odd column on any given
             # frame — fill a pixel at a time so the rect lands where it was asked to.
-            control = width ? fill_control_for_column(nil, width) : CONTROL_REG
+            control = width ? @framebuffer.fill_control_for_column(nil, width) : CONTROL_REG
 
             x_reg = 2
             y_reg = 3
             rows_left = 6
-            eval_rect_position(node, x_reg: x_reg, y_reg: y_reg, rows_reg: rows_left,
-                                     width_reg: CONTROL_REG)
+            @framebuffer.eval_rect_position(node, x_reg: x_reg, y_reg: y_reg, rows_reg: rows_left,
+                                                   width_reg: CONTROL_REG)
 
             # A width of zero asks the hardware for 65536 transfers, not none, so a rect
             # the game has shrunk to nothing must skip the fill outright. Checked before
@@ -621,7 +507,7 @@ module RubyGBA
             unless width
               emit(ASM.cmp_imm(CONTROL_REG, 0))
               emit_branch(:bcond, skip, cond: :le)
-              emit(ASM.load_immediate(TMP, dma_fill_control_halfwords(0)))
+              emit(ASM.load_immediate(TMP, @framebuffer.dma_fill_control_halfwords(0)))
               emit(ASM.orr_reg(CONTROL_REG, CONTROL_REG, TMP)) # ...now it is one
             end
 
@@ -669,39 +555,14 @@ module RubyGBA
             end
           end
 
-          # Work out a run-time rect's x, y, row count and width into their registers.
-          #
-          # The two coordinates go via the stack rather than straight into their
-          # registers, because working out the SECOND one can use the register the
-          # first was just parked in — a multiply of two numbers holding a fraction
-          # borrows exactly those. The stack is the one place nothing else touches.
-          # The size registers are high enough that nothing evaluating an expression
-          # reaches them, so those can be filled in place.
-          def eval_rect_position(node, x_reg:, y_reg:, rows_reg:, width_reg: nil)
-            @lowering.value(node.x)
-            emit(ASM.push(ACC))
-            @lowering.value(node.y)
-            emit(ASM.push(ACC))
-            unless const_int(node.h)
-              @lowering.value(node.h)
-              emit(ASM.mov_reg(rows_reg, ACC))
-            end
-            if width_reg && !const_int(node.w)
-              @lowering.value(node.w)
-              emit(ASM.mov_reg(width_reg, ACC))
-            end
-            emit(ASM.pop(y_reg))
-            emit(ASM.pop(x_reg))
-          end
-
           # Draw a defined bitmap at a runtime (x, y). An opaque bitmap streams from
           # ROM by DMA; one with transparency is drawn pixel-by-pixel so its
           # transparent pixels can be skipped. Either way the draw is clipped to the
           # screen at run time — a bitmap pushed partway off an edge draws only its
           # visible part, with nothing written past the framebuffer.
           def emit_blit(node)
-            blit_unsupported_in_buffered! if @lowering.mode == :buffered
-            bmp = @bitmaps.fetch(node.name) do
+            @buffered.blit_unsupported_in_buffered! if @lowering.mode == :buffered
+            bmp = @layout.bitmaps.fetch(node.name) do
               raise LoweringError, "blit of undefined image #{node.name.inspect}"
             end
             bmp.transparent ? emit_blit_transparent(node, bmp) : emit_blit_opaque(node, bmp)
@@ -719,7 +580,7 @@ module RubyGBA
           # In bitmap mode there's no tile hardware, so each cell is stamped with the
           # blit path instead — correct, just a copy per cell.
           def emit_background(node)
-            @tiled ? emit_background_hardware(node) : emit_background_blits(node)
+            @layout.tiled ? emit_background_hardware(node) : emit_background_blits(node)
           end
 
           # The per-layer control and scroll registers, indexed by BG number (0..3), so a
@@ -733,9 +594,9 @@ module RubyGBA
           # the colors to background palette memory. Each layer's map and control register
           # are set later, when its background node is reached (emit_background_hardware).
           def emit_boot_backgrounds
-            emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @bg_shared[:pal_units])   # colors -> palette memory
-            emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @bg_shared[:char_units]) # tile pictures -> char block 0
-            emit_tint_state_reset # the table now holds the originals again
+            emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @layout.bg_shared[:pal_units])   # colors -> palette memory
+            emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @layout.bg_shared[:char_units]) # tile pictures -> char block 0
+            @palette_tint.emit_tint_state_reset # the table now holds the originals again
           end
 
           # Point one layer's hardware at its data: DMA its map into its own screen block,
@@ -744,7 +605,7 @@ module RubyGBA
           # after that the hardware repaints the whole layer every frame for free, and
           # composites the layers by priority so nearer ones sit in front.
           def emit_background_hardware(node)
-            bg = @backgrounds.fetch(node.name)
+            bg = @layout.backgrounds.fetch(node.name)
             emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
             write_reg16(BG_CNT_REGS[bg.bg], bg.priority | BG_256_COLOR | (bg.screen_block << 8))
             write_reg16(BG_HOFS_REGS[bg.bg], 0) # start unscrolled
@@ -776,7 +637,7 @@ module RubyGBA
           # It is set beside the offset rather than at boot so a program that never
           # moves the camera emits not one extra byte.
           def emit_camera(node)
-            raise LoweringError, CAMERA_NEEDS_BITMAP if @default_mode == :tiled
+            raise LoweringError, CAMERA_NEEDS_BITMAP if @layout.default_mode == :tiled
 
             write_reg16(REG_BG2PA, FIXED_ONE)
             write_reg16(REG_BG2PB, 0)
@@ -815,8 +676,9 @@ module RubyGBA
             # one whole-picture effect at a time — that is the rule the DSL states and the
             # interpreter models — so a fade puts the colors back. Only a program that
             # tints such a screen emits this, and the check inside is one compare.
-            emit_lift_palette_tint(@modes.mode_at(node)) if palette_tint? && palette_screen?(node)
-            return emit_fade_sharing_the_blend(node) if see_through?
+            @palette_tint.emit_lift_palette_tint(@layout.modes.mode_at(node)) if @palette_tint.palette_tint? &&
+                                                                                  @palette_tint.palette_screen?(node)
+            return emit_fade_sharing_the_blend(node) if @layer_blend.see_through?
 
             emit_fade_registers(node)
           end
@@ -838,7 +700,7 @@ module RubyGBA
             write_reg16(REG_BLDCNT, mode | fade_targets(node.under))
             # Where this fade sits in the stack, for the window twins to read. Only a
             # program that has twins writes it (see GBA#prepare_effect_layers).
-            store_word_immediate(effect_line(node.under), var_addr(EFFECT_LINE)) unless @window_twins.empty?
+            store_word_immediate(effect_line(node.under), var_addr(EFFECT_LINE)) unless @layout.window_twins.empty?
           end
 
           # How far the fade has come, in the sixteenths the hardware counts in, for an
@@ -869,7 +731,7 @@ module RubyGBA
           # frames arrives as.
           def emit_fade_sharing_the_blend(node)
             if (amount = const_int(node.amount))
-              return emit_layer_blend_again if fade_steps(amount).zero?
+              return @layer_blend.emit_layer_blend_again if fade_steps(amount).zero?
 
               return emit_fade_registers(node)
             end
@@ -889,7 +751,7 @@ module RubyGBA
             store_halfword_acc(REG_BLDY)
             emit_branch(:b, done)
             place_label(hand_back)
-            emit_layer_blend_again
+            @layer_blend.emit_layer_blend_again
             place_label(done)
           end
 
@@ -920,7 +782,7 @@ module RubyGBA
           # The weights are a pair that adds to sixteen: what is left of the picture,
           # and how much of the color has come in.
           def emit_tint(node)
-            return emit_palette_tint(node) if palette_screen?(node)
+            return @palette_tint.emit_palette_tint(node) if @palette_tint.palette_screen?(node)
 
             write_reg16(PALETTE_START, Color.resolve(node.color)) # the backdrop IS the tint
             write_reg16(REG_BLDCNT, BLD_ALPHA | BLD_BG2 | (BLD_BACKDROP << BLD_SECOND_SHIFT))
@@ -969,11 +831,11 @@ module RubyGBA
             # still declares a background) there's no tiled layer, so fall back to BG0 —
             # the scroll registers do nothing when that layer isn't on, matching the
             # interpreter's harmless handling.
-            bg_num = @backgrounds[node.name]&.bg || 0
+            bg_num = @layout.backgrounds[node.name]&.bg || 0
             # A bending layer's sideways position is settled row by row instead, and every
             # one of those rows already has this scroll in it (see Raster). Writing it here
             # too would only undo the top row's bend until the display asked for the next.
-            unless row_bends.key?(node.name)
+            unless @raster.row_bends.key?(node.name)
               @lowering.value(node.x)        # r0 = scroll x (pixels)
               store_halfword_acc(BG_HOFS_REGS[bg_num])
             end
@@ -1027,15 +889,15 @@ module RubyGBA
           # scheme shrinks the blob, the packed bytes replace the raw ones in place, so
           # the data region lays down the smaller version.
           def pack_blob(blob_name)
-            return @blob_codecs[blob_name] if @blob_codecs.key?(blob_name)
+            return @layout.blob_codecs[blob_name] if @layout.blob_codecs.key?(blob_name)
 
-            raw = @emit.data_blobs[blob_name]
+            raw = @emitter.data_blobs[blob_name]
             codec, blob = BiosCompress.best(raw)
             unless codec == :none
-              @blob_raw_bytes[blob_name] = raw.bytesize # remember the before size for the savings line
-              @emit.data_blobs[blob_name] = blob
+              @layout.blob_raw_bytes[blob_name] = raw.bytesize # remember the before size for the savings line
+              @emitter.data_blobs[blob_name] = blob
             end
-            @blob_codecs[blob_name] = codec
+            @layout.blob_codecs[blob_name] = codec
           end
 
           # --- sprites (hardware-composited moving objects) ---
@@ -1069,12 +931,12 @@ module RubyGBA
           # these tiles.
           def emit_boot_objects
             clear_object_table
-            emit_dma_blob(@obj_palette_blob, OBJ_PALETTE, @obj_palette_units) # the shared sprite palette, once
-            @objects.each_value do |obj|
+            emit_dma_blob(@layout.obj_palette_blob, OBJ_PALETTE, @layout.obj_palette_units) # the shared sprite palette, once
+            @layout.objects.each_value do |obj|
               emit_dma_blob(obj[:tiles], OBJ_TILE_BASE + (obj[:tile_index] * 32), obj[:tile_units] * 16) # tiles -> sprite memory
             end
             emit_boot_object_windows
-            emit_tint_state_reset # the table now holds the originals again
+            @palette_tint.emit_tint_state_reset # the table now holds the originals again
           end
 
           # Set up the object window, once, for a program that keeps sprites out of a
@@ -1084,10 +946,10 @@ module RubyGBA
           # screen. EFFECT_LINE starts past the front of the stack: until a fade is
           # placed, no twin shows.
           def emit_boot_object_windows
-            return if @window_twins.empty?
+            return if @layout.window_twins.empty?
 
             write_reg16(REG_WINOUT, WIN_ALL_LAYERS | WIN_EFFECT | (WIN_ALL_LAYERS << WINOUT_OBJ_SHIFT))
-            store_word_immediate(@picture.stack.length, var_addr(EFFECT_LINE))
+            store_word_immediate(@layout.picture.stack.length, var_addr(EFFECT_LINE))
           end
 
           # Fill the sprite table with the "unused slot" marker so no leftover memory
@@ -1097,7 +959,7 @@ module RubyGBA
             store_word_immediate(OBJ_HIDDEN_WORD, scratch)
             store_word_immediate(scratch, REG_DMA3SAD)
             store_word_immediate(OAM_START, REG_DMA3DAD)
-            store_word_immediate(dma_fill_control(OAM_SIZE / 4), REG_DMA3CNT)
+            store_word_immediate(@framebuffer.dma_fill_control(OAM_SIZE / 4), REG_DMA3CNT)
           end
 
           # Draw this frame's sprites: write each named object's current position and
@@ -1106,7 +968,7 @@ module RubyGBA
           # with no tearing. The console composites the sprites over the background for
           # free — there's nothing to erase, unlike a software sprite.
           def emit_present_objects(node)
-            node.names.each { |name| emit_present_object(@objects.fetch(name), twin: @window_twins[name]) }
+            node.names.each { |name| emit_present_object(@layout.objects.fetch(name), twin: @layout.window_twins[name]) }
           end
 
           # Write one sprite's table entries from its live x/y/active variables. A hidden
@@ -1310,12 +1172,6 @@ module RubyGBA
           def orr_acc(value)
             emit(ASM.load_immediate(TMP, value))
             emit(ASM.orr_reg(ACC, ACC, TMP))
-          end
-
-          # Store the low halfword of r0 to a fixed address.
-          def store_halfword_acc(address)
-            emit(ASM.load_immediate(TMP, address))
-            emit(ASM.store_halfword(ACC, TMP))
           end
 
           # Bitmap-mode background: no tile hardware, so stamp each non-empty cell with
@@ -1534,7 +1390,7 @@ module RubyGBA
           # then every set pixel of every glyph is a single halfword store at its
           # fixed VRAM address; off-screen pixels are dropped. Positions are constant.
           def emit_draw_text(node)
-            return emit_draw_text_buffered(node) if @lowering.mode == :buffered
+            return @buffered.emit_draw_text_buffered(node) if @lowering.mode == :buffered
 
             x, y = constant_ints!(node, x: node.x, y: node.y)
             emit(ASM.load_immediate(ACC, Color.resolve(node.color)))
@@ -1542,7 +1398,7 @@ module RubyGBA
             Fonts.get(node.font).each_pixel(node.text) do |dx, dy|
               px = x + dx
               py = y + dy
-              next unless in_bounds?(px, py)
+              next unless @framebuffer.in_bounds?(px, py)
 
               emit(ASM.load_immediate(TMP, VRAM_START + ((py * SCREEN_WIDTH) + px) * 2))
               emit(ASM.store_halfword(ACC, TMP))
@@ -1570,10 +1426,10 @@ module RubyGBA
             font = Fonts.get(node.font)
             x = const_int(node.x)
             y = const_int(node.y)
-            digit_w = uniform_digit_width(font)
-            if x && y && digit_w && digit_cell_on_screen?(x, y, digit_w, font.height)
+            digit_w = @framebuffer.uniform_digit_width(font)
+            if x && y && digit_w && @framebuffer.digit_cell_on_screen?(x, y, digit_w, font.height)
               if @lowering.mode == :buffered
-                emit_draw_digit_data_buffered(node, font, digit_w, x, y)
+                @buffered.emit_draw_digit_data_buffered(node, font, digit_w, x, y)
               else
                 emit_draw_digit_data(node, font, digit_w, x, y)
               end
@@ -1597,59 +1453,12 @@ module RubyGBA
           # shared glyph loop does the walking; this supplies the direct-color plot.
           def emit_draw_digit_data(node, font, width, x, y)
             color = Color.resolve(node.color)
-            emit_digit_glyph_loop(node, font, width) do |phase|
+            @framebuffer.emit_digit_glyph_loop(node, font, width) do |phase|
               case phase
               when :hold then emit(ASM.load_immediate(8, color)) # r8 = the fill color, held
               when :plot then emit_plot_digit_pixel(x, y)
               end
             end
-          end
-
-          # Walk the ten-glyph table for the run-time digit, calling +block+ once per set
-          # pixel to plot it — the shared skeleton behind the direct and tear-free digit
-          # renders. The ten glyphs live in ROM as row bytes (glyph d at d*height, one
-          # byte per row, the low +width+ bits being that row, leftmost = the top bit).
-          # +width+ is the digits' shared width (the caller checked all ten match) and
-          # the cell is on-screen, so the walk needs no clipping.
-          #
-          # The block is called with :hold once — after the glyph pointer is set up, to
-          # load any register the plot keeps for the whole glyph — and with :plot for
-          # each lit pixel, when r5 (row) and r4 (column) are live. Registers held across
-          # the loop: r4 column, r5 row, r6 the glyph's row pointer, r7 the current row
-          # byte; r0–r3 are per-pixel scratch and the plot owns r8 up.
-          def emit_digit_glyph_loop(node, font, width)
-            table = ensure_digit_table(node.font, font)
-            top_bit = 1 << (width - 1)
-
-            @lowering.value(node.value)              # r0 = the digit (0..9)
-            emit_load_data_address(1, table)      # r1 = the glyph table's ROM address
-            emit(ASM.load_immediate(2, font.height))
-            emit(ASM.mul(3, 0, 2))                # r3 = digit * height (its row offset)
-            emit(ASM.add_reg(6, 1, 3))            # r6 = &glyph[digit], row 0
-            yield :hold                           # the plot loads its per-glyph register(s)
-            emit(ASM.load_immediate(5, 0))        # r5 = row = 0
-
-            row_loop = gensym
-            place_label(row_loop)
-            emit(ASM.ldrb_offset(7, 6, 0))        # r7 = this row's byte
-            emit(ASM.load_immediate(4, 0))        # r4 = col = 0
-
-            col_loop = gensym
-            place_label(col_loop)
-            next_col = gensym
-            emit(ASM.tst_imm(7, top_bit))         # is the leftmost remaining column lit?
-            emit_branch(:bcond, next_col, cond: :eq)
-            yield :plot                           # yes: stamp it
-            place_label(next_col)
-            emit(ASM.lsl_imm(7, 7, 1))            # shift the next column into the top bit
-            emit(ASM.add_imm(4, 4, 1))
-            emit(ASM.cmp_imm(4, width))
-            emit_branch(:bcond, col_loop, cond: :lt)
-
-            emit(ASM.add_imm(6, 6, 1))            # advance to the next row's byte
-            emit(ASM.add_imm(5, 5, 1))
-            emit(ASM.cmp_imm(5, font.height))
-            emit_branch(:bcond, row_loop, cond: :lt)
           end
 
           # Stamp the current glyph pixel: screen = VRAM + ((y+row)*W + (x+col))*2, in
@@ -1667,98 +1476,6 @@ module RubyGBA
             emit(ASM.store_halfword(8, 2))        # write the color
           end
 
-          # The width the ten digit glyphs share, if the data-driven loop can render
-          # them: they must all exist, agree on a width, and be no wider than a byte
-          # (so a row is one ldrb). Otherwise nil — a font with missing, ragged, or
-          # oversized digits falls back to the per-digit fan-out, which reads each
-          # glyph's own width. Fixed-width fonts always qualify; a proportional font
-          # does when its figures are tabular.
-          def uniform_digit_width(font)
-            widths = (0..9).map { |d| font.glyph_width(d.to_s) }
-            width = widths.first
-            width if width && width <= 8 && widths.all?(width)
-          end
-
-          # True when the whole width×height digit cell at (x, y) fits on-screen, so the
-          # data-driven loop can skip per-pixel clipping.
-          def digit_cell_on_screen?(x, y, width, height)
-            x >= 0 && y >= 0 && (x + width) <= SCREEN_WIDTH && (y + height) <= SCREEN_HEIGHT
-          end
-
-          # Embed a font's ten digit glyphs as a ROM blob once, returning its blob name.
-          # Laid out as glyph 0's +height+ row bytes, then glyph 1's, and so on, so digit
-          # d begins at d*height. A digit the font happens to lack contributes blank rows
-          # (it simply draws nothing), matching the fan-out's skip.
-          def ensure_digit_table(name, font)
-            blob = :"__digits_#{name}"
-            unless @emit.data_blobs.key?(blob)
-              bytes = (0..9).flat_map { |d| font.glyph(d.to_s) || Array.new(font.height, 0) }
-              @emit.data_blobs[blob] = bytes.pack("C*")
-            end
-            blob
-          end
-
-          # Stash a solid fill color as a packed two-pixel word in IWRAM and return
-          # its address — the fixed source a DMA fill re-reads for every pixel.
-          def hold_fill_word(color)
-            value = Color.resolve(color)
-            word = (value << 16) | value
-            scratch = var_addr(:_dma_scratch)
-            store_word_immediate(word, scratch)
-            scratch
-          end
-
-          # The DMA3 control word for a source-fixed 32-bit fill of +count+ words.
-          def dma_fill_control(count)
-            count | DMA_ENABLE | DMA_32BIT | DMA_SRC_FIXED
-          end
-
-          # The same fill, one pixel per transfer instead of two.
-          #
-          # DMA moves whole units and quietly rounds the destination address DOWN to
-          # that unit's size. A 32-bit transfer therefore needs a 4-byte-aligned
-          # destination — and at 2 bytes per pixel, only EVEN screen columns are.
-          # Aim a 32-bit fill at an odd column and the hardware silently shifts it a
-          # pixel to the left, with nothing to say it did. A 16-bit transfer needs
-          # only 2-byte alignment, which every pixel address has, so it lands where
-          # it was asked to whatever the column.
-          #
-          # The cost is twice as many transfers, so it is used only where an odd
-          # column is possible: see #fill_control_for_column.
-          def dma_fill_control_halfwords(count)
-            count | DMA_ENABLE | DMA_SRC_FIXED # 16-bit is the default (DMA_16BIT == 0)
-          end
-
-          # Pick the widest fill unit that lands on +x+. Pass the column when it is
-          # known at build time (an even one keeps the fast two-pixel transfer), or
-          # nil when the program computes it at run time and either parity is
-          # possible — then correctness decides and we fill a pixel at a time.
-          # A whole-word transfer moves two pixels at once, so it needs a run that both STARTS on
-          # an even column and holds an even number. A run held to an area can fail either test,
-          # and then it goes a pixel at a time.
-          def fill_control_for_column(x, w)
-            return dma_fill_control(w / 2) if x&.even? && w.even?
-
-            dma_fill_control_halfwords(w)
-          end
-
-          # Point DMA3 at (source, destination), then kick it off — one filled row.
-          def fire_dma_fill(source_addr, dest_addr, control)
-            store_word_immediate(source_addr, REG_DMA3SAD)
-            store_word_immediate(dest_addr, REG_DMA3DAD)
-            store_word_immediate(control, REG_DMA3CNT)
-          end
-
-          # Guard the fast block-fill's even-width assumption: it moves two pixels at
-          # a time, so an odd width would drop the last column (and a width of 0 or 1
-          # would ask DMA for a runaway transfer).
-          def even_width!(w, kind)
-            return if w.positive? && w.even?
-
-            raise LoweringError,
-                  "#{kind} needs an even, positive width (got #{w}) — the fast " \
-                  "block fill moves two pixels per step"
-          end
         end
       end
     end
