@@ -44,5 +44,14 @@ separate repository would mean a version bump for every experiment.
 
 ## What works so far
 
-A holding screen. The renderer, the readers and the game are being built in order — see the
-`gba-hpu8` epic.
+A floor of the real game, read from your own copy of the data and playable in an emulator: the
+first-person view, walls textured from VSWAP, doors that slide open and shut, pushwalls, guards
+that patrol, hear and see you, close in, and shoot — and can be shot and killed — the things and
+pickups standing in the rooms, the status bar, and the game's sound effects through the sampled
+mixer. Without your own copy of the data the cartridge still builds; it shows a title screen and
+says so instead of a floor.
+
+Not yet there: the game's own menus and lettering (still packed inside VGAGRAPH, undecoded), the
+AdLib music and the effects Wolfenstein never recorded to raw PCM, a difficulty picked at the
+title screen rather than baked into the build, what happens at the end of a floor, and saving
+progress across power-off.
