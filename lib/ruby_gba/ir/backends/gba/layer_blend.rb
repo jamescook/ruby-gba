@@ -37,13 +37,30 @@ module RubyGBA
         # supposed to look like, and it costs nothing to do.
         #
         # An author writes the same keyword either way and never learns which they got.
-        module LayerBlend
+        #
+        # Owns @see_through — which layer this program can be seen through, if any, and
+        # how much. Reads the picture (IR::Stacking's answer for how the scenery and
+        # sprites stack), handed over through #picture= once it exists, since building it
+        # is IR::Stacking's job and happens after this object does (the same shape
+        # Functions#modes= is set in). `drawing:` stands in for Drawing, which isn't its
+        # own object yet (see Statements/Functions's `placement: self`) — the fade/blend
+        # arithmetic this shares with a tint and a fade still lives there.
+        class LayerBlend
           include Constants
 
           # attr0 bits 10-11 = 1: draw this sprite through the blend rather than straight.
           # (The same two bits hold OBJ_WINDOW_MODE at 2, which is why they are one field
           # and a sprite cannot be both.)
           OBJ_SEMI_TRANSPARENT = 0x0400
+
+          def initialize(emitter:, lowering:, primitives:, drawing:)
+            @emitter = emitter
+            @lowering = lowering
+            @primitives = primitives
+            @drawing = drawing
+          end
+
+          attr_writer :picture
 
           # Which layer this program can be seen through, and how much — read off the
           # stack the program declared. Nothing at all for a program that declares none,
@@ -52,13 +69,18 @@ module RubyGBA
             node = program.walk.find { |n| n.kind == :layers && n.transparent }
             return @see_through = nil unless node
 
-            fixed = const_int(node.transparency)
+            fixed = @primitives.const_int(node.transparency)
             @see_through = { layer: node.transparent,
                              amount: node.transparency,
                              # An amount the program works out has no number here. What boot
                              # writes is what its variable starts at, so the first frame is
                              # already right rather than right one frame later.
-                             steps: fade_steps(fixed || starting_amount(program, node.transparency)) }
+                             steps: @drawing.fade_steps(fixed || starting_amount(program, node.transparency)) }
+          end
+
+          # Does this program see through any layer at all?
+          def see_through?
+            !@see_through.nil?
           end
 
           # What an amount the game works out starts at: the initial value of the variable
@@ -70,7 +92,7 @@ module RubyGBA
             # The first thing written to that name is its declaration, which the build has
             # already moved to the front of the program.
             first = program.walk.find { |n| n.kind == :set && n.var == amount.name }
-            (first && const_int(first.value)) || 0
+            (first && @primitives.const_int(first.value)) || 0
           end
 
           # Does this program see through a layer of SCENERY? Only that half touches the
@@ -98,7 +120,7 @@ module RubyGBA
           # entering a display mode, and a fade lifting.
           def emit_boot_layer_blend
             emit_blend_targets
-            write_reg16(REG_BLDALPHA, blend_weights(@see_through[:steps]))
+            @emitter.write_reg16(REG_BLDALPHA, blend_weights(@see_through[:steps]))
           end
 
           # PUT THE BLEND BACK, for whatever took it — entering a display mode, and a fade
@@ -125,17 +147,17 @@ module RubyGBA
 
           def emit_blend_targets
             mode = blends_scenery? ? BLD_ALPHA : BLD_OFF
-            write_reg16(REG_BLDCNT, mode | near_side_bits | (far_side_bits << BLD_SECOND_SHIFT))
+            @emitter.write_reg16(REG_BLDCNT, mode | near_side_bits | (far_side_bits << BLD_SECOND_SHIFT))
           end
 
           def emit_blend_amount(amount)
-            if (fixed = const_int(amount))
-              return write_reg16(REG_BLDALPHA, blend_weights(fade_steps(fixed)))
+            if (fixed = @primitives.const_int(amount))
+              return @emitter.write_reg16(REG_BLDALPHA, blend_weights(@drawing.fade_steps(fixed)))
             end
 
-            @lowering.value(fade_steps_value(amount))
-            emit_clamp_blend_steps
-            emit_blend_weights_from_acc
+            @lowering.value(@drawing.fade_steps_value(amount))
+            @drawing.emit_clamp_blend_steps
+            @drawing.emit_blend_weights_from_acc
           end
 
           # The weight pair as one halfword: how much of the layer itself survives in the

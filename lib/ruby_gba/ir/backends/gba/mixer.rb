@@ -22,7 +22,13 @@ module RubyGBA
         #
         # (For now every voice plays at the one mixer rate; a later feature steps each voice
         # at its own pitch. That's why one recorded note can't yet become a whole keyboard.)
-        module Mixer
+        #
+        # Owns the whole sampled-audio picture: registering samples as ROM data
+        # (Direct Sound's own job, previously a separate module — asset preparation, not
+        # emission, so it lives here beside the thing that uses what it prepares) and the
+        # mix itself. @samples / @plays_samples are this object's own state, not handed
+        # in — nothing outside sampled audio ever reads them.
+        class Mixer
           include Constants
 
           # How many samples can sound at once. A new play past this is dropped (safe and
@@ -84,6 +90,34 @@ module RubyGBA
           attr_reader :mix_buf0, :mix_buf1 # the two output buffers' addresses (a test reads them back)
           attr_reader :voice_base          # the voice slots' base address (a test reads a voice's state)
 
+          def initialize(emitter:, memory:, timers:, primitives:)
+            @emitter = emitter
+            @memory = memory
+            @timers = timers
+            @primitives = primitives
+            @samples = {}          # name -> { rate:, length: } (a Direct Sound PCM sample)
+            @plays_samples = false # does the program play any sample (uses Direct Sound)?
+          end
+
+          # Does the program play any sample (so the mixer needs bringing up)?
+          def plays_samples?
+            @plays_samples
+          end
+
+          # Register the samples: embed each one's PCM data as a ROM blob and note the
+          # program plays sound. #prepare_mixer reserves the timer and memory.
+          def prepare_direct_sound(program)
+            program.walk.each do |node|
+              case node.kind
+              when :sample
+                @emitter.data_blobs[node.name] = node.bytes # embed the PCM data as a ROM blob
+                @samples[node.name] = Assets::Sample.of(node)
+              when :play_sample
+                @plays_samples = true
+              end
+            end
+          end
+
           # Decide the mixer's output rate and per-frame buffer size, and reserve its memory:
           # two output buffers in EWRAM and the voice slots in IWRAM. The rate follows the
           # samples, so a single-rate game plays at its recorded pitch. Reserves only timer 0
@@ -108,19 +142,19 @@ module RubyGBA
             emit_zero_region(@voice_base, MAX_VOICES * SLOT_BYTES) # all voices idle
             emit_zero_region(@mix_buf0, @mixer_spf)                # buffers start silent...
             emit_zero_region(@mix_buf1, @mixer_spf)
-            emit(ASM.load_immediate(ACC, 0))
-            store_var(ACC, MIX_FRONT)                              # ...playing buffer 0 first
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, MIX_FRONT)                  # ...playing buffer 0 first
 
-            write_reg16(REG_SOUNDCNT_X, SOUND_MASTER_ENABLE)       # master sound on
-            write_reg16(REG_SOUNDCNT_H, direct_sound_a_config)     # channel A, full volume, FIFO reset
-            emit(ASM.load_immediate(ACC, @mix_buf0))
+            @emitter.write_reg16(REG_SOUNDCNT_X, SOUND_MASTER_ENABLE)   # master sound on
+            @emitter.write_reg16(REG_SOUNDCNT_H, direct_sound_a_config) # channel A, full volume, FIFO reset
+            @emitter.emit(ASM.load_immediate(ACC, @mix_buf0))
             store_reg_ioreg(ACC, REG_DMA1SAD)                      # DMA source = buffer 0
-            store_word_immediate(REG_FIFO_A, REG_DMA1DAD)          # DMA dest = the sound FIFO
-            store_word_immediate(dma_fifo_control, REG_DMA1CNT)    # feed the FIFO continuously
+            @primitives.store_word_immediate(REG_FIFO_A, REG_DMA1DAD)       # DMA dest = the sound FIFO
+            @primitives.store_word_immediate(dma_fifo_control, REG_DMA1CNT) # feed the FIFO continuously
 
             prescaler, reload = @timers.timer_config(@mixer_rate)  # timer 0 = the mixer's sample rate
-            write_reg16(@timers.timer_reg_l(CLOCK_TIMER), reload)
-            write_reg16(@timers.timer_reg_h(CLOCK_TIMER), TIMER_ENABLE | prescaler)
+            @emitter.write_reg16(@timers.timer_reg_l(CLOCK_TIMER), reload)
+            @emitter.write_reg16(@timers.timer_reg_h(CLOCK_TIMER), TIMER_ENABLE | prescaler)
 
             emit_copy_mix_routine_to_iwram
           end
@@ -131,17 +165,17 @@ module RubyGBA
           # correctly from either place, and the ARM7 has no instruction cache, so the copy
           # needs no flush. Copies whole words from the routine's start label up to its end.
           def emit_copy_mix_routine_to_iwram
-            emit_load_label_address(0, :__mix_routine)      # r0 = routine start in ROM
-            emit_load_label_address(1, :__mix_routine_end)  # r1 = routine end in ROM
-            emit(ASM.load_immediate(2, @mix_routine_iwram)) # r2 = IWRAM destination
-            copy = gensym
-            place_label(copy)
-            emit(ASM.ldr(3, 0))                             # r3 = [r0]
-            emit(ASM.str(3, 2))                             # [r2] = r3
-            emit(ASM.add_imm(0, 0, 4))
-            emit(ASM.add_imm(2, 2, 4))
-            emit(ASM.cmp_reg(0, 1))
-            emit_branch(:bcond, copy, cond: :lt)            # while r0 < r1
+            @emitter.emit_load_label_address(0, :__mix_routine)      # r0 = routine start in ROM
+            @emitter.emit_load_label_address(1, :__mix_routine_end)  # r1 = routine end in ROM
+            @emitter.emit(ASM.load_immediate(2, @mix_routine_iwram)) # r2 = IWRAM destination
+            copy = @emitter.gensym
+            @emitter.place_label(copy)
+            @emitter.emit(ASM.ldr(3, 0))                             # r3 = [r0]
+            @emitter.emit(ASM.str(3, 2))                             # [r2] = r3
+            @emitter.emit(ASM.add_imm(0, 0, 4))
+            @emitter.emit(ASM.add_imm(2, 2, 4))
+            @emitter.emit(ASM.cmp_reg(0, 1))
+            @emitter.emit_branch(:bcond, copy, cond: :lt)            # while r0 < r1
           end
 
           # play_sample: start a sample sounding by filling a free voice slot with it — its
@@ -150,28 +184,28 @@ module RubyGBA
           # slots are never touched from two places at once.
           def emit_play_sample(node)
             sample = sample_info(node.name)
-            emit_load_data_address(4, node.name) # r4 = the sample's address in ROM
-            slot = find_free_slot                  # r0 = a free slot's address, or none -> skip
-            done = gensym
-            emit(ASM.cmp_imm(0, 0))                 # find_free_slot leaves r0 = 0 when full
-            emit_branch(:bcond, done, cond: :eq)
+            @emitter.emit_load_data_address(4, node.name) # r4 = the sample's address in ROM
+            find_free_slot                          # r0 = a free slot's address, or none -> skip
+            done = @emitter.gensym
+            @emitter.emit(ASM.cmp_imm(0, 0))        # find_free_slot leaves r0 = 0 when full
+            @emitter.emit_branch(:bcond, done, cond: :eq)
 
-            emit(ASM.str(4, 0))                             # slot.src = address (SLOT_SRC = 0)
-            emit(ASM.load_immediate(TMP, 0))
-            emit(ASM.str_offset(TMP, 0, SLOT_POS))          # slot.pos = 0
-            emit(ASM.load_immediate(TMP, sample.length))
-            emit(ASM.str_offset(TMP, 0, SLOT_LEN))          # slot.len = length
-            emit(ASM.load_immediate(TMP, node.loop ? 1 : 0))
-            emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # slot.loop
-            emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node.volume, MIX_LEVELS[:full])))
-            emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..64 gain)
-            emit(ASM.load_immediate(TMP, voice_step(node, sample)))
-            emit(ASM.str_offset(TMP, 0, SLOT_STEP))         # slot.step (pitch + rate, 16.16)
-            emit(ASM.load_immediate(TMP, 0))
-            emit(ASM.str_offset(TMP, 0, SLOT_FRAC))         # slot.frac = 0 (fresh)
-            emit(ASM.load_immediate(TMP, 1))
-            emit(ASM.str_offset(TMP, 0, SLOT_ACTIVE))       # slot.active = 1 (now it sounds)
-            place_label(done)
+            @emitter.emit(ASM.str(4, 0))                             # slot.src = address (SLOT_SRC = 0)
+            @emitter.emit(ASM.load_immediate(TMP, 0))
+            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_POS))          # slot.pos = 0
+            @emitter.emit(ASM.load_immediate(TMP, sample.length))
+            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LEN))          # slot.len = length
+            @emitter.emit(ASM.load_immediate(TMP, node.loop ? 1 : 0))
+            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # slot.loop
+            @emitter.emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node.volume, MIX_LEVELS[:full])))
+            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..64 gain)
+            @emitter.emit(ASM.load_immediate(TMP, voice_step(node, sample)))
+            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_STEP))         # slot.step (pitch + rate, 16.16)
+            @emitter.emit(ASM.load_immediate(TMP, 0))
+            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_FRAC))         # slot.frac = 0 (fresh)
+            @emitter.emit(ASM.load_immediate(TMP, 1))
+            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_ACTIVE))       # slot.active = 1 (now it sounds)
+            @emitter.place_label(done)
           end
 
           # The 16.16 step for a voice: how many source samples to advance per output sample.
@@ -192,24 +226,24 @@ module RubyGBA
           # slot, when no sample is named). Just flips each matching slot's "active" off.
           def emit_stop_sample(node = nil)
             name = node && node.name
-            emit_load_data_address(4, name) if name # r4 = the sample's address to match
+            @emitter.emit_load_data_address(4, name) if name # r4 = the sample's address to match
 
-            emit(ASM.load_immediate(1, @voice_base))            # r1 = slot pointer
-            emit(ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES))) # r2 = past the last slot
-            emit(ASM.load_immediate(3, 0))                      # r3 = the "off" value
-            loop_lbl = gensym
-            skip = gensym
-            place_label(loop_lbl)
+            @emitter.emit(ASM.load_immediate(1, @voice_base))            # r1 = slot pointer
+            @emitter.emit(ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES))) # r2 = past the last slot
+            @emitter.emit(ASM.load_immediate(3, 0))                      # r3 = the "off" value
+            loop_lbl = @emitter.gensym
+            skip = @emitter.gensym
+            @emitter.place_label(loop_lbl)
             if name
-              emit(ASM.ldr(0, 1))                               # r0 = slot.src
-              emit(ASM.cmp_reg(0, 4))                           # slot plays this sample?
-              emit_branch(:bcond, skip, cond: :ne)              # no -> leave it
+              @emitter.emit(ASM.ldr(0, 1))                               # r0 = slot.src
+              @emitter.emit(ASM.cmp_reg(0, 4))                           # slot plays this sample?
+              @emitter.emit_branch(:bcond, skip, cond: :ne)              # no -> leave it
             end
-            emit(ASM.str_offset(3, 1, SLOT_ACTIVE))             # active = 0
-            place_label(skip)
-            emit(ASM.add_imm(1, 1, SLOT_BYTES))                 # next slot
-            emit(ASM.cmp_reg(1, 2))
-            emit_branch(:bcond, loop_lbl, cond: :lt)
+            @emitter.emit(ASM.str_offset(3, 1, SLOT_ACTIVE))             # active = 0
+            @emitter.place_label(skip)
+            @emitter.emit(ASM.add_imm(1, 1, SLOT_BYTES))                 # next slot
+            @emitter.emit(ASM.cmp_reg(1, 2))
+            @emitter.emit_branch(:bcond, loop_lbl, cond: :lt)
           end
 
           # The per-frame refill: fill the buffer that is NOT playing with the next slice of
@@ -233,24 +267,24 @@ module RubyGBA
           # never a slot this will read. Nothing else touches them, and a slot the game sees as
           # free stays free — this can retire a voice but never start one.
           def emit_mixer_tick
-            load_var(0, MIX_FRONT)          # r0 = the buffer now playing (front)
-            emit(ASM.cmp_imm(0, 0))
-            play_buf1 = gensym
-            done = gensym
-            emit_branch(:bcond, play_buf1, cond: :ne)
+            @primitives.load_var(0, MIX_FRONT)      # r0 = the buffer now playing (front)
+            @emitter.emit(ASM.cmp_imm(0, 0))
+            play_buf1 = @emitter.gensym
+            done = @emitter.gensym
+            @emitter.emit_branch(:bcond, play_buf1, cond: :ne)
             # front == 0 -> mix into buffer 1, then play buffer 1
             emit_call_mix(@mix_buf1)
-            emit(ASM.load_immediate(ACC, 1))
-            store_var(ACC, MIX_FRONT)
+            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @primitives.store_var(ACC, MIX_FRONT)
             emit_rearm_dma(@mix_buf1)
-            emit_branch(:b, done)
-            place_label(play_buf1)
+            @emitter.emit_branch(:b, done)
+            @emitter.place_label(play_buf1)
             # front == 1 -> mix into buffer 0, then play buffer 0
             emit_call_mix(@mix_buf0)
-            emit(ASM.load_immediate(ACC, 0))
-            store_var(ACC, MIX_FRONT)
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, MIX_FRONT)
             emit_rearm_dma(@mix_buf0)
-            place_label(done)
+            @emitter.place_label(done)
           end
 
           # Call the IWRAM mix routine to fill +dest+ (one of the two output buffers) with the
@@ -259,21 +293,44 @@ module RubyGBA
           # address just past the branch) and BX to the routine's IWRAM address; it returns
           # with BX LR.
           def emit_call_mix(dest)
-            emit(ASM.load_immediate(0, dest))               # r0 = destination buffer (the one param)
-            emit(ASM.load_immediate(ADDR, @mix_routine_iwram)) # r12 = routine's address in IWRAM
-            emit(ASM.mov_reg(14, 15))                       # mov lr, pc  -> lr = the instruction after BX
-            emit(ASM.bx(ADDR))                              # jump into IWRAM; the routine returns via BX LR
+            @emitter.emit(ASM.load_immediate(0, dest))                 # r0 = destination buffer (the one param)
+            @emitter.emit(ASM.load_immediate(ADDR, @mix_routine_iwram)) # r12 = routine's address in IWRAM
+            @emitter.emit(ASM.mov_reg(14, 15))                         # mov lr, pc  -> lr = the instruction after BX
+            @emitter.emit(ASM.bx(ADDR))                                # jump into IWRAM; the routine returns via BX LR
           end
 
-          private
+          # Channel A's SOUNDCNT_H setup: PSG kept at full volume, A at full volume out to
+          # both speakers, clocked by timer 0, and its FIFO reset so playback starts clean.
+          def direct_sound_a_config
+            PSG_VOLUME_FULL | DSOUND_A_VOLUME_FULL | DSOUND_A_LEFT | DSOUND_A_RIGHT |
+              DSOUND_A_TIMER0 | DSOUND_A_RESET_FIFO
+          end
+
+          # The DMA1 control word for feeding the sound FIFO: enabled, 32-bit transfers to a
+          # fixed destination (the FIFO register), re-armed after each transfer, started on
+          # a FIFO request ("special" timing). The transfer count is fixed by the hardware
+          # in this mode, so none is set.
+          def dma_fifo_control
+            DMA_ENABLE | DMA_REPEAT | DMA_32BIT | DMA_DEST_FIXED | DMA_SPECIAL
+          end
+
+          def store_reg_ioreg(reg, address)
+            @emitter.emit(ASM.load_immediate(TMP, address))
+            @emitter.emit(ASM.str(reg, TMP))
+          end
+
+          def sample_info(name)
+            @samples[name] ||
+              raise(LoweringError, "play_sample of undefined sample #{name.inspect} — declare it with `sample`")
+          end
 
           # Point channel A's DMA at +buffer+ and (re)start it. The DMA reloads its source
           # only when switched off and on, so a swap is: stop, set the source, start.
           def emit_rearm_dma(buffer)
-            store_word_immediate(0, REG_DMA1CNT)                # off
-            emit(ASM.load_immediate(ACC, buffer))
-            store_reg_ioreg(ACC, REG_DMA1SAD)                   # source = the freshly mixed buffer
-            store_word_immediate(dma_fifo_control, REG_DMA1CNT) # on
+            @primitives.store_word_immediate(0, REG_DMA1CNT)                # off
+            @emitter.emit(ASM.load_immediate(ACC, buffer))
+            store_reg_ioreg(ACC, REG_DMA1SAD)                               # source = the freshly mixed buffer
+            @primitives.store_word_immediate(dma_fifo_control, REG_DMA1CNT) # on
           end
 
           # The mix routine, emitted once and copied into IWRAM at boot (see
@@ -296,108 +353,108 @@ module RubyGBA
           def emit_mix_routine
             return unless @plays_samples
 
-            emit(ASM.loop_forever) # fall-through guard: the routine is only entered via the call
-            place_label(:__mix_routine)
-            start = pos
-            emit(ASM.push(0))                            # push {r0}: stash the destination buffer at [sp]
+            @emitter.emit(ASM.loop_forever) # fall-through guard: the routine is only entered via the call
+            @emitter.place_label(:__mix_routine)
+            start = @emitter.pos
+            @emitter.emit(ASM.push(0))                            # push {r0}: stash the destination buffer at [sp]
 
             # start from silence: zero the destination (r0 reloaded from the stashed pointer)
-            emit(ASM.ldr(0, 13))                         # r0 = dest (from [sp])
-            emit(ASM.load_immediate(1, 0))               # fill byte
-            emit(ASM.load_immediate(2, @mixer_spf))      # bytes to clear
-            zero = gensym
-            place_label(zero)
-            emit(ASM.strb(1, 0))
-            emit(ASM.add_imm(0, 0, 1))
-            emit(ASM.sub_imm(2, 2, 1))
-            emit(ASM.cmp_imm(2, 0))
-            emit_branch(:bcond, zero, cond: :ne)
+            @emitter.emit(ASM.ldr(0, 13))                         # r0 = dest (from [sp])
+            @emitter.emit(ASM.load_immediate(1, 0))               # fill byte
+            @emitter.emit(ASM.load_immediate(2, @mixer_spf))      # bytes to clear
+            zero = @emitter.gensym
+            @emitter.place_label(zero)
+            @emitter.emit(ASM.strb(1, 0))
+            @emitter.emit(ASM.add_imm(0, 0, 1))
+            @emitter.emit(ASM.sub_imm(2, 2, 1))
+            @emitter.emit(ASM.cmp_imm(2, 0))
+            @emitter.emit_branch(:bcond, zero, cond: :ne)
 
-            emit(ASM.mvn_imm(3, 127))                    # clamp floor = -128
-            emit(ASM.load_immediate(4, @voice_base))     # first slot
-            emit(ASM.load_immediate(5, MAX_VOICES))      # voices to visit
+            @emitter.emit(ASM.mvn_imm(3, 127))                    # clamp floor = -128
+            @emitter.emit(ASM.load_immediate(4, @voice_base))     # first slot
+            @emitter.emit(ASM.load_immediate(5, MAX_VOICES))      # voices to visit
 
-            voice = gensym
-            next_voice = gensym
-            place_label(voice)
-            emit(ASM.ldr_offset(0, 4, SLOT_ACTIVE))
-            emit(ASM.cmp_imm(0, 0))
-            emit_branch(:bcond, next_voice, cond: :eq)   # idle slot -> skip
-            emit(ASM.ldr_offset(6, 4, SLOT_SRC))         # r6 = src
-            emit(ASM.ldr_offset(8, 4, SLOT_POS))         # r8 = play position (whole samples)
-            emit(ASM.add_reg(6, 6, 8))                   # r6 = read pointer = src + pos
-            emit(ASM.ldr_offset(9, 4, SLOT_LEN))         # r9 = len
-            emit(ASM.ldr_offset(10, 4, SLOT_STEP))       # r10 = step (16.16)
-            emit(ASM.ldr_offset(11, 4, SLOT_FRAC))       # r11 = fraction carried in
-            emit(ASM.ldr_offset(12, 4, SLOT_VOL))        # r12 = volume gain (0..64)
-            emit(ASM.ldr(7, 13))                         # r7 = write pointer = dest (from [sp])
-            emit(ASM.load_immediate(2, @mixer_spf))      # r2 = output samples to fill
+            voice = @emitter.gensym
+            next_voice = @emitter.gensym
+            @emitter.place_label(voice)
+            @emitter.emit(ASM.ldr_offset(0, 4, SLOT_ACTIVE))
+            @emitter.emit(ASM.cmp_imm(0, 0))
+            @emitter.emit_branch(:bcond, next_voice, cond: :eq)   # idle slot -> skip
+            @emitter.emit(ASM.ldr_offset(6, 4, SLOT_SRC))         # r6 = src
+            @emitter.emit(ASM.ldr_offset(8, 4, SLOT_POS))         # r8 = play position (whole samples)
+            @emitter.emit(ASM.add_reg(6, 6, 8))                   # r6 = read pointer = src + pos
+            @emitter.emit(ASM.ldr_offset(9, 4, SLOT_LEN))         # r9 = len
+            @emitter.emit(ASM.ldr_offset(10, 4, SLOT_STEP))       # r10 = step (16.16)
+            @emitter.emit(ASM.ldr_offset(11, 4, SLOT_FRAC))       # r11 = fraction carried in
+            @emitter.emit(ASM.ldr_offset(12, 4, SLOT_VOL))        # r12 = volume gain (0..64)
+            @emitter.emit(ASM.ldr(7, 13))                         # r7 = write pointer = dest (from [sp])
+            @emitter.emit(ASM.load_immediate(2, @mixer_spf))      # r2 = output samples to fill
 
-            sample = gensym
-            advance = gensym
-            wrapped = gensym
-            retire = gensym
-            end_voice = gensym
-            place_label(sample)
-            emit(ASM.ldrsb(0, 6))                        # r0 = the voice's raw sample (signed)
-            emit(ASM.mul(1, 0, 12))                      # r1 = sample × volume...
-            emit(ASM.asr_imm(1, 1, VOL_SHIFT))           # ...÷ 64 (so :full is unchanged)
-            emit(ASM.ldrsb(0, 7))                        # r0 = what's already in the buffer
-            emit(ASM.add_reg(1, 1, 0))                   # add the scaled sample
+            sample = @emitter.gensym
+            advance = @emitter.gensym
+            wrapped = @emitter.gensym
+            retire = @emitter.gensym
+            end_voice = @emitter.gensym
+            @emitter.place_label(sample)
+            @emitter.emit(ASM.ldrsb(0, 6))                        # r0 = the voice's raw sample (signed)
+            @emitter.emit(ASM.mul(1, 0, 12))                      # r1 = sample × volume...
+            @emitter.emit(ASM.asr_imm(1, 1, VOL_SHIFT))           # ...÷ 64 (so :full is unchanged)
+            @emitter.emit(ASM.ldrsb(0, 7))                        # r0 = what's already in the buffer
+            @emitter.emit(ASM.add_reg(1, 1, 0))                   # add the scaled sample
             # Saturate r1 into [-128, 127] with no branch: ARM predication does the
             # clamp in the compare's shadow — movgt/movlt only fire when out of range —
             # so the hot per-sample path takes no pipeline flush. r3 holds -128.
-            emit(ASM.cmp_imm(1, 127))
-            emit(ASM.mov_imm_cond(:gt, 1, 127))          # r1 > 127  -> 127
-            emit(ASM.cmp_reg(1, 3))
-            emit(ASM.mov_reg_cond(:lt, 1, 3))            # r1 < -128 -> -128
-            emit(ASM.strb(1, 7))                         # write the mixed byte
-            emit(ASM.add_imm(7, 7, 1))                   # write pointer++
+            @emitter.emit(ASM.cmp_imm(1, 127))
+            @emitter.emit(ASM.mov_imm_cond(:gt, 1, 127))          # r1 > 127  -> 127
+            @emitter.emit(ASM.cmp_reg(1, 3))
+            @emitter.emit(ASM.mov_reg_cond(:lt, 1, 3))            # r1 < -128 -> -128
+            @emitter.emit(ASM.strb(1, 7))                         # write the mixed byte
+            @emitter.emit(ASM.add_imm(7, 7, 1))                   # write pointer++
 
             # advance the play position by STEP: frac += step, move whole samples by the
             # carry (frac >> 16), keep the leftover fraction (frac & 0xFFFF).
-            emit(ASM.add_reg(11, 11, 10))                # frac += step
-            emit(ASM.lsr_imm(0, 11, STEP_SHIFT))         # r0 = whole samples to advance
-            emit(ASM.add_reg(8, 8, 0))                   # pos += that
-            emit(ASM.add_reg(6, 6, 0))                   # read pointer += that
-            emit(ASM.lsl_imm(11, 11, STEP_SHIFT))        # drop the whole part...
-            emit(ASM.lsr_imm(11, 11, STEP_SHIFT))        # ...leaving frac in [0, 0xFFFF]
-            emit(ASM.cmp_reg(8, 9))                      # pos vs len
-            emit_branch(:bcond, wrapped, cond: :ge)      # reached (or passed) the end
-            place_label(advance)
-            emit(ASM.sub_imm(2, 2, 1))
-            emit(ASM.cmp_imm(2, 0))
-            emit_branch(:bcond, sample, cond: :ne)       # more of the buffer to fill
-            emit_branch(:b, end_voice)
+            @emitter.emit(ASM.add_reg(11, 11, 10))                # frac += step
+            @emitter.emit(ASM.lsr_imm(0, 11, STEP_SHIFT))         # r0 = whole samples to advance
+            @emitter.emit(ASM.add_reg(8, 8, 0))                   # pos += that
+            @emitter.emit(ASM.add_reg(6, 6, 0))                   # read pointer += that
+            @emitter.emit(ASM.lsl_imm(11, 11, STEP_SHIFT))        # drop the whole part...
+            @emitter.emit(ASM.lsr_imm(11, 11, STEP_SHIFT))        # ...leaving frac in [0, 0xFFFF]
+            @emitter.emit(ASM.cmp_reg(8, 9))                      # pos vs len
+            @emitter.emit_branch(:bcond, wrapped, cond: :ge)      # reached (or passed) the end
+            @emitter.place_label(advance)
+            @emitter.emit(ASM.sub_imm(2, 2, 1))
+            @emitter.emit(ASM.cmp_imm(2, 0))
+            @emitter.emit_branch(:bcond, sample, cond: :ne)       # more of the buffer to fill
+            @emitter.emit_branch(:b, end_voice)
 
-            place_label(wrapped)
-            emit(ASM.ldr_offset(0, 4, SLOT_LOOP))        # loop?
-            emit(ASM.cmp_imm(0, 0))
-            emit_branch(:bcond, retire, cond: :eq)
-            emit(ASM.sub_reg(8, 8, 9))                   # loop: wrap the position back (pos -= len)
-            emit(ASM.ldr_offset(0, 4, SLOT_SRC))         # ...and re-point the read pointer at src + pos
-            emit(ASM.add_reg(6, 0, 8))
-            emit_branch(:b, advance)
+            @emitter.place_label(wrapped)
+            @emitter.emit(ASM.ldr_offset(0, 4, SLOT_LOOP))        # loop?
+            @emitter.emit(ASM.cmp_imm(0, 0))
+            @emitter.emit_branch(:bcond, retire, cond: :eq)
+            @emitter.emit(ASM.sub_reg(8, 8, 9))                   # loop: wrap the position back (pos -= len)
+            @emitter.emit(ASM.ldr_offset(0, 4, SLOT_SRC))         # ...and re-point the read pointer at src + pos
+            @emitter.emit(ASM.add_reg(6, 0, 8))
+            @emitter.emit_branch(:b, advance)
 
-            place_label(retire)                          # one-shot done: mark idle, stop adding
-            emit(ASM.load_immediate(0, 0))
-            emit(ASM.str_offset(0, 4, SLOT_ACTIVE))
+            @emitter.place_label(retire)                          # one-shot done: mark idle, stop adding
+            @emitter.emit(ASM.load_immediate(0, 0))
+            @emitter.emit(ASM.str_offset(0, 4, SLOT_ACTIVE))
 
-            place_label(end_voice)
-            emit(ASM.str_offset(8, 4, SLOT_POS))         # remember how far this voice has played
-            emit(ASM.str_offset(11, 4, SLOT_FRAC))       # ...and the leftover fraction
+            @emitter.place_label(end_voice)
+            @emitter.emit(ASM.str_offset(8, 4, SLOT_POS))         # remember how far this voice has played
+            @emitter.emit(ASM.str_offset(11, 4, SLOT_FRAC))       # ...and the leftover fraction
 
-            place_label(next_voice)
-            emit(ASM.add_imm(4, 4, SLOT_BYTES))          # next slot
-            emit(ASM.sub_imm(5, 5, 1))
-            emit(ASM.cmp_imm(5, 0))
-            emit_branch(:bcond, voice, cond: :ne)
+            @emitter.place_label(next_voice)
+            @emitter.emit(ASM.add_imm(4, 4, SLOT_BYTES))          # next slot
+            @emitter.emit(ASM.sub_imm(5, 5, 1))
+            @emitter.emit(ASM.cmp_imm(5, 0))
+            @emitter.emit_branch(:bcond, voice, cond: :ne)
 
-            emit(ASM.add_imm(13, 13, 4))                 # pop the stashed dest (balance the stack)
-            emit(ASM.return)                             # bx lr -> back to the caller
-            place_label(:__mix_routine_end)
+            @emitter.emit(ASM.add_imm(13, 13, 4))                 # pop the stashed dest (balance the stack)
+            @emitter.emit(ASM.return)                             # bx lr -> back to the caller
+            @emitter.place_label(:__mix_routine_end)
 
-            size = pos - start
+            size = @emitter.pos - start
             return unless size > MIX_ROUTINE_IWRAM_MAX
 
             raise LoweringError,
@@ -405,40 +462,42 @@ module RubyGBA
                   "(raise MIX_ROUTINE_IWRAM_MAX)"
           end
 
+          private
+
           # Leave r0 = the address of a free voice slot, or 0 if all MAX_VOICES are busy.
           # Uses r0/r1/r2 only, so the caller's r4 (the sample address) survives.
           def find_free_slot
-            emit(ASM.load_immediate(1, @voice_base))
-            emit(ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES)))
-            scan = gensym
-            found = gensym
-            miss = gensym
-            place_label(scan)
-            emit(ASM.ldr_offset(0, 1, SLOT_ACTIVE))
-            emit(ASM.cmp_imm(0, 0))
-            emit_branch(:bcond, found, cond: :eq)        # active == 0 -> free
-            emit(ASM.add_imm(1, 1, SLOT_BYTES))
-            emit(ASM.cmp_reg(1, 2))
-            emit_branch(:bcond, scan, cond: :lt)
-            emit(ASM.load_immediate(0, 0))               # none free
-            emit_branch(:b, miss)
-            place_label(found)
-            emit(ASM.mov_reg(0, 1))                      # r0 = the free slot's address
-            place_label(miss)
+            @emitter.emit(ASM.load_immediate(1, @voice_base))
+            @emitter.emit(ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES)))
+            scan = @emitter.gensym
+            found = @emitter.gensym
+            miss = @emitter.gensym
+            @emitter.place_label(scan)
+            @emitter.emit(ASM.ldr_offset(0, 1, SLOT_ACTIVE))
+            @emitter.emit(ASM.cmp_imm(0, 0))
+            @emitter.emit_branch(:bcond, found, cond: :eq)        # active == 0 -> free
+            @emitter.emit(ASM.add_imm(1, 1, SLOT_BYTES))
+            @emitter.emit(ASM.cmp_reg(1, 2))
+            @emitter.emit_branch(:bcond, scan, cond: :lt)
+            @emitter.emit(ASM.load_immediate(0, 0))               # none free
+            @emitter.emit_branch(:b, miss)
+            @emitter.place_label(found)
+            @emitter.emit(ASM.mov_reg(0, 1))                      # r0 = the free slot's address
+            @emitter.place_label(miss)
           end
 
           # Zero +bytes+ bytes of memory starting at +addr+ (voice slots, output buffers).
           def emit_zero_region(addr, bytes)
-            emit(ASM.load_immediate(0, addr))
-            emit(ASM.load_immediate(1, 0))
-            emit(ASM.load_immediate(2, bytes))
-            loop_lbl = gensym
-            place_label(loop_lbl)
-            emit(ASM.strb(1, 0))
-            emit(ASM.add_imm(0, 0, 1))
-            emit(ASM.sub_imm(2, 2, 1))
-            emit(ASM.cmp_imm(2, 0))
-            emit_branch(:bcond, loop_lbl, cond: :ne)
+            @emitter.emit(ASM.load_immediate(0, addr))
+            @emitter.emit(ASM.load_immediate(1, 0))
+            @emitter.emit(ASM.load_immediate(2, bytes))
+            loop_lbl = @emitter.gensym
+            @emitter.place_label(loop_lbl)
+            @emitter.emit(ASM.strb(1, 0))
+            @emitter.emit(ASM.add_imm(0, 0, 1))
+            @emitter.emit(ASM.sub_imm(2, 2, 1))
+            @emitter.emit(ASM.cmp_imm(2, 0))
+            @emitter.emit_branch(:bcond, loop_lbl, cond: :ne)
           end
 
           # A bump allocator for EWRAM (256KB of general work RAM), word-aligned. The mixer's

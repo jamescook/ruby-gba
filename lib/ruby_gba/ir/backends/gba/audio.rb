@@ -5,7 +5,15 @@ module RubyGBA
     module Backends
       class GBA
         # Sound: each op lowered to a short list of sound-register writes.
-        module Audio
+        #
+        # Reads two prepare-pass results handed in at construction — the defined-sound
+        # and song tables, filled by collect_definitions before any code is emitted —
+        # and a handful of live collaborators for what a vblank does besides waiting:
+        # stepping the frame counter, snapshotting input, flipping a buffered page, and
+        # feeding a bending background's tables. `uses_pressed`/`any_buffered` are
+        # program facts settled elsewhere in the same lowering, read through a callable
+        # since they aren't known yet when this object is built.
+        class Audio
           include Constants
 
           #
@@ -13,8 +21,22 @@ module RubyGBA
           # Sound module, so the ROM and the interpreter play the same thing. A write
           # is just "put this 16-bit value at this register address."
 
+          def initialize(emitter:, primitives:, sounds:, songs:, frames:, expressions:, raster:,
+                          buffered:, uses_pressed:, any_buffered:)
+            @emitter = emitter
+            @primitives = primitives
+            @defined_sounds = sounds
+            @songs = songs
+            @frames = frames
+            @expressions = expressions
+            @raster = raster
+            @buffered = buffered
+            @uses_pressed = uses_pressed
+            @any_buffered = any_buffered
+          end
+
           def emit_writes(writes)
-            writes.each { |address, value| write_reg16(address, value) }
+            writes.each { |address, value| @emitter.write_reg16(address, value) }
           end
 
           # Power on the audio hardware.
@@ -85,51 +107,51 @@ module RubyGBA
             cursors = build_song_tables(node.name, song)
             r_counter, r_base, r_entry, r_val = 5, 2, 3, 4
 
-            load_var(r_counter, counter) # this frame's counter, held across every voice
+            @primitives.load_var(r_counter, counter) # this frame's counter, held across every voice
 
             cursors.each_with_index do |cursor, index|
               regs = music_voice_regs(MUSIC_CHANNELS.fetch(index) do
                 raise LoweringError, "song #{node.name.inspect} has more parts than this console can play"
               end)
-              skip = gensym
+              skip = @emitter.gensym
 
-              emit_load_data_address(r_base, :"_music_events_#{node.name}_#{index}") # &table
-              load_var(r_entry, cursor)                        # this voice's cursor (an event index)
-              emit(ASM.lsl_imm(r_entry, r_entry, 3))           # * 8 bytes per event
-              emit(ASM.add_reg(r_entry, r_base, r_entry))      # &table[cursor]
-              emit(ASM.ldr(ACC, r_entry))                      # the event's frame (a 32-bit word)
-              emit(ASM.cmp_reg(ACC, r_counter))                # due this frame?
-              emit_branch(:bcond, skip, cond: :ne)             # no — leave the voice alone
+              @emitter.emit_load_data_address(r_base, :"_music_events_#{node.name}_#{index}") # &table
+              @primitives.load_var(r_entry, cursor)            # this voice's cursor (an event index)
+              @emitter.emit(ASM.lsl_imm(r_entry, r_entry, 3))  # * 8 bytes per event
+              @emitter.emit(ASM.add_reg(r_entry, r_base, r_entry)) # &table[cursor]
+              @emitter.emit(ASM.ldr(ACC, r_entry))             # the event's frame (a 32-bit word)
+              @emitter.emit(ASM.cmp_reg(ACC, r_counter))       # due this frame?
+              @emitter.emit_branch(:bcond, skip, cond: :ne)    # no — leave the voice alone
 
               regs[:const].each do |addr, value|               # e.g. channel 1's sweep = 0, written first
-                emit(ASM.load_immediate(r_val, value))
-                emit(ASM.load_immediate(TMP, addr))
-                emit(ASM.store_halfword(r_val, TMP))
+                @emitter.emit(ASM.load_immediate(r_val, value))
+                @emitter.emit(ASM.load_immediate(TMP, addr))
+                @emitter.emit(ASM.store_halfword(r_val, TMP))
               end
               [[4, regs[:reg_a]], [6, regs[:reg_b]]].each do |offset, addr| # the two stored values -> registers
-                emit(ASM.add_imm(TMP, r_entry, offset))
-                emit(ASM.load_halfword(r_val, TMP))
-                emit(ASM.load_immediate(TMP, addr))
-                emit(ASM.store_halfword(r_val, TMP))
+                @emitter.emit(ASM.add_imm(TMP, r_entry, offset))
+                @emitter.emit(ASM.load_halfword(r_val, TMP))
+                @emitter.emit(ASM.load_immediate(TMP, addr))
+                @emitter.emit(ASM.store_halfword(r_val, TMP))
               end
-              load_var(ACC, cursor)                            # step this voice to its next event
-              emit(ASM.add_imm(ACC, ACC, 1))
-              store_var(ACC, cursor)
-              place_label(skip)
+              @primitives.load_var(ACC, cursor)                # step this voice to its next event
+              @emitter.emit(ASM.add_imm(ACC, ACC, 1))
+              @primitives.store_var(ACC, cursor)
+              @emitter.place_label(skip)
             end
 
-            emit(ASM.add_imm(r_counter, r_counter, 1))         # counter += 1
-            wrap = gensym                                      # loop the tune: at the end, rewind
-            emit(ASM.load_immediate(TMP, song.total_frames))
-            emit(ASM.cmp_reg(r_counter, TMP))
-            emit_branch(:bcond, wrap, cond: :lt)               # not at the end yet
-            emit(ASM.load_immediate(r_counter, 0))             # counter back to 0...
-            cursors.each do |cursor|                           # ...and every cursor back to its first event
-              emit(ASM.load_immediate(ACC, 0))
-              store_var(ACC, cursor)
+            @emitter.emit(ASM.add_imm(r_counter, r_counter, 1)) # counter += 1
+            wrap = @emitter.gensym                              # loop the tune: at the end, rewind
+            @emitter.emit(ASM.load_immediate(TMP, song.total_frames))
+            @emitter.emit(ASM.cmp_reg(r_counter, TMP))
+            @emitter.emit_branch(:bcond, wrap, cond: :lt)       # not at the end yet
+            @emitter.emit(ASM.load_immediate(r_counter, 0))     # counter back to 0...
+            cursors.each do |cursor|                             # ...and every cursor back to its first event
+              @emitter.emit(ASM.load_immediate(ACC, 0))
+              @primitives.store_var(ACC, cursor)
             end
-            place_label(wrap)
-            store_var(r_counter, counter)
+            @emitter.place_label(wrap)
+            @primitives.store_var(r_counter, counter)
           end
 
           # Which two sound registers carry a music note's varying values on a given
@@ -162,7 +184,7 @@ module RubyGBA
                 [frame, note_reg_value(writes, regs[:reg_a]), note_reg_value(writes, regs[:reg_b])].pack("Vvv")
               end
               rows << [song.total_frames, 0, 0].pack("Vvv") # sentinel: never matches while the tune plays
-              @emit.data_blobs[:"_music_events_#{name}_#{index}"] = rows.join
+              @emitter.data_blobs[:"_music_events_#{name}_#{index}"] = rows.join
               :"_music_idx_#{name}_#{index}"
             end
           end
@@ -173,26 +195,18 @@ module RubyGBA
             found ? found.last : 0
           end
 
-          # Compare the accumulator to a constant. The constant loads into a temp
-          # first, so any 32-bit value works (the immediate compare form only encodes
-          # small constants, and frame counts can exceed that).
-          def compare_acc_to(value)
-            emit(ASM.load_immediate(TMP, value))
-            emit(ASM.cmp_reg(ACC, TMP))
-          end
-
           # Wait for the vertical blank — the brief pause between drawn frames, the safe
           # moment to change what's on screen. Rather than spin reading the scanline
           # counter, we ask the BIOS to sleep the CPU until the next VBlank interrupt
           # (VBlankIntrWait). The interrupt itself was armed once at boot (emit_irq_setup),
           # so this is a single instruction; the CPU draws no power while it waits.
           def emit_wait_vblank(_node = nil)
-            emit(ASM.swi(SWI_VBLANK_INTR_WAIT << 16))
+            @emitter.emit(ASM.swi(SWI_VBLANK_INTR_WAIT << 16))
 
             # How many frames the pass that just ended really took. First thing after the wait,
             # because everything below is entitled to ask — and it is the difference between two
             # marks, so it has to be taken before anything else moves either of them.
-            emit_frame_step
+            @frames.emit_frame_step
 
             # The next slice of mixed sound was built by the screen's own interrupt, which is
             # what just woke us — not here. See the vblank handler in #emit_irq_handler: sound
@@ -201,26 +215,26 @@ module RubyGBA
 
             # A new frame begins now, so refresh the input snapshot: last frame's
             # keys become "previous", and we latch this frame's keys as "current".
-            snapshot_keys if @uses_pressed
+            @expressions.snapshot_keys if @uses_pressed.call
 
             # This is the safe moment to swap pages when a buffered scene is live:
             # show the frame just drawn and hand the program the other page. Which mode
             # is live can change frame to frame, so the flip is decided at run time.
-            emit_flip_if_buffered if @any_buffered
+            @buffered.emit_flip_if_buffered if @any_buffered.call
 
             # This is the safe moment to point the copier back at the top of the table it
             # just walked down, ready for the frame that starts when we leave. It goes
             # before the table is refilled, and not after: stopping and restarting the
             # engine is only harmless while nothing is being drawn, and a heavy fill can run
             # on past the end of this gap.
-            emit_rearm_row_bend_copiers if copies_row_bends?
+            @raster.emit_rearm_row_bend_copiers if @raster.copies_row_bends?
 
             # Nothing is being drawn now, so this is where a frame is settled: work out
             # where every row of a bending background sits, from the game's variables as
             # they stand — the same ones the sprites are about to be placed from, so the
             # bend and everything standing on it show the same frame. (Nothing here when no
             # background bends, or when a program with no frame runs its block per line.)
-            emit_fill_row_bend_tables if latches_row_bends?
+            @raster.emit_fill_row_bend_tables if @raster.latches_row_bends?
           end
         end
       end

@@ -109,7 +109,7 @@ module RubyGBA
             # to the tiled screen, that screen's own colors have been in this table since —
             # so put the originals back, which is also what makes the remembered tint true
             # again.
-            upload_palette if @palette_tint && @mixed_display
+            upload_palette if palette_tint? && @mixed_display
           end
 
           # Switch the hardware into direct-color (Mode 3) and record it as live. Writing
@@ -131,7 +131,7 @@ module RubyGBA
           def enter_tiled_mode
             emit_boot_backgrounds if @tiled && !@backgrounds.empty? # shared BG palette + tile pictures
             emit_boot_objects if @has_objects                       # sprite palette + tiles, and clear OAM
-            emit_layer_blend_again if @see_through                  # ...and which one is see-through
+            emit_layer_blend_again if see_through?                  # ...and which one is see-through
             value = MODE_0 | tiled_bg_enable_bits
             value |= OBJ_ENABLE | OBJ_1D_MAP if @has_objects
             write_reg16(REG_DISPCNT, value)
@@ -815,8 +815,8 @@ module RubyGBA
             # one whole-picture effect at a time — that is the rule the DSL states and the
             # interpreter models — so a fade puts the colors back. Only a program that
             # tints such a screen emits this, and the check inside is one compare.
-            emit_lift_palette_tint(@modes.mode_at(node)) if @palette_tint && palette_screen?(node)
-            return emit_fade_sharing_the_blend(node) if @see_through
+            emit_lift_palette_tint(@modes.mode_at(node)) if palette_tint? && palette_screen?(node)
+            return emit_fade_sharing_the_blend(node) if see_through?
 
             emit_fade_registers(node)
           end
@@ -973,7 +973,7 @@ module RubyGBA
             # A bending layer's sideways position is settled row by row instead, and every
             # one of those rows already has this scroll in it (see Raster). Writing it here
             # too would only undo the top row's bend until the display asked for the next.
-            unless @row_bends.key?(node.name)
+            unless row_bends.key?(node.name)
               @lowering.value(node.x)        # r0 = scroll x (pixels)
               store_halfword_acc(BG_HOFS_REGS[bg_num])
             end

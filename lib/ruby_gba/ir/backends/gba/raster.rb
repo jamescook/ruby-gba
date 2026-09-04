@@ -75,7 +75,16 @@ module RubyGBA
         # the block itself, line by line, which is what this did everywhere before there
         # was a table. Nothing is paced in such a program, so there is nothing for the bend
         # to be a frame out of step with.
-        module Raster
+        #
+        # Owns the five maps/flags that answer "which layers bend, and how": which nodes
+        # bend (@row_bends), each one's own scroll to measure from (@row_bend_base), its
+        # table of worked-out offsets when one is latched ahead of the frame
+        # (@row_bend_table), which copying engine feeds that table (@row_bend_engine), and
+        # whether a copier is doing the feeding at all (@copies_row_bends). `backgrounds:`
+        # is a live reference to the backend's own name -> layer map — it is filled after
+        # this object is built (tiled backgrounds are prepared first), so only bg_number,
+        # called at emission time, ever actually reads it.
+        class Raster
           include Constants
 
           # The lines the picture is drawn on. The display counts on past the bottom of the
@@ -84,6 +93,25 @@ module RubyGBA
           # the NEXT frame is set up.
           VISIBLE_LINES = 160
           LAST_LINE = 227
+
+          attr_reader :row_bends # name -> :scroll_rows node (Drawing reads this to skip a bending layer's own scroll)
+
+          def initialize(emitter:, primitives:, memory:, lowering:, backgrounds:, drawing:)
+            @emitter = emitter
+            @primitives = primitives
+            @memory = memory
+            @lowering = lowering
+            @backgrounds = backgrounds
+            # Drawing isn't its own object yet (see Statements/Functions's `placement:
+            # self` for the same situation) — dma_fill_control is one of its emission
+            # recipes, so `self`, the whole backend, stands in for it here.
+            @drawing = drawing
+            @row_bends = {}         # name -> :scroll_rows node giving each of that layer's rows its own offset
+            @row_bend_base = {}     # name -> the layer's own scroll, which a row's offset is measured from
+            @row_bend_table = {}    # name -> where its table of row offsets sits, worked out each frame
+            @row_bend_engine = {}   # name -> which copying engine feeds it from that table
+            @copies_row_bends = false # are those tables fed by a copying engine rather than per-line interrupts?
+          end
 
           # Which backgrounds bend, name -> its :scroll_rows node. Collected in the
           # definitions pass so whichever mechanism answers them can be set up at boot,
@@ -159,15 +187,15 @@ module RubyGBA
           # Then, where an engine is feeding one, it is aimed at the layer's scroll register
           # and started.
           def emit_boot_row_bends
-            scratch = var_addr(:_bend_clear)
-            store_word_immediate(0, scratch)
+            scratch = @primitives.var_addr(:_bend_clear)
+            @primitives.store_word_immediate(0, scratch)
             @row_bend_table.each do |name, base|
-              store_word_immediate(scratch, REG_DMA3SAD) # one word of zeroes, read over and over
-              store_word_immediate(base, REG_DMA3DAD)
-              store_word_immediate(dma_fill_control(TABLE_BYTES / 4), REG_DMA3CNT)
+              @primitives.store_word_immediate(scratch, REG_DMA3SAD) # one word of zeroes, read over and over
+              @primitives.store_word_immediate(base, REG_DMA3DAD)
+              @primitives.store_word_immediate(@drawing.dma_fill_control(TABLE_BYTES / 4), REG_DMA3CNT)
               next unless copies_row_bends?
 
-              store_word_immediate(Drawing::BG_HOFS_REGS[bg_number(name)], COPIER_DAD[engine_for(name)])
+              @primitives.store_word_immediate(Drawing::BG_HOFS_REGS[bg_number(name)], COPIER_DAD[engine_for(name)])
             end
             emit_rearm_row_bend_copiers if copies_row_bends?
           end
@@ -182,9 +210,9 @@ module RubyGBA
           def emit_rearm_row_bend_copiers
             @row_bend_table.each do |name, base|
               engine = engine_for(name)
-              store_word_immediate(0, COPIER_CNT[engine])
-              store_word_immediate(base + 2, COPIER_SAD[engine])
-              store_word_immediate(COPIER_CONTROL, COPIER_CNT[engine])
+              @primitives.store_word_immediate(0, COPIER_CNT[engine])
+              @primitives.store_word_immediate(base + 2, COPIER_SAD[engine])
+              @primitives.store_word_immediate(COPIER_CONTROL, COPIER_CNT[engine])
             end
           end
 
@@ -215,11 +243,11 @@ module RubyGBA
           # alone, because the layer's scroll is already in every entry of the table (see
           # Drawing#emit_scroll_background).
           def emit_first_row_bend(node)
-            store_word_immediate(0, var_addr(node.row))
+            @primitives.store_word_immediate(0, @primitives.var_addr(node.row))
             emit_row_offset(node)
-            emit(ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
-            emit(ASM.store_halfword(ACC, ADDR))
-            store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
+            @emitter.emit(ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
+            @emitter.emit(ASM.store_halfword(ACC, ADDR))
+            @primitives.store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
           end
 
           # ...and the rest of that layer's rows, 1 up. The loop keeps its count in the
@@ -228,19 +256,19 @@ module RubyGBA
           # register a count was being held in.
           def emit_fill_row_bend_table(node)
             base = @row_bend_table.fetch(node.name)
-            top = gensym
-            store_word_immediate(1, var_addr(node.row))
-            place_label(top)
+            top = @emitter.gensym
+            @primitives.store_word_immediate(1, @primitives.var_addr(node.row))
+            @emitter.place_label(top)
             emit_row_offset(node)
-            load_var(TMP, node.row)
-            emit(ASM.lsl_imm(SPARE, TMP, 1))         # two bytes an entry
-            emit(ASM.load_immediate(ADDR, base))
-            emit(ASM.add_reg(ADDR, ADDR, SPARE))
-            emit(ASM.store_halfword(ACC, ADDR))
-            emit(ASM.add_imm(TMP, TMP, 1))
-            store_var(TMP, node.row)
-            emit(ASM.cmp_imm(TMP, VISIBLE_LINES))
-            emit_branch(:bcond, top, cond: :lt)
+            @primitives.load_var(TMP, node.row)
+            @emitter.emit(ASM.lsl_imm(SPARE, TMP, 1))         # two bytes an entry
+            @emitter.emit(ASM.load_immediate(ADDR, base))
+            @emitter.emit(ASM.add_reg(ADDR, ADDR, SPARE))
+            @emitter.emit(ASM.store_halfword(ACC, ADDR))
+            @emitter.emit(ASM.add_imm(TMP, TMP, 1))
+            @primitives.store_var(TMP, node.row)
+            @emitter.emit(ASM.cmp_imm(TMP, VISIBLE_LINES))
+            @emitter.emit_branch(:bcond, top, cond: :lt)
           end
 
           # Where the row now in the block's row variable sits: whatever else the block
@@ -264,34 +292,34 @@ module RubyGBA
           # wraps to the top line of the next frame, which is what keeps the topmost row of
           # the picture bent like all the others.
           def emit_row_bend_handler
-            done = gensym
-            emit(ASM.load_immediate(TMP, REG_VCOUNT))
-            emit(ASM.load_halfword(ACC, TMP))              # r0 = the line just finished
-            emit(ASM.cmp_imm(ACC, LAST_LINE))
-            emit(ASM.mov_imm_cond(:eq, ACC, 0))            # the last line sets up the next frame's first
-            emit(ASM.add_imm_cond(:ne, ACC, ACC, 1))       # ...otherwise the next line down
-            emit(ASM.cmp_imm(ACC, VISIBLE_LINES))
-            emit_branch(:bcond, done, cond: :ge)           # below the picture: nothing to bend
+            done = @emitter.gensym
+            @emitter.emit(ASM.load_immediate(TMP, REG_VCOUNT))
+            @emitter.emit(ASM.load_halfword(ACC, TMP))         # r0 = the line just finished
+            @emitter.emit(ASM.cmp_imm(ACC, LAST_LINE))
+            @emitter.emit(ASM.mov_imm_cond(:eq, ACC, 0))       # the last line sets up the next frame's first
+            @emitter.emit(ASM.add_imm_cond(:ne, ACC, ACC, 1))  # ...otherwise the next line down
+            @emitter.emit(ASM.cmp_imm(ACC, VISIBLE_LINES))
+            @emitter.emit_branch(:bcond, done, cond: :ge)      # below the picture: nothing to bend
             if latches_row_bends?
-              emit(ASM.lsl_imm(SPARE, ACC, 1))             # two bytes an entry, held for them all
+              @emitter.emit(ASM.lsl_imm(SPARE, ACC, 1))        # two bytes an entry, held for them all
               @row_bends.each_value { |node| emit_read_row_from_table(node) }
             else
               # Every bend is told the line first, because working one offset out needs the
               # accumulator the line number is sitting in.
-              @row_bends.each_value { |node| store_var(ACC, node.row) }
+              @row_bends.each_value { |node| @primitives.store_var(ACC, node.row) }
               @row_bends.each_value { |node| emit_one_row_bend(node) }
             end
-            place_label(done)
+            @emitter.place_label(done)
           end
 
           # One background's row, out of the table and into the scroll register. The display
           # reads that register as it draws the line, so this is the whole of the handler's
           # work — the number was worked out in the gap between frames.
           def emit_read_row_from_table(node)
-            emit(ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
-            emit(ASM.add_reg(ADDR, ADDR, SPARE))
-            emit(ASM.load_halfword(ACC, ADDR))
-            store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
+            @emitter.emit(ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
+            @emitter.emit(ASM.add_reg(ADDR, ADDR, SPARE))
+            @emitter.emit(ASM.load_halfword(ACC, ADDR))
+            @primitives.store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
           end
 
           # One background's offset for this line, worked out here and now: run whatever the
@@ -301,7 +329,7 @@ module RubyGBA
           def emit_one_row_bend(node)
             node.children.each { |child| @lowering.statement(child) }
             @lowering.value(Build.binop(:+, node.offset, @row_bend_base[node.name]))
-            store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
+            @primitives.store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
           end
         end
       end
