@@ -22,11 +22,12 @@ module RubyGBA
         class Buffered
           include Constants
 
-          def initialize(emitter:, primitives:, lowering:, framebuffer:)
+          def initialize(emitter:, primitives:, lowering:, framebuffer:, call_cold_routine:)
             @emitter = emitter
             @primitives = primitives
             @lowering = lowering
             @framebuffer = framebuffer
+            @call_cold_routine = call_cold_routine
             @layout = nil
           end
 
@@ -47,6 +48,7 @@ module RubyGBA
           def store_word_immediate(value, address) = @primitives.store_word_immediate(value, address)
           def emit_row_loop(counter, &block) = @primitives.emit_row_loop(counter, &block)
           def emit_add_const(rd, rn, imm, scratch) = @primitives.emit_add_const(rd, rn, imm, scratch)
+          def emit_call_cold_routine(label) = @call_cold_routine.call(label)
 
           # Clear the hidden page to a solid color: one DMA that repeats the packed
           # index word across the whole page.
@@ -535,18 +537,62 @@ module RubyGBA
             end
           end
 
-          # Render one run-time digit on the hidden page from the embedded glyph table —
-          # the tear-free (indexed) counterpart of emit_draw_digit_data. It walks the ten
-          # digit glyphs with the same shared loop, but plots a palette index into VRAM
-          # instead of a color. The hidden page base flips each frame, so it's held live
-          # in r9 for the whole glyph; the index is a build-time constant.
+          # Render one run-time digit on the hidden page through the shared glyph-
+          # walking routine for this font (see #emit_digit_routines) — the tear-free
+          # (indexed) counterpart of Drawing#emit_draw_digit_data, and built the same
+          # way: the digit is already in r0 from evaluating node.value, and x, y and
+          # the palette index follow as arguments in r1-r3 rather than being baked
+          # into a fresh copy of the loop at every digit place.
           def emit_draw_digit_data_buffered(node, font, width, x, y)
             index = @layout.palette.index_of(node.color)
-            @framebuffer.emit_digit_glyph_loop(node, font, width) do |phase|
-              case phase
-              when :hold then load_var(9, BACKBUF)         # r9 = the hidden page base, held
-              when :plot then emit_plot_digit_index(x, y, index)
+            @lowering.value(node.value)             # r0 = the digit (0..9)
+            emit(ASM.load_immediate(1, x))
+            emit(ASM.load_immediate(2, y))
+            emit(ASM.load_immediate(3, index))
+            emit_call_cold_routine(digit_routine_label(node.font, font, width))
+          end
+
+          # The shared routine's label for a font, reserved the first time a digit in
+          # that font is drawn on this screen and emitted once, later, by
+          # #emit_digit_routines. Named apart from Drawing's own digit routine (same
+          # font, different plot) since a program can cross between the two screens.
+          def digit_routine_label(font_name, font, width)
+            @digit_routines ||= {}
+            @digit_routines[font_name] ||= begin
+              @pending_digit_routines ||= []
+              @pending_digit_routines << [font_name, font, width]
+              :"__digit_routine_buffered_#{font_name}"
+            end
+          end
+
+          # Emit every shared digit routine this screen actually used, once each, after
+          # the program's own code (see GBA#lower) — same shape as Drawing's own (a
+          # fall-through guard, a label, a body, a return), because like that one this
+          # is only ever reached by a call.
+          #
+          # x, y and the palette index arrive as arguments (r1, r2, r3); they move into
+          # r10, r11 and r8 first, because the glyph table lookup that follows needs
+          # r1-r3 back as scratch — and because loading the hidden page base in the
+          # :hold phase below reaches for r12 (ADDR, see Primitives#emit_var_base) to
+          # build its address, which would silently overwrite the index if it were
+          # held there instead.
+          def emit_digit_routines
+            return unless @pending_digit_routines
+
+            @pending_digit_routines.each do |font_name, font, width|
+              emit(ASM.loop_forever) # fall-through guard: only ever entered by the call above
+              place_label(:"__digit_routine_buffered_#{font_name}")
+              emit(ASM.push(14))
+              emit(ASM.mov_reg(10, 1)) # r10 = x, held across the routine
+              emit(ASM.mov_reg(11, 2)) # r11 = y
+              emit(ASM.mov_reg(8, 3))  # r8 = the palette index
+              @framebuffer.emit_digit_glyph_loop(font_name, font, width) do |phase|
+                case phase
+                when :hold then load_var(9, BACKBUF)          # r9 = the hidden page base, held
+                when :plot then emit_plot_digit_index(10, 11, 8)
+                end
               end
+              emit(ASM.pop(15))
             end
           end
 
@@ -554,12 +600,13 @@ module RubyGBA
           # (x+col, y+row), read the 16-bit unit that contains it, overwrite just that
           # pixel's byte — low for an even column, high for an odd one — and write it
           # back, since the indexed screen can't take a lone byte write. r9 holds the page
-          # base; r5/r4 are the live row/col; r0–r3 are scratch.
-          def emit_plot_digit_index(x, y, index)
-            emit_add_const(0, 5, y, 1)              # r0 = screen_y = y + row
+          # base; x_reg/y_reg/index_reg are the shared routine's arguments (see
+          # #emit_digit_routines); r5/r4 are the live row/col; r0–r3 are scratch.
+          def emit_plot_digit_index(x_reg, y_reg, index_reg)
+            emit(ASM.add_reg(0, y_reg, 5))          # r0 = screen_y = y + row
             emit(ASM.load_immediate(1, SCREEN_WIDTH))
             emit(ASM.mul(2, 0, 1))                  # r2 = screen_y * width
-            emit_add_const(0, 4, x, 1)              # r0 = screen_x = x + col
+            emit(ASM.add_reg(0, x_reg, 4))          # r0 = screen_x = x + col
             emit(ASM.add_reg(2, 2, 0))              # r2 = byte offset = screen_y*width + screen_x
             emit(ASM.add_reg(1, 9, 2))              # r1 = page_base + offset (the pixel's byte, maybe odd)
             emit(ASM.lsr_imm(1, 1, 1))              # clear the low bit ->
@@ -571,12 +618,25 @@ module RubyGBA
             high = gensym
             done = gensym
             emit_branch(:bcond, high, cond: :ne)
-            splice_index_byte(0, index, false)      # even column: the low byte
+            splice_index_byte_reg(0, index_reg, false) # even column: the low byte
             emit_branch(:b, done)
             place_label(high)
-            splice_index_byte(0, index, true)       # odd column: the high byte
+            splice_index_byte_reg(0, index_reg, true)  # odd column: the high byte
             place_label(done)
             emit(ASM.store_halfword(0, 1))          # write the spliced pair back
+          end
+
+          # The same splice as #splice_index_byte, with the index arriving in a
+          # register rather than a build-time constant — what the shared digit routine
+          # needs, since one routine's index varies with which digit call reached it.
+          def splice_index_byte_reg(reg, index_reg, high)
+            if high
+              emit(ASM.and_imm(reg, reg, 0x00FF))         # keep the left (low) pixel
+              emit(ASM.orr_reg_lsl(reg, reg, index_reg, 8)) # set the right (high) pixel
+            else
+              emit(ASM.and_imm(reg, reg, 0xFF00))         # keep the right (high) pixel
+              emit(ASM.orr_reg(reg, reg, index_reg))      # set the left (low) pixel
+            end
           end
 
           # Plot one pixel on the hidden page. With constant coordinates the target

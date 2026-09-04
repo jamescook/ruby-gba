@@ -41,16 +41,19 @@ module RubyGBA
           # instructions the author wrote themselves, which may use any register they like.
           REACHES_OTHER_CODE = %i[call case repeat on_timer raw].freeze
 
-          # ...and the two lowerings that use the high registers for their own working: a
-          # blitted image clips each row against the screen edges in them, and the mixer sums
-          # its voices there.
+          # ...and the lowerings that use the high registers for their own working: a
+          # blitted image clips each row against the screen edges in them, the mixer sums
+          # its voices there, and a run-time digit holds its cell's x/y/color across the
+          # shared glyph routine's whole walk in them (see Drawing#emit_digit_routines).
           USES_HIGH_REGISTERS = %i[blit blit_pose play_sample stop_sample sample
-                                   draw_column_at].freeze
+                                   draw_column_at draw_digit].freeze
 
           # A value kind that reaches the console's own routines, which own the registers while
           # they run. A stretched column is here as well as above: it works in the high
-          # registers AND divides to find its step, and either one alone would take them.
-          CALLS_A_ROUTINE = %i[div_fix pixels_overlap draw_column_at].freeze
+          # registers AND divides to find its step, and either one alone would take them. A
+          # run-time digit is the same shape: the glyph loop lives in a shared routine one
+          # call away, not laid out inline (see Drawing#emit_digit_routines).
+          CALLS_A_ROUTINE = %i[div_fix pixels_overlap draw_column_at draw_digit].freeze
 
           # HOW MANY STATEMENTS ARE WORTH BRACKETING before giving up the registers is cheaper.
           # A bracket is four instructions — the count written out to its variable, then the
@@ -155,6 +158,7 @@ module RubyGBA
             when :div_fix then "a divide of numbers holding a fraction"
             when :pixels_overlap then "a per-pixel collision test"
             when :draw_column_at then "the body stretches a column of a picture"
+            when :draw_digit then "the body draws a live number"
             when *USES_HIGH_REGISTERS then "the body draws an image"
             else
               writes?(node, index) ? "the body writes :#{index}, the loop's own count" : "a divide the game works out"

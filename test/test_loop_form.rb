@@ -100,12 +100,14 @@ class TestLoopForm < Minitest::Test
       game_loop do
         b.repeat(4) { out.set(n / d) }
         b.repeat(4) { b.blit :dot, x, 8 }
+        b.repeat(4) { b.draw_number :n, 0, 40, :white }
       end
     end
     reasons = shapes.values.map(&:blocked_by)
 
     assert_includes reasons, "a divide the game works out"
     assert_includes reasons, "the body draws an image"
+    assert_includes reasons, "the body draws a live number"
   end
 
   # ...and blocking a drawn image is LOAD-BEARING, not caution. The row clipper works in the
@@ -122,6 +124,27 @@ class TestLoopForm < Minitest::Test
         passes.set 0
         b.repeat(7) do
           b.blit :dot, x, 60
+          passes.add 1
+        end
+      end
+    end
+
+    assert_equal 7, read_var(rom, :passes)
+  end
+
+  # ...and a live number is the same shape: the shared glyph routine it calls (see
+  # Drawing#emit_digit_routines) holds its own x/y/color in the very registers a held loop
+  # counts in, so a loop drawing one inside itself has to give the registers up too.
+  def test_a_loop_around_a_live_number_counts_right_on_the_console
+    rom = RubyGBA.build("LOOPDGT", code: "BLDG", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      n = var :n, 4
+      passes = var :passes, 0
+      b = self
+      game_loop do
+        passes.set 0
+        b.repeat(7) do
+          b.draw_number :n, 0, 40, :white
           passes.add 1
         end
       end
@@ -220,7 +243,6 @@ class TestLoopForm < Minitest::Test
         pixel: ->(_i) { b.pixel 4, 4, :red },
         fill_rect: ->(_i) { b.fill_rect 0, 0, 2, 2, :blue },
         draw_rect_at: ->(_i) { b.draw_rect_at other, 20, 4, 4, :green },
-        draw_number: ->(_i) { b.draw_number :n, 0, 40, :white },
         random: ->(_i) { b.roll :n, 1..6 },
         beep: ->(_i) { b.beep :hit },
       }
