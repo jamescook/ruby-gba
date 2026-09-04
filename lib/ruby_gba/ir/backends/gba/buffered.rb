@@ -584,9 +584,9 @@ module RubyGBA
           # address and which half to touch both come from the live x/y. r2/r3 hold
           # x/y; r1 the unit address; r0 the value being spliced; r4/r5 scratch.
           def emit_pixel_buffered_runtime(node, index)
-            eval_value(node.x)
+            @lowering.value(node.x)
             emit(ASM.mov_reg(2, ACC))
-            eval_value(node.y)
+            @lowering.value(node.y)
             emit(ASM.mov_reg(3, ACC))
 
             emit(ASM.load_immediate(4, SCREEN_WIDTH))

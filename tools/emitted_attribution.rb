@@ -21,19 +21,30 @@ module EmittedAttribution
   # Remembers, for every statement lowered, how many bytes that statement alone
   # produced. Prepended to a throwaway subclass rather than to the backend itself,
   # so a process that measures one build is not changed for everything else it does.
+  #
+  # Every statement passes through one place — GBA::Lowering#statement, not a method
+  # on the backend itself — so this wraps that one method on the backend's own
+  # Lowering instance (built fresh in its own #initialize, then reached here) rather
+  # than prepending an override the backend would call.
   module Recorder
     def attributed = @attributed ||= []
+    def attribution_depth = @attribution_depth ||= []
 
-    def emit_statement(node)
-      depth = (@attribution_depth ||= [])
-      start = pos
-      depth.push(0) # bytes my own nested statements will claim
-      result = super
-      inner = depth.pop
-      mine = pos - start
-      depth[-1] += mine unless depth.empty? # tell whoever contains me what I took
-      attributed << [node, mine - inner]
-      result
+    def initialize(...)
+      super
+      backend = self
+      original = lowering.method(:statement)
+      lowering.define_singleton_method(:statement) do |node|
+        depth = backend.attribution_depth
+        start = backend.send(:pos)
+        depth.push(0) # bytes my own nested statements will claim
+        result = original.call(node)
+        inner = depth.pop
+        mine = backend.send(:pos) - start
+        depth[-1] += mine unless depth.empty? # tell whoever contains me what I took
+        backend.attributed << [node, mine - inner]
+        result
+      end
     end
   end
 

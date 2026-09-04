@@ -133,7 +133,7 @@ module RubyGBA
               return write_reg16(REG_BLDALPHA, blend_weights(fade_steps(fixed)))
             end
 
-            eval_value(fade_steps_value(amount))
+            @lowering.value(fade_steps_value(amount))
             emit_clamp_blend_steps
             emit_blend_weights_from_acc
           end

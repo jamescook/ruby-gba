@@ -18,7 +18,7 @@ module RubyGBA
           end
 
           # Power on the audio hardware.
-          def emit_enable_sound
+          def emit_enable_sound(_node = nil)
             emit_writes(Sound::Registers.enable)
           end
 
@@ -48,12 +48,12 @@ module RubyGBA
           end
 
           # Silence the wave voice.
-          def emit_stop_wave
+          def emit_stop_wave(_node = nil)
             emit_writes(Sound::Registers.wave_stop)
           end
 
           # Silence the music channel.
-          def emit_stop_music
+          def emit_stop_music(_node = nil)
             emit_writes(Sound::Registers.stop_music)
           end
 
@@ -186,7 +186,7 @@ module RubyGBA
           # counter, we ask the BIOS to sleep the CPU until the next VBlank interrupt
           # (VBlankIntrWait). The interrupt itself was armed once at boot (emit_irq_setup),
           # so this is a single instruction; the CPU draws no power while it waits.
-          def emit_wait_vblank
+          def emit_wait_vblank(_node = nil)
             emit(ASM.swi(SWI_VBLANK_INTR_WAIT << 16))
 
             # How many frames the pass that just ended really took. First thing after the wait,

@@ -246,8 +246,8 @@ module RubyGBA
           # Where the row now in the block's row variable sits: whatever else the block
           # does, then its offset, measured from the layer's own scroll. Left in r0.
           def emit_row_offset(node)
-            node.children.each { |child| emit_statement(child) }
-            eval_value(Build.binop(:+, node.offset, @row_bend_base[node.name]))
+            node.children.each { |child| @lowering.statement(child) }
+            @lowering.value(Build.binop(:+, node.offset, @row_bend_base[node.name]))
           end
 
           # Which of the console's layers draws this background. Outside tile mode there is
@@ -299,8 +299,8 @@ module RubyGBA
           # write it. This is what a program with no frame gets, having had no gap to work
           # its rows out in ahead of time.
           def emit_one_row_bend(node)
-            node.children.each { |child| emit_statement(child) }
-            eval_value(Build.binop(:+, node.offset, @row_bend_base[node.name]))
+            node.children.each { |child| @lowering.statement(child) }
+            @lowering.value(Build.binop(:+, node.offset, @row_bend_base[node.name]))
             store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
           end
         end
