@@ -38,6 +38,8 @@ WIN_SCORE    = 5
 STING_FRAMES = 18       # how long the red sting takes to fall away when the cpu scores
 LEFT_X       = 8        # player paddle x
 RIGHT_X      = 228      # cpu paddle x
+ZOOM_FRAMES    = 24     # how long the title's zoom-in takes once START is pressed
+ZOOM_PER_FRAME = 0.12   # how much bigger the title backdrop gets each of those frames
 
 Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   screen :bitmap
@@ -91,6 +93,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   cpu_score    = var :cpu_score, 0
   state        = var :state, 0    # 0=title, 1=playing, 2=player_wins, 3=cpu_wins
   blink        = var :blink, 1    # 1=show the title prompt this frame, 0=hide it (flashes)
+  zoom_timer   = var :zoom_timer, 0 # 0=idle; counting up while the title zooms in on START
 
   # --- Subroutines ---
 
@@ -109,6 +112,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     ball_dy.set BALL_SPEED
     ball_x.set 118
     ball_y.set 78
+    zoom_timer.set 0 # so the title starts unzoomed the next time it shows
     state.set 1
   end
 
@@ -189,9 +193,21 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   # --- Scenes ---
 
   scene :title do
-    clear_screen :black
+    # The title is its own display mode: the console's rotate/scale background
+    # layer (`background(...).rotate` / `.scale` — see the DSL reference), not
+    # the plain framebuffer `:playing` draws into below. Crossing back and forth
+    # is what per-scene display mode is for — the framework reconfigures the
+    # hardware on the transition, so nothing here has to know `:playing` exists,
+    # and nothing there has to know this scene used BG2 for something else.
+    screen :affine
+
+    image :dark, "#" => rgb(2, 2, 7) do "########\n" * 8 end
+    image :light, "#" => rgb(4, 4, 12) do "########\n" * 8 end
+    tiles :backdrop, "#" => :dark, "$" => :light
+    checker = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "#" : "$" }.join }
+    title_board = background :title_board, tiles: :backdrop, map: checker
+
     draw_text "PONG", 104, 40, :white
-    call :draw_field
 
     # Flash the prompt: flip it on/off every half second.
     every(0.5, :seconds) do
@@ -199,7 +215,15 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     end
     (blink == 1).then { draw_text "PRESS START", 76, 100, :gray }
 
-    pressed(:start).then { call :reset_game }
+    # Zoom the backdrop in on START, then hand off to :playing once the zoom
+    # finishes — the same pace `fade_out`/`fade_in` walk a level over frames at.
+    (zoom_timer == 0).then { title_board.scale(1.0) } # idle: hold it at the size it was drawn
+    pressed(:start).then { zoom_timer.set 1 }
+    (zoom_timer > 0).then do
+      title_board.scale.approach 4.0, ZOOM_PER_FRAME
+      zoom_timer.add 1
+      (zoom_timer > ZOOM_FRAMES).then { call :reset_game }
+    end
   end
 
   scene :playing do

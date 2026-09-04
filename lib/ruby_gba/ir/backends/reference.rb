@@ -864,6 +864,8 @@ module RubyGBA
         # rotate of, say, 370) still reads the picture the console would show.
         def exec_affine_background(node)
           @bg_by_name.fetch(node.name) { raise ProgramError, "affine transform of undeclared background #{node.name.inspect}" }
+          return unless eval_value(node.active) == 1
+
           @bg_affine[node.name] = [eval_value(node.angle) % 360, eval_value(node.scale)]
           composite_scrolled_frame
         end

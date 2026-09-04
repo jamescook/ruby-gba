@@ -526,8 +526,8 @@ module RubyGBA
       # Only a background declared under `screen :affine` can carry this — the console's
       # rotate/scale hardware is a different pair of layers (BG2/BG3) from the ones a
       # `screen :tiled` background scrolls on.
-      def affine_background(name, angle:, scale:)
-        Nodes.build(:affine_background, name: name, angle: wrap(angle), scale: wrap(scale))
+      def affine_background(name, angle:, scale:, active: int(1))
+        Nodes.build(:affine_background, name: name, angle: wrap(angle), scale: wrap(scale), active: wrap(active))
       end
 
       # Show the named background scrolled to the offset (+x+, +y+) in pixels — the

@@ -25,6 +25,7 @@ module RubyGBA
       DIRECT = :direct     # single-buffered direct color (bitmap)
       BUFFERED = :buffered # double-buffered, tear-free (bitmap)
       TILED = :tiled       # tile backgrounds + hardware sprites
+      AFFINE = :affine     # the rotate/scale background layer (BG2), its own display system
 
       # The two bitmap display modes — the same linear framebuffer, single- or
       # double-buffered. They're one display *system*; tiled is the other. The
@@ -65,14 +66,20 @@ module RubyGBA
         @default_mode == TILED || @func_mode.value?(TILED)
       end
 
-      # Does the program cross the display-system boundary — some scene bitmap
-      # (single- or double-buffered) while another is tiled? That's the case the
-      # console has to switch the whole display for (the mode register plus the
-      # VRAM/OAM layout), not just flip a page. A program that stays on one system is
-      # left on its existing path.
+      # Does any scene run on the affine (rotate/scale) background layer?
+      def any_affine?
+        @default_mode == AFFINE || @func_mode.value?(AFFINE)
+      end
+
+      # Does the program cross a display-system boundary — bitmap, tiled, and affine
+      # are three separate systems (bitmap keeps a framebuffer; tiled paints regular
+      # scrolling layers; affine paints the one rotate/scale layer), and crossing
+      # between any two of them is what the console has to switch the whole display
+      # for (the mode register plus the VRAM/OAM layout), not just flip a page. A
+      # program that stays on one system is left on its existing path.
       def mixed_display?
-        modes = @func_mode.values + [@default_mode]
-        modes.any? { |m| BITMAP_MODES.include?(m) } && modes.include?(TILED)
+        systems = (@func_mode.values + [@default_mode]).map { |m| BITMAP_MODES.include?(m) ? :bitmap : m }
+        systems.uniq.size > 1
       end
 
       # Whether the program mixes modes — some scene direct, some buffered. A
@@ -120,7 +127,21 @@ module RubyGBA
         @func_mode = {}
         @scene_funcs = []
         @default_mode = declared_mode(main_body) || DIRECT
-        entry_targets.each { |target| resolve_func(target, @default_mode, scene: true) }
+        scene_targets.each { |target| resolve_func(target, @default_mode, scene: true) }
+        # A plain `call` sitting directly in the main loop — chiefly `once_a_frame`'s
+        # hidden routine, but any bare per-frame helper the same way — is not a scene:
+        # it doesn't own the display, it runs every real frame regardless of which
+        # scene (if any) is active. Resolving it still gives it a mode (so a tint or
+        # fade inside it knows whether it's drawing through a color table), but
+        # `scene: false` keeps it out of #scene_funcs, so it never gets a mode-switch
+        # preamble of its own — one that would otherwise force the hardware back to
+        # this mode every frame, fighting whatever scene is actually live. Without
+        # this split, a `flash_screen`/`pulse`/`shake_screen`/`camera_follows` present
+        # ANYWHERE in a program that also switches screen modes per scene corrupts the
+        # scene's own display: its hidden routine's preamble re-enters its own mode
+        # every frame, right after the real scene already presented that frame's
+        # sprites, clearing them before the console ever shows them.
+        (main_body_call_targets - scene_targets).each { |target| resolve_func(target, @default_mode, scene: false) }
         @func_mode.freeze
         @scene_funcs.freeze
       end
@@ -152,6 +173,7 @@ module RubyGBA
           next unless node.kind == :screen
 
           return TILED if node.mode == :tiled
+          return AFFINE if node.mode == :affine
 
           return node.buffered ? BUFFERED : DIRECT
         end
@@ -164,10 +186,22 @@ module RubyGBA
         @program.children.reject { |node| node.kind == :func }
       end
 
-      # The funcs the main body dispatches to each frame — case_var scenes and
-      # calls in the loop. These are the mode-switch entry points.
-      def entry_targets
-        main_body.flat_map { |node| call_targets(node) }
+      # The funcs a `case_var` in the main body dispatches to — the real mode-switch
+      # entry points, the only routines that "own" the display the way a scene does.
+      def scene_targets
+        targets = []
+        main_body.each { |node| node.walk { |n| n.clauses.each { |_value, target| targets << target } if n.kind == :case } }
+        targets
+      end
+
+      # Every func called directly (by name) from somewhere in the main body — this
+      # catches `once_a_frame`'s hidden routine and any other bare per-frame helper,
+      # alongside a case_var's own targets (a scene can itself be reached by a plain
+      # `call` too, e.g. a game with no case_var at all).
+      def main_body_call_targets
+        targets = []
+        main_body.each { |node| node.walk { |n| targets << n.target if n.kind == :call } }
+        targets
       end
 
       # Every func a node (and its whole subtree, including else-branches) calls or
