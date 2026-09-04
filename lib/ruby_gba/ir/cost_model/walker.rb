@@ -25,10 +25,10 @@ module RubyGBA
       # inside, how tall the area it is drawing into is, whether the code it is pricing
       # runs from faster memory, whether a list is being counted at its worst — lives
       # here and only here: +@stack+, +@draw_height+, +@in_fast_code+,
-      # +@at_full_capacity+ are never read from outside this class. Rollup keeps the
-      # same method names it always had (see rollup.rb) so nothing outside cost_model/
-      # had to change to reach them; they're one-line forwards to a Walker instance
-      # built fresh by every #index.
+      # +@at_full_capacity+ are never read from outside this class. Rollup (see
+      # rollup.rb) exposes these same method names as one-line forwards to a Walker
+      # instance built fresh by every #index, so nothing outside cost_model/ has to
+      # know Walker exists to reach them.
       #
       # +pricing+ answers #op_cost / #expr_cost / #own_cost / #arithmetic_kind /
       # #const_side / #fast_memory_factor; +tree+ answers #label_of — how a priced leaf
@@ -264,7 +264,8 @@ module RubyGBA
         end
 
         # Whether the code being priced right now runs from the console's quick memory —
-        # the one raw-ivar read Pricing used to make directly (see Pricing#fast_memory_factor).
+        # the seam Pricing reaches through rather than reading @in_fast_code itself (see
+        # Pricing#fast_memory_factor).
         def in_fast_code? = @in_fast_code
 
         # HOW TALL THE PART OF THE SCREEN BEING DRAWN INTO IS, while walking an `inside` block.
@@ -280,8 +281,9 @@ module RubyGBA
           @draw_height = was
         end
 
-        # The height of the area being drawn into right now, or nil outside one — the other
-        # raw-ivar read Pricing used to make directly (see Pricing#column_rows).
+        # The height of the area being drawn into right now, or nil outside one — the
+        # other seam Pricing reaches through rather than reading @draw_height itself
+        # (see Pricing#column_rows).
         def draw_height = @draw_height
 
         # How often an `if`'s body runs. A body behind a `pressed` edge is a rare transition
@@ -291,12 +293,12 @@ module RubyGBA
         # any non-`if` node.
         # WHAT THE ARMS OF A BRANCH COST A FRAME. Only one of them runs.
         #
-        # This used to charge the share times BOTH arms added together, which is not caution —
-        # it is arithmetic that cannot be right. An `if/else` runs one arm or the other, so a
-        # renderer that draws a wall one way and a door the other was charged for two walls
-        # every strip of every frame, and that doubling landed squarely on the most expensive
-        # line in the game. Measured on Wolfenstein: it put the frame at 705 scanlines where the
-        # console spends 431.
+        # Charging the share times BOTH arms added together is not caution — it is
+        # arithmetic that cannot be right. An `if/else` runs one arm or the other, so a
+        # renderer that draws a wall one way and a door the other would be charged for
+        # two walls every strip of every frame, and that doubling lands squarely on the
+        # most expensive line in a first-person game — nearly doubling the whole frame
+        # estimate on Wolfenstein.
         #
         # WHEN THE SHARE IS KNOWN — a `chance(25)`, a `pressed` edge, a walk over slots that says
         # how many are usually live — the two arms are weighted by it, which is what an average

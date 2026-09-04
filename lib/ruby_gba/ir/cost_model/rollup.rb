@@ -10,10 +10,10 @@ module RubyGBA
       # module — there is only one instance these methods ever run on, so a separate
       # module bought no adapter and no seam, only an extra name to look through.
       #
-      # +@stack+, +@draw_height+, +@in_fast_code+, +@at_full_capacity+ used to live
-      # here as ivars any included module could read directly; they now live inside
-      # {Walker} and are reached only through its methods (see Walker's own comment
-      # for why, and for the shape of the walk itself).
+      # +@stack+, +@draw_height+, +@in_fast_code+, +@at_full_capacity+ live inside
+      # {Walker}, reached only through its methods — not here, and not as ivars any
+      # other file can read directly (see Walker's own comment for why, and for the
+      # shape of the walk itself).
 
       # The draw work of one frame as a structured cost tree: an array of nodes
       # { op:, label:, cost:, children: }. It's the game loop's body if there is

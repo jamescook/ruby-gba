@@ -37,9 +37,10 @@ module RubyGBA
         # sprite table's blob/size, and which blobs a tint must keep readable — is settled
         # by several prepare passes that run after this object exists, so it arrives late,
         # through #palette=, rather than as a constructor argument (the same shape
-        # Functions#modes= is set in). `drawing:` stands in for Drawing, which isn't its
-        # own object yet (see Statements/Functions's `placement: self`) — the fade/blend
-        # arithmetic this shares with a fade and a see-through layer still lives there.
+        # Functions#modes= is set in). `drawing:` reaches Drawing for the fade/blend
+        # arithmetic it shares with a fade and a see-through layer — GBA builds this
+        # object before its own @drawing exists, so it hands in `self` and the call
+        # resolves once @drawing does (see gba.rb#initialize).
         class PaletteTint
           include Constants
 

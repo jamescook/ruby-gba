@@ -23,11 +23,10 @@ module RubyGBA
         # (For now every voice plays at the one mixer rate; a later feature steps each voice
         # at its own pitch. That's why one recorded note can't yet become a whole keyboard.)
         #
-        # Owns the whole sampled-audio picture: registering samples as ROM data
-        # (Direct Sound's own job, previously a separate module — asset preparation, not
-        # emission, so it lives here beside the thing that uses what it prepares) and the
-        # mix itself. @samples / @plays_samples are this object's own state, not handed
-        # in — nothing outside sampled audio ever reads them.
+        # Owns the whole sampled-audio picture: registering samples as ROM data (asset
+        # preparation, so it lives here beside the mix that uses what it prepares) and
+        # the mix itself. @samples / @plays_samples are this object's own state, not
+        # handed in — nothing outside sampled audio ever reads them.
         class Mixer
           include Constants
 

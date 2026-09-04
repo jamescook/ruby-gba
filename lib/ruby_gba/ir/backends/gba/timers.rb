@@ -18,8 +18,8 @@ module RubyGBA
         #
         # Its only state (@timers, @next_hw_timer) is its own — nothing else reaches
         # into it by name. The one hardware timer Mixer claims for its own sample clock,
-        # ahead of anything the program named, goes through #reserve! rather than the
-        # ivar poke it used to be (see Mixer#prepare_mixer).
+        # ahead of anything the program named, goes through #reserve! (see
+        # Mixer#prepare_mixer) rather than touching @next_hw_timer directly.
         class Timers
           include Constants
 

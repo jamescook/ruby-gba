@@ -42,9 +42,10 @@ module RubyGBA
         # how much. Reads the picture (IR::Stacking's answer for how the scenery and
         # sprites stack), handed over through #picture= once it exists, since building it
         # is IR::Stacking's job and happens after this object does (the same shape
-        # Functions#modes= is set in). `drawing:` stands in for Drawing, which isn't its
-        # own object yet (see Statements/Functions's `placement: self`) — the fade/blend
-        # arithmetic this shares with a tint and a fade still lives there.
+        # Functions#modes= is set in). `drawing:` reaches Drawing for the fade/blend
+        # arithmetic it shares with a tint and a fade — GBA builds this object before
+        # its own @drawing exists, so it hands in `self` and the call resolves once
+        # @drawing does (see gba.rb#initialize).
         class LayerBlend
           include Constants
 
