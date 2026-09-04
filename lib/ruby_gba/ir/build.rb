@@ -523,7 +523,7 @@ module RubyGBA
       # counterpart to scroll_background's plain pan. +angle+ is degrees clockwise from
       # upright; +scale+ is 1.0 at the size it was drawn, following the same value
       # operand shape scroll_background's x/y do (a run-time value the game works out).
-      # Only a background declared under `screen :affine` can carry this — the console's
+      # Only a background declared under `screen :rotozoom` can carry this — the console's
       # rotate/scale hardware is a different pair of layers (BG2/BG3) from the ones a
       # `screen :tiled` background scrolls on.
       def affine_background(name, angle:, scale:, active: int(1))

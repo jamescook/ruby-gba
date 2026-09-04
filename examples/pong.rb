@@ -199,7 +199,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     # is what per-scene display mode is for — the framework reconfigures the
     # hardware on the transition, so nothing here has to know `:playing` exists,
     # and nothing there has to know this scene used BG2 for something else.
-    screen :affine
+    screen :rotozoom
 
     image :dark, "#" => :black do "########\n" * 8 end
     image :light, "#" => rgb(2, 2, 2) do "########\n" * 8 end

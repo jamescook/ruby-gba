@@ -29,7 +29,7 @@ module RubyGBA
     # @param scroll_y [Symbol] the variable holding the window's top edge (in pixels)
     # @param walls [Array<Array(Integer,Integer,Integer,Integer)>] the solid-tile
     #   rectangles [x, y, w, h] in pixels, if the tileset marked any tiles `solid:`
-    # @param affine [Boolean] built under `screen :affine` — the console's rotate/scale
+    # @param affine [Boolean] built under `screen :rotozoom` — the console's rotate/scale
     #   layer, which pans by moving the whole matrix (see #rotate / #scale) rather than
     #   the plain scroll registers a `screen :tiled` layer pans with
     def initialize(builder, name:, scroll_x:, scroll_y:, walls: [], affine: false)
@@ -107,7 +107,7 @@ module RubyGBA
     # Turn the whole background to point +degrees+ clockwise from upright, pivoting on
     # the middle of the screen — the affine counterpart to a sprite's `face_angle`, done
     # to a background layer instead of one picture. +degrees+ can be a whole number or a
-    # {Value} (an angle the game works out at run time). Needs `screen :affine` — see
+    # {Value} (an angle the game works out at run time). Needs `screen :rotozoom` — see
     # {Builder::Tiled#make_background_affine} for why.
     #
     #   world = background :world, tiles: :terrain, map: MAP
@@ -133,7 +133,7 @@ module RubyGBA
     # the affine counterpart to a sprite's `scale`. 1.0 is the size it was drawn at, 2.0
     # twice as big, 0.5 half — a title screen that zooms in, a warp that zooms out. With
     # no argument it hands back the size as a {Value} you can read, compare and ease
-    # (`world.scale.approach 1.0, 0.05`). Needs `screen :affine`.
+    # (`world.scale.approach 1.0, 0.05`). Needs `screen :rotozoom`.
     def scale(size = nil)
       affine_vars # ensure the size variable exists even if only read below
       return affine_scale_value if size.nil?
@@ -149,7 +149,7 @@ module RubyGBA
     end
 
     # The background's heading as a {Value}, degrees clockwise from upright, 0..359.
-    # Reading it needs `screen :affine`, same as {#rotate}.
+    # Reading it needs `screen :rotozoom`, same as {#rotate}.
     def angle
       angle_var, = affine_vars
       Value.new(@builder, Build.var_ref(angle_var), name: angle_var)
@@ -157,15 +157,15 @@ module RubyGBA
 
     private
 
-    # A plain scroll moves a `screen :tiled` layer's own pan registers, which an affine
-    # (`screen :affine`) layer doesn't have — it pans by moving its whole matrix instead
+    # A plain scroll moves a `screen :tiled` layer's own pan registers, which a rotozoom
+    # (`screen :rotozoom`) layer doesn't have — it pans by moving its whole matrix instead
     # (see #rotate / #scale). Friendly error rather than a register write that does
     # nothing on real hardware.
     def ensure_not_affine!(verb)
       return unless @affine
 
       raise ArgumentError,
-            "#{@name}.#{verb} scrolls a `screen :tiled` background. This one is `screen :affine`, " \
+            "#{@name}.#{verb} scrolls a `screen :tiled` background. This one is `screen :rotozoom`, " \
             "which turns and resizes instead of scrolling straight. Use #{@name}.rotate or " \
             "#{@name}.scale here."
     end

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Affine backgrounds: `screen :affine` gives a background handle `rotate`/`scale`,
+# Affine backgrounds: `screen :rotozoom` gives a background handle `rotate`/`scale`,
 # the same names and units a hardware sprite's `face_angle`/`scale` already use,
 # applied to a whole tiled layer instead of one picture. Asserted here against the
 # reference interpreter's fake screen — see .claude/CLAUDE.md's testing altitude
@@ -30,7 +30,7 @@ class TestAffineBackground < Minitest::Test
   def test_untouched_background_reads_as_drawn
     map = marked_map({ [25, 10] => "#" })
     i = interpret do
-      screen :affine
+      screen :rotozoom
       image :white, "#" => :white do "########\n" * 8 end
       tiles :t, "#" => :white
       background :board, tiles: :t, map: map
@@ -46,7 +46,7 @@ class TestAffineBackground < Minitest::Test
   def test_scale_zooms_in_toward_the_center
     map = marked_map({ [25, 10] => "#", [20, 10] => "$" })
     i = interpret do
-      screen :affine
+      screen :rotozoom
       image :white, "#" => :white do "########\n" * 8 end
       image :red, "#" => :red do "########\n" * 8 end
       tiles :t, "#" => :white, "$" => :red
@@ -64,7 +64,7 @@ class TestAffineBackground < Minitest::Test
   def test_rotate_turns_the_picture_around_its_center
     map = marked_map({ [25, 10] => "#", [15, 0] => "$" })
     i = interpret do
-      screen :affine
+      screen :rotozoom
       image :white, "#" => :white do "########\n" * 8 end
       image :green, "#" => :green do "########\n" * 8 end
       tiles :t, "#" => :white, "$" => :green
@@ -83,7 +83,7 @@ class TestAffineBackground < Minitest::Test
   def test_a_directly_mutated_scale_value_still_takes_effect
     map = marked_map({ [25, 10] => "#", [20, 10] => "$" })
     i = interpret do
-      screen :affine
+      screen :rotozoom
       image :white, "#" => :white do "########\n" * 8 end
       image :red, "#" => :red do "########\n" * 8 end
       tiles :t, "#" => :white, "$" => :red
@@ -105,7 +105,7 @@ class TestAffineBackground < Minitest::Test
   def checkerboard_at(size)
     rows = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "L" : "D" }.join }
     interpret do
-      screen :affine
+      screen :rotozoom
       image :light, "#" => :white do "########\n" * 8 end
       image :dark, "#" => :blue do "########\n" * 8 end
       tiles :checker, "L" => :light, "D" => :dark
@@ -149,7 +149,7 @@ class TestAffineBackground < Minitest::Test
     rows = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "L" : "D" }.join }
     builder = Builder.new
     builder.instance_eval do
-      screen :affine
+      screen :rotozoom
       image :light, "#" => :white do "########\n" * 8 end
       image :dark, "#" => :blue do "########\n" * 8 end
       tiles :checker, "L" => :light, "D" => :dark
@@ -186,14 +186,14 @@ class TestAffineBackground < Minitest::Test
         board.rotate(45)
       end
     end
-    assert_match(/screen :affine/, err.message)
+    assert_match(/screen :rotozoom/, err.message)
   end
 
   def test_scrolling_an_affine_background_is_a_friendly_error
     map = marked_map({})
     err = assert_raises(ArgumentError) do
       Builder.new.instance_eval do
-        screen :affine
+        screen :rotozoom
         image :white, "#" => :white do "########\n" * 8 end
         tiles :t, "#" => :white
         board = background :board, tiles: :t, map: map

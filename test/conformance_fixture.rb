@@ -169,7 +169,7 @@ module ConformanceFixture
       # small and makes alternate rows differ, so a backend that ignored the bend, or
       # applied one row's offset to another, draws a different picture.
       B.scroll_rows(:grid, row: :bend_row, offset: B.binop(:%, B.var_ref(:bend_row), B.int(2))),
-      # A second, affine background (`screen :affine`'s rotate/scale layer, not this
+      # A second, affine background (`screen :rotozoom`'s rotate/scale layer, not this
       # program's actual `screen :bitmap` — a synthetic combination no real program
       # would build, but which pins that every backend implements the op). Turned 30
       # degrees at its drawn size, so a backend that ignored the angle, or the scale,

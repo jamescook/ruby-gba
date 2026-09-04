@@ -55,8 +55,8 @@ module RubyGBA
           private
 
           def message(verb, mode)
-            screen = mode == Modes::AFFINE ? "screen :affine" : "screen :tiled"
-            noun = mode == Modes::AFFINE ? "an affine" : "a tiled"
+            screen = mode == Modes::AFFINE ? "screen :rotozoom" : "screen :tiled"
+            noun = mode == Modes::AFFINE ? "a rotozoom" : "a tiled"
             "`#{verb}` cannot draw on #{noun} screen. #{noun.capitalize} screen shows " \
               "backgrounds and sprites only, so this drawing never appears. There " \
               "is no crash or error to point at it.\n\n" \

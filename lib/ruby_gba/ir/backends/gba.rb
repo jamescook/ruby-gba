@@ -160,7 +160,7 @@ module RubyGBA
 
         # A background, once given hardware to live in: where its map sits, which of the
         # console's layers draws it, and how far forward that layer is. +affine+ marks a
-        # `screen :affine` background — its map is one byte per cell (a plain tile
+        # `screen :rotozoom` background — its map is one byte per cell (a plain tile
         # number, no flip bits), and it lives on the console's rotate/scale layer (BG2)
         # rather than a plain scrolling one.
         BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :priority, :affine)
@@ -422,11 +422,11 @@ module RubyGBA
           register_timers(program) # assign each named timer its hardware timer index(es)
           prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
           resolve_modes(program)
-          # `screen :affine` is tile hardware too — a different pair of layers (BG2/BG3,
+          # `screen :rotozoom` is tile hardware too — a different pair of layers (BG2/BG3,
           # rotate/scale rather than plain scroll) from `screen :tiled`'s four, but it
           # needs the same shared palette/character-block upload and background lowering,
           # so it counts here alongside :tiled.
-          @tiled = program.walk.any? { |node| node.kind == :screen && %i[tiled affine].include?(node.mode) }
+          @tiled = program.walk.any? { |node| node.kind == :screen && %i[tiled rotozoom].include?(node.mode) }
           guard_stack_fits if @tiled
           prepare_backgrounds(program) if @tiled
           @raster.register_row_bends(program) # which layers bend row by row (armed at boot, run per line)
@@ -1025,7 +1025,7 @@ module RubyGBA
           # and this order becomes the hardware layer number, which IS the paint order —
           # so it has to be settled here, before any layer is given a number.
           #
-          # A `screen :affine` background lives on its own rotate/scale layer (BG2) —
+          # A `screen :rotozoom` background lives on its own rotate/scale layer (BG2) —
           # a different pair of hardware layers from the four `screen :tiled` scrolls on
           # — so it's set aside from the regular stack rather than counted against it.
           nodes = @picture.scenery
@@ -1113,7 +1113,7 @@ module RubyGBA
           )
         end
 
-        # The hardware layer a `screen :affine` background always lives on — the console
+        # The hardware layer a `screen :rotozoom` background always lives on — the console
         # gives rotate/scale hardware to exactly BG2 and BG3, and this feature uses one of
         # them (see the "only one affine background" check above).
         AFFINE_BG = 2
@@ -1144,7 +1144,7 @@ module RubyGBA
 
           if tile_base + tiles.size > AFFINE_MAX_TILES
             raise LoweringError,
-                  "background :#{name} is affine (`screen :affine`), so its map can only name " \
+                  "background :#{name} is a rotozoom background (`screen :rotozoom`), so its map can only name " \
                   "#{AFFINE_MAX_TILES} tiles — one byte per cell, no room for more. It uses " \
                   "#{tile_base + tiles.size} tiles together with any other background sharing its tile set. " \
                   "Use fewer distinct tiles."

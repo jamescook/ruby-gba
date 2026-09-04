@@ -173,7 +173,7 @@ module RubyGBA
           next unless node.kind == :screen
 
           return TILED if node.mode == :tiled
-          return AFFINE if node.mode == :affine
+          return AFFINE if node.mode == :rotozoom
 
           return node.buffered ? BUFFERED : DIRECT
         end
