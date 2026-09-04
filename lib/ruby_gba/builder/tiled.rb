@@ -157,7 +157,8 @@ module RubyGBA
         grid = img_rows.map { |row| row.map { |img| img && index_of[img] } }
 
         record(Build.background(name, tiles: tile_names, map: grid,
-                                      tile_w: set[:tile_w], tile_h: set[:tile_h]))
+                                      tile_w: set[:tile_w], tile_h: set[:tile_h],
+                                      affine: @screen_mode == :affine))
 
         # The window's top-left, in pixels, tracked in two hidden variables (cleared at
         # boot since console RAM isn't zero at power-on). A background that never
@@ -166,7 +167,38 @@ module RubyGBA
         scroll_y = :"__bg_#{name}_sy"
         [scroll_x, scroll_y].each { |var| at_boot(Build.set(var, Build.int(0))); ensure_var(var) }
         Background.new(self, name: name, scroll_x: scroll_x, scroll_y: scroll_y,
-                             walls: wall_rects(img_rows, set))
+                             walls: wall_rects(img_rows, set), affine: @screen_mode == :affine)
+      end
+
+      # Make a background able to turn and resize as a whole (see {Background#rotate} /
+      # {Background#scale}): allocate its angle and size variables, boot them to upright
+      # and 1.0, and remember it needs its matrix written every frame. Idempotent — the
+      # first call wires it up, later ones reuse the same variables. An internal hook, not
+      # a DSL verb — `background(...).rotate` / `.scale` are the surface.
+      #
+      # Only `screen :affine` gives a background this hardware. `screen :tiled`'s regular
+      # layers can scroll but not turn or resize — that is the console's rotate/scale
+      # layers (BG2/BG3 in Mode 2), a different pair from the four `screen :tiled` scrolls
+      # on — and `screen :bitmap` has no background layer at all, only pixels you draw.
+      def make_background_affine(name)
+        return @bg_affine_vars[name] if @bg_affine_vars.key?(name)
+
+        unless @screen_mode == :affine
+          raise ArgumentError,
+                "#{name}.rotate and #{name}.scale turn and resize the whole background, so they need " \
+                "`screen :affine`. You have `screen #{@screen_mode.inspect}`. A `screen :tiled` background " \
+                "can scroll but not turn or resize. A `screen :bitmap` screen has no background layer at " \
+                "all — it holds pixels you draw. To turn or resize this background, build it under " \
+                "`screen :affine` instead."
+        end
+
+        angle_var = :"__bg_#{name}_angle"
+        scale_var = :"__bg_#{name}_scale"
+        at_boot(Build.set(angle_var, Build.int(0)))
+        ensure_var(angle_var)
+        var(scale_var, 1.0)
+        affine_each_frame(name, angle_var, scale_var)
+        @bg_affine_vars[name] = [angle_var, scale_var]
       end
 
       # Record a background's per-row bend (see {Background#scroll_each_row}). The block

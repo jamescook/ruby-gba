@@ -123,6 +123,7 @@ module RubyGBA
           @repaints = false        # must the whole view be rebuilt every frame? (decided in collect_definitions)
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
           @row_bends = {}          # background name -> :scroll_rows node giving each row its own offset
+          @bg_affine = {}          # background name -> [angle degrees, scale in SCALE_ONE-ths] this frame
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @fade_placed = nil       # [layer, toward, amount] while a fade sits under a layer rather than over everything
           @kept_out_of_the_fade = {} # layer -> the names a fade under it leaves alone
@@ -304,6 +305,12 @@ module RubyGBA
               # Declared once and standing from then on (last wins if repeated), which is
               # why it is collected here rather than run as a statement.
               @row_bends[n.name] = n
+              @repaints = true
+            when :affine_background
+              # A turned or resized background repaints for the same reason a scrolled one
+              # does: every pixel of it can land somewhere new. Present anywhere in the
+              # tree at all (even a branch never taken) is enough to know the scene needs
+              # full repaints, the same over-approximation scroll_background makes.
               @repaints = true
             end
           end
@@ -496,6 +503,8 @@ module RubyGBA
             exec_background(node)
           when :scroll_background
             exec_scroll_background(node)
+          when :affine_background
+            exec_affine_background(node)
           when :scroll_rows
             # A standing declaration, gathered up front (collect_definitions) — the bend
             # is read while a row is painted, not where it was written. Reaching it inline
@@ -849,6 +858,16 @@ module RubyGBA
           composite_scrolled_frame
         end
 
+        # Turn/resize a background: record this frame's angle and size and recomposite —
+        # the affine sibling of #exec_scroll_background. +angle+ wraps to 0..359 the same
+        # way a hardware sprite's does, so a program that never wraps it itself (a fixed
+        # rotate of, say, 370) still reads the picture the console would show.
+        def exec_affine_background(node)
+          @bg_by_name.fetch(node.name) { raise ProgramError, "affine transform of undeclared background #{node.name.inspect}" }
+          @bg_affine[node.name] = [eval_value(node.angle) % 360, eval_value(node.scale)]
+          composite_scrolled_frame
+        end
+
         # Repaint one background's visible window at its current scroll offset. The map
         # is a torus, so an offset past an edge wraps around — the same thing tile
         # hardware does, done here by sampling the map (with wrapping). A background
@@ -860,6 +879,8 @@ module RubyGBA
         # painted as a run. A scrolling scene is repainted in full every frame, so this
         # inner loop is where a whole run's time goes.
         def paint_background_window(bg)
+          return paint_affine_background_window(bg, *@bg_affine[bg.name]) if @bg_affine.key?(bg.name)
+
           tiles = bg.tiles
           map = bg.map
           tile_w = bg.tile_w
@@ -893,6 +914,48 @@ module RubyGBA
               # alone and whatever is behind this layer keeps showing there.
               @screen.paint_row(px, py, tile_colors(tiles[index]), from: (ty * tile_w) + tx, count: span) if index
               px += span
+            end
+          end
+        end
+
+        # Repaint an affine background's window, turned +angle_deg+ degrees and sized
+        # +scale+ (SCALE_ONE-ths), pivoting on the middle of the screen — the affine
+        # sibling of #paint_background_window, which can only slide the window straight.
+        #
+        # A plain scroll walks the screen a TILE at a time because every pixel in a run
+        # comes from the same tile; a turn breaks that — two screen pixels side by side
+        # can land on opposite sides of the map — so this asks the question PIXEL by
+        # pixel instead, working backwards through the same matrix a turned sprite reads
+        # (see IR::Affine): for a screen pixel this far from the center, which map pixel
+        # shows there. Dividing by ONE_TH (256, a power of two) with Ruby's `/` rounds
+        # down for a negative numerator exactly the way the console's shift-right would,
+        # so the two backends land on the same map pixel without either one specially
+        # asking for it.
+        def paint_affine_background_window(bg, angle_deg, scale)
+          tiles = bg.tiles
+          map = bg.map
+          tile_w = bg.tile_w
+          tile_h = bg.tile_h
+          map_w = MAP_CELLS * tile_w
+          map_h = MAP_CELLS * tile_h
+          base_x, base_y = @bg_scroll[bg.name] || [0, 0]
+          cx = @screen.width / 2
+          cy = @screen.height / 2
+          pa, pb, pc, pd = Affine.matrix(angle_deg, scale)
+
+          @screen.height.times do |py|
+            dy = py - cy
+            @screen.width.times do |px|
+              dx = px - cx
+              tex_dx = ((pa * dx) + (pb * dy)) / Affine::ONE_TH
+              tex_dy = ((pc * dx) + (pd * dy)) / Affine::ONE_TH
+              mx = (base_x + cx + tex_dx) % map_w
+              my = (base_y + cy + tex_dy) % map_h
+              row = map[my / tile_h]
+              next unless row
+
+              color = background_pixel(tiles, row[mx / tile_w], mx % tile_w, my % tile_h)
+              @screen.set_pixel(px, py, color) unless color.zero?
             end
           end
         end

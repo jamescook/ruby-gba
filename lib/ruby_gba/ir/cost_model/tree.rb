@@ -373,6 +373,7 @@ module RubyGBA
           when :restore_region then "restore_region :#{node.buffer}"
           when :present_objects then "present_objects (#{sprite_tally(node.names.to_a)})"
           when :scroll_background then "scroll_background :#{node.name}"
+          when :affine_background then "affine_background :#{node.name}"
           when :background then "background :#{node.name}"
           when :play_song then "play_song :#{node.name} (#{@pricing.song_notes(node.name)} notes)"
           when :beep then "beep #{node.tone.inspect}"

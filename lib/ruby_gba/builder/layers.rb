@@ -85,6 +85,7 @@ module RubyGBA
         screen: :free,
         present_objects: :free,
         scroll_background: :free,
+        affine_background: :free,
         scroll_rows: :free,
         blit_pose: :free,
         save_region: :free,

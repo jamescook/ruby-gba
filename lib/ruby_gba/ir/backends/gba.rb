@@ -158,8 +158,11 @@ module RubyGBA
         TableLayout = Data.define(:count, :elem_bytes, :signed, :pow2)
 
         # A background, once given hardware to live in: where its map sits, which of the
-        # console's layers draws it, and how far forward that layer is.
-        BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :priority)
+        # console's layers draws it, and how far forward that layer is. +affine+ marks a
+        # `screen :affine` background — its map is one byte per cell (a plain tile
+        # number, no flip bits), and it lives on the console's rotate/scale layer (BG2)
+        # rather than a plain scrolling one.
+        BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :priority, :affine)
 
         # Two more scratch registers, live only inside one arithmetic expression and
         # never across a statement. A 64-bit multiply needs both of them, because its
@@ -339,6 +342,7 @@ module RubyGBA
             draw_text: @drawing.method(:emit_draw_text), draw_digit: @drawing.method(:emit_draw_digit),
             blit: @drawing.method(:emit_blit), blit_pose: @drawing.method(:emit_blit_pose),
             background: @drawing.method(:emit_background), scroll_background: @drawing.method(:emit_scroll_background),
+            affine_background: @drawing.method(:emit_affine_background),
             scroll_rows: Lowering::NOTHING, camera: @drawing.method(:emit_camera), fade: @drawing.method(:emit_fade),
             tint: @drawing.method(:emit_tint), see_through: @layer_blend.method(:emit_see_through),
             present_objects: @drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
@@ -417,7 +421,11 @@ module RubyGBA
           register_timers(program) # assign each named timer its hardware timer index(es)
           prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
           resolve_modes(program)
-          @tiled = program.walk.any? { |node| node.kind == :screen && node.mode == :tiled }
+          # `screen :affine` is tile hardware too — a different pair of layers (BG2/BG3,
+          # rotate/scale rather than plain scroll) from `screen :tiled`'s four, but it
+          # needs the same shared palette/character-block upload and background lowering,
+          # so it counts here alongside :tiled.
+          @tiled = program.walk.any? { |node| node.kind == :screen && %i[tiled affine].include?(node.mode) }
           guard_stack_fits if @tiled
           prepare_backgrounds(program) if @tiled
           @raster.register_row_bends(program) # which layers bend row by row (armed at boot, run per line)
@@ -1015,10 +1023,23 @@ module RubyGBA
           # Back to front. A layer can put a background behind one declared before it,
           # and this order becomes the hardware layer number, which IS the paint order —
           # so it has to be settled here, before any layer is given a number.
+          #
+          # A `screen :affine` background lives on its own rotate/scale layer (BG2) —
+          # a different pair of hardware layers from the four `screen :tiled` scrolls on
+          # — so it's set aside from the regular stack rather than counted against it.
           nodes = @picture.scenery
-          if nodes.size > MAX_BG_LAYERS
+          affine_nodes, regular_nodes = nodes.partition(&:affine)
+
+          if affine_nodes.size > 1
             raise LoweringError,
-                  "#{nodes.size} background layers were declared, but the console stacks #{MAX_BG_LAYERS} " \
+                  "#{affine_nodes.size} affine backgrounds were declared " \
+                  "(#{affine_nodes.map { |n| ":#{n.name}" }.join(', ')}), but only one can turn or " \
+                  "resize on this console right now — keep one."
+          end
+
+          if regular_nodes.size > MAX_BG_LAYERS
+            raise LoweringError,
+                  "#{regular_nodes.size} background layers were declared, but the console stacks #{MAX_BG_LAYERS} " \
                   "tiled layers (BG0-BG3) — use at most #{MAX_BG_LAYERS} backgrounds"
           end
 
@@ -1027,7 +1048,8 @@ module RubyGBA
           # points at a see-through tile and layers behind it show through.
           palette = { 0x0000 => 0 }
           char = (+"").b << ("\x00" * (TILE_PX * TILE_PX)).b
-          nodes.each_with_index { |node, layer| prepare_one_background(node, layer, palette, char) }
+          regular_nodes.each_with_index { |node, layer| prepare_one_background(node, layer, palette, char) }
+          affine_nodes.each { |node| prepare_affine_background(node, palette, char) }
 
           tiles_total = char.bytesize / (TILE_PX * TILE_PX)
           if tiles_total > CHAR_BLOCK_TILES
@@ -1085,9 +1107,71 @@ module RubyGBA
             map: map_blob, map_units: entries.size,
             bg: layer,                           # hardware layer (BG0..BG3), in stack order
             screen_block: FIRST_MAP_SCREENBLOCK + layer,
-            priority: hardware_priority(name)
+            priority: hardware_priority(name),
+            affine: false
           )
         end
+
+        # The hardware layer a `screen :affine` background always lives on — the console
+        # gives rotate/scale hardware to exactly BG2 and BG3, and this feature uses one of
+        # them (see the "only one affine background" check above).
+        AFFINE_BG = 2
+
+        # Fold an affine background's tiles into the shared character block (same as a
+        # regular one) but build its MAP differently: one byte per cell, not two, because
+        # the console's rotate/scale layer reads a plain tile number with no flip bits —
+        # so it can name only 256 tiles, not the 1024 a regular layer's map can.
+        def prepare_affine_background(node, palette, char)
+          name = node.name
+          tiles = node.tiles
+          validate_tile_sizes!(name, tiles)
+          validate_map_fits!(name, node.map)
+
+          # The same shared sine table a turning sprite reads (see #prepare_affine) —
+          # baked in here too, since a program can turn a background without ever
+          # turning a sprite.
+          @emit.data_blobs[OBJ_SINE_BLOB] ||= build_sine_table
+
+          tile_base = char.bytesize / (TILE_PX * TILE_PX)
+          tiles.each do |tile|
+            pixels = @bitmaps.fetch(tile).pixels
+            (TILE_PX * TILE_PX).times do |i|
+              color = (pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
+              char << shared_palette_index(palette, color).chr
+            end
+          end
+
+          if tile_base + tiles.size > AFFINE_MAX_TILES
+            raise LoweringError,
+                  "background :#{name} is affine (`screen :affine`), so its map can only name " \
+                  "#{AFFINE_MAX_TILES} tiles — one byte per cell, no room for more. It uses " \
+                  "#{tile_base + tiles.size} tiles together with any other background sharing its tile set. " \
+                  "Use fewer distinct tiles."
+          end
+
+          entries = Array.new(MAP_CELLS * MAP_CELLS, 0)
+          node.map.each_with_index do |row, r|
+            next if r >= MAP_CELLS
+
+            row.each_with_index do |index, c|
+              next if c >= MAP_CELLS || index.nil?
+
+              entries[(r * MAP_CELLS) + c] = tile_base + index
+            end
+          end
+
+          map_blob = :"__bg_map_#{name}"
+          @emit.data_blobs[map_blob] = entries.pack("C*")
+          @backgrounds[name] = BackgroundPlacement.new(
+            map: map_blob, map_units: entries.size / 2, # DMA copies halfwords, so a byte map is half as many
+            bg: AFFINE_BG,
+            screen_block: FIRST_MAP_SCREENBLOCK,
+            priority: hardware_priority(name),
+            affine: true
+          )
+        end
+
+        AFFINE_MAX_TILES = 256
 
         # The console keeps four levels of depth, and a picture can ask for more of them
         # than that. Say so in the author's own layer names — the number this refuses is

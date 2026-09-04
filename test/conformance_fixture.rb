@@ -169,6 +169,14 @@ module ConformanceFixture
       # small and makes alternate rows differ, so a backend that ignored the bend, or
       # applied one row's offset to another, draws a different picture.
       B.scroll_rows(:grid, row: :bend_row, offset: B.binop(:%, B.var_ref(:bend_row), B.int(2))),
+      # A second, affine background (`screen :affine`'s rotate/scale layer, not this
+      # program's actual `screen :bitmap` — a synthetic combination no real program
+      # would build, but which pins that every backend implements the op). Turned 30
+      # degrees at its drawn size, so a backend that ignored the angle, or the scale,
+      # draws a different picture from one that read both.
+      B.background(:affine_grid, tiles: [:tile_a, :tile_b], map: [[0, 1], [1, nil]],
+                                 tile_w: 2, tile_h: 2, affine: true),
+      B.affine_background(:affine_grid, angle: B.int(30), scale: B.int(B::SCALE_ONE)),
       B.camera(x: B.int(0), y: B.int(0)), # move the window over the whole picture
       B.fade(toward: :black, amount: B.int(0)), # blend the picture toward a color (0 = as drawn)
       # ...and the same effect placed in the stack: it reaches what is behind :actors and

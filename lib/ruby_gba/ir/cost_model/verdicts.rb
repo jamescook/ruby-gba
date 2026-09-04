@@ -347,7 +347,7 @@ module RubyGBA
             when :present_objects
               share_out(costs, @pricing.op_cost(node),
                         node.names.to_h { |name| [name, @pricing.present_object_cost(name)] }, layer_of)
-            when :scroll_background
+            when :scroll_background, :affine_background
               costs[layer_of[node.name]] += @pricing.op_cost(node)
             end
           end

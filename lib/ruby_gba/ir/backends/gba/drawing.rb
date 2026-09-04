@@ -81,6 +81,11 @@ module RubyGBA
                       # Tile mode turns on exactly the background layers the program declared,
                       # so a stack of two or three composites; a single background is just BG0.
                       MODE_0 | tiled_bg_enable_bits
+                    elsif mode == :affine
+                      # The rotate/scale layer: this feature always lands the one affine
+                      # background it supports on BG2 (see AFFINE_BG in gba.rb), so that's the
+                      # one layer Mode 2 needs on here.
+                      MODE_2 | BG2_ENABLE
                     elsif mode.is_a?(Integer)
                       mode
                     else
@@ -608,10 +613,160 @@ module RubyGBA
           # composites the layers by priority so nearer ones sit in front.
           def emit_background_hardware(node)
             bg = @layout.backgrounds.fetch(node.name)
+            return emit_affine_background_hardware(bg) if bg.affine
+
             emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
             write_reg16(BG_CNT_REGS[bg.bg], bg.priority | BG_256_COLOR | (bg.screen_block << 8))
             write_reg16(BG_HOFS_REGS[bg.bg], 0) # start unscrolled
             write_reg16(BG_VOFS_REGS[bg.bg], 0)
+          end
+
+          # BG2CNT's screen-size field means something different once a layer is affine:
+          # not a rectangle of regular tiles but a square affine map, 16x16/32x32/64x64/
+          # 128x128 tiles. This background always gets the 32x32 size (matching MAP_CELLS,
+          # the same square every regular layer's map already fits inside) — bits 14-15 = 01.
+          AFFINE_SIZE_32X32 = 0x4000
+          # Bit 13: the map WRAPS at its edge instead of showing the backdrop past it — the
+          # same torus every `screen :tiled` background already is.
+          AFFINE_WRAP = 0x2000
+
+          # Point the console's rotate/scale layer (BG2) at an affine background's map and
+          # tiles, and give it an upright, undistorted starting matrix — the same "no turn,
+          # no resize yet" state a hardware sprite boots to. A background that's never
+          # turned or resized (no `rotate`/`scale` call reaches #emit_affine_background)
+          # stays exactly here and draws like any other tiled background, just through a
+          # different pair of registers.
+          def emit_affine_background_hardware(bg)
+            emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
+            write_reg16(REG_BG2CNT,
+                        bg.priority | BG_256_COLOR | (bg.screen_block << 8) | AFFINE_WRAP | AFFINE_SIZE_32X32)
+            write_reg16(REG_BG2PA, FIXED_ONE)
+            write_reg16(REG_BG2PB, 0)
+            write_reg16(REG_BG2PC, 0)
+            write_reg16(REG_BG2PD, FIXED_ONE)
+            store_word_immediate(0, REG_BG2X)
+            store_word_immediate(0, REG_BG2Y)
+          end
+
+          # Scratch memory the affine background's matrix numbers pass through on their
+          # way to the hardware registers — a background keeps only one matrix (unlike a
+          # sprite's per-slot OAM group), so there's nowhere else to park PA-PD while the
+          # reference point below is worked out from them.
+          BG_AFFINE_PA = :_bg_affine_pa
+          BG_AFFINE_PB = :_bg_affine_pb
+          BG_AFFINE_PC = :_bg_affine_pc
+          BG_AFFINE_PD = :_bg_affine_pd
+          BG_AFFINE_SCALE_RECIP = :_bg_affine_scale_recip
+
+          # The screen's own middle, in pixels — half of 240x160. The pivot a `rotate` or
+          # `scale` turns the background about.
+          AFFINE_BG_CENTER_X = 120
+          AFFINE_BG_CENTER_Y = 80
+
+          # Turn/resize the affine background: work out this frame's rotate/scale matrix
+          # and write it to BG2's registers, then move the reference point so the turn
+          # pivots on the middle of the screen (see #emit_bg_affine_reference_point for
+          # why that needs its own step).
+          def emit_affine_background(node)
+            # Outside `screen :affine` there's no rotate/scale layer prepared for this
+            # background to write into — and unlike a plain scroll's fallback registers
+            # (harmlessly inert when that layer isn't on), BG2's affine registers are
+            # never inert: a bitmap screen reads them too (see #emit_camera). So rather
+            # than fall back onto them, this does nothing at all, the same choice
+            # #emit_scroll_background makes for a background outside tile mode.
+            return unless @layout.backgrounds[node.name]&.affine
+
+            emit_bg_affine_matrix(node)
+            emit_bg_affine_reference_point
+          end
+
+          # The same numbers a turning hardware sprite reads (see
+          # #emit_object_affine_matrix, whose steps this mirrors) — one sine-table lookup
+          # for sin and cos, scaled by one over the size — except there is no OAM group to
+          # drop them into, so each one goes to hardware AND to a scratch variable, which
+          # the reference point step below reads back.
+          def emit_bg_affine_matrix(node)
+            emit_bg_affine_scale_reciprocal(node.scale)
+            @lowering.value(node.angle)                       # r0 = angle in degrees (0..359)
+            emit_load_data_address(TMP, OBJ_SINE_BLOB)   # r1 = sine table base
+            emit(ASM.lsl_imm(2, ACC, 1))                 # r2 = angle * 2 (halfword offset)
+            emit(ASM.add_reg(ADDR, TMP, 2))
+            emit(ASM.ldrsh(2, ADDR))                     # r2 = sin(angle)
+            emit(ASM.add_imm(3, ACC, 90))                # r3 = angle + 90
+            emit(ASM.lsl_imm(3, 3, 1))
+            emit(ASM.add_reg(ADDR, TMP, 3))
+            emit(ASM.ldrsh(3, ADDR))                     # r3 = sin(angle + 90) = cos(angle)
+            emit_bg_scale_sine_and_cosine
+            emit(ASM.rsb_imm(ACC, 2, 0))                 # r0 = -sin(angle)
+            store_halfword_reg(3, REG_BG2PA)
+            store_var(3, BG_AFFINE_PA)
+            store_halfword_reg(2, REG_BG2PB)
+            store_var(2, BG_AFFINE_PB)
+            store_halfword_reg(ACC, REG_BG2PC)
+            store_var(ACC, BG_AFFINE_PC)
+            store_halfword_reg(3, REG_BG2PD)
+            store_var(3, BG_AFFINE_PD)
+          end
+
+          # One over this frame's size, the same divide a resizing sprite does (see
+          # #emit_object_scale_reciprocal) — a background always carries a size variable
+          # once it's ever turned or resized (rotate and scale share the same pair of
+          # variables), so this runs every frame rather than only when scale is in play.
+          def emit_bg_affine_scale_reciprocal(scale)
+            @lowering.value(scale)                                    # r0 = size, in SCALE_ONE-ths
+            emit(ASM.cmp_imm(ACC, Affine::MIN_SCALE))
+            emit(ASM.mov_imm_cond(:lt, ACC, Affine::MIN_SCALE))
+            emit(ASM.load_immediate(Divide::DIV_NUM, Build::SCALE_ONE * Affine::ONE_TH))
+            emit_call_divide_routine
+            emit(ASM.load_immediate(TMP, Affine::MAX))
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit(ASM.mov_reg_cond(:gt, ACC, TMP))
+            store_var(ACC, BG_AFFINE_SCALE_RECIP)
+          end
+
+          # Scale the sine and cosine in r2/r3 by the reciprocal above, back down into
+          # 256ths — the background's own copy of #emit_scale_sine_and_cosine.
+          def emit_bg_scale_sine_and_cosine
+            load_var(4, BG_AFFINE_SCALE_RECIP)
+            emit(ASM.mul(5, 2, 4))
+            emit(ASM.asr_imm(2, 5, 8))
+            emit(ASM.mul(5, 3, 4))
+            emit(ASM.asr_imm(3, 5, 8))
+          end
+
+          # The matrix pivots on the layer's own top-left corner by itself — turn or
+          # resize without this and the whole picture swings away from under the middle of
+          # the screen instead of turning in place. Moving the pivot to the screen's own
+          # center (120, 80) means telling the console the texture point that SHOULD land
+          # there, worked backwards through the very matrix just written: for a screen
+          # point this far from (0, 0), the matrix says how far that is from the
+          # reference point in texture space, so read backwards, the reference point is
+          # the screen center's texture position minus that offset. One multiply-and-
+          # subtract per axis, the same shape a turned sprite gets for free by centering
+          # its drawing box (see #emit_draw_object_transformed) — a background has no box
+          # of its own to offset, so this stands in for it.
+          def emit_bg_affine_reference_point
+            load_var(2, BG_AFFINE_PA)
+            emit(ASM.load_immediate(3, AFFINE_BG_CENTER_X))
+            emit(ASM.mul(4, 2, 3))                       # r4 = PA * center_x
+            load_var(2, BG_AFFINE_PB)
+            emit(ASM.load_immediate(3, AFFINE_BG_CENTER_Y))
+            emit(ASM.mul(5, 2, 3))                       # r5 = PB * center_y
+            emit(ASM.add_reg(4, 4, 5))                   # r4 = PA*center_x + PB*center_y
+            emit(ASM.load_immediate(ACC, AFFINE_BG_CENTER_X * Affine::ONE_TH))
+            emit(ASM.sub_reg(ACC, ACC, 4))
+            store_word_acc(REG_BG2X)
+
+            load_var(2, BG_AFFINE_PC)
+            emit(ASM.load_immediate(3, AFFINE_BG_CENTER_X))
+            emit(ASM.mul(4, 2, 3))                       # r4 = PC * center_x
+            load_var(2, BG_AFFINE_PD)
+            emit(ASM.load_immediate(3, AFFINE_BG_CENTER_Y))
+            emit(ASM.mul(5, 2, 3))                       # r5 = PD * center_y
+            emit(ASM.add_reg(4, 4, 5))                   # r4 = PC*center_x + PD*center_y
+            emit(ASM.load_immediate(ACC, AFFINE_BG_CENTER_Y * Affine::ONE_TH))
+            emit(ASM.sub_reg(ACC, ACC, 4))
+            store_word_acc(REG_BG2Y)
           end
 
           # Scroll one layer: write the window's top-left offset into that layer's scroll
