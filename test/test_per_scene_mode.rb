@@ -205,4 +205,43 @@ class TestPerSceneMode < Minitest::Test
     v2 = assert_gemba_loads_rom(rom, frames: 10, keys: KEY_START)
     assert v2.black?(0, 0), "the bitmap play scene must not be distorted by a leftover affine matrix"
   end
+
+  # A scene-owned affine background's own per-frame hardware setup (re-uploading its
+  # map/control register, since its `background` node sits in the scene body and runs
+  # every frame the scene is active) must not reset the rotate/scale matrix back to
+  # identity each time. It used to: #emit_affine_background_hardware unconditionally
+  # wrote the "no transform" matrix every time it ran, which stomped a growing
+  # `scale.approach` right back to 1.0 before the console ever showed it — so a title
+  # screen that was supposed to zoom in just sat there, frozen. Checked here by
+  # reading a whole scanline back at two points during a scale ramp and asserting
+  # it's genuinely different — a frozen matrix would render byte-for-byte the same
+  # picture every frame.
+  def test_a_scene_owned_affine_backgrounds_scale_keeps_changing
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      var :state, 0
+      zoom = var :zoom, 1.0
+      scene :title do
+        screen :affine
+        image(:dark, "#" => :blue) { (["########"] * 8).join("\n") }
+        image(:light, "#" => :green) { (["########"] * 8).join("\n") }
+        tiles :ground, "#" => :dark, "$" => :light
+        checker = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "#" : "$" }.join }
+        board = background :board, tiles: :ground, map: checker
+        zoom.approach 4.0, 0.15
+        board.scale(zoom)
+      end
+      game_loop { wait_vblank; case_var(:state) { when_val 0, :title } }
+    end
+    b.emit_pending_functions
+    rom = RubyGBA::ROM.assemble(GBA.new.lower(b.program), title: "ZOOM", code: "BZOM", maker: "01")
+
+    early = assert_gemba_loads_rom(rom, frames: 3)
+    later = assert_gemba_loads_rom(rom, frames: 20)
+    row_at = ->(v) { (0...240).map { |x| v.pixel_gba(x, 60) } }
+
+    refute_equal row_at.call(early), row_at.call(later),
+                 "the checkerboard should look different as it scales up — a frozen matrix renders the same picture every frame"
+  end
 end

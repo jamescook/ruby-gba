@@ -84,7 +84,10 @@ module RubyGBA
                     elsif mode == :affine
                       # The rotate/scale layer: this feature always lands the one affine
                       # background it supports on BG2 (see AFFINE_BG in gba.rb), so that's the
-                      # one layer Mode 2 needs on here.
+                      # one layer Mode 2 needs on here. A single-mode program never runs
+                      # #enter_affine_mode (that's only for per-scene mode switching), so the
+                      # one-time "no turn, no resize yet" starting matrix is set here instead.
+                      reset_bg2_affine_matrix
                       MODE_2 | BG2_ENABLE
                     elsif mode.is_a?(Integer)
                       mode
@@ -178,6 +181,7 @@ module RubyGBA
           # the background's own node in the scene body (see #emit_background_hardware),
           # the same as a regular tiled layer's.
           def enter_affine_mode
+            reset_bg2_affine_matrix # the one-time "no turn, no resize yet" starting matrix
             emit_boot_backgrounds if @layout.tiled && !@layout.backgrounds.empty?
             emit_boot_objects if @layout.has_objects
             @layer_blend.emit_layer_blend_again if @layer_blend.see_through?
@@ -652,12 +656,6 @@ module RubyGBA
           # same torus every `screen :tiled` background already is.
           AFFINE_WRAP = 0x2000
 
-          # Point the console's rotate/scale layer (BG2) at an affine background's map and
-          # tiles, and give it an upright, undistorted starting matrix — the same "no turn,
-          # no resize yet" state a hardware sprite boots to. A background that's never
-          # turned or resized (no `rotate`/`scale` call reaches #emit_affine_background)
-          # stays exactly here and draws like any other tiled background, just through a
-          # different pair of registers.
           # Put BG2's rotate/scale registers back to "no transform" — matrix identity,
           # zero reference point — the same state #emit_affine_background_hardware boots
           # an affine background to. Only a program with an affine background at all
@@ -669,6 +667,17 @@ module RubyGBA
           def reset_bg2_affine_if_needed
             return unless @layout.backgrounds.values.any?(&:affine)
 
+            reset_bg2_affine_matrix
+          end
+
+          # The actual identity-matrix write, factored out so it can be called from
+          # three places that each need it exactly ONCE: leaving affine mode (above),
+          # genuinely entering it (#enter_affine_mode), and the plain single-mode boot
+          # path (#emit_screen) — never from #emit_affine_background_hardware, which
+          # runs every frame a scene-owned background's own node re-executes and would
+          # otherwise stomp a growing rotate/scale right back to "no transform" before
+          # the console ever shows it.
+          def reset_bg2_affine_matrix
             write_reg16(REG_BG2PA, FIXED_ONE)
             write_reg16(REG_BG2PB, 0)
             write_reg16(REG_BG2PC, 0)
@@ -677,16 +686,20 @@ module RubyGBA
             store_word_immediate(0, REG_BG2Y)
           end
 
+          # Point the console's rotate/scale layer (BG2) at an affine background's map
+          # and tiles — its OWN node in the scene body, so it may run every frame the
+          # owning scene is active (harmless: same map, same control bits, every time).
+          # The matrix itself is NOT reset here — a scene-owned background is turned or
+          # resized by a per-frame write inserted at the frame boundary (see
+          # Builder#finalize_background_affine), which runs BEFORE this node in program
+          # order each frame; resetting the matrix here would throw that away before
+          # the console ever displayed it. The one-time "upright, undistorted" starting
+          # matrix is set at genuine mode entry instead (#enter_affine_mode, or here at
+          # boot for a single-mode program — see #emit_screen).
           def emit_affine_background_hardware(bg)
             emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
             write_reg16(REG_BG2CNT,
                         bg.priority | BG_256_COLOR | (bg.screen_block << 8) | AFFINE_WRAP | AFFINE_SIZE_32X32)
-            write_reg16(REG_BG2PA, FIXED_ONE)
-            write_reg16(REG_BG2PB, 0)
-            write_reg16(REG_BG2PC, 0)
-            write_reg16(REG_BG2PD, FIXED_ONE)
-            store_word_immediate(0, REG_BG2X)
-            store_word_immediate(0, REG_BG2Y)
           end
 
           # Scratch memory the affine background's matrix numbers pass through on their

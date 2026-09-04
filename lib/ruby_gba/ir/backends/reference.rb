@@ -795,6 +795,14 @@ module RubyGBA
         # composites stacked layers: the backmost paints first, and each layer in front
         # only covers where it has solid pixels, letting the layers behind fill its gaps.
         def exec_background(node)
+          # Once this background has ever been turned or resized, it's painted by the
+          # transformed path instead (see #exec_affine_background /
+          # #paint_background_window) — a plain, untransformed stamp here would
+          # overwrite that with the picture as originally drawn, throwing away the
+          # rotate/scale every time this node's own scene re-executes it (which, for a
+          # scene-owned background, is every frame the scene is active).
+          return if @bg_affine.key?(node.name)
+
           # A layer can put this background BEHIND one that is already on screen, and a
           # stamp only covers where it has solid pixels — so painting it now would leave
           # it in front. Painting the ones it belongs behind back over it settles the
