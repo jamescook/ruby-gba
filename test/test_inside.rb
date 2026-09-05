@@ -99,6 +99,28 @@ class TestInside < Minitest::Test
     assert_empty differ.first(8), "a shape wholly inside the area draws exactly where it did"
   end
 
+  # A routine with an area of its own, called from inside another: when it returns, the
+  # caller's area is still in force, not "anywhere". The console has the caller's edges
+  # baked into every shape after the call, so the interpreter dropping them would put the
+  # two at odds on exactly the pattern the guardrail steers people toward.
+  def test_a_routines_own_area_gives_the_callers_back_when_it_returns
+    run = Reference.new.run(program do
+      func(:paint) { inside(0, 0, 60, 60) { dma_fill_rect 0, 0, 240, 160, :green } }
+      game_loop do
+        clear_screen :black
+        inside(*AREA) do
+          call :paint
+          dma_fill_rect 0, 0, 240, 160, :red
+        end
+      end
+    end, frames: 2)
+
+    assert_equal RubyGBA::Color.resolve(:green), run.screen.pixel(10, 10), "the routine's own area held"
+    assert_equal RubyGBA::Color.resolve(:red), run.screen.pixel(50, 30), "the caller's area is painted after it"
+    assert_equal RubyGBA::Color.resolve(:black), run.screen.pixel(200, 150),
+                 "and the caller's edges are back in force for the fill that followed the call"
+  end
+
   # --- and the console draws the same ----------------------------------------------
 
   # KEPT LIGHT ON PURPOSE. This screen is drawn straight into the one the console is showing, so

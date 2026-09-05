@@ -387,11 +387,16 @@ module RubyGBA
             # Hold every cell the children paint inside these edges. The screen answers that
             # question once, for everything, which is why the interpreter needs no per-shape
             # arithmetic here and the other backend does.
+            # ...and give back whatever area was in force before, not "anywhere": a routine
+            # with an area of its own may be called from inside another's, and the caller's
+            # edges still hold for what it draws after the call — as they do on the console,
+            # where they are baked into every shape there.
+            outer = @screen.area
             @screen.draw_inside(node.x, node.y, node.w, node.h)
             begin
               node.children.each { |child| exec(child) }
             ensure
-              @screen.draw_anywhere
+              @screen.draw_within(outer)
             end
           when :repeat
             # A counted loop: the index counts 0..count-1. Evaluate count once,
