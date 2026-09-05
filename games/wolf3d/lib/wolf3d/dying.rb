@@ -236,23 +236,19 @@ module Wolf3D
       (@lag_done >= MODULUS - 1).then { @state.set GONE }
     end
 
-    # HOW THE SIX OVERSHOOTS ARE KEPT OUT OF THE STATUS BAR, and it is worth its line because the
-    # obvious way is wrong. The prime is a few above the number of pixels, so six of its values
-    # name a spot one row below the view — and wrapping the whole thing in `inside` ought to clip
-    # them for nothing. It does on the interpreter. It does NOT on the console, where this verb is
-    # not clipped at all: the six land in the bar, and a rect run off the side of the screen wraps
-    # onto the next row. That is a framework bug and it is filed; this is what to do until it is
-    # fixed.
-    #
-    # So they are folded back into the view instead. Taking the spot modulo the number of pixels
-    # sends those six to the first six, which the sequence paints anyway — one fixed division,
-    # no test, no branch, and nothing outside the view can be reached however the arithmetic comes
-    # out. It costs less than the test it replaces, and when the verb learns to clip it can go.
+    # HOW THE SIX OVERSHOOTS ARE KEPT OUT OF THE STATUS BAR. The prime is a few above the number
+    # of pixels, so six of its values name a spot one row below the view — and `inside` clips
+    # them for nothing, on both backends: `draw_rect_at` is a run-time position, the one kind
+    # `inside` could not clip until the framework learned to hold it to the area (it used to
+    # wrap onto the next row on the console instead of stopping, a framework bug that lived here
+    # as a worked-around comment for a while).
     def scatter(walker)
-      @b.repeat(PER_FRAME) do
-        walker.set((walker * STEP) % MODULUS)
-        @spot.set((walker - 1) % PIXELS)
-        @b.draw_rect_at @spot % ACROSS, @spot / ACROSS, 1, 1, Palette.game[INK]
+      @b.inside(0, 0, ACROSS, DOWN) do
+        @b.repeat(PER_FRAME) do
+          walker.set((walker * STEP) % MODULUS)
+          @spot.set(walker - 1)
+          @b.draw_rect_at @spot % ACROSS, @spot / ACROSS, 1, 1, Palette.game[INK]
+        end
       end
     end
   end
