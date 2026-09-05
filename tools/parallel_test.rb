@@ -29,14 +29,9 @@ require "rbconfig"
 module ParallelTest
   CONTROL_FD = 3
   SHARD_SCRIPT = File.expand_path(__FILE__)
-  ROOT = File.expand_path("..", __dir__)
   COUNTERS = %w[runs assertions failures errors skips].freeze
   CODE_COUNTER = { "F" => "failures", "E" => "errors", "S" => "skips" }.freeze
 
-  # Where the previous run's per-file timings live. Gitignored: it changes every
-  # run, so committing it would mean a conflicting diff on every merge, and the
-  # only thing a fresh clone loses is one poorly-balanced run.
-  TIMINGS_FILE = File.join(ROOT, ".test_timings.json")
   TIMINGS_VERSION = 1
 
   # How much of a new observation to believe. One run where you had a build going
@@ -45,8 +40,20 @@ module ParallelTest
 
   module_function
 
+  # The suite being run is whichever one the current directory holds — the
+  # framework's from the repository root, a game's from its own directory (each game
+  # has a rake of its own that reaches back here). Files are named relative to it,
+  # both the list the parent shards and the paths the children bill time to, so the
+  # two agree; and every shard inherits it, so the children see the same one.
+  def root = Dir.pwd
+
+  # Where the previous run's per-file timings live, beside the suite they time.
+  # Gitignored: it changes every run, so committing it would mean a conflicting diff
+  # on every merge, and the only thing a fresh clone loses is one poorly-balanced run.
+  def timings_file = File.join(root, ".test_timings.json")
+
   def relative(path)
-    path.to_s.delete_prefix("#{ROOT}/")
+    path.to_s.delete_prefix("#{root}/")
   end
 
   def median(values)
@@ -260,7 +267,7 @@ module ParallelTest
   def load_timings
     return nil if ENV["NO_TIMINGS"] == "1"
 
-    data = JSON.parse(File.read(TIMINGS_FILE))
+    data = JSON.parse(File.read(timings_file))
     return nil unless data["version"] == TIMINGS_VERSION
 
     files = data["files"]
@@ -328,9 +335,9 @@ module ParallelTest
       "overhead" => overhead.round(4),
       "files" => files.sort.to_h { |file, time| [file, time.round(4)] }
     }
-    tmp = "#{TIMINGS_FILE}.#{Process.pid}.tmp"
+    tmp = "#{timings_file}.#{Process.pid}.tmp"
     File.write tmp, "#{JSON.pretty_generate(payload)}\n"
-    File.rename tmp, TIMINGS_FILE
+    File.rename tmp, timings_file
   rescue SystemCallError
     # A read-only checkout or a full disk is not a reason to fail the suite.
     File.unlink tmp if tmp && File.exist?(tmp)

@@ -12,6 +12,20 @@ Rake::TestTask.new(:test) do |t|
   t.warning = false
 end
 
+# The same files split across processes, with the framework's own runner: it shards by
+# each file's recorded time from the last run (kept beside this suite, in this directory,
+# gitignored) and prints one live dot stream. The dependency runs the other way from the
+# comment above and that is fine — this game already leans on the framework for
+# everything; the framework leaning on the game is what it must never do.
+require_relative "../../tools/parallel_test"
+
+namespace :test do
+  desc "Run this game's suite across processes (rake test:parallel JOBS=8)"
+  task :parallel do
+    ParallelTest.run(FileList["test/**/test_*.rb"].to_a)
+  end
+end
+
 desc "Build wolf3d.gba"
 task :build do
   ruby "wolf3d.rb"
