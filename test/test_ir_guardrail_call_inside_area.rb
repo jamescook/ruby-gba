@@ -113,6 +113,37 @@ class TestIRGuardrailCallInsideArea < Minitest::Test
     assert_empty Check.new.detect(prog), "a routine with nothing to clip is not this bug"
   end
 
+  # The fix this check recommends — the routine carrying its own `inside` — must not be
+  # flagged in turn. That area is baked into the routine, so the console clips it there
+  # just as the interpreter does; a game that already did the right thing (Wolfenstein's
+  # standing things, drawn by a routine that wraps its columns in the view's area) was
+  # being told to do it again.
+  def test_a_call_to_a_routine_that_clips_its_own_drawing_is_not_flagged
+    prog = program do
+      screen :bitmap
+      func(:paint) { inside(0, 0, 100, 100) { fill_rect 0, 0, 240, 160, :red } }
+      game_loop { inside(0, 0, 200, 128) { call :paint } }
+    end
+
+    assert_empty Check.new.detect(prog), "the routine holds its own drawing to an area already"
+  end
+
+  # ...but only the draws under that area are excused: one beside it is still loose.
+  def test_a_routine_that_clips_some_drawing_and_not_the_rest_is_still_flagged
+    prog = program do
+      screen :bitmap
+      func(:paint) do
+        inside(0, 0, 100, 100) { fill_rect 0, 0, 240, 160, :red }
+        pixel 5, 5, :red
+      end
+      game_loop { inside(0, 0, 200, 128) { call :paint } }
+    end
+
+    findings = Check.new.detect(prog)
+    assert_equal 1, findings.size
+    assert_match(/pixel/, findings.first.message)
+  end
+
   def test_a_call_that_draws_outside_any_area_is_not_flagged
     prog = program do
       screen :bitmap

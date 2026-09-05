@@ -55,6 +55,12 @@ module RubyGBA
 
           def draw_anywhere = @area = nil
 
+          # The area in force right now, so a routine that sets one of its own can hand
+          # the caller's back when it returns (#draw_within).
+          attr_reader :area
+
+          def draw_within(area) = @area = area
+
           # Move the visible window over the stored picture: after this, screen (0, 0)
           # shows what was drawn at (x, y). Nothing stored moves — a camera changes what
           # you LOOK at, not what is there — which is why a shake costs no redrawing.

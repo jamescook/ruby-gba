@@ -59,20 +59,30 @@ module RubyGBA
             calls + node.children.flat_map { |child| find_calls(child) }
           end
 
-          # Does the func named +name+ draw on the bitmap screen — directly, or
-          # through a routine it calls, however many hops away? Returns the kind
-          # that drew (for the message), or nil. +seen+ stops a call cycle.
+          # Does the func named +name+ draw on the bitmap screen OUTSIDE any area of its
+          # own — directly, or through a routine it calls, however many hops away?
+          # Returns the kind that drew (for the message), or nil. +seen+ stops a call
+          # cycle.
+          #
+          # A draw the routine itself wraps in `inside` is not the hazard: that area is
+          # baked into the routine's own instructions, so the console clips it there
+          # exactly as the interpreter does — it is the fix this check recommends, and
+          # a game that already did it must not be told to do it again.
           def routine_draws?(name, funcs, seen = Set.new)
             return nil if seen.include?(name)
 
             func = funcs[name] or return nil
 
-            seen = seen | Set[name]
-            func.each do |node|
-              return node.kind if CLIPPED_DRAWS.include?(node.kind)
-              next unless node.kind == :call
+            unclipped_draw_in(func, funcs, seen | Set[name])
+          end
 
-              hit = routine_draws?(node.target, funcs, seen)
+          def unclipped_draw_in(node, funcs, seen)
+            return nil if node.kind == :inside
+            return node.kind if CLIPPED_DRAWS.include?(node.kind)
+            return routine_draws?(node.target, funcs, seen) if node.kind == :call
+
+            node.children.each do |child|
+              hit = unclipped_draw_in(child, funcs, seen)
               return hit if hit
             end
             nil
