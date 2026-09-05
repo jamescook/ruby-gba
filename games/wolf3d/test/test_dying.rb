@@ -84,16 +84,14 @@ class TestDying < Minitest::Test
                     "which covers every pixel of the view"
   end
 
-  # The handful of values past the last pixel would name the row under the view, which is the
-  # status bar — so they are folded back into it instead. See Dying#scatter for why that is done
-  # with arithmetic rather than by clipping.
-  def test_the_values_past_the_last_pixel_are_folded_back_into_the_view
+  # The handful of values past the last pixel name a spot one row under the view, in the status
+  # bar — which is exactly what `inside` is for: #scatter wraps its drawing in the view's own
+  # area, so those six land outside it and are cut off rather than drawn. See
+  # test_nothing_outside_the_view_is_touched for the proof that they never reach the bar.
+  def test_the_values_past_the_last_pixel_would_land_one_row_under_the_view
     over = ((Dying::PIXELS + 1)...Dying::MODULUS).map { |n| n - 1 }
 
-    assert_equal [Dying::DOWN], over.map { |spot| spot / Dying::ACROSS }.uniq,
-                 "left alone they would land one row below the view"
-    assert(over.all? { |spot| (spot % Dying::PIXELS) < Dying::PIXELS },
-           "folded, every one of them is a pixel of the view")
+    assert_equal [Dying::DOWN], over.map { |spot| spot / Dying::ACROSS }.uniq
   end
 
   # A frame's worth, twice over, has to finish inside the frames it is given.
