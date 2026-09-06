@@ -374,6 +374,12 @@ module Wolf3D
         size_it_on_screen
         pick_a_pose(guard)
         @b.call :remember_a_standing_thing
+        # HE HAS BEEN SEEN, and from here he thinks wherever he stands rather than only while his
+        # room is open to yours. The original hangs this off the same fact and in the same place —
+        # the drawing is the only thing that knows an actor was on the screen (wl_draw.cpp sets
+        # `obj->active = ac_yes` where it decides to draw him). Without it a guard across a
+        # courtyard you cannot walk into would stand frozen while you watched him.
+        (@shows == 1).then { guard.awake.set 1 }
         # ...AND THE CLIP HE LEFT, if he is lying beside one, which costs almost nothing to put
         # here: a body never moves again, so the clip stands exactly where he does and the place
         # and the size are both worked out already. Only its picture differs.
@@ -416,8 +422,12 @@ module Wolf3D
     # WHETHER TO QUEUE ONE AT ALL, in two questions of rising price: does any of its square fall
     # across the screen, and is any of that in front of the walls. Only what passes both is drawn
     # this frame, and only what is drawn takes a place in the queue.
+    # +@shows+ IS LEFT BEHIND ON PURPOSE, and cleared here rather than inside the second test, so
+    # that after this has run it says whether the thing was really put on the screen — off the
+    # side, or behind a wall, and it is nought. A guard reads it to know he has been seen.
     def remember_a_standing_thing
       b = @b
+      @shows.set 0
       covers_any_strips.then do
         in_front_of_the_walls.then do
           add_it_to_the_queue
@@ -439,7 +449,6 @@ module Wolf3D
     # things themselves no longer write that record — a wall wrote every number in it, and no
     # wall moves between here and the drawing.
     def in_front_of_the_walls
-      @shows.set 0
       @b.repeat(@s1 - @s0, stop_when: @shows == 1, estimate: { usually: 2 }) do |step|
         (@theight > @depth[@s0 + step]).then { @shows.set 1 }
       end

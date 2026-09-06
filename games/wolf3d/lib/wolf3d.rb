@@ -22,6 +22,8 @@ require_relative "wolf3d/vswap"
 require_relative "wolf3d/doors"
 require_relative "wolf3d/pushwalls"
 require_relative "wolf3d/elevator"
+# ...after the doors, whose panels are the only thing that joins one room to the next.
+require_relative "wolf3d/rooms"
 require_relative "wolf3d/guards"
 require_relative "wolf3d/scenery"
 # ...after all of them, because a floor is made of every one.
@@ -75,9 +77,19 @@ module Wolf3D
   # An episode is ten: eight ordinary floors, the boss, and the secret one kept aside.
   EPISODE = 10
 
+  # ...AND WHICH ONE IT STARTS AT, which is a measuring tool rather than a way to play. A
+  # cartridge boots on the first floor it holds, so the only way to read what a LATER floor costs
+  # is to build one that begins there:
+  #
+  #   WOLF3D_FROM=1 WOLF3D_FLOORS=1 ruby ../../bin/ruby-gba explain wolf3d.rb
+  #
+  # Floors differ enormously in what stands on them — the second floor of the first episode
+  # carries three times the guards and three times the scenery of the first — so "what does a
+  # frame cost" has no single answer for a game, only one per floor.
   def self.which_floors
+    from = Integer(ENV.fetch("WOLF3D_FROM", 0))
     asked = Integer(ENV.fetch("WOLF3D_FLOORS", EPISODE))
-    (0...[asked, maps.count].min).to_a
+    (from...[from + asked, maps.count].min).to_a
   end
   def self.vswap = @vswap ||= data && Vswap.from(data)
 

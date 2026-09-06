@@ -252,6 +252,10 @@ module Wolf3D
         @vcos.set(@sin[@view + QUARTER])
         @vsin.set(@sin[@view])
       end
+      # WHICH ROOMS ARE OPEN TO THE PLAYER, worked out before anybody thinks and once for all of
+      # them — the answer is the same for every guard on the floor, and it is what most of them
+      # are about to be told they need not think at all.
+      still_playing.then { @rooms.refresh } if @rooms
       still_playing.then { @mind.update } if @mind
     end
 
@@ -694,8 +698,12 @@ module Wolf3D
       # +dropped+ is whether he is lying beside the clip of ammunition he left when he fell. It is
       # a field of his rather than a place of its own because where the clip lies is where he
       # lies — see Pickups#a_guard_fell.
+      # +awake+ is whether he has ever been on the screen. Once he has, he thinks for ever after
+      # wherever he stands; until then he thinks only while his room is open to the player. That
+      # is the original's own rule (it calls him "active") and it is what keeps a floor of
+      # twenty-nine guards affordable — see Rooms.
       @guard = b.pool :guard, x: 0.0, y: 0.0, dir: 0, state: 0, ticks: 0, wait: 0, togo: 0.0,
-                              hp: 0, shown: 0, turn: 0, dropped: 0,
+                              hp: 0, shown: 0, awake: 0, turn: 0, dropped: 0,
                               capacity: room_for(:guards),
                               estimate: { usually: how_many(:guards)[:usually] }
       # THE FIRST FLOOR'S GUARDS AT BOOT, written out rather than read from the tables, because
@@ -720,12 +728,27 @@ module Wolf3D
       return if @guards.nil? || @guards.empty?
 
       b = @b
+      declare_the_rooms
       @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
                             world: @world, door_open: @open, walls: { door: DOOR, push: PUSH },
                             things: @things, blocked: @blocked, dying: @dying, pickups: @pickups,
-                            sounds: @sounds,
+                            sounds: @sounds, rooms: @rooms,
+                            floors: @floors, map_base: @map_base,
                             player: { x: @px, y: @py, health: @health, score: @score,
                                       kills: @kills, cos: @vcos, sin: @vsin })
+    end
+
+    # WHICH ROOMS ARE OPEN TO THE PLAYER'S, which is what stops a guard on the far side of the
+    # floor walking a line of sight at you through six walls. It is a fact about the level rather
+    # than about guards — see Rooms — and guards are only the first thing to ask it. A cartridge
+    # whose floors are one room each, or which has no doors to join rooms with, builds none of it
+    # and pays nothing.
+    def declare_the_rooms
+      return unless Rooms.needed?(@floors)
+
+      @rooms = Rooms.new(build: @b, floors: @floors, map_base: @map_base,
+                         door_first: @door_first, door_count: @door_count, door_open: @open,
+                         player: { x: @px, y: @py })
     end
 
     # WHERE EVERY GUARD STARTED, so the floor can be started again. All of it is settled while
@@ -857,7 +880,7 @@ module Wolf3D
         @guard.spawn x: @guard_home_x[@slot], y: @guard_home_y[@slot],
                      dir: @guard_home_dir[@slot],
                      state: @guard_home_state[@slot], ticks: @guard_home_ticks[@slot],
-                     hp: Guards::HIT_POINTS, wait: 0, togo: 0.0, shown: 0, dropped: 0,
+                     hp: Guards::HIT_POINTS, wait: 0, togo: 0.0, shown: 0, awake: 0, dropped: 0,
                      turn: n % 2
       end
     end
