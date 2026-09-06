@@ -89,15 +89,23 @@ module RubyGBA
           # with routines that run once.
           WORTH_MOVING = 0.05
 
-          # A little of the spare quick memory the framework leaves alone when it is
-          # choosing on its own, so a program never sits at exactly zero free.
+          # THE FRAMEWORK KEEPS NOTHING BACK when it is choosing on its own, and the reason
+          # is worth writing down because there used to be a kilobyte held here and its
+          # comment said it was for tidiness.
           #
-          # It does not need to be more than this. The choosing is done afresh on every
-          # build, from where the variables actually reached that time, so a program that
-          # grows simply gets a smaller share next build — it can never find that a past
-          # build spent the room it now needs. What is left here is only so that the
-          # report has a number in it and a routine asked for by name has somewhere to go.
-          AUTO_RESERVE = 1024
+          # It was not for tidiness. It was quietly covering an under-estimate in
+          # #moved_sizes, which counted the crossing calls an author WROTE and missed the
+          # ones the lowering invents for run-time digits. With that fixed the size a
+          # routine is charged is a true upper bound, so a kilobyte held back is a
+          # kilobyte of pure loss — and it was landing on exactly the routine that could
+          # least afford it. Measured on games/wolf3d, whose game loop wanted 21.6K of a
+          # 21.6K space and was offered 20.6K: it missed by the width of the margin, and
+          # the whole frame ran from the cartridge at about a third of the speed.
+          #
+          # If the bound is ever wrong again the build stops with the message in
+          # #guard_fast_code_fits, which names the overrun and what to do about it. A loud
+          # failure that points at the real fault beats a silent margin that pays for it
+          # for ever.
 
           # A call from a moved routine to one still in the cartridge grows from one
           # instruction to four, so a routine can come out bigger than it measured. This
@@ -163,7 +171,7 @@ module RubyGBA
 
             chosen = Set.new
             room = place_insisted(program, insisted, sizes, room, chosen)
-            place_by_frame_cost(program, sizes, room - AUTO_RESERVE, chosen) if @fast_code
+            place_by_frame_cost(program, sizes, room, chosen) if @fast_code
             chosen
           end
 
@@ -337,16 +345,30 @@ module RubyGBA
           # is an upper bound. Being a little pessimistic here means the last routine
           # chosen might have fitted after all; being optimistic would mean a build that
           # overruns the memory, so this is the direction to be wrong in.
+          #
+          # NOT EVERY CROSSING CALL IS A `call` THE AUTHOR WROTE, and missing the other kind
+          # is what made this an under-estimate rather than an upper bound. A run-time digit
+          # shares one glyph-drawing routine per font and CALLS it, so every `draw_digit`
+          # is a crossing call too — with no `call` node anywhere to show for it, because
+          # the routine is the lowering's own and is invented while emitting. A game with a
+          # score on screen has one per digit place, which came to a couple of hundred bytes
+          # in examples/breakout.rb: enough to overrun the memory outright.
+          CROSSING_CALL_KINDS = %i[call draw_digit].freeze
+
           def moved_sizes(program, measured)
             calls = Hash.new(0)
             program.walk.each do |node|
               name = node.kind == :loop ? FRAME_ROUTINE : (node.name if node.kind == :func)
-              calls[name] = node.walk.count { |child| child.kind == :call } if name
+              calls[name] = crossing_calls_in(node) if name
             end
-            calls[IRQ_ROUTINE] = irq_bodies(program).sum { |node| node.walk.count { |c| c.kind == :call } }
+            calls[IRQ_ROUTINE] = irq_bodies(program).sum { |node| crossing_calls_in(node) }
             measured.to_h do |name, size|
               [name, size + (calls[name] * CROSS_CALL_GROWTH) + ROUTINE_WRAPPER]
             end
+          end
+
+          def crossing_calls_in(node)
+            node.walk.count { |child| CROSSING_CALL_KINDS.include?(child.kind) }
           end
 
           # The trees the console runs on an announcement: every bending background's block

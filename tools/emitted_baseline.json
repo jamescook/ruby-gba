@@ -10,7 +10,7 @@
       "data": 0
     },
     "breakout": {
-      "code": 85216,
+      "code": 85196,
       "data": 0
     },
     "buffered_bounce": {
@@ -70,7 +70,7 @@
       "data": 0
     },
     "pong": {
-      "code": 32782,
+      "code": 32822,
       "data": 0
     },
     "raycaster": {
@@ -94,7 +94,7 @@
       "data": 0
     },
     "snake": {
-      "code": 57596,
+      "code": 57656,
       "data": 0
     },
     "snake_buffered": {
