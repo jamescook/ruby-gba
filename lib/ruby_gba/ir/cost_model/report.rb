@@ -220,12 +220,21 @@ module RubyGBA
       # helper written once was called from several places and emitted at each of them, which
       # `func` is the answer to — so the line says that, because an author has no other way to
       # learn it.
+      # WHY IT SAYS "WHEN ITS TURN CAME". The routines are offered the memory in order, dearest
+      # first, so what one of them was offered is what was unspent AT THAT MOMENT — not what is
+      # free at the end. The two are different numbers and both are true, which reads as a
+      # contradiction to anyone who has not been told: a build can end with 8K free beside a
+      # routine that was refused 12K, because the routine was asked first and the 8K went to
+      # smaller ones after it. Without those four words an author reasonably concludes that
+      # freeing memory will let the routine in, and it will not — nothing placed after it can
+      # give it back its turn. Say when, and the next thought is the right one, which is to make
+      # the routine smaller.
       def passed_over_lines(program, printer)
         return if @placement.passed_over.empty?
 
         @placement.passed_over.first(3).each do |over|
-          printer.puts format("    (func :%s did not fit — it needs %s and %s was left, so it " \
-                              "runs from the cartridge.%s)",
+          printer.puts format("    (func :%s did not fit — it needs %s and %s was left when its " \
+                              "turn came, so it runs from the cartridge.%s)",
                               over.name, kb(over.bytes), kb(over.room), repeated_note(program, over))
         end
       end
