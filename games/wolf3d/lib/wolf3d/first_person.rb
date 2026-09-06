@@ -89,16 +89,31 @@ module Wolf3D
     # one held a wall short across the whole last half-cell, where a player can see it plainly.
     NEAREST = 0.02
 
-    # Where the map table stops naming walls and starts naming the two things that move. Both
-    # are above every picture a level could hold, so none of the three can be confused.
+    # Where the map table stops naming walls and starts naming the things that are more than a
+    # wall. Each is above every picture a level could hold, so none of them can be confused.
+    #
+    # THEY ARE TESTED FROM THE TOP DOWN, biggest first, which is why LIFT sits above the other
+    # two rather than below them: a lever is a wall you cannot walk into and cannot shove, so
+    # anything that asks "can I stand here" or "did I just shove this" has to rule it out before
+    # it reaches the tests for the two that move. One comparison, and only on a cell that already
+    # holds something — the walk's own step is untouched.
     DOOR = 512
     PUSH = 1024
+    LIFT = 2048
 
     # HOW FAR OPEN A DOOR IS: 0 is shut and 1 is out of the way, which is the same thing the
     # ray asks about, so nothing has to be converted where the two meet.
     DOOR_WIDE = 1.0
     DOOR_STEP = 0.05         # a frame, so about half a second to swing
     DOOR_LINGER = 180        # and three seconds standing open before it shuts again
+
+    # How long the lever stands pulled before the floor ends, WHEN THE COPY OF THE GAME BEING
+    # BUILT FROM DOES NOT HOLD THE LIFT'S RECORDING — the shareware release does not. Otherwise
+    # the recording decides it: see lift_wait_frames.
+    #
+    # Forty is what the registered copy's own sound comes to, so the two agree and a shareware
+    # build feels the same as a registered one.
+    LIFT_WAIT = 40
     DOOR_WALKABLE = 0.75     # open this far and you fit through
     DOOR_REACH = 0.75        # how far in front of you a door is close enough to open
 
@@ -142,12 +157,13 @@ module Wolf3D
     FLOOR_COLOR = RubyGBA::Color.rgb(12, 11, 10)
 
     def initialize(build:, level:, atlas:, doors:, pushwalls:, guards: nil, things: nil,
-                   scenery: nil, vswap: nil)
+                   scenery: nil, vswap: nil, lifts: nil)
       @b = build
       @level = level
       @atlas = atlas
       @doors = doors
       @pushwalls = pushwalls
+      @lifts = lifts
       @guards = guards
       @scenery = scenery
       @things = things
@@ -201,6 +217,9 @@ module Wolf3D
         open_a_door
         fire if @mind
       end
+      # ...and outside that, because a lift already on its way does not stop because the thing
+      # that pulled it has since been shot.
+      run_the_lift if @lifts && !@lifts.empty?
     end
 
     # Is the game still the player's to play? Until something can kill you it always is.
@@ -355,6 +374,22 @@ module Wolf3D
       # carried, which is the one number a locked door asks about.
       @keys = b.var :keys, 0
 
+      # THE LIFT, as three numbers, and all three are one-per-game rather than one-per-lift
+      # because a floor ends the first time anybody pulls anything: there is never a second lift
+      # on its way.
+      #
+      # WHICH CELL holds the lever that was pulled, so the walk can give that one cell the pulled
+      # picture and leave the car's other levers alone. Minus one for none, because nought is a
+      # real cell.
+      @pulled = b.var :lift_pulled, -1
+      # ...WHETHER IT WAS THE SECRET LIFT, which is a different question and is the one that
+      # decides where you come out. Read off where the player was standing, not off the lever.
+      @lift_secret = b.var :lift_secret, 0
+      # ...and HOW LONG until the floor ends.
+      @lift_wait = b.var :lift_wait, 0
+      # Which floor is being played, counting from nought the way the map file numbers them.
+      @floor = b.var :floor, 0
+
       b.image :walls, width: @atlas.width, height: @atlas.height, data: @atlas.pixels
 
       @px = b.var :px, start_x
@@ -444,7 +479,13 @@ module Wolf3D
       # WALLS THAT MOVE: which one, where it is now, and which way the player is leaning on it.
       @push, @pcell, @ahead, @want, @gone = whole(:push, :pcell, :ahead, :want, :gone)
       @across, @along = fraction(:across, :along)
+
     end
+
+    # How long the lever stands pulled. The original plays the lift's own recording and then
+    # waits for it to finish, so the recording IS the pause and the number is read off it here
+    # rather than chosen. A copy of the game without that recording falls back to LIFT_WAIT.
+    def lift_wait_frames = @sounds&.level_done_frames || LIFT_WAIT
 
     # Scratch variables, named with the leading underscore this project gives working room.
     def whole(*names) = names.map { |name| @b.var(:"_#{name}", 0) }
@@ -569,7 +610,9 @@ module Wolf3D
     # that runs at most a few times a game, and the console's quick memory belongs to the eighty
     # rays a frame spends its time in.
     def declare_the_floor_start
-      return if @dying.nil?
+      # Emitted when anything can ask for it. Dying is one such thing; so is a lift, which puts
+      # the floor back the way it started when it arrives.
+      return if @dying.nil? && !lifts?
 
       @b.func(:start_the_floor, fast: false) { start_the_floor_again }
     end
@@ -581,11 +624,17 @@ module Wolf3D
       @health.set START_HEALTH
       @ammo.set START_AMMO
       @keys.set 0
+      # The lever comes back up and the lift forgets it was ever called.
+      if lifts?
+        @pulled.set(-1)
+        @lift_secret.set 0
+        @lift_wait.set 0
+      end
       shut_every_door
       put_the_secret_walls_back
       @pickups&.put_them_all_back
       put_the_guards_back
-      @dying.start_again
+      @dying&.start_again
     end
 
     def shut_every_door
@@ -634,6 +683,12 @@ module Wolf3D
 
       pushing = @pushwalls.number_at(x, y)
       return PUSH + pushing - 1 if pushing
+
+      # A lever, before the plain-wall test below, which would otherwise claim it: a lever IS a
+      # wall, and the only thing that makes it more than one is that using it ends the floor.
+      lever = @lifts&.number_at(x, y)
+      return LIFT + lever - 1 if lever
+
       return 0 unless @level.solid?(x, y)
 
       lit = wall_picture(@level.wall_code(x, y))
@@ -706,6 +761,22 @@ module Wolf3D
       @foot.set(@world[@spot])
       @can.set 0
       (@foot == 0).then { @can.set 1 }
+      # A lever is a wall and stays one however hard you walk at it, so everything below is
+      # skipped for one — and skipped rather than added to, so a lever's number can never be read
+      # as a door's or a push wall's. Only on a floor that has a lift; see the walk.
+      if lifts?
+        (@foot < LIFT).then { what_a_foot_finds }
+      else
+        what_a_foot_finds
+      end
+      # ...and a barrel in the way stops you on open floor, which nothing else here does.
+      (@blocked[@spot] == 1).then { @can.set 0 } if @blocked
+      @can == 1
+    end
+
+    # A doorway you can fit through, or a cell a push wall has left. Everything else under a foot
+    # is either plain floor, which is settled above, or something solid, which needs no test.
+    def what_a_foot_finds
       (@foot >= PUSH).then do
         # A cell a push wall could reach is floor unless the wall is standing in it now.
         @slot.set(@foot - PUSH)
@@ -718,9 +789,6 @@ module Wolf3D
           (@open[@slot] > DOOR_WALKABLE).then { @can.set 1 }
         end
       end
-      # ...and a barrel in the way stops you on open floor, which nothing else here does.
-      (@blocked[@spot] == 1).then { @can.set 0 } if @blocked
-      @can == 1
     end
 
     # Press the button facing a door and it opens. The reach is short on purpose: you have to
@@ -739,7 +807,17 @@ module Wolf3D
         @ahead.set((@ny.to_i * @level.width) + @nx.to_i)
         @foot.set(@world[@ahead])
 
-        (@foot >= PUSH).then { shove_a_wall }
+        if lifts?
+          (@foot >= LIFT).then { pull_the_lever }.else { use_what_moves }
+        else
+          use_what_moves
+        end
+      end
+    end
+
+    # The button meeting a wall that slides away, or a door.
+    def use_what_moves
+      (@foot >= PUSH).then { shove_a_wall }
           .else do
             (@foot >= DOOR).then do
               @slot.set(@foot - DOOR)
@@ -760,7 +838,75 @@ module Wolf3D
               end
             end
           end
+    end
+
+    # PULL THE LEVER AND THE FLOOR IS OVER.
+    #
+    # It does not end on this frame, and the wait is not padding: the lever swaps to its pulled
+    # picture and the player gets to see it do that before the screen changes. A lift that ended
+    # the floor on the same frame you pulled it would never show the second picture at all. The
+    # original waits here too, and for a reason worth keeping — it plays the lift's sound and
+    # then waits for the sound to finish before showing the tally.
+    #
+    # SO THE WAIT IS THE SOUND, and that is where the number comes from rather than from taste:
+    # the recording is two thirds of a second, which is forty frames. See LIFT_WAIT.
+    #
+    # ONLY FACING EAST OR WEST. The original decides which cell you are using by snapping your
+    # angle to a cardinal direction, and it allows a lever on two of the four — a lever you are
+    # facing north or south at does nothing at all. It reads as a quirk and it is load-bearing:
+    # it is the reason id could ship a blank picture for the lever's other face. Here the test is
+    # the same one written the way this renderer thinks, which is that the east-west part of
+    # where you are looking is the bigger part.
+    #
+    # A LEVER ALREADY PULLED IGNORES YOU, so leaning on the button does not restart the count.
+    def pull_the_lever
+      @across.set(@sin[@view + QUARTER])
+      @across.abs
+      @along.set(@sin[@view])
+      @along.abs
+      ((@across > @along) & (@pulled < 0)).then do
+        @pulled.set @ahead
+        @lift_wait.set lift_wait_frames
+        # WHERE THE LIFT GOES is decided by the cell the player is standing on, not by the lever
+        # — which is the original's own test, and is why nothing here has to model a car. A floor
+        # has one such cell or none, so this is a comparison against a number settled at build
+        # time rather than a table to look in.
+        unless @lifts.secret_cars.empty?
+          @here.set((@py.to_i * @level.width) + @px.to_i)
+          @lifts.secret_cars.each { |cell| (@here == cell).then { @lift_secret.set 1 } }
+        end
+        @sounds.level_done
       end
+    end
+
+    # The floor ends when that count runs out.
+    def run_the_lift
+      (@lift_wait > 0).then do
+        @lift_wait.sub 1
+        (@lift_wait == 0).then { go_to_the_next_floor }
+      end
+    end
+
+    # WHERE THE LIFT TAKES YOU, which is the one part of this the cartridge cannot yet answer.
+    #
+    # The rule itself is settled and read off the original: an ordinary lift takes you to the
+    # next floor, a secret one takes you to the floor kept aside for it, and the lift on THAT
+    # floor puts you back on the normal run rather than one further along. Which of the two you
+    # pulled is @lift_of, and whether that lift is the secret one is a fact about the map, known
+    # while building.
+    #
+    # WHAT IS MISSING IS THE DATA, not the rule. Every table this renderer reads — the map, the
+    # doors, the walls that move, where the guards stand, what is lying about — is built for ONE
+    # floor and indexed from nought. A second floor means every one of them holds all the floors
+    # end to end with a first and a count per floor, and every loop over them starting at that
+    # first. That is a change to how the floor is set up rather than to what a lift does, so it
+    # is its own piece of work and this waits on it.
+    #
+    # UNTIL THEN THE FLOOR STARTS AGAIN, which is the honest thing a one-floor cartridge can do:
+    # the lift works, it sounds, the lever stays down for as long as the original holds it, and
+    # then you are back at the start of the same floor with the guards up and the doors shut.
+    def go_to_the_next_floor
+      @b.call :start_the_floor
     end
 
     # Lean on a secret wall and it goes. Which way it goes is which way you are pushing, taken
@@ -901,14 +1047,15 @@ module Wolf3D
         (@cell > 0).then do
           # Something is here. Only now is it worth asking WHICH kind, because the ray has
           # stopped either way — every step before this one paid a single test and no more.
-          (@cell >= PUSH).then { meet_a_pushwall(width) }
-            .else do
-              (@cell >= DOOR).then { meet_a_door }.else do
-                @hit.set 1
-                @wall.set(@cell - 1 + @side)
-                @isdoor.set 0
-              end
-            end
+          #
+          # A floor with no lift on it never asks about one: the map cannot hold a lever there,
+          # so the test would be a comparison that is false for ever. The boss floor is exactly
+          # that floor — you finish it by killing the boss.
+          if lifts?
+            (@cell >= LIFT).then { meet_a_lever }.else { meet_what_moves(width) }
+          else
+            meet_what_moves(width)
+          end
         end
       end
 
@@ -947,6 +1094,54 @@ module Wolf3D
 
       draw_strip(col)
     end
+
+    # Does this floor have a lift at all? Every lever test is built only when it does — see the
+    # note in the walk.
+    def lifts? = !(@lifts.nil? || @lifts.empty?)
+
+    # The two things in a cell that are more than a wall, and the wall that is only a wall.
+    def meet_what_moves(width)
+      (@cell >= PUSH).then { meet_a_pushwall(width) }
+        .else do
+          (@cell >= DOOR).then { meet_a_door }.else do
+            @hit.set 1
+            @wall.set(@cell - 1 + @side)
+            @isdoor.set 0
+          end
+        end
+    end
+
+    # A RAY MEETS A LEVER, which is a wall that wears one of two pictures.
+    #
+    # The map cannot say which, for the same reason it cannot say where a push wall is: it lives
+    # in the cartridge and cannot be written to. So the map says only "a lever", and which single
+    # cell has been pulled is one number in memory.
+    #
+    # ONE CELL, not the whole lift, which is what the original does — it flips the tile you used
+    # and no other. That matters more than it sounds: a car has a lever on two or three of its
+    # walls, and flipping them all would show the pulled picture on faces the original never
+    # shows it on. See the note on pulled_picture for why those faces are worth avoiding.
+    def meet_a_lever
+      @hit.set 1
+      @isdoor.set 0
+      (@pulled == (@mapy * @level.width) + @mapx).then { @wall.set(pulled_picture + @side) }
+                                                 .else { @wall.set(lever_picture + @side) }
+    end
+
+    # Where the two lever pictures sit in the row of them, worked out while building. A lever
+    # does not turn, so which of a picture's two faces shows is the only choice left to the walk.
+    def lever_picture = @atlas.position_of(@atlas.texture_index(Elevator::SWITCH, WallAtlas::LIT))
+
+    # THE PULLED LEVER HAS ONLY ONE REAL FACE, and finding that out was the thing that explained
+    # the whole shape of this feature.
+    #
+    # Of the 106 wall pictures in the game, exactly one is a single flat colour: the LIT face of
+    # the pulled lever. That looks like a decoding fault until you read what the original does
+    # with the lever — you may only pull one while facing EAST or WEST, so the only face of a
+    # pulled lever a player can ever be looking at is a vertical one, which is the dark face. id
+    # shipped a blank for the face nobody can reach. Reproducing the facing rule is therefore not
+    # pedantry about a quirk; it is what keeps the blank off the screen.
+    def pulled_picture = @atlas.position_of(@atlas.texture_index(Elevator::PULLED, WallAtlas::LIT))
 
     # A RAY REACHES A CELL A PUSH WALL COULD BE IN, which is not the same as one it IS in.
     #

@@ -20,12 +20,16 @@ module Wolf3D
 
     attr_reader :codes, :textures
 
-    def initialize(vswap, palette, level, doors: nil)
+    def initialize(vswap, palette, level, doors: nil, lifts: nil)
       @vswap = vswap
       @palette = palette
       @codes = wall_codes(level)
       @textures = @codes.flat_map { |code| [texture_index(code, LIT), texture_index(code, DARK)] }
-      @textures += (doors&.pictures || []).reject { |t| @textures.include?(t) }
+      # A door's panel, and the lever of a lift pulled down. Neither is a wall the map builds
+      # with, so neither turns up in the codes above — a pulled lever appears in no map at all,
+      # because it is only ever written by the game. Both are appended in pairs, lit then dark,
+      # so the walk can still pick a face by adding one.
+      @textures += ((doors&.pictures || []) + (lifts&.pictures || [])).reject { |t| @textures.include?(t) }
     end
 
     # Where a picture sits in the row, counting pictures. This is what the map table holds, so
@@ -52,8 +56,13 @@ module Wolf3D
       rows.flatten
     end
 
-    # A code's two pictures sit next to each other in the file, lit first.
-    def texture_index(code, face) = ((code - 1) * 2) + face
+    # A code's two pictures sit next to each other in the file, lit first. Also asked at build
+    # time by things that know a wall code but have no atlas yet — the lift, whose pulled lever
+    # is a picture no map ever mentions — so the sum lives on the class and the instance defers
+    # to it rather than the two drifting apart.
+    def self.texture_index(code, face) = ((code - 1) * 2) + face
+
+    def texture_index(code, face) = self.class.texture_index(code, face)
 
     private
 

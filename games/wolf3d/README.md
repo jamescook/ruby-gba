@@ -51,7 +51,12 @@ pickups standing in the rooms, the status bar, and the game's sound effects thro
 mixer. Without your own copy of the data the cartridge still builds; it shows a title screen and
 says so instead of a floor.
 
+The lift at the end of the floor works: step into the car, face the lever, and pull it. On floor
+one the lift is behind the elevator door at the north end of the map, and there is a second,
+secret one that the original sends you to a hidden floor from.
+
 Not yet there: the game's own menus and lettering (still packed inside VGAGRAPH, undecoded), the
 AdLib music and the effects Wolfenstein never recorded to raw PCM, a difficulty picked at the
-title screen rather than baked into the build, what happens at the end of a floor, and saving
-progress across power-off.
+title screen rather than baked into the build, and saving progress across power-off. The lift
+currently puts you back at the start of the same floor, because every table this cartridge reads
+is built for one floor; carrying all of them together is the next piece of work.
