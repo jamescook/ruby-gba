@@ -373,4 +373,43 @@ class TestTearFreeDrawing < CostModelTest
 
     near tearfree_fill(40, 40), Cost.new.steady_cost(game)
   end
+
+  # --- a whole picture ---
+
+  # A picture is a row copy a row on either screen, so its price has the same shape. What
+  # differs is the pixels: a pixel is one byte here and two there, so a row moves half as
+  # many units through the engine and the picture reads cheaper.
+  def test_a_picture_costs_less_on_the_tear_free_screen_than_in_direct_colour
+    art = ([("#" * 8)] * 4).join("\n")
+    paged = tear_free do
+      image(:block, "#" => :red) { art }
+      game_loop { blit :block, 100, 40 }
+    end
+    plain = direct do
+      image(:block, "#" => :red) { art }
+      game_loop { blit :block, 100, 40 }
+    end
+
+    near tearfree_blit(8, 4), Cost.new.steady_cost(paged)
+    near dma_rows(8, 4), Cost.new.steady_cost(plain)
+    assert_operator Cost.new.steady_cost(paged), :<, Cost.new.steady_cost(plain),
+                    "half the units through the engine has to cost less"
+  end
+
+  # A picture is not free, and the thing worth knowing about it is that a TALL one costs
+  # more than a wide one of the same area: every row is its own clip and its own copy, and
+  # only the pixels ride the engine.
+  def test_a_tall_picture_costs_more_than_a_wide_one_of_the_same_area
+    tall = tear_free do
+      image(:tall, "#" => :red) { ([("#" * 4)] * 16).join("\n") }
+      game_loop { blit :tall, 100, 40 }
+    end
+    wide = tear_free do
+      image(:wide, "#" => :red) { ([("#" * 16)] * 4).join("\n") }
+      game_loop { blit :wide, 100, 40 }
+    end
+
+    assert_operator Cost.new.steady_cost(wide), :<, Cost.new.steady_cost(tall),
+                    "a row is a copy of its own, so more rows is more starts"
+  end
 end

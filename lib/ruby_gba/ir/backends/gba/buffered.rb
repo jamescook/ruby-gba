@@ -1002,14 +1002,149 @@ module RubyGBA
             place_label(past)
           end
 
-          # blit doesn't work on the indexed screen: its images are stored as direct
-          # colors, which need converting to palette indices first. Point at what does.
-          def blit_unsupported_in_buffered!
+          # DRAW A WHOLE PICTURE on the hidden page.
+          #
+          # The picture is shipped a second time as one NUMBER a pixel (see
+          # GBA#prepare_indexed_bitmaps), so a row of it is already the bytes the screen
+          # wants and a row copy is a straight run of memory — the same shape the
+          # direct-color blit has, with a byte a pixel instead of two.
+          #
+          # WHAT MAKES IT A STRAIGHT COPY IS THAT EVERYTHING LINES UP IN PAIRS. Video
+          # memory here takes two pixels at a time and will not take one, so the copying
+          # engine moves 16-bit units and every end of the run has to fall on one: the
+          # column the picture starts at, the picture's own width, and therefore the part
+          # of each row that survives clipping. An even column and an even width give all
+          # three, which is why both are asked for rather than worked around.
+          def emit_blit_buffered(node, bmp)
+            see_through_not_drawn_here!(node.name) if @layout.indexed_bitmaps[node.name]
+            odd_column_not_drawn_here!(node) unless Parity.even?(node.x)
+            odd_width_not_drawn_here!(node.name, bmp) unless bmp.width.even?
+
+            emit_blit_rows_buffered(node, bmp)
+          end
+
+          # Registers held for the whole picture: r6 the picture's numbers in the
+          # cartridge, r7 its left column, r8 its top row. The rest are worked out afresh
+          # each row, exactly as the direct-color engine does — a picture is a handful of
+          # rows, not the hundreds a per-column renderer walks, so there is nothing here
+          # worth hoisting.
+          BLIT_SRC = 6
+          BLIT_X = 7
+          BLIT_Y = 8
+          BLIT_ROW_Y = 9
+          BLIT_UNITS = 4
+          BLIT_FROM = 5
+          BLIT_TO = 3
+          BLIT_LEFT = 10
+          BLIT_RIGHT = 11
+
+          # One clipped row copy per row of the picture, unrolled. A row above or below
+          # the area is dropped whole; a row hanging off a side is narrowed to the part
+          # that shows, so nothing is ever written past the end of a line and onto the
+          # start of the next one.
+          def emit_blit_rows_buffered(node, bmp)
+            @lowering.value(node.x)
+            emit(ASM.mov_reg(BLIT_X, ACC))
+            @lowering.value(node.y)
+            emit(ASM.mov_reg(BLIT_Y, ACC))
+            emit_load_data_address(BLIT_SRC, @framebuffer.indexed_blob(node.name))
+
+            bmp.height.times { |row| emit_blit_row_buffered(bmp, row) }
+          end
+
+          def emit_blit_row_buffered(bmp, row)
+            skip = gensym
+            emit_add_const(BLIT_ROW_Y, BLIT_Y, row, SPARE)
+            emit(ASM.cmp_imm(BLIT_ROW_Y, @framebuffer.clip_top))
+            emit_branch(:bcond, skip, cond: :lt)
+            emit(ASM.cmp_imm(BLIT_ROW_Y, @framebuffer.clip_bottom))
+            emit_branch(:bcond, skip, cond: :ge)
+
+            emit_blit_row_span(bmp, skip)
+            emit_blit_row_addresses(bmp, row)
+            emit_blit_row_copy
+            place_label(skip)
+          end
+
+          # What is left of this row after the sides: r10 its first column, r11 one past
+          # its last, r4 how many pixels that is. A row entirely off to one side leaves.
+          def emit_blit_row_span(bmp, skip)
+            emit(ASM.mov_reg(BLIT_LEFT, BLIT_X))
+            emit(ASM.cmp_imm(BLIT_X, @framebuffer.clip_left))
+            keep_left = gensym
+            emit_branch(:bcond, keep_left, cond: :ge)
+            emit(ASM.load_immediate(BLIT_LEFT, @framebuffer.clip_left))
+            place_label(keep_left)
+
+            emit_add_const(BLIT_RIGHT, BLIT_X, bmp.width, SPARE)
+            emit(ASM.cmp_imm(BLIT_RIGHT, @framebuffer.clip_right))
+            keep_right = gensym
+            emit_branch(:bcond, keep_right, cond: :le)
+            emit(ASM.load_immediate(BLIT_RIGHT, @framebuffer.clip_right))
+            place_label(keep_right)
+
+            emit(ASM.sub_reg(BLIT_UNITS, BLIT_RIGHT, BLIT_LEFT))
+            emit(ASM.cmp_imm(BLIT_UNITS, 0))
+            emit_branch(:bcond, skip, cond: :le)
+          end
+
+          # Where the row is read from (r5) and written to (r3). Both are byte addresses
+          # and both are even: the picture's width is even so a row starts on a pair, and
+          # the column is even so what the sides cut off is a whole number of pairs.
+          def emit_blit_row_addresses(bmp, row)
+            emit(ASM.sub_reg(BLIT_FROM, BLIT_LEFT, BLIT_X))     # how much of the row the left edge ate
+            emit_add_const(BLIT_FROM, BLIT_FROM, row * bmp.width, SPARE)
+            emit(ASM.add_reg(BLIT_FROM, BLIT_SRC, BLIT_FROM))
+
+            emit(ASM.load_immediate(SPARE, SCREEN_WIDTH))
+            emit(ASM.mul(BLIT_TO, BLIT_ROW_Y, SPARE)) # a byte a pixel, so this is already bytes
+            emit(ASM.add_reg(BLIT_TO, BLIT_TO, BLIT_LEFT))
+            load_var(SPARE, BACKBUF)
+            emit(ASM.add_reg(BLIT_TO, BLIT_TO, SPARE))
+          end
+
+          # Hand the row to the copying engine: two pixels a unit, source and destination
+          # both stepping forward.
+          def emit_blit_row_copy
+            emit(ASM.lsr_imm(BLIT_UNITS, BLIT_UNITS, 1))
+            emit(ASM.load_immediate(SPARE, DMA_ENABLE))
+            emit(ASM.orr_reg(BLIT_UNITS, BLIT_UNITS, SPARE))
+            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            emit(ASM.str(BLIT_FROM, TMP))
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(BLIT_TO, TMP))
+            emit(ASM.load_immediate(TMP, REG_DMA3CNT))
+            emit(ASM.str(BLIT_UNITS, TMP))
+          end
+
+          # WHY THE SCREEN WANTS PAIRS, said the same way in every one of these three. It is
+          # the one fact behind all of them, and a person who reads it once has read it.
+          TAKES_PAIRS = "The screen takes two pixels at a time and will not take one."
+
+          def see_through_not_drawn_here!(name)
             raise LoweringError,
-                  "`blit` cannot draw on the tear-free screen (`tear_free: true`). Its images hold direct " \
-                  "colors. The tear-free screen shows colors from a color table, so it cannot show them. " \
-                  "To draw there, use the rectangle fills, `draw_text`, or `pixel`. Or drop `tear_free:` " \
-                  "to use the direct-color screen, where `blit` works."
+                  "The picture :#{name} has see-through pixels. The tear-free screen " \
+                  "(`tear_free: true`) cannot draw a see-through picture yet. It draws a solid " \
+                  "picture. Draw this picture with no see-through pixels, or drop `tear_free:` to " \
+                  "use the direct-color screen, where a see-through picture works."
+          end
+
+          def odd_column_not_drawn_here!(node)
+            column = const_int(node.x)
+            found = column ? "This picture starts at column #{column}." : "The game works this column out as it runs."
+            fix = column ? "Move the picture one pixel." : "Work the column out as an even number. Multiply it by 2."
+            raise LoweringError,
+                  "On the tear-free screen (`tear_free: true`), a picture must start at an even " \
+                  "column. #{found} #{TAKES_PAIRS} The framework cannot copy a picture that starts " \
+                  "halfway through a pair. #{fix}"
+          end
+
+          def odd_width_not_drawn_here!(name, bmp)
+            raise LoweringError,
+                  "On the tear-free screen (`tear_free: true`), a picture must have an even width. " \
+                  "The picture :#{name} is #{bmp.width} pixels wide. #{TAKES_PAIRS} The framework " \
+                  "cannot copy a row that ends halfway through a pair. Add a column to the picture, " \
+                  "or drop `tear_free:` to use the direct-color screen."
           end
         end
       end

@@ -658,10 +658,11 @@ module RubyGBA
           # screen at run time — a bitmap pushed partway off an edge draws only its
           # visible part, with nothing written past the framebuffer.
           def emit_blit(node)
-            @buffered.blit_unsupported_in_buffered! if @lowering.mode == :buffered
             bmp = @layout.bitmaps.fetch(node.name) do
               raise LoweringError, "blit of undefined image #{node.name.inspect}"
             end
+            return @buffered.emit_blit_buffered(node, bmp) if @lowering.mode == :buffered
+
             bmp.transparent ? emit_blit_transparent(node, bmp) : emit_blit_opaque(node, bmp)
           end
 
