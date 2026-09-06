@@ -44,30 +44,51 @@ class TestCostDomains < CostModelTest
 
   # --- the check at use ---
 
-  # THE CASE THIS EXISTS FOR. overlap_pixel is measured on walks of 64 to 256 cells, and the
-  # rate leaves out whatever such a walk pays once. Asked about a walk an order of magnitude
-  # smaller, it is quietly light — so the estimate says so instead of answering confidently.
-  def test_a_walk_far_below_where_its_weight_was_measured_is_reported
-    notes = Cost.new.domain_notes(tiny_collisions)
+  # THE CASE THIS EXISTS FOR. tick_interrupt is measured at 133 ticks a frame, and the rate
+  # leaves out whatever the interrupt pays once. Asked about a timer an order of magnitude
+  # slower, it is quietly light — so the estimate says so instead of answering confidently.
+  def test_a_rate_far_below_where_its_weight_was_measured_is_reported
+    notes = Cost.new.domain_notes(slow_timer)
 
     assert_equal 1, notes.length
     note = notes.first
-    assert_equal :overlap_pixel, note.weight
-    assert_equal :overlap_pixels, note.varies
-    assert_operator note.count, :<, 64 * Cost::Domains::FAR_BELOW
+    assert_equal :tick_interrupt, note.weight
+    assert_equal :ticks_per_frame, note.varies
+    assert_operator note.count, :<, note.from * Cost::Domains::FAR_BELOW
   end
 
   # ...and the report says it out loud, at the top, in the same voice as an unpriced op.
   def test_the_report_says_it_at_the_top
-    out = reported(tiny_collisions)
+    out = reported(slow_timer)
 
-    assert_match(/overlap_pixel was measured over 64\.\.256 overlap_pixels/, out.lines.first)
+    assert_match(/tick_interrupt was measured over 133\.3\.\.133\.3 ticks_per_frame/, out.lines.first)
     assert_match(/reads LOW/, out.lines.first)
   end
 
-  # Two sprites the size of a full stop, tested against each other. Small enough that the walk
-  # is far under where its weight was measured, and dear enough per cell that being wrong about
-  # six of them is still worth a scanline — both are needed before it is worth saying.
+  # A timer ticking ten times a frame, where the weight was measured at a hundred and thirty.
+  # Far under where it came from, and still dear enough that being a sixth wrong about it is
+  # worth a scanline — both are needed before it is worth saying.
+  def slow_timer
+    program do
+      screen :bitmap
+      n = var :n, 0
+      timer(:beat, per_second: 600).on_tick { n.add 1 }
+      game_loop { }
+    end
+  end
+
+  # THE COLLISION PROBE READS A PROGRAM THE SAME WAY, and says nothing about this one — which
+  # is the honest answer now rather than a gap in the fixture. The two conditions have closed
+  # on each other: a walk must be under a tenth of the 64 cells the weight was measured over,
+  # so six cells at most, and six cells no longer come to a scanline of the frame. There is no
+  # program left that trips it. Re-measuring overlap_pixel over the walks real games do — a
+  # sprite is far nearer six cells than sixty-four — is what would give the check something to
+  # say, and would make it a better weight besides.
+  def test_a_tiny_collision_walk_is_no_longer_worth_saying_anything_about
+    assert_empty Cost.new.domain_notes(tiny_collisions)
+  end
+
+  # Two sprites the size of a full stop, tested against each other.
   def tiny_collisions
     program do
       screen :bitmap

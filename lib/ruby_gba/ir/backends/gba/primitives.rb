@@ -28,8 +28,10 @@ module RubyGBA
           # variables. Past that the address is built in full, as everything used to be.
           FURTHEST_FROM_BASE = 0xFFF
 
-          # READING A VARIABLE IS TWO INSTRUCTIONS: put the base of the variable memory in a
-          # register, then load from that register plus this variable's distance along.
+          # READING A VARIABLE IS TWO INSTRUCTIONS, AND OFTEN ONE: put the base of the variable
+          # memory in a register, then load from that register plus this variable's distance
+          # along — and skip the first of those when the base is still sitting there from the
+          # last access.
           #
           # It used to be the whole address and then a load, and the whole address is the
           # expensive part. This console can name a number in one instruction only when the
@@ -41,11 +43,12 @@ module RubyGBA
           #
           # The base is a number this console CAN name in one instruction, and the distance rides
           # inside the load. So every variable is two, and the hundredth costs what the first
-          # does. There is more here for the taking — the base is put in the register afresh for
-          # every access, where one register held across a run of them would make each access a
-          # single instruction — but that means knowing what a register holds along every path
-          # that reaches an instruction, and being wrong about that writes to the wrong address
-          # rather than failing. This much needs no such knowledge.
+          # does. And since the base never changes for the life of the program, a run of accesses
+          # with nothing between them that could disturb the register needs it made only once —
+          # which is most of a run of arithmetic, where the whole of the work between two
+          # variables is an add or a compare. What knows when it is still there is
+          # {AddressRegister}, which is careful about it, because being wrong writes to the
+          # wrong address rather than failing.
           #
           # A variable the code around us is already HOLDING in a register is one move instead,
           # and it is the same number either way because whoever holds it is keeping memory and
@@ -179,9 +182,17 @@ module RubyGBA
           # Put what the load will be read from into the address register: the base of the
           # variable memory when the variable is near enough to it, and the variable's own
           # address when it is not. Answers whether the distance still has to be named.
+          #
+          # A variable too far from the base leaves its own address behind rather than the
+          # base, so nothing after it can lean on the register — and it is not worth
+          # remembering either, since the next variable would want a different address.
           def emit_var_base(offset)
             near = offset.between?(0, FURTHEST_FROM_BASE)
+            held = @emitter.address_register
+            return near if near && held.holds?(IWRAM_START)
+
             @emitter.emit(ASM.load_immediate(ADDR, near ? IWRAM_START : IWRAM_START + offset))
+            held.now_holds(IWRAM_START) if near
             near
           end
         end

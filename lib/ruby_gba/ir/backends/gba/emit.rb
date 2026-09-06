@@ -19,7 +19,7 @@ module RubyGBA
         class Emit
           include Constants
 
-          attr_reader :code, :labels, :fixups, :data_blobs, :data_positions
+          attr_reader :code, :labels, :fixups, :data_blobs, :data_positions, :address_register
 
           def initialize
             @code = +"".b          # emitted machine code; byte 0 is where execution starts
@@ -28,9 +28,14 @@ module RubyGBA
             @label_seq = 0
             @data_blobs = {}       # name -> bytes (embedded data, appended after code)
             @data_positions = {}   # name -> byte offset of its blob within @code
+            # Everything that ends up in @code comes through here, and labels are placed
+            # here too, so this is the one place that can watch a register's value survive
+            # — or stop surviving — from one instruction to the next.
+            @address_register = AddressRegister.new(reg: ADDR)
           end
 
           def emit(bytes)
+            @address_register.saw(bytes)
             @code << bytes
           end
 
@@ -39,7 +44,10 @@ module RubyGBA
             @code.bytesize
           end
 
+          # A label is somewhere other code jumps to, so nothing about the registers on
+          # the way here holds on the way in.
           def place_label(name)
+            @address_register.forget
             @labels[name] = pos
           end
 
@@ -51,6 +59,10 @@ module RubyGBA
           # +target+ later. kind is :b (unconditional), :bcond (conditional), or
           # :bl (call). The real branch is written in resolve_fixups.
           def emit_branch(kind, target, cond: nil)
+            # A call reaches a routine that uses the registers for its own work. What is
+            # emitted here is a placeholder that only becomes a call in the second pass,
+            # so nothing reading the bytes back could tell — this has to say so.
+            @address_register.forget if kind == :bl
             @fixups << { pos: pos, kind: kind, cond: cond, target: target }
             emit(ASM.nop)
           end

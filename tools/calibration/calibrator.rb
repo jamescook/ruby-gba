@@ -99,10 +99,17 @@ module RubyGBA
         # what reaching a FAR one costs on top of that.
         #
         # A statement or an operator has to get its operands from somewhere, and where the
-        # weight above got its own is part of the weight. `set :y, x` reads a variable — three
-        # instructions — where a plain operator's benchmark is handed the NUMBER 2, which is
-        # one. So this is the difference between those two operands and nothing else: the same
-        # statement, the same operator, a variable in place of the number.
+        # weight above got its own is part of the weight. `set :y, x` reads a variable where a
+        # plain operator's benchmark is handed the NUMBER 2. So this is the difference between
+        # those two operands and nothing else: the same statement, the same operator, a
+        # variable in place of the number.
+        #
+        # IT MEASURES NOUGHT NOW, and that is the answer rather than a failed measurement. A
+        # read used to name the base of the variable memory and then load from it, so a second
+        # variable operand was two instructions against the number's one. The base is already
+        # in the register from the operand before it, so the second read is a bare load — one
+        # instruction, the same as the number it stands in for. Both fixtures emit the same
+        # instructions in the same order and differ in that one.
         weigh(:var_operand, operand_read,
               note: "reading a variable handed to a statement or an operator, over the number a weight assumes")
 
