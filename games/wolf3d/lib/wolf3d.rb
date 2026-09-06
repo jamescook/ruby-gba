@@ -24,6 +24,8 @@ require_relative "wolf3d/pushwalls"
 require_relative "wolf3d/elevator"
 require_relative "wolf3d/guards"
 require_relative "wolf3d/scenery"
+# ...after all of them, because a floor is made of every one.
+require_relative "wolf3d/floors"
 require_relative "wolf3d/fixture/release"
 require_relative "wolf3d/wall_atlas"
 require_relative "wolf3d/thing_atlas"
@@ -61,6 +63,22 @@ module Wolf3D
   def self.data = @data ||= GameData.find
 
   def self.maps = @maps ||= data && Maps.from(data)
+
+  # WHICH FLOORS THE CARTRIDGE HOLDS, and how many is a build-time choice rather than a fixed
+  # number, because it is the one dial with a real trade on either end. Each floor adds its map,
+  # its blocking, its doors, its walls that move, its guards and everything lying on it — nothing
+  # to the frame, all of it to the ROM and to the time the build takes. A test wants one; a game
+  # wants an episode.
+  #
+  #   WOLF3D_FLOORS=3 ruby wolf3d.rb
+  #
+  # An episode is ten: eight ordinary floors, the boss, and the secret one kept aside.
+  EPISODE = 10
+
+  def self.which_floors
+    asked = Integer(ENV.fetch("WOLF3D_FLOORS", EPISODE))
+    (0...[asked, maps.count].min).to_a
+  end
   def self.vswap = @vswap ||= data && Vswap.from(data)
 
   def self.palette = Palette.game
@@ -80,20 +98,17 @@ module Wolf3D
     # torn one.
     screen :bitmap, tear_free: true
 
-    level = Wolf3D.maps&.[](0)
-    if level
-      doors = Wolf3D::Doors.new(level, Wolf3D.vswap)
-      pushwalls = Wolf3D::Pushwalls.new(level)
-      lifts = Wolf3D::Elevator.new(level)
-      guards = Wolf3D::Guards.new(level)
-      scenery = Wolf3D::Scenery.new(level)
-      atlas = Wolf3D::WallAtlas.new(Wolf3D.vswap, Wolf3D.palette, level, doors: doors, lifts: lifts)
+    if Wolf3D.maps
+      floors = Wolf3D::Floors.from(Wolf3D.maps, Wolf3D.vswap, Wolf3D.which_floors)
+      atlas = Wolf3D::WallAtlas.new(Wolf3D.vswap, Wolf3D.palette, floors.map(&:level),
+                                    doors: floors.map(&:doors), lifts: floors.map(&:lifts))
       things = Wolf3D::ThingAtlas.new(Wolf3D.vswap, Wolf3D.palette,
-                                      (guards.pictures + scenery.pictures +
-                                       Wolf3D::Pickups.pictures(guards)).uniq.sort)
-      view = Wolf3D::FirstPerson.new(build: self, level: level, atlas: atlas, doors: doors,
-                                     pushwalls: pushwalls, lifts: lifts, guards: guards,
-                                     things: things, scenery: scenery, vswap: Wolf3D.vswap)
+                                      floors.flat_map { |f|
+                                        f.guards.pictures + f.scenery.pictures +
+                                          Wolf3D::Pickups.pictures(f.guards)
+                                      }.uniq.sort)
+      view = Wolf3D::FirstPerson.new(build: self, floors: floors, atlas: atlas, things: things,
+                                     vswap: Wolf3D.vswap)
       game_loop { view.update }
     else
       title = Title.new(self)

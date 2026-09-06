@@ -61,12 +61,25 @@ module Wolf3D
     # +pool+ is the guards, which is where a dropped clip is kept — see #a_guard_fell. +scenery+
     # may be left out, and then the floor is read for itself: a game with no drawing still has
     # things lying on it.
-    def initialize(build:, level:, player:, lives: nil, scenery: nil, pool: nil)
+    # +floors+ is every floor the cartridge holds; a game with one may hand over its `level:` and
+    # `scenery:` loose instead, which is what the tests do. +bases+ is where this floor's slice of
+    # each table begins, as the view keeps it: { map:, piece: } — left out on a one-floor game,
+    # where every slice begins at nothing.
+    def initialize(build:, player:, level: nil, lives: nil, scenery: nil, pool: nil,
+                   floors: nil, bases: {})
       @b = build
-      @level = level
+      @floors = floors || Floors.of(level: level, doors: Doors.new(level, nil),
+                                    pushwalls: Pushwalls.new(level),
+                                    scenery: scenery || Scenery.new(level))
+      @level = @floors.first_floor.level
       @player = player
       @lives = lives
-      @scenery = scenery || Scenery.new(level)
+      # A FLOOR WITH NO SCENERY IS READ FOR ITSELF, which is what the note above means and what
+      # the tests of the locked doors rely on: a game that draws nothing standing in the rooms
+      # still has a key lying on the floor, or its locked door could never be opened.
+      @scenery_of = @floors.to_h { |floor| [floor.index, floor.scenery || Scenery.new(floor.level)] }
+      @scenery = scenery_of(@floors.first_floor)
+      @bases = bases
       @pool = pool
       declare
     end
@@ -83,15 +96,18 @@ module Wolf3D
     # crown — so a floor holding one cannot be finished at a hundred per cent without taking it.
     COUNTS_AS_TREASURE = [TREASURE, EXTRA_LIFE].freeze
 
-    def treasure_total
-      @treasure_total ||= @scenery.pieces.count { |piece| COUNTS_AS_TREASURE.include?(kind_of(piece)) }
+    # Per floor, because a share of a floor is what it means. The view asks for the one being
+    # played; a one-floor game has one number.
+    def treasure_total(floor = 0)
+      scenery_of(@floors[floor])
+        .pieces.count { |piece| COUNTS_AS_TREASURE.include?(kind_of(piece)) }
     end
 
     # ...and everything back on the floor, for a floor being started again. The clips guards
     # dropped need nothing said about them here: each is a field of the guard who left it, and
     # putting the guards back puts it back with him.
     def put_them_all_back
-      @b.repeat(@scenery.count) { |piece| @taken[piece] = 0 }
+      @b.repeat(most_pieces) { |piece| @taken[piece] = 0 }
     end
 
     # ONE PASS OF THE GAME LOOP: what am I standing on, and what does it give me.
@@ -136,6 +152,7 @@ module Wolf3D
     # frame to find the one you are standing on would be most of what the game does.
     def what_am_i_standing_on
       @here.set((@player[:y].to_i * @level.width) + @player[:x].to_i)
+      @here.add(@bases[:map]) if @bases[:map]
       @piece.set(@lying_at[@here])
       (@piece > 0).then do
         # Counted from one in the table so that nought can mean an empty cell.
@@ -147,25 +164,34 @@ module Wolf3D
 
     def declare
       b = @b
-      pieces = @scenery.pieces
 
       # WHAT LIES ON EACH CELL, counted from one, and nought for a cell with nothing to take on
       # it. Only the pieces worth taking are named here — walk onto a lamp and this reads nought,
       # which is the same answer as bare floor and costs the same.
-      @lying_at = b.table :lying_at, cells_with_something_on_them(pieces), width: :half
-
-      # ...and what each of them gives. By the piece's own number, so the two tables above and
-      # below meet at the one index the drawing uses as well.
       #
-      # A table must hold something and a floor need hold nothing, so an empty floor gets one
+      # EVERY FLOOR'S CELLS END TO END, like the map, and the number in a cell is the piece's own
+      # number WITHIN ITS FLOOR — because what it reaches is whether that piece has been taken,
+      # which is state a floor is played with and is sized for one floor.
+      @lying_at = b.table :lying_at,
+                          @floors.flat_map { |floor| cells_with_something_on_them(floor) },
+                          width: :half
+
+      # ...and what each of them gives. Every floor's pieces end to end, reached by adding where
+      # this floor's begin — settled things rather than played-with ones, so they go the other
+      # way from the numbers above.
+      #
+      # A table must hold something and a floor need hold nothing, so an empty game gets one
       # entry that nothing ever reads — the table above names no piece for it to be reached by.
-      @gives_kind = b.table :gives_kind, at_least_one(pieces.map { |p| kind_of(p) }), width: :byte
-      @gives_amount = b.table :gives_amount, at_least_one(pieces.map { |p| amount_of(p) }),
+      everything = @floors.flat_map { |floor| scenery_of(floor).pieces }
+      @gives_kind = b.table :gives_kind, at_least_one(everything.map { |p| kind_of(p) }), width: :byte
+      @gives_amount = b.table :gives_amount, at_least_one(everything.map { |p| amount_of(p) }),
                               width: :half
 
       # WHAT HAS BEEN TAKEN, which is the only thing about a floor's things that ever changes.
-      @taken = b.list :thing_gone, capacity: [@scenery.count, 1].max
-      [@scenery.count, 1].max.times { @taken << 0 }
+      # One floor's worth, since only one is ever being played.
+      room = most_pieces
+      @taken = b.list :thing_gone, capacity: room
+      room.times { @taken << 0 }
 
       declare_the_scratch
 
@@ -173,16 +199,21 @@ module Wolf3D
     end
 
     def declare_the_scratch
-      @here, @piece, @kind, @amount, @took =
-        %i[here piece kind amount took].map { |name| @b.var(:"_pick_#{name}", 0) }
+      # +slot+ is the piece's place in the tables of every floor's pieces, which is its own number
+      # plus where this floor's begin. Kept apart from +piece+, which stays this floor's own
+      # number because that is what says whether it has been taken.
+      @here, @piece, @slot, @kind, @amount, @took =
+        %i[here piece slot kind amount took].map { |name| @b.var(:"_pick_#{name}", 0) }
     end
 
     # WHAT THE PIECE UNDER YOUR FEET GIVES, one arm per kind. Each arm decides for itself whether
     # you can hold what it offers, and only an arm that gave something says so — that is what
     # leaves a first aid box on the floor of a player who does not need it yet.
     def take_it
-      @kind.set(@gives_kind[@piece])
-      @amount.set(@gives_amount[@piece])
+      @slot.set(@piece)
+      @slot.add(@bases[:piece]) if @bases[:piece]
+      @kind.set(@gives_kind[@slot])
+      @amount.set(@gives_amount[@slot])
       @took.set 0
 
       (@kind == AMMUNITION).then { give_ammunition(@amount) }
@@ -241,9 +272,12 @@ module Wolf3D
     def take_what_a_guard_left
       return unless @pool
 
+      # The cell a guard fell in, counted the same way as the one under the player's feet — which
+      # on a cartridge holding more than one floor means this floor's slice of the map, not the
+      # first floor's. Compare them as different numbers and a clip is never found.
       @pool.each do |guard|
         still_dropped(guard).then do
-          (((guard.y.to_i * @level.width) + guard.x.to_i) == @here).then do
+          (guard_cell(guard) == @here).then do
             @took.set 0
             give_ammunition(DROPPED_ROUNDS)
             (@took == 1).then { guard.dropped.set 0 }
@@ -252,12 +286,25 @@ module Wolf3D
       end
     end
 
+    def scenery_of(floor) = @scenery_of.fetch(floor.index)
+
+    # How many pieces the busiest floor holds, which is what the list of what has been taken is
+    # sized for. Read off the scenery this asked for rather than the floor's own, since a floor
+    # that was handed none is read for itself.
+    def most_pieces = [@floors.map { |floor| scenery_of(floor).count }.max, 1].max
+
+    def guard_cell(guard)
+      cell = (guard.y.to_i * @level.width) + guard.x.to_i
+      @bases[:map] ? cell + @bases[:map] : cell
+    end
+
     # --- the tables, worked out while the cartridge is built --------------------------
 
-    def cells_with_something_on_them(pieces)
-      cells = Array.new(@level.width * @level.height, 0)
-      pieces.each_with_index do |piece, at|
-        cells[(piece.y * @level.width) + piece.x] = at + 1 if piece.bonus
+    def cells_with_something_on_them(floor)
+      level = floor.level
+      cells = Array.new(level.width * level.height, 0)
+      scenery_of(floor).pieces.each_with_index do |piece, at|
+        cells[(piece.y * level.width) + piece.x] = at + 1 if piece.bonus
       end
       cells
     end

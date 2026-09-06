@@ -60,12 +60,18 @@ module Wolf3D
 
     # +eye+ is where the player is and which way they are pointing, as the view keeps them:
     # { x:, y:, cos:, sin:, angle: }.
+    # +floors+ is every floor the cartridge holds, when there is more than one; +piece_first+ and
+    # +piece_count+ are where the floor being played begins in the tables of every floor's pieces
+    # and how many it has. A one-floor game leaves all three out.
     def initialize(build:, things:, eye:, scenery: nil, guards: nil, pool: nil, mind: nil,
-                   pickups: nil)
+                   pickups: nil, floors: nil, piece_first: nil, piece_count: nil)
       @b = build
       @things = things
       @eye = eye
       @scenery = scenery
+      @floors = floors
+      @piece_first = piece_first
+      @piece_count = piece_count
       @guards = guards
       @pool = pool
       @mind = mind
@@ -213,15 +219,24 @@ module Wolf3D
     # The one thing that does change is whether a piece is still THERE, because the things you
     # pick up are scenery too and a key you have taken must stop being drawn. That one fact is
     # kept by Pickups rather than here: it is a fact about the game, and this only asks.
+    # ...and every floor's pieces end to end, reached by adding where this floor's begin. That
+    # number was settled when the floor started and does not move while it is played.
     def declare_the_scenery
-      return if @scenery.nil? || @scenery.empty?
+      pieces = every_floors_pieces
+      return if pieces.empty?
 
       b = @b
-      pieces = @scenery.pieces
       @piece_x = b.table :thing_x, pieces.map { |p| p.x + 0.5 }
       @piece_y = b.table :thing_y, pieces.map { |p| p.y + 0.5 }
       @piece_shape = b.table :thing_shape, pieces.map { |p| @things.position_of(p.picture) },
                              width: :half
+    end
+
+    # A one-floor game has only the scenery it was handed.
+    def every_floors_pieces
+      return @scenery&.pieces || [] if @floors.nil?
+
+      @floors.flat_map { |floor| floor.scenery&.pieces || [] }
     end
 
     # THE CLIP A GUARD LEAVES WHERE HE FALLS is a billboard like any other — one picture standing
@@ -312,19 +327,31 @@ module Wolf3D
     def look_at_the_scenery
       return if @piece_x.nil?
 
-      @b.repeat(@scenery.count) { |piece| look_at_a_piece(piece) }
+      if @piece_count
+        counts = @floors.counts_of(:pieces)
+        estimate = { usually: [(counts.sum.to_f / counts.length).ceil, 1].max,
+                     most: [counts.max, 1].max }
+        @b.repeat(@piece_count, estimate: estimate) { |piece| look_at_a_piece(piece) }
+      else
+        @b.repeat(@scenery.count) { |piece| look_at_a_piece(piece) }
+      end
     end
 
     # One piece of scenery: the same billboard a guard is, with nothing to decide. Its picture
     # was settled while the cartridge was built, so there is no pose to work out.
+    #
+    # +piece+ IS THIS FLOOR'S OWN NUMBER, because that is what says whether it has been taken —
+    # which is state a floor is played with. Reaching the tables of every floor's pieces adds
+    # where this floor's begin.
     def look_at_a_piece(piece)
-      place(@piece_x[piece], @piece_y[piece], SCENERY_NUDGE)
+      at = @piece_first ? @piece_first + piece : piece
+      place(@piece_x[at], @piece_y[at], SCENERY_NUDGE)
       (@fwd > NEAREST).then do
         # Asked here rather than first: a piece you have picked up is one of a few hundred, and
         # this way only the ones you could see pay for the question at all.
         @pickups.still_there(piece).then do
           size_it_on_screen
-          @shape.set(@piece_shape[piece])
+          @shape.set(@piece_shape[at])
           @b.call :remember_a_standing_thing
         end
       end
