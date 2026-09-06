@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "gba/address_register" # what the address register still holds, as code goes past
 require_relative "gba/emit"
 require_relative "gba/lowering"
 require_relative "gba/memory"

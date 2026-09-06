@@ -110,18 +110,23 @@ class CostModelTest < Minitest::Test
     )
   end
 
-  # A game with six collision tests it hardly ever passes. Six 16x16 pairs walk 345
-  # scanlines against a 228-line frame IF they all land at once, which is the ceiling,
-  # not the every-frame cost — the walk covers the overlap rectangle, and two sprites
-  # that miss walk nothing. Charging it every frame made shmup read 101% of budget while
-  # its busiest measured frame was 54 scanlines.
+  # A game with six collision tests it hardly ever passes. Six 32x32 pairs walk several
+  # times a 228-line frame IF they all land at once, which is the ceiling, not the
+  # every-frame cost — the walk covers the overlap rectangle, and two sprites that miss
+  # walk nothing. Charging it every frame made shmup read 101% of budget while its busiest
+  # measured frame was 54 scanlines.
+  #
+  # THE SIZE IS PICKED SO THE CEILING STAYS WELL OVER A FRAME. It was 16x16, which cleared
+  # 228 by a fifth, and a walk got cheap enough to drop it under — leaving the test with
+  # nothing to say. A pair this size is over by several times, so what the fixture is FOR
+  # does not turn on the exact price of a cell.
   def near_misses
     program do
       screen :tiled
-      image(:blk, "#" => :red) { (["#" * 16] * 16).join("\n") }
+      image(:blk, "#" => :red) { (["#" * 32] * 32).join("\n") }
       hits = var :hits, 0
       a = sprite :blk, at: [10, 10]
-      others = Array.new(6) { |i| sprite :blk, at: [16 * i, 120] }
+      others = Array.new(6) { |i| sprite :blk, at: [32 * i, 120] }
       game_loop do
         others.each { |b| a.overlaps?(b).then { hits.add 1 } }
       end

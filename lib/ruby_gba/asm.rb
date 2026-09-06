@@ -566,6 +566,112 @@ module RubyGBA
       [0xEF000000 | (comment & 0x00FFFFFF)].pack("V")
     end
 
+    # --- Reading an instruction back ---
+
+    # COULD RUNNING THIS INSTRUCTION CHANGE WHAT +reg+ HOLDS?
+    #
+    # Everything above turns a description into bytes; this one instruction reads
+    # bytes back, and it exists so that a value already sitting in a register can be
+    # left there across the instructions that follow instead of being made again (see
+    # {IR::Backends::GBA::AddressRegister}, its only caller).
+    #
+    # It is allowed to be wrong in exactly one direction. Saying "yes, it might" about
+    # an instruction that in fact leaves the register alone costs an instruction that
+    # was not needed; saying "no, it can't" about one that does write the register
+    # sends a load or a store to whatever address happens to be there. So the shape
+    # here is: recognise the encodings that provably leave the register alone, and
+    # answer YES for everything else, including anything unrecognised.
+    #
+    # Two things count as changing the register even though no instruction here writes
+    # it. Writing the program counter sends control somewhere this can't follow, and a
+    # call reaches a routine that is free to use the register for its own purposes.
+    def disturbs?(word, reg)
+      return true if (word >> 28) == 0xF # the "never" condition — nothing we emit
+
+      case (word >> 25) & 0b111
+      when 0b000, 0b001 then data_processing_disturbs?(word, reg)
+      when 0b010        then transfer_disturbs?(word, reg)
+      # The same load or store with its offset in a register — unless bit 4 is set,
+      # which no instruction on this chip means anything by.
+      when 0b011        then (word & 0x10).zero? ? transfer_disturbs?(word, reg) : true
+      when 0b100        then block_transfer_disturbs?(word, reg)
+      # A plain branch writes no register, and the instruction after an unconditional
+      # one is reached only by jumping to it. Branch-with-link is a call.
+      when 0b101        then !(word & 0x01000000).zero?
+      else true # a software interrupt or a coprocessor: assume the worst
+      end
+    end
+
+    # The four operations that set the flags and keep no answer (TST, TEQ, CMP, CMN).
+    # Their opcode field is shared with MRS/MSR/BX/SWP, which is what the S bit tells
+    # apart: with it set the instruction is a compare, without it something else.
+    COMPARE_OPCODES = (0x8..0xB)
+
+    # Bits 27..25 are 000 or 001: the arithmetic, the multiplies, the halfword and
+    # signed loads and stores, and a handful of oddities sharing the same corner of
+    # the encoding.
+    def data_processing_disturbs?(word, reg)
+      # Only the register forms share this corner of the encoding with the multiplies
+      # and the halfword transfers. When the operand is a plain number, bits 7 and 4
+      # are part of that number and say nothing about which instruction this is.
+      if (word & 0x02000000).zero?
+        return true if (word & 0x0FFFFFF0) == 0x012FFF10 # BX — control goes elsewhere
+        return multiply_disturbs?(word, reg) if (word & 0x0F0000F0) == 0x00000090
+
+        if (word & 0x90) == 0x90 # bits 7 and 4 both set
+          # Something between them makes it a halfword or a signed transfer; nothing
+          # between them leaves the swap, and whatever else lives down here.
+          return (word & 0x60).zero? ? true : transfer_disturbs?(word, reg)
+        end
+      end
+
+      opcode = (word >> 21) & 0xF
+      if COMPARE_OPCODES.cover?(opcode)
+        sets_flags = !(word & 0x00100000).zero?
+        return !sets_flags # a compare keeps no answer; anything else down here is unknown
+      end
+
+      dest = (word >> 12) & 0xF
+      dest == 15 || dest == reg # writing the program counter is a jump
+    end
+
+    # MUL and MLA keep their answer where most instructions keep the register they
+    # read from; the long multiplies fill that one AND the usual destination, because
+    # a 64-bit answer needs two registers.
+    def multiply_disturbs?(word, reg)
+      high = (word >> 16) & 0xF
+      return high == reg if (word & 0x00800000).zero?
+
+      high == reg || ((word >> 12) & 0xF) == reg
+    end
+
+    # One load or store. A load fills its destination; either kind writes the register
+    # holding the address back when the instruction advances it (post-indexed, or
+    # pre-indexed with write-back asked for).
+    def transfer_disturbs?(word, reg)
+      if !(word & 0x00100000).zero?
+        dest = (word >> 12) & 0xF
+        return true if dest == 15 || dest == reg
+      end
+
+      advances = (word & 0x01000000).zero? || !(word & 0x00200000).zero?
+      advances && ((word >> 16) & 0xF) == reg
+    end
+
+    # PUSH and POP, and the general load/store of a set of registers. A load fills
+    # every register named in the set; the address register is written back when the
+    # instruction advances it.
+    def block_transfer_disturbs?(word, reg)
+      return true unless (word & 0x00400000).zero? # the S bit reaches the banked registers
+
+      unless (word & 0x00100000).zero?
+        return true if !(word & 0x8000).zero? # the program counter is in the set — a return
+        return true if !(word & (1 << reg)).zero?
+      end
+
+      !(word & 0x00200000).zero? && ((word >> 16) & 0xF) == reg
+    end
+
     # --- Helpers ---
 
     # Try to encode a 32-bit value as an ARM rotated 8-bit immediate.

@@ -230,10 +230,10 @@ class TestCostCalibration < Minitest::Test
   end
 
   # THE SAME OPERATOR HANDED TWO DIFFERENT OPERANDS: a number written into the program, and a
-  # second variable. Reading a variable is three instructions where the number is one, and
-  # every weight in the model was measured with whichever of the two its own benchmark held —
-  # so a weight can pay for one read and never for two. These two fixtures differ in that
-  # operand and in nothing else, which is what makes their difference the read alone.
+  # second variable. Every weight in the model was measured with whichever of the two its own
+  # benchmark held, so a weight that pays for the operand it saw pays wrongly for the other
+  # one. These two fixtures differ in that operand and in nothing else, which is what makes
+  # their difference the read alone.
   #
   # THE SAME COUNT ON BOTH SIDES, and the spare `p` declared on both, so the two programs
   # place their variables alike and nothing but the operand is left between them.
@@ -524,12 +524,19 @@ class TestCostCalibration < Minitest::Test
                     "not two weights and the split that made them is wrong"
   end
 
-  # THE SECOND VARIABLE A STATEMENT READS, which the model charged nothing for. The claim here
-  # is the DIFFERENCE between the two fixtures rather than either of them on its own, and that
-  # is not a stylistic choice: two instructions in twelve sits well inside the band a single
-  # fixture is judged by, so a fixture reading a second variable would have passed while the
-  # model paid for one of them. Differenced, everything the pair shares — the statement, the
-  # operator, the loop, the first read — cancels, and what is left is the second read.
+  # THE SECOND VARIABLE A STATEMENT READS COSTS WHAT A NUMBER DOES, and this is the case that
+  # holds that down. It has not always been true. A read used to name the base of the variable
+  # memory and then load from it, so a second variable operand was two instructions where the
+  # number written in its place was one — and the model, charging nothing for it, ran a
+  # statement like `n.set(m + p)` two instructions light. Now the base is already in the
+  # register from the first read, the second is a bare load, and the two operands are the same
+  # one instruction. So the weight is nothing because the console asks for nothing.
+  #
+  # The claim is the DIFFERENCE between the two fixtures rather than either of them on its own,
+  # and that is not a stylistic choice: two instructions in twelve sits well inside the band a
+  # single fixture is judged by, so a fixture reading a second variable would pass either way.
+  # Differenced, everything the pair shares — the statement, the operator, the loop, the first
+  # read — cancels, and what is left is the second read.
   #
   # This is not a CASE, for the reason the statement weights above are not: a variable read is
   # an ingredient of nearly every other fixture here, so no fixture can watch it and leave the
@@ -540,8 +547,7 @@ class TestCostCalibration < Minitest::Test
 
     predicted = predict(two) - predict(one)
     measured = measure(two) - measure(one)
-    assert_operator measured, :>, SLACK, "reading a second variable has to be measurable work"
-    assert_in_delta predicted, measured, (predicted * BAND) + SLACK,
+    assert_in_delta predicted, measured, (predicted.abs * BAND) + SLACK,
                     "over #{PLAIN_STATEMENTS} statements the model says a second variable read " \
                     "costs ~#{predicted.round(2)} scanlines and the emulator measures " \
                     "#{measured.round(2)} — :var_operand has drifted from reality. " \

@@ -277,7 +277,7 @@ class TestCostRollup < CostModelTest
 
   def test_a_game_that_might_collide_is_not_reported_over_budget
     prog = near_misses
-    walk = 6 * 16 * 16 * WEIGHTS[:overlap_pixel]
+    walk = 6 * 32 * 32 * WEIGHTS[:overlap_pixel]
 
     assert_operator walk, :>, 228, "the worst case really does exceed a frame"
     assert_operator Cost.new.frame_cost(prog), :>=, walk, "and the worst case still counts it"
