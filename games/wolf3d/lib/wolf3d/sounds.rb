@@ -30,6 +30,11 @@ module Wolf3D
     DOOR_OPENS = 3
     DOOR_SHUTS = 2
     SECRET_WALL = 15     # a wall that slides away
+    # The lift starting, when you pull the lever at the end of a floor. This one is NOT in the
+    # shareware release — the original's map has it behind the same switch that hides the later
+    # episodes' sounds — so a shareware copy simply plays nothing here, like every other sound
+    # it does not hold.
+    LEVEL_DONE = 30
 
     # A GUARD HAS EIGHT DEATH SCREAMS and the original picks between them at random, which is what
     # stops a firefight sounding like a loop. Two of them are in every copy of the game and the
@@ -61,6 +66,16 @@ module Wolf3D
     def door_opens = retrigger(DOOR_OPENS)
     def door_shuts = retrigger(DOOR_SHUTS)
     def secret_wall = retrigger(SECRET_WALL)
+    def level_done = play(LEVEL_DONE)
+
+    # How long that one lasts, in frames, which the lift needs: the original plays it and then
+    # WAITS for it to finish before the floor ends, so the sound is what decides the pause. Nil
+    # when this copy of the game does not hold the recording.
+    def level_done_frames
+      sound = @clips_source&.[](LEVEL_DONE) or return nil
+
+      ((sound.pcm.length.to_f / sound.rate) * 60).round
+    end
 
     # ...and one of his death screams, chosen as the game runs. Written out as one arm per scream
     # because a sample is played by name: which clip a `play` means is settled while the cartridge
@@ -78,11 +93,14 @@ module Wolf3D
 
     # Every chunk this game knows how to use. Named for the moment rather than the number, so a
     # sound the player's copy does not hold simply never reaches the list.
-    WANTED = [PISTOL, NOTICES_YOU, GUARD_FIRES, DOOR_OPENS, DOOR_SHUTS, SECRET_WALL,
+    WANTED = [PISTOL, NOTICES_YOU, GUARD_FIRES, DOOR_OPENS, DOOR_SHUTS, SECRET_WALL, LEVEL_DONE,
               *DEATH_SCREAMS].freeze
 
     def declare
       @clips = {}
+      # The recordings themselves, kept beside the clips because how LONG one lasts is a question
+      # a caller can ask and a built clip cannot answer.
+      @clips_source = {}
       return if @vswap.nil?
 
       WANTED.uniq.each do |chunk|
@@ -91,6 +109,7 @@ module Wolf3D
         sound = @vswap.sound(chunk)
         next if sound.length.zero?
 
+        @clips_source[chunk] = sound
         @clips[chunk] = @b.sample(:"sound_#{chunk}", pcm: sound.pcm, rate: sound.rate)
       end
       @which = @b.var :_which_scream, 0 unless @clips.empty?
