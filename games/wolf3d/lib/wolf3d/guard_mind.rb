@@ -38,7 +38,8 @@ module Wolf3D
     NOBODY = -1
 
     def initialize(build:, guards:, pool:, level:, world:, player:, door_open:, walls:, things:,
-                   blocked: nil, dying: nil, pickups: nil, sounds: nil)
+                   blocked: nil, dying: nil, pickups: nil, sounds: nil, rooms: nil,
+                   floors: nil, map_base: nil)
       @b = build
       @dying = dying      # what to tell when a shot takes the last of the health, or nil
       @pickups = pickups  # what to tell when a guard falls, so he can leave a clip behind
@@ -46,6 +47,12 @@ module Wolf3D
       @guards = guards
       @pool = pool
       @level = level
+      @floors = floors    # every floor the cartridge holds, or nil for a game with one
+      @rooms = rooms      # which rooms are open to the player's, or nil where nothing shuts off
+      # WHERE THIS FLOOR'S SLICE OF EVERY TABLE BEGINS. The tables hold all the floors end to end,
+      # so every read of one adds this — the same number the view adds. Nought for a cartridge
+      # with a single floor, which is every test that builds one directly.
+      @base = map_base || 0
       @world = world      # the flat map table the ray walk reads
       @things = things    # the row of pictures everything standing in the level is drawn from
       @blocked = blocked  # which cells hold scenery a foot cannot pass, or nil for a bare floor
@@ -95,9 +102,8 @@ module Wolf3D
       @step_y = b.table :guard_step_y, steps.map(&:last)
 
       # A TURNING POINT UNDER A PATROLLING GUARD sends him a new way. Nowhere means carry on.
-      @arrow = b.table :guard_arrow,
-                       @level.each_cell.map { |x, y| @guards.arrow_at(x, y) || Guards::NOWHERE },
-                       width: :byte
+      # Every floor's, end to end like the map, and read with this floor's own slice added.
+      @arrow = b.table :guard_arrow, every_floors_arrows, width: :byte
 
       reach = [@level.width, @level.height].max
       @shot = b.table :guard_shot, (0..reach).map { |away| shot_chance(away) }
@@ -129,7 +135,21 @@ module Wolf3D
       @turn = b.var :_gturn, 0
       b.func(:guard_thinking, fast: false) do
         @turn.set((@turn + 1) % 2)
-        @pool.each { |guard| (guard.turn == @turn).then { think(guard) } }
+        # HALF OF THEM ON ANY ONE FRAME, which is what @turn is for — said here because nothing at
+        # build time can read it off the test, and unsaid the report counts every guard thinking
+        # on every frame.
+        @pool.each { |guard| (guard.turn == @turn).then(estimate: { usually: 1, in: 2 }) { think(guard) } }
+      end
+    end
+
+    # THE TURNING POINTS OF EVERY FLOOR, in the order the cartridge plays them, so that this table
+    # lines up cell for cell with the map. A cartridge with one floor is that floor's own.
+    def every_floors_arrows
+      floors = @floors&.to_a || [nil]
+      floors.flat_map do |floor|
+        level = floor&.level || @level
+        guards = floor&.guards || @guards
+        level.each_cell.map { |x, y| guards&.arrow_at(x, y) || Guards::NOWHERE }
       end
     end
 
@@ -156,13 +176,37 @@ module Wolf3D
     # think — which is the order the original does it in, and it matters: a state that has just
     # begun thinks on the frame it begins.
     def think(guard)
+      return thinks_it_through(guard) if @rooms.nil?
+
+      # ...UNLESS HE HAS NO REASON TO, which is the original's own first line here (wl_play.cpp,
+      # DoActor): a guard thinks if he has ever been seen, or if the room he is in is open to the
+      # room the player is in. Everyone else stands exactly as he was.
+      #
+      # Nearly all of a think is the line of sight he walks to you, and it is walked whether he is
+      # next door or on the far side of the floor. The second floor of the first episode has
+      # twenty-nine guards and, wherever you stand on it, about one and a half of them are in the
+      # room with you.
+      ((guard.awake == 1) | @rooms.open_to_the_player?(guard.x, guard.y))
+        .then { thinks_it_through(guard) }
+    end
+
+    def thinks_it_through(guard)
       @state.set guard.state
       step_the_state(guard)
 
+      # EXACTLY ONE OF THESE RUNS. They are three arms of one choice — a guard is standing, or
+      # walking his beat, or coming after you — and nothing at build time can see that, so unsaid
+      # the report counts all three on every guard on every frame. It is not a small lie: nearly
+      # all of a job is the line of sight it walks, so counting three jobs where one runs put
+      # `guard_thinking` at three times its real cost and sent a whole afternoon after the wrong
+      # thing. One in three, and the worst frame is unchanged either way.
+      #
+      # HALF AGAIN ON TOP OF THAT: a guard thinks on alternate frames (see @turn), so the body
+      # this sits in runs for half the pool on any one frame. That one is said where the loop is.
       @job.set(@think_of[guard.state])
-      (@job == LOOK).then { look(guard) }
-      (@job == PATROL).then { patrol(guard) }
-      (@job == CHASE).then { chase(guard) }
+      (@job == LOOK).then(estimate: { usually: 1, in: 3 }) { look(guard) }
+      (@job == PATROL).then(estimate: { usually: 1, in: 3 }) { patrol(guard) }
+      (@job == CHASE).then(estimate: { usually: 1, in: 3 }) { chase(guard) }
     end
 
     # A state with no length never runs down — that is how standing goes on forever. One step a
@@ -329,7 +373,7 @@ module Wolf3D
         @celly.set @aty.to_i
 
         ((@cellx == @tx) & (@celly == @ty)).then { @done.set 1 }.else do
-          @ahead.set(@world[(@celly * @width) + @cellx])
+          @ahead.set(@world[@base + (@celly * @width) + @cellx])
           (@ahead > 0).then { blocked_by(@ahead) }
           (@clear == 0).then { @done.set 1 }
         end
@@ -407,7 +451,7 @@ module Wolf3D
     # A turning point under his feet sends him a new way; without one he carries straight on.
     # Either way he only sets off if he can actually get there.
     def choose_a_patrol_way(guard)
-      @way.set(@arrow[(guard.y.to_i * @width) + guard.x.to_i])
+      @way.set(@arrow[@base + (guard.y.to_i * @width) + guard.x.to_i])
       (@way < Guards::NOWHERE).then { guard.dir.set @way }
       @picked.set 0
       try_this_way(guard, guard.dir)
@@ -514,7 +558,7 @@ module Wolf3D
     # way, and nothing standing in it that a body cannot pass. The same question the player's
     # feet ask, asked of a guard — and a guard is stopped by a barrel exactly as you are.
     def walkable
-      @spot.set((@celly * @width) + @cellx)
+      @spot.set(@base + (@celly * @width) + @cellx)
       @ahead.set(@world[@spot])
       @clear.set 0
       (@ahead == 0).then { @clear.set 1 }
