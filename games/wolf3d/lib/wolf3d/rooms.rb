@@ -72,8 +72,13 @@ module Wolf3D
     # the game keeps them.
     def open_to_the_player?(x, y)
       @room.set(@room_of[@map_base + (y.to_i * @width) + x.to_i])
-      @open_room[@room] == 1
+      open?(@room)
     end
+
+    # ...and the same question asked of a room NUMBER, for anything that was told its room while
+    # the cartridge was built and does not have to work it out again. A piece of scenery never
+    # moves, so this is what it asks.
+    def open?(room) = @open_room[room] == 1
 
     private
 
@@ -99,11 +104,45 @@ module Wolf3D
       @open_room = b.list :room_open, capacity: @count
       @count.times { @open_room << 0 }
 
-      @room, @here, @spread, @near, @far = whole(:room, :here, :spread, :near, :far)
+      @always = always_joined
+      @room, @here, @stood, @spread, @near, @far =
+        whole(:room, :here, :stood, :spread, :near, :far)
       declare_the_fill
     end
 
-    def whole(*names) = names.map { |name| @b.var(:"_#{name}", 0) }
+    # WORKING ROOM OF ITS OWN, and the prefix is not tidiness. Every class here names its scratch
+    # by what it is for — :here, :spot, :near — and they all land in one flat set of names, so two
+    # classes that pick the same word get the same variable and quietly write over each other.
+    # This was not theory: :here is also where the view keeps the map cell under the player's
+    # feet, and sharing it put a door code where a room number goes.
+
+    # THE ROOMS A WALL THAT SLIDES CAN JOIN. A door is not quite the only way one room opens onto
+    # another: shove a secret wall and what is behind it is open too, and no door was involved.
+    #
+    # Almost never does that matter, and the almost is measured rather than assumed — over the
+    # whole first episode, ONE secret wall of sixty-seven has different rooms on either side of
+    # it. Every other one opens into the room it was already part of.
+    #
+    # So the pair is simply joined for good rather than watched. It costs one join in a fill that
+    # runs once a frame, on the one floor that has such a wall and on no other; what it buys is
+    # that nothing standing in the secret room can ever fail to be drawn. The other way round —
+    # watching whether the wall has moved — is more code in the same loop for every floor, to save
+    # nothing anybody can see.
+    def always_joined
+      @floors.flat_map { |floor| floor.pushwalls.walls.map { |wall| rooms_round(floor.level, wall) } }
+             .select { |pair| pair.length == 2 }
+             .uniq
+    end
+
+    def rooms_round(level, wall)
+      [[1, 0], [-1, 0], [0, 1], [0, -1]].filter_map do |dx, dy|
+        x = wall.x + dx
+        y = wall.y + dy
+        level.area(x, y)&.+(1) if level.inside?(x, y)
+      end.uniq
+    end
+
+    def whole(*names) = names.map { |name| @b.var(:"_room_#{name}", 0) }
 
     # The rooms either side of a door. A panel running one way has its neighbours the other way.
     def joins(level, door)
@@ -142,7 +181,15 @@ module Wolf3D
       b.repeat(@count) { |room| @open_room[room] = 0 }
       # Nowhere in particular is always open — see NOWHERE.
       @open_room[NOWHERE] = 1
-      @here.set(@room_of[@map_base + (@player[:y].to_i * @width) + @player[:x].to_i])
+
+      # WHICH ROOM THE PLAYER IS IN, and it is REMEMBERED rather than read fresh, because there
+      # are cells that are in no room and the player walks through them constantly: a doorway is
+      # one. Read fresh, standing in a doorway would say "no room", and then no room at all would
+      # be open and every lamp in the level would blink out for the two steps it takes to walk
+      # through. The room they were last really in is the right answer there — a doorway they are
+      # standing in is open by definition, so the room on the other side of it is open too.
+      @stood.set(@room_of[@map_base + (@player[:y].to_i * @width) + @player[:x].to_i])
+      (@stood > NOWHERE).then { @here.set @stood }
       @open_room[@here] = 1
 
       # SPREAD THROUGH THE OPEN DOORS UNTIL NOTHING MORE OPENS. Two rooms joined by an open door
@@ -161,17 +208,23 @@ module Wolf3D
       @spread.set 1
       b.repeat(@count, stop_when: @spread == 0, estimate: { usually: 1 }) do
         @spread.set 0
+        # THE ROOMS THAT ARE ALWAYS JOINED, if this cartridge has any — see always_joined.
+        @always.each { |near, far| join(near, far) }
         b.repeat(@door_count, estimate: how_many_doors) do |door|
           (@open[door] > AJAR).then do
             @near.set(@side_a[@door_first + door])
             @far.set(@side_b[@door_first + door])
-            ((@open_room[@near] == 1) & (@open_room[@far] == 0))
-              .then { @open_room[@far] = 1; @spread.set 1 }
-            ((@open_room[@far] == 1) & (@open_room[@near] == 0))
-              .then { @open_room[@near] = 1; @spread.set 1 }
+            join(@near, @far)
           end
         end
       end
+    end
+
+    # Two rooms are one room from here on. Both ways round, because the walk over the doors meets
+    # them in whatever order the level lists them.
+    def join(near, far)
+      ((@open_room[near] == 1) & (@open_room[far] == 0)).then { @open_room[far] = 1; @spread.set 1 }
+      ((@open_room[far] == 1) & (@open_room[near] == 0)).then { @open_room[near] = 1; @spread.set 1 }
     end
 
     # For the estimate only — the walk is over however many doors THIS floor has, which is a
