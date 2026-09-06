@@ -64,7 +64,8 @@ module Wolf3D
     # +piece_count+ are where the floor being played begins in the tables of every floor's pieces
     # and how many it has. A one-floor game leaves all three out.
     def initialize(build:, things:, eye:, scenery: nil, guards: nil, pool: nil, mind: nil,
-                   pickups: nil, floors: nil, piece_first: nil, piece_count: nil)
+                   pickups: nil, floors: nil, piece_first: nil, piece_count: nil,
+                   rooms: nil, piece_room: nil)
       @b = build
       @things = things
       @eye = eye
@@ -72,6 +73,8 @@ module Wolf3D
       @floors = floors
       @piece_first = piece_first
       @piece_count = piece_count
+      @rooms = rooms          # which rooms are open to the player's, or nil where nothing shuts off
+      @piece_room = piece_room # ...and which room each piece stands in, settled while building
       @guards = guards
       @pool = pool
       @mind = mind
@@ -343,7 +346,29 @@ module Wolf3D
     # +piece+ IS THIS FLOOR'S OWN NUMBER, because that is what says whether it has been taken —
     # which is state a floor is played with. Reaching the tables of every floor's pieces adds
     # where this floor's begin.
+    # IS IT EVEN WORTH LOOKING AT, asked before anything else and answered without arithmetic: a
+    # lamp does not move, so which room it stands in was settled while the cartridge was built,
+    # and whether that room is open to the player's was settled once for the whole floor at the
+    # top of the frame. A table read, a list read and a comparison.
+    #
+    # WHAT IT REPLACES is the whole of `place` — two multiplications of numbers holding a fraction
+    # and four more steps — done for every piece on the floor whether it could be seen or not.
+    # There are 344 of them on the second floor and, wherever you stand on it, about sixteen are
+    # in a room open to you.
+    #
+    # IT CANNOT HIDE ANYTHING YOU COULD SEE. Rooms in this game are joined only by doors — over
+    # the whole first episode there is not one place where two rooms touch without one — so a
+    # room you can see into is a room whose door is open, and an open door is exactly what makes
+    # a room open here. The one other way in, a wall that slides, is dealt with where the rooms
+    # are joined.
     def look_at_a_piece(piece)
+      return look_closely_at_a_piece(piece) if @rooms.nil?
+
+      at = @piece_first ? @piece_first + piece : piece
+      @rooms.open?(@piece_room[at]).then { look_closely_at_a_piece(piece) }
+    end
+
+    def look_closely_at_a_piece(piece)
       at = @piece_first ? @piece_first + piece : piece
       place(@piece_x[at], @piece_y[at], SCENERY_NUDGE)
       (@fwd > NEAREST).then do

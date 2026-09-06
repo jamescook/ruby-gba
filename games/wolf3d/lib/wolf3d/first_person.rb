@@ -490,6 +490,9 @@ module Wolf3D
       # The recorded sounds come before the guards' minds, because a guard shouting, shooting and
       # dying is most of what there is to hear.
       @sounds = Sounds.new(build: b, vswap: @vswap)
+      # ...and before both of them, because a guard asks it whether to think and every piece of
+      # scenery asks it whether to be looked at.
+      declare_the_rooms
       declare_the_guards
       declare_the_pickups
       declare_the_guards_minds
@@ -655,8 +658,22 @@ module Wolf3D
                                  floors: (@floors if many),
                                  piece_first: (@piece_first if many),
                                  piece_count: (@piece_count if many),
+                                 rooms: @rooms, piece_room: declare_the_pieces_rooms,
                                  guards: @guards, pool: @guard, mind: @mind, pickups: @pickups,
                                  eye: { x: @px, y: @py, cos: @vcos, sin: @vsin, angle: @view })
+    end
+
+    # WHICH ROOM EACH PIECE OF SCENERY STANDS IN, worked out while building because a lamp does not
+    # move. One byte each, every floor end to end like everything else, so the walk over them can
+    # ask whether a piece is even worth looking at before it works out where on the screen it goes.
+    def declare_the_pieces_rooms
+      return nil if @rooms.nil?
+
+      @b.table :thing_room, at_least_one(over_floors { |floor|
+        (floor.scenery&.pieces || []).map do |piece|
+          (floor.level.area(piece.x, piece.y)&.+(1)) || Rooms::NOWHERE
+        end
+      }), width: :byte
     end
 
     # Does anything stand in ANY floor the cartridge holds? A game with nothing anywhere pays for
@@ -728,7 +745,6 @@ module Wolf3D
       return if @guards.nil? || @guards.empty?
 
       b = @b
-      declare_the_rooms
       @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
                             world: @world, door_open: @open, walls: { door: DOOR, push: PUSH },
                             things: @things, blocked: @blocked, dying: @dying, pickups: @pickups,

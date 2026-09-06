@@ -38,7 +38,7 @@ class TestRooms < Minitest::Test
   # +archway+ knocks a hole in the wall that is NOT a door. You can walk through it and see
   # through it, and the two rooms are still not joined — rooms are joined by doors and by nothing
   # else. That is the case the "he has been seen" half exists for.
-  def two_rooms(player: [3, 8], guards: [], archway: nil, door: [7, 8])
+  def two_rooms(player: [3, 8], guards: [], archway: nil, door: [7, 8], scenery: {})
     cells = Array.new(SIDE * SIDE, WALL)
     things = Array.new(SIDE * SIDE, 0)
     (1..SIDE - 2).each do |y|
@@ -53,6 +53,7 @@ class TestRooms < Minitest::Test
     guards.each do |x, y, way|
       things[(y * SIDE) + x] = Guards::PATROLLING + Guards::FACINGS.index(way)
     end
+    scenery.each { |(x, y), code| things[(y * SIDE) + x] = code }
 
     Wolf3D::Level.new(name: "Two rooms", width: SIDE, height: SIDE, walls: cells, things: things)
   end
@@ -67,15 +68,26 @@ class TestRooms < Minitest::Test
     doors = Wolf3D::Doors.new(level, vswap)
     pushwalls = Wolf3D::Pushwalls.new(level)
     guards = Guards.new(level)
+    scenery = Wolf3D::Scenery.new(level)
     atlas = Wolf3D::WallAtlas.new(vswap, Wolf3D::Palette.game, level, doors: doors)
-    things = Wolf3D::ThingAtlas.new(vswap, Wolf3D::Palette.game, guards.pictures)
+    things = Wolf3D::ThingAtlas.new(vswap, Wolf3D::Palette.game,
+                                    (guards.pictures + scenery.pictures).uniq.sort)
 
     RubyGBA.game("ROOMS", code: "ZROO", maker: "01") do
       screen :bitmap, tear_free: true
-      view = FP.new(build: self, level: level, atlas: atlas, doors: doors,
+      view = FP.new(build: self, level: level, atlas: atlas, doors: doors, scenery: scenery,
                     pushwalls: pushwalls, guards: guards, things: things)
       game_loop { drawing ? view.update : view.play }
     end.program
+  end
+
+  # Which strips across the eye line are showing a piece of scenery's own flat colour. The
+  # fixture paints each picture one flat colour of its own, so this is "is it on the screen".
+  def columns_of(run, code)
+    picture = Wolf3D::Scenery::FIRST_PICTURE +
+              Wolf3D::Scenery::PICTURES.fetch(code - Wolf3D::Scenery::FIRST_CODE)
+    ink = Wolf3D::Palette.game[Release::SPRITE_INK + picture]
+    (0...240).select { |x| run.screen.pixel(x, FP::HORIZON) == ink }
   end
 
   def watch(level, drawing: false, frames: FRAMES, keys: [])
@@ -173,6 +185,50 @@ class TestRooms < Minitest::Test
     assert_equal 1, pool(seen, :awake), "but he has been on the screen"
     refute_equal [10.5, 8.5], guard_at(seen), "so he thinks, and walks"
     assert_equal [10.5, 8.5], guard_at(unseen), "and with nothing drawn, nobody sees him and he waits"
+  end
+
+  # --- and the same question asked by everything standing in the rooms ---
+
+  # A piece of scenery does not move, so which room it is in was settled while the cartridge was
+  # built and the whole of its per-frame question is a table read. Walking every piece on the
+  # floor and working out where each lands on the screen is what made the later floors slow.
+  BARREL = Wolf3D::Scenery::FIRST_CODE + 1
+
+  def test_a_barrel_in_your_own_room_is_drawn
+    run = watch(two_rooms(player: [2, 8], scenery: { [5, 8] => BARREL }), drawing: true, frames: 2)
+
+    refute_empty columns_of(run, BARREL), "it is in the room with you"
+  end
+
+  # THE SAVING: it is in another room, behind a shut door, so it is never even looked at.
+  def test_a_barrel_behind_a_shut_door_is_not_looked_at
+    run = watch(two_rooms(player: [3, 8], scenery: { [10, 8] => BARREL }), drawing: true, frames: 2)
+
+    assert_empty columns_of(run, BARREL)
+    assert_equal 0, run[:_seen], "nothing was even queued to draw"
+  end
+
+  # AND THE PROMISE THAT MAKES THE SAVING SAFE: open the door and it is there. A gate that hid
+  # something you can see would be a bug you could look straight at.
+  def test_a_barrel_through_an_OPEN_door_is_drawn
+    level = two_rooms(player: [6, 8], scenery: { [10, 8] => BARREL })
+    opened = Reference.new.input_each_frame { |f| f == 2 ? [:a] : [] }
+                      .run(game(level, drawing: true), frames: 40)
+
+    assert_equal 1, room_open(opened, 2), "the door joined the rooms"
+    refute_empty columns_of(opened, BARREL), "so the barrel down the corridor shows"
+  end
+
+  # STANDING IN THE DOORWAY ITSELF is the case that catches a careless version of this: a doorway
+  # belongs to no room, so reading the player's room fresh each frame says "nowhere" and every
+  # piece of scenery in the level blinks out for the two steps it takes to walk through.
+  def test_walking_through_the_doorway_does_not_blank_the_room_behind_you
+    level = two_rooms(player: [6, 8], scenery: { [3, 8] => BARREL })
+    walked = Reference.new.input_each_frame { |f| f < 3 ? [:a] : [:up] }
+                      .run(game(level, drawing: true), frames: 90)
+
+    assert_operator walked[:px] / ONE, :>, 7.0, "the player is past the doorway"
+    assert_equal 1, room_open(walked, 1), "and the room they came out of is still open"
   end
 
   # Once awake he stays awake, which is what stops a guard flickering in and out of thinking as
