@@ -296,12 +296,7 @@ module Wolf3D
     end
 
     def draw_the_world
-      @b.inside 0, 0, ACROSS, VIEW_H do
-        @b.dma_fill_rect 0, 0, ACROSS, HORIZON, CEILING
-        @b.dma_fill_rect 0, HORIZON, ACROSS, VIEW_H - HORIZON, FLOOR_COLOR
-        @b.repeat(COLUMNS) { |col| cast(col) }
-        @standing&.draw
-      end
+      @b.call :draw_the_view
       @bar.draw
     end
 
@@ -434,7 +429,37 @@ module Wolf3D
       end
       declare_the_floor_start
       declare_the_bar
+      declare_the_view
       declare_the_clock
+    end
+
+    # DRAWING THE VIEW IS A ROUTINE, and the reason is about SIZE rather than about tidiness.
+    #
+    # The console keeps 32K of quick memory where code runs about two and a half times faster,
+    # and the framework fills it with the routines a frame spends its time in. Written straight
+    # into the game loop, everything below is part of one enormous block — the whole loop body,
+    # emitted inline — and a block that big is offered less of the memory than it needs, so it
+    # misses and the WHOLE FRAME runs from the cartridge at a third of the speed. Measured: 23K
+    # wanted against 20.6K offered, and freeing 17K elsewhere did not move the offer by a byte.
+    #
+    # As a routine it is placed or not on its own, and what it leaves behind in the loop is small
+    # enough to be placed too. `rom.explain` lists what was kept and what just missed, which is
+    # the only way to see any of this from outside.
+    #
+    # THE CLIP IS INSIDE THE ROUTINE, not around the call, and it has to be: a routine is built
+    # once for wherever it is called from, so it cannot carry a caller's clipping with it.
+    def declare_the_view
+      # INSISTED ON, because it is the routine the frame is. The framework's own choice puts the
+      # game loop's body in first and then has too little left for this, which is the wrong way
+      # round: the loop body is mostly the CALL to this. Marked, they both fit.
+      @b.func(:draw_the_view, fast: true) do
+        @b.inside 0, 0, ACROSS, VIEW_H do
+          @b.dma_fill_rect 0, 0, ACROSS, HORIZON, CEILING
+          @b.dma_fill_rect 0, HORIZON, ACROSS, VIEW_H - HORIZON, FLOOR_COLOR
+          @b.repeat(COLUMNS) { |col| cast(col) }
+          @standing&.draw
+        end
+      end
     end
 
     # WHERE THE LEVEL PUTS YOU, in one place because it is wanted twice: once to start with, and
