@@ -103,17 +103,21 @@ class TestFixtureRelease < Minitest::Test
     assert_operator offsets.min - header_ends, :>=, wanted
   end
 
-  def test_the_packed_art_unpacks_to_what_went_in
+  # Each chunk carries how long it comes out in four bytes in front of the packing, because
+  # the packing itself does not say where it stops. Read the long way round here — offsets,
+  # length, tree — so the fixture is proven before the reader that trusts it.
+  def test_a_packed_chunk_says_how_long_it_comes_out
     release = Release.new
     graph, dictionary, head = release.send(:vgagraph)
     offsets = head.bytes.each_slice(3).map { |a, b, c| a | (b << 8) | (c << 16) }
     tree = Wolf3D::Codec::Huffman::Tree.from_dictionary(dictionary)
 
-    table = tree.unpack(graph[offsets[0], offsets[1] - offsets[0]], 8)
-    assert_equal [8, 8, 16, 4], table.unpack("v*")
+    assert_equal graph.bytesize, offsets.last, "the last offset marks the end of the file"
 
-    picture = tree.unpack(graph[offsets[1], offsets[2] - offsets[1]], 64)
-    assert_equal (0...64).to_a, picture.bytes
+    packed = graph[offsets[0], offsets[1] - offsets[0]]
+    length = packed[0, 4].unpack1("V")
+    assert_equal Release::PICTURES.length * 4, length, "a width and a height per picture"
+    assert_equal Release::PICTURES.flatten, tree.unpack(packed[4..], length).unpack("v*")
   end
 
   private

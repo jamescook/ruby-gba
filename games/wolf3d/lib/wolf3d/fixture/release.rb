@@ -242,20 +242,75 @@ module Wolf3D
         Array.new(512) { |i| (128 + (Math.sin(i * (index + 1) * 0.05) * 100).round) & 0xFF }.pack("C*")
       end
 
+      # THE PICTURES, and their widths divide by four on purpose — the display these were
+      # drawn for held every fourth column in a bank of its own, so a picture is stored as
+      # four quarter-width pictures stacked. A width that did not divide by four could not
+      # be stored at all, so writing one here would teach the reader a shape that cannot
+      # happen.
+      PICTURES = [[8, 4], [16, 2]].freeze
+
+      # THE TWO ALPHABETS, and both are PROPORTIONAL on purpose: a reader that assumed one
+      # width for the whole font would find the second character in the wrong place and
+      # still come back with something that looked like letters.
+      FONTS = [
+        { height: 3, glyphs: { "I" => %w[# # #], "M" => ["# #", "###", "# #"] } },
+        { height: 5, glyphs: { "L" => ["#.", "#.", "#.", "#.", "##"] } }
+      ].freeze
+
+      # What a lit pixel of a glyph holds. Anything but zero is ink; the colour is chosen
+      # when the game writes, not when the alphabet was drawn.
+      FONT_INK = 0xFF
+
       # One dictionary for the whole file, so every chunk is packed with the same tree. The
-      # first chunk is the picture table: a width and a height per picture.
+      # chunks are laid out the way a release lays them out: the picture table, then the
+      # two fonts, then the pictures. Each one carries how long it comes out in four bytes
+      # in front of the packing, because the packing does not say where it stops.
       def vgagraph
-        pictures = [[8, 8], [16, 4]]
-        chunks = [pictures.flatten.pack("v*")]
-        pictures.each_with_index { |(w, h), i| chunks << Array.new(w * h) { |p| (p + i) & 0xFF }.pack("C*") }
+        chunks = [PICTURES.flatten.pack("v*")]
+        FONTS.each { |font| chunks << font_chunk(font) }
+        PICTURES.each_with_index { |(w, h), i| chunks << picture_chunk(w, h, i) }
 
         tree = Codec::Huffman::Tree.for(chunks.join)
-        bodies = chunks.map { |chunk| tree.pack(chunk) }
+        bodies = chunks.map { |chunk| [chunk.bytesize].pack("V") + tree.pack(chunk) }
 
         graph = bodies.join
         at = 0
         offsets = bodies.map { |body| at.tap { at += body.bytesize } } << graph.bytesize
         [graph, tree.dictionary, three_byte(offsets)]
+      end
+
+      # WHAT A PIXEL HOLDS: its own row in the top four bits and its own column in the
+      # bottom four. So a reader that shuffled the four banks, or read the picture down
+      # instead of across, comes back with a number that says where it really went — which
+      # a picture of a pattern would only hint at.
+      def picture_pixel(x, y) = (y << 4) | x
+
+      # Stored bank by bank: the first holds columns 0, 4, 8..., the second columns 1, 5,
+      # 9..., and each bank is a whole quarter-width picture of its own.
+      def picture_chunk(width, height, _index)
+        quarter = width / 4
+        4.times.flat_map { |bank|
+          height.times.flat_map { |y| quarter.times.map { |i| picture_pixel((i * 4) + bank, y) } }
+        }.pack("C*")
+      end
+
+      # A font's heading is a height, then where each of the 256 characters starts inside
+      # the chunk, then how wide each one is — and a character nobody drew is nought wide.
+      # The lettering follows, one byte a pixel, read across the rows.
+      def font_chunk(font)
+        height = font.fetch(:height)
+        widths = Array.new(256, 0)
+        locations = Array.new(256, 0)
+        lettering = +"".b
+
+        font.fetch(:glyphs).each do |char, art|
+          code = char.ord
+          widths[code] = art.first.length
+          locations[code] = Vgagraph::Font::HEADER_BYTES + lettering.bytesize
+          art.each { |row| lettering << row.each_char.map { |px| px == "#" ? FONT_INK : 0 }.pack("C*") }
+        end
+
+        [height].pack("v") + locations.pack("v*") + widths.pack("C*") + lettering
       end
 
       def audiot

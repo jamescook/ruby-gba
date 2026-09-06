@@ -64,7 +64,12 @@ WOLF3D_FLOORS=3 ruby wolf3d.rb    # a shorter build, for trying something out
 Nothing about it reaches the frame rate; it is ROM and build time. Ten floors is a 4MB cartridge
 and about eight seconds to build.
 
-Not yet there: the game's own menus and lettering (still packed inside VGAGRAPH, undecoded), the
+The art in VGAGRAPH is read now — the status bar's steel plate, the numerals it counts in, the
+twenty-four faces that watch you, the title screen, and both of Wolfenstein's proportional
+alphabets. Nothing draws with any of it yet; the bar and the title are still in the framework's
+own font.
+
+Not yet there: the game's own menus and lettering on screen, the
 tally between floors, the AdLib music and the effects Wolfenstein never recorded to raw PCM, a
 difficulty picked at the title screen rather than baked into the build, and saving progress
 across power-off.
