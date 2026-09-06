@@ -51,16 +51,38 @@ module RubyGBA
       #   end
       #   draw_text "A", 10, 10, :white, font: :heavy   # define with `font`, select with `font:`
       #
+      # That is the right surface for a font you are inventing, and the wrong one for a
+      # font that already exists — nobody is going to retype a game's alphabet as hashes
+      # and dots. So a font can also be given as GLYPH PICTURES: `glyphs:` maps each
+      # character to rows of pixel values, and a pixel that is not +blank+ is lit.
+      #
+      #   font :imported, glyphs: { "A" => [[0, 1, 0], [1, 1, 1]] }
+      #
+      # Each glyph keeps its own width, so an alphabet that was drawn proportionally
+      # stays proportional. Give a block or +glyphs:+, not both.
+      #
       # @param name [Symbol] the name it registers under (used as draw_text's font:)
       # @param on [String] the character that marks a lit pixel
       # @param spacing [Integer] blank pixels between characters
       # @param fold [Symbol, nil] :upper to render any case with these glyphs
+      # @param glyphs [Hash{String=>Array<Array>}, nil] char → rows of pixel values
+      # @param blank [Object] the pixel value that is not drawn
       # @return [Symbol] the font name
-      def font(name, on: "#", spacing: 1, fold: nil, &block)
-        raise ArgumentError, "font :#{name} needs a block: font :#{name} do ... end" unless block
-
+      def font(name, on: "#", spacing: 1, fold: nil, glyphs: nil, blank: 0, &block)
         definition = Font::Definition.new(name, on: on)
-        definition.instance_eval(&block)
+        if glyphs
+          raise ArgumentError, "font :#{name} takes a block or glyphs:, not both. Give one of them." if block
+
+          glyphs.each { |char, rows| definition.picture(char, rows, blank: blank) }
+        else
+          unless block
+            raise ArgumentError,
+                  "font :#{name} needs glyphs. Draw them in a block (font :#{name} do ... end), " \
+                  "or give pictures of them (font :#{name}, glyphs: ...)."
+          end
+
+          definition.instance_eval(&block)
+        end
         Fonts.register(name, definition.to_font(spacing: spacing, fold: fold))
         name
       end
@@ -315,13 +337,22 @@ module RubyGBA
 
       # A glyph must fit one 8x8 sprite tile in tiled mode. The built-in :default (5x7)
       # and :tiny (3x5) do; a taller/wider custom font would need a bigger sprite, which
-      # isn't wired up yet — so say so plainly rather than clip the glyph.
+      # isn't wired up yet — so say so plainly rather than clip the glyph. An imported
+      # font is usually too big because of one or two wide characters, so name the widest
+      # one: that is what a person has to look at.
       def fits_a_glyph_tile!(font_name, font)
         return if font.cell_w <= HUD_GLYPH_PX && font.height <= HUD_GLYPH_PX
 
+        widest = font.widest_character
+        culprit = if font.cell_w > HUD_GLYPH_PX && widest
+                    " Its widest character is #{widest.inspect}, at #{font.glyph_width(widest)} pixels across."
+                  else
+                    ""
+                  end
         raise ArgumentError,
               "On a tiled screen, the console draws text as #{HUD_GLYPH_PX}x#{HUD_GLYPH_PX} sprite glyphs. " \
-              "Font :#{font_name} is #{font.cell_w}x#{font.height} per character. That is too big for one glyph tile. " \
+              "Font :#{font_name} is #{font.cell_w}x#{font.height} per character. That is too big for one glyph tile." \
+              "#{culprit} " \
               "Use a smaller font (the built-in :default and :tiny fit), or draw this text on a `screen :bitmap`."
       end
 

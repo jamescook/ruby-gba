@@ -49,6 +49,12 @@ module RubyGBA
       @max_width
     end
 
+    # The character that makes the font as wide as it is — what to name when a
+    # screen can't draw a box that big. Any of them, for a fixed-width font.
+    def widest_character
+      @widths.max_by { |_char, w| w }&.first
+    end
+
     # The widest a single character can advance: the widest glyph plus its gap. Used
     # where columns must line up regardless of which character lands in them (a
     # right-aligned number reserves this per digit).
@@ -142,12 +148,21 @@ module RubyGBA
       glyphs.keys.to_h { |ch| [ch, width] }
     end
 
-    # Collects glyphs drawn as ASCII art and builds a {Font} — the machine behind the
-    # `font :name do … end` verb, the sibling of how `image` takes ASCII art. Inside
-    # the block, `glyph "A", art` maps a character to a small bitmap; a lit pixel is
-    # the +on+ character (default "#"), anything else is blank. Glyphs may differ in
-    # width (a proportional font) but must share one height; a ragged glyph (rows of
-    # unequal length) or an odd-height one is a friendly error as the font is built.
+    # Collects glyphs and builds a {Font} — the machine behind the `font :name do … end`
+    # verb, the sibling of how `image` takes ASCII art. A glyph arrives one of two ways.
+    #
+    # Typed in, for a font somebody is inventing: `glyph "A", art` maps a character to a
+    # small bitmap, where a lit pixel is the +on+ character (default "#") and anything
+    # else is blank.
+    #
+    # Or as a PICTURE, for a font that already exists — sliced out of an image, or
+    # decoded from a game's own data. `picture "A", rows, blank: 0` takes rows of pixel
+    # values, and a pixel that is not +blank+ is lit. Nobody is going to retype an
+    # alphabet as hashes and dots.
+    #
+    # Either way glyphs may differ in width (a proportional font) but must share one
+    # height; a ragged glyph (rows of unequal length) or an odd-height one is a friendly
+    # error as the font is built.
     class Definition
       def initialize(name, on: "#")
         @name = name
@@ -162,6 +177,30 @@ module RubyGBA
         rows = art.to_s.each_line.map(&:chomp).reject(&:empty?)
         raise ArgumentError, "font :#{@name} glyph #{char.inspect} has no art" if rows.empty?
 
+        add(char, rows.map { |row| row.each_char.map { |px| px == @on } })
+      end
+
+      # Add a glyph for +char+ from a small picture: rows of pixel values, where a pixel
+      # equal to +blank+ is not drawn and every other value is. A font is one colour, so
+      # what a lit pixel's value IS never matters — only that it is not the background.
+      def picture(char, rows, blank: 0)
+        rows = rows.to_a.map(&:to_a)
+        raise ArgumentError, "font :#{@name} glyph #{char.inspect} has no pixels" if rows.empty?
+
+        add(char, rows.map { |row| row.map { |px| px != blank } })
+      end
+
+      # Build the finished, registerable font.
+      def to_font(spacing:, fold:)
+        raise ArgumentError, "font :#{@name} defines no glyphs" if @glyphs.empty?
+
+        Font.new(glyphs: @glyphs, widths: @widths, height: @height, spacing: spacing, fold: fold)
+      end
+
+      private
+
+      # Store one glyph from its rows of lit/unlit pixels, whichever way they were given.
+      def add(char, rows)
         widths = rows.map(&:length).uniq
         unless widths.size == 1
           raise ArgumentError,
@@ -174,15 +213,6 @@ module RubyGBA
         @glyphs[char] = rows.map { |row| row_byte(row, width) }
       end
 
-      # Build the finished, registerable font.
-      def to_font(spacing:, fold:)
-        raise ArgumentError, "font :#{@name} defines no glyphs" if @glyphs.empty?
-
-        Font.new(glyphs: @glyphs, widths: @widths, height: @height, spacing: spacing, fold: fold)
-      end
-
-      private
-
       # Pin the font's height to the first glyph; every later glyph must match, since
       # a font lays every character out on one baseline. Width is free to vary.
       def fix_height!(char, height)
@@ -194,11 +224,11 @@ module RubyGBA
               "#{@height} tall — every glyph must be the same height"
       end
 
-      # One art row → its row-byte: bit (width-1-x) set where column x holds the
-      # +on+ character, matching how {Font#each_pixel} reads a row back.
+      # One row of lit/unlit pixels → its row-byte: bit (width-1-x) set where column x
+      # is lit, matching how {Font#each_pixel} reads a row back.
       def row_byte(row, width)
         byte = 0
-        width.times { |x| byte |= 1 << (width - 1 - x) if row[x] == @on }
+        width.times { |x| byte |= 1 << (width - 1 - x) if row[x] }
         byte
       end
     end
