@@ -50,6 +50,11 @@ module CostArith
   def tearfree_fill(w, h)
     WEIGHTS[:tearfree_rect_start] + (h * dma_start) + (w * h * WEIGHTS[:tearfree_fill_pixel])
   end
+  # A whole picture on the tear-free screen: a clipped row copy a row, exactly as in
+  # direct color, but a pixel is one byte there and two here so a row moves half as many
+  # units. The per-pixel weight is the block fill's, on the same screen and the same
+  # engine.
+  def tearfree_blit(w, h) = (h * dma_start) + (w * h * WEIGHTS[:tearfree_fill_pixel])
   # A repeat: each pass runs the body AND pays for going round (the count, the test, the
   # jump back), which is real work and roughly three plain steps — plus what the loop costs
   # once for being entered at all, which a short loop pays over very few passes.

@@ -928,13 +928,14 @@ module RubyGBA
         # picture needs a second form before anything can draw it there. Built here, once, and
         # shipped beside the picture's colors.
         #
-        # Only the pictures a tear-free scene actually draws: a program that never uses one
-        # ships nothing extra, and a picture used only on a direct-color scene stays as it was.
         # Every picture the program declares, once it has a tear-free scene at all — rather than
-        # only the ones such a scene draws. Narrowing it to what is drawn would mean naming the
-        # verbs that draw a picture, and a program that draws none would then ship nothing, which
-        # is the whole set today: no verb can put a picture on this screen yet. Narrow it when
-        # there is something to narrow against.
+        # only the ones such a scene draws. A program with no tear-free scene ships nothing
+        # extra, and a picture used only on a direct-color scene stays as it was.
+        #
+        # Narrowing it to what is drawn would mean naming the verbs that draw a picture, and
+        # that list is now real (`blit`, and `blit_pose` through it), so the narrowing is worth
+        # doing — a game that declares a hundred pictures and draws two on its tear-free scene
+        # ships ninety-eight second copies nobody reads.
         def prepare_indexed_bitmaps(program)
           program.walk do |node|
             next unless node.kind == :bitmap

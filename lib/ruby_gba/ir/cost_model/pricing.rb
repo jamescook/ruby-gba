@@ -1049,11 +1049,29 @@ module RubyGBA
         def blit_cost(name)
           bmp = @catalogue && @catalogue.bitmaps[name]
           return 0 unless bmp
+          return tearfree_blit_cost(bmp) if @walker.tear_free?
           return dma_rows_cost(bmp.width, bmp.height) unless bmp.transparent
 
           @weights[:blit_start] + (bmp.lit_rows * @weights[:blit_row]) +
             (bmp.lit_pixels * @weights[:blit_pixel]) +
             (bmp.wide_color_pixels * @weights[:blit_wide_color])
+        end
+
+        # ON THE TEAR-FREE SCREEN a picture is copied in the same shape as on the direct
+        # one — a clipped row copy per row — but a pixel there is one BYTE where the direct
+        # screen's is two, so a row moves half as many units through the engine. What comes
+        # before each row is unchanged: the clip, the two addresses, and the engine's start.
+        # Only a solid picture reaches here; a see-through one is refused while building.
+        #
+        # THE PER-PIXEL WEIGHT IS BORROWED from the block fill on this same screen, which is
+        # the same engine writing the same page two pixels to a unit. What the borrow does
+        # not carry is where the pixels come FROM: this one reads them out of the cartridge,
+        # where a fill repeats a value the engine already holds, and the cartridge is the
+        # slower of the two. So a picture reads a little under here until the weight is
+        # measured on a picture rather than on a fill.
+        def tearfree_blit_cost(bmp)
+          (bmp.height * dma_start_weight) +
+            (bmp.width * bmp.height * @weights[:tearfree_fill_pixel])
         end
 
         # Saving or restoring a patch copies its footprint by per-row DMA — the same

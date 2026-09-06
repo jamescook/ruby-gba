@@ -184,19 +184,10 @@ class TestBufferedMode4 < Minitest::Test
     assert drew_digits, "a numeric score should render in white in buffered mode"
   end
 
-  # blit still can't draw on the indexed screen (its images are direct-color): a
-  # friendly error that names the verbs that do work.
-  def test_blit_is_unsupported_in_buffered_mode
-    prog = program(
-      screen(:bitmap, buffered: true),
-      bitmap(:s, width: 2, height: 1, pixels: [Color.resolve(:red), Color.resolve(:blue)].pack("v*")),
-      blit(:s, 0, 0),
-      halt,
-    )
-    err = assert_raises(GBA::LoweringError) { GBA.new.lower(prog) }
-    assert_match(/blit/, err.message)
-    assert_match(/draw_text|pixel|rectangle fills/, err.message) # names what does work
-  end
+  # A whole PICTURE draws here too — it is shipped a second time as one number a pixel
+  # and copied in a row at a time. What that costs, where it clips, and the two things it
+  # still refuses (an odd column, a see-through picture) all live in test_buffered_blit.rb,
+  # which is the file that owns the subject.
 
   # --- tear-free fills move two pixels at a time, odd start column included ---
 
