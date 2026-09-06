@@ -51,12 +51,20 @@ pickups standing in the rooms, the status bar, and the game's sound effects thro
 mixer. Without your own copy of the data the cartridge still builds; it shows a title screen and
 says so instead of a floor.
 
-The lift at the end of the floor works: step into the car, face the lever, and pull it. On floor
-one the lift is behind the elevator door at the north end of the map, and there is a second,
-secret one that the original sends you to a hidden floor from.
+A whole episode: ten floors, and the lift at the end of each one takes you to the next. Step into
+the car, face the lever, and pull it. On floor one the lift is behind the elevator door at the
+north end of the map, and there is a second, secret one that takes you to the hidden floor.
+
+How many floors the cartridge holds is a build-time choice, ten by default:
+
+```sh
+WOLF3D_FLOORS=3 ruby wolf3d.rb    # a shorter build, for trying something out
+```
+
+Nothing about it reaches the frame rate; it is ROM and build time. Ten floors is a 4MB cartridge
+and about eight seconds to build.
 
 Not yet there: the game's own menus and lettering (still packed inside VGAGRAPH, undecoded), the
-AdLib music and the effects Wolfenstein never recorded to raw PCM, a difficulty picked at the
-title screen rather than baked into the build, and saving progress across power-off. The lift
-currently puts you back at the start of the same floor, because every table this cartridge reads
-is built for one floor; carrying all of them together is the next piece of work.
+tally between floors, the AdLib music and the effects Wolfenstein never recorded to raw PCM, a
+difficulty picked at the title screen rather than baked into the build, and saving progress
+across power-off.

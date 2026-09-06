@@ -156,16 +156,25 @@ module Wolf3D
     CEILING = RubyGBA::Color.rgb(7, 7, 9)
     FLOOR_COLOR = RubyGBA::Color.rgb(12, 11, 10)
 
-    def initialize(build:, level:, atlas:, doors:, pushwalls:, guards: nil, things: nil,
-                   scenery: nil, vswap: nil, lifts: nil)
+    # +floors+ is every floor the cartridge holds. A game with one floor may hand over its pieces
+    # loose instead — `level:`, `doors:` and the rest — which is what a test builds and what a
+    # cartridge with nowhere to go is; the two are the same thing with one floor in it.
+    def initialize(build:, atlas:, level: nil, doors: nil, pushwalls: nil, guards: nil,
+                   things: nil, scenery: nil, vswap: nil, lifts: nil, floors: nil)
+      @floors = floors || Floors.of(level: level, doors: doors, pushwalls: pushwalls,
+                                    lifts: lifts, guards: guards, scenery: scenery)
+      here = @floors.first_floor
       @b = build
-      @level = level
       @atlas = atlas
-      @doors = doors
-      @pushwalls = pushwalls
-      @lifts = lifts
-      @guards = guards
-      @scenery = scenery
+      # THE FIRST FLOOR'S OWN PIECES, which is what the build-time questions with no floor in them
+      # ask: how wide a map is, and what a wall code's picture is. Everything that differs from
+      # one floor to the next goes through @floors instead.
+      @level = here.level
+      @doors = here.doors
+      @pushwalls = here.pushwalls
+      @lifts = here.lifts
+      @guards = here.guards
+      @scenery = here.scenery
       @things = things
       @vswap = vswap # the player's own copy of the recorded sounds, or nil for a silent build
       declare
@@ -219,7 +228,7 @@ module Wolf3D
       end
       # ...and outside that, because a lift already on its way does not stop because the thing
       # that pulled it has since been shot.
-      run_the_lift if @lifts && !@lifts.empty?
+      run_the_lift if lifts?
     end
 
     # Is the game still the player's to play? Until something can kill you it always is.
@@ -343,7 +352,9 @@ module Wolf3D
       # Keeping doors in the same table is what makes them nearly free: the walk already tests
       # "is there anything here", and that test is false almost every step. Only when something
       # IS here does it go on to ask which kind, and by then the ray has stopped anyway.
-      @world = b.table :world, @level.each_cell.map { |x, y| cell_value(x, y) }
+      @world = b.table :world, @floors.flat_map { |floor|
+        floor.level.each_cell.map { |x, y| cell_value(floor, x, y) }
+      }
 
       # WHICH CELLS HOLD SOMETHING A FOOT CANNOT PASS, and it is a table of its own rather than
       # a fifth meaning in the one above. A barrel is the first thing in this game that stops
@@ -360,23 +371,34 @@ module Wolf3D
       # How far open each door is: 0 is shut, 1 is out of the way. A door is only ever moving
       # toward one or the other, so this one number is its whole state, and the count beside it
       # is how long it still has to stand open.
-      @open = b.list :door_open, capacity: [@doors.count, 1].max, holds: 0.0
-      @linger = b.list :door_linger, capacity: [@doors.count, 1].max
+      # SIZED FOR THE WORST FLOOR, not for all of them added together, because only one floor is
+      # ever being played. Every list below is the state of the floor under your feet.
+      @open = b.list :door_open, capacity: room_for(:doors), holds: 0.0
+      @linger = b.list :door_linger, capacity: room_for(:doors)
 
       # Which picture each door wears, worked out while building — a door's panel does not
       # turn, so unlike a wall it needs no choosing as the game runs.
-      @door_picture = b.table :door_picture, at_least_one(door_pictures), width: :byte
-      @door_across = b.table :door_across, at_least_one(@doors.doors.map(&:across)), width: :byte
+      #
+      # ...and every floor's doors end to end, reached by adding where this floor's start. That
+      # is the shape of every table from here down.
+      @door_picture = b.table :door_picture, at_least_one(over_floors { |f| door_pictures(f) }), width: :byte
+      @door_across = b.table :door_across, at_least_one(over_floors { |f| f.doors.doors.map(&:across) }),
+                             width: :byte
       # Which key each door wants, as the bit the player carries. Nought wants none.
-      @door_lock = b.table :door_lock, at_least_one(@doors.doors.map { |d| KEY_BITS[d.lock] || 0 }), width: :byte
+      @door_lock = b.table :door_lock,
+                           at_least_one(over_floors { |f| f.doors.doors.map { |d| KEY_BITS[d.lock] || 0 } }),
+                           width: :byte
 
       # A push wall: where it started, what it is made of, and — as the game runs — which way
       # it was shoved, how far it has got, and how long until its next cell.
-      @push_home = b.table :push_home, at_least_one(@pushwalls.homes)
-      @push_face = b.table :push_face, at_least_one(push_pictures), width: :byte
-      @push_step = b.list :push_step, capacity: [@pushwalls.count, 1].max
-      @push_gone = b.list :push_gone, capacity: [@pushwalls.count, 1].max
-      @push_wait = b.list :push_wait, capacity: [@pushwalls.count, 1].max
+      #
+      # WHERE IT STARTED IS A CELL OF ITS OWN FLOOR, with nothing added, because it is compared
+      # against cells the game works out while playing that floor and those are local too.
+      @push_home = b.table :push_home, at_least_one(over_floors { |f| f.pushwalls.homes })
+      @push_face = b.table :push_face, at_least_one(over_floors { |f| push_pictures(f) }), width: :byte
+      @push_step = b.list :push_step, capacity: room_for(:pushwalls)
+      @push_gone = b.list :push_gone, capacity: room_for(:pushwalls)
+      @push_wait = b.list :push_wait, capacity: room_for(:pushwalls)
 
       # Which keys the player is carrying, one bit each. A key is a thing lying on the floor like
       # a clip of ammunition is, so picking one up belongs to Pickups; this is only what is
@@ -396,8 +418,34 @@ module Wolf3D
       @lift_secret = b.var :lift_secret, 0
       # ...and HOW LONG until the floor ends.
       @lift_wait = b.var :lift_wait, 0
-      # Which floor is being played, counting from nought the way the map file numbers them.
+      # WHICH FLOOR IS BEING PLAYED, counting from nought in the order the cartridge holds them,
+      # and WHERE ITS SLICE OF EACH TABLE BEGINS.
+      #
+      # These are what make more than one floor possible. Every table in the cartridge holds all
+      # the floors end to end, and reading one is the same read with the matching number below
+      # added — set once when a floor starts, unchanged while it is played. In the walk that
+      # reads the map thousands of times a frame that is a single add.
+      #
+      # THEY ARE SET FROM AN ARM PER FLOOR rather than looked up in yet more tables, because
+      # starting a floor happens a handful of times in a whole game: a great deal of code that
+      # never runs while anybody is playing. See #go_to_this_floor.
+      # THEY START AT THE FIRST FLOOR'S OWN NUMBERS, not at nothing, because at boot no floor has
+      # been STARTED — the game simply begins on the first one. Left at nothing the game would
+      # come up on a floor with no doors, no walls that move and nobody on it, until something
+      # sent the player back to the beginning and quietly fixed it.
       @floor = b.var :floor, 0
+      @map_base = b.var :_map_base, @floors.map_base(0)
+      @door_first = b.var :_door_first, @floors.first_of(:doors, 0)
+      @door_count = b.var :_door_count, @floors.count_of(:doors, 0)
+      @push_first = b.var :_push_first, @floors.first_of(:pushwalls, 0)
+      @push_count = b.var :_push_count, @floors.count_of(:pushwalls, 0)
+      @guard_first = b.var :_guard_first, @floors.first_of(:guards, 0)
+      @guard_count = b.var :_guard_count, @floors.count_of(:guards, 0)
+      @piece_first = b.var :_piece_first, @floors.first_of(:pieces, 0)
+      @piece_count = b.var :_piece_count, @floors.count_of(:pieces, 0)
+      # ...and the cell that means the secret lift on THIS floor, or minus one where it has none.
+      # One comparison when a lever goes down, instead of an arm per floor there too.
+      @secret_car = b.var :_secret_car, (@floors.first_floor.lifts&.secret_cars&.first || -1)
 
       b.image :walls, width: @atlas.width, height: @atlas.height, data: @atlas.pixels
 
@@ -445,10 +493,12 @@ module Wolf3D
       declare_the_scratch
 
       # Every door starts shut, and a list starts empty — so it needs its slots before anything
-      # can reach one by number.
-      @doors.count.times { @open << 0.0 }
-      @doors.count.times { @linger << 0 }
-      [@pushwalls.count, 1].max.times do
+      # can reach one by number. Enough for the busiest floor, since that is what the lists hold.
+      room_for(:doors).times do
+        @open << 0.0
+        @linger << 0
+      end
+      room_for(:pushwalls).times do
         @push_step << 0
         @push_gone << 0
         @push_wait << 0
@@ -547,12 +597,40 @@ module Wolf3D
     # table legal, and nothing ever reads it because nothing ever meets one of these.
     def at_least_one(values) = values.empty? ? [0] : values
 
+    # Every floor's share of one kind of thing, end to end, in the order the floors are played.
+    # Where a floor's own share begins is `Floors#first_of`, and the two must agree — so both
+    # walk the floors in the same order and neither is written twice.
+    def over_floors(&) = @floors.flat_map(&)
+
+    # ...and how many of a thing the busiest floor holds, which is what the lists the game plays
+    # with are sized for. At least one, because a list must have room for something.
+    def room_for(kind) = [@floors.most(kind), 1].max
+
+    # Does no floor in the cartridge hold any of this at all? Then none of the code for it is
+    # emitted — a game with no doors anywhere pays nothing for doors.
+    def no_floor_has?(kind) = @floors.most(kind).zero?
+
+    # HOW MANY A LOOP OVER THEM REALLY MAKES, for the estimate only — nothing about how the game
+    # runs reads it. A loop counted by a variable has no number anywhere in the program, neither
+    # how many passes it makes nor the most it could, so unsaid it would be charged nothing at
+    # all and the report would call the whole of it free. The floors are right here, so both
+    # numbers are known: what a floor holds on average, and what the busiest one holds.
+    def how_many(kind)
+      counts = @floors.counts_of(kind)
+      { usually: [(counts.sum.to_f / counts.length).ceil, 1].max, most: [counts.max, 1].max }
+    end
+
     # A floor whose scenery all lets you through — and every floor, until there is scenery at
     # all — needs no table and pays nothing for one.
+    # ...for every floor end to end, like the map itself and reached the same way. A floor whose
+    # scenery all lets you through contributes its own run of noughts rather than being left out,
+    # because the floors after it are found by counting cells.
     def declare_the_blocking
-      return nil if @scenery.nil? || @scenery.empty?
+      return nil if @floors.none? { |floor| floor.scenery && !floor.scenery.empty? }
 
-      cells = @level.each_cell.map { |x, y| @scenery.blocks?(x, y) ? 1 : 0 }
+      cells = @floors.flat_map do |floor|
+        floor.level.each_cell.map { |x, y| floor.scenery&.blocks?(x, y) ? 1 : 0 }
+      end
       return nil if cells.none?(1)
 
       @b.table :blocked, cells, width: :byte
@@ -563,11 +641,24 @@ module Wolf3D
     # being in the right order and hand over what they need — and the order is a real one, so it
     # is set out where they are declared rather than left to be worked out from here.
     def declare_the_standing
-      return unless Billboards.needed?(scenery: @scenery, guards: @guards)
+      return unless anything_stands_anywhere?
 
+      # A one-floor game hands over its own scenery and nothing else; a cartridge with more says
+      # where this floor's pieces begin and how many it has, which is what the walk over them
+      # needs and all it needs.
+      many = @floors.count > 1
       @standing = Billboards.new(build: @b, things: @things, scenery: @scenery,
+                                 floors: (@floors if many),
+                                 piece_first: (@piece_first if many),
+                                 piece_count: (@piece_count if many),
                                  guards: @guards, pool: @guard, mind: @mind, pickups: @pickups,
                                  eye: { x: @px, y: @py, cos: @vcos, sin: @vsin, angle: @view })
+    end
+
+    # Does anything stand in ANY floor the cartridge holds? A game with nothing anywhere pays for
+    # none of the drawing that puts things in rooms.
+    def anything_stands_anywhere?
+      @floors.any? { |floor| Billboards.needed?(scenery: floor.scenery, guards: floor.guards) }
     end
 
     # DYING NEEDS SOMETHING THAT CAN KILL YOU, so a floor with no guards on it declares none of
@@ -586,16 +677,18 @@ module Wolf3D
     # It reads the floor for itself where no scenery was handed over. A game built without drawing
     # still has keys lying on it, and the tests of the locked doors are exactly that game.
     def declare_the_pickups
-      @pickups = Pickups.new(build: @b, level: @level, scenery: @scenery, pool: @guard,
-                             lives: @lives,
+      @pickups = Pickups.new(build: @b, floors: @floors, pool: @guard, lives: @lives,
+                             bases: { map: @map_base, piece: @piece_first },
                              player: { x: @px, y: @py, health: @health, ammo: @ammo,
                                        score: @score, keys: @keys, treasures: @treasures })
     end
 
     # THE GUARDS THEMSELVES: where each stands and what state he is in. Their minds come after the
     # things on the floor, because a guard who falls leaves one.
+    # THE POOL HOLDS ONE FLOOR'S WORTH, not every floor's, because only one floor is ever being
+    # played — so it is sized for the busiest and refilled from the tables when a floor starts.
     def declare_the_guards
-      return if @guards.nil? || @guards.empty?
+      return if no_floor_has?(:guards)
 
       b = @b
       # +dropped+ is whether he is lying beside the clip of ammunition he left when he fell. It is
@@ -603,9 +696,12 @@ module Wolf3D
       # lies — see Pickups#a_guard_fell.
       @guard = b.pool :guard, x: 0.0, y: 0.0, dir: 0, state: 0, ticks: 0, wait: 0, togo: 0.0,
                               hp: 0, shown: 0, turn: 0, dropped: 0,
-                              capacity: @guards.count,
-                              estimate: { usually: @guards.count }
-      @guards.guards.each_with_index do |guard, n|
+                              capacity: room_for(:guards),
+                              estimate: { usually: how_many(:guards)[:usually] }
+      # THE FIRST FLOOR'S GUARDS AT BOOT, written out rather than read from the tables, because
+      # at boot there is no floor to have started yet. Every floor after this one is filled by
+      # #put_the_guards_back from the same tables the first floor's numbers came from.
+      (@floors.first_floor.guards&.guards || []).each_with_index do |guard, n|
         # A guard stands in the middle of his cell, like the player does.
         state = Guards.starting_state(guard)
         @guard.spawn x: guard.x + 0.5, y: guard.y + 0.5,
@@ -637,14 +733,17 @@ module Wolf3D
     # facts the spawns above are made of, kept where a routine can read them back by number.
     def declare_where_the_guards_start
       b = @b
-      starting = @guards.guards.map { |guard| Guards.starting_state(guard) }
-      @guard_home_x = b.table :guard_home_x, @guards.guards.map { |g| g.x + 0.5 }
-      @guard_home_y = b.table :guard_home_y, @guards.guards.map { |g| g.y + 0.5 }
+      everyone = over_floors { |floor| floor.guards&.guards || [] }
+      starting = everyone.map { |guard| Guards.starting_state(guard) }
+      @guard_home_x = b.table :guard_home_x, at_least_one(everyone.map { |g| g.x + 0.5 })
+      @guard_home_y = b.table :guard_home_y, at_least_one(everyone.map { |g| g.y + 0.5 })
       @guard_home_dir = b.table :guard_home_dir,
-                                @guards.guards.map { |g| Guards.direction_of(g.facing) }, width: :byte
-      @guard_home_state = b.table :guard_home_state, starting, width: :byte
+                                at_least_one(everyone.map { |g| Guards.direction_of(g.facing) }),
+                                width: :byte
+      @guard_home_state = b.table :guard_home_state, at_least_one(starting), width: :byte
       @guard_home_ticks = b.table :guard_home_ticks,
-                                  starting.map { |s| Guards::STATES.fetch(s).ticks }, width: :byte
+                                  at_least_one(starting.map { |s| Guards::STATES.fetch(s).ticks }),
+                                  width: :byte
     end
 
     # STARTING THE FLOOR AGAIN, which is everything the level holds that CHANGES put back the way
@@ -669,9 +768,8 @@ module Wolf3D
     end
 
     def start_the_floor_again
-      @px.set start_x
-      @py.set start_y
-      @view.set start_view
+      # WHICH FLOOR'S SLICE OF EVERY TABLE, first, because everything below reads through it.
+      go_to_this_floor
       @health.set START_HEALTH
       @ammo.set START_AMMO
       @keys.set 0
@@ -692,61 +790,102 @@ module Wolf3D
       @dying&.start_again
     end
 
-    def shut_every_door
-      return if @doors.empty?
+    # POINT EVERY TABLE AT THIS FLOOR, and put the player where it starts you.
+    #
+    # ONE ARM PER FLOOR, which looks extravagant and is the cheap way round. The alternative is
+    # yet more tables — a first and a count per floor per kind of thing — read at run time. This
+    # runs a handful of times in a whole game and never while anybody is playing, so the room it
+    # takes in the cartridge buys a table read saved on every door, wall and lever for ever.
+    #
+    # A ONE-FLOOR CARTRIDGE gets one arm with nothing to compare, so it costs what it always did.
+    def go_to_this_floor
+      @floors.each_with_index do |floor, n|
+        settle = lambda do
+          @map_base.set @floors.map_base(n)
+          @door_first.set @floors.first_of(:doors, n)
+          @door_count.set @floors.count_of(:doors, n)
+          @push_first.set @floors.first_of(:pushwalls, n)
+          @push_count.set @floors.count_of(:pushwalls, n)
+          @guard_count.set @floors.count_of(:guards, n)
+          @guard_first.set @floors.first_of(:guards, n)
+          @piece_first.set @floors.first_of(:pieces, n)
+          @piece_count.set @floors.count_of(:pieces, n)
+          @secret_car.set(floor.lifts&.secret_cars&.first || -1)
+          @px.set(floor.level.start.x + 0.5)
+          @py.set(floor.level.start.y + 0.5)
+          @view.set facing_angle(floor.level.start.facing)
+        end
+        @floors.count == 1 ? settle.call : (@floor == n).then { settle.call }
+      end
+    end
 
-      @b.repeat(@doors.count) do |door|
+    def shut_every_door
+      return if no_floor_has?(:doors)
+
+      @b.repeat(@door_count, estimate: how_many(:doors)) do |door|
         @open[door] = 0.0
         @linger[door] = 0
       end
     end
 
     def put_the_secret_walls_back
-      return if @pushwalls.empty?
+      return if no_floor_has?(:pushwalls)
 
-      @b.repeat(@pushwalls.count) do |wall|
+      @b.repeat(@push_count, estimate: how_many(:pushwalls)) do |wall|
         @push_step[wall] = 0
         @push_gone[wall] = 0
         @push_wait[wall] = 0
       end
     end
 
-    # A KILLED GUARD IS NEVER TAKEN OUT OF THE POOL — he lies where he fell, in a state that
-    # lasts forever, because a body is part of the room. So every slot is still the guard the
-    # level put there and standing them up is writing their fields back, with nothing to spawn.
+    # EVERYBODY OUT, THEN THIS FLOOR'S PEOPLE IN.
+    #
+    # A KILLED GUARD IS NEVER TAKEN OUT OF THE POOL while a floor is being played — he lies where
+    # he fell, in a state that lasts for ever, because a body is part of the room. So the pool
+    # arrives here full of whoever was on the last floor, alive or not, and the count is a
+    # different one from the floor about to start.
+    #
+    # Emptying it and filling it again is the honest way to say that, and it is the pool's own
+    # two verbs rather than anything reaching inside it. It also costs nothing worth counting:
+    # this runs when a floor starts and never while one is being played.
     def put_the_guards_back
       return if @guard.nil?
 
-      @b.repeat(@guards.count) do |n|
-        @guard.field_ref(:x, n).set(@guard_home_x[n])
-        @guard.field_ref(:y, n).set(@guard_home_y[n])
-        @guard.field_ref(:dir, n).set(@guard_home_dir[n])
-        @guard.field_ref(:state, n).set(@guard_home_state[n])
-        @guard.field_ref(:ticks, n).set(@guard_home_ticks[n])
-        @guard.field_ref(:hp, n).set(Guards::HIT_POINTS)
-        @guard.field_ref(:wait, n).set(0)
-        @guard.field_ref(:togo, n).set(0.0)
-        @guard.field_ref(:shown, n).set(0)
-        @guard.field_ref(:turn, n).set(n % 2)
+      @guard.each(&:remove)
+      @b.repeat(@guard_count, estimate: how_many(:guards)) do |n|
+        @slot.set(@guard_first + n)
+        @guard.spawn x: @guard_home_x[@slot], y: @guard_home_y[@slot],
+                     dir: @guard_home_dir[@slot],
+                     state: @guard_home_state[@slot], ticks: @guard_home_ticks[@slot],
+                     hp: Guards::HIT_POINTS, wait: 0, togo: 0.0, shown: 0, dropped: 0,
+                     turn: n % 2
       end
     end
 
     # What one cell of the map table says. See the note where the table is declared.
-    def cell_value(x, y)
-      number = @doors.number_at(x, y)
+    # WHAT ONE CELL OF THE MAP TABLE SAYS. See the note where the table is declared.
+    #
+    # EVERY NUMBER IN IT IS LOCAL TO ITS OWN FLOOR — door three of this floor, not door
+    # ninety-one of the cartridge — because what it names is state the game keeps while playing
+    # that floor, and only one floor is ever being played. The tables of things settled while
+    # building hold every floor end to end and are reached by adding where this floor's slice
+    # starts; the two must not be confused, and keeping the map local is what stops them being.
+    def cell_value(floor, x, y)
+      level = floor.level
+      number = floor.doors.number_at(x, y)
       return DOOR + number - 1 if number
 
-      pushing = @pushwalls.number_at(x, y)
+      pushing = floor.pushwalls.number_at(x, y)
       return PUSH + pushing - 1 if pushing
 
       # A lever, before the plain-wall test below, which would otherwise claim it: a lever IS a
       # wall, and the only thing that makes it more than one is that using it ends the floor.
-      lever = @lifts&.number_at(x, y)
+      lever = floor.lifts&.number_at(x, y)
       return LIFT + lever - 1 if lever
 
-      return 0 unless @level.solid?(x, y)
+      return 0 unless level.solid?(x, y)
 
-      lit = wall_picture(@level.wall_code(x, y))
+      lit = wall_picture(level.wall_code(x, y))
       lit || 0
     end
 
@@ -757,16 +896,14 @@ module Wolf3D
       at && at + 1
     end
 
-    def door_pictures
-      @doors.doors.map { |door| @atlas.position_of(@doors.picture_for(door)) }
+    def door_pictures(floor)
+      floor.doors.doors.map { |door| @atlas.position_of(floor.doors.picture_for(door)) }
     end
 
     # A push wall is made of an ordinary wall, so it wears that wall's picture and picks
     # between its lit and dark form the way any wall does.
-    def push_pictures
-      return [0] if @pushwalls.empty?
-
-      @pushwalls.codes.map { |code| wall_picture(code) - 1 }
+    def push_pictures(floor)
+      floor.pushwalls.codes.map { |code| wall_picture(code) - 1 }
     end
 
     # A number as a table will really hold it, to the places a variable with a fraction keeps.
@@ -813,7 +950,7 @@ module Wolf3D
     # number that is only a door number when the first side is true.
     def free?(x, y)
       @spot.set((y * @level.width) + x)
-      @foot.set(@world[@spot])
+      @foot.set(@world[@map_base + @spot])
       @can.set 0
       (@foot == 0).then { @can.set 1 }
       # A lever is a wall and stays one however hard you walk at it, so everything below is
@@ -825,7 +962,7 @@ module Wolf3D
         what_a_foot_finds
       end
       # ...and a barrel in the way stops you on open floor, which nothing else here does.
-      (@blocked[@spot] == 1).then { @can.set 0 } if @blocked
+      (@blocked[@map_base + @spot] == 1).then { @can.set 0 } if @blocked
       @can == 1
     end
 
@@ -835,7 +972,7 @@ module Wolf3D
       (@foot >= PUSH).then do
         # A cell a push wall could reach is floor unless the wall is standing in it now.
         @slot.set(@foot - PUSH)
-        @pcell.set(@push_home[@slot])
+        @pcell.set(@push_home[@push_first + @slot])
         @pcell.add(@push_gone[@slot] * @push_step[@slot])
         (@pcell != @spot).then { @can.set 1 }
       end.else do
@@ -860,7 +997,7 @@ module Wolf3D
         @ny.set @py
         @ny.add(@sin[@view] * DOOR_REACH)
         @ahead.set((@ny.to_i * @level.width) + @nx.to_i)
-        @foot.set(@world[@ahead])
+        @foot.set(@world[@map_base + @ahead])
 
         if lifts?
           (@foot >= LIFT).then { pull_the_lever }.else { use_what_moves }
@@ -881,7 +1018,7 @@ module Wolf3D
               # Nested rather than joined with "or", because joining works out BOTH sides —
               # and the second side divides by which key is wanted, which is nought for a door
               # that wants none.
-              @want.set(@door_lock[@slot])
+              @want.set(@door_lock[@door_first + @slot])
               @can.set 0
               (@want == 0).then { @can.set 1 }
               (@want > 0).then { ((@keys / @want) % 2 == 1).then { @can.set 1 } }
@@ -926,9 +1063,12 @@ module Wolf3D
         # — which is the original's own test, and is why nothing here has to model a car. A floor
         # has one such cell or none, so this is a comparison against a number settled at build
         # time rather than a table to look in.
-        unless @lifts.secret_cars.empty?
+        # One comparison, whatever the cartridge holds: which cell means the secret lift on THIS
+        # floor was settled when the floor started (see #go_to_this_floor), so there is no arm
+        # per floor here and no table to read.
+        if @floors.any? { |floor| floor.lifts && !floor.lifts.secret_cars.empty? }
           @here.set((@py.to_i * @level.width) + @px.to_i)
-          @lifts.secret_cars.each { |cell| (@here == cell).then { @lift_secret.set 1 } }
+          (@here == @secret_car).then { @lift_secret.set 1 }
         end
         @sounds.level_done
       end
@@ -942,26 +1082,43 @@ module Wolf3D
       end
     end
 
-    # WHERE THE LIFT TAKES YOU, which is the one part of this the cartridge cannot yet answer.
+    # WHERE THE LIFT TAKES YOU, read off the original (wl_game.cpp) rather than remembered. Three
+    # rules and they are tested in this order, which matters:
     #
-    # The rule itself is settled and read off the original: an ordinary lift takes you to the
-    # next floor, a secret one takes you to the floor kept aside for it, and the lift on THAT
-    # floor puts you back on the normal run rather than one further along. Which of the two you
-    # pulled is @lift_of, and whether that lift is the secret one is a fact about the map, known
-    # while building.
+    #   COMING BACK FROM THE SECRET FLOOR puts you on the normal run, not one further along it.
+    #     The original keeps a small table of where each episode comes back to; for the first it
+    #     is the second floor.
+    #   GOING TO THE SECRET FLOOR is what the secret lever does, and there is one such floor per
+    #     episode — the last of the ten.
+    #   OTHERWISE the next floor along.
     #
-    # WHAT IS MISSING IS THE DATA, not the rule. Every table this renderer reads — the map, the
-    # doors, the walls that move, where the guards stand, what is lying about — is built for ONE
-    # floor and indexed from nought. A second floor means every one of them holds all the floors
-    # end to end with a first and a count per floor, and every loop over them starting at that
-    # first. That is a change to how the floor is set up rather than to what a lift does, so it
-    # is its own piece of work and this waits on it.
+    # A CARTRIDGE HOLDING FEWER FLOORS THAN A WHOLE EPISODE has no secret floor, so neither of the
+    # first two rules is emitted at all and every lever simply goes to the next floor. Clamping
+    # them to a floor it does have was tried and is wrong in a way worth remembering: the floor a
+    # missing one clamps to is the FIRST, so "are you coming back from the secret floor" became
+    # "are you on the first floor", which is true at the start of every game.
     #
-    # UNTIL THEN THE FLOOR STARTS AGAIN, which is the honest thing a one-floor cartridge can do:
-    # the lift works, it sounds, the lever stays down for as long as the original holds it, and
-    # then you are back at the start of the same floor with the guards up and the doors shut.
+    # AND WHEN IT RUNS OUT OF FLOORS it goes round to the first. That is not the original, which
+    # has an episode to end; this has nowhere to put an ending yet, and going round beats stopping
+    # dead on a lever that does nothing.
+    SECRET_FLOOR = 9
+    BACK_FROM_SECRET = 1
+
     def go_to_the_next_floor
+      if @floors.count > SECRET_FLOOR
+        (@floor == SECRET_FLOOR).then { @floor.set BACK_FROM_SECRET }
+          .else do
+            (@lift_secret == 1).then { @floor.set SECRET_FLOOR }.else { on_to_the_next_floor }
+          end
+      elsif @floors.count > 1
+        on_to_the_next_floor
+      end
       @b.call :start_the_floor
+    end
+
+    def on_to_the_next_floor
+      @floor.add 1
+      (@floor > @floors.count - 1).then { @floor.set 0 }
     end
 
     # Lean on a secret wall and it goes. Which way it goes is which way you are pushing, taken
@@ -969,7 +1126,7 @@ module Wolf3D
     def shove_a_wall
       @slot.set(@foot - PUSH)
       # Only from its own cell, and only once. A wall already on the move ignores you.
-      ((@ahead == @push_home[@slot]) & (@push_step[@slot] == 0)).then do
+      ((@ahead == @push_home[@push_first + @slot]) & (@push_step[@slot] == 0)).then do
         @across.set(@sin[@view + QUARTER])
         @across.abs
         @along.set(@sin[@view])
@@ -992,9 +1149,9 @@ module Wolf3D
     # Every push wall, every frame. One that has been shoved counts down to its next cell and
     # stops after two — which is what makes a secret passage a passage rather than a hole.
     def move_the_walls
-      return if @pushwalls.empty?
+      return if no_floor_has?(:pushwalls)
 
-      @b.repeat(@pushwalls.count) do |wall|
+      @b.repeat(@push_count, estimate: how_many(:pushwalls)) do |wall|
         @wait.set(@push_wait[wall])
         (@wait > 0).then do
           @push_wait[wall] = @wait - 1
@@ -1013,11 +1170,11 @@ module Wolf3D
     #
     # Standing in the doorway tops the count back up, so a door cannot shut on you.
     def move_the_doors
-      return if @doors.empty?
+      return if no_floor_has?(:doors)
 
       b = @b
-      @here.set(@world[(@py.to_i * @level.width) + @px.to_i])
-      b.repeat(@doors.count) do |door|
+      @here.set(@world[@map_base + (@py.to_i * @level.width) + @px.to_i])
+      b.repeat(@door_count, estimate: how_many(:doors)) do |door|
         (@here == DOOR + door).then { @linger[door] = DOOR_LINGER }
         @wait.set(@linger[door])
         @swing.set(@open[door])
@@ -1101,7 +1258,7 @@ module Wolf3D
           @mapy.add @stepmy
           @side.set 1
         end
-        @cell.set(@world[(@mapy * width) + @mapx])
+        @cell.set(@world[@map_base + (@mapy * width) + @mapx])
         (@cell > 0).then do
           # Something is here. Only now is it worth asking WHICH kind, because the ray has
           # stopped either way — every step before this one paid a single test and no more.
@@ -1155,7 +1312,10 @@ module Wolf3D
 
     # Does this floor have a lift at all? Every lever test is built only when it does — see the
     # note in the walk.
-    def lifts? = !(@lifts.nil? || @lifts.empty?)
+    # Does ANY floor have a lift? The lever code is emitted for the cartridge rather than for one
+    # floor, so a game whose second floor has a lift emits it even while the first is being
+    # played. A game with none anywhere emits none.
+    def lifts? = !no_floor_has?(:lifts)
 
     # The two things in a cell that are more than a wall, and the wall that is only a wall.
     def meet_what_moves(width)
@@ -1210,12 +1370,12 @@ module Wolf3D
     # always said it was and the ray carries straight on.
     def meet_a_pushwall(width)
       @push.set(@cell - PUSH)
-      @pcell.set(@push_home[@push])
+      @pcell.set(@push_home[@push_first + @push])
       @pcell.add(@push_gone[@push] * @push_step[@push])
       (@pcell == (@mapy * width) + @mapx).then do
         @hit.set 1
         @isdoor.set 0
-        @wall.set(@push_face[@push] + @side)
+        @wall.set(@push_face[@push_first + @push] + @side)
       end
     end
 
@@ -1232,7 +1392,7 @@ module Wolf3D
     def meet_a_door
       @door.set(@cell - DOOR)
 
-      (@door_across[@door] == 0).then do
+      (@door_across[@door_first + @door] == 0).then do
         @mid.set(@sidex - (@deltax / 2))         # half a cell back from the far side
         @wallx.set(@py + (@mid * @dy))           # ...and where the ray is by then
         @edge.set(@wallx.to_i - @mapy)
@@ -1253,7 +1413,7 @@ module Wolf3D
           @hit.set 1
           @isdoor.set 1
           @dist.set @mid
-          @wall.set(@door_picture[@door])
+          @wall.set(@door_picture[@door_first + @door])
           @wallx.sub @slid
         end
       end

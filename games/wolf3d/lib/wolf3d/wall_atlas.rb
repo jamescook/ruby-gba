@@ -20,16 +20,21 @@ module Wolf3D
 
     attr_reader :codes, :textures
 
+    # +level+ may be one level or every floor the cartridge holds. More than one and the row of
+    # pictures is the UNION of what they all build with — nothing is chosen as the game runs,
+    # because a wall's picture is already a place in this row and more floors only make the row
+    # longer.
     def initialize(vswap, palette, level, doors: nil, lifts: nil)
       @vswap = vswap
       @palette = palette
-      @codes = wall_codes(level)
+      @codes = Array(level).flat_map { |one| wall_codes(one) }.uniq.sort
       @textures = @codes.flat_map { |code| [texture_index(code, LIT), texture_index(code, DARK)] }
       # A door's panel, and the lever of a lift pulled down. Neither is a wall the map builds
       # with, so neither turns up in the codes above — a pulled lever appears in no map at all,
       # because it is only ever written by the game. Both are appended in pairs, lit then dark,
       # so the walk can still pick a face by adding one.
-      @textures += ((doors&.pictures || []) + (lifts&.pictures || [])).reject { |t| @textures.include?(t) }
+      extra = Array(doors).flat_map { |d| d.pictures } + Array(lifts).flat_map { |l| l.pictures }
+      @textures += extra.uniq.reject { |t| @textures.include?(t) }
     end
 
     # Where a picture sits in the row, counting pictures. This is what the map table holds, so
