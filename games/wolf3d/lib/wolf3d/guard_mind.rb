@@ -620,6 +620,9 @@ module Wolf3D
         ticks.set(@ticks_of[@fall1])
         # A guard is worth a hundred, which is the original's own number...
         @player[:score]&.add(Guards::POINTS)
+        # ...and one off the floor's tally, which is a different thing from the score: the score
+        # is kept across floors and this is how much of THIS floor has been cleared.
+        @player[:kills]&.add(1)
         # ...and he leaves half a clip of ammunition in the cell he fell in, which is the loop
         # the whole game runs on: shoot a guard, take what he was carrying, shoot the next one.
         @pickups&.a_guard_fell(@target)
