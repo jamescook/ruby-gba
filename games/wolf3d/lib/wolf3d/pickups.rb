@@ -75,6 +75,18 @@ module Wolf3D
     # drawing a thing the moment it is picked up.
     def still_there(piece) = @taken[piece] == 0
 
+    # HOW MANY TREASURES THIS FLOOR HOLDS, which is what a hundred per cent means at the end of
+    # it. Settled while building, because it is a fact about the map.
+    #
+    # THE ONE-UP IS ONE OF THEM. It looks like a life rather than a treasure and the original
+    # counts it as a treasure, in the same arm as the cross, the chalice, the bible and the
+    # crown — so a floor holding one cannot be finished at a hundred per cent without taking it.
+    COUNTS_AS_TREASURE = [TREASURE, EXTRA_LIFE].freeze
+
+    def treasure_total
+      @treasure_total ||= @scenery.pieces.count { |piece| COUNTS_AS_TREASURE.include?(kind_of(piece)) }
+    end
+
     # ...and everything back on the floor, for a floor being started again. The clips guards
     # dropped need nothing said about them here: each is a field of the guard who left it, and
     # putting the guards back puts it back with him.
@@ -175,7 +187,11 @@ module Wolf3D
 
       (@kind == AMMUNITION).then { give_ammunition(@amount) }
       (@kind == HEALTH).then { give_health(@amount) }
-      (@kind == TREASURE).then { @player[:score].add @amount; @took.set 1 }
+      (@kind == TREASURE).then do
+        @player[:score].add @amount
+        @player[:treasures]&.add(1)
+        @took.set 1
+      end
       (@kind == KEY).then { @player[:keys].add @amount; @took.set 1 }
       (@kind == SCRAPS).then do
         (@player[:health] <= NEARLY_DEAD).then { give_health(@amount) }
@@ -203,10 +219,16 @@ module Wolf3D
 
     # The one-up, which is taken whatever state you are in: it fills the health of a player who
     # was already full, and there is always room for another go.
+    #
+    # IT COUNTS AS TREASURE, which is not obvious and is the original's own accounting: the
+    # one-up sits in the same arm of GetBonus as the cross, the chalice, the bible and the crown,
+    # so a floor that holds one needs it taken for a hundred per cent. Miss this and a player who
+    # collected everything is told they found four fifths of it.
     def give_another_go
       @player[:health].add ONE_UP_HEAL
       @player[:health].clamp 0, FULL_HEALTH
       @lives&.give_one
+      @player[:treasures]&.add(1)
       @took.set 1
     end
 

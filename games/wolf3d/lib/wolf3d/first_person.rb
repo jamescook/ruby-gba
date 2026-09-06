@@ -300,6 +300,20 @@ module Wolf3D
       @bar.draw
     end
 
+    # HOW MUCH OF THE FLOOR HAS BEEN FOUND, and how much there was to find. The three counts are
+    # variables the game moves; the three totals are settled while building, because they are
+    # facts about the map. A percentage is one over the other, and the original gives a bonus for
+    # a hundred per cent of any of them.
+    #
+    # PUBLIC because the tally at the end of a floor is the whole reason they exist, and that
+    # screen is not written yet — it wants the game's own lettering, which is a piece of work of
+    # its own. Counting them is not, so they are counted, and the screen will find them here.
+    attr_reader :kills, :secrets, :treasures
+
+    def kill_total = @guards&.count || 0
+    def secret_total = @pushwalls.count
+    def treasure_total = @pickups&.treasure_total || 0
+
     private
 
     def declare
@@ -395,6 +409,18 @@ module Wolf3D
       @health = b.var :health, START_HEALTH
       @ammo = b.var :ammo, START_AMMO
       @score = b.var :score, 0
+
+      # HOW MUCH OF THE FLOOR HAS BEEN FOUND: how many of its guards are down, how many of its
+      # secret walls have been shoved, how many of its treasures are in your pocket. Three
+      # numbers the game keeps for the tally at the end of a floor, and they belong to the FLOOR
+      # rather than to the game — every one goes back to nothing when a floor starts, which is
+      # what makes them a percentage of something.
+      #
+      # The score is the opposite and is deliberately not here: it is kept across floors and
+      # comes back to nothing only when a whole game starts again.
+      @kills = b.var :kills, 0
+      @secrets = b.var :secrets, 0
+      @treasures = b.var :treasures, 0
 
       # DYING AND THE GOES YOU GET COME FIRST, because what stands in the level reaches both: the
       # guard who lands the last shot sets the death off, and a thing you pick up can hand you
@@ -563,7 +589,7 @@ module Wolf3D
       @pickups = Pickups.new(build: @b, level: @level, scenery: @scenery, pool: @guard,
                              lives: @lives,
                              player: { x: @px, y: @py, health: @health, ammo: @ammo,
-                                       score: @score, keys: @keys })
+                                       score: @score, keys: @keys, treasures: @treasures })
     end
 
     # THE GUARDS THEMSELVES: where each stands and what state he is in. Their minds come after the
@@ -603,7 +629,7 @@ module Wolf3D
                             things: @things, blocked: @blocked, dying: @dying, pickups: @pickups,
                             sounds: @sounds,
                             player: { x: @px, y: @py, health: @health, score: @score,
-                                      cos: @vcos, sin: @vsin })
+                                      kills: @kills, cos: @vcos, sin: @vsin })
     end
 
     # WHERE EVERY GUARD STARTED, so the floor can be started again. All of it is settled while
@@ -649,6 +675,10 @@ module Wolf3D
       @health.set START_HEALTH
       @ammo.set START_AMMO
       @keys.set 0
+      # ...and none of the floor has been found yet, which is what makes these a share of it.
+      @kills.set 0
+      @secrets.set 0
+      @treasures.set 0
       # The lever comes back up and the lift forgets it was ever called.
       if lifts?
         @pulled.set(-1)
@@ -952,6 +982,9 @@ module Wolf3D
                              .else { @push_step[@slot] = -@level.width }
         end
         @push_wait[@slot] = Pushwalls::FRAMES_PER_CELL
+        # Found, and counted once: this arm only runs for a wall standing in its own cell that
+        # is not already moving, so leaning on the same wall again cannot count it twice.
+        @secrets.add 1
         @sounds.secret_wall
       end
     end
