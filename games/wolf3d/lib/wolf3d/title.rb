@@ -1,8 +1,9 @@
 # frozen_string_literal: true
 
 module Wolf3D
-  # A holding screen until there is a game. Draws its own lettering because Wolfenstein's own
-  # alphabets are still packed inside VGAGRAPH.
+  # A holding screen until there is a game. This is what a cartridge built with no copy of the
+  # game shows, so it writes in the framework's own font rather than Wolfenstein's — the
+  # alphabets are in VGAGRAPH, and there is no VGAGRAPH to read.
   class Title
     BLINK_ON = 60
     BLINK_OFF = 120

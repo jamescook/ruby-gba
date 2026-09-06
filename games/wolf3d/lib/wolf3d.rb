@@ -19,6 +19,7 @@ require_relative "wolf3d/palette"
 require_relative "wolf3d/level"
 require_relative "wolf3d/maps"
 require_relative "wolf3d/vswap"
+require_relative "wolf3d/vgagraph"
 require_relative "wolf3d/doors"
 require_relative "wolf3d/pushwalls"
 require_relative "wolf3d/elevator"
@@ -92,6 +93,8 @@ module Wolf3D
     (from...[from + asked, maps.count].min).to_a
   end
   def self.vswap = @vswap ||= data && Vswap.from(data)
+
+  def self.vgagraph = @vgagraph ||= data && Vgagraph.from(data)
 
   def self.palette = Palette.game
 

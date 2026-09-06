@@ -10,9 +10,11 @@ module Wolf3D
   # that share off everything drawn above it.
   #
   # NOT THE GAME'S OWN ART, yet. Wolfenstein's bar — the steel plate, the face that watches you,
-  # the game's own lettering — is packed away in VGAGRAPH, which nothing here reads. This draws
-  # the same fields in the framework's own font on a flat ground, so the game is playable and the
-  # layout is settled; the art goes in underneath afterwards without moving a field.
+  # the game's own lettering — is packed away in VGAGRAPH. That file is read now (see Vgagraph:
+  # the plate, the numerals, the faces and both alphabets all come out of it), but nothing draws
+  # with them here. This draws the same fields in the framework's own font on a flat ground, so
+  # the game is playable and the layout is settled; the art goes in underneath afterwards without
+  # moving a field.
   #
   # IT IS REPAINTED EVERY FRAME, and only one of the two reasons for that is still true.
   #
