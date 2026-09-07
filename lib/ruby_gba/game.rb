@@ -44,10 +44,10 @@ module RubyGBA
 
     # The finished ROM. The out:/err: streams are injectable so a test (or the CLI)
     # captures anything the build prints.
-    def build_rom(out: $stdout, err: $stderr, validate: true)
+    def build_rom(out: $stdout, err: $stderr, validate: true, progress: Progress.silent)
       RubyGBA.build(@title, code: @code, maker: @maker, validate: validate,
                     frame_sync: @frame_sync, fast_cartridge: @fast_cartridge,
-                    fast_code: @fast_code, out: out, err: err, &@block)
+                    fast_code: @fast_code, out: out, err: err, progress: progress, &@block)
     end
 
     # A friendly output filename from the title: "BIRD" -> "bird.gba".
@@ -65,7 +65,10 @@ module RubyGBA
       caller_path = caller_locations(1, 1)&.first&.path
       return self unless caller_path && main_script?(caller_path)
 
-      rom = build_rom
+      # SAY WHAT IT IS DOING, because this path is by definition somebody who ran a build by
+      # hand and is now waiting for it. A build reached any other way — a test, a tool, a
+      # library call — stays silent, which is what the default does.
+      rom = build_rom(progress: Progress.to($stderr))
       path = File.join(File.dirname(File.expand_path(caller_path)), default_filename)
       rom.write(path)
       $stdout.puts "Built #{File.basename(path)} (#{rom.size} bytes)"
