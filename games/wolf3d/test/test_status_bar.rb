@@ -144,18 +144,15 @@ class TestStatusBar < Minitest::Test
                  "a frame behind and the figures flicker between two values"
   end
 
-  # THE FACE THAT WATCHES YOU, against a real copy of the game — the release we write for
-  # ourselves carries no faces, so there is nothing here to draw without one.
+  # THE FACE THAT WATCHES YOU, asked for pixel by pixel rather than as "something was painted":
+  # the whole point of the face is WHICH face, and a bar that showed a dying man at full health
+  # would paint just as many pixels as one that showed a smirk.
   #
-  # It asks for the face pixel by pixel rather than for "something was painted": the whole
-  # point of the face is WHICH face, and a bar that showed a dying man at full health would
-  # paint just as many pixels as one that showed a smirk.
+  # Read against OUR OWN release, where every pixel of a face holds that face's own number — so
+  # a bar that reached one face along the row comes back naming the face it really drew.
   def test_the_face_on_the_bar_is_the_healthy_one_at_full_health
-    art = Wolf3D::BarArt.of(Wolf3D::Vgagraph.from(game_data_or_skip))
-    skip "this release's pictures have no names" unless art
-
     run = Reference.new.run(view_of(arena, art: art), frames: 2)
-    healthy = Wolf3D::Vgagraph.from(Wolf3D::GameData.find).picture(:face_1a)
+    healthy = pictures.picture(:face_1a)
     x = at(:face, art)
     y = FP::VIEW_H + ((Bar::HEIGHT - art.face_height) / 2)
 
@@ -173,13 +170,41 @@ class TestStatusBar < Minitest::Test
   # ...and a hurt player gets a different one. Which one is the release's business; that it
   # CHANGES is this bead's.
   def test_a_hurt_player_gets_a_different_face
-    art = Wolf3D::BarArt.of(Wolf3D::Vgagraph.from(game_data_or_skip))
-    skip "this release's pictures have no names" unless art
-
     healthy = face_pixels(Reference.new.run(view_of(arena, art: art), frames: 2), art)
     hurt = face_pixels(watch(frames: 200, guards: RING, art: art), art)
 
     refute_equal healthy, hurt, "being shot at should change the face"
+  end
+
+  # A KEY IN THE GAME'S OWN PICTURE, which is the other thing on the bar drawn out of a row of
+  # pictures side by side: an empty socket until you have one, and the key itself after.
+  def test_a_key_slot_shows_the_games_own_picture
+    before = Reference.new.run(view_of(arena, art: art), frames: 2)
+    after = Reference.new.input_each_frame { [:up] }
+                    .run(view_of(arena(things: { [9, 8] => GOLD_KEY }), art: art), frames: 25)
+
+    assert_equal key_picture(:no_key), key_slot(before, :gold), "no key to start with"
+    assert_equal key_picture(:gold_key), key_slot(after, :gold), "and picking one up shows it"
+    assert_equal key_picture(:no_key), key_slot(after, :silver), "the other slot is still empty"
+  end
+
+  # THE COLOUR THE BAR IS PAINTED IN is read off the plate rather than picked by eye, so it is
+  # the game's own steel and not one somebody matched. Read back off a spot no field reaches.
+  def test_the_bar_is_painted_in_the_plates_own_colour
+    run = Reference.new.run(view_of(arena, art: art), frames: 2)
+
+    assert_equal palette[Release::PLATE_GROUND], run.screen.pixel(2, FP::VIEW_H + 20)
+  end
+
+  # THE PLATE'S OWN EDGE, re-set at 240: two colours along the top and two along the bottom,
+  # which is what makes it read as a bevel in the metal rather than a line drawn round it. A bar
+  # that took them from the wrong rows of the plate comes back in the wrong colours.
+  def test_the_bar_is_edged_in_the_plates_own_bevel
+    run = Reference.new.run(view_of(arena, art: art), frames: 2)
+    edges = [FP::VIEW_H, FP::VIEW_H + 1, FP::DOWN - 2, FP::DOWN - 1]
+
+    assert_equal Release::PLATE_EDGES.values.map { |ink| palette[ink] },
+                 edges.map { |y| run.screen.pixel(2, y) }
   end
 
   # THE FIGURES IN THE GAME'S OWN NUMERALS, which are pictures rather than letters — so they are
@@ -187,9 +212,6 @@ class TestStatusBar < Minitest::Test
   # one landed. That is the same standard the font figures are held to: the bar must READ as the
   # number, not merely have something painted where the number goes.
   def test_the_figures_are_drawn_in_the_games_own_numerals
-    art = Wolf3D::BarArt.of(Wolf3D::Vgagraph.from(game_data_or_skip))
-    skip "this release's pictures have no names" unless art
-
     run = Reference.new.run(view_of(arena, art: art), frames: 2)
 
     assert_equal FP::START_HEALTH, numeral_figure(run, :health, art)
@@ -200,9 +222,6 @@ class TestStatusBar < Minitest::Test
   # ...and the leading noughts are blank rather than drawn, which is what makes a six-place
   # score read as a number instead of as 000000.
   def test_a_leading_nought_is_blank_and_not_a_nought
-    art = Wolf3D::BarArt.of(Wolf3D::Vgagraph.from(game_data_or_skip))
-    skip "this release's pictures have no names" unless art
-
     run = Reference.new.run(view_of(arena, art: art), frames: 2)
     places = numeral_places(run, :score, art)
 
@@ -229,9 +248,8 @@ class TestStatusBar < Minitest::Test
     drawn = art.digit_height.times.flat_map do |dy|
       art.digit_width.times.map { |dx| run.screen.pixel(x + dx, y + dy) }
     end
-    vg = Wolf3D::Vgagraph.from(Wolf3D::GameData.find)
     Wolf3D::BarArt::NUMERALS.each_with_index do |numeral, n|
-      picture = vg.picture(numeral)
+      picture = pictures.picture(numeral)
       want = art.digit_height.times.flat_map do |dy|
         art.digit_width.times.map { |dx| palette[picture[dx, dy]] }
       end
@@ -240,14 +258,41 @@ class TestStatusBar < Minitest::Test
     flunk "nothing at (#{x},#{y}) matches any of the game's numerals"
   end
 
+  # One key slot off the screen. The metals are stacked in the one slot, in the order the bar
+  # keeps them, so which row a metal is on is worked out the same way the bar works it out.
+  def key_slot(run, metal)
+    n = Bar::METALS.keys.index(metal)
+    x = at(:keys, art)
+    y = FP::VIEW_H + ((Bar::HEIGHT - (Bar::METALS.length * art.key_height)) / 2) +
+        (n * art.key_height)
+    art.key_height.times.flat_map { |dy| art.key_width.times.map { |dx| run.screen.pixel(x + dx, y + dy) } }
+  end
+
+  def key_picture(name)
+    picture = pictures.picture(name)
+    art.key_height.times.flat_map { |dy| art.key_width.times.map { |dx| palette[picture[dx, dy]] } }
+  end
+
   def face_pixels(run, art)
     x = at(:face, art)
     y = FP::VIEW_H + ((Bar::HEIGHT - art.face_height) / 2)
     art.face_height.times.flat_map { |dy| art.face_width.times.map { |dx| run.screen.pixel(x + dx, y + dy) } }
   end
 
-  def fixture = @fixture ||= Release.new
-  def vswap = @vswap ||= Wolf3D::Vswap.new(fixture.files["VSWAP"])
+  # ONE RELEASE FOR THE WHOLE FILE, and one written as a set the reader knows the names of — so
+  # the bar's own art (its plate, its numerals, the faces) is here on any machine rather than
+  # only on one with a copy of Wolfenstein. Kept on the class because packing its art is the
+  # only slow thing in it and nothing here changes it.
+  NAMED_SET = "WL6"
+
+  def self.release = @release ||= Release.new(set: NAMED_SET)
+  def self.pictures = @pictures ||= release.pictures
+  def self.art = @art ||= Wolf3D::BarArt.of(pictures)
+  def self.vswap = @vswap ||= Wolf3D::Vswap.new(release.files["VSWAP"])
+
+  def pictures = self.class.pictures
+  def art = self.class.art
+  def vswap = self.class.vswap
   def palette = Wolf3D::Palette.game
   def ground = palette[Bar::GROUND]
   def font = RubyGBA::Fonts.get(Bar::FONT)

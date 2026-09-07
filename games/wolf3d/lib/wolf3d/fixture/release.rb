@@ -79,6 +79,13 @@ module Wolf3D
           "AUDIOHED" => audiohed, "AUDIOT" => audio }
       end
 
+      # The release's art, read back the way the game reads it — for anything that wants a
+      # picture by name rather than the bytes it was written as.
+      def pictures
+        graph, dictionary, head = vgagraph
+        Vgagraph.new(graph: graph, dictionary: dictionary, head: head, set: @set)
+      end
+
       # How far the inner room's walls stand from the middle. Close enough that a first-person
       # view meets one: a ray sees a handful of cells, so a player alone in a 64-cell field has
       # nothing to look at.
@@ -249,6 +256,56 @@ module Wolf3D
       # happen.
       PICTURES = [[8, 4], [16, 2]].freeze
 
+      # --- A RELEASE WHOSE PICTURES HAVE NAMES ---------------------------------------------
+      #
+      # WHAT A PICTURE IS CALLED is the one thing that really differs from release to release,
+      # and the reader keeps a table of it — so the status bar reaches the face and the
+      # numerals by name. A fixture of a set nobody has named carries none of that, and the
+      # bar's own art can then only be tested against somebody's copy of the game.
+      #
+      # So a fixture written as a set the reader HAS named puts its pictures at the numbers
+      # those names point at. The names are read out of the reader's table rather than kept
+      # here, which is what keeps the arrangement one-way: this follows the reader, and
+      # nothing in the reader knows a fixture exists.
+      def named = Vgagraph::NAMES.fetch(@set, {})
+
+      # THE SIZES THE NAMED PICTURES REALLY ARE, off a copy of the six-episode release. Three
+      # of them decide how the bar is laid out — the plate, the numerals and the faces are
+      # what the fields are spread across 240 pixels BY — so a fixture that made them up would
+      # arrange a different bar from the one a player sees.
+      FULL_SCREEN = [320, 200].freeze
+      WEAPON = [48, 24].freeze
+      # A key, a numeral, and the blank one that stands in for a leading nought.
+      SLOT = [8, 16].freeze
+      FACE = [24, 32].freeze
+
+      # ...and everything else is the smallest picture that can be stored, since a width has
+      # to divide by four. They are there to hold their places in the picture table, which is
+      # the only part of a release that has to be the right length.
+      STAND_IN = [4, 1].freeze
+
+      # Every picture this release carries, as a width and a height. A named one reaches as
+      # far as the last name; a real release carries a few more after that, which nothing
+      # asks for.
+      def picture_sizes
+        return PICTURES if named.empty?
+
+        by_number = named.invert
+        Array.new(named.values.max + 1) { |n| size_of(by_number[n]) }
+      end
+
+      def size_of(name)
+        case name
+        when nil then STAND_IN
+        when :status_bar then PLATE
+        when :title, :credits then FULL_SCREEN
+        when :notice then [88, 64]
+        when :high_scores then [224, 56]
+        when :knife, :pistol, :machine_gun, :chain_gun then WEAPON
+        else name.start_with?("face_") ? FACE : SLOT
+        end
+      end
+
       # THE TWO ALPHABETS, and both are PROPORTIONAL on purpose: a reader that assumed one
       # width for the whole font would find the second character in the wrong place and
       # still come back with something that looked like letters.
@@ -266,17 +323,20 @@ module Wolf3D
       # two fonts, then the pictures. Each one carries how long it comes out in four bytes
       # in front of the packing, because the packing does not say where it stops.
       def vgagraph
-        chunks = [PICTURES.flatten.pack("v*")]
-        FONTS.each { |font| chunks << font_chunk(font) }
-        PICTURES.each_with_index { |(w, h), i| chunks << picture_chunk(w, h, i) }
+        @vgagraph ||= begin
+          sizes = picture_sizes
+          chunks = [sizes.flatten.pack("v*")]
+          FONTS.each { |font| chunks << font_chunk(font) }
+          sizes.each_with_index { |(w, h), i| chunks << picture_chunk(w, h, i) }
 
-        tree = Codec::Huffman::Tree.for(chunks.join)
-        bodies = chunks.map { |chunk| [chunk.bytesize].pack("V") + tree.pack(chunk) }
+          tree = Codec::Huffman::Tree.for(chunks.join)
+          bodies = chunks.map { |chunk| [chunk.bytesize].pack("V") + tree.pack(chunk) }
 
-        graph = bodies.join
-        at = 0
-        offsets = bodies.map { |body| at.tap { at += body.bytesize } } << graph.bytesize
-        [graph, tree.dictionary, three_byte(offsets)]
+          graph = bodies.join
+          at = 0
+          offsets = bodies.map { |body| at.tap { at += body.bytesize } } << graph.bytesize
+          [graph, tree.dictionary, three_byte(offsets)]
+        end
       end
 
       # WHAT A PIXEL HOLDS: its own row in the top four bits and its own column in the
@@ -285,13 +345,109 @@ module Wolf3D
       # a picture of a pattern would only hint at.
       def picture_pixel(x, y) = (y << 4) | x
 
+      # ...AND WHEN THERE ARE NAMES, WHICH PICTURE IT IS AS WELL. Where a picture only has to
+      # come out of its four banks in order, saying the row and the column is enough. The
+      # named ones are read out of a ROW of pictures laid side by side — twenty-four faces,
+      # eleven numerals — and there the question is which of them landed, so a pixel has to
+      # answer that too.
+      #
+      # It holds its picture's own number plus how far into the picture it is, counted along
+      # the rows. A face read at the wrong number comes back shifted by the difference between
+      # the two, and one read at the wrong place along the row comes back shifted by that: the
+      # pixel names where it really came from either way, which is the whole reason to write a
+      # fixture instead of testing against a real copy.
+      def named_pixel(index, at) = (index + at) & 0xFF
+
       # Stored bank by bank: the first holds columns 0, 4, 8..., the second columns 1, 5,
       # 9..., and each bank is a whole quarter-width picture of its own.
-      def picture_chunk(width, height, _index)
+      def picture_chunk(width, height, index)
         quarter = width / 4
         4.times.flat_map { |bank|
-          height.times.flat_map { |y| quarter.times.map { |i| picture_pixel((i * 4) + bank, y) } }
+          height.times.flat_map { |y| quarter.times.map { |i| pixel_of(index, (i * 4) + bank, y, width) } }
         }.pack("C*")
+      end
+
+      def pixel_of(index, x, y, width)
+        return picture_pixel(x, y) if named.empty?
+        return plate[y][x] if index == named[:status_bar]
+
+        named_pixel(index, (y * width) + x)
+      end
+
+      # --- THE STEEL PLATE ALONG THE BOTTOM ------------------------------------------------
+      #
+      # THE ONE PICTURE HERE WHOSE ARRANGEMENT MATTERS RATHER THAN ITS PIXELS. The bar does
+      # not read the plate for a picture, it reads it for a LAYOUT: a line along the top and
+      # the bottom, a dark column between each pair of fields, and the word inside each field.
+      # It works all three out by looking rather than by remembering numbers, so a plate that
+      # is not built out of those parts comes back with no fields on it at all.
+      #
+      # The columns are the release's own, which is what makes the bar this lays out the same
+      # bar a real copy lays out — and the bar has no give in it: seven fields and the gaps
+      # between them have to come to 240.
+      PLATE = [320, 40].freeze
+
+      # WHERE THE PLATE IS DIVIDED: the frame down each side, a groove between each pair of
+      # fields, and the well the face sits in — which is wide, and which the reader reads as a
+      # divider like any other. What lies between them are the fields.
+      PLATE_DIVIDERS = [0..9, 41..42, 99..100, 132..165, 203..204,
+                        239..240, 247..248, 310..319].freeze
+
+      # How far down a divider runs: everything between the two edges and no further. It has
+      # to be dark for most of the plate's height, because that is how a groove is told from a
+      # field.
+      PLATE_INSIDE = (4..35)
+
+      # The rows of the plate's own edge, outermost first at each end. Two colours at each,
+      # which is what makes an edge read as a bevel in the metal rather than as a line drawn
+      # round it.
+      PLATE_EDGES = { (0..1) => 16, (2..3) => 17, (36..37) => 18, (38..39) => 19 }.freeze
+
+      # The rows the words are painted on, and how wide each word comes to. Both are the
+      # release's own: the bar is laid out from the width of what goes in it, so words of a
+      # width we made up would spread the fields differently from the way a player sees them.
+      PLATE_WORD_ROWS = (6..14)
+      PLATE_WORDS = { floor: 26, score: 27, lives: 24, health: 33, ammo: 26 }.freeze
+
+      # The ground the plate is painted on, and the two colours a groove is cut in. Ours
+      # rather than the release's, and far enough apart in the palette that nothing on the
+      # plate can be mistaken for anything else on it.
+      PLATE_GROUND = 24
+      PLATE_RULE = [40, 44].freeze
+
+      # A WORD IS PAINTED IN A BAND OF ITS OWN, and a different colour on each of its rows. So
+      # a word cut from the wrong field comes back in the wrong band, and one cut a row out of
+      # place comes back in the wrong order — where a word in one flat colour would look right
+      # either way.
+      PLATE_WORD_INK = 96
+      PLATE_WORD_BAND = 16
+
+      def plate
+        @plate ||= begin
+          width, height = PLATE
+          rows = Array.new(height) { Array.new(width, PLATE_GROUND) }
+          PLATE_EDGES.each { |ys, ink| ys.each { |y| rows[y] = Array.new(width, ink) } }
+          PLATE_DIVIDERS.each do |columns|
+            PLATE_INSIDE.each { |y| columns.each { |x| rows[y][x] = PLATE_RULE[x % 2] } }
+          end
+          PLATE_WORDS.each_with_index { |(_name, wide), n| paint_word(rows, n, wide) }
+          rows
+        end
+      end
+
+      # The fields: what lies between one divider and the next. The first five carry the words
+      # the bar cuts out of the plate; the two after them hold the keys and the weapon, which
+      # the original leaves unlabelled.
+      def plate_fields
+        PLATE_DIVIDERS.each_cons(2).map { |before, after| (before.last + 1)..(after.first - 1) }
+      end
+
+      def paint_word(rows, field, wide)
+        columns = plate_fields.fetch(field)
+        from = columns.first + ((columns.count - wide) / 2)
+        PLATE_WORD_ROWS.each_with_index do |y, dy|
+          wide.times { |dx| rows[y][from + dx] = PLATE_WORD_INK + (field * PLATE_WORD_BAND) + dy }
+        end
       end
 
       # A font's heading is a height, then where each of the 256 characters starts inside

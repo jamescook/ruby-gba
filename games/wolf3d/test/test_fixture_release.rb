@@ -120,7 +120,82 @@ class TestFixtureRelease < Minitest::Test
     assert_equal Release::PICTURES.flatten, tree.unpack(packed[4..], length).unpack("v*")
   end
 
+  # --- a release whose pictures have names -----------------------------------------
+
+  # THE STATUS BAR REACHES ITS ART BY NAME — the face, the numerals, the plate — and what a
+  # picture is called is the one thing that differs from release to release. So a fixture
+  # written as a set the reader has names for has to put its pictures at the numbers those
+  # names point at. Without that the bar's own art can only be tested against somebody's copy
+  # of the game.
+  def test_a_named_release_puts_its_pictures_where_the_names_point
+    vg = named.pictures
+
+    assert_operator vg.picture_count, :>, Wolf3D::Vgagraph::WL6_NAMES.values.max,
+                    "the table has to reach the last picture that has a name"
+    assert_equal [320, 40], vg.size(:status_bar), "the steel plate along the bottom"
+    assert_equal [24, 32], vg.size(:face_1a), "the face that watches you"
+    assert_equal [8, 16], vg.size(:digit_0), "a numeral on the bar"
+  end
+
+  # EVERY PIXEL SAYS WHICH PICTURE IT IS, and that is what a row of twenty-four faces needs:
+  # the bar reads a face by walking columns out of one wide picture, so a walk that reached one
+  # face along would still come back with something that looked like a face. Here it comes back
+  # with numbers that name the face it really read.
+  def test_a_named_picture_says_which_one_it_is_and_where_in_it_you_are
+    face = named.pictures.picture(:face_1a)
+    number = Wolf3D::Vgagraph::WL6_NAMES.fetch(:face_1a)
+
+    face.height.times do |y|
+      face.width.times do |x|
+        assert_equal named.send(:named_pixel, number, (y * face.width) + x), face[x, y],
+                     "pixel (#{x},#{y}) came from the wrong place"
+      end
+    end
+  end
+
+  def test_no_two_faces_are_the_same_picture
+    vg = named.pictures
+    faces = (1..8).flat_map { |band| %w[a b c].map { |look| vg.picture(:"face_#{band}#{look}") } }
+
+    assert_equal faces.length, faces.map(&:pixels).uniq.length
+  end
+
+  # THE PLATE IS THE ONE PICTURE HERE WITH AN ARRANGEMENT rather than pixels of its own. The
+  # bar reads it for a layout — a line along the top and the bottom, a dark column between each
+  # pair of fields, and the word inside each field — and works all three out by looking. So
+  # what is asked of it is what the reader asks: that the fields come out, and that each one
+  # carries a word nothing else on the plate could be mistaken for.
+  def test_every_field_of_the_plate_carries_a_word_of_its_own
+    art = Wolf3D::BarArt.of(named.pictures)
+    refute_nil art, "a named release must be able to give the bar its art"
+
+    words = Wolf3D::BarArt::LABEL_FIELDS.map { |f| art.label(f, Wolf3D::Palette.game)[:data] }
+
+    assert_equal Wolf3D::BarArt::LABEL_FIELDS.length, words.uniq.length,
+                 "a word cut from the wrong field would come back as one of the others"
+  end
+
+  # ...AND THE BAR LAID OUT FROM IT FITS THE SCREEN, which is what makes this a fixture OF the
+  # release rather than a plate of our own: seven fields and the gaps between them come to 240,
+  # and every one of them starts on an even column, because that is where the screen the bar
+  # lands on will take a picture.
+  def test_a_bar_laid_out_from_the_plate_fits_the_screen
+    art = Wolf3D::BarArt.of(named.pictures)
+    layout = Wolf3D::StatusBar.layout(art)
+    widths = Wolf3D::StatusBar.widths(art)
+
+    assert_operator layout.values.min, :>, 0, "the leftmost field needs a gap in front of it"
+    assert_operator layout[:keys] + widths[:keys], :<=, Wolf3D::FirstPerson::ACROSS
+    assert_empty layout.reject { |_, x| x.even? },
+                 "a picture on this screen must start on an even column"
+  end
+
   private
+
+  # A release written as a set the reader has names for. Kept on the class because packing its
+  # art is the only slow thing here and nothing changes it.
+  def self.named = @named ||= Release.new(set: "WL6")
+  def named = self.class.named
 
   def decode_plane(release, plane)
     maps, level_at = release.send(:gamemaps)
