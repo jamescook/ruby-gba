@@ -172,10 +172,14 @@ module RubyGBA
         # long one. On `screen :bitmap` the rows are painted into the picture, so they
         # cost drawing time and no sprites. On `screen :tiled` the console composites the
         # text for you, and every character is one little sprite of its own — out of the
-        # same table of 128 the game's own sprites come from. A row carries the colour it
-        # has when it is picked AND the colour it has when it is not, so reckon about two
-        # sprites for each character of a label. Four rows of eight characters is about
-        # 70; eight rows of ten does not fit at all, and says so.
+        # same table of 128 the game's own sprites come from. So reckon about ONE sprite
+        # for each character of a label, and none at all for a space. Eight rows of ten
+        # characters is about 72; twelve rows of twelve does not fit, and says so.
+        #
+        # A row lights up by CHANGING COLOUR rather than by being drawn twice, which is
+        # what keeps that number at one and not two — see draw_text's `showing:`. The
+        # cursor is the only per-row extra, because it is shown or not shown rather than
+        # recoloured.
         #
         # WHICH ROW IS PICKED SURVIVES leaving and coming back, so a submenu you back out
         # of opens where you left it. That is free: the pick is a variable, and a
@@ -369,6 +373,12 @@ module RubyGBA
         # One row, in whichever of its three colours applies. `picked_when` is a block
         # rather than a test because a test belongs to one place in the tree, and a row
         # that can say several things asks the same question once for each of them.
+        #
+        # The words are ONE draw in a pair of colours rather than two draws under a test.
+        # It says the same thing and paints the same pixels; what it saves is on a tiled
+        # screen, where two draws would be two sprites for every character with one of
+        # them always hidden. The cursor is still a test, because it is shown or not
+        # shown rather than recoloured.
         def menu_draw_row(item, words:, row:, style:, picked_when:)
           unless item.enabled
             draw_text words, style.x, row, style.disabled, font: style.font
@@ -376,11 +386,12 @@ module RubyGBA
           end
 
           bright = item.picked || style.picked
+          draw_text words, style.x, row, [item.color || style.color, bright],
+                    font: style.font, showing: picked_when.call
+          return if style.cursor.empty?
+
           picked_when.call.then do
-            draw_text style.cursor, style.cursor_x, row, bright, font: style.font unless style.cursor.empty?
-            draw_text words, style.x, row, bright, font: style.font
-          end.else do
-            draw_text words, style.x, row, item.color || style.color, font: style.font
+            draw_text style.cursor, style.cursor_x, row, bright, font: style.font
           end
         end
 
@@ -442,10 +453,10 @@ module RubyGBA
 
           raise ArgumentError,
                 "menu :#{name} needs #{spent} sprites for its rows, and the console draws at " \
-                "most #{Constants::MAX_SPRITES} at once. On a tiled screen each character is " \
-                "its own little sprite. A row carries two colours, so it costs two sprites for " \
-                "each character. To fix this, use shorter labels or fewer rows. Or put the menu " \
-                "on a `screen :bitmap`, where text costs no sprites at all."
+                "most #{Constants::MAX_SPRITES} at once. On a tiled screen the console draws " \
+                "each character as its own little sprite. To fix this, use shorter labels or " \
+                "fewer rows. Or put the menu on a `screen :bitmap`, where text costs no " \
+                "sprites at all."
         end
 
         # A menu is per-frame work, so it belongs where the frame's work goes.

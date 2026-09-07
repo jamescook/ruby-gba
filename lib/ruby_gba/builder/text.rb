@@ -100,18 +100,34 @@ module RubyGBA
       # text is uppercased and unknown characters are skipped. Another font may be
       # proportional, so ask {#text_width} rather than multiplying.
       #
+      # TWO COLOURS, AND A TEST SAYING WHICH. Give the colour as a pair and `showing:`
+      # the test that picks between them — the second while it holds, the first when it
+      # does not:
+      #
+      #   draw_text "SOUND", 80, 60, [:gray, :white], showing: picked == 1
+      #   draw_text "HP",     8,  8, [:white, :red],  showing: hp < 20
+      #
+      # Written the long way — the same words drawn twice, under a test and its
+      # opposite — it says the same thing and looks the same. What it saves is on a
+      # tiled screen, where the console draws each character as its own little sprite
+      # out of a table of 128: two draws mean two sprites for every character, one of
+      # them always hidden, where this is one sprite that changes colour. A menu's rows
+      # cost half as much for it (see the `menu` verb).
+      #
       # @param text [String] the words to draw
       # @param x [Integer, Symbol] left edge, or :left / :center / :right
       # @param y [Integer] top edge
-      # @param color [Symbol, String, Integer] text color
+      # @param color [Symbol, String, Integer, Array] text color, or a pair to pick between
       # @param font [Symbol] a font registered in {Fonts} (defaults to :default)
       # @param within [Range, nil] the columns to place it in (defaults to the screen)
-      def draw_text(text, x, y, color, font: :default, within: nil)
+      # @param showing [Condition, Value, Symbol, nil] which of a pair of colors is showing
+      def draw_text(text, x, y, color, font: :default, within: nil, showing: nil)
         unless text.is_a?(String)
           raise ArgumentError,
                 "draw_text draws words (a String). For a number like a score or a counter, use " \
                 "draw_number. Got #{text.inspect}."
         end
+        colors = text_colors!(color, showing)
         chosen = Fonts.get(font) # fail early with a friendly error on an unknown font name
         x = column_for(x, drawn_width(text, chosen), within, "draw_text")
 
@@ -120,10 +136,19 @@ module RubyGBA
         # sprite (see #draw_text_tiled).
         if TILE_HARDWARE_MODES.include?(@screen_mode)
           require_hud_declared_once!("draw_text")
-          return draw_text_tiled(text, x, y, color, font)
+          return draw_text_tiled(text, x, y, colors, font, showing)
         end
 
-        record(Build.draw_text(text, x, y, color, font: font))
+        return record(Build.draw_text(text, x, y, colors.first, font: font)) if colors.length == 1
+
+        # A bitmap screen paints where it is called, so a pair of colours is the test
+        # written out: the same words, twice, in one colour or the other. There is
+        # nothing to save here — a painted pixel costs the same whichever way it was
+        # decided — so this is the plain reading of what the pair means.
+        which = text_color_test(showing)
+        which.then { record(Build.draw_text(text, x, y, colors.last, font: font)) }
+             .else { record(Build.draw_text(text, x, y, colors.first, font: font)) }
+        nil
       end
 
       # Draw a whole number at (x, y): a score, a damage counter, a timer. The value
@@ -197,6 +222,44 @@ module RubyGBA
       def text_height(font: :default) = Fonts.get(font).height
 
       private
+
+      # The colours the text can be drawn in, always as a list. One colour needs nothing
+      # to choose between; two need a test, so a pair without `showing:` is refused
+      # rather than one of them silently winning.
+      #
+      # TWO AND NO MORE, on purpose. A pair with a test is one sprite that changes
+      # colour, because a test is 0 or 1 and that is always one of the two. Three would
+      # need the number the game gave held inside the list for it, which costs a check
+      # on every character of every frame — and a third colour is rare enough that
+      # writing the test out is the better trade. The error says so.
+      def text_colors!(color, showing)
+        unless color.is_a?(Array)
+          return [color] if showing.nil?
+
+          raise ArgumentError,
+                "draw_text got `showing:` and one colour, so there is nothing to pick " \
+                "between. Give two colours, like `[:gray, :white]`. Or drop `showing:`."
+        end
+        unless color.length == 2
+          raise ArgumentError,
+                "draw_text picks between two colours, and got #{color.length}. Give a pair, " \
+                "like `[:gray, :white]`. For more, draw the text under a test for each."
+        end
+        return color if showing
+
+        raise ArgumentError,
+              "draw_text got two colours and needs `showing:` to say which one is on. " \
+              "Give the test that picks the second, like `showing: picked == 1`."
+      end
+
+      # The test that picks the second colour. A Condition already answers 0 or 1, so it
+      # is used as it is; anything else is read the way a game reads a flag — not zero
+      # means yes.
+      def text_color_test(showing)
+        return showing if showing.is_a?(Condition)
+
+        Value.new(self, Value.node_for(showing)) != 0
+      end
 
       # The column to draw at, from the left edge a game asked for. A number passes
       # through untouched; a name is worked out from how wide the text really is and
@@ -352,15 +415,35 @@ module RubyGBA
       # character is one of them, and a sprite with no lit pixels in it would spend a
       # slot to paint nothing at all. A HUD line with two spaces in it is two slots
       # back for the game.
-      def draw_text_tiled(text, x, y, color, font)
+      # A pair of colours becomes a pair of POSES on the one sprite — the same glyph
+      # twice, once in each colour, with the test choosing between them every frame.
+      # That is the whole saving: the console is already changing which picture each
+      # sprite shows for free, so a label that changes colour costs no more slots than
+      # one that does not. Written as two draws under a test it would be two sprites for
+      # every character, one of them always hidden.
+      #
+      # The pose must always land inside the pair or the console reads tiles that are
+      # not there, so a test is what this takes: a test is 0 or 1, and a pair has a
+      # 0 and a 1.
+      def draw_text_tiled(text, x, y, colors, font, showing)
         f = Fonts.get(font)
+        pose = colors.length == 1 ? Build.int(0) : glyph_color_pose(showing)
         text.each_char.with_index do |ch, i|
           next if f.glyph_pixels(ch).zero? # a space, or a character the font lacks: nothing to draw
 
-          hud_glyph_object(poses: [glyph_image(font, ch, color)], pose: Build.int(0),
+          hud_glyph_object(poses: colors.map { |c| glyph_image(font, ch, c) }, pose: pose.copy,
                            x: x + i * f.cell_w, y: y)
         end
         nil
+      end
+
+      # Which of a glyph's two colours to show, as a value node that is only ever 0 or 1.
+      # A Condition's node already is one; a plain value is read as a flag. Each glyph
+      # gets its own copy, because a node belongs to one place in the tree.
+      def glyph_color_pose(showing)
+        test = text_color_test(showing)
+        consume_condition(test)
+        test.node
       end
 
       # Draw a number as glyph sprites. A fixed number is just its right-aligned
@@ -373,7 +456,7 @@ module RubyGBA
         if fixed
           text = fixed.to_s
           pad = [digits - text.length, 0].max # right-align in the field
-          return draw_text_tiled(text, x + pad * cell, y, color, font)
+          return draw_text_tiled(text, x + pad * cell, y, [color], font, nil)
         end
 
         source = hud_number_variable(value)
