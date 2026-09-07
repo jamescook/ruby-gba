@@ -19,6 +19,10 @@ require_relative "wolf3d/palette"
 require_relative "wolf3d/level"
 require_relative "wolf3d/maps"
 require_relative "wolf3d/vswap"
+# ...and the pictures of the gun in your hands, which are the last twenty sprites of it. Up
+# here with the reader rather than beside the other two atlases, because a release written for
+# the tests has to know how many sprites it must hold to have them.
+require_relative "wolf3d/weapon_atlas"
 require_relative "wolf3d/vgagraph"
 require_relative "wolf3d/doors"
 require_relative "wolf3d/pushwalls"
@@ -36,6 +40,8 @@ require_relative "wolf3d/bar_art"
 require_relative "wolf3d/menu_art"
 require_relative "wolf3d/status_bar"
 require_relative "wolf3d/first_person"
+# ...after the view, whose height is what the gun's square is scaled to.
+require_relative "wolf3d/weapons"
 # ...after the view, whose constants say how big the part of the screen that goes red is.
 require_relative "wolf3d/dying"
 # ...and after dying, which is the only thing that ever spends one.
@@ -143,6 +149,12 @@ module Wolf3D
 
   def self.vgagraph = @vgagraph ||= data && Vgagraph.from(data)
 
+  # The pictures of the gun in your hands, or nil for a copy of the game that does not hold
+  # them — in which case the four weapons still work and you simply cannot see the one you have.
+  def self.gun_art
+    @gun_art ||= WeaponAtlas.in?(vswap) ? WeaponAtlas.new(vswap, palette) : nil
+  end
+
   def self.palette = Palette.game
 
   # Say what the cartridge was built from, or how to fix it not knowing.
@@ -177,9 +189,13 @@ module Wolf3D
       # is played under. Declared here rather than inside either of them because both need it
       # and neither owns it.
       sound_on = menu_art && var(:sound_on, 1)
+      # `gun_art` is the pictures of the gun in your hands, and it is asked of the CARTRIDGE
+      # rather than of the level: every floor is played holding the same four weapons, where the
+      # walls and the things standing in the rooms differ from one floor to the next.
       view = Wolf3D::FirstPerson.new(build: self, floors: floors, atlas: atlas, things: things,
                                      vswap: Wolf3D.vswap,
                                      bar_art: Wolf3D::BarArt.of(Wolf3D.vgagraph),
+                                     gun_art: Wolf3D.gun_art,
                                      startable: !menu_art.nil?, sound_on: sound_on)
       if menu_art
         menus = Wolf3D::Menus.new(build: self, view: view, art: menu_art,

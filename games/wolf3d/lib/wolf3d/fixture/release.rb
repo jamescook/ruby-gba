@@ -48,11 +48,17 @@ module Wolf3D
 
       # ...and enough sprites to reach the last picture a guard can wear, which a real release
       # puts after its scenery. Everything before them is unused here, and small.
-      DEFAULT_SPRITES = Guards.pictures.max + 1
+      #
+      # THEN TWENTY MORE FOR THE WEAPONS, because a release keeps those LAST and the reader
+      # finds them by counting back from the end of the file (see WeaponAtlas). A fixture that
+      # stopped at the guards would hand the gun five of their poses to draw.
+      DEFAULT_SPRITES = Guards.pictures.max + 1 + WeaponAtlas::COUNT
 
       # Where a sprite's flat colour starts counting. Far enough up the palette to be clear of
-      # the walls' inks, and low enough that every sprite of a default release has its own.
-      SPRITE_INK = 150
+      # the walls' inks, which reach 108, and low enough that the last sprite of a default
+      # release still lands inside the 256 colours there are — the guns took the run of them
+      # twenty longer, and past the end a colour number wraps round onto a wall's.
+      SPRITE_INK = 112
 
       def initialize(set: "WL1", walls: DEFAULT_WALLS, sprites: DEFAULT_SPRITES, sounds: 2)
         @set = set
@@ -218,6 +224,12 @@ module Wolf3D
       BAND = [[16, 48]].freeze
       HANGS = [[4, 20], [52, 60]].freeze
 
+      # ...AND A GUN HANGS OFF THE BOTTOM of its square, which is the shape every one of the
+      # last twenty sprites of a real release has. The gun's picture is built out of exactly
+      # that fact — it ships the rows that hold art and no others — so a fixture whose weapons
+      # sat in the middle like everything else would prove the wrong thing about it.
+      HELD = [[40, 64]].freeze
+
       def self.hanging_picture = Scenery.picture_of(Scenery::CEILING_LIGHT)
 
       # Columns of runs, because most of a sprite is empty. Measured against a real VSWAP: the
@@ -231,7 +243,7 @@ module Wolf3D
         first_col = 20
         last_col = 43
         columns = last_col - first_col + 1
-        bands = index == self.class.hanging_picture ? HANGS : BAND
+        bands = bands_of(index)
         rows = bands.sum { |top, bottom| bottom - top }
 
         pool = Array.new(columns * rows) { SPRITE_INK + index }.pack("C*")
@@ -242,6 +254,16 @@ module Wolf3D
         offsets = Array.new(columns) { |i| posts_at + (i * post.bytesize) }
 
         [first_col, last_col].pack("v2") + offsets.pack("v*") + pool + (post * columns)
+      end
+
+      # Which rows of its square a sprite fills: the last twenty are the weapons and hang off
+      # the bottom, the ceiling light is in two pieces, and everything else is one band across
+      # the middle.
+      def bands_of(index)
+        return HELD if @sprites >= WeaponAtlas::COUNT && index >= @sprites - WeaponAtlas::COUNT
+        return HANGS if index == self.class.hanging_picture
+
+        BAND
       end
 
       # Raw 8-bit unsigned samples, which is what the sample verb wants once 128 comes off.

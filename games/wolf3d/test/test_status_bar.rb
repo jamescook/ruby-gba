@@ -13,6 +13,7 @@ class TestStatusBar < Minitest::Test
   FP = Wolf3D::FirstPerson
   Bar = Wolf3D::StatusBar
   Guards = Wolf3D::Guards
+  Weapons = Wolf3D::Weapons
   Release = Wolf3D::Fixture::Release
 
   SIDE = 16
@@ -80,7 +81,7 @@ class TestStatusBar < Minitest::Test
   # the pistol is the mind's business, and a floor with nobody on it has no mind.
   def test_the_ammunition_on_the_bar_counts_down_as_you_fire
     fired = Reference.new.input_each_frame { |f| f.even? ? [:b] : [] }
-                    .run(view_of(arena(guards: [[13, 8, :east]])), frames: 12)
+                    .run(view_of(arena(guards: [[13, 8, :east]])), frames: Weapons::CYCLE)
 
     assert_operator figure(fired, :ammo), :<, FP::START_AMMO
     assert_equal fired[:ammo], figure(fired, :ammo)

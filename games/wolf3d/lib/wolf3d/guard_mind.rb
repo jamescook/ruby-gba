@@ -582,13 +582,18 @@ module Wolf3D
     # "In the sights" is a tenth of the screen either side of the middle, as a slope: how far
     # he is to the side of the line you are looking down, against how far in front of you he
     # is. Written that way it is a multiply and a comparison and never a divide.
-    def shoot
+    #
+    # +with_knife+ is true while the knife is the thing in your hands, or nil on a game with one
+    # weapon — and then none of the knife's own arm is emitted. What it changes is the DAMAGE
+    # and the REACH, never the search: a knife goes for the same man down the same line, and the
+    # only question it asks differently is whether he is near enough to touch.
+    def shoot(with_knife: nil)
       @target.set NOBODY
       @nearest.set FAR_AWAY
 
       @pool.each { |guard| consider_as_a_target(guard) }
 
-      (@target != NOBODY).then { hit_the_target }
+      (@target != NOBODY).then { hit_the_target(with_knife) }
     end
 
     private
@@ -626,10 +631,10 @@ module Wolf3D
       end
     end
 
-    # WHAT A PISTOL DOES, by distance, and the third case can miss outright: past four cells a
-    # roll has to beat the distance or the shot goes wide, which is why a pistol across a room
-    # is a waste of a bullet.
-    def hit_the_target
+    # HOW BADLY THE MAN IN THE SIGHTS IS HURT. How far away he is decides it, in whole cells,
+    # and the weapon does not — every gun in this game does the same damage, so a chain gun is
+    # not a harder-hitting pistol, it is more pistol shots.
+    def hit_the_target(with_knife)
       x = @pool.field_ref(:x, @target)
       y = @pool.field_ref(:y, @target)
       @cellx.set((@player[:x].to_i - x.to_i))
@@ -639,13 +644,35 @@ module Wolf3D
       @away.set @cellx
       (@celly > @away).then { @away.set @celly }
 
+      if with_knife
+        with_knife.then { what_a_knife_does }.else { what_a_gun_does }
+      else
+        what_a_gun_does
+      end
+      (@wound > 0).then { wound_a_guard }
+    end
+
+    # ...AND WHAT A GUN DOES, by distance, where the third case can miss outright: past four
+    # cells a roll has to beat the distance or the shot goes wide, which is why a pistol across
+    # a room is a waste of a bullet and why backing away from a fight works.
+    def what_a_gun_does
       @wound.set(@b.rand(0..CHANCES - 1) / 4)
       (@away >= 2).then { @wound.set(@b.rand(0..CHANCES - 1) / 6) }
       (@away >= 4).then do
         # Far enough away to miss altogether.
         (@b.rand(0..CHANCES - 1) / 12 < @away).then { @wound.set 0 }
       end
-      (@wound > 0).then { wound_a_guard }
+    end
+
+    # ...AND WHAT A KNIFE DOES, which is not a gun at zero range. It takes about a quarter of
+    # what a close shot takes, and instead of falling off with distance it simply stops: inside
+    # a cell and a half it cuts, outside it the swing meets nothing at all.
+    #
+    # The distance it asks about is the one the search already worked out — how far in FRONT of
+    # the eye the man is, which is what the original measures a knife by too.
+    def what_a_knife_does
+      @wound.set 0
+      (@nearest < Weapons::KNIFE_REACH).then { @wound.set(@b.rand(0..CHANCES - 1) / 16) }
     end
 
     # A GUARD WHO HAS NOT NOTICED YOU TAKES DOUBLE, which is the original quietly rewarding you

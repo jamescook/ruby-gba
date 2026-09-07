@@ -507,10 +507,17 @@ class TestGuards < Minitest::Test
                .sort_by { |guard| guard[:x] }
   end
 
-  # Stand still and tap the trigger. The button is read on the press, so it has to go up
-  # between shots or only the first one counts.
+  # HOW LONG ONE SHOT REALLY TAKES: the weapon's own cycle, plus the pass the trigger needs to
+  # come back up before it can be pressed again.
+  A_SHOT = Wolf3D::Weapons::CYCLE + 2
+
+  # Stand still and tap the trigger as fast as the gun will take it. The button is read on the
+  # press, so it has to go up between shots or only the first one counts — and a gun in the
+  # middle of a shot does not read it at all, so tapping every other pass is tapping about
+  # twenty times too often. That costs nothing and means the first pass the gun is ready on is
+  # always a pass the button is going down.
   def shoot_at(guards, shots:, frames:, **)
-    firing = ->(f) { f < shots * 4 && (f / 2).even? ? [:b] : [] }
+    firing = ->(f) { f < shots * A_SHOT && f.even? ? [:b] : [] }
     Reference.new.input_each_frame { |f| firing.call(f) }
              .run(view_of(arena(guards: guards, **), drawing: false), frames: frames)
   end

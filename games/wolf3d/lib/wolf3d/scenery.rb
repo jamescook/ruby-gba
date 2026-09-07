@@ -47,9 +47,9 @@ module Wolf3D
     # only in what being full means — a hundred of health, ninety-nine rounds, or nothing at all
     # for treasure, which you can never have too much of.
     #
-    # THE TWO WEAPONS GIVE ONLY THEIR ROUNDS for now, which is not a stand-in: the original's
-    # GiveWeapon hands you six rounds first and then the weapon, so the rounds are half of what a
-    # machine gun really is. The other half waits on there being weapons to hold.
+    # THE TWO GUNS GIVE THEIR ROUNDS AND THEN THEMSELVES, in that order, which is the original's
+    # GiveWeapon: six rounds first, then the gun, and the gun only if it beats what you were
+    # already carrying. See Weapons.
     BONUSES = {
       6 => [:health, 4],        # bad food — worth having, and not much
       20 => [:key, :gold],
@@ -57,8 +57,8 @@ module Wolf3D
       24 => [:health, 10],      # good food
       25 => [:health, 25],      # a first aid box
       26 => [:ammunition, 8],   # a clip
-      27 => [:ammunition, 6],   # a machine gun...
-      28 => [:ammunition, 6],   # ...and a gatling gun
+      27 => [:weapon, :machine_gun],
+      28 => [:weapon, :chain_gun],   # the gatling gun, as the original's own art calls it
       29 => [:treasure, 100],   # a cross
       30 => [:treasure, 500],   # a chalice
       31 => [:treasure, 1000],  # a bible
