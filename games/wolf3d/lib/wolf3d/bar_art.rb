@@ -25,6 +25,19 @@ module Wolf3D
     # will do; this one is clear of the lettering along the top and the figures below.
     GROUND_ROW = 20
 
+    # THE PLATE'S EDGE, as the rows it is made of: the outermost one and the line under it at
+    # the top, and their pair at the bottom. Two rows each, because the bar here is 32 rows
+    # against the original's 40 and the lettering wants 25 of them — the plate's own edge is
+    # four rows deep at each end and there is not room for that.
+    TOP_ROWS = [0, 3].freeze
+    BOTTOM_ROWS = [37, 38].freeze
+
+    # A RULE BETWEEN TWO FIELDS is two columns, not one, and they are different colours: a dark
+    # one and a light one, which is what makes it read as a groove in the steel rather than as a
+    # line drawn on it. These are the columns of the plate's first rule.
+    RULE_COLUMNS = [41, 42].freeze
+    RULE_ROWS_READ = (6..30)
+
     # THE FIGURES ARE PICTURES, not letters. The original does not write its numbers in either
     # of its alphabets — it keeps ten numeral pictures, all the same size, and an eleventh that
     # is blank for a leading nought. That is worth following rather than working around: the
@@ -131,9 +144,35 @@ module Wolf3D
     # Taken as the commonest colour along a row rather than from a spot, because the plate's
     # frame runs ten columns in and a spot inside it lands on the frame's shadow — which is
     # very nearly black, and which is exactly the mistake this replaced.
-    def ground = @vg.picture(:status_bar).rows[GROUND_ROW].tally.max_by { |_, count| count }.first
+    def ground = commonest(plate.rows[GROUND_ROW])
+
+    # The rows the plate's own edge is made of, top and bottom, outermost first.
+    def top_edge = TOP_ROWS.map { |y| commonest(plate.rows[y]) }
+    def bottom_edge = BOTTOM_ROWS.map { |y| commonest(plate.rows[y]) }
+
+    # A RULE BETWEEN FIELDS, cut straight out of the plate as a picture +height+ rows tall.
+    #
+    # Cut rather than painted in two flat colours, because a groove in the plate's steel is not
+    # two flat colours: it lightens and darkens down its length with the metal around it. And
+    # cut from the MIDDLE of the plate's own rule, so nothing is squeezed — this bar is 32 rows
+    # against the original's 40, and taking a shorter piece of a rule loses nothing, where
+    # squeezing one would.
+    def rule(height, palette)
+      from = RULE_ROWS_READ.first
+      { width: RULE_COLUMNS.length, height: height,
+        data: height.times.flat_map { |y| RULE_COLUMNS.map { |x| palette[plate[x, from + y]] } } }
+    end
+
+    def rule_width = RULE_COLUMNS.length
 
     private
+
+    def plate = @plate ||= @vg.picture(:status_bar)
+
+    # The colour a row or a column is mostly made of. Every colour on the plate is read this way
+    # rather than from a spot, because a spot lands wherever it lands — inside the frame, on a
+    # letter, on the edge of a bevel — and the answer looks plausible and is wrong.
+    def commonest(pixels) = pixels.tally.max_by { |_, count| count }.first
 
     # THE PLATE'S OWN FIELDS, read off it. Every boundary on it is a column that is dark for
     # nearly the whole height — the frame down each side, a rule between each pair of fields,
