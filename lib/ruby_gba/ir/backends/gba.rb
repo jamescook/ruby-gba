@@ -396,6 +396,18 @@ module RubyGBA
           )
         end
 
+        # Everything this build worked out about the program it just lowered, in one piece,
+        # for the cartridge to carry (see {RubyGBA::BuildRecord}). Valid after #lower —
+        # every part of it is a decision the lowering made. Handing it over whole is what
+        # lets a ROM be assembled in one call instead of being filled in field by field
+        # afterwards.
+        def build_record(program)
+          RubyGBA::BuildRecord.new(source_program: program, placement: iwram_report,
+                                   var_addresses: var_addresses, loop_shapes: loop_shapes,
+                                   palette_entries: palette_entries,
+                                   compression: compression_report)
+        end
+
         # Lower a program to finished GBA machine code: run the emit pass and
         # resolve the jumps, then return the raw code bytes. Packaging them into a
         # cartridge — header, entry branch, checksum, padding — is ROM.assemble's

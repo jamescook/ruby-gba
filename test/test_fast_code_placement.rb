@@ -48,6 +48,15 @@ class TestFastCodePlacement < Minitest::Test
     backend.iwram_report
   end
 
+  # A cartridge that can report on itself, built the way RubyGBA.build builds one: the
+  # record of what the build worked out is handed over whole, at assembly.
+  def rom_of(program, title:, code:, **opts)
+    backend = GBA.new(**opts)
+    machine_code = backend.lower(program)
+    RubyGBA::ROM.assemble(machine_code, title: title, code: code, maker: "01",
+                                        built: backend.build_record(program))
+  end
+
   # --- it changes nothing ---
 
   # The same program, both ways, every pixel compared — on the interpreter and on the
@@ -348,11 +357,7 @@ class TestFastCodePlacement < Minitest::Test
   end
 
   def test_the_report_names_the_routine_the_display_interrupts_into
-    program = bending_program
-    backend = GBA.new
-    rom = RubyGBA::ROM.assemble(backend.lower(program), title: "BENDP", code: "BNDP", maker: "01")
-    rom.source_program = program
-    rom.placement = backend.iwram_report
+    rom = rom_of(bending_program, title: "BENDP", code: "BNDP")
 
     out = StringIO.new
     rom.explain(out: out, color: false)
