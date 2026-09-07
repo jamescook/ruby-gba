@@ -49,10 +49,17 @@ module BufferedSnake
   RIGHT_WALL_X  = (COLS - 1) * CELL
   WALL_H        = SCREEN_H - TOP_WALL_Y
 
+  # The header readout: a "SCORE" label with its figures one gap past the end of the
+  # word, wherever the font puts that (see `score_num_x` in the build).
   SCORE_LABEL_X = 8
-  SCORE_NUM_X   = 50
+  SCORE_GAP     = 12
   SCORE_Y       = 4
-  SCORE_NUM_W   = 3 * 6
+
+  # The game-over screen puts a label and its number either side of the middle — the
+  # word pushed up against it from the left, the figures from the right of it.
+  STAT_GAP    = 6
+  STAT_LABEL  = (0...(SCREEN_W / 2))
+  STAT_NUMBER = (((SCREEN_W / 2) + STAT_GAP)...SCREEN_W)
 
   BODY_CAP = (MAX_COL - MIN_COL + 1) * (MAX_ROW - MIN_ROW + 1)
   BODY_USUAL = 4..20           # what it really holds — see snake.rb, which explains why
@@ -65,6 +72,10 @@ module BufferedSnake
   GAME = RubyGBA.game("SNAKEBUF", code: "BSNB", maker: "01") do
     screen :bitmap, tear_free: true # <-- the whole difference. Remove it and it tears.
     enable_sound
+
+    # One gap past the end of the word, whatever the word is — the font is the only
+    # thing that knows how wide "SCORE" comes out.
+    score_num_x = SCORE_LABEL_X + text_width("SCORE") + SCORE_GAP
 
     define_sound :eat, frequency: 880, duty: :quarter, decay: :fast
     define_sound :die, frequency: 140, duty: :half, decay: :medium
@@ -114,7 +125,7 @@ module BufferedSnake
       dma_fill_rect 0, BOTTOM_WALL_Y, SCREEN_W, CELL, :gray         # bottom wall
       dma_fill_rect 0, TOP_WALL_Y, CELL, WALL_H, :gray             # left wall
       dma_fill_rect RIGHT_WALL_X, TOP_WALL_Y, CELL, WALL_H, :gray  # right wall
-      draw_number score, SCORE_NUM_X, SCORE_Y, :white, digits: 3
+      draw_number score, score_num_x, SCORE_Y, :white, digits: 3
       draw_rect_at food_x * CELL, food_y * CELL, CELL, CELL, :red
       repeat(xs.length) do |i|
         draw_rect_at xs[i] * CELL, ys[i] * CELL, CELL, CELL, :green
@@ -174,9 +185,9 @@ module BufferedSnake
 
     scene :title do
       clear_screen :black
-      draw_text "SNAKE", 105, 56, :green
+      draw_text "SNAKE", :center, 56, :green
       every(0.5, :seconds) { (blink == 1).then { blink.set 0 }.else { blink.set 1 } }
-      (blink == 1).then { draw_text "PRESS START", 87, 96, :gray }
+      (blink == 1).then { draw_text "PRESS START", :center, 96, :gray }
       randomize
       pressed(:start).then { call :new_game }
     end
@@ -193,11 +204,11 @@ module BufferedSnake
 
     scene :game_over do
       clear_screen :black
-      draw_text "GAME OVER", 93, 52, :red
-      draw_text "SCORE", 84, 80, :gray
-      draw_number score, 132, 80, :white, digits: 3
+      draw_text "GAME OVER", :center, 52, :red
+      draw_text "SCORE", :right, 80, :gray, within: STAT_LABEL
+      draw_number score, :left, 80, :white, digits: 3, within: STAT_NUMBER
       every(0.5, :seconds) { (blink == 1).then { blink.set 0 }.else { blink.set 1 } }
-      (blink == 1).then { draw_text "PRESS START", 87, 110, :gray }
+      (blink == 1).then { draw_text "PRESS START", :center, 110, :gray }
       pressed(:start).then { call :new_game }
     end
 

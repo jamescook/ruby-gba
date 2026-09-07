@@ -38,6 +38,8 @@ WIN_SCORE    = 5
 STING_FRAMES = 18       # how long the red sting takes to fall away when the cpu scores
 LEFT_X       = 8        # player paddle x
 RIGHT_X      = 228      # cpu paddle x
+NET_X        = SCREEN_W / 2 # the center line the two scores sit either side of
+SCORE_GAP    = 15       # how far from the net each score is pushed
 ZOOM_FRAMES    = 60     # how long the title's zoom-in takes once START is pressed (1 second)
 ZOOM_PER_FRAME = 0.05   # how much bigger the title backdrop gets each of those frames
 
@@ -207,13 +209,13 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     checker = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "#" : "$" }.join }
     title_board = background :title_board, tiles: :backdrop, map: checker
 
-    draw_text "PONG", 104, 40, :white
+    draw_text "PONG", :center, 40, :white
 
     # Flash the prompt: flip it on/off every half second.
     every(0.5, :seconds) do
       (blink == 1).then { blink.set 0 }.else { blink.set 1 }
     end
-    (blink == 1).then { draw_text "PRESS START", 76, 100, :gray }
+    (blink == 1).then { draw_text "PRESS START", :center, 100, :gray }
 
     # Zoom the backdrop in on START, then hand off to :playing once the zoom
     # finishes — the same pace `fade_out`/`fade_in` walk a level over frames at.
@@ -244,9 +246,11 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     draw_rect_at RIGHT_X, :cpu_y, PADDLE_W, PADDLE_H, :white
     draw_rect_at :ball_x, :ball_y, BALL_SIZE, BALL_SIZE, :white
 
-    # Live score, one digit each side of the center line (first to WIN_SCORE).
-    draw_number player_score, 100, 8, :white, digits: 1
-    draw_number cpu_score, 134, 8, :white, digits: 1
+    # Live score, one digit each side of the center line (first to WIN_SCORE). Each is
+    # pushed up against the net from its own half, so the two sit symmetrically whatever
+    # the font is — no pair of numbers to keep in step by hand.
+    draw_number player_score, :right, 8, :white, digits: 1, within: 0..(NET_X - SCORE_GAP)
+    draw_number cpu_score, :left, 8, :white, digits: 1, within: (NET_X + SCORE_GAP)...SCREEN_W
 
     # Background music
     play_song :gameplay
@@ -254,16 +258,16 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
 
   scene :player_wins do
     clear_screen :black
-    draw_text "YOU WIN!", 88, 60, :white
-    draw_text "PRESS START", 76, 100, :gray
+    draw_text "YOU WIN!", :center, 60, :white
+    draw_text "PRESS START", :center, 100, :gray
 
     pressed(:start).then { state.set 0 }
   end
 
   scene :cpu_wins do
     clear_screen :black
-    draw_text "GAME OVER", 84, 60, :white
-    draw_text "PRESS START", 76, 100, :gray
+    draw_text "GAME OVER", :center, 60, :white
+    draw_text "PRESS START", :center, 100, :gray
 
     pressed(:start).then { state.set 0 }
   end

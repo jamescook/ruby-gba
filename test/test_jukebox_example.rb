@@ -63,6 +63,31 @@ class TestJukeboxExample < Minitest::Test
                     "selecting row 2 should play the Minuet"
   end
 
+  # The three headings say they are centred, so the proof is that they LOOK centred:
+  # the gap to the left of the lit pixels matches the gap to the right. Read off the
+  # picture rather than recomputed from the font, so it would still catch a font that
+  # measured itself wrong. The example used to multiply the character count by four
+  # and every one of these lines sat left of centre — each by a different amount.
+  HEADING_ROWS = { 14 => "JUKEBOX", 34 => "PRESS UP OR DOWN", 108 => "NOW PLAYING" }.freeze
+
+  # The leftmost and rightmost columns anything is drawn in, over the rows one line of
+  # text occupies.
+  def lit_span(screen, y, height: 7)
+    xs = (0...240).select { |x| (0...height).any? { |dy| screen.pixel(x, y + dy) != 0 } }
+    refute_empty xs, "nothing is drawn at y=#{y}"
+    [xs.first, xs.last]
+  end
+
+  def test_the_headings_are_genuinely_centred
+    screen = Reference.new.run(Jukebox.program, max_steps: 4000).screen
+
+    HEADING_ROWS.each do |y, text|
+      left, right = lit_span(screen, y)
+      assert_in_delta left, 239 - right, 1,
+                      "#{text.inspect} sits #{left} from the left and #{239 - right} from the right"
+    end
+  end
+
   # On real hardware: the ROM boots and the music channel is actually driven.
   def test_the_music_channel_is_driven_on_the_console
     rom = Jukebox.build_rom(out: StringIO.new, err: StringIO.new)

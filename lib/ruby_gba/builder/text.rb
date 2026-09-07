@@ -21,21 +21,15 @@ module RubyGBA
       # same sprite hardware composites glyphs over it exactly the same way.
       TILE_HARDWARE_MODES = %i[tiled rotozoom].freeze
 
-      # Draw a line of words at (x, y) with the built-in font: a label, a title, a
-      # line of dialogue. The string is fixed when the ROM is built.
+      # WHERE A LINE OF TEXT SITS, named instead of counted. These go where the left
+      # edge goes, so `draw_text "PONG", :center, 40, :white` centres it.
       #
-      #   draw_text "PRESS START", 76, 100, :gray
-      #
-      # For a number that changes as the game runs (a score, a counter), use
-      # {#draw_number} — a live value can't be spliced into a string, since Ruby
-      # resolves `"score: #{n}"` at build time, before the game runs.
-      #
-      # Characters are 6px wide (5px glyph + 1px gap), 7px tall; text is uppercased
-      # and unknown characters are skipped.
-      #
-      # @param text [String] the words to draw
-      # @param x [Integer] left edge
-      # @param y [Integer] top edge
+      # A number is still right when you actually want a number. What a number cannot
+      # be is CENTRED: a proportional font has no per-character width to multiply by,
+      # so the only thing that knows how wide "PRESS START" comes out is the font
+      # itself. Ask it, and a label can be reworded without a stale number left behind.
+      ALIGNMENTS = %i[left center right].freeze
+
       # Define a font from little glyph bitmaps, the way {#image} defines a bitmap
       # from ASCII art — then `draw_text` can pick it. Inside the block, `glyph`
       # gives a character its art; a lit pixel is the +on+ character (default "#"),
@@ -87,15 +81,39 @@ module RubyGBA
         name
       end
 
+      # Draw a line of words at (x, y): a label, a title, a line of dialogue. The
+      # string is fixed when the ROM is built.
+      #
+      #   draw_text "PRESS START", 76, 100, :gray      # at a column you picked
+      #   draw_text "PRESS START", :center, 100, :gray # centred, whatever it says
+      #
+      # The left edge takes a number, or one of :left, :center and :right, which put
+      # the line against that edge of the screen. `within:` narrows what it is placed
+      # against — `within: 0..119` centres a label in the left half, which is how a
+      # caption goes under a panel or a heading over a menu window.
+      #
+      # For a number that changes as the game runs (a score, a counter), use
+      # {#draw_number} — a live value can't be spliced into a string, since Ruby
+      # resolves `"score: #{n}"` at build time, before the game runs.
+      #
+      # The built-in font is 6px per character (a 5px glyph + a 1px gap) and 7px tall;
+      # text is uppercased and unknown characters are skipped. Another font may be
+      # proportional, so ask {#text_width} rather than multiplying.
+      #
+      # @param text [String] the words to draw
+      # @param x [Integer, Symbol] left edge, or :left / :center / :right
+      # @param y [Integer] top edge
       # @param color [Symbol, String, Integer] text color
       # @param font [Symbol] a font registered in {Fonts} (defaults to :default)
-      def draw_text(text, x, y, color, font: :default)
+      # @param within [Range, nil] the columns to place it in (defaults to the screen)
+      def draw_text(text, x, y, color, font: :default, within: nil)
         unless text.is_a?(String)
           raise ArgumentError,
                 "draw_text draws words (a String). For a number like a score or a counter, use " \
                 "draw_number. Got #{text.inspect}."
         end
-        Fonts.get(font) # fail early with a friendly error on an unknown font name
+        chosen = Fonts.get(font) # fail early with a friendly error on an unknown font name
+        x = column_for(x, drawn_width(text, chosen), within, "draw_text")
 
         # A tiled screen has no framebuffer to paint into, so text is drawn as little
         # sprite glyphs the console composites each frame — declared once, like a
@@ -120,15 +138,23 @@ module RubyGBA
       # usual score/counter look). Shows non-negative whole numbers; a value wider
       # than +digits+ has its top places dropped, and there's no minus sign yet.
       #
+      # The left edge takes the same names {#draw_text} does. What is placed is the
+      # FIELD, not the number in it — the field is the same width whatever the number
+      # says, which is what stops a centred score jittering as it counts up.
+      #
       # @param value [Integer, Symbol, Value] the number to draw
-      # @param x [Integer] left edge of the field
+      # @param x [Integer, Symbol] left edge of the field, or :left / :center / :right
       # @param y [Integer] top edge
       # @param color [Symbol, String, Integer] digit color
       # @param digits [Integer] how many digit columns to reserve
-      def draw_number(value, x, y, color, digits: DEFAULT_DIGITS, font: :default)
+      # @param within [Range, nil] the columns to place the field in
+      def draw_number(value, x, y, color, digits: DEFAULT_DIGITS, font: :default, within: nil)
         unless Whole.positive?(digits)
           raise ArgumentError, "draw_number needs a positive number of digits. Got #{digits.inspect}."
         end
+
+        chosen = Fonts.get(font)
+        x = column_for(x, (digits * chosen.cell_w) - chosen.spacing, within, "draw_number")
 
         # On a tiled screen, a number is drawn as sprite glyphs, declared once and
         # left to update itself each frame (see #draw_number_tiled).
@@ -146,7 +172,91 @@ module RubyGBA
         end
       end
 
+      # How wide TEXT comes out, in pixels, when this screen draws it in this font.
+      #
+      #   draw_rect_at 8, 8, text_width("SCORE") + 4, text_height + 4, :blue  # a box behind it
+      #
+      # Useful on its own for anything sized to fit words — a box behind a title, a
+      # menu window as wide as its longest row, a rule under a heading.
+      #
+      # @param text [String] the words to measure
+      # @param font [Symbol] a font registered in {Fonts}
+      # @return [Integer] pixels across
+      def text_width(text, font: :default)
+        unless text.is_a?(String)
+          raise ArgumentError, "text_width measures words (a String). Got #{text.inspect}."
+        end
+
+        drawn_width(text, Fonts.get(font))
+      end
+
+      # How tall one line of text is, in pixels — the other side of a box round it.
+      #
+      # @param font [Symbol] a font registered in {Fonts}
+      # @return [Integer] pixels down
+      def text_height(font: :default) = Fonts.get(font).height
+
       private
+
+      # The column to draw at, from the left edge a game asked for. A number passes
+      # through untouched; a name is worked out from how wide the text really is and
+      # how much room it is being placed in.
+      def column_for(x, width, within, verb)
+        return placed_column(x, width, within, verb) if ALIGNMENTS.include?(x)
+        unless x.is_a?(Integer)
+          raise ArgumentError,
+                "#{verb} takes a left edge as a number, or as :left, :center or :right. " \
+                "Got #{x.inspect}. Use one of those three names, or give the column."
+        end
+        return x unless within
+
+        raise ArgumentError,
+              "#{verb} got both a column (#{x}) and `within:`. A column already says exactly where " \
+              "the text goes. Put :center, :left or :right where the number is, or drop `within:`."
+      end
+
+      def placed_column(align, width, within, verb)
+        left, room = span_for(within, verb)
+        case align
+        when :left   then left
+        when :center then left + ((room - width) / 2)
+        else              left + room - width
+        end
+      end
+
+      # What the text is placed against: the columns `within:` names, else the part of
+      # the screen an `inside` block is holding drawing to, else the whole screen.
+      # Following `inside` is what makes a heading over a panel centre on the panel.
+      def span_for(within, verb)
+        return columns_of(within, verb) if within
+        return [@inside_area[0], @inside_area[2]] if @inside_area
+
+        [0, IR::Screen::WIDTH]
+      end
+
+      def columns_of(within, verb)
+        first = within.first if within.is_a?(Range)
+        unless first.is_a?(Integer) && within.last.is_a?(Integer)
+          raise ArgumentError,
+                "#{verb} takes `within:` as a span of columns, like `within: 8..119`. " \
+                "Got #{within.inspect}."
+        end
+
+        [first, within.last - first + (within.exclude_end? ? 0 : 1)]
+      end
+
+      # How wide TEXT really comes out — which depends on how this screen draws it.
+      # A bitmap screen plots the glyphs itself and advances by each one's own width,
+      # so a proportional font packs tighter. A tiled screen has no pixels to plot
+      # into: every character is its own little sprite, laid on a fixed grid one cell
+      # apart so the columns of a HUD line up. Measuring the way the screen actually
+      # draws is the whole point, so this asks the mode rather than the font alone.
+      def drawn_width(text, font)
+        return 0 if text.empty?
+        return (text.length * font.cell_w) - font.spacing if TILE_HARDWARE_MODES.include?(@screen_mode)
+
+        font.text_width(text)
+      end
 
       # A number known at build time: right-align its glyphs in the field now. The
       # column step is the chosen font's cell width, so a narrower font packs tighter.

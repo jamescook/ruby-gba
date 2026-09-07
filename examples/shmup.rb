@@ -86,8 +86,8 @@ module Shmup
     # The game-over screen: its own text, shown only while this scene is active. START
     # begins a fresh game (the playing scene does the resetting).
     scene :game_over do
-      draw_text "GAME OVER",   93, 68, :red
-      draw_text "PRESS START", 87, 88, :white
+      draw_text "GAME OVER",   :center, 68, :red
+      draw_text "PRESS START", :center, 88, :white
       pressed(:start).then do
         set :new_game, 1
         set :state, PLAYING
