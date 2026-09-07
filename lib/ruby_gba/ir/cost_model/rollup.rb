@@ -79,7 +79,7 @@ module RubyGBA
       # call's toggles (at_full_capacity, in_fast_code, the current area's height)
       # survive the re-index instead of silently resetting (see Walker#reindex).
       def index(program)
-        @catalogue = Catalogue.build(program)
+        @catalogue = catalogue_for(program)
         if @walker
           @walker.reindex(@catalogue)
         else
@@ -106,6 +106,32 @@ module RubyGBA
         @walker.tree = @tree
         @verdicts.tree = @tree
         @domains = Domains.new(weights: @weights, pricing: @pricing, verdicts: @verdicts)
+      end
+
+      # THE CATALOGUE IS THE EXPENSIVE PART OF ASKING ANYTHING, and it is the same answer every
+      # time it is asked about the same program: it is one walk of the whole tree, and what it
+      # comes back with is an immutable value derived from nothing else. So it is kept, and a
+      # second question about the same program reuses it.
+      #
+      # WHAT THAT IS WORTH is most of a large build. Every public query here begins with #index,
+      # and a backend deciding which routines to keep in the console's quick memory asks one
+      # question per routine — so it walked the whole program once for each of them, to answer
+      # something about one. Measured on a game of sixty floors: thirty-eight walks over one
+      # build, thirty-three of its fifty-four seconds, and the same catalogue every time.
+      #
+      # NOTHING ELSE IN #index IS KEPT, and that is the load-bearing half. The walker is still
+      # reindexed, which is what clears the call stack between one question and the next; the
+      # pricing, the verdicts, the tree and the domains are still built fresh. Only the walk is
+      # saved, because only the walk was slow.
+      #
+      # KEPT AGAINST THE PROGRAM IT WAS BUILT FROM, by identity: a different tree gets its own
+      # walk. A tree changed IN PLACE between two questions would not be noticed, so nothing may
+      # do that — and nothing does, because the program is finished before any of this runs.
+      def catalogue_for(program)
+        return @catalogue if @catalogue && @catalogued.equal?(program)
+
+        @catalogued = program
+        Catalogue.build(program)
       end
 
       # What every per-pixel collision test in a frame costs if they all land at once —
