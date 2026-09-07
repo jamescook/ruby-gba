@@ -35,7 +35,8 @@ class TestGuards < Minitest::Test
     guards = Guards.new(arena(guards: [[12, 8, :west]]))
 
     assert_equal 1, guards.count
-    assert_equal [12, 8, :west, false], guards.guards.first.deconstruct
+    assert_equal({ x: 12, y: 8, facing: :west, patrolling: false, ambush: false },
+                 guards.guards.first.to_h)
   end
 
   def test_a_guard_put_down_to_walk_a_beat_is_read_as_one

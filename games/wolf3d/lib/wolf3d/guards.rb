@@ -205,7 +205,9 @@ module Wolf3D
     # it turns to the direction it names and carries on.
     FIRST_ARROW = 90
 
-    Guard = Data.define(:x, :y, :facing, :patrolling)
+    # +ambush+ is a guard put down on an ambush tile: one lying in wait, who has to SEE you and
+    # is the one guard a gunshot does not bring. See Level::AMBUSH and GuardMind#look.
+    Guard = Data.define(:x, :y, :facing, :patrolling, :ambush)
 
     attr_reader :guards
 
@@ -261,7 +263,8 @@ module Wolf3D
       within = code - STANDING
       Guard.new(x: x, y: y,
                 facing: FACINGS.fetch(within % FACINGS.length),
-                patrolling: within >= (PATROLLING - STANDING))
+                patrolling: within >= (PATROLLING - STANDING),
+                ambush: @level.ambush?(x, y))
     end
 
     # The code as the easiest setting would write it, or nil where this cell holds no guard

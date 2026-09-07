@@ -8,7 +8,9 @@ module Wolf3D
     # Plane 0. Everything below this is something you cannot walk through; this and above is
     # floor, and how far above says which area of the level it belongs to.
     FLOOR = 107
-    # Walkable, but a guard standing on one does not notice you until you shoot.
+    # Walkable, and a guard standing on one is lying in wait: he is the one guard a gunshot does
+    # NOT bring, because he has to SEE you before he moves. That is what the tile is for — the
+    # men behind doors and in alcoves who are meant to catch you walking past.
     AMBUSH = 106
     # The only codes that turn up between the walls and the floor.
     DOORS = [90, 91, 92, 93, 94, 95, 100, 101].freeze

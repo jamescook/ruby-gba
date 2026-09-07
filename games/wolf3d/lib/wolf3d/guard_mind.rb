@@ -276,9 +276,46 @@ module Wolf3D
           first_sighting(guard)
         end
       end.else do
-        can_see(guard)
+        heard_or_saw(guard)
         (@clear == 1).then { guard.wait.set(@b.rand(1..Guards::REACTION)) }
       end
+    end
+
+    # A NOISE COUNTS AS A SIGHTING, which is the original's whole hearing model in one line:
+    # `if (!madenoise && !CheckSight(ob)) return false`. It does not tell him where you are and
+    # it does not make him chase — it gets him past the "can I see you" gate, and he still takes
+    # his moment to react. Nothing about it can walk a guard at you through a wall.
+    #
+    # AND IT DOES NOT CARRY THROUGH ONE. A noise reaches a guard whose room is open to the room
+    # you are standing in, and no further — the same rooms-joined-by-open-doors question the
+    # whole think is gated on, asked again HERE because a guard who has been seen once thinks
+    # wherever he stands. Without it, one shot would be heard through a wall for the rest of the
+    # floor by everybody who had ever laid eyes on you. The original asks it twice for the same
+    # reason (DoActor, then SightPlayer).
+    #
+    # A GUARD LYING IN WAIT HEARS NOTHING, which is what the ambush tile is for: he must SEE you.
+    # That is the man behind the door who is meant to catch you walking past, and a gunshot two
+    # rooms away giving him away would be the end of him. (The original drops the flag the moment
+    # he does see you. Nothing here ever puts a guard back to standing, so it would never be
+    # asked again.)
+    # Written as nested tests rather than one joined condition, which is what this codebase does
+    # wherever a side costs something: asking which room a guard is in is a table read and a list
+    # read, and on the overwhelming majority of passes there is no noise to ask about.
+    def heard_or_saw(guard)
+      return can_see(guard) if @player[:noise].nil?
+
+      @clear.set 0
+      ((@player[:noise] > 0) & (guard.ambush == 0)).then { a_noise_reaches(guard) }
+      # ...and if it did not reach him, he is back to looking, which is what he was doing anyway.
+      (@clear == 0).then { can_see(guard) }
+    end
+
+    # A floor whose rooms are never shut off from each other — one room, or no doors to join two
+    # with — has nothing to ask, and everyone on it hears everything.
+    def a_noise_reaches(guard)
+      return @clear.set(1) if @rooms.nil?
+
+      @rooms.open_to_the_player?(guard.x, guard.y).then { @clear.set 1 }
     end
 
     # He has seen you: he breaks into a chase, and from here he moves three times as fast.
@@ -683,6 +720,11 @@ module Wolf3D
       state = @pool.field_ref(:state, @target)
       ticks = @pool.field_ref(:ticks, @target)
 
+      # A MAN WHO IS HIT CRIES OUT, and that is a noise like a gunshot — the original's own flag
+      # is commented "true when shooting or screaming" and it is set here, where the damage is
+      # done, rather than with the weapon. It is what makes a knife that LANDS bring the room
+      # while one that misses does not.
+      @player[:noise]&.set(FirstPerson::HEARD_FOR)
       (@roused_of[state] == 0).then { @wound.set(@wound * 2) }
       hp.sub @wound
 
