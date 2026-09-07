@@ -41,15 +41,18 @@ which points `Color` at the printer's palette).
 Narrower helpers stay **opt-in**, so their names appear only where used:
 `include Differential`, `include CostArith`, `include RubyGBA::IR::Build`.
 
-Running one file:
+Running them. **The suite is `rake test:parallel`** — it spreads the files over processes and
+finishes in a fraction of the time. Bare `rake test` runs the lot in one process, so use it
+only to name ONE file or one test:
 
 ```bash
-rake test:parallel # Fastest for a quick sweep
-rake test # Slow, don't run tests this way except as below
-rake test TEST=test/test_thing.rb
-rake test TEST=test/test_thing.rb TESTOPTS="--name=/pattern/"   # -n /pat/ trips shell quoting
-ruby -Itest test/test_thing.rb                                  # also works
+rake test:parallel                                              # the suite (JOBS=8 to pick a count)
+rake test TEST=test/test_thing.rb                               # one file
+rake test TEST=test/test_thing.rb TESTOPTS="--name=/pattern/"   # one test; -n /pat/ trips shell quoting
+ruby -Itest test/test_thing.rb                                  # one file, no rake
 ```
+
+`games/wolf3d/` has the same pair for its own suite, which this one does not run.
 
 ## The two backends you assert against
 
@@ -181,6 +184,6 @@ exact wording (which is free to improve). See the guardrail tests for the shape.
 
 - Don't name a test helper `run` — it shadows `Minitest::Test#run`. The blit
   tests use `interpret`/`assert_same_pixels`/domain names instead.
-- `rake test` runs everything; a single file is `ruby -Itest test/the_file.rb`.
+- `rake test:parallel` runs everything; a single file is `ruby -Itest test/the_file.rb`.
 - Integration tests **skip** (not fail) without gemba — a green run with skips is
   not proof the hardware path works; check gemba is installed when it matters.

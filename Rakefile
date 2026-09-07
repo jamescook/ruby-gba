@@ -40,7 +40,8 @@ Rake::TestTask.new(test: %i[compile_gemba_core clear_coverage]) do |t|
   t.test_files = FileList["test/**/test_*.rb"]
   # `test` on the load path is what lets every test file open with the one line
   # `require "test_helper"` and get the library, minitest, and the shared names.
-  t.description = 'Run the suite (rake test TEST=test/test_foo.rb TESTOPTS="--name=/pattern/")'
+  t.description = 'Run ONE file or test in one process (rake test TEST=test/test_foo.rb ' \
+                  'TESTOPTS="--name=/pattern/") — for the whole suite use rake test:parallel'
 end
 
 # Each rake test:parallel shard is its own process and only records its own

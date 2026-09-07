@@ -30,10 +30,11 @@ rake build          # or: ruby wolf3d.rb — writes wolf3d.gba beside this READM
 
 ```sh
 cd games/wolf3d
-rake test
+rake test:parallel                  # the suite, across processes
+rake test TEST=test/test_maps.rb    # one file
 ```
 
-The framework's own `rake test` does not run this suite and knows nothing about it. That is
+The framework's own suite does not run this one and knows nothing about it. That is
 deliberate in both directions: most of what this checks needs game data nobody can
 redistribute, so it would fail on every machine but yours — and a library should not have to
 know the names of the games built on it. Tests that need the data skip and say so; the rest

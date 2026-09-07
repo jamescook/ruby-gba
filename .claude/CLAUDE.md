@@ -70,7 +70,7 @@ or newlines in a single invocation, and do not bundle a file-writing heredoc
 (`cat > f <<EOF …`) with the command that consumes it.
 
 Why this is non-negotiable here: the operator reads each command before allowing it, and the
-permission allow/denylist matches on recognizable prefixes (`git commit`, `rake test`,
+permission allow/denylist matches on recognizable prefixes (`git commit`, `rake test:parallel`,
 `bd close`). A blob like `cat > msg <<EOF … EOF; git add .; git commit -F msg; git show` is
 unreadable, can't be allowlisted, and can't be denied granularly.
 
@@ -92,7 +92,7 @@ libmgba probe vendored in-repo under `gemba-core/` (not a published gem). It's r
 through the one seam, `RubyGBA::Emulator` (`lib/ruby_gba/emulator.rb`), so nothing else
 names the backend directly.
 
-gemba-core is **required, not optional**: its C extension must be built (`rake test`
+gemba-core is **required, not optional**: its C extension must be built (every test task
 builds it first as a prerequisite; `rake test:mgba` builds and runs its own suite). If it
 can't build or load, the emulator-backed tests **fail loudly** rather than skipping —
 `require_gemba_core!` (in `GembaSupport`) raises. Building it needs a C compiler and a
@@ -100,9 +100,18 @@ system libmgba (`brew install mgba` / `apt install libmgba-dev`).
 
 ## Running Tests
 
+**`rake test:parallel` is how the suite is run.** It runs across processes and is several times
+faster; bare `rake test` runs everything in one process and is slow enough to be the wrong
+command every time. Reach for `rake test` ONLY to run one file or one test:
+
 ```bash
-rake test
+rake test:parallel                                              # the suite (JOBS=8 to pick a count)
+rake test TEST=test/test_thing.rb                               # one file
+rake test TEST=test/test_thing.rb TESTOPTS="--name=/pattern/"   # one test
 ```
+
+The same pair exists in `games/wolf3d/` for that game's own suite (`cd games/wolf3d`), which the
+framework's suite does not run. See `.claude/rules/testing.md`.
 
 ## Testing strategy — assert behavior, at the right altitude
 
