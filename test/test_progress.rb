@@ -27,6 +27,34 @@ class TestProgress < Minitest::Test
     out
   end
 
+  # A log's phase lines, split back into their columns: ["the guardrails", "25 of 25  …", "1.2s"].
+  def phases_in(out)
+    out.string.lines.map { |line| line.strip.split(/\s{2,}/) }
+  end
+
+  # A program with enough statements in it to be worth reporting on — a tick only consults the
+  # clock every few hundred, so a three-line program never gets as far as saying anything.
+  # It has a routine and a frame in it because that is what the phase choosing what goes in the
+  # quick memory has to choose BETWEEN — a program of loose statements gives it nothing to rank.
+  MANY_STATEMENTS = proc do
+    screen :bitmap
+    func(:paint) { 300.times { |n| pixel n % 240, n % 160, :red } }
+    game_loop { call :paint }
+  end
+
+  # Build it while a progress is listening, and hand back its phase lines in columns.
+  def phases_of_a_build
+    out = StringIO.new
+    RubyGBA.build("SPEAK", code: "ASPK", maker: "01", out: StringIO.new, err: StringIO.new,
+                          progress: Progress.to(out), &MANY_STATEMENTS)
+    phases_in(out)
+  end
+
+  # ...keyed by phase, so a test can ask one phase where it got to.
+  def where_each_phase_got_to
+    phases_of_a_build.to_h { |name, got_to, *| [name, got_to] }
+  end
+
   # --- THE ONE THAT SAYS NOTHING ---------------------------------------------------------------
 
   # It is the DEFAULT, so every method has to be here. A caller asking "is anybody listening?"
@@ -124,6 +152,17 @@ class TestProgress < Minitest::Test
     assert_operator spent, :<, 1.0, "a million ticks into the silent one should be free"
   end
 
+  # ...and a tick carrying a label is free too, which is the whole reason the label comes in a
+  # BLOCK. Lowering reports its size in one, once per statement, and a build nobody is watching
+  # must never pay for building a string it will not print.
+  def test_a_tick_that_carries_a_label_does_not_build_it_when_nobody_is_listening
+    quiet = Progress.silent
+    built = 0
+    1_000_000.times { quiet.tick { built += 1 } }
+
+    assert_equal 0, built
+  end
+
   # --- WHERE IT IS WRITING DECIDES HOW MUCH IT SHOWS -------------------------------------------
 
   # A log is read afterwards and a carriage return in one is noise, so anywhere but a terminal
@@ -156,23 +195,95 @@ class TestProgress < Minitest::Test
     assert_equal 1, out.string.lines.length, "a rewritten line is still one line"
   end
 
+  # --- A PHASE THAT IS SAYING NOTHING ----------------------------------------------------------
+
+  # THE ONE THING THE BUILD CANNOT REPORT ITSELF. A phase can spend fifteen seconds inside a
+  # single call, and while it is in there it says nothing because it is not running any of our
+  # code. A line that is only redrawn when it is told would sit at 0.0s for all of it and read
+  # as a hang, so the line keeps its own clock. Uses the real clock, because what is being
+  # checked is precisely that time passing is enough.
+  def test_the_line_keeps_counting_while_the_build_says_nothing
+    out = a_terminal
+    progress = Progress.to(out, refresh: 0.01)
+    progress.step("a phase that says nothing")
+    sleep 0.2 # the build, inside one long call, reporting nothing at all
+    progress.done
+
+    assert_operator out.string.count("\r"), :>, 2,
+                    "a live line should redraw itself while a phase is open"
+  end
+
+  # ...and a log does not, because there is nothing to animate: one line per phase, written when
+  # the phase ends.
+  def test_a_log_is_not_redrawn_while_a_phase_says_nothing
+    out = StringIO.new
+    progress = Progress.to(out, refresh: 0.01)
+    progress.step("a phase that says nothing")
+    sleep 0.1
+    progress.done
+
+    assert_equal 1, out.string.lines.length
+  end
+
   # --- THROUGH A REAL BUILD --------------------------------------------------------------------
 
-  def test_a_real_build_names_its_phases_in_order
+  def test_a_real_build_names_every_phase_in_order
+    assert_equal ["reading the game", "checking the tree", "the guardrails",
+                  "measuring the routines", "choosing what goes in the quick memory",
+                  "lowering it to machine code", "assembling the cartridge"],
+                 phases_of_a_build.map(&:first)
+  end
+
+  # The phases that have a real count report one, and the count arrives at its total — a phase
+  # that stopped counting half way through would be worse than one that never counted.
+  def test_the_counted_phases_count_all_the_way_up
+    where = where_each_phase_got_to
+
+    assert_match(/\A(\d+) of \1\z/, where["the guardrails"])
+    assert_match(/\A(\d+) of \1\z/, where["choosing what goes in the quick memory"])
+  end
+
+  # ...and the two with no count say how far they got the only way they honestly can: nothing
+  # knows how many instructions a program comes to until they are emitted.
+  def test_the_uncounted_phases_report_the_code_they_have_emitted
+    where = where_each_phase_got_to
+
+    assert_match(/\A\d+ bytes\z/, where["lowering it to machine code"])
+    assert_match(/\A\d+ bytes\z/, where["measuring the routines"])
+  end
+
+  # The guardrails are a list of checks, so the phase can name the one it is on — which is the
+  # answer to "why are the guardrails the slow part of my build".
+  def test_the_guardrail_phase_names_the_check_it_is_on
     out = StringIO.new
-    RubyGBA.build("SPEAK", code: "ASPK", maker: "01", out: StringIO.new, err: StringIO.new,
-                          progress: Progress.to(out)) do
-      screen :bitmap
-      fill_rect 0, 0, 8, 8, :red
-      halt
+    progress = Progress.to(out)
+    progress.step("the guardrails")
+    checks = [RubyGBA::IR::Guardrails::Checks::DrawBudget.new,
+              RubyGBA::IR::Guardrails::Checks::IwramBudget.new]
+    RubyGBA::IR::Guardrails::Validator.new(checks: checks, progress: progress)
+                                      .run(RubyGBA::IR::Build.program, autofix: false)
+    progress.done
+    _phase, counted, named, _took = phases_in(out).first
+
+    assert_equal "2 of 2", counted
+    # ...and named the way a person hears it. The check calls itself `iwram_budget`, which is
+    # the console's quick memory said in hardware.
+    assert_equal "quick memory budget", named
+  end
+
+  # A build that dies half way through a phase still closes its line, so the message explaining
+  # why is not printed on top of it.
+  def test_a_build_that_stops_closes_the_line_it_had_open
+    out = StringIO.new
+    assert_raises(RubyGBA::ROMError) do
+      RubyGBA.build("BROKE", code: "ABRK", maker: "01", out: StringIO.new, err: StringIO.new,
+                             progress: Progress.to(out)) do
+        fill_rect 0, 0, 8, 8, :red # drawing with no screen mode: a guardrail error
+        halt
+      end
     end
 
-    phases = out.string.lines.map(&:strip)
-
-    assert_match(/\Areading the game/, phases.first)
-    assert(phases.any? { |line| line.start_with?("the guardrails") })
-    assert(phases.any? { |line| line.start_with?("lowering it to machine code") })
-    assert_match(/\Aassembling the cartridge/, phases.last)
+    assert_equal "the guardrails", phases_in(out).last.first
   end
 
   def test_a_game_can_be_asked_to_report_when_it_builds_its_rom

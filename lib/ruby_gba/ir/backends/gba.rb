@@ -249,9 +249,12 @@ module RubyGBA
         # worth keeping in the console's quick memory (see {Placement}). True is the
         # default; false leaves every routine in the cartridge unless the author asked for
         # one by name with `func :thing, fast: true`.
-        def initialize(fast_cartridge: true, fast_code: true)
+        # +progress+ is what this pass says it is doing while it does it. Most of a build's
+        # time is spent in here, so it names its own phases; the default says nothing.
+        def initialize(fast_cartridge: true, fast_code: true, progress: Progress.silent)
           @fast_cartridge = fast_cartridge
           @fast_code = fast_code
+          @progress = progress
           @fast_funcs = Set.new  # routines that run from the quick memory
           @emitting_hot = false  # are we emitting into the block that gets copied there?
           @hot_base = nil        # where that block lands, once every variable has a home
@@ -263,7 +266,10 @@ module RubyGBA
                                scales_objects: method(:object_scales?))
           @frames = Frames.new(emitter: @emit, primitives: @primitives)
           @save = Save.new(emitter: @emit, primitives: @primitives)
-          @lowering = Lowering.new # the kind-keyed dispatch that replaces eval_value's case
+          # The kind-keyed dispatch that replaces eval_value's case. Every statement in the
+          # program goes through it, which also makes it the one place that can say how far
+          # this pass has got.
+          @lowering = Lowering.new(progress: progress, emitted: @emit.method(:pos))
           @defined_sounds = {}   # name -> musical params (from define_sound)
           @songs = {}            # name -> :song node (from song)
           @blob_codecs = {}      # name -> :lz77/:rle/:none (how a VRAM blob was packed, if at all)
@@ -400,6 +406,10 @@ module RubyGBA
         # pass cannot set off another one.
         def lower(program, fast_funcs: nil)
           @fast_funcs = fast_funcs || choose_fast_funcs(program)
+          # The throwaway measuring pass keeps the phase its caller named, since from the
+          # outside it IS that phase — it is not lowering the program, it is finding out how
+          # big the routines come out.
+          @progress.step("lowering it to machine code") if fast_funcs.nil?
           # Which pictures a stretched column reads, which decides whether a see-through one
           # still needs its pixels in the cartridge. Wanted before the assets are registered.
           @column_bitmaps = program.walk.filter_map { |node| node.name if node.kind == :draw_column_at }.uniq

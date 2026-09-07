@@ -17,9 +17,16 @@ module RubyGBA
         # different contracts (a value handler leaves its answer in the accumulator; a
         # statement handler leaves nothing live) — but they share this wiring.
         class Lowering
-          def initialize
+          # +progress+ is what the build says it is doing; +emitted+ answers how many bytes
+          # have been emitted so far, which is what this pass shows as it goes. There is no
+          # count to work towards — nothing knows how many instructions a program comes to
+          # until they are emitted — so the growing size is the honest thing to show. (The
+          # default never runs: with the silent progress the block below is never called.)
+          def initialize(progress: Progress.silent, emitted: -> { 0 })
             @values = {}
             @statements = {}
+            @progress = progress
+            @emitted = emitted
             @mode = :direct  # the mode draws currently lower in (set per func)
             @draw_area = nil # x, y, w, h while inside a clipped area; nil otherwise
           end
@@ -37,7 +44,15 @@ module RubyGBA
           NOTHING = ->(_node) {}
 
           def value(node) = @values.fetch(node.kind) { unknown_value(node) }.call(node)
-          def statement(node) = @statements.fetch(node.kind) { unknown_statement(node) }.call(node)
+
+          # Every statement in the program is lowered through here, nested ones included, so
+          # this is where the pass says it is still going. One report per STATEMENT, not per
+          # instruction: an instruction is what a statement turns into, and a build that
+          # reported on each would spend more time saying so than emitting.
+          def statement(node)
+            @progress.tick { "#{@emitted.call} bytes" }
+            @statements.fetch(node.kind) { unknown_statement(node) }.call(node)
+          end
 
           # Every kind with a value/statement handler — read by the coverage test that
           # checks these tables against IR::Nodes.by_kind.
