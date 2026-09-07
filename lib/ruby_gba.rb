@@ -6,6 +6,7 @@ require_relative "ruby_gba/whole"
 require_relative "ruby_gba/color"
 require_relative "ruby_gba/sound"
 require_relative "ruby_gba/asm"
+require_relative "ruby_gba/progress" # what a build says it is doing while it does it
 require_relative "ruby_gba/ir"
 require_relative "ruby_gba/rom_validator"
 require_relative "ruby_gba/rom"
@@ -65,7 +66,8 @@ module RubyGBA
   # +out+/+err+ are the streams dump_func writes its disassembly and warnings to;
   # they default to the process streams and can be pointed at a StringIO in tests.
   def self.build(title, code:, maker:, validate: true, frame_sync: :auto, fast_cartridge: true,
-                 fast_code: true, out: $stdout, err: $stderr, &block)
+                 fast_code: true, out: $stdout, err: $stderr, progress: Progress.silent, &block)
+    progress.step("reading the game")
     builder = Builder.new(frame_sync: frame_sync)
     catch(:debug_halt) do
       builder.instance_eval(&block)
@@ -81,6 +83,7 @@ module RubyGBA
     # raises loudly rather than joining the friendly guardrail report below. It
     # runs before the guardrails and the backend so a malformed tree can't reach
     # them and fail cryptically two passes downstream.
+    progress.step("checking the tree")
     IR::Verifier.verify!(program)
 
     # Run the guardrails over the finished IR and report every finding — its
@@ -92,6 +95,7 @@ module RubyGBA
     # (an opt-in `--auto-fix` is future work). Skipped for a debug_halt build,
     # whose tree is deliberately truncated.
     unless builder.debug_halted?
+      progress.step("the guardrails")
       # The default checks — the always-on builtins plus anything registered (an
       # effect pack's own guardrails) — walk the IR. The rest are appended per build
       # because they report from the builder rather than the tree: leftover
@@ -104,6 +108,11 @@ module RubyGBA
                 IR::Guardrails::Checks::LayerHoldsNothing.new(builder.sprites),
                 IR::Guardrails::Checks::StackNotHonored.new(builder.sprites)]
       report = IR::Guardrails::Validator.new(checks: checks).run(program, autofix: false)
+      # THE PHASE IS OVER ONCE THE REPORT EXISTS; printing it is presentation. Closing it here
+      # rather than letting the next phase close it is what keeps the two apart on a terminal:
+      # a progress line is held open and rewritten in place, so a warning printed while one was
+      # open would land in the middle of it.
+      progress.done
       report.emit(to: err)
       if report.errors.any?
         raise ROMError,
@@ -114,8 +123,10 @@ module RubyGBA
     # The DSL built an IR tree as the block ran. Turn it into a ROM in two steps,
     # both behind this single call so building stays one operation: lower the tree
     # to machine code, then assemble that code into a cartridge.
+    progress.step("lowering it to machine code")
     backend = IR::Backends::GBA.new(fast_cartridge: fast_cartridge, fast_code: fast_code)
     machine_code = backend.lower(program)
+    progress.step("assembling the cartridge")
     rom = ROM.assemble(machine_code, title: title, code: code, maker: maker,
                                      validate: builder.debug_halted? ? false : validate)
     rom.source_program = program # so the ROM can report on itself (rom.explain)
@@ -136,6 +147,7 @@ module RubyGBA
     unless builder.dump_requests.empty?
       FuncDumper.new(rom, backend.func_ranges, out: out, err: err).dump(builder.dump_requests)
     end
+    progress.done
     rom
   end
 end

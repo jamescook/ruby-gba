@@ -90,7 +90,8 @@ module RubyGBA
     # The "game" format (--format=game, the default): the .gba cartridge itself.
     def build_cartridge(game_file)
       game = load_game(game_file)
-      rom = game.build_rom
+      # Somebody is sitting there waiting for this, so it says what it is doing.
+      rom = game.build_rom(progress: RubyGBA::Progress.to($stderr))
       path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename)
       rom.write(path)
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
