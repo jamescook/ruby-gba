@@ -7,8 +7,8 @@
 #   - Player (left paddle) vs CPU (right paddle)
 #   - First to 5 wins
 #   - D-pad up/down moves player paddle
-#   - Press START on title screen to begin
-#   - Background music during gameplay
+#   - The title screen is a menu: up/down to move, A to choose
+#   - Background music during gameplay, unless you turn it off on the title
 #   - Sound effects on paddle hits, wall bounces, and scoring
 #   - The screen stings red when the CPU scores on you
 #
@@ -22,6 +22,17 @@
 # it draws — so a picture full of paddles, ball, score and center line costs exactly what
 # an empty screen would, and the picture is all still there underneath the moment the
 # sting lifts.
+#
+# The title is a `menu`: two rows, a cursor, and a block under each saying what picking it
+# does. It is the same verb the jukebox uses on a plain bitmap screen, written the same
+# way — but this title runs on `screen :rotozoom`, where there is no framebuffer and the
+# console composites every character as a little sprite of its own. Nothing in the menu
+# below says which of the two it got.
+#
+# The MUSIC row is the interesting one, because what it says depends on the setting. Give
+# a row the list of things it can say and the variable that decides, and the words become
+# part of the row: they light up with it, the cursor points at them, and the block under
+# them is what changes the value they show.
 
 require_relative "../lib/ruby_gba"
 
@@ -40,8 +51,12 @@ LEFT_X       = 8        # player paddle x
 RIGHT_X      = 228      # cpu paddle x
 NET_X        = SCREEN_W / 2 # the center line the two scores sit either side of
 SCORE_GAP    = 15       # how far from the net each score is pushed
-ZOOM_FRAMES    = 60     # how long the title's zoom-in takes once START is pressed (1 second)
+ZOOM_FRAMES    = 60     # how long the title's zoom-in takes once START is chosen (1 second)
 ZOOM_PER_FRAME = 0.05   # how much bigger the title backdrop gets each of those frames
+# The two things the title's music row can say. The longer of them is what the menu
+# column is centred on, so the row never shifts sideways as it is toggled.
+MUSIC_OFF      = "MUSIC: OFF"
+MUSIC_ON       = "MUSIC: ON"
 
 Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   screen :bitmap
@@ -94,7 +109,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   player_score = var :player_score, 0
   cpu_score    = var :cpu_score, 0
   state        = var :state, 0    # 0=title, 1=playing, 2=player_wins, 3=cpu_wins
-  blink        = var :blink, 1    # 1=show the title prompt this frame, 0=hide it (flashes)
+  music_on     = var :music_on, 1 # 1=play the gameplay music, 0=don't (set from the title menu)
   zoom_timer   = var :zoom_timer, 0 # 0=idle; counting up while the title zooms in on START
 
   # --- Subroutines ---
@@ -211,16 +226,20 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
 
     draw_text "PONG", :center, 40, :white
 
-    # Flash the prompt: flip it on/off every half second.
-    every(0.5, :seconds) do
-      (blink == 1).then { blink.set 0 }.else { blink.set 1 }
+    # The menu. Ask the font how wide its longest row comes out and centre the column on
+    # that, so the two rows share a left edge for the cursor to line up under and nothing
+    # here is a number counted by eye.
+    menu_x = (SCREEN_W - text_width(MUSIC_OFF)) / 2
+    menu :title, at: [menu_x, 90], spacing: 16, color: :gray, picked: :white do |m|
+      m.item("START") { zoom_timer.set 1 }
+      # A row whose words follow the setting. `1 - music_on` is the toggle: 1 becomes 0
+      # and 0 becomes 1.
+      m.item([MUSIC_OFF, MUSIC_ON], showing: music_on) { music_on.set 1 - music_on }
     end
-    (blink == 1).then { draw_text "PRESS START", :center, 100, :gray }
 
-    # Zoom the backdrop in on START, then hand off to :playing once the zoom
+    # Zoom the backdrop in once START is chosen, then hand off to :playing when the zoom
     # finishes — the same pace `fade_out`/`fade_in` walk a level over frames at.
     (zoom_timer == 0).then { title_board.scale(1.0) } # idle: hold it at the size it was drawn
-    pressed(:start).then { zoom_timer.set 1 }
     (zoom_timer > 0).then do
       title_board.scale.approach 4.0, ZOOM_PER_FRAME
       zoom_timer.add 1
@@ -252,8 +271,8 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     draw_number player_score, :right, 8, :white, digits: 1, within: 0..(NET_X - SCORE_GAP)
     draw_number cpu_score, :left, 8, :white, digits: 1, within: (NET_X + SCORE_GAP)...SCREEN_W
 
-    # Background music
-    play_song :gameplay
+    # Background music, unless it was turned off on the title screen.
+    (music_on == 1).then { play_song :gameplay }.else { stop_music }
   end
 
   scene :player_wins do
