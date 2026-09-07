@@ -52,18 +52,43 @@ pickups standing in the rooms, the status bar, and the game's sound effects thro
 mixer. Without your own copy of the data the cartridge still builds; it shows a title screen and
 says so instead of a floor.
 
-A whole episode: ten floors, and the lift at the end of each one takes you to the next. Step into
+Whole episodes: ten floors each, and the lift at the end of one takes you to the next. Step into
 the car, face the lever, and pull it. On floor one the lift is behind the elevator door at the
 north end of the map, and there is a second, secret one that takes you to the hidden floor.
 
-How many floors the cartridge holds is a build-time choice, ten by default:
+## How much of the game the cartridge holds
+
+Every episode your copy has, by default — six for the registered release, one for the shareware.
+Say otherwise when you are building over and over:
 
 ```sh
-WOLF3D_FLOORS=3 ruby wolf3d.rb    # a shorter build, for trying something out
+WOLF3D_EPISODES=1     ruby wolf3d.rb    # just the first
+WOLF3D_EPISODES=1,3   ruby wolf3d.rb    # the first and the third
+WOLF3D_EPISODES=2-4   ruby wolf3d.rb    # the second to the fourth
 ```
 
-Nothing about it reaches the frame rate; it is ROM and build time. Ten floors is a 4MB cartridge
-and about eight seconds to build.
+**Nothing about it reaches the frame rate** — it is ROM and build time and nothing else. Each
+floor adds its map, its blocking, its doors, its walls that move, its guards and everything lying
+on it, and none of that is work the game does while you play. Measured on the registered release:
+
+| | ROM | build |
+|---|---|---|
+| all six episodes | 8MB | about a minute |
+| one episode | 4MB | about eight seconds |
+
+There are two smaller dials underneath, for measuring rather than for playing. `WOLF3D_FLOORS=N`
+keeps only the first N floors of whatever the episodes picked — `WOLF3D_FLOORS=1` is the fastest
+build there is, which is what you want while changing something else. `WOLF3D_FROM=N` skips the
+first N, because a cartridge boots on the first floor it holds and the only way to read what a
+*later* floor costs is to build one that starts there:
+
+```sh
+WOLF3D_FROM=1 WOLF3D_FLOORS=1 ruby ../../bin/ruby-gba explain wolf3d.rb
+```
+
+Floors differ enormously in what stands on them — the second floor of episode one carries three
+times the guards and three times the scenery of the first — so "what does a frame cost" has no
+single answer for the game, only one per floor.
 
 The art in VGAGRAPH is read now — the status bar's steel plate, the numerals it counts in, the
 twenty-four faces that watch you, the title screen, and both of Wolfenstein's proportional
@@ -81,20 +106,20 @@ title, the credits, round again — that any button breaks out of into the menu.
 | The title screen | wait 5 seconds, or `WOLF3D_SCREEN=title` |
 | The credits | wait 20 seconds, or `WOLF3D_SCREEN=credits` |
 | The main menu | any button, from any of those |
-| The episode list | NEW GAME — **only on a cartridge holding more than one episode** |
+| The episode list | NEW GAME — on a cartridge holding more than one episode |
 | The difficulty screen | NEW GAME, then an episode |
 | The game | pick a difficulty |
 | The pause menu | START, while playing — it is the main menu with two rows turned over |
 
-Two of those are slow to reach and one does not exist on a default build, so the cartridge can
-be told to boot on any of them. It is a measuring dial like `WOLF3D_FLOORS`, not a way to play:
+Two of those are slow to reach, so the cartridge can be told to boot on any of them. It is a
+measuring dial, not a way to play:
 
 ```sh
-WOLF3D_SCREEN=credits ruby wolf3d.rb              # boots on the credits
-WOLF3D_FLOORS=20 WOLF3D_SCREEN=episodes ruby wolf3d.rb   # two episodes, and the list to pick between them
+WOLF3D_SCREEN=credits ruby wolf3d.rb
 ```
 
 The names are `notice`, `title`, `credits`, `menu`, `episodes`, `difficulty` and `playing`.
+Asking for `episodes` on a cartridge holding one is a build error that says so.
 
 **The title and the credits drift.** Both were painted 320×200 for a screen this console does
 not have. Squeezing them to 240 is what ruins the credits — its writing spans 305 of its 320
@@ -105,11 +130,11 @@ the screen there is nothing to lose — 72 of the credits' 200 rows are empty an
 go — so the emptiest are taken and the writing is untouched. It moves two pixels at a time
 because the double-buffered screen holds two pixels in each of its places and will not take one.
 
-**The episode list needs more than one episode on the cartridge.** A default build ships ten
-floors, which is episode one, and a list with one pickable row is a question with one answer —
-so NEW GAME goes straight to the difficulty screen. Build with `WOLF3D_FLOORS=20` for two
-episodes (sixty for all six), and the list appears with the episodes you did not build greyed
-out, which is what the shareware release does.
+**The episode list shows what the cartridge holds.** A default build has every episode your copy
+has, so all of them are pickable; a build trimmed with `WOLF3D_EPISODES` shows the rest greyed
+out, which is what the shareware release does. A cartridge holding only one episode does not ask
+at all — a list with one pickable row is a question with one answer — so NEW GAME goes straight
+to the difficulty screen.
 
 What the menu offers, and what it does not: NEW GAME (END GAME once a game is on), LOAD GAME
 greyed until there is somewhere to keep a game, SOUND on or off, and BACK TO DEMO (BACK TO GAME

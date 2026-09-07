@@ -62,9 +62,9 @@ module Wolf3D
       check_they_are_all_the_same_size!
     end
 
-    # HOW MANY FLOORS AN EPISODE IS. Wolfenstein's sixty maps are six episodes of ten: eight
-    # ordinary floors, the boss's, and the secret one kept aside.
-    PER_EPISODE = 10
+    # How many floors an episode is. It is a fact about the map set rather than about this
+    # cartridge's slice of it, so it is kept where the maps are read.
+    PER_EPISODE = Maps::PER_EPISODE
 
     def count = @floors.length
     def each(&) = @floors.each(&)
@@ -75,9 +75,9 @@ module Wolf3D
     # Counted from 1, the way the game numbers them.
     #
     # An episode is only offered when its FIRST floor is here. A cartridge built from the
-    # middle of one — which is what WOLF3D_FROM makes, for measuring what a later floor costs
-    # — holds floors that no menu can start you on, and saying so is better than offering an
-    # episode that begins in the wrong place.
+    # middle of one — which is what the dial for measuring a later floor's cost makes — holds
+    # floors that no menu can start you on, and saying so is better than offering an episode
+    # that begins in the wrong place.
     def episodes
       @floors.each_with_index.filter_map do |floor, slot|
         [(floor.index / PER_EPISODE) + 1, slot] if (floor.index % PER_EPISODE).zero?

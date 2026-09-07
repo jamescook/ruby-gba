@@ -71,30 +71,63 @@ module Wolf3D
 
   def self.maps = @maps ||= data && Maps.from(data)
 
-  # WHICH FLOORS THE CARTRIDGE HOLDS, and how many is a build-time choice rather than a fixed
-  # number, because it is the one dial with a real trade on either end. Each floor adds its map,
-  # its blocking, its doors, its walls that move, its guards and everything lying on it — nothing
-  # to the frame, all of it to the ROM and to the time the build takes. A test wants one; a game
-  # wants an episode.
+  # WHICH EPISODES THE CARTRIDGE HOLDS. Every one your copy has, unless you say otherwise —
+  # and it is said in EPISODES because that is how the game is divided, how its own menu asks
+  # you to choose, and the only unit anybody playing it thinks in.
   #
-  #   WOLF3D_FLOORS=3 ruby wolf3d.rb
+  #   WOLF3D_EPISODES=1      just the first
+  #   WOLF3D_EPISODES=1,3    the first and the third
+  #   WOLF3D_EPISODES=2-4    the second to the fourth
   #
-  # An episode is ten: eight ordinary floors, the boss, and the secret one kept aside.
-  EPISODE = Floors::PER_EPISODE
+  # WHAT IT COSTS IS ROM AND BUILD TIME AND NOTHING IN THE FRAME. Each floor adds its map, its
+  # blocking, its doors, its walls that move, its guards and everything lying on it, and none
+  # of that is work the game does while somebody is playing. Measured on the registered
+  # release: all six episodes is an 8MB cartridge and about a minute to build, against 4MB and
+  # eight seconds for one. So the whole game is the default and trimming it is for when you are
+  # building over and over.
+  def self.which_episodes
+    asked = ENV.fetch("WOLF3D_EPISODES", nil).to_s.strip
+    return (1..maps.episodes).to_a if asked.empty?
 
-  # ...AND WHICH ONE IT STARTS AT, which is a measuring tool rather than a way to play. A
-  # cartridge boots on the first floor it holds, so the only way to read what a LATER floor costs
-  # is to build one that begins there:
+    episodes_named(asked)
+  end
+
+  # A number, a list of them, or a range — "1", "1,3", "2-4", or any of those joined by commas.
+  def self.episodes_named(asked)
+    wanted = asked.split(",").flat_map { |part| an_episode_range(part) }.uniq.sort
+    outside = wanted.reject { |n| (1..maps.episodes).cover?(n) }
+    return wanted if outside.empty?
+
+    raise ArgumentError,
+          "WOLF3D_EPISODES asks for episode #{outside.join(' and ')}. This copy of the game " \
+          "holds #{maps.episodes}. Give a number from 1 to #{maps.episodes}, a list like 1,3, " \
+          "or a range like 2-4."
+  end
+
+  def self.an_episode_range(part)
+    first, last = part.split("-", 2).map { |n| Integer(n.strip) }
+    (first..(last || first)).to_a
+  rescue ArgumentError
+    raise ArgumentError,
+          "WOLF3D_EPISODES cannot read #{part.strip.inspect}. Give a number like 1, a list " \
+          "like 1,3, or a range like 2-4."
+  end
+
+  # ...AND WHICH FLOORS OF THOSE, which is a measuring tool rather than a way to play. A
+  # cartridge boots on the first floor it holds, so the only way to read what a LATER floor
+  # costs is to build one that begins there:
   #
   #   WOLF3D_FROM=1 WOLF3D_FLOORS=1 ruby ../../bin/ruby-gba explain wolf3d.rb
   #
   # Floors differ enormously in what stands on them — the second floor of the first episode
   # carries three times the guards and three times the scenery of the first — so "what does a
-  # frame cost" has no single answer for a game, only one per floor.
+  # frame cost" has no single answer for a game, only one per floor. WOLF3D_FLOORS on its own
+  # is also the fastest build there is, which is what you want while changing something else.
   def self.which_floors
-    from = Integer(ENV.fetch("WOLF3D_FROM", 0))
-    asked = Integer(ENV.fetch("WOLF3D_FLOORS", EPISODE))
-    (from...[from + asked, maps.count].min).to_a
+    floors = which_episodes.flat_map { |episode| maps.floors_of(episode) }
+    floors = floors.drop(Integer(ENV.fetch("WOLF3D_FROM", 0)))
+    asked = ENV.fetch("WOLF3D_FLOORS", nil)
+    asked ? floors.first(Integer(asked)) : floors
   end
   # WHICH SCREEN THE CARTRIDGE BOOTS ON, which is a measuring tool rather than a way to play —
   # the same kind of dial as WOLF3D_FROM above. The attract loop takes a quarter of a minute to

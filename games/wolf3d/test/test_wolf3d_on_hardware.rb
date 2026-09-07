@@ -18,7 +18,7 @@ class TestWolf3DOnHardware < Minitest::Test
   FIRST_DRAWN_FRAME = 8
 
   def test_the_cartridge_boots_and_draws_something
-    rom = Wolf3D.build_rom(out: StringIO.new, err: StringIO.new)
+    rom = a_small_cartridge { Wolf3D.build_rom(out: StringIO.new, err: StringIO.new) }
     gba = RubyGBA::Verifier.new(rom, frames: FIRST_DRAWN_FRAME)
 
     refute gba.all_black?, "the cartridge booted to a black screen"

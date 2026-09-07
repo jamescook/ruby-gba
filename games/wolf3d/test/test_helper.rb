@@ -16,4 +16,20 @@ module Wolf3DTest
     Wolf3D::GameData.find ||
       skip("no copy of Wolfenstein 3D found — set #{Wolf3D::GameData::ENV_VAR} to check against one")
   end
+
+  # THE SMALLEST CARTRIDGE THAT IS STILL THIS GAME, for the two tests that build the whole
+  # thing rather than a floor of their own.
+  #
+  # The build ships every episode your copy holds, which is right for playing and wrong here:
+  # on the registered release that is sixty floors, an 8MB cartridge and about a minute, and
+  # what these tests want to know is only that the wiring works. One floor is a few seconds and
+  # proves the same thing. Each test process has its own environment, so this cannot leak into
+  # another one.
+  def a_small_cartridge
+    was = ENV.fetch("WOLF3D_FLOORS", nil)
+    ENV["WOLF3D_FLOORS"] = "1"
+    yield
+  ensure
+    was ? ENV["WOLF3D_FLOORS"] = was : ENV.delete("WOLF3D_FLOORS")
+  end
 end

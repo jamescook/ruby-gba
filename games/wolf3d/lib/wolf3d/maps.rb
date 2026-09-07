@@ -28,6 +28,30 @@ module Wolf3D
 
     def count = @offsets.length
 
+    # HOW MANY FLOORS AN EPISODE IS, where a release has episodes at all. Wolfenstein's sixty
+    # maps are six of ten: eight ordinary floors, the boss's, and the secret one kept aside.
+    PER_EPISODE = 10
+
+    # HOW MANY EPISODES THIS COPY HOLDS — six for the registered release, one for the
+    # shareware, and ONE for anything whose maps do not divide into tens.
+    #
+    # That last case is Spear of Destiny, which is twenty-one floors in a single campaign
+    # rather than episodes of ten. Counting them in tens would offer a menu of three episodes
+    # that do not exist. So a release only has episodes when its maps really do divide into
+    # them, and everything else is one long game — which is what it is.
+    def episodes = episodic? ? count / PER_EPISODE : 1
+
+    def episodic? = count > PER_EPISODE && (count % PER_EPISODE).zero?
+
+    # Which of this copy's floors an episode is made of, counting episodes from 1 the way the
+    # game numbers them. A release with no episodes hands back all of them.
+    def floors_of(episode)
+      return (0...count).to_a unless episodic?
+
+      first = (episode - 1) * PER_EPISODE
+      (first...(first + PER_EPISODE)).to_a
+    end
+
     def [](index)
       raise IndexError, "there is no level #{index}; this release has #{count}" unless index.between?(0, count - 1)
 
