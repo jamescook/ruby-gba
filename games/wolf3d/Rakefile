@@ -10,6 +10,8 @@ Rake::TestTask.new(:test) do |t|
   t.libs << "test" << "lib"
   t.test_files = FileList["test/**/test_*.rb"]
   t.warning = false
+  t.description = "Run ONE file or test in one process (rake test TEST=test/test_maps.rb) " \
+                  "— for the whole suite use rake test:parallel"
 end
 
 # The same files split across processes, with the framework's own runner: it shards by
