@@ -32,6 +32,7 @@ require_relative "wolf3d/floors"
 require_relative "wolf3d/fixture/release"
 require_relative "wolf3d/wall_atlas"
 require_relative "wolf3d/thing_atlas"
+require_relative "wolf3d/bar_art"
 require_relative "wolf3d/status_bar"
 require_relative "wolf3d/first_person"
 # ...after the view, whose constants say how big the part of the screen that goes red is.
@@ -123,7 +124,8 @@ module Wolf3D
                                           Wolf3D::Pickups.pictures(f.guards)
                                       }.uniq.sort)
       view = Wolf3D::FirstPerson.new(build: self, floors: floors, atlas: atlas, things: things,
-                                     vswap: Wolf3D.vswap)
+                                     vswap: Wolf3D.vswap,
+                                     bar_art: Wolf3D::BarArt.of(Wolf3D.vgagraph))
       game_loop { view.update }
     else
       title = Title.new(self)

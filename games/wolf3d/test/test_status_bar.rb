@@ -28,9 +28,11 @@ class TestStatusBar < Minitest::Test
     refute_equal ground, run.screen.pixel(2, FP::VIEW_H - 1), "the row above it is still the view"
   end
 
+  # Every field that carries a name shows it. The face carries none — it is a picture, and the
+  # original labels it with nothing either.
   def test_every_field_is_labelled
     run = look
-    missing = Bar::FIELDS.reject { |field| label_shows?(run, field) }
+    missing = Bar.labelled.reject { |field| label_shows?(run, field) }
 
     assert_empty missing.map(&:label), "every field should be named on the bar"
   end
@@ -142,7 +144,51 @@ class TestStatusBar < Minitest::Test
                  "a frame behind and the figures flicker between two values"
   end
 
+  # THE FACE THAT WATCHES YOU, against a real copy of the game — the release we write for
+  # ourselves carries no faces, so there is nothing here to draw without one.
+  #
+  # It asks for the face pixel by pixel rather than for "something was painted": the whole
+  # point of the face is WHICH face, and a bar that showed a dying man at full health would
+  # paint just as many pixels as one that showed a smirk.
+  def test_the_face_on_the_bar_is_the_healthy_one_at_full_health
+    art = Wolf3D::BarArt.of(Wolf3D::Vgagraph.from(game_data_or_skip))
+    skip "this release's pictures have no names" unless art
+
+    run = Reference.new.run(view_of(arena, art: art), frames: 2)
+    healthy = Wolf3D::Vgagraph.from(Wolf3D::GameData.find).picture(:face_1a)
+    x = field(:face).x
+    y = FP::VIEW_H + ((Bar::HEIGHT - art.face_height) / 2)
+
+    wrong = []
+    art.face_height.times do |dy|
+      art.face_width.times do |dx|
+        want = palette[healthy[dx, dy]]
+        got = run.screen.pixel(x + dx, y + dy)
+        wrong << [dx, dy] unless want == got
+      end
+    end
+    assert_empty wrong.first(5), "the face on the bar is not the one a healthy player gets"
+  end
+
+  # ...and a hurt player gets a different one. Which one is the release's business; that it
+  # CHANGES is this bead's.
+  def test_a_hurt_player_gets_a_different_face
+    art = Wolf3D::BarArt.of(Wolf3D::Vgagraph.from(game_data_or_skip))
+    skip "this release's pictures have no names" unless art
+
+    healthy = face_pixels(Reference.new.run(view_of(arena, art: art), frames: 2), art)
+    hurt = face_pixels(watch(frames: 200, guards: RING, art: art), art)
+
+    refute_equal healthy, hurt, "being shot at should change the face"
+  end
+
   private
+
+  def face_pixels(run, art)
+    x = field(:face).x
+    y = FP::VIEW_H + ((Bar::HEIGHT - art.face_height) / 2)
+    art.face_height.times.flat_map { |dy| art.face_width.times.map { |dx| run.screen.pixel(x + dx, y + dy) } }
+  end
 
   def fixture = @fixture ||= Release.new
   def vswap = @vswap ||= Wolf3D::Vswap.new(fixture.files["VSWAP"])
@@ -165,7 +211,7 @@ class TestStatusBar < Minitest::Test
     Wolf3D::Level.new(name: "Arena", width: SIDE, height: SIDE, walls: cells, things: standing)
   end
 
-  def view_of(level)
+  def view_of(level, art: nil)
     doors = Wolf3D::Doors.new(level, vswap)
     pushwalls = Wolf3D::Pushwalls.new(level)
     guards = Guards.new(level)
@@ -177,16 +223,16 @@ class TestStatusBar < Minitest::Test
       screen :bitmap, tear_free: true
       view = Wolf3D::FirstPerson.new(build: self, level: level, atlas: atlas, doors: doors,
                                      pushwalls: pushwalls, guards: guards, things: things,
-                                     scenery: scenery)
+                                     scenery: scenery, bar_art: art)
       game_loop { view.update }
     end.program
   end
 
   def look = Reference.new.run(view_of(arena), frames: 2)
 
-  def watch(frames:, firing: false, **)
+  def watch(frames:, firing: false, art: nil, **)
     Reference.new.input_each_frame { |f| firing && f.even? ? [:b] : [] }
-             .run(view_of(arena(**)), frames: frames)
+             .run(view_of(arena(**), art: art), frames: frames)
   end
 
   def field(name) = Bar::FIELDS.find { |f| f.name == name }
