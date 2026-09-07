@@ -59,12 +59,20 @@ module Snake
   RIGHT_WALL_X  = (COLS - 1) * CELL         # right wall on the last column
   WALL_H        = SCREEN_H - TOP_WALL_Y     # how tall the side walls are
 
-  # Header score readout: a fixed "SCORE" label and a three-digit field beside it,
-  # both even-aligned so the fills are legal (draw widths must be even).
+  # Header score readout: a fixed "SCORE" label and a three-digit field one gap beyond
+  # it. Where the field starts is asked of the font rather than counted, so rewording
+  # the label moves the figures with it (see `score_num_x` in the build).
   SCORE_LABEL_X = 8
-  SCORE_NUM_X   = 50
+  SCORE_GAP     = 12           # between the label and the figures
   SCORE_Y       = 4
-  SCORE_NUM_W   = 3 * 6        # three 6px digit columns
+  SCORE_NUM_W   = 3 * 6        # three 6px digit columns — even, as a fill width must be
+
+  # The title and game-over screens put a label and its number either side of the
+  # middle — the word pushed up against it from the left, the figures from the right of
+  # it — so a pair meets in the middle whatever the words are.
+  STAT_GAP    = 6
+  STAT_LABEL  = (0...(SCREEN_W / 2))
+  STAT_NUMBER = (((SCREEN_W / 2) + STAT_GAP)...SCREEN_W)
 
   # The interior holds at most this many cells, so the body can never outgrow its
   # list — a `list` rounds its capacity up to a power of two, comfortably above this.
@@ -93,6 +101,10 @@ module Snake
   GAME = RubyGBA.game("SNAKE", code: "BSNK", maker: "01") do
     screen :bitmap
     enable_sound
+
+    # Where the score's figures start: one gap past the end of the word, whatever the
+    # word is. The font is the only thing that knows how wide "SCORE" comes out.
+    score_num_x = SCORE_LABEL_X + text_width("SCORE") + SCORE_GAP
 
     # Short blips: a bright one for eating, a low one for dying.
     define_sound :eat, frequency: 880, duty: :quarter, decay: :fast
@@ -158,8 +170,8 @@ module Snake
     # Repaint the score field: erase the old digits, then draw the new number. Only
     # called when the score changes (a round start, an eat), so it's cheap.
     func :draw_score do
-      dma_fill_rect SCORE_NUM_X, SCORE_Y, SCORE_NUM_W, 7, :black
-      draw_number score, SCORE_NUM_X, SCORE_Y, :white, digits: 3
+      dma_fill_rect score_num_x, SCORE_Y, SCORE_NUM_W, 7, :black
+      draw_number score, score_num_x, SCORE_Y, :white, digits: 3
     end
 
     # Paint the whole board once, at the start of a round: header label, the gray
@@ -254,13 +266,13 @@ module Snake
 
     scene :title do
       clear_screen :black
-      draw_text "SNAKE", 105, 56, :green
-      draw_text "HIGH", 92, 78, :gray
-      draw_number :high_score, 128, 78, :white, digits: 3
+      draw_text "SNAKE", :center, 56, :green
+      draw_text "HIGH", :right, 78, :gray, within: STAT_LABEL
+      draw_number :high_score, :left, 78, :white, digits: 3, within: STAT_NUMBER
 
       # Flash the prompt on and off twice a second.
       every(0.5, :seconds) { (blink == 1).then { blink.set 0 }.else { blink.set 1 } }
-      (blink == 1).then { draw_text "PRESS START", 87, 96, :gray }
+      (blink == 1).then { draw_text "PRESS START", :center, 96, :gray }
 
       # Keep stirring the random stream while we wait, so the food layout is decided
       # by the player's reaction time — every game plays out a little differently.
@@ -284,14 +296,14 @@ module Snake
 
     scene :game_over do
       clear_screen :black
-      draw_text "GAME OVER", 93, 52, :red
-      draw_text "SCORE", 84, 76, :gray
-      draw_number score, 132, 76, :white, digits: 3
-      draw_text "HIGH", 84, 90, :gray
-      draw_number :high_score, 132, 90, :white, digits: 3
+      draw_text "GAME OVER", :center, 52, :red
+      draw_text "SCORE", :right, 76, :gray, within: STAT_LABEL
+      draw_number score, :left, 76, :white, digits: 3, within: STAT_NUMBER
+      draw_text "HIGH", :right, 90, :gray, within: STAT_LABEL
+      draw_number :high_score, :left, 90, :white, digits: 3, within: STAT_NUMBER
 
       every(0.5, :seconds) { (blink == 1).then { blink.set 0 }.else { blink.set 1 } }
-      (blink == 1).then { draw_text "PRESS START", 87, 110, :gray }
+      (blink == 1).then { draw_text "PRESS START", :center, 110, :gray }
 
       pressed(:start).then { call :new_game }
     end

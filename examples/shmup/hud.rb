@@ -10,14 +10,25 @@ module Shmup
   class Hud
     START_LIVES = 3
 
+    SCREEN_W = 240
+    ROW      = 4  # the row the whole bar sits on
+    MARGIN   = 8  # how far in from each edge of the screen the bar starts
+    GAP      = 6  # between a label and its figures
+
     def initialize(build)
       @build = build
       @score = build.var(:score, 0)
       @lives = build.var(:lives, START_LIVES)
-      build.draw_text   "SCORE", 8, 4, :white
-      build.draw_number :score, 46, 4, :yellow, digits: 4
-      build.draw_text   "SHIPS", 152, 4, :white
-      build.draw_number :lives, 194, 4, :yellow, digits: 1
+      # The score pair starts at the left margin and its figures hang one gap off the
+      # end of the word, so rewording a label moves its number with it. The ships pair
+      # is the same thing flush against the other edge: the figure takes the last
+      # column, and the word is pushed up against the gap in front of it. No column
+      # here is a number counted by eye.
+      build.draw_text   "SCORE", MARGIN, ROW, :white
+      build.draw_number :score, MARGIN + build.text_width("SCORE") + GAP, ROW, :yellow, digits: 4
+      build.draw_number :lives, :right, ROW, :yellow, digits: 1, within: 0...(SCREEN_W - MARGIN)
+      build.draw_text   "SHIPS", :right, ROW, :white,
+                        within: 0...(SCREEN_W - MARGIN - build.text_width("0") - GAP)
     end
 
     # How many ships are left — the main file watches this to end the game.

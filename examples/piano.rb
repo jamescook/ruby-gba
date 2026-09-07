@@ -122,7 +122,7 @@ module Piano
     # two hands' notes sound at once.
     piano = instrument :piano, from: "assets/piano.wav", note: :C4
 
-    layer(:ui) { draw_text "PIANO", 100, 8, :white } # a title (tiled text: declared above the loop)
+    layer(:ui) { draw_text "PIANO", :center, 8, :white } # a title (tiled text: declared above the loop)
 
     # Each hand starts resting; the melody hand swaps to a finger pose per note, the
     # chord hand to its two-finger pose.

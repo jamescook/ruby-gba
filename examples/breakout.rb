@@ -87,10 +87,19 @@ module Breakout
   BALL_SPEED = 2
   START_LIVES = 3
 
-  # HUD: score on the left, lives on the right, above the wall.
-  HUD_Y       = 2
-  HUD_SCORE_X = 8
-  HUD_LIVES_X = 224
+  # HUD: score on the left, lives on the right, above the wall. Both are one margin in
+  # from their own edge — say which edge and each field finds its own column, so the
+  # lives stay flush right however many digits they reserve.
+  HUD_Y      = 2
+  HUD_MARGIN = 8
+  HUD_SIDES  = (HUD_MARGIN...(SCREEN_W - HUD_MARGIN))
+
+  # A LABEL AND ITS NUMBER READ AS ONE LINE — "SCORE 120" — so they sit either side of
+  # the middle: the word pushed up against it from the left, the figures from the right
+  # of it. Reword a label or change the font and the pair still meets in the middle.
+  STAT_GAP    = 6
+  STAT_LABEL  = (0...(SCREEN_W / 2))
+  STAT_NUMBER = (((SCREEN_W / 2) + STAT_GAP)...SCREEN_W)
 
   # A bar between them showing how close this run is to your best. It fills as the
   # score climbs and is full when you match the record.
@@ -259,13 +268,13 @@ module Breakout
 
     scene :title do
       clear_screen :black
-      draw_text "BREAKOUT", 92, 50, :cyan
-      draw_text "BEST", 92, 70, :gray
-      draw_number :high_score, 128, 70, :white, digits: 3
+      draw_text "BREAKOUT", :center, 50, :cyan
+      draw_text "BEST", :right, 70, :gray, within: STAT_LABEL
+      draw_number :high_score, :left, 70, :white, digits: 3, within: STAT_NUMBER
       every(0.5, :seconds) do
         (blink == 1).then { blink.set 0 }.else { blink.set 1 }
       end
-      (blink == 1).then { draw_text "PRESS START", 76, 96, :gray }
+      (blink == 1).then { draw_text "PRESS START", :center, 96, :gray }
       pressed(:start).then { call :new_game }
     end
 
@@ -288,8 +297,8 @@ module Breakout
       draw_rect_at :ball_x, :ball_y, BALL_SIZE, BALL_SIZE, :white
 
       # HUD: score (up to three digits) and lives remaining.
-      draw_number score, HUD_SCORE_X, HUD_Y, :white, digits: 3
-      draw_number lives, HUD_LIVES_X, HUD_Y, :white, digits: 1
+      draw_number score, :left, HUD_Y, :white, digits: 3, within: HUD_SIDES
+      draw_number lives, :right, HUD_Y, :white, digits: 1, within: HUD_SIDES
 
       # How close this run is to your best. The number being divided BY is the record
       # the cartridge remembered, so it is different every time you play — the game
@@ -304,23 +313,23 @@ module Breakout
 
     scene :cleared do
       clear_screen :black
-      draw_text "YOU WIN!", 88, 50, :green
-      draw_text "SCORE", 84, 74, :gray
-      draw_number score, 132, 74, :white, digits: 3
-      draw_text "BEST", 84, 88, :gray
-      draw_number :high_score, 132, 88, :white, digits: 3
-      draw_text "PRESS START", 76, 112, :gray
+      draw_text "YOU WIN!", :center, 50, :green
+      draw_text "SCORE", :right, 74, :gray, within: STAT_LABEL
+      draw_number score, :left, 74, :white, digits: 3, within: STAT_NUMBER
+      draw_text "BEST", :right, 88, :gray, within: STAT_LABEL
+      draw_number :high_score, :left, 88, :white, digits: 3, within: STAT_NUMBER
+      draw_text "PRESS START", :center, 112, :gray
       pressed(:start).then { state.set 0 }
     end
 
     scene :game_over do
       clear_screen :black
-      draw_text "GAME OVER", 84, 50, :red
-      draw_text "SCORE", 84, 74, :gray
-      draw_number score, 132, 74, :white, digits: 3
-      draw_text "BEST", 84, 88, :gray
-      draw_number :high_score, 132, 88, :white, digits: 3
-      draw_text "PRESS START", 76, 112, :gray
+      draw_text "GAME OVER", :center, 50, :red
+      draw_text "SCORE", :right, 74, :gray, within: STAT_LABEL
+      draw_number score, :left, 74, :white, digits: 3, within: STAT_NUMBER
+      draw_text "BEST", :right, 88, :gray, within: STAT_LABEL
+      draw_number :high_score, :left, 88, :white, digits: 3, within: STAT_NUMBER
+      draw_text "PRESS START", :center, 112, :gray
       pressed(:start).then { state.set 0 }
     end
 

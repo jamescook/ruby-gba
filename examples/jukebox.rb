@@ -19,9 +19,7 @@ require_relative "../lib/ruby_gba"
 
 module Jukebox
   # --- Layout (pixels; the screen is 240x160, origin top-left) ---
-  CENTER_X   = 120
-  TITLE_X    = 88          # left edge of each song's label
-  CURSOR_X   = 72          # the ">" that marks the highlighted row
+  SCREEN_W   = 240
   ROW_Y      = [58, 78, 98].freeze
 
   # The bobbing "it's playing" blocks along the bottom: five 8x8 blocks that
@@ -38,9 +36,6 @@ module Jukebox
     { name: :fur_elise,  label: "FUR ELISE",   color: :cyan },
     { name: :minuet,     label: "MINUET IN G", color: :magenta },
   ].freeze
-
-  # Center a string using the default font's ~8px advance per character.
-  def self.at_center(str) = CENTER_X - str.length * 4
 
   GAME = RubyGBA.game("JUKEBOX", code: "BJKB", maker: "01") do
     # Double-buffered so the full repaint each frame can't tear: we draw the whole
@@ -104,6 +99,16 @@ module Jukebox
       note :G5, :quarter; note :G4, :quarter; note :G4, :quarter
     end
 
+    # --- Layout the font works out ---
+    #
+    # The rows are a left-aligned column so the cursor lines up under itself, and the
+    # column is centred on the widest song name. Ask the font how wide the names come
+    # out and nothing here is a number counted by eye: reword a song and the menu
+    # moves with it.
+    widest   = SONGS.map { |s| text_width(s[:label]) }.max
+    label_x  = (SCREEN_W - widest) / 2
+    cursor_x = label_x - text_width("> ")
+
     # --- State ---
     selected = var :selected, 0        # which row the cursor is on (0..2)
     # A bobbing block's position (bar_y#) and signed speed (bar_v#), one pair each.
@@ -127,18 +132,18 @@ module Jukebox
 
       # --- Draw the screen fresh each frame ---
       clear_screen :black
-      draw_text "JUKEBOX", Jukebox.at_center("JUKEBOX"), 14, :white
-      fill_rect 84, 26, 72, 2, :gray
-      draw_text "PRESS UP OR DOWN", Jukebox.at_center("PRESS UP OR DOWN"), 34, :gray
-      draw_text "NOW PLAYING", Jukebox.at_center("NOW PLAYING"), 108, :gray
+      draw_text "JUKEBOX", :center, 14, :white
+      draw_rect_at label_x, 26, widest, 2, :gray
+      draw_text "PRESS UP OR DOWN", :center, 34, :gray
+      draw_text "NOW PLAYING", :center, 108, :gray
 
       # Every row in gray; the highlighted one is redrawn in its accent color,
       # gets the cursor, tints the blocks, and is the tune that actually plays.
-      SONGS.each_with_index { |s, i| draw_text s[:label], TITLE_X, ROW_Y[i], :gray }
+      SONGS.each_with_index { |s, i| draw_text s[:label], label_x, ROW_Y[i], :gray }
       SONGS.each_with_index do |s, i|
         (selected == i).then do
-          draw_text ">", CURSOR_X, ROW_Y[i], s[:color]
-          draw_text s[:label], TITLE_X, ROW_Y[i], s[:color]
+          draw_text ">", cursor_x, ROW_Y[i], s[:color]
+          draw_text s[:label], label_x, ROW_Y[i], s[:color]
           BARS.each_with_index { |(bx, _y0, _spd), j| draw_rect_at bx, :"bar_y#{j}", 8, 8, s[:color] }
           play_song s[:name]
         end

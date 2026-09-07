@@ -48,6 +48,11 @@ module Pacman
   START = [(240 - SIZE) / 2, (160 - SIZE) / 2].freeze
   GHOST_START = [24, 24].freeze
 
+  # The score readout in the top-left: where it starts, and the gap between the word
+  # and its figures.
+  HUD_X   = 8
+  HUD_GAP = 6
+
   # A bordered room that fills the screen: a wall around the edge, floor inside.
   ROOM = (["#" * 30] + Array.new(18, "##{'.' * 28}#") + ["#" * 30]).freeze
 
@@ -182,8 +187,10 @@ module Pacman
     # them ONCE here (like a sprite); the number then follows :eaten and repaints itself
     # every frame — there's nothing to redraw inside the loop.
     layer :ui do
-      draw_text "SCORE", 8, 4, :white
-      draw_number :eaten, 46, 4, :white, digits: 3
+      # The figures hang one gap off the end of the word rather than at a column
+      # somebody counted, so rewording the label moves the number with it.
+      draw_text "SCORE", HUD_X, 4, :white
+      draw_number :eaten, HUD_X + text_width("SCORE") + HUD_GAP, 4, :white, digits: 3
     end
 
     game_loop do
