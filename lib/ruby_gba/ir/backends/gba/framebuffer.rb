@@ -13,6 +13,37 @@ module RubyGBA
         class Framebuffer
           include Constants
 
+          # HOW A PICTURE ROW BECOMES A SCREEN ROW, which is a divide by the picture's own
+          # height: a stretch that covers rows 8 to 15 of a 64-row picture covers the eighth
+          # to the fifteenth part of however tall the column is drawn.
+          #
+          # The chip has no divide instruction, so a divide is normally a subroutine — far too
+          # dear for something a stretch does twice. A height that is a power of two escapes
+          # that by SHIFTING, which is one instruction, and for a long time that was the only
+          # height a picture could have and still ship its stretches.
+          #
+          # ANY OTHER HEIGHT MULTIPLIES INSTEAD. Dividing by 38 is the same as multiplying by
+          # 1/38, and while the chip holds no fractions it does hold the whole 64-bit answer of
+          # a multiply — so multiplying by 2^32/38 and keeping the TOP half divides by 38. The
+          # multiplier is worked out here, while the program is being built, and costs the walk
+          # one instruction over the shift.
+          #
+          # The multiplier is rounded DOWN, so its answer can land one row early. That is the
+          # safe direction at the near end of a stretch (a row too early draws nothing extra,
+          # since the walk still asks each row whether its pixel is see-through) and the unsafe
+          # one at the far end, which is why that end takes a second spare row.
+          ColumnDivide = Data.define(:shift, :magic, :spare_rows) do
+            def self.for(height)
+              if height.positive? && (height & (height - 1)).zero?
+                new(shift: height.bit_length - 1, magic: nil, spare_rows: 1)
+              else
+                new(shift: nil, magic: (1 << 32) / height, spare_rows: 2)
+              end
+            end
+
+            def by_multiply? = !magic.nil?
+          end
+
           def initialize(emitter:, primitives:, lowering:, divide:, run_bitmaps:)
             @emitter = emitter
             @primitives = primitives
@@ -168,7 +199,8 @@ module RubyGBA
           # asks each row it does reach whether its pixel is see-through, so a stretch
           # a row too wide costs one row and draws nothing extra; and a stretch is
           # never too NARROW, because its first row is rounded down and its last is
-          # rounded up with a row to spare.
+          # rounded up with a row to spare. See {ColumnDivide} for how each end is
+          # rounded and why the far one sometimes wants a second spare row.
           def emit_column_runs(name, bmp, bail)
             unless @run_bitmaps.include?(name)
               @emitter.emit(ASM.load_immediate(SPARE, 0))
@@ -176,11 +208,15 @@ module RubyGBA
               return yield(bail)
             end
 
-            shift = bmp.height.bit_length - 1 # only shipped for a picture as tall as a power of two
+            divide = ColumnDivide.for(bmp.height)
             # The full height and the unclipped top, which every stretch measures itself
             # against and the walk itself spends. There is one register spare in a
-            # column and the list needs it, so these two wait here.
-            @emitter.emit(ASM.push(COLUMN_Y, COLUMN_ROWS))
+            # column and the list needs it, so these two wait here — and the multiplier,
+            # on a picture whose height needs one, waits with them.
+            held = divide.by_multiply? ? [ACC, COLUMN_Y, COLUMN_ROWS] : [COLUMN_Y, COLUMN_ROWS]
+            at = ->(reg) { held.index(reg) * 4 } # where each one waits, since the list has two lengths
+            @emitter.emit(ASM.load_immediate(ACC, divide.magic)) if divide.by_multiply?
+            @emitter.emit(ASM.push(*held))
 
             top = @emitter.gensym
             finish = @emitter.gensym
@@ -190,22 +226,45 @@ module RubyGBA
             @emitter.emit_branch(:bcond, finish, cond: :eq)
             @emitter.emit(ASM.ldrb_offset(HIGH, COLUMN_RUNS, 1))
             @emitter.emit(ASM.add_imm(COLUMN_RUNS, COLUMN_RUNS, 2))
-            @emitter.emit(ASM.ldr_offset(COLUMN_Y, STACK, 0))
-            @emitter.emit(ASM.ldr_offset(COLUMN_ROWS, STACK, 4))
+            @emitter.emit(ASM.ldr_offset(COLUMN_ROWS, STACK, at[COLUMN_ROWS]))
 
+            # Both ends of the stretch, each a picture row times the height on screen and
+            # then divided by the picture's own height. COLUMN_Y is somewhere to keep the
+            # second product while the first is divided; it is loaded back below.
             @emitter.emit(ASM.mul(TMP, ACC, COLUMN_ROWS))
-            @emitter.emit(ASM.lsr_imm(SPARE, TMP, shift))  # the stretch's first screen row...
             @emitter.emit(ASM.add_imm(HIGH, HIGH, 1))
-            @emitter.emit(ASM.mul(TMP, HIGH, COLUMN_ROWS))
-            @emitter.emit(ASM.lsr_imm(HIGH, TMP, shift))
-            @emitter.emit(ASM.add_imm(HIGH, HIGH, 1))      # ...and one past its last, with a row to spare
+            @emitter.emit(ASM.mul(COLUMN_Y, HIGH, COLUMN_ROWS))
+            @emitter.emit(ASM.ldr_offset(ACC, STACK, at[ACC])) if divide.by_multiply?
+            emit_column_divide(divide, from: TMP, into: SPARE, spill: HIGH) # the first screen row...
+            emit_column_divide(divide, from: COLUMN_Y, into: HIGH, spill: TMP)
+            # ...and one past the last, with a row to spare.
+            @emitter.emit(ASM.add_imm(HIGH, HIGH, divide.spare_rows))
+            @emitter.emit(ASM.ldr_offset(COLUMN_Y, STACK, at[COLUMN_Y]))
 
             after = @emitter.gensym
             yield(after)
             @emitter.place_label(after)
             @emitter.emit_branch(:b, top)
             @emitter.place_label(finish)
-            @emitter.emit(ASM.pop(COLUMN_Y, COLUMN_ROWS))
+            @emitter.emit(ASM.pop(*held))
+          end
+
+          # One end of a stretch, from a picture row times the height on screen to the screen
+          # row it lands on. A shift where the picture's height allows one; otherwise the long
+          # multiply, whose top half IS the answer — and which writes a whole 64-bit product,
+          # so it needs somewhere to put the half nothing reads (+spill+). ACC carries the
+          # multiplier, loaded from the stack by the caller.
+          #
+          # A picture ONE row tall is the odd one out: dividing by one changes nothing, so the
+          # number is carried across as it stands.
+          def emit_column_divide(divide, from:, into:, spill:)
+            if divide.by_multiply?
+              @emitter.emit(ASM.smull(spill, into, from, ACC))
+            elsif divide.shift.zero?
+              @emitter.emit(ASM.mov_reg(into, from))
+            else
+              @emitter.emit(ASM.lsr_imm(into, from, divide.shift))
+            end
           end
 
           # WHICH ROWS OF THE COLUMN ARE ACTUALLY ON THE SCREEN, worked out once before

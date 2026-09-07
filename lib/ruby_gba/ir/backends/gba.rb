@@ -100,10 +100,11 @@ module RubyGBA
         # ...and where each of its columns holds pixels (see #register_column_runs): the
         # stretches themselves, and where each column's list of them starts.
         #
-        # A row number is one byte, so a taller picture ships none — and turning a picture row
-        # into a screen row divides by the picture's height, which is a shift only when that
-        # height is a power of two, so a picture of another height ships none either. Sprite
-        # sheets are square powers of two almost without exception.
+        # A row number is one byte, so a picture taller than this ships none and walks its
+        # whole height, as every picture did before there were lists. Any height up to it
+        # ships them — turning a picture row into a screen row divides by the height, and a
+        # height that is not a power of two divides by a multiply the build settles rather
+        # than by a shift (see Framebuffer::ColumnDivide).
         RUNS_SUFFIX = "__runs"
         RUNS_START_SUFFIX = "__runstart"
         RUNS_MAX_ROWS = 256
@@ -158,6 +159,20 @@ module RubyGBA
         # whether the count is a power of two — which decides whether an out-of-range index
         # is wrapped (one instruction) or clamped against both ends.
         TableLayout = Data.define(:count, :elem_bytes, :signed, :pow2)
+
+        # WHAT THE BUILD COULD DO FOR ONE SEE-THROUGH PICTURE a stretched column reads:
+        # whether it ships where each of its columns holds pixels (see #register_column_runs),
+        # and what stopped it when it does not. +held_back_by+ is nil when it ships, :too_tall
+        # for a picture past RUNS_MAX_ROWS, and :too_many when its lists together run past
+        # RUNS_MAX_BYTES.
+        #
+        # A picture that ships none walks EVERY row of every column it draws, and a see-through
+        # picture is mostly rows that draw nothing — so this is the difference between a lamp
+        # costing its lit rows and costing its square. Nothing about how the game runs reads it;
+        # it is here so the estimate charges what really happens and the report can say so.
+        ColumnStretches = Data.define(:height, :held_back_by) do
+          def skips_empty_rows? = held_back_by.nil?
+        end
 
         # A background, once given hardware to live in: where its map sits, which of the
         # console's layers draws it, and how far forward that layer is. +affine+ marks a
@@ -278,6 +293,7 @@ module RubyGBA
           @tables = {}           # name -> { count:, elem_bytes:, signed:, pow2: } (a ROM lookup table)
           @backgrounds = {}      # name -> resolved tiled-background layer (map blob, BG number, screen block, priority)
           @run_bitmaps = []      # pictures that ship where each of their columns holds pixels
+          @column_stretches = {} # ...and what the build could do for each, for the report
           @timers = Timers.new(emitter: @emit) # named timer -> which hardware timer(s) back it
           @collision = Collision.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                      bitmaps: @bitmaps)
@@ -405,6 +421,7 @@ module RubyGBA
           RubyGBA::BuildRecord.new(source_program: program, placement: iwram_report,
                                    var_addresses: var_addresses, loop_shapes: loop_shapes,
                                    palette_entries: palette_entries,
+                                   column_stretches: @column_stretches,
                                    compression: compression_report)
         end
 
@@ -991,7 +1008,16 @@ module RubyGBA
         # A column that holds nothing at all gets an empty list, so it walks no rows.
         def register_column_runs(node)
           return unless node.transparent && @column_bitmaps.include?(node.name)
-          return unless node.height <= RUNS_MAX_ROWS && power_of_two?(node.height)
+
+          held_back = ships_column_runs(node)
+          @column_stretches[node.name] = ColumnStretches.new(height: node.height, held_back_by: held_back)
+          @run_bitmaps << node.name unless held_back
+        end
+
+        # ...done, and what stopped it: nil when the picture ships its stretches, else which
+        # of the two ceilings it ran into.
+        def ships_column_runs(node)
+          return :too_tall if node.height > RUNS_MAX_ROWS
 
           runs = column_runs(node)
           starts = []
@@ -1001,17 +1027,16 @@ module RubyGBA
             at += (column.length * 2) + 1 # a pair of rows each, then the byte that ends the list
           end
           # Where a column's list starts is a halfword, so a picture whose lists together run
-          # past that ships none and walks its whole height, as it always did.
-          return if at > RUNS_MAX_BYTES
+          # past that ships none and walks its whole height, as every picture did before there
+          # were lists.
+          return :too_many if at > RUNS_MAX_BYTES
 
           @emit.data_blobs[runs_blob(node.name)] =
             runs.flat_map { |column| column.flat_map { |run| [run.first, run.last] } << RUNS_END }
                 .pack("C*")
           @emit.data_blobs[runs_start_blob(node.name)] = starts.pack("v*")
-          @run_bitmaps << node.name
+          nil
         end
-
-        def power_of_two?(number) = number.positive? && (number & (number - 1)).zero?
 
         def column_runs(node)
           pixels = node.pixels.unpack("v*")

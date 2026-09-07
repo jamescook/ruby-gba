@@ -276,13 +276,33 @@ class TestDrawColumnAtSeeThrough < Minitest::Test
     ##.#
   ART
 
+  # THE SAME LAMP ON A PICTURE THAT IS NOT A NEAT HEIGHT — thirteen rows rather than eight.
+  # Turning a picture row into a screen row divides by the picture's height, and a height that
+  # is a power of two divides by shifting where any other multiplies by a number the build
+  # works out. The two arrive at the answer differently, so both are drawn here.
+  ODD_LAMP = <<~ART
+    #.#.
+    #...
+    ....
+    ....
+    ....
+    ....
+    ....
+    ....
+    ....
+    ....
+    ....
+    ...#
+    ##.#
+  ART
+
   HEIGHTS = [1, 2, 3, 5, 8, 13, 16, 31, 64, 159, 160, 161, 400, 1200].freeze
 
-  def lamp_program(tear_free:)
+  def lamp_program(tear_free:, art: LAMP)
     b = Builder.new
     b.instance_eval do
       screen :bitmap, tear_free: tear_free
-      image(:lamp, "." => :transparent, "#" => :white) { LAMP }
+      image(:lamp, "." => :transparent, "#" => :white) { art }
       tall = var :tall, 0
       game_loop do
         clear_screen :gray
@@ -307,6 +327,14 @@ class TestDrawColumnAtSeeThrough < Minitest::Test
 
   def test_the_tear_free_screen_skips_them_too
     assert_backends_agree(lamp_program(tear_free: true), frames: 3, name: "TFLAMP")
+  end
+
+  def test_a_picture_of_an_awkward_height_skips_them_too
+    assert_backends_agree(lamp_program(tear_free: false, art: ODD_LAMP), frames: 3, name: "ODDLAMP")
+  end
+
+  def test_a_picture_of_an_awkward_height_skips_them_on_the_tear_free_screen
+    assert_backends_agree(lamp_program(tear_free: true, art: ODD_LAMP), frames: 3, name: "TFODD")
   end
 end
 

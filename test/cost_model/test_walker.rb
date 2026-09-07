@@ -28,7 +28,8 @@ class TestWalker < CostModelTest
   def walker(catalogue: empty_catalogue)
     w = Walker.new(catalogue: catalogue, weights: WEIGHTS, fast_routines: [], fast_frame: false,
                    fast_interrupts: false, loop_shapes: {})
-    pricing = Pricing.new(weights: WEIGHTS, catalogue: catalogue, walker: w, palette_entries: {})
+    pricing = Pricing.new(weights: WEIGHTS, catalogue: catalogue, walker: w, palette_entries: {},
+                          column_stretches: {})
     w.pricing = pricing
     w.tree = Tree.new(catalogue: catalogue, pricing: pricing, walker: w, verdicts: nil)
     w

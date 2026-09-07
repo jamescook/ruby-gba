@@ -22,7 +22,8 @@ class TestPricingClass < CostModelTest
     catalogue = empty_catalogue
     walker = Walker.new(catalogue: catalogue, weights: WEIGHTS, fast_routines: [], fast_frame: false,
                         fast_interrupts: false, loop_shapes: {})
-    pricing = Pricing.new(weights: WEIGHTS, catalogue: catalogue, walker: walker, palette_entries: {})
+    pricing = Pricing.new(weights: WEIGHTS, catalogue: catalogue, walker: walker, palette_entries: {},
+                          column_stretches: {})
     walker.pricing = pricing
 
     node = Build.clear_screen(:black)
@@ -36,7 +37,8 @@ class TestPricingClass < CostModelTest
     walker = Walker.new(catalogue: catalogue, weights: WEIGHTS, fast_routines: [], fast_frame: false,
                         fast_interrupts: false, loop_shapes: {})
     custom = WEIGHTS.merge(dma_pixel: WEIGHTS[:dma_pixel] * 10)
-    pricing = Pricing.new(weights: custom, catalogue: catalogue, walker: walker, palette_entries: {})
+    pricing = Pricing.new(weights: custom, catalogue: catalogue, walker: walker, palette_entries: {},
+                          column_stretches: {})
     walker.pricing = pricing
 
     node = Build.clear_screen(:black)
