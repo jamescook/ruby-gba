@@ -210,13 +210,6 @@ module Wolf3D
       (@stage >= 0).then { @shape.add(@stage + 1) }
     end
 
-    # WHERE THE BAND OF PICTURE LANDS ON SCREEN. The picture holds the rows that have art in
-    # them and no more (see WeaponAtlas), so this is where those rows would have fallen had the
-    # whole square been drawn — which is what keeps the gun hanging off the bottom edge of the
-    # view instead of floating in the middle of it.
-    def band_top = @atlas.top_row * SCALE
-    def band_height = @atlas.height * SCALE
-
     def draw_the_strips
       b = @b
       @column.set(@first_column[@shape])
@@ -227,8 +220,13 @@ module Wolf3D
       b.repeat(@wide, estimate: { usually: @atlas.usual_columns,
                                   most: @atlas.most_columns }) do |step|
         @at.set(@column + step)
+        # THE WHOLE SQUARE, from the top of the view to the bottom of it, which is what the
+        # original scales a weapon to. Every row of it is walked in the writing and hardly any
+        # in the running: the framework ships where each COLUMN of a see-through picture holds
+        # pixels and walks those stretches alone, so the empty sky above the gun costs the
+        # column that has none nothing at all. See WeaponAtlas for what happens when it cannot.
         b.draw_column_at :weapons, slice: @shape + @at, x: LEFT + (@at * SCALE),
-                                   top: band_top, height: band_height, width: SCALE
+                                   top: 0, height: FP::VIEW_H, width: SCALE
       end
     end
 
