@@ -278,6 +278,10 @@ module Wolf3D
       # A key, a numeral, and the blank one that stands in for a leading nought.
       SLOT = [8, 16].freeze
       FACE = [24, 32].freeze
+      # The menu's own: its heading plate, the gun it points with, and the numeral beside an
+      # episode's name. A difficulty portrait is a FACE, the same shape as the bar's.
+      HEADING = [152, 48].freeze
+      GUN = [24, 16].freeze
 
       # ...and everything else is the smallest picture that can be stored, since a width has
       # to divide by four. They are there to hold their places in the picture table, which is
@@ -302,8 +306,20 @@ module Wolf3D
         when :notice then [88, 64]
         when :high_scores then [224, 56]
         when :knife, :pistol, :machine_gun, :chain_gun then WEAPON
-        else name.start_with?("face_") ? FACE : SLOT
+        when :menu_heading then HEADING
+        when :menu_gun, :menu_gun_firing then GUN
+        else other_size_of(name)
         end
+      end
+
+      # The three sets whose names carry a number, so they cannot be listed one by one: the
+      # bar's health faces, the difficulty screen's portraits (the same shape), and an
+      # episode's numeral, which is a weapon's shape by coincidence of the artists' grid.
+      def other_size_of(name)
+        return FACE if name.start_with?("face_", "difficulty_")
+        return WEAPON if name.start_with?("episode_")
+
+        SLOT
       end
 
       # THE TWO ALPHABETS, and both are PROPORTIONAL on purpose: a reader that assumed one

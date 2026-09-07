@@ -45,10 +45,13 @@ module Wolf3D
     DEATH_SCREAMS = [12, 13, 34, 35].freeze
 
     # +vswap+ is the player's own copy of the game's sounds, or nil on a build with no data,
-    # which makes every one of these do nothing.
-    def initialize(build:, vswap: nil)
+    # which makes every one of these do nothing. +switch+ is a variable that is 1 while sound
+    # is on — the menu's own SOUND row moves it — or nil on a cartridge with no way to turn
+    # sound off, and then nothing is tested.
+    def initialize(build:, vswap: nil, switch: nil)
       @b = build
       @vswap = vswap
+      @switch = switch
       declare
     end
 
@@ -83,13 +86,24 @@ module Wolf3D
     def a_guard_dies
       screams = DEATH_SCREAMS.filter_map { |n| @clips[n] }
       return if screams.empty?
-      return screams.first.play if screams.length == 1
 
-      @which.set(@b.rand(0...screams.length))
-      screams.each_with_index { |clip, n| (@which == n).then { clip.play } }
+      when_sound_is_on do
+        next screams.first.play if screams.length == 1
+
+        @which.set(@b.rand(0...screams.length))
+        screams.each_with_index { |clip, n| (@which == n).then { clip.play } }
+      end
     end
 
     private
+
+    # EVERY SOUND GOES THROUGH HERE, so the one row on the menu that turns sound off turns off
+    # all of it. A cartridge with no such row has nothing to test and simply plays.
+    def when_sound_is_on(&)
+      return yield if @switch.nil?
+
+      (@switch == 1).then(&)
+    end
 
     # Every chunk this game knows how to use. Named for the moment rather than the number, so a
     # sound the player's copy does not hold simply never reaches the list.
@@ -115,15 +129,21 @@ module Wolf3D
       @which = @b.var :_which_scream, 0 unless @clips.empty?
     end
 
-    def play(chunk) = @clips[chunk]&.play
+    def play(chunk)
+      clip = @clips[chunk] or return
+
+      when_sound_is_on { clip.play }
+    end
 
     # Cut whatever of this sound is still going and start it again, which is what the original's
     # reserved channels amount to for the sounds one thing makes over and over.
     def retrigger(chunk)
       clip = @clips[chunk] or return
 
-      clip.stop
-      clip.play
+      when_sound_is_on do
+        clip.stop
+        clip.play
+      end
     end
   end
 end
