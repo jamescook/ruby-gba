@@ -156,7 +156,7 @@ class TestStatusBar < Minitest::Test
 
     run = Reference.new.run(view_of(arena, art: art), frames: 2)
     healthy = Wolf3D::Vgagraph.from(Wolf3D::GameData.find).picture(:face_1a)
-    x = field(:face).x
+    x = at(:face, art)
     y = FP::VIEW_H + ((Bar::HEIGHT - art.face_height) / 2)
 
     wrong = []
@@ -182,10 +182,66 @@ class TestStatusBar < Minitest::Test
     refute_equal healthy, hurt, "being shot at should change the face"
   end
 
+  # THE FIGURES IN THE GAME'S OWN NUMERALS, which are pictures rather than letters — so they are
+  # read back by matching each digit place against the eleven numeral pictures and seeing which
+  # one landed. That is the same standard the font figures are held to: the bar must READ as the
+  # number, not merely have something painted where the number goes.
+  def test_the_figures_are_drawn_in_the_games_own_numerals
+    art = Wolf3D::BarArt.of(Wolf3D::Vgagraph.from(game_data_or_skip))
+    skip "this release's pictures have no names" unless art
+
+    run = Reference.new.run(view_of(arena, art: art), frames: 2)
+
+    assert_equal FP::START_HEALTH, numeral_figure(run, :health, art)
+    assert_equal FP::START_AMMO, numeral_figure(run, :ammo, art)
+    assert_equal FP::FLOOR, numeral_figure(run, :floor, art)
+  end
+
+  # ...and the leading noughts are blank rather than drawn, which is what makes a six-place
+  # score read as a number instead of as 000000.
+  def test_a_leading_nought_is_blank_and_not_a_nought
+    art = Wolf3D::BarArt.of(Wolf3D::Vgagraph.from(game_data_or_skip))
+    skip "this release's pictures have no names" unless art
+
+    run = Reference.new.run(view_of(arena, art: art), frames: 2)
+    places = numeral_places(run, :score, art)
+
+    assert_equal [nil, nil, nil, nil, nil, 0], places,
+                 "a score of nothing is five blanks and a single nought"
+  end
+
   private
 
+  # Which numeral picture is drawn at each place of a field, or nil where the blank one is.
+  def numeral_places(run, name, art)
+    f = field(name)
+    left = at(name, art) + ((art.label_width(name) - (f.digits * art.digit_width)) / 2)
+    y = FP::VIEW_H + Bar::FIGURE_ROW
+    f.digits.times.map { |place| numeral_at(run, left + (place * art.digit_width), y, art) }
+  end
+
+  def numeral_figure(run, name, art)
+    numeral_places(run, name, art).compact.join.to_i
+  end
+
+  # Match the box drawn here against each of the numeral pictures. Nil for the blank one.
+  def numeral_at(run, x, y, art)
+    drawn = art.digit_height.times.flat_map do |dy|
+      art.digit_width.times.map { |dx| run.screen.pixel(x + dx, y + dy) }
+    end
+    vg = Wolf3D::Vgagraph.from(Wolf3D::GameData.find)
+    Wolf3D::BarArt::NUMERALS.each_with_index do |numeral, n|
+      picture = vg.picture(numeral)
+      want = art.digit_height.times.flat_map do |dy|
+        art.digit_width.times.map { |dx| palette[picture[dx, dy]] }
+      end
+      return n.zero? ? nil : n - 1 if want == drawn
+    end
+    flunk "nothing at (#{x},#{y}) matches any of the game's numerals"
+  end
+
   def face_pixels(run, art)
-    x = field(:face).x
+    x = at(:face, art)
     y = FP::VIEW_H + ((Bar::HEIGHT - art.face_height) / 2)
     art.face_height.times.flat_map { |dy| art.face_width.times.map { |dx| run.screen.pixel(x + dx, y + dy) } }
   end
@@ -237,12 +293,17 @@ class TestStatusBar < Minitest::Test
 
   def field(name) = Bar::FIELDS.find { |f| f.name == name }
 
+  # Where a field's left edge falls. The bar works this out from how wide the things in it are,
+  # so a test asks it rather than carrying a copy of the answer — and it differs between a bar
+  # drawn in the game's own art and one drawn in the framework's font.
+  def at(name, art = nil) = Bar.layout(art).fetch(name)
+
   # Is the field's label on the bar, in the label colour, where the layout says?
   def label_shows?(run, field)
     ink = palette[Bar::LABEL]
     y = FP::VIEW_H + Bar::LABEL_ROW
     font.text_width(field.label).times.any? do |dx|
-      font.instance_variable_get(:@height).times.any? { |dy| run.screen.pixel(field.x + dx, y + dy) == ink }
+      font.instance_variable_get(:@height).times.any? { |dy| run.screen.pixel(at(field.name) + dx, y + dy) == ink }
     end
   end
 
@@ -250,7 +311,7 @@ class TestStatusBar < Minitest::Test
   # so what comes back is the number a player would read.
   def figure(run, name)
     f = field(name)
-    left = f.x + ((font.text_width(f.label) - (f.digits * font.cell_w)) / 2)
+    left = at(name) + ((font.text_width(f.label) - (f.digits * font.cell_w)) / 2)
     y = FP::VIEW_H + Bar::FIGURE_ROW
     f.digits.times.map { |place| digit_at(run, left + (place * font.cell_w), y) }.join.to_i
   end
@@ -276,7 +337,7 @@ class TestStatusBar < Minitest::Test
   def key_colours(run)
     f = field(:keys)
     wide = (Bar::METALS.length * Bar::KEY_W) + ((Bar::METALS.length - 1) * Bar::KEY_GAP)
-    left = f.x + ((font.text_width(f.label) - wide) / 2)
+    left = at(:keys) + ((font.text_width(f.label) - wide) / 2)
     y = FP::VIEW_H + Bar::FIGURE_ROW - 2
     Bar::METALS.each_key.with_index.map do |_metal, n|
       run.screen.pixel(left + (n * (Bar::KEY_W + Bar::KEY_GAP)) + (Bar::KEY_W / 2), y + (Bar::KEY_H / 2))
