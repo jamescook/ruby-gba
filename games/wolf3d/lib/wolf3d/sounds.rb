@@ -24,7 +24,11 @@ module Wolf3D
   # never played. Nothing is a build error: a floor that is quieter than it might be is better
   # than a cartridge that will not build.
   class Sounds
-    PISTOL = 5           # the player's own gun
+    # The player's own guns. Three of the four make a noise; the knife's is an ADLIB effect and
+    # no copy of the game holds a recording of it, so a knife goes in quietly.
+    MACHINE_GUN = 4
+    PISTOL = 5
+    CHAIN_GUN = 6        # the gatling gun, as the original's own art calls it
     NOTICES_YOU = 0      # "Halt!" — a guard the moment he sees you
     GUARD_FIRES = 21     # ...and his gun
     DOOR_OPENS = 3
@@ -63,6 +67,8 @@ module Wolf3D
     # channel for the player's own weapon so a new shot always replaces the last — without that,
     # tapping the trigger fills every voice with pistol and there is none left for anything else.
     def pistol = retrigger(PISTOL)
+    def machine_gun = retrigger(MACHINE_GUN)
+    def chain_gun = retrigger(CHAIN_GUN)
 
     def notices_you = play(NOTICES_YOU)
     def guard_fires = play(GUARD_FIRES)
@@ -107,8 +113,8 @@ module Wolf3D
 
     # Every chunk this game knows how to use. Named for the moment rather than the number, so a
     # sound the player's copy does not hold simply never reaches the list.
-    WANTED = [PISTOL, NOTICES_YOU, GUARD_FIRES, DOOR_OPENS, DOOR_SHUTS, SECRET_WALL, LEVEL_DONE,
-              *DEATH_SCREAMS].freeze
+    WANTED = [PISTOL, MACHINE_GUN, CHAIN_GUN, NOTICES_YOU, GUARD_FIRES, DOOR_OPENS, DOOR_SHUTS,
+              SECRET_WALL, LEVEL_DONE, *DEATH_SCREAMS].freeze
 
     def declare
       @clips = {}

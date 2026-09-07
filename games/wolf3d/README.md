@@ -48,9 +48,33 @@ separate repository would mean a version bump for every experiment.
 A floor of the real game, read from your own copy of the data and playable in an emulator: the
 first-person view, walls textured from VSWAP, doors that slide open and shut, pushwalls, guards
 that patrol, hear and see you, close in, and shoot — and can be shot and killed — the things and
-pickups standing in the rooms, the status bar, and the game's sound effects through the sampled
-mixer. Without your own copy of the data the cartridge still builds; it shows a title screen and
-says so instead of a floor.
+pickups standing in the rooms, all four weapons drawn in your hands, the status bar, and the
+game's sound effects through the sampled mixer. Without your own copy of the data the cartridge
+still builds; it shows a title screen and says so instead of a floor.
+
+## How you play it
+
+| Button | What it does |
+|---|---|
+| Up / Down | walk forward and back |
+| Left / Right | turn |
+| A | open a door, shove a secret wall, pull the lift's lever |
+| B | fire what is in your hands |
+| L / R | change weapon — back and forward through the ones you are carrying |
+| START | pause, which is the main menu with two rows turned over |
+
+**Four weapons, and one button to walk between them.** You start with a knife and a pistol; a
+machine gun and a chain gun lie on the floors of the game and each hands you six rounds as well
+as itself. The list wraps at both ends, and with nothing left to fire you cannot change at all —
+an empty player is stuck with the knife until they find a clip, and the moment they do, the gun
+they chose comes back on its own.
+
+All four run the same four frames when you fire, six passes each: raise, fire, follow through,
+lower. So a pistol is one press one round however hard you tap, and the way to shoot faster is a
+better gun — the machine gun repeats while you hold the button and the chain gun does it twice as
+fast. What a shot takes off a man is decided by how far away he is and not by what fired it, so a
+chain gun is not a harder-hitting pistol, it is more pistol shots. The knife is the exception,
+and it is a reach: about a cell and a half, and past that the swing meets nothing.
 
 Whole episodes: ten floors each, and the lift at the end of one takes you to the next. Step into
 the car, face the lever, and pull it. On floor one the lift is behind the elevator door at the
@@ -143,4 +167,9 @@ first two have nothing to show yet and the third calibrates a mouse and a joysti
 
 Not yet there: the tally between floors, the AdLib music and the effects Wolfenstein never
 recorded to raw PCM, a difficulty that changes which guards a floor holds rather than being
-written down and unread, and saving progress across power-off.
+written down and unread, saving progress across power-off, and the little picture of your weapon
+on the status bar — the seven fields already there come to 190 of the screen's 240 columns, and
+an eighth takes them past it.
+
+There is also only ONE KIND OF GUARD, the brown one, which is why the SS never drops you a
+machine gun the way he does in the original: there are no SS to fall.

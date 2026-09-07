@@ -32,9 +32,10 @@ module Wolf3D
     KEY = 4
     SCRAPS = 5
     EXTRA_LIFE = 6
+    WEAPON = 7
 
     KINDS = { ammunition: AMMUNITION, health: HEALTH, treasure: TREASURE,
-              key: KEY, scraps: SCRAPS, extra_life: EXTRA_LIFE }.freeze
+              key: KEY, scraps: SCRAPS, extra_life: EXTRA_LIFE, weapon: WEAPON }.freeze
 
     # The caps, which are the original's. Ninety-nine rounds and a hundred of health.
     MOST_AMMO = 99
@@ -51,6 +52,10 @@ module Wolf3D
     # not pay for more than itself.
     DROPPED_ROUNDS = 4
 
+    # ...and what a gun lying on the floor comes loaded with. The original hands you the rounds
+    # FIRST and the gun after, which is why a player who already has that gun still takes them.
+    WEAPON_ROUNDS = 6
+
     # THE PICTURES A FLOOR NEEDS FOR WHAT IS PICKED UP, over and above the ones it ships itself:
     # the clip a guard leaves behind, which a floor may hold none of its own. A floor with nobody
     # on it needs none, and asks for none.
@@ -65,9 +70,13 @@ module Wolf3D
     # `scenery:` loose instead, which is what the tests do. +bases+ is where this floor's slice of
     # each table begins, as the view keeps it: { map:, piece: } — left out on a one-floor game,
     # where every slice begins at nothing.
+    # +weapons+ is what the two guns on the floor are handed to, or nil on a game with no
+    # weapons to hold — and then they give their rounds and nothing else, which is what this
+    # did before there was a gun to pick up.
     def initialize(build:, player:, level: nil, lives: nil, scenery: nil, pool: nil,
-                   floors: nil, bases: {})
+                   floors: nil, bases: {}, weapons: nil)
       @b = build
+      @weapons = weapons
       @floors = floors || Floors.of(level: level, doors: Doors.new(level, nil),
                                     pushwalls: Pushwalls.new(level),
                                     scenery: scenery || Scenery.new(level))
@@ -228,8 +237,20 @@ module Wolf3D
         (@player[:health] <= NEARLY_DEAD).then { give_health(@amount) }
       end
       (@kind == EXTRA_LIFE).then { give_another_go }
+      (@kind == WEAPON).then { give_a_weapon }
 
       (@took == 1).then { @taken[@piece] = 1 }
+    end
+
+    # A GUN ON THE FLOOR: six rounds and then the gun itself, in that order and always taken —
+    # unlike a clip, which a player with ninety-nine rounds leaves where it is. You take the gun
+    # whether or not you can carry another round for it, so the piece always goes.
+    def give_a_weapon
+      give_ammunition(WEAPON_ROUNDS)
+      return if @weapons.nil?
+
+      @weapons.give(@amount)
+      @took.set 1
     end
 
     def give_ammunition(rounds)
@@ -314,12 +335,16 @@ module Wolf3D
     def kind_of(piece) = piece.bonus ? KINDS.fetch(piece.bonus.first) : NOTHING
 
     # How much of it, which for a key is the bit that key sets — the same one number a locked door
-    # asks about, so nothing has to be converted where the two meet.
+    # asks about, so nothing has to be converted where the two meet — and for a gun is which gun.
     def amount_of(piece)
       return 0 unless piece.bonus
 
       kind, amount = piece.bonus
-      kind == :key ? FirstPerson::KEY_BITS.fetch(amount) : amount
+      case kind
+      when :key then FirstPerson::KEY_BITS.fetch(amount)
+      when :weapon then Weapons::NUMBERS.fetch(amount)
+      else amount
+      end
     end
   end
 end

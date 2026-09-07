@@ -164,7 +164,7 @@ module Wolf3D
     # +sound_on+ is the menu's own sound switch, or nil where there is no menu to turn it off.
     def initialize(build:, atlas:, level: nil, doors: nil, pushwalls: nil, guards: nil,
                    things: nil, scenery: nil, vswap: nil, lifts: nil, floors: nil, bar_art: nil,
-                   startable: false, sound_on: nil)
+                   gun_art: nil, startable: false, sound_on: nil)
       @floors = floors || Floors.of(level: level, doors: doors, pushwalls: pushwalls,
                                     lifts: lifts, guards: guards, scenery: scenery)
       here = @floors.first_floor
@@ -182,6 +182,7 @@ module Wolf3D
       @things = things
       @vswap = vswap # the player's own copy of the recorded sounds, or nil for a silent build
       @bar_art = bar_art # Wolfenstein's own art for the bar, or nil to draw it plainly
+      @gun_art = gun_art # ...and for the gun in your hands, or nil to hold one you cannot see
       @startable = startable
       @sound_on = sound_on
       declare
@@ -248,7 +249,7 @@ module Wolf3D
       move_the_world if PACING == :by_the_pass
       still_playing.then do
         open_a_door
-        fire if @mind
+        fire
       end
       # ...and outside that, because a lift already on its way does not stop because the thing
       # that pulled it has since been shot.
@@ -298,16 +299,13 @@ module Wolf3D
       @b.once_a_frame(:the_world_moves) { move_the_world }
     end
 
-    # ONE PRESS, ONE BULLET. The button is read on the press rather than held, so the pistol
-    # fires as fast as you can tap it and no faster.
+    # THE WEAPON RUNS ITSELF and says when it acted; what a shot does to a MAN is the guards'
+    # business, and this is the one line where the two meet. See Weapons for the cycle — the
+    # short of it is that a pistol takes four stages to fire one round, so tapping faster does
+    # nothing, and the two automatics repeat from inside the cycle while the button is held.
     def fire
-      @b.pressed(:b).then do
-        (@ammo > 0).then do
-          @ammo.sub 1
-          @sounds.pistol
-          @mind.shoot
-        end
-      end
+      @weapons.update
+      @weapons.acted.then { @mind.shoot(with_knife: @weapons.in_hand == Weapons::KNIFE) } if @mind
     end
 
     # ...and what the player sees of it: the room, a wall column per strip, then whatever is
@@ -514,6 +512,9 @@ module Wolf3D
       # The recorded sounds come before the guards' minds, because a guard shouting, shooting and
       # dying is most of what there is to hear.
       @sounds = Sounds.new(build: b, vswap: @vswap, switch: @sound_on)
+      # ...then the gun in your hands: after the sounds, because each of the three guns has one
+      # of its own, and before the things lying on the floor, because two of those ARE guns.
+      @weapons = Weapons.new(build: b, ammo: @ammo, atlas: @gun_art, sounds: @sounds)
       # ...and before both of them, because a guard asks it whether to think and every piece of
       # scenery asks it whether to be looked at.
       declare_the_rooms
@@ -566,7 +567,21 @@ module Wolf3D
           @b.repeat(COLUMNS) { |col| cast(col) }
           @standing&.draw
         end
+        # ...and the gun last, over everything, and OUTSIDE the block above rather than in it:
+        # the gun's own routine carries its own edges, and a routine that draws cannot be called
+        # from inside somebody else's clip. It needs none of this one anyway — nothing it draws
+        # can leave the view.
+        draw_the_gun_if_you_are_alive
       end
+    end
+
+    # THE GUN GOES WHEN YOU DO, which is the original's own behaviour: dying puts the weapon
+    # down before the screen turns red, so what the player watches is the room they died in and
+    # not a pistol floating over it.
+    def draw_the_gun_if_you_are_alive
+      return @weapons.draw if @dying.nil?
+
+      still_playing.then { @weapons.draw }
     end
 
     # WHERE THE LEVEL PUTS YOU, in one place because it is wanted twice: once to start with, and
@@ -723,6 +738,7 @@ module Wolf3D
     # still has keys lying on it, and the tests of the locked doors are exactly that game.
     def declare_the_pickups
       @pickups = Pickups.new(build: @b, floors: @floors, pool: @guard, lives: @lives,
+                             weapons: @weapons,
                              bases: { map: @map_base, piece: @piece_first },
                              player: { x: @px, y: @py, health: @health, ammo: @ammo,
                                        score: @score, keys: @keys, treasures: @treasures })
@@ -837,6 +853,7 @@ module Wolf3D
       @health.set START_HEALTH
       @ammo.set START_AMMO
       @keys.set 0
+      @weapons.start_again
       # ...and none of the floor has been found yet, which is what makes these a share of it.
       @kills.set 0
       @secrets.set 0

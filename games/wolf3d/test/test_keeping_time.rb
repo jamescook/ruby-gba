@@ -177,10 +177,14 @@ class TestKeepingTime < Minitest::Test
   # the whole frame being replayed. A button read on its edge has to be read once per PRESS. Run
   # the trigger on the clock and one pull of it would fire a bullet for every frame the pass
   # answered for — five bullets for one press, and only on the frames the game was struggling.
+  #
+  # LONG ENOUGH FOR THE ROUND TO LEAVE, which is not the same as long enough for the press: a
+  # shot is four stages of six passes and the round goes on the second of them, so the pass that
+  # spends the bullet is a dozen after the pass that asked for it. See Weapons.
   def test_one_pull_of_the_trigger_is_one_bullet_however_late_the_pass
     ran = Reference.new.input_each_frame { |pass| pass == 3 ? [:b] : [] }
                    .frames_each_pass { 5 }
-                   .run(game(arena(guards: [[12, 8, :west]])), frames: 6)
+                   .run(game(arena(guards: [[12, 8, :west]])), frames: Wolf3D::Weapons::CYCLE)
 
     assert_equal FP::START_AMMO - 1, ran[:ammo], "one press, one bullet"
   end

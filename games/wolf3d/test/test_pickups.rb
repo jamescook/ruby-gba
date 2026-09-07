@@ -153,13 +153,17 @@ class TestPickups < Minitest::Test
   # pixel of the clip's colour on the screen says that picture and no other was drawn.
   #
   # HELD AGAINST THE SAME WALK WITH THE TRIGGER NEVER PULLED rather than against an earlier frame
-  # of the same one. At this range the pistol puts a guard down inside ten frames, so "before he
-  # falls" is a window too narrow to aim a test at; a guard who is never shot at never falls.
+  # of the same one. At this range one round puts a guard down, so "before he falls" is a window
+  # too narrow to aim a test at; a guard who is never shot at never falls.
+  #
+  # AND IT STOPS BEFORE THE PLAYER REACHES THE BODY, which is the whole of why the count is 60
+  # and not the 70 the walking test uses: walk onto the clip and it is picked up, and then there
+  # is nothing on the floor to see.
   def test_the_clip_a_guard_left_is_drawn_on_the_floor
     standing = Reference.new.input_each_frame { [:up] }
-                        .run(shooting_program(drawing: true), frames: 70, max_steps: 8_000_000)
+                        .run(shooting_program(drawing: true), frames: 60, max_steps: 8_000_000)
     down = Reference.new.input_each_frame { |f| shoot_at_him(f) }
-                    .run(shooting_program(drawing: true), frames: 70, max_steps: 8_000_000)
+                    .run(shooting_program(drawing: true), frames: 60, max_steps: 8_000_000)
 
     refute_includes colours_on_screen(standing), clip_colour, "nobody has dropped anything"
     assert_includes colours_on_screen(down), clip_colour, "and there it is on the floor"
@@ -267,8 +271,13 @@ class TestPickups < Minitest::Test
   end
 
   # Empty the pistol into the guard ahead, then walk over what is left of him. The button is read
-  # on the press, so it has to go up between shots.
-  def shoot_at_him(frame) = frame < 40 && (frame / 2).even? ? [:b] : [:up]
+  # on the press, so it has to go up between shots — and a gun in the middle of a shot does not
+  # read it at all, so tapping every other pass is tapping far oftener than the gun will take.
+  # That costs nothing and means every pass the gun is ready on is one the button is going down.
+  #
+  # THE FIRING STOPS WELL BEFORE THE WALK DOES, which the test above depends on: what it measures
+  # is the four rounds off the body, so nothing may spend a round after he has fallen.
+  def shoot_at_him(frame) = frame < 40 && frame.even? ? [:b] : [:up]
 
   def shooting_program(drawing: false)
     @shooting_program ||= {}
