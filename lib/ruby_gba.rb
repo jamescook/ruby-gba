@@ -89,14 +89,21 @@ module RubyGBA
     progress.step("checking the tree")
     IR::Verifier.verify!(program)
 
-    # Run the guardrails over the finished IR and report every finding — its
-    # plain-language explanation and the suggested fix — on the err stream. A
-    # warning is advisory (a game loop with no frame sync, say): it's printed and
-    # the build goes on. A fatal problem (drawing with no screen mode, which
-    # would leave the screen black) stops the build so the mistake can't ship
-    # silently. Nothing is auto-corrected — the fix is suggested, never applied
-    # (an opt-in `--auto-fix` is future work). Skipped for a debug_halt build,
-    # whose tree is deliberately truncated.
+    # Run the guardrails over the finished IR and collect every finding — its
+    # plain-language explanation and the suggested fix. A warning is advisory (a
+    # game loop with no frame sync, say): the build goes on. A fatal problem
+    # (drawing with no screen mode, which would leave the screen black) stops the
+    # build so the mistake can't ship silently. Nothing is auto-corrected — the fix
+    # is suggested, never applied (an opt-in `--auto-fix` is future work). Skipped
+    # for a debug_halt build, whose tree is deliberately truncated.
+    #
+    # NOTHING IS PRINTED HERE, and that is the point: the findings are held and
+    # written at the end (see the ensure below). A build is a sequence of phases
+    # saying how far they have got, and a paragraph of prose landing in the middle
+    # of it breaks the sequence in half — the reader loses the shape of the build,
+    # and on a terminal the warning lands on the line the phase is still rewriting.
+    # A finding is worth reading either way; where it is worth reading is after the
+    # build has finished saying what it did.
     unless builder.debug_halted?
       progress.step("the guardrails")
       # The default checks — the always-on builtins plus anything registered (an
@@ -110,17 +117,11 @@ module RubyGBA
                 IR::Guardrails::Checks::DroppedFrameSync.new(builder.dropped_syncs),
                 IR::Guardrails::Checks::LayerHoldsNothing.new(builder.sprites),
                 IR::Guardrails::Checks::StackNotHonored.new(builder.sprites)]
-      report = IR::Guardrails::Validator.new(checks: checks, progress: progress)
-                                        .run(program, autofix: false)
-      # THE PHASE IS OVER ONCE THE REPORT EXISTS; printing it is presentation. Closing it here
-      # rather than letting the next phase close it is what keeps the two apart on a terminal:
-      # a progress line is held open and rewritten in place, so a warning printed while one was
-      # open would land in the middle of it.
-      progress.done
-      report.emit(to: err)
-      if report.errors.any?
+      findings = IR::Guardrails::Validator.new(checks: checks, progress: progress)
+                                          .run(program, autofix: false)
+      if findings.errors.any?
         raise ROMError,
-              "build stopped by #{report.errors.size} problem(s) — see the explanation(s) above"
+              "build stopped by #{findings.errors.size} problem(s) — see the explanation(s) above"
       end
     end
 
@@ -150,14 +151,23 @@ module RubyGBA
     # plain build stays quiet.
     rom.compression = backend.compression_report
 
+    # Every phase is over; a disassembly dump is a debugging aid, not a phase.
+    progress.done
     unless builder.dump_requests.empty?
       FuncDumper.new(rom, backend.func_ranges, out: out, err: err).dump(builder.dump_requests)
     end
     rom
   ensure
-    # However the build ended. A live progress line is held open and rewritten in place, so a
-    # build that stops half way through a phase — a guardrail error, a routine that will not
-    # fit — has to close its line before the message explaining why is printed on top of it.
+    # HOWEVER THE BUILD ENDED: close the line, then say what the guardrails found.
+    #
+    # In that order, and both here rather than where they happen. A live progress line is held
+    # open and rewritten in place, so anything printed while one is open lands in the middle of
+    # it — and a build that stops half way through a phase (a guardrail error, a routine that
+    # will not fit) has a message to print. Putting the findings here too is what keeps them
+    # after the whole run of phases instead of splitting it: they are read once the build has
+    # finished telling you what it did. On the way out of an error this still runs first, so a
+    # reader sees the explanation and then the line saying the build stopped.
     progress.done
+    findings&.emit(to: err)
   end
 end
