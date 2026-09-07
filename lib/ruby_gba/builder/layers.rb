@@ -452,7 +452,10 @@ module RubyGBA
       end
 
       def refuse_painting_in_layer!(node)
-        verb = VERB_FOR.fetch(node.kind, node.kind)
+        # A verb drawing its own text names ITSELF here: a `menu`'s rows really cannot
+        # belong to a layer on a bitmap screen, and the author wrote `menu`, not the
+        # `draw_text` underneath it (see Text#verb_owns_its_text).
+        verb = @verb_owns_text || VERB_FOR.fetch(node.kind, node.kind)
         raise ArgumentError,
               "`#{verb}` paints where you call it#{on_a_bitmap_screen(node)}, so it cannot " \
               "belong to the layer :#{@current_layer}. A layer holds the things the framework " \

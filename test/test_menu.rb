@@ -25,13 +25,15 @@ class TestMenu < Minitest::Test
   DIMMED = Color.resolve(:red) # a colour of its own, so "dimmed" is visible in a test
 
   # A four-row menu whose second row cannot be picked. `chose` records which row's
-  # block ran, so the action half is observable too.
-  def menu_program(press: :a, repeat_every: nil, &extra)
+  # block ran, so the action half is observable too. The same program is built for
+  # either screen — that one verb reads the same way on both is the thing under test
+  # in the tiled section below.
+  def menu_program(press: :a, repeat_every: nil, on: :bitmap, &extra)
     build_program do
-      screen :bitmap
+      screen on
       var :chose, 0
       game_loop do
-        clear_screen :black
+        clear_screen :black if on == :bitmap
         options = { at: [X, Y], spacing: SPACING, color: :gray, picked: :white,
                     disabled: :red, press: press }
         options[:repeat_every] = repeat_every if repeat_every
@@ -275,6 +277,118 @@ class TestMenu < Minitest::Test
     assert_equal Color.resolve(:cyan), row_color(i, 1), "an unpicked row uses its own colour"
   end
 
+  # ---- a row whose words change ----
+
+  # A settings row says a different thing depending on the setting, so it carries the
+  # list of things it can say and the variable that decides. The words are part of the
+  # row: they light up with it and dim with it.
+  def settings_menu(&extra)
+    build_program do
+      screen :bitmap
+      music = var :music, 1
+      game_loop do
+        clear_screen :black
+        menu(:main, at: [X, Y], spacing: SPACING, color: :gray, picked: :white) do |rows|
+          rows.item(["MUSIC OFF", "MUSIC ON"], showing: music) { music.set 1 - music }
+          rows.item("START")
+        end
+        instance_exec(music, &extra) if extra
+      end
+    end
+  end
+
+  # The two labels differ in length, so how far the row reaches says which one is up.
+  def row_extent(interp, row)
+    top = Y + (row * SPACING)
+    lit = (0...240).select { |x| (0...7).any? { |dy| interp.screen.pixel(x, top + dy).to_i.positive? } }
+    lit.empty? ? nil : lit.last
+  end
+
+  def test_a_row_shows_the_words_its_value_points_at
+    on = walk(settings_menu, frames: 2, &NOTHING_HELD)
+    off = walk(settings_menu, frames: 4) { |f| f == 1 ? [:a] : [] }
+
+    assert_operator row_extent(off, 0), :>, row_extent(on, 0),
+                    "MUSIC OFF is a character longer than MUSIC ON, so the row reaches further"
+    assert_equal PICKED, row_color(off, 0), "and the words that changed are still the picked row"
+  end
+
+  def test_the_row_shows_one_set_of_words_and_not_the_other
+    i = walk(settings_menu, frames: 2, &NOTHING_HELD)
+    reach_of_the_longer = row_extent(walk(settings_menu, frames: 4) { |f| f == 1 ? [:a] : [] }, 0)
+
+    (row_extent(i, 0) + 1..reach_of_the_longer).each do |x|
+      (0...7).each do |dy|
+        assert_equal 0, interp_pixel(i, x, Y + dy),
+                     "nothing of the other words is drawn underneath at (#{x},#{Y + dy})"
+      end
+    end
+  end
+
+  def interp_pixel(interp, x, y)
+    interp.screen.pixel(x, y).to_i
+  end
+
+  def test_a_showing_value_can_be_named_as_a_symbol
+    program = build_program do
+      screen :bitmap
+      var :music, 0
+      game_loop do
+        clear_screen :black
+        menu(:main, at: [X, Y]) { |r| r.item(%w[OFF ON], showing: :music) }
+      end
+    end
+    i = walk(program, frames: 2, &NOTHING_HELD)
+
+    assert_equal PICKED, row_color(i, 0), "the row drew, reading the variable by name"
+  end
+
+  def test_a_row_that_can_say_several_things_needs_showing
+    error = assert_raises(ArgumentError) do
+      build_program do
+        screen :bitmap
+        game_loop { menu(:main, at: [X, Y]) { |r| r.item(%w[OFF ON]) } }
+      end
+    end
+
+    assert_match(/needs `showing:`/, error.message)
+  end
+
+  def test_a_row_that_says_one_thing_does_not_take_showing
+    error = assert_raises(ArgumentError) do
+      build_program do
+        screen :bitmap
+        music = var :music, 0
+        game_loop { menu(:main, at: [X, Y]) { |r| r.item("MUSIC", showing: music) } }
+      end
+    end
+
+    assert_match(/does not need `showing:`/, error.message)
+  end
+
+  def test_a_row_whose_words_are_not_strings_is_a_friendly_error
+    error = assert_raises(ArgumentError) do
+      build_program do
+        screen :bitmap
+        music = var :music, 0
+        game_loop { menu(:main, at: [X, Y]) { |r| r.item([1, 2], showing: music) } }
+      end
+    end
+
+    assert_match(/two or more Strings/, error.message)
+  end
+
+  def test_a_showing_that_is_not_a_variable_is_a_friendly_error
+    error = assert_raises(ArgumentError) do
+      build_program do
+        screen :bitmap
+        game_loop { menu(:main, at: [X, Y]) { |r| r.item(%w[OFF ON], showing: 3) } }
+      end
+    end
+
+    assert_match(/takes the variable/, error.message)
+  end
+
   def test_a_menu_can_be_drawn_with_no_cursor_at_all
     program = build_program do
       screen :bitmap
@@ -330,17 +444,6 @@ class TestMenu < Minitest::Test
     assert_match(/inside your game_loop/, error.message)
   end
 
-  def test_a_menu_on_a_tiled_screen_is_a_friendly_error
-    error = assert_raises(ArgumentError) do
-      build_program do
-        screen :tiled
-        game_loop { menu(:main, at: [0, 0]) { |r| r.item("ONE") } }
-      end
-    end
-
-    assert_match(/screen :bitmap/, error.message)
-  end
-
   def test_a_row_that_does_not_say_anything_is_a_friendly_error
     error = assert_raises(ArgumentError) do
       build_program { screen :bitmap; game_loop { menu(:main, at: [0, 0]) { |r| r.item(42) } } }
@@ -366,6 +469,195 @@ class TestMenu < Minitest::Test
     end
 
     assert_match(/not a known button/, error.message)
+  end
+
+  # ---- on a tiled screen ----
+  #
+  # There is no framebuffer there: the console composites the picture, and every
+  # character of every row is one little 8x8 sprite it draws for you. So the same menu
+  # is built out of something completely different — and the point of these tests is
+  # that a game cannot tell, because they are the bitmap tests again with one word
+  # changed.
+
+  def tiled_menu(**options, &extra)
+    menu_program(on: :tiled, **options, &extra)
+  end
+
+  def test_a_tiled_menu_draws_its_rows_in_the_same_three_colours
+    i = walk(tiled_menu, frames: 3, &NOTHING_HELD)
+
+    assert_equal 0, cursor_row(i)
+    assert_equal PICKED, row_color(i, 0), "the picked row"
+    assert_equal DIMMED, row_color(i, 1), "the row that cannot be picked"
+    assert_equal PLAIN, row_color(i, 2), "a row the cursor is not on"
+  end
+
+  def test_a_tiled_menu_moves_wraps_and_steps_over_what_cannot_be_picked
+    down = walk(tiled_menu, frames: 3) { |f| f == 1 ? [:down] : [] }
+
+    assert_equal 2, cursor_row(down), "down steps over the row that cannot be picked"
+    assert_equal PICKED, row_color(down, 2), "and the row it landed on lights up"
+    assert_equal PLAIN, row_color(down, 0), "and the one it left goes plain again"
+
+    up = walk(tiled_menu, frames: 3) { |f| f == 1 ? [:up] : [] }
+
+    assert_equal 3, cursor_row(up), "up from the first row wraps to the last"
+  end
+
+  def test_a_tiled_menu_runs_the_picked_rows_block
+    i = walk(tiled_menu, frames: 6) { |f| { 1 => [:down], 4 => [:a] }.fetch(f, []) }
+
+    assert_equal 3, i[:chose]
+  end
+
+  def test_a_tiled_menu_holds_its_repeat_the_same_way
+    program = tiled_menu(repeat_every: 60) { |m| m.moved.then { add :chose, 1 } }
+    i = walk(program, frames: 30) { |_f| [:down] }
+
+    assert_equal 1, i[:chose], "one move, and the wait swallows the other 29 frames"
+  end
+
+  # A scene owns what it draws, and on a tiled screen that is the console's own gate
+  # rather than something the menu re-checks. So a menu in a scene is on screen while
+  # that scene is, and gone while it is not — with nothing said about it here.
+  def test_a_tiled_menu_in_a_scene_shows_only_while_that_scene_is_active
+    program = build_program do
+      screen :tiled
+      state = var :state, 0
+      game_loop do
+        case_var(:state) do
+          when_val 0, :picking
+          when_val 1, :away
+        end
+      end
+      scene :picking do
+        menu(:main, at: [X, Y], spacing: SPACING, color: :gray, picked: :white) do |rows|
+          ROWS.each { |label| rows.item(label) }
+        end
+        pressed(:b).then { state.set 1 }
+      end
+      scene :away do
+        pressed(:b).then { state.set 0 }
+      end
+    end
+
+    showing = walk(program, frames: 3, &NOTHING_HELD)
+
+    assert_equal PICKED, row_color(showing, 0), "the menu is up while its scene runs"
+
+    gone = walk(program, frames: 6) { |f| f == 1 ? [:b] : [] }
+
+    assert_nil row_color(gone, 0), "and nothing of it is left once the scene changes"
+    assert_nil cursor_row(gone), "the cursor goes with it"
+  end
+
+  def test_a_tiled_menu_above_the_game_loop_is_still_a_friendly_error
+    error = assert_raises(ArgumentError) do
+      build_program do
+        screen :tiled
+        menu(:main, at: [X, Y]) { |r| ROWS.each { |l| r.item(l) } }
+        game_loop { }
+      end
+    end
+
+    assert_match(/inside your game_loop/, error.message)
+  end
+
+  # The console draws 128 sprites at once and a tiled row spends about two of them per
+  # character, so a long menu runs out. That is the one place the two screens really
+  # differ, so it gets a friendly error naming the count rather than a bare failure
+  # from the lowering with anonymous sprites in it.
+  def test_a_tiled_menu_too_big_for_the_sprite_table_is_a_friendly_error
+    error = assert_raises(ArgumentError) do
+      build_program do
+        screen :tiled
+        game_loop do
+          menu(:main, at: [0, 0], spacing: 8) do |rows|
+            8.times { |i| rows.item("SETTING #{i}") }
+          end
+        end
+      end
+    end
+
+    assert_match(/at most 128 at once/, error.message)
+    assert_match(/screen :bitmap/, error.message)
+  end
+
+  def test_the_same_menu_costs_no_sprites_at_all_on_a_bitmap_screen
+    program = build_program do
+      screen :bitmap
+      game_loop do
+        clear_screen :black
+        menu(:main, at: [0, 0], spacing: 8) do |rows|
+          8.times { |i| rows.item("SETTING #{i}") }
+        end
+      end
+    end
+
+    assert_equal 0, program.walk.count { |node| node.kind == :object },
+                 "a bitmap screen paints the rows into the picture"
+  end
+
+  # A tiled menu is made of the things the console redraws for you, so it takes a place
+  # in the stack like anything else the console redraws. Nothing in the menu knows about
+  # layers — the rows are `draw_text`, and tiled text is layerable.
+  def test_a_tiled_menu_takes_a_place_in_the_stack
+    program = build_program do
+      screen :tiled
+      layers :world, :ui
+      game_loop do
+        layer(:ui) do
+          menu(:main, at: [X, Y], spacing: SPACING) { |r| ROWS.each { |l| r.item(l) } }
+        end
+      end
+    end
+    rows = program.walk.select { |node| node.kind == :object }
+
+    refute_empty rows
+    assert_equal [:ui], rows.map(&:layer).uniq, "every glyph of the menu is in :ui"
+  end
+
+  # ...and on a bitmap screen it cannot, because a bitmap menu paints where it is called
+  # and no ordering applied later can reach back and move those pixels. The message has
+  # to say `menu`, which is what the author wrote, not the draw_text underneath it.
+  def test_a_bitmap_menu_in_a_layer_is_a_friendly_error_that_names_menu
+    error = assert_raises(ArgumentError) do
+      build_program do
+        screen :bitmap
+        layers :world, :ui
+        game_loop { layer(:ui) { menu(:main, at: [X, Y]) { |r| r.item("ONE") } } }
+      end
+    end
+
+    assert_match(/`menu` paints where you call it/, error.message)
+    refute_match(/draw_text/, error.message)
+  end
+
+  def test_both_backends_draw_the_same_tiled_menu
+    assert_backends_agree(tiled_menu, frames: 3)
+  end
+
+  def test_a_tiled_menu_moves_on_real_hardware
+    require_gemba_core!
+    rom = RubyGBA.build("TMENU", code: "BTMN", maker: "01", validate: false) do
+      screen :tiled
+      game_loop do
+        menu(:main, at: [X, Y], spacing: SPACING, picked: :white, color: :gray) do |rows|
+          ROWS.each_with_index { |label, i| rows.item(label, enabled: i != 1) }
+        end
+      end
+    end
+
+    cursor_pixel = ->(row) { [X - CURSOR_W, Y + (row * SPACING) + 1] }
+
+    still = assert_gemba_loads_rom(rom, frames: 4)
+
+    assert still.white?(*cursor_pixel.call(0)), "the cursor rests beside the first row"
+
+    moved = assert_gemba_loads_rom(rom, frames: 6, keys: RubyGBA::Constants::KEY_DOWN)
+
+    assert moved.white?(*cursor_pixel.call(2)),
+           "the console composites the cursor onto the row it walked to"
   end
 
   # ---- the guardrail ----

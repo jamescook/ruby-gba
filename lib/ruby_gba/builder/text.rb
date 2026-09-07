@@ -344,11 +344,18 @@ module RubyGBA
 
       # Draw a fixed string as a row of glyph sprites at (x, y), advancing one font
       # cell per character. A space or a character the font lacks draws nothing but
-      # still takes its column, so words stay aligned.
+      # still takes its column, so words stay aligned — the column comes from the
+      # character's place in the string, not from what came before it, so leaving one
+      # out moves nothing.
+      #
+      # And leaving it out is worth doing: the console draws 128 sprites at once, a
+      # character is one of them, and a sprite with no lit pixels in it would spend a
+      # slot to paint nothing at all. A HUD line with two spaces in it is two slots
+      # back for the game.
       def draw_text_tiled(text, x, y, color, font)
         f = Fonts.get(font)
         text.each_char.with_index do |ch, i|
-          next unless f.glyph(ch) # a blank or unknown character: leave the gap, draw nothing
+          next if f.glyph_pixels(ch).zero? # a space, or a character the font lacks: nothing to draw
 
           hud_glyph_object(poses: [glyph_image(font, ch, color)], pose: Build.int(0),
                            x: x + i * f.cell_w, y: y)
@@ -466,6 +473,34 @@ module RubyGBA
               "Use a smaller font (the built-in :default and :tiny fit), or draw this text on a `screen :bitmap`."
       end
 
+      # Text a VERB draws for you, rather than text the author placed — a `menu`'s rows.
+      # While this is in force, the "declare it once, above the game_loop" rule below
+      # does not apply.
+      #
+      # That is not the rule being weakened, because the rule was never about this text.
+      # It is about an AUTHOR'S OWN call site: tiled text is declared once and redrawn
+      # for you every frame, and making the author write the call above the loop is what
+      # makes that visible. A verb that owns its drawing has no call site to misplace —
+      # the author wrote `menu`, and where a menu goes is decided by menu's own rule,
+      # which is per-frame work and the same on both screens.
+      #
+      # It holds the verb's NAME rather than a flag, because the other rule this text
+      # meets does still apply and only its wording needs fixing: a bitmap menu really
+      # cannot belong to a layer, and the message should say `menu` — what the author
+      # wrote — rather than `draw_text`, which they never typed (see
+      # Layers#refuse_painting_in_layer!).
+      #
+      # Same idea as the `wrote:` a routine carries (see Scenes#declare_func): a
+      # diagnostic is for what a person typed, and the framework's own emissions are
+      # never its subject.
+      def verb_owns_its_text(verb)
+        outer = @verb_owns_text
+        @verb_owns_text = verb
+        yield
+      ensure
+        @verb_owns_text = outer
+      end
+
       # The containers that are a test rather than a per-frame body — a `.then` and its
       # `.else`. Text declared under one of these is declared once, like text at the top
       # level, and shown while the test holds.
@@ -476,6 +511,7 @@ module RubyGBA
       # would be re-added every frame and never make it into the frame's sprite list.
       # Point at the fix rather than let a HUD silently fail to appear.
       def require_hud_declared_once!(verb)
+        return if @verb_owns_text # a menu's rows: the verb owns them, not the call site
         return if @container_stack.length == 1 # only the program itself is open
         return if @building_scene # a scene declares its own HUD in its body (built once, off the loop)
         # A test around the call is still one declaration, not a per-frame one: the block

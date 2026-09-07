@@ -118,7 +118,7 @@ class TestPongScoring < Minitest::Test
   # The center line's three channels, as red / green / blue.
   def pong_line_at(frames)
     i = Reference.new
-    i.input_each_frame { |f| f < 3 ? [:start] : [] } # press START, then hands off
+    i.input_each_frame { |f| f < 3 ? [:a] : [] } # choose START on the title menu, then hands off
     i.run(Pong.program, frames: frames)
     color = i.screen.pixel(LINE_X, LINE_Y)
     [color & 0x1F, (color >> 5) & 0x1F, (color >> 10) & 0x1F]
