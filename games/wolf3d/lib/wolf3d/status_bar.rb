@@ -58,21 +58,39 @@ module Wolf3D
     # position there, so nothing can be moved and left half-moved.
     Field = Data.define(:name, :label, :x, :digits)
 
+    # THE ORIGINAL'S OWN ORDER, and the face goes where the original puts it: after LIVES and
+    # before HEALTH. Read off the plate rather than remembered — the picture has a vertical
+    # rule at each field boundary and a 34-wide well in the middle with nothing drawn in it,
+    # which is the face's.
+    #
+    # THE POSITIONS ARE NOT the original's, and cannot be. Its plate is 320 across and this
+    # screen is 240, and squeezing the plate makes the lettering baked into it unreadable
+    # (measured: nearest column turns LIVES into noise, and a smoothing filter blurs it rather
+    # than fixing it). So the bar is RE-SET at 240 with the same fields in the same order,
+    # which is also what the 2002 handheld port did.
     FIELDS = [
-      Field.new(name: :floor,  label: "FLOOR",  x: 6,   digits: 1),
-      Field.new(name: :score,  label: "SCORE",  x: 45,  digits: 6),
-      Field.new(name: :lives,  label: "LIVES",  x: 84,  digits: 1),
-      Field.new(name: :health, label: "HEALTH", x: 123, digits: 3),
-      Field.new(name: :ammo,   label: "AMMO",   x: 168, digits: 2),
-      Field.new(name: :keys,   label: "KEYS",   x: 201, digits: nil)
+      Field.new(name: :floor,  label: "FLOOR",  x: 4,   digits: 1),
+      Field.new(name: :score,  label: "SCORE",  x: 40,  digits: 6),
+      Field.new(name: :lives,  label: "LIVES",  x: 82,  digits: 1),
+      Field.new(name: :face,   label: nil,      x: 116, digits: nil),
+      Field.new(name: :health, label: "HEALTH", x: 146, digits: 3),
+      Field.new(name: :ammo,   label: "AMMO",   x: 188, digits: 2),
+      Field.new(name: :keys,   label: "KEYS",   x: 216, digits: nil)
     ].freeze
 
+    # The fields that carry a name above their figure. The face carries none — it is a picture,
+    # and the original labels it with nothing either.
+    def self.labelled = FIELDS.reject { |field| field.label.nil? }
+
     # +shows+ is what to put in each field, by name: a variable for the ones that change and a
-    # plain number for the ones that do not.
-    def initialize(build:, top:, shows:)
+    # plain number for the ones that do not. +art+ is Wolfenstein's own pictures for the bar,
+    # or nil for a release whose pictures we cannot name — then the bar draws as it drew before
+    # there was any art to draw with.
+    def initialize(build:, top:, shows:, art: nil)
       @b = build
       @top = top
       @shows = shows
+      @art = art
       declare
     end
 
@@ -129,24 +147,44 @@ module Wolf3D
     # loop itself out of that memory, which costs about two and a half times on every instruction
     # in the game.
     def declare
+      declare_the_art
       @b.func(:draw_the_status_bar) { paint }
 
       # What each live field showed when it was last painted, and how many pages still want the
       # new picture. Both start so that the first frame paints: nothing has been shown yet.
       @changed = @b.var :_bar_changed, 0
       @todo = @b.var :_bar_todo, PAGES
+      @face = @b.var :_bar_face, 0
       @remembered = @shows.filter_map do |name, value|
         [name, @b.var(:"_bar_last_#{name}", -1)] unless value.is_a?(Integer)
       end.to_h
     end
 
+    # The faces and the keys, each as ONE wide picture of all of them side by side, so which one
+    # to show is a column worked out rather than a choice made.
+    def declare_the_art
+      return unless @art
+
+      @b.image :bar_faces, width: @art.faces_width, height: @art.face_height,
+                           data: @art.faces(Palette.game)
+      @b.image :bar_keys, width: @art.keys_width, height: @art.key_height,
+                          data: @art.keys(Palette.game)
+    end
+
     def paint
-      @b.dma_fill_rect 0, @top, FirstPerson::ACROSS, HEIGHT, colour(GROUND)
+      @b.dma_fill_rect 0, @top, FirstPerson::ACROSS, HEIGHT, colour(ground_index)
       FIELDS.each do |field|
-        @b.draw_text field.label, field.x, @top + LABEL_ROW, colour(LABEL), font: FONT
-        field.name == :keys ? draw_the_keys(field) : draw_a_figure(field)
+        @b.draw_text field.label, field.x, @top + LABEL_ROW, colour(LABEL), font: FONT if field.label
+        case field.name
+        when :face then draw_the_face(field)
+        when :keys then draw_the_keys(field)
+        else draw_a_figure(field)
+        end
       end
     end
+
+    # The game's own steel where we have it, and the grey that stood in for it where we do not.
+    def ground_index = @art ? @art.ground : GROUND
 
     def colour(index) = Palette.game[index]
     def font = RubyGBA::Fonts.get(FONT)
@@ -161,10 +199,62 @@ module Wolf3D
                      digits: field.digits, font: FONT
     end
 
-    # The keys, as two blocks side by side under their label. Both are drawn dark and the one you
-    # are carrying is painted over in its own metal, so the bar always shows two slots and a
-    # player learns where to look rather than watching things appear and move.
+    # THE FACE THAT WATCHES YOU, and the only thing on the bar that is a picture chosen as the
+    # game runs. Eight of them, worst last, picked by how much health is left.
+    #
+    # It is drawn column by column out of the one wide picture that holds all twenty-four,
+    # because that turns "which face" into arithmetic — `pose * 24 + column` — and the game can
+    # do arithmetic. Choosing between twenty-four pictures instead would be twenty-four tests
+    # and twenty-four copies of a drawing in the cartridge.
+    #
+    # Only the eight bands, and not yet the three looks each band has: the looks change on
+    # their own every second or so, and the bar is painted only when something changes, so
+    # winking would repaint the whole bar to move two eyes.
+    def draw_the_face(field)
+      return unless @art
+
+      @face.set(((@shows.fetch(:health) * BANDS) / (FirstPerson::START_HEALTH + 1)))
+      @face.set(BANDS - 1 - @face)
+      @face.clamp 0, BANDS - 1
+      wide = @art.face_width
+      top = @top + ((HEIGHT - @art.face_height) / 2)
+
+      wide.times do |col|
+        @b.draw_column_at :bar_faces, slice: (@face * (wide * LOOKS)) + col,
+                                      x: field.x + col, top: top, height: @art.face_height
+      end
+    end
+
+    # HOW MANY FACES there are for how hurt you are, and how many looks each of them has. Both
+    # are the release's own arrangement, not a choice.
+    BANDS = BarArt::BANDS
+    LOOKS = BarArt::LOOKS
+
+    # The keys, one above the other in a slot of their own, which is how the original shows
+    # them: an empty socket, or the key in the metal it is named for. Drawn out of the one wide
+    # picture that holds the empty one and both metals, so which to show is worked out.
     def draw_the_keys(field)
+      return draw_the_key_blocks(field) unless @art
+
+      keys = @shows.fetch(:keys)
+      wide = @art.key_width
+      x = field.x + ((font.text_width(field.label) - wide) / 2)
+
+      METALS.each_key.with_index do |name, n|
+        slot = @b.var :"_bar_key_#{name}", 0
+        slot.set 0
+        carrying(keys, name).then { slot.set @art.key_slot(name) }
+        y = @top + FIGURE_ROW - 4 + (n * @art.key_height)
+        wide.times do |col|
+          @b.draw_column_at :bar_keys, slice: (slot * wide) + col,
+                                       x: x + col, top: y, height: @art.key_height
+        end
+      end
+    end
+
+    # What the bar showed before there was any art: two blocks side by side, drawn dark, and
+    # the one you are carrying painted over in its own metal.
+    def draw_the_key_blocks(field)
       keys = @shows.fetch(:keys)
       wide = (METALS.length * KEY_W) + ((METALS.length - 1) * KEY_GAP)
       left = field.x + ((font.text_width(field.label) - wide) / 2)

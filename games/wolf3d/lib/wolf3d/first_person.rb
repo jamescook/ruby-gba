@@ -160,7 +160,7 @@ module Wolf3D
     # loose instead — `level:`, `doors:` and the rest — which is what a test builds and what a
     # cartridge with nowhere to go is; the two are the same thing with one floor in it.
     def initialize(build:, atlas:, level: nil, doors: nil, pushwalls: nil, guards: nil,
-                   things: nil, scenery: nil, vswap: nil, lifts: nil, floors: nil)
+                   things: nil, scenery: nil, vswap: nil, lifts: nil, floors: nil, bar_art: nil)
       @floors = floors || Floors.of(level: level, doors: doors, pushwalls: pushwalls,
                                     lifts: lifts, guards: guards, scenery: scenery)
       here = @floors.first_floor
@@ -177,6 +177,7 @@ module Wolf3D
       @scenery = here.scenery
       @things = things
       @vswap = vswap # the player's own copy of the recorded sounds, or nil for a silent build
+      @bar_art = bar_art # Wolfenstein's own art for the bar, or nil to draw it plainly
       declare
     end
 
@@ -555,7 +556,7 @@ module Wolf3D
     FLOOR = 1
 
     def declare_the_bar
-      @bar = StatusBar.new(build: @b, top: VIEW_H,
+      @bar = StatusBar.new(build: @b, top: VIEW_H, art: @bar_art,
                            shows: { floor: FLOOR, score: @score, lives: @lives.left,
                                     health: @health, ammo: @ammo, keys: @keys })
     end
