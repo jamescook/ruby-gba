@@ -54,6 +54,23 @@ module RubyGBA
   # When a pack turns out to need one small thing the DSL cannot say, the answer is
   # to add that thing as a kernel primitive, not to let the pack reach past the
   # boundary. `once_a_frame` exists for exactly that reason.
+  #
+  # == A pack that takes a while can say so
+  #
+  # A pack's verbs are mixed into Builder, so `progress` resolves inside one exactly as
+  # `var` and `held` do (see Builder#progress):
+  #
+  #   def big_menu(rows)
+  #     progress.step "laying out the menu"
+  #     rows.each_with_index { |row, n| progress.of n + 1, rows.length, row.label; ... }
+  #   end
+  #
+  # Most packs have nothing to report and should not be made to — a pack that says
+  # nothing is not a worse pack, and the default progress ignores everything, so nobody
+  # has to ask whether anybody is listening. The rule is the same one that governs the
+  # rest of a pack: what it REPORTS may never change what it BUILDS. A pack that behaved
+  # differently when somebody was watching would be a bug that only shows up in the mode
+  # nobody tests.
   module Effects
     # Raised when a pack tries to take a verb name that is already in use.
     class DuplicateVerb < StandardError; end

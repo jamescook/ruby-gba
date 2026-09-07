@@ -103,14 +103,31 @@ module RubyGBA
         # stream is injectable: $stderr for a real build, a StringIO to capture it in
         # a test, or a null sink to silence it. Returns self so it chains.
         def emit(to: $stderr)
-          # A blank line between findings so two or more don't run together as one
-          # wall of text.
-          findings.each_with_index do |finding, i|
-            to.puts if i.positive?
+          return self if findings.empty?
+
+          # A heading, then a blank line before each finding, so several read as a list
+          # somebody wrote rather than as prose that started on its own. The heading also
+          # says how many there are, which a reader would otherwise have to count.
+          to.puts(heading)
+          findings.each do |finding|
+            to.puts
             to.puts(finding.full_message)
           end
           self
         end
+
+        # "2 warnings about this game:", "1 problem and 3 warnings about this game:" — what
+        # was found, counted, and named by what it is. A problem stops the build; a warning
+        # does not, and the two are worth telling apart before a word of either is read.
+        def heading
+          problems = errors.length
+          counts = []
+          counts << how_many(problems, "problem") if problems.positive?
+          counts << how_many(findings.length - problems, "warning") if findings.length > problems
+          "#{counts.join(' and ')} about this game:"
+        end
+
+        def how_many(count, thing) = "#{count} #{thing}#{'s' if count != 1}"
       end
 
       # The extension hook. BUILTIN_CHECKS are always on; these are the extra
