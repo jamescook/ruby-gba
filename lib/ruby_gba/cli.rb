@@ -134,10 +134,10 @@ module RubyGBA
     # full list is in the cost report; this is the size of it.
     def placement_line(rom)
       placement = rom.placement
-      routines = placement[:funcs].length
+      routines = placement.funcs.length
       format("Quick memory: %d routine%s (%.1fK), %.1fK of 32K free",
              routines, routines == 1 ? "" : "s",
-             placement[:code_bytes] / 1024.0, placement[:free_bytes] / 1024.0)
+             placement.code_bytes / 1024.0, placement.free_bytes / 1024.0)
     end
 
     # Measure the game's scenes on the emulator and return the plain verdict hash the

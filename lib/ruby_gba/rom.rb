@@ -21,56 +21,43 @@ module RubyGBA
 
     attr_reader :buffer, :code_offset
 
-    # The IR program this ROM was built from, when known. RubyGBA.build attaches it
-    # so the ROM can report on itself (see #explain); a ROM assembled straight from
-    # machine code has none.
-    attr_accessor :source_program
+    # WHAT THE BUILD WORKED OUT about this cartridge, or nil when nothing did (see
+    # {BuildRecord}). It arrives whole, at construction, so a ROM is either a cartridge
+    # that can report on itself or a cartridge that cannot — never half of each. Nil is
+    # what "assembled straight from machine code" looks like.
+    attr_reader :built
 
-    # A summary of the asset packing this ROM used, when known (see the GBA backend's
-    # BiosCompress::Report). RubyGBA.build attaches it so a caller can read the raw vs
-    # packed sizes and which schemes ran. Nil when nothing was packed or the ROM was
-    # assembled straight from machine code.
-    attr_accessor :compression
-
-    # Which routines this ROM keeps in the console's quick memory, and how much of that
-    # memory is used and left (see the GBA backend's Placement#iwram_report). RubyGBA.build
-    # attaches it; nil for a ROM assembled straight from machine code.
-    attr_accessor :placement
-
-    # Where this ROM's variables ended up in the console's quick memory: name -> address.
-    # The estimate needs it because reaching a variable costs more the further out it sits
-    # (see the GBA backend's Placement#var_addresses). RubyGBA.build attaches it; nil for a
-    # ROM assembled straight from machine code, and then every variable is priced the same.
-    attr_accessor :var_addresses
-
-    # Which shape each of this ROM's loops was given: index name -> {CostModel::LoopShape}.
-    # A loop that kept its counter in a register spends four instructions a pass where one
-    # through memory spends sixteen, so the estimate has to know which it got — and the build
-    # is what decided it (see
-    # the GBA backend's #loop_shapes). Nil for a ROM assembled straight from machine code,
-    # and then every loop is priced as the dearer shape.
-    attr_accessor :loop_shapes
-
-    # How many colors each screen of this ROM draws through: screen mode -> entries. A
-    # tint on a screen drawn through a color table moves every entry, so the estimate has
-    # to know how many there are — and only the build does, since it is what packed them
-    # (see the GBA backend's #palette_entries). Nil for a ROM assembled straight from
-    # machine code, and then a tint is priced on a full table.
-    attr_accessor :palette_entries
+    # The six things the record holds, read straight off it. Each is nil without a record,
+    # and each is documented on {BuildRecord}: the IR program this cartridge was built from,
+    # which routines it keeps in the console's quick memory, where its variables landed,
+    # which shape each of its loops got, how many colors each screen draws through, and how
+    # far asset packing shrank it.
+    def source_program = @built&.source_program
+    def placement = @built&.placement
+    def var_addresses = @built&.var_addresses
+    def loop_shapes = @built&.loop_shapes
+    def palette_entries = @built&.palette_entries
+    def compression = @built&.compression
 
     # Package finished machine code into a cartridge: write the header, drop the
     # code in after it, and finalize (entry branch, checksum, power-of-two
     # padding, and the ROM-image validation). This is the counterpart to a
     # backend's lowering — the backend produces the code, this lays out the ROM
     # around it.
-    def self.assemble(machine_code, title:, code:, maker:, validate: true)
-      rom = new(title: title, code: code, maker: maker)
+    #
+    # +built+ is what the build worked out on the way here, which is what lets the finished
+    # cartridge report on itself. A caller with a backend to hand gets it in one call —
+    # `built: backend.build_record(program)`. Leave it out and the ROM is a cartridge and
+    # nothing more, which is right for machine code that came from somewhere else.
+    def self.assemble(machine_code, title:, code:, maker:, validate: true, built: nil)
+      rom = new(title: title, code: code, maker: maker, built: built)
       rom.emit(machine_code)
       rom.finalize!(validate: validate)
       rom
     end
 
-    def initialize(title:, code:, maker:)
+    def initialize(title:, code:, maker:, built: nil)
+      @built = built
       @buffer = ("\x00".b) * [512, HEADER_SIZE].max
       @code_offset = ENTRY_OFFSET
 
@@ -138,15 +125,12 @@ module RubyGBA
     # Pass color: false to force plain text (or false-y auto-off happens for a pipe or a
     # captured StringIO, and whenever NO_COLOR is set).
     def explain(format: :human, out: $stdout, **opts)
-      unless source_program
-        raise ROMError, "this ROM has no source program to explain (assemble via RubyGBA.build)"
-      end
-
+      program = built!.source_program
       model = cost_model
       case format
-      when :human   then model.render(source_program, out: out, **opts)
-      when :summary then model.report(source_program, out: out, **opts)
-      when :json    then out.puts(JSON.generate(model.as_json(source_program)))
+      when :human   then model.render(program, out: out, **opts)
+      when :summary then model.report(program, out: out, **opts)
+      when :json    then out.puts(JSON.generate(model.as_json(program)))
       else raise ArgumentError, "unknown explain format #{format.inspect} (use :human, :summary, or :json)"
       end
     end
@@ -156,8 +140,14 @@ module RubyGBA
     # times over for every program whose loop moved there (see {IR::CostModel#initialize}).
     # So a model asked about a built ROM comes from here rather than from CostModel.new.
     # +overrides+ replaces named weights, for asking what a different price would mean.
+    #
+    # A cartridge with no record REFUSES rather than falling back on defaults. Every one of
+    # those defaults is the safe, dearer guess — a loop priced through memory, a variable
+    # priced as if it sat far out — so an estimate built on them reads plausibly and is
+    # wrong by nearly the factor the quick memory is worth, with nothing on the page to say
+    # so. A number nobody can tell is wrong is worse than no number.
     def cost_model(**overrides)
-      IR::CostModel.new(**placement_for_cost_model, **overrides)
+      IR::CostModel.new(**built!.for_cost_model, **overrides)
     end
 
     # Write the ROM to a file.
@@ -172,23 +162,12 @@ module RubyGBA
 
     private
 
-    # What the cost model needs to know about where this ROM's code and variables live —
-    # both change what the same statement costs. The frame's own body has no name in the
-    # program, so it is passed as its own flag.
-    def placement_for_cost_model
-      decided = { var_addresses: var_addresses, loop_shapes: loop_shapes,
-                  palette_entries: palette_entries }.compact
-      return decided unless placement
-
-      names = placement.funcs
-      { fast_routines: names - [FRAME_ROUTINE, IRQ_ROUTINE],
-        fast_frame: names.include?(FRAME_ROUTINE),
-        fast_interrupts: names.include?(IRQ_ROUTINE),
-        placement: placement }.merge(decided)
+    # What the build worked out, for the two callers that cannot do their job without it.
+    def built!
+      @built || raise(ROMError,
+                      "This cartridge does not know how it was built, so it cannot report on itself. " \
+                      "Build it with `RubyGBA.build` and the record comes with it.")
     end
-
-    FRAME_ROUTINE = IR::Backends::GBA::Placement::FRAME_ROUTINE
-    IRQ_ROUTINE = IR::Backends::GBA::Placement::IRQ_ROUTINE
 
     # The GBA BIOS validates the 156-byte Nintendo logo at 0x04..0x9F on boot.
     # It sits outside the header checksum range (0xA0..0xBC), so writing it here

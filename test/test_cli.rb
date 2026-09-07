@@ -177,6 +177,29 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # ...and the other half of --stats, which the packing game never reaches: that game keeps
+  # nothing in quick memory, so the line about it is skipped. This one has a real loop, so
+  # there is something to move and the line gets printed.
+  def test_stats_reports_what_is_kept_in_quick_memory
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "loopy.rb"), <<~RUBY)
+        require "ruby_gba"
+        Loopy = RubyGBA.game "LOOPY", code: "BLPY", maker: "01" do
+          screen :bitmap
+          clear_screen :black
+          t = var :t, 0
+          game_loop do
+            repeat(50) { |i| t.add i }
+            fill_rect 0, 0, 40, 8, :green
+          end
+        end
+      RUBY
+      out, status = cli("build", "loopy.rb", "--stats", dir: dir)
+      assert status.success?, out
+      assert_match(/Quick memory: \d+ routines? \([\d.]+K\), [\d.]+K of 32K free/, out)
+    end
+  end
+
   # `explain` is `build --explain` without the cartridge: same report, no .gba on disk.
   def test_explain_appears_in_the_command_list
     out, status = cli("help", dir: Dir.tmpdir)

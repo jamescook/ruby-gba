@@ -9,6 +9,7 @@ require_relative "ruby_gba/asm"
 require_relative "ruby_gba/progress" # what a build says it is doing while it does it
 require_relative "ruby_gba/ir"
 require_relative "ruby_gba/rom_validator"
+require_relative "ruby_gba/build_record" # what the build worked out, for the cartridge to carry
 require_relative "ruby_gba/rom"
 require_relative "ruby_gba/font"
 require_relative "ruby_gba/fonts"
@@ -129,22 +130,13 @@ module RubyGBA
                                     progress: progress)
     machine_code = backend.lower(program)
     progress.step("assembling the cartridge")
+    # The cartridge carries what the build worked out about it — the program it came from,
+    # which routines went in the console's quick memory, where the variables landed, and so
+    # on — so that a finished ROM can report on itself (see BuildRecord and rom.explain).
+    # None of it is in the bytes, and nothing can recover it by reading them back.
     rom = ROM.assemble(machine_code, title: title, code: code, maker: maker,
-                                     validate: evaluated.debug_halted? ? false : validate)
-    rom.source_program = program # so the ROM can report on itself (rom.explain)
-    rom.placement = backend.iwram_report # ...including which routines it kept in quick memory
-    # ...and where each variable landed, which decides what reaching it costs
-    rom.var_addresses = backend.var_addresses
-    # ...and which loops kept their counter in a register, which decides what a pass costs
-    rom.loop_shapes = backend.loop_shapes
-    # ...and how many colors each screen draws through, which decides what a tint costs
-    rom.palette_entries = backend.palette_entries
-
-    # Record how far asset packing shrank the cart (tile pictures, palettes, maps) so
-    # a caller can read it back or a verbose build can show it. Building it into the
-    # library's output is a presentation choice that belongs to the CLI, not here — a
-    # plain build stays quiet.
-    rom.compression = backend.compression_report
+                                     validate: evaluated.debug_halted? ? false : validate,
+                                     built: backend.build_record(program))
 
     # Every phase is over; a disassembly dump is a debugging aid, not a phase.
     progress.done
