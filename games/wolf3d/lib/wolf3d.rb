@@ -33,6 +33,7 @@ require_relative "wolf3d/fixture/release"
 require_relative "wolf3d/wall_atlas"
 require_relative "wolf3d/thing_atlas"
 require_relative "wolf3d/bar_art"
+require_relative "wolf3d/menu_art"
 require_relative "wolf3d/status_bar"
 require_relative "wolf3d/first_person"
 # ...after the view, whose constants say how big the part of the screen that goes red is.
@@ -50,6 +51,8 @@ require_relative "wolf3d/guard_mind"
 require_relative "wolf3d/map_view"
 require_relative "wolf3d/palette_view"
 require_relative "wolf3d/art_view"
+# ...after the view, which the menus put themselves in front of and hand a game back to.
+require_relative "wolf3d/menus"
 require_relative "wolf3d/title"
 
 module Wolf3D
@@ -77,7 +80,7 @@ module Wolf3D
   #   WOLF3D_FLOORS=3 ruby wolf3d.rb
   #
   # An episode is ten: eight ordinary floors, the boss, and the secret one kept aside.
-  EPISODE = 10
+  EPISODE = Floors::PER_EPISODE
 
   # ...AND WHICH ONE IT STARTS AT, which is a measuring tool rather than a way to play. A
   # cartridge boots on the first floor it holds, so the only way to read what a LATER floor costs
@@ -93,6 +96,16 @@ module Wolf3D
     asked = Integer(ENV.fetch("WOLF3D_FLOORS", EPISODE))
     (from...[from + asked, maps.count].min).to_a
   end
+  # WHICH SCREEN THE CARTRIDGE BOOTS ON, which is a measuring tool rather than a way to play —
+  # the same kind of dial as WOLF3D_FROM above. The attract loop takes a quarter of a minute to
+  # come round, and the episode list only exists on a cartridge carrying more than one episode,
+  # so a cartridge that boots straight to the screen you want to look at saves a lot of waiting:
+  #
+  #   WOLF3D_SCREEN=credits ruby wolf3d.rb
+  #
+  # The screens are: notice, title, credits, menu, episodes, difficulty, playing.
+  def self.which_screen = Menus.screen_named(ENV.fetch("WOLF3D_SCREEN", nil))
+
   def self.vswap = @vswap ||= data && Vswap.from(data)
 
   def self.vgagraph = @vgagraph ||= data && Vgagraph.from(data)
@@ -123,10 +136,26 @@ module Wolf3D
                                         f.guards.pictures + f.scenery.pictures +
                                           Wolf3D::Pickups.pictures(f.guards)
                                       }.uniq.sort)
+      # WOLFENSTEIN'S OWN MENU ART, or nil for a release whose pictures we cannot name — and
+      # then the cartridge boots straight into the game, because there is nothing to write a
+      # menu with.
+      menu_art = Wolf3D::MenuArt.of(Wolf3D.vgagraph)
+      # WHETHER SOUND IS ON, which the menu's own row moves and every one of the game's sounds
+      # is played under. Declared here rather than inside either of them because both need it
+      # and neither owns it.
+      sound_on = menu_art && var(:sound_on, 1)
       view = Wolf3D::FirstPerson.new(build: self, floors: floors, atlas: atlas, things: things,
                                      vswap: Wolf3D.vswap,
-                                     bar_art: Wolf3D::BarArt.of(Wolf3D.vgagraph))
-      game_loop { view.update }
+                                     bar_art: Wolf3D::BarArt.of(Wolf3D.vgagraph),
+                                     startable: !menu_art.nil?, sound_on: sound_on)
+      if menu_art
+        menus = Wolf3D::Menus.new(build: self, view: view, art: menu_art,
+                                  palette: Wolf3D.palette, sound_on: sound_on,
+                                  starting_on: Wolf3D.which_screen)
+        game_loop { menus.update }
+      else
+        game_loop { view.update }
+      end
     else
       title = Title.new(self)
       game_loop { title.update }

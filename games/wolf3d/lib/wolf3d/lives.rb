@@ -46,6 +46,25 @@ module Wolf3D
     # What the bar along the bottom shows.
     def left = @left
 
+    # WHETHER THE GAME HAS ENDED, or nil on a floor with nothing on it that can kill you —
+    # there is no death to count, so there is nothing to say the game is over. The menus read
+    # it because START means two things while a game is on, and this is what tells them
+    # apart: it opens the menu while you are playing, and starts another game once you are
+    # not.
+    def over = @ended
+
+    # EVERYTHING A NEW GAME PUTS BACK that a new life does not: the score to nothing and the
+    # goes back to three. Public because the menu starts a game as well, and it has to mean
+    # the same thing there as it does here.
+    #
+    # It does not put the FLOOR back, and that is deliberate: which floor a game begins on is
+    # what the episode you picked decides, and this cannot know it.
+    def start_again
+      @left.set START
+      @score.set 0
+      @ended&.set 0
+    end
+
     # ANOTHER GO, which is what the one-up lying on the floor hands you. The original stops at
     # nine, and so does this: the bar keeps one figure for it.
     MOST = 9
@@ -105,9 +124,7 @@ module Wolf3D
     # touch: the score goes back to nothing and the goes go back to three.
     def start_another_game
       @b.pressed(:start).then do
-        @left.set START
-        @score.set 0
-        @ended.set 0
+        start_again
         @b.call(:start_the_floor)
       end
     end

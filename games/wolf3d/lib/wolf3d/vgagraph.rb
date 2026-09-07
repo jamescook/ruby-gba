@@ -51,7 +51,17 @@ module Wolf3D
     # numerals, twenty-four 24x32 faces in a row — and then each was drawn out and looked
     # at. The two keys are the same shape and are told apart by their inks: one is drawn
     # out of the palette's yellows and the other out of its greys.
+    #
+    # The menu's pictures came the same way and were the easier half, because each set has a
+    # shape nothing else shares: one pair of 24x16 guns, four 24x32 portraits in a row, six
+    # 48x24 numerals in a row. Drawn out, the pair really is a gun and the same gun firing,
+    # and the four portraits really are one man getting grimmer.
     WL6_NAMES = {
+      # THE MENU'S OWN PICTURES, which come before everything the game itself draws with.
+      # The heading plate over the rows; the gun that points at the row you are on, and the
+      # same gun with its muzzle flashing, which is what makes the selector blink.
+      menu_heading: 7,
+      menu_gun: 8, menu_gun_firing: 9,
       status_bar: 83,   # the steel plate along the bottom
       title: 84,        # the title screen
       notice: 85,       # the rating box shown before the title
@@ -60,7 +70,14 @@ module Wolf3D
       knife: 88, pistol: 89, machine_gun: 90, chain_gun: 91,
       no_key: 92, gold_key: 93, silver_key: 94,
       blank_digit: 95
-    }.merge((0..9).to_h { |d| [:"digit_#{d}", 96 + d] })
+    }.merge(
+      # THE FOUR PORTRAITS OF THE DIFFICULTY SCREEN, in the order the rows go: BJ looking
+      # baby-faced, then steadily grimmer, one for each answer to "how tough are you?".
+      %i[baby easy normal hard].each_with_index.to_h { |how, n| [:"difficulty_#{how}", 16 + n] }
+    ).merge(
+      # ...and a big numeral for each episode, drawn beside its name in the episode list.
+      (1..6).to_h { |n| [:"episode_#{n}", 26 + n] }
+    ).merge((0..9).to_h { |d| [:"digit_#{d}", 96 + d] })
      .merge(
        # Eight health levels, three looks each — the face that watches you, glancing
        # left, ahead and right.

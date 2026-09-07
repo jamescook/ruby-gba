@@ -159,8 +159,12 @@ module Wolf3D
     # +floors+ is every floor the cartridge holds. A game with one floor may hand over its pieces
     # loose instead — `level:`, `doors:` and the rest — which is what a test builds and what a
     # cartridge with nowhere to go is; the two are the same thing with one floor in it.
+    # +startable+ says a menu will ask for a game to begin, which is what makes the routine
+    # that puts a floor back worth emitting on a cartridge where nothing else would want it.
+    # +sound_on+ is the menu's own sound switch, or nil where there is no menu to turn it off.
     def initialize(build:, atlas:, level: nil, doors: nil, pushwalls: nil, guards: nil,
-                   things: nil, scenery: nil, vswap: nil, lifts: nil, floors: nil, bar_art: nil)
+                   things: nil, scenery: nil, vswap: nil, lifts: nil, floors: nil, bar_art: nil,
+                   startable: false, sound_on: nil)
       @floors = floors || Floors.of(level: level, doors: doors, pushwalls: pushwalls,
                                     lifts: lifts, guards: guards, scenery: scenery)
       here = @floors.first_floor
@@ -178,8 +182,27 @@ module Wolf3D
       @things = things
       @vswap = vswap # the player's own copy of the recorded sounds, or nil for a silent build
       @bar_art = bar_art # Wolfenstein's own art for the bar, or nil to draw it plainly
+      @startable = startable
+      @sound_on = sound_on
       declare
     end
+
+    # WHICH FLOORS THIS CARTRIDGE HOLDS, so a menu can offer the episodes they make up.
+    attr_reader :floors
+
+    # BEGIN A GAME on the floor +slot+ of the ones this cartridge holds — a fresh player with
+    # three goes and no score, on a floor put back the way it was built.
+    #
+    # WHICH FLOOR IS SET FIRST, because everything the floor's own start does reads through
+    # it: which slice of the map, which doors, which guards, and where you stand.
+    def begin_a_new_game(slot)
+      @floor.set slot
+      @lives.start_again
+      @b.call :start_the_floor
+    end
+
+    # Whether the game has ended, or nil where nothing can kill you. See {Lives#over}.
+    def over = @lives.over
 
     # WHAT PACES THE WORLD, and it is a real choice with no free answer.
     #
@@ -490,7 +513,7 @@ module Wolf3D
       # minds, and last the drawing. Each needs the one before it; see each for why.
       # The recorded sounds come before the guards' minds, because a guard shouting, shooting and
       # dying is most of what there is to hear.
-      @sounds = Sounds.new(build: b, vswap: @vswap)
+      @sounds = Sounds.new(build: b, vswap: @vswap, switch: @sound_on)
       # ...and before both of them, because a guard asks it whether to think and every piece of
       # scenery asks it whether to be looked at.
       declare_the_rooms
@@ -801,8 +824,9 @@ module Wolf3D
     # rays a frame spends its time in.
     def declare_the_floor_start
       # Emitted when anything can ask for it. Dying is one such thing; so is a lift, which puts
-      # the floor back the way it started when it arrives.
-      return if @dying.nil? && !lifts?
+      # the floor back the way it started when it arrives; and so is a menu, whose NEW GAME is
+      # this plus a fresh player.
+      return if @dying.nil? && !lifts? && !@startable
 
       @b.func(:start_the_floor, fast: false) { start_the_floor_again }
     end
