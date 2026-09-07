@@ -168,8 +168,9 @@ module RubyGBA
         return unless @name
 
         @out.print("\r") if @live
-        @out.puts(line)
+        @out.puts(@live ? covering(line) : line)
         @name = nil
+        @drawn = 0 # a new line starts at the left, with nothing of the old one to cover
       end
 
       def show_if_due
@@ -181,19 +182,38 @@ module RubyGBA
 
       def show
         @shown = now
-        @out.print("\r#{line}")
+        @out.print("\r#{covering(line)}")
         @out.flush if @out.respond_to?(:flush)
       end
 
-      # "  the guardrails  27 of 27  draw budget  1.4s" — the phase, where it got to, how long
-      # it took. Padded so a run of phases lines up as a column rather than a ragged edge.
-      def line
-        "  #{column(@name, 40)}#{column(@where, 24)}#{format('%5.1fs', now - @started)}".rstrip
+      # A line drawn over a longer one leaves the tail of the old one behind, and the tail reads
+      # as part of the new line: a phase that took 4.5s came out as "4.5s3s", wearing the end of
+      # the 4.53s that had been there. So a rewrite is padded out to cover whatever it is
+      # replacing. Spaces rather than the escape code for "clear to the end of the line",
+      # because this has to be right on whatever the person is running.
+      def covering(text)
+        was = @drawn.to_i
+        @drawn = text.length
+        text.ljust(was)
       end
 
-      # A column keeps its width when what is in it is short enough, and ALWAYS keeps two spaces
-      # after it. A phase name as long as its column would otherwise run straight into the next
-      # one, and pushing the line out is much the lesser fault.
+      # "  the guardrails      4.5s   27 of 27  draw budget" — the phase, how long it took, and
+      # where it has got to.
+      #
+      # THE TIME SITS NEXT TO THE NAME, in a column of its own, because the question a run of
+      # these answers is "which phase is the slow one" and the two halves of that answer should
+      # be side by side. Where it got to trails LAST, where it can be as long or short as it
+      # likes without pushing anything else about — which it otherwise does, since it is the
+      # one part whose length nobody controls.
+      def line
+        "  #{column(@name, NAME_WIDTH)}#{format('%5.1fs', now - @started)}   #{@where}".rstrip
+      end
+
+      # How wide the phase name's column is, gutter included. The longest name the framework
+      # itself uses fits with room to spare; a longer one keeps the two spaces after it and
+      # pushes the line out, which is much the lesser fault next to running into the time.
+      NAME_WIDTH = 40
+
       def column(text, width) = text.to_s.ljust(width - 2) + "  "
     end
   end

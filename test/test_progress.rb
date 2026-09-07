@@ -27,9 +27,15 @@ class TestProgress < Minitest::Test
     out
   end
 
-  # A log's phase lines, split back into their columns: ["the guardrails", "25 of 25  …", "1.2s"].
+  # A log's phase lines, split back into their columns: the phase, how long it took, and where
+  # it got to (which is the rest of the line, and may be nothing at all).
+  Phase = Data.define(:name, :took, :where)
+
   def phases_in(out)
-    out.string.lines.map { |line| line.strip.split(/\s{2,}/) }
+    out.string.lines.map do |line|
+      name, took, *where = line.strip.split(/\s{2,}/)
+      Phase.new(name: name, took: took, where: where.join("  "))
+    end
   end
 
   # A program with enough statements in it to be worth reporting on — a tick only consults the
@@ -52,7 +58,7 @@ class TestProgress < Minitest::Test
 
   # ...keyed by phase, so a test can ask one phase where it got to.
   def where_each_phase_got_to
-    phases_of_a_build.to_h { |name, got_to, *| [name, got_to] }
+    phases_of_a_build.to_h { |phase| [phase.name, phase.where] }
   end
 
   # --- THE ONE THAT SAYS NOTHING ---------------------------------------------------------------
@@ -225,13 +231,31 @@ class TestProgress < Minitest::Test
     assert_equal 1, out.string.lines.length
   end
 
+  # A redraw covers what it replaces. A shorter line drawn over a longer one used to leave the
+  # tail of the old one showing, and the tail reads as part of the new line — a phase that took
+  # 4.5s came out as "4.5s3s", wearing the end of the 4.53s that had been there.
+  def test_a_shorter_line_covers_the_longer_one_it_replaces
+    clock = FakeClock.new
+    out = a_terminal
+    progress = Progress::Printed.new(out, clock: clock)
+    progress.step("lowering")
+    clock.pass(1.0)
+    progress.of(1, 2, "a routine with a very long name indeed")
+    clock.pass(1.0)
+    progress.of(2, 2)
+    progress.done
+
+    refute_includes out.string.split("\r").last, "name indeed",
+                    "a redraw left the end of the line it replaced showing"
+  end
+
   # --- THROUGH A REAL BUILD --------------------------------------------------------------------
 
   def test_a_real_build_names_every_phase_in_order
     assert_equal ["reading the game", "checking the tree", "the guardrails",
                   "measuring the routines", "choosing what goes in the quick memory",
                   "lowering it to machine code", "assembling the cartridge"],
-                 phases_of_a_build.map(&:first)
+                 phases_of_a_build.map(&:name)
   end
 
   # The phases that have a real count report one, and the count arrives at its total — a phase
@@ -239,8 +263,8 @@ class TestProgress < Minitest::Test
   def test_the_counted_phases_count_all_the_way_up
     where = where_each_phase_got_to
 
-    assert_match(/\A(\d+) of \1\z/, where["the guardrails"])
-    assert_match(/\A(\d+) of \1\z/, where["choosing what goes in the quick memory"])
+    assert_match(/\A(\d+) of \1\b/, where["the guardrails"])
+    assert_match(/\A(\d+) of \1\b/, where["choosing what goes in the quick memory"])
   end
 
   # ...and the two with no count say how far they got the only way they honestly can: nothing
@@ -263,12 +287,10 @@ class TestProgress < Minitest::Test
     RubyGBA::IR::Guardrails::Validator.new(checks: checks, progress: progress)
                                       .run(RubyGBA::IR::Build.program, autofix: false)
     progress.done
-    _phase, counted, named, _took = phases_in(out).first
 
-    assert_equal "2 of 2", counted
     # ...and named the way a person hears it. The check calls itself `iwram_budget`, which is
     # the console's quick memory said in hardware.
-    assert_equal "quick memory budget", named
+    assert_equal "2 of 2  quick memory budget", phases_in(out).first.where
   end
 
   # A build that dies half way through a phase still closes its line, so the message explaining
@@ -283,7 +305,24 @@ class TestProgress < Minitest::Test
       end
     end
 
-    assert_equal "the guardrails", phases_in(out).last.first
+    assert_equal "the guardrails", phases_in(out).last.name
+  end
+
+  # WHAT THE GUARDRAILS FOUND IS SAID AFTER THE BUILD, not in the middle of it. A paragraph of
+  # prose landing between two phases breaks the run of them in half, and the reader loses the
+  # shape of the build — so the findings are held and written once every phase has had its say.
+  def test_a_warning_is_said_after_the_build_and_not_in_the_middle_of_it
+    said = StringIO.new
+    RubyGBA.build("NOISY", code: "ANOI", maker: "01", out: StringIO.new, err: said,
+                           progress: Progress.to(said)) do
+      screen :bitmap
+      game_loop { seed 42 } # seeding every frame: a guardrail warning
+    end
+    phase_lines = said.string.lines.select { |line| line.start_with?("  ") }
+
+    assert_operator said.string.lines.length, :>, phase_lines.length, "expected a warning too"
+    assert_equal phase_lines, said.string.lines.first(phase_lines.length),
+                 "every phase should be said before the first word of a warning"
   end
 
   def test_a_game_can_be_asked_to_report_when_it_builds_its_rom
