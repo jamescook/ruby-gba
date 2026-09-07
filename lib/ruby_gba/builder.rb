@@ -71,12 +71,14 @@ module RubyGBA
 
     # @param frame_sync [Symbol] :auto (the framework paces each game_loop) or
     #   :manual (the developer places `wait_vblank` themselves)
-    def initialize(frame_sync: :auto)
+    # @param progress [RubyGBA::Progress] what a build says it is doing (see {#progress})
+    def initialize(frame_sync: :auto, progress: Progress.silent)
       unless %i[auto manual].include?(frame_sync)
         raise ArgumentError, "frame_sync must be :auto or :manual, got #{frame_sync.inspect}"
       end
 
       @frame_sync = frame_sync
+      @progress = progress
       @has_paced_loop = false  # set once a game_loop is pacing the program
       @dropped_syncs = 0       # `wait_vblank` calls the game loop already covers
       @variables = {}          # name → { address:, initial: } — introspection metadata
@@ -143,6 +145,30 @@ module RubyGBA
     # The IR tree built so far (the whole program). Lets tests assert the DSL
     # constructs the right tree without lowering it to a ROM.
     attr_reader :program
+
+    # WHAT THIS BUILD SAYS IT IS DOING, for whoever is doing real work while it runs.
+    #
+    #   progress.step "reading the six episodes"
+    #   floors.each_with_index { |floor, n| progress.of n + 1, floors.length, floor.name; ... }
+    #
+    # A build is already a run of named phases saying how far each has got (see
+    # {RubyGBA::Progress}). Anything a game or an effect pack does while the block runs
+    # happens INSIDE one of those phases, and without this it happens namelessly — the
+    # build stands there saying "reading the game" for a minute with no clue which minute
+    # of it belongs to whom. This is the seam: a pack's verbs are mixed into this class,
+    # and a game's block is evaluated on it, so `progress` resolves here for both, with no
+    # plumbing to pass round. A game split across plain Ruby objects hands it on like any
+    # other dependency.
+    #
+    # IT IS A NOUN, NOT A VERB, and that distinction is deliberate. `blit` and `sprite` are
+    # things a GAME does and belong on the teaching-facing verb surface; progress is a thing
+    # the BUILD has, and the surface a person learns should not grow a build-time member.
+    #
+    # THE DEFAULT SAYS NOTHING, so nobody has to ask whether anybody is listening, and
+    # nothing reported here may change what gets built: this is an observation. A pack that
+    # behaved differently when somebody was watching would be a bug that only shows up in
+    # the mode nobody tests.
+    attr_reader :progress
 
     # Function names queued by dump_func, disassembled from the lowered ROM.
     attr_reader :dump_requests

@@ -75,6 +75,38 @@ class TestIRGuardrails < Minitest::Test
     assert_empty report.findings
   end
 
+  # ---- what a reader sees ---------------------------------------------------
+
+  # A heading above the findings, so several read as a list somebody wrote rather than as
+  # prose that started on its own — and it counts them, which a reader would otherwise do.
+  def test_the_findings_are_written_under_a_heading_that_counts_them
+    fix = Guardrails::Fix.new(message: "fixed it", apply: ->(prog) { prog })
+    report = validate([StubCheck.new([error("boom", fix: fix), error("bang", fix: fix)])], program)
+    said = StringIO.new
+    report.emit(to: said)
+
+    assert_equal "2 warnings about this game:", said.string.lines.first.chomp
+  end
+
+  # A problem stops the build and a warning does not, so the heading tells them apart before
+  # a word of either is read.
+  def test_the_heading_tells_a_problem_from_a_warning
+    fix = Guardrails::Fix.new(message: "fixed it", apply: ->(prog) { prog })
+    report = validate([StubCheck.new([error("boom"), error("bang", fix: fix)])], program)
+    said = StringIO.new
+    report.emit(to: said)
+
+    assert_equal "1 problem and 1 warning about this game:", said.string.lines.first.chomp
+  end
+
+  # ...and a clean build says nothing at all, heading included.
+  def test_a_clean_program_is_written_as_nothing_rather_than_a_heading_of_none
+    said = StringIO.new
+    validate([StubCheck.new([])], program).emit(to: said)
+
+    assert_empty said.string
+  end
+
   # ---- a finding has to say where to look ---------------------------------
 
   def test_a_finding_cannot_be_built_without_naming_what_it_blames

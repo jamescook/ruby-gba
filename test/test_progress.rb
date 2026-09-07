@@ -249,6 +249,81 @@ class TestProgress < Minitest::Test
                     "a redraw left the end of the line it replaced showing"
   end
 
+  # --- A PACK, AND A GAME'S OWN CODE -----------------------------------------------------------
+
+  # A pack's verbs are mixed into the builder, so `progress` resolves inside one the way `var`
+  # and `held` do. Exactly the shape a third party would write.
+  ROWS = proc do |rows|
+    progress.step "laying out the rows"
+    rows.times do |n|
+      progress.of n + 1, rows, "row #{n}"
+      fill_rect 0, n * 2, 8, 2, :red
+    end
+  end
+
+  # A game split across plain Ruby objects reaches the same object by being handed it, like any
+  # other dependency — the builder's block is not the only place a game's own work happens.
+  class Floors
+    def initialize(build) = @build = build
+
+    def read(count)
+      @build.progress.step "reading the floors"
+      count.times { |n| @build.progress.of n + 1, count, "floor #{n}" }
+    end
+  end
+
+  def teardown
+    RubyGBA::Effects.unregister(:paint_the_rows)
+  end
+
+  def a_cartridge_built_with(progress)
+    RubyGBA.build("PACK", code: "APAK", maker: "01", out: StringIO.new, err: StringIO.new,
+                          progress: progress) do
+      screen :bitmap
+      paint_the_rows 4
+      halt
+    end
+  end
+
+  # The seam is worth having before a pack is slow enough to need it: added afterwards, finding
+  # out which pack is the slow one means bisecting a build.
+  def test_a_pack_can_say_what_it_is_doing
+    RubyGBA::Effects.register(:paint_the_rows, &ROWS)
+    out = StringIO.new
+    a_cartridge_built_with(Progress.to(out))
+    said = phases_in(out).find { |phase| phase.name == "laying out the rows" }
+
+    refute_nil said, "the pack's phase should be among the build's own"
+    assert_equal "4 of 4  row 3", said.where
+  end
+
+  # ...and what a pack SAYS may never change what it BUILDS. Progress is an observation: a pack
+  # that behaved differently when somebody was watching would be a bug that only shows up in the
+  # mode nobody tests.
+  def test_a_build_that_reports_makes_the_same_cartridge_as_one_that_does_not
+    RubyGBA::Effects.register(:paint_the_rows, &ROWS)
+    watched = a_cartridge_built_with(Progress.to(StringIO.new))
+    quiet = a_cartridge_built_with(Progress.silent)
+
+    assert_equal quiet.buffer, watched.buffer
+  end
+
+  # The same seam serves a game's own code, which is the other half of why it is here: a game's
+  # block is evaluated on the builder, so reading sixty floors of a map or chewing through a
+  # sprite sheet can name itself with no new plumbing.
+  def test_a_games_own_code_can_say_what_it_is_doing
+    out = StringIO.new
+    RubyGBA.build("GAME", code: "AGAM", maker: "01", out: StringIO.new, err: StringIO.new,
+                          progress: Progress.to(out)) do
+      screen :bitmap
+      Floors.new(self).read 3
+      halt
+    end
+
+    assert_equal "3 of 3  floor 2",
+                 phases_in(out).find { |phase| phase.name == "reading the floors" }.where
+  end
+
   # --- THROUGH A REAL BUILD --------------------------------------------------------------------
 
   def test_a_real_build_names_every_phase_in_order

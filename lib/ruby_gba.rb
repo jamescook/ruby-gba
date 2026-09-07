@@ -71,7 +71,9 @@ module RubyGBA
   def self.build(title, code:, maker:, validate: true, frame_sync: :auto, fast_cartridge: true,
                  fast_code: true, out: $stdout, err: $stderr, progress: Progress.silent, &block)
     progress.step("reading the game")
-    builder = Builder.new(frame_sync: frame_sync)
+    # The builder carries the progress so that anything running inside the game's own
+    # block — the game itself, an effect pack's verb — can say what it is doing too.
+    builder = Builder.new(frame_sync: frame_sync, progress: progress)
     catch(:debug_halt) do
       builder.instance_eval(&block)
     end
