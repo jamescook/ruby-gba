@@ -8,13 +8,46 @@ module RubyGBA
       # func/list/table/song/bitmap/object/backing-buffer declaration, and whether
       # any layer can be seen through.
       #
-      # Built once per #analyze call (see #build) and handed to Pricing, Verdicts,
+      # Built by walking the program (see #build) and handed to Pricing, Verdicts,
       # Tree, and Report as one immutable value — one seam, so it is always clear
       # which of them owns which fact, rather than each reading its own slice of a
       # dozen ivars on the CostModel instance.
       Catalogue = Data.define(:modes, :funcs, :capacities, :declared, :list_lengths,
                               :table_lengths, :songs, :bitmaps, :objects, :backing,
                               :sees_through) do
+        # THE CATALOGUE OF A PROGRAM, walking it only if this is not the program that was
+        # walked last. Ask for it this way rather than calling .build.
+        #
+        # WHY IT IS KEPT AT ALL. Every question the cost model answers begins by cataloguing
+        # the program, and the walk is very nearly the whole cost of asking — the pricing
+        # afterwards is milliseconds. So a build that asks a lot walked the same tree over and
+        # over for the same answer: measured on a game of sixty floors, thirty-eight times, for
+        # thirty-three of its fifty-four seconds.
+        #
+        # WHY IT IS KEPT HERE RATHER THAN ON THE MODEL. A build makes SEVERAL models — the
+        # guardrails' budget checks make one each, and one of them wants different settings
+        # from the others, so they cannot share an instance. But what differs between them is
+        # the pricing they do afterwards; the catalogue they all want is the same catalogue,
+        # because it is derived from the program and from nothing else. Keeping it against the
+        # PROGRAM rather than against whoever asked is what lets one walk serve all of them,
+        # and it makes the rule sayable in a sentence: a program is walked once.
+        #
+        # ONE PROGRAM'S WORTH IS KEPT, not a growing collection. A build asks about one program
+        # many times; a test suite asks about many programs a few times each and simply walks
+        # again, which is correct and is what the tests pin.
+        #
+        # WHAT MAKES IT SAFE, and it is worth stating rather than assuming: a node's operands
+        # are written once, when it is built, and nothing mutates a tree afterwards — a program
+        # is finished before the verifier, the guardrails or a backend ever see it. A tree
+        # changed IN PLACE between two questions would be handed the catalogue of what it used
+        # to be, so nothing may do that.
+        def self.for(program)
+          return @kept if @kept && @kept_for.equal?(program)
+
+          @kept_for = program
+          @kept = build(program)
+        end
+
         # Walk the program once, in program order, and settle every question a later
         # price needs answered before it asks it: which routine draws where, what each
         # declaration means, and whether a layer can be seen through.

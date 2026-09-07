@@ -4,18 +4,20 @@ require "test_helper"
 
 require_relative "helper"
 
-# ONE WALK PER PROGRAM, however many questions are asked about it
-# (lib/ruby_gba/ir/cost_model/rollup.rb).
+# ONE WALK PER PROGRAM, however many questions are asked about it and by however many models
+# (lib/ruby_gba/ir/cost_model/catalogue.rb).
 #
 # Every public question the model answers starts by walking the whole program and cataloguing
 # what it found. The walk is nearly all of what a question costs — the pricing that follows it
-# is three milliseconds — and it comes back with the same answer every time, because it is
-# derived from the program and nothing else.
+# is milliseconds — and it comes back with the same answer every time, because it is derived
+# from the program and nothing else.
 #
 # THAT MATTERS BECAUSE OF WHO ASKS. A backend deciding which routines to keep in the console's
 # quick memory asks one question PER ROUTINE, so it walked the whole program once for each of
-# them to learn something about one. Measured on a game of sixty floors, a whole build walked
-# the program thirty-eight times: thirty-three of its fifty-four seconds, for one answer.
+# them to learn something about one. And a build makes several models besides — the guardrails'
+# budget checks make one each — which walked it again for themselves. Measured on a game of
+# sixty floors, a whole build walked the program thirty-eight times: thirty-three of its
+# fifty-four seconds, for one answer. It is one walk now.
 #
 # So the walk count IS the behaviour here, and that is what these check. The answers were
 # already right and stay right; what must not come back is the repetition.
@@ -79,6 +81,34 @@ class TestCostModelWalksOnce < CostModelTest
     end
 
     assert_equal 1, counted, "five questions about one program is one walk"
+  end
+
+  # SEVERAL MODELS, ONE WALK — which is what a build really looks like. The guardrails' budget
+  # checks build one model each and one of them wants different settings from the others, so
+  # they cannot share an instance. They can share the WALK, because a catalogue is derived from
+  # the program and from nothing else; what differs between models is the pricing afterwards.
+  def test_models_configured_differently_still_share_one_walk
+    prog = a_game
+
+    counted = walks do
+      Cost.new.frame_cost(prog)
+      Cost.new(fast_interrupts: true).frame_cost(prog)
+      Cost.new.func_frame_cost(prog, :paint)
+    end
+
+    assert_equal 1, counted, "three models asking about one program is one walk"
+  end
+
+  # ...and they still get their own answers, which is why they are separate models at all.
+  def test_a_shared_walk_does_not_share_the_settings
+    prog = a_game
+    plain = Cost.new
+    fast = Cost.new(fast_interrupts: true)
+
+    walks { [plain.frame_cost(prog), fast.frame_cost(prog)] }
+
+    refute_nil plain.frame_cost(prog)
+    refute_nil fast.frame_cost(prog)
   end
 
   # A DIFFERENT PROGRAM GETS ITS OWN WALK, which is the half that keeps the answers right.
