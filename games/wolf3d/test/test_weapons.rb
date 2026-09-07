@@ -32,13 +32,22 @@ class TestWeapons < Minitest::Test
     assert Atlas.in?(vswap), "every release holds them"
   end
 
-  # A GUN HANGS OFF THE BOTTOM of its square in every frame, so the top of the square is empty in
-  # all twenty — and the picture ships the rows that have art in them and no others. That is what
-  # keeps it out of the cartridge and out of the walk down the screen.
-  def test_the_picture_holds_only_the_rows_that_have_art_in_them
-    assert_operator atlas.top_row, :>, 0, "the top of a weapon's square is empty"
-    assert_equal Atlas::SIDE - 1, atlas.bottom_row, "and its art reaches the bottom edge"
-    assert_equal atlas.bottom_row - atlas.top_row + 1, atlas.height
+  # A GUN HANGS OFF THE BOTTOM of its square in every one of the twenty, so the top of the square
+  # is empty in all of them. That makes cropping it look like a saving, and it is the opposite —
+  # see the note on WeaponAtlas.
+  def test_every_frames_art_hangs_off_the_bottom_of_its_square
+    assert_operator atlas.art_rows.first, :>, 0, "the top of a weapon's square is empty"
+    assert_equal Atlas::SIDE - 1, atlas.art_rows.last, "and its art reaches the bottom edge"
+  end
+
+  # ...AND THE PICTURE IS THE WHOLE SQUARE ALL THE SAME, whose height being a POWER OF TWO is
+  # what buys the drawing its speed: the framework ships where each column of a see-through
+  # picture holds pixels only for such a picture, and walking those stretches rather than every
+  # row of the square is what makes a firing frame affordable. Cropping the empty sky away costs
+  # half again on every one of them, which is the sort of thing nobody finds twice.
+  def test_the_picture_is_the_whole_square_and_a_power_of_two_tall
+    assert_equal Atlas::SIDE, atlas.height, "the whole square, not the band that holds art"
+    assert_equal 0, atlas.height & (atlas.height - 1), "and a power of two, or the runs are dropped"
     assert_equal Atlas::COUNT * Atlas::SIDE, atlas.width, "twenty frames side by side"
     assert_equal atlas.width * atlas.height, atlas.pixels.length
   end
@@ -191,7 +200,7 @@ class TestWeapons < Minitest::Test
     gba = RubyGBA::Verifier.new(rom, frames: 8)
 
     across = (Weapons::LEFT...(Weapons::LEFT + FP::VIEW_H)).step(4).to_a
-    down = ((atlas.top_row * Weapons::SCALE)...FP::VIEW_H).step(4).to_a
+    down = ((atlas.art_rows.first * Weapons::SCALE)...FP::VIEW_H).step(4).to_a
     differ = across.product(down).reject do |x, y|
       (interp.screen.pixel(x, y) || 0) == gba.pixel_gba(x, y)
     end
@@ -212,9 +221,9 @@ class TestWeapons < Minitest::Test
     palette[Release::SPRITE_INK + Atlas.first_sprite(vswap) + (weapon * Atlas::FRAMES) + pose]
   end
 
-  # Where in the view the gun's art lands: the middle of the band the fixture paints it in.
+  # Where in the view the gun's art lands: the middle of the rows the fixture paints it in.
   def where_the_gun_is
-    [FP::ACROSS / 2, (atlas.top_row * Weapons::SCALE) + atlas.height]
+    [FP::ACROSS / 2, ((atlas.art_rows.first + atlas.art_rows.last) / 2) * Weapons::SCALE]
   end
 
   # Which of the pistol's five pictures is on the screen after that many passes, or nil for none

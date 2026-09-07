@@ -13,11 +13,23 @@ module Wolf3D
   # against the bottom of its square while the four sprites before them fill their squares
   # top to bottom.
   #
-  # AND THAT LAST FACT IS WORTH A PICTURE OF ITS OWN. A gun hangs at the bottom of the screen,
-  # so the top of its square is empty in every frame — over a third of it, measured. Cutting
-  # those rows out here means they are neither shipped in the cartridge nor walked down when
-  # the gun is drawn: the picture is the band that holds art, and the drawing puts that band
-  # where the square's rows would have fallen.
+  # A GUN HANGS AT THE BOTTOM OF THE SCREEN, so the top of its square is empty in every one of
+  # the twenty — over a third of it, and much more than that for a knife held still. The picture
+  # here is the WHOLE SQUARE all the same, and that is the opposite of what it looks like it
+  # should be. It is worth its paragraph, because the obvious thing is measurably wrong.
+  #
+  # Cropping the empty rows away was tried first: ship the band that holds art, put it where the
+  # square's rows would have fallen, and neither the cartridge nor the walk down the screen pays
+  # for the sky. It made a firing frame take HALF AGAIN as long. The reason is that the framework
+  # already skips see-through rows, and far better than a band can — it ships, for each COLUMN of
+  # a see-through picture, the stretches of rows that hold pixels, and walks those and nothing
+  # else. That is the same trick the original's own scaler uses, and it needs the picture's height
+  # to be a power of two, because turning a picture row into a screen row divides by it. Thirty-
+  # eight is not one. So the crop bought a third of the rows and gave up all of them.
+  #
+  # Sixty-four is, so the square ships whole and the walk touches the gun and not the sky.
+  # Measured in a room with nothing else moving, tapping the trigger: 1.52 frames a pass cropped,
+  # 1.02 whole.
   class WeaponAtlas
     SIDE = Vswap::Sprite::SIDE
 
@@ -43,14 +55,14 @@ module Wolf3D
       @frames = (0...COUNT).map { |n| vswap.sprite(first + n) }
     end
 
-    # WHICH ROWS OF THE SQUARE HOLD ANYTHING, over all twenty frames at once. One band for all
-    # of them and not one each, because every frame is drawn in the same place on the screen —
-    # a band that moved with the picture would make the gun jump about as it fired.
-    def top_row = @top_row ||= @frames.map(&:first_row).min
-    def bottom_row = @bottom_row ||= @frames.map(&:last_row).max
-
     def width = COUNT * SIDE
-    def height = bottom_row - top_row + 1
+    def height = SIDE
+
+    # WHICH ROWS OF THE SQUARE ANY FRAME HOLDS ART IN, which nothing about the drawing reads —
+    # the whole square is drawn and the framework skips the empty rows for itself. It is here
+    # because it is the fact that makes cropping look like a good idea (see the note above), and
+    # because a test that wants to find the gun on the screen has to know where it hangs.
+    def art_rows = @art_rows ||= (@frames.map(&:first_row).min..@frames.map(&:last_row).max)
 
     # Where a frame's columns start in the row of them. Which frame is `weapon * FRAMES + pose`.
     def slice_of(frame) = frame * SIDE
@@ -82,7 +94,7 @@ module Wolf3D
     # Column-major in the file, and a picture here is row-major, so this is the one place the
     # two orders meet — the same crossing the walls make, over a sprite's see-through pixels.
     def pixels
-      (top_row..bottom_row).flat_map do |y|
+      (0...SIDE).flat_map do |y|
         @frames.flat_map do |frame|
           (0...SIDE).map do |x|
             value = frame[x, y]
