@@ -563,38 +563,48 @@ class TestMenu < Minitest::Test
     assert_match(/inside your game_loop/, error.message)
   end
 
-  # The console draws 128 sprites at once and a tiled row spends about two of them per
-  # character, so a long menu runs out. That is the one place the two screens really
-  # differ, so it gets a friendly error naming the count rather than a bare failure
-  # from the lowering with anonymous sprites in it.
-  def test_a_tiled_menu_too_big_for_the_sprite_table_is_a_friendly_error
-    error = assert_raises(ArgumentError) do
-      build_program do
-        screen :tiled
-        game_loop do
-          menu(:main, at: [0, 0], spacing: 8) do |rows|
-            8.times { |i| rows.item("SETTING #{i}") }
-          end
+  # A long menu, for counting sprites with. 12 rows of 12 characters is past the
+  # console's 128; 8 rows of 10 is not.
+  def long_menu(rows_of:, on: :tiled)
+    build_program do
+      screen on
+      game_loop do
+        clear_screen :black if on == :bitmap
+        menu(:main, at: [0, 0], spacing: 8) do |rows|
+          rows_of.times { |i| rows.item("LONGOPTION#{i}") }
         end
       end
     end
+  end
+
+  def sprites_in(program)
+    program.walk.count { |node| node.kind == :object }
+  end
+
+  # A row lights up by changing colour, not by being drawn twice — so it costs one
+  # sprite per character and not two. That is the difference between an eight-row menu
+  # fitting and not fitting, so it is worth pinning as a number.
+  def test_a_tiled_row_costs_one_sprite_per_character_not_two
+    program = long_menu(rows_of: 8)
+    characters = 8 * "LONGOPTION0".length
+    cursors = 8
+
+    assert_equal characters + cursors, sprites_in(program),
+                 "one sprite for each character, plus a cursor for each row"
+  end
+
+  # The console draws 128 sprites at once, so a long enough menu runs out. That is the
+  # one place the two screens really differ, so it gets a friendly error naming the
+  # count rather than a bare failure from the lowering with anonymous sprites in it.
+  def test_a_tiled_menu_too_big_for_the_sprite_table_is_a_friendly_error
+    error = assert_raises(ArgumentError) { long_menu(rows_of: 12) }
 
     assert_match(/at most 128 at once/, error.message)
     assert_match(/screen :bitmap/, error.message)
   end
 
   def test_the_same_menu_costs_no_sprites_at_all_on_a_bitmap_screen
-    program = build_program do
-      screen :bitmap
-      game_loop do
-        clear_screen :black
-        menu(:main, at: [0, 0], spacing: 8) do |rows|
-          8.times { |i| rows.item("SETTING #{i}") }
-        end
-      end
-    end
-
-    assert_equal 0, program.walk.count { |node| node.kind == :object },
+    assert_equal 0, sprites_in(long_menu(rows_of: 12, on: :bitmap)),
                  "a bitmap screen paints the rows into the picture"
   end
 
