@@ -16,6 +16,7 @@ require_relative "ruby_gba/music"
 require_relative "ruby_gba/fraction"
 require_relative "ruby_gba/builder"
 require_relative "ruby_gba/effects" # the verb/effect pack registry, and the packs that ship on by default
+require_relative "ruby_gba/evaluated_game" # the one place a game's block becomes a program
 require_relative "ruby_gba/game"
 require_relative "ruby_gba/value"
 require_relative "ruby_gba/condition"
@@ -71,16 +72,8 @@ module RubyGBA
   def self.build(title, code:, maker:, validate: true, frame_sync: :auto, fast_cartridge: true,
                  fast_code: true, out: $stdout, err: $stderr, progress: Progress.silent, &block)
     progress.step("reading the game")
-    # The builder carries the progress so that anything running inside the game's own
-    # block — the game itself, an effect pack's verb — can say what it is doing too.
-    builder = Builder.new(frame_sync: frame_sync, progress: progress)
-    catch(:debug_halt) do
-      builder.instance_eval(&block)
-    end
-    # Finalizing the tree is also what paces it: `game_loop` runs once per frame and
-    # the builder writes that wait itself, so nothing below has to think about it.
-    builder.emit_pending_functions
-    program = builder.program
+    evaluated = EvaluatedGame.new(block, frame_sync: frame_sync, progress: progress)
+    program = evaluated.program
 
     # First prove the tree is well-formed — every value operand is a value node,
     # nothing structural is out of place. This checks the *library's* own
@@ -106,19 +99,19 @@ module RubyGBA
     # and on a terminal the warning lands on the line the phase is still rewriting.
     # A finding is worth reading either way; where it is worth reading is after the
     # build has finished saying what it did.
-    unless builder.debug_halted?
+    unless evaluated.debug_halted?
       progress.step("the guardrails")
       # The default checks — the always-on builtins plus anything registered (an
       # effect pack's own guardrails) — walk the IR. The rest are appended per build
-      # because they report from the builder rather than the tree: leftover
-      # Conditions (a native-`if` slip leaves no trace there), covered `wait_vblank`
-      # calls, and the software sprites, whose layer lives on the handle. All are
-      # just checks in the list, so the Validator treats them alike.
+      # because they report from what the run learned rather than from the tree:
+      # leftover Conditions (a native-`if` slip leaves no trace there), covered
+      # `wait_vblank` calls, and the software sprites, whose layer lives on the handle.
+      # All are just checks in the list, so the Validator treats them alike.
       checks = IR::Guardrails.default_checks +
-               [IR::Guardrails::Checks::OrphanedCondition.new(builder.pending_conditions),
-                IR::Guardrails::Checks::DroppedFrameSync.new(builder.dropped_syncs),
-                IR::Guardrails::Checks::LayerHoldsNothing.new(builder.sprites),
-                IR::Guardrails::Checks::StackNotHonored.new(builder.sprites)]
+               [IR::Guardrails::Checks::OrphanedCondition.new(evaluated.pending_conditions),
+                IR::Guardrails::Checks::DroppedFrameSync.new(evaluated.dropped_syncs),
+                IR::Guardrails::Checks::LayerHoldsNothing.new(evaluated.sprites),
+                IR::Guardrails::Checks::StackNotHonored.new(evaluated.sprites)]
       findings = IR::Guardrails::Validator.new(checks: checks, progress: progress)
                                           .run(program, autofix: false)
       if findings.errors.any?
@@ -137,7 +130,7 @@ module RubyGBA
     machine_code = backend.lower(program)
     progress.step("assembling the cartridge")
     rom = ROM.assemble(machine_code, title: title, code: code, maker: maker,
-                                     validate: builder.debug_halted? ? false : validate)
+                                     validate: evaluated.debug_halted? ? false : validate)
     rom.source_program = program # so the ROM can report on itself (rom.explain)
     rom.placement = backend.iwram_report # ...including which routines it kept in quick memory
     # ...and where each variable landed, which decides what reaching it costs
@@ -155,8 +148,8 @@ module RubyGBA
 
     # Every phase is over; a disassembly dump is a debugging aid, not a phase.
     progress.done
-    unless builder.dump_requests.empty?
-      FuncDumper.new(rom, backend.func_ranges, out: out, err: err).dump(builder.dump_requests)
+    unless evaluated.dump_requests.empty?
+      FuncDumper.new(rom, backend.func_ranges, out: out, err: err).dump(evaluated.dump_requests)
     end
     rom
   ensure

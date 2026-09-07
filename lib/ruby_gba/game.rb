@@ -35,11 +35,21 @@ module RubyGBA
     # The op-tree the DSL block builds — what the headless interpreter runs in tests.
     # Built with the same frame timing #build_rom uses, so the tree a test runs is
     # the tree that ships.
+    #
+    # RUN ONCE AND REMEMBERED, because asking a game what it is should not be an event.
+    # The profiler asks a game for its program once to find its scenes and again for each
+    # scene it measures, so without this a seven-screen game runs its own block eight
+    # times — and a game's block is the slowest thing in a build, since it is where the
+    # art and the levels are read off disk. Every consumer in the library treats the tree
+    # as read-only and the two that rewrite one (see {Analyzer#boot_into} and
+    # {Analyzer#instrument_frame_counter}) already answer a copy, so there is one tree and
+    # everybody shares it.
+    #
+    # The game's own progress reporting is OFF here, deliberately: this path is a test or
+    # a tool asking what the game is, and nobody is watching a tree being built. A person
+    # waiting on a build gets it through {#build_rom}, which takes a +progress+.
     def program
-      builder = Builder.new(frame_sync: @frame_sync)
-      builder.instance_eval(&@block)
-      builder.emit_pending_functions
-      builder.program
+      evaluated.program
     end
 
     # The finished ROM. The out:/err: streams are injectable so a test (or the CLI)
@@ -76,6 +86,11 @@ module RubyGBA
     end
 
     private
+
+    # This game's block, run — the tree and what the run learned besides.
+    def evaluated
+      @evaluated ||= EvaluatedGame.new(@block, frame_sync: @frame_sync)
+    end
 
     # Is +path+ the very script Ruby was told to run? Compared as full paths so a
     # relative "examples/bird.rb" and an absolute run path still match.
