@@ -237,6 +237,7 @@ module Wolf3D
 
     def paint
       @b.dma_fill_rect 0, @top, FirstPerson::ACROSS, HEIGHT, colour(ground_index)
+      draw_the_plate
       FIELDS.each do |field|
         draw_a_label(field)
         case field.name
@@ -260,6 +261,50 @@ module Wolf3D
 
     # The game's own steel where we have it, and the grey that stood in for it where we do not.
     def ground_index = @art ? @art.ground : GROUND
+
+    # THE PLATE'S EDGE AND ITS RULES, re-set at 240.
+    #
+    # The plate itself cannot be used — it is 320 across and squeezing it turns the lettering
+    # baked into it to noise — but what makes it look like a plate is not its texture. Its middle
+    # is one flat colour for two thirds of every row; what reads as steel is the LINE round the
+    # outside and the grooves between the fields. Both are lines, and a line can be re-set at any
+    # width without losing anything.
+    #
+    # A rule is two columns of different colours, which is what makes it a groove in the metal
+    # rather than a stripe on it, and it is drawn a column at a time because one column is an odd
+    # width and the block fills on this screen want an even one.
+    def draw_the_plate
+      return unless @art
+
+      top = @art.top_edge
+      bottom = @art.bottom_edge
+      top.each_with_index { |ink, i| @b.dma_fill_rect 0, @top + i, FirstPerson::ACROSS, 1, colour(ink) }
+      bottom.each_with_index do |ink, i|
+        @b.dma_fill_rect 0, @top + HEIGHT - bottom.length + i, FirstPerson::ACROSS, 1, colour(ink)
+      end
+
+      boundaries.each do |x|
+        # HALF THE COLUMN, DOUBLED, and not the column itself. A picture on this screen must
+        # start on an even column, and the framework will only draw one where it can PROVE the
+        # column is even — a variable it cannot see into is refused rather than drawn in the
+        # wrong place. Twice anything is even, so this is the way to say it, and it is the way
+        # the refusal itself suggests.
+        @rule_half.set(x / 2)
+        @b.call :_bar_rule
+      end
+    end
+
+    # Where the grooves go: midway between the end of one field and the start of the next, which
+    # is where the plate puts its own. The face gets one on each side for free, which is what its
+    # well is. Rounded to an even column, because that is where a picture can be drawn.
+    def boundaries
+      wide = self.class.widths(@art)
+      FIELDS.each_cons(2).map do |before, after|
+        ends = at(before) + wide.fetch(before.name)
+        middle = ends + (((at(after) - ends) - @art.rule_width) / 2)
+        middle - (middle % 2)
+      end
+    end
 
     def colour(index) = Palette.game[index]
     def font = RubyGBA::Fonts.get(FONT)
@@ -343,7 +388,25 @@ module Wolf3D
       # picture — the strip's columns do not care where one picture ends and the next begins, so
       # 24 pictures of 24 columns and 72 of 8 are the same columns counted differently.
       strip_routine(:_bar_face, :bar_faces, FACE_GROUP, @art.face_height)
+      declare_the_rule
     end
+
+    # The groove between two fields, as a picture and a routine that draws it wherever the
+    # column variable says. One drawing in the cartridge, called once per boundary.
+    def declare_the_rule
+      cut = @art.rule(inside_height, Palette.game)
+      @b.image :bar_rule, width: cut[:width], height: cut[:height], data: cut[:data]
+      @rule_half = @b.var :_bar_rule_half, 0
+
+      half = @rule_half
+      build = @b
+      top = inside_top
+      build.func(:_bar_rule) { build.blit :bar_rule, half * 2, top }
+    end
+
+    # The part of the bar inside the plate's edge, which is what a groove runs down.
+    def inside_top = @top + @art.top_edge.length
+    def inside_height = HEIGHT - @art.top_edge.length - @art.bottom_edge.length
 
     # How wide a bite of the face the walk takes at a time, and therefore how many bites a face
     # is. It has to divide the face's width exactly.
