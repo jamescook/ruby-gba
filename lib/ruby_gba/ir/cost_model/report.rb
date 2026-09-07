@@ -65,6 +65,7 @@ module RubyGBA
         glyph_footprint_lines(program, printer)
         stack_lines(program, printer) unless focus
         fast_memory_lines(program, printer) unless focus
+        column_stretch_lines(printer) unless focus
         budget_summary_lines(program, printer, frame_total, measured: measured) unless focus
       end
 
@@ -272,6 +273,45 @@ module RubyGBA
 
         " Several lines repeat together, which is a helper called from more than one place — " \
           "it is emitted at each of them, where a `func` is emitted once."
+      end
+
+      # WHICH SEE-THROUGH PICTURES SKIP THE ROWS THEY HAVE NOTHING IN, and which walk the lot.
+      #
+      # A picture drawn as a stretched column is normally shipped with a list, per column, of
+      # where that column holds pixels — so a lamp in a square of ceiling costs its lit rows
+      # and not its square. Two ceilings can stop that, and when one does the picture goes
+      # back to walking every row of every column it draws. Nothing is WRONG with such a
+      # picture, which is why this is not a guardrail: it is a speed the game did not get,
+      # and until it was said here the only way to find out was to read the backend.
+      #
+      # SAID ONLY WHEN ONE MISSED, with the ones that fit listed beside it. A game whose
+      # pictures all skip their empty rows has nothing to act on, and this report is long
+      # enough already; a game with one that did not needs to see which is which.
+      def column_stretch_lines(printer)
+        decided = @column_stretches.to_h
+        held_back = decided.reject { |_name, picture| picture.skips_empty_rows? }
+        return if held_back.empty?
+
+        printer.puts "  see-through pictures a stretched column draws:"
+        decided.each do |name, picture|
+          walks = picture.skips_empty_rows? ? "walks only the rows that hold pixels" : "walks every row"
+          printer.puts format("    %9s  :%s — %s", "#{picture.height} rows", name, walks)
+        end
+        held_back.each { |name, picture| printer.puts "    (#{stretch_advice(name, picture)})" }
+      end
+
+      # ...and what to do about the one that missed. Each ceiling has its own answer, and the
+      # answer is the point of the line — a picture can nearly always be made to fit.
+      def stretch_advice(name, picture)
+        missed = ":#{name} walks every row of every column it draws, and most of them draw nothing. "
+        case picture.held_back_by
+        when :too_tall
+          "#{missed}A picture more than #{Backends::GBA::RUNS_MAX_ROWS} rows tall cannot ship " \
+            "where its columns hold pixels. Make it #{Backends::GBA::RUNS_MAX_ROWS} rows or fewer."
+        else
+          "#{missed}Its columns hold pixels in too many separate places to ship. " \
+            "Use fewer columns, or draw it from more than one picture."
+        end
       end
 
       # What to call each thing that moved. Two of them are routines the machine sees but

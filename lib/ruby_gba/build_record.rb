@@ -17,7 +17,7 @@ module RubyGBA
   # which of the two you were holding. Now a ROM either has a record or has none, and having
   # none is exactly what "assembled straight from machine code" means.
   class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
-                                  :palette_entries, :compression)
+                                  :palette_entries, :column_stretches, :compression)
     # The two routines a program has no name for: the frame's own body, and the one the
     # console jumps into when the display or a timer announces something. The estimate has
     # to be told about each separately for that reason.
@@ -28,7 +28,7 @@ module RubyGBA
     # live — both change what the same statement costs.
     def for_cost_model
       decided = { var_addresses: var_addresses, loop_shapes: loop_shapes,
-                  palette_entries: palette_entries }.compact
+                  palette_entries: palette_entries, column_stretches: column_stretches }.compact
       return decided unless placement
 
       names = placement.funcs

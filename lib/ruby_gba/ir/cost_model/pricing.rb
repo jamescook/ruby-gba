@@ -26,7 +26,7 @@ module RubyGBA
         # built for every one (see Rollup#index).
         attr_reader :unpriced
 
-        def initialize(weights:, catalogue:, walker:, palette_entries:)
+        def initialize(weights:, catalogue:, walker:, palette_entries:, column_stretches:)
           @weights = weights
           # The same table with everything but the transfer engine's own work zeroed, so an
           # op can be priced twice over and the two answers differenced (see #ENGINE_WEIGHTS).
@@ -34,6 +34,7 @@ module RubyGBA
           @catalogue = catalogue
           @walker = walker
           @palette_entries = palette_entries
+          @column_stretches = column_stretches
           @unpriced = []
         end
 
@@ -955,9 +956,19 @@ module RubyGBA
 
         # How much of a stretched column is really walked. A picture the model has never seen
         # is taken at its word.
+        #
+        # SKIPPING THE EMPTY ROWS IS THE BUILD'S DOING, not the picture's, so this asks the
+        # build rather than assuming. A picture too tall to ship where its columns hold pixels
+        # walks EVERY row of every column — and charging it its lit share instead would report
+        # a fraction of what it really costs, which is exactly the mistake that hides. A build
+        # that said nothing keeps the old reading, because the pictures it could not ship for
+        # were rare and a report is better slightly hopeful than wrong for everyone.
         def column_walked_share(node)
           bmp = @catalogue && @catalogue.bitmaps[node.name]
-          bmp&.transparent ? bmp.walked_share : 1.0
+          return 1.0 unless bmp&.transparent
+
+          decided = @column_stretches[node.name]
+          decided && !decided.skips_empty_rows? ? 1.0 : bmp.walked_share
         end
 
         def column_row_weight(node)

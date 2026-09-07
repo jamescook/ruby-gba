@@ -406,6 +406,13 @@ module RubyGBA
         def known?
           !@answers.nil?
         end
+
+        # Every name the build answered about, with its answer — what a report needs where
+        # the estimate needs one name at a time. No build behind it means nothing was
+        # answered, which is an empty Hash rather than a nil for a caller to test.
+        def to_h
+          @answers || {}
+        end
       end
 
       # What drawing one hardware sprite needs to be priced, likewise taken off its
@@ -552,11 +559,15 @@ module RubyGBA
       # index — the build's answer again, for the same reason (see {LoopShape}).
       # +palette_entries+ says how many colors each screen draws through — the build's
       # answer again, since it is what packed the tables (see Backends::GBA::PaletteTint).
-      attr_reader :var_addresses, :loop_shapes, :palette_entries
+      # +column_stretches+ says which see-through pictures a stretched column draws skip the
+      # rows they have nothing in, keyed by picture name. It matters because a picture that
+      # cannot skip them walks every row of every column, and the difference is most of what
+      # drawing a scaled sprite costs (see Backends::GBA::ColumnStretches).
+      attr_reader :var_addresses, :loop_shapes, :palette_entries, :column_stretches
 
       def initialize(fast_routines: nil, fast_frame: false, fast_interrupts: false,
                      placement: nil, var_addresses: nil, loop_shapes: nil,
-                     palette_entries: nil, **weights)
+                     palette_entries: nil, column_stretches: nil, **weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)
         # The same table with everything but the transfer engine's own work zeroed, so an op
         # can be priced twice over and the two answers differenced (see Pricing::ENGINE_WEIGHTS).
@@ -572,6 +583,7 @@ module RubyGBA
         @var_addresses = Decided.for(var_addresses)
         @loop_shapes = Decided.for(loop_shapes)
         @palette_entries = Decided.for(palette_entries)
+        @column_stretches = Decided.for(column_stretches)
         # Readable so a caller can ask whether a build stands behind this estimate at all —
         # a report says a different thing when the answer is "nothing was worked out".
         @in_fast_code = false

@@ -18,18 +18,22 @@ module Wolf3D
   # here is the WHOLE SQUARE all the same, and that is the opposite of what it looks like it
   # should be. It is worth its paragraph, because the obvious thing is measurably wrong.
   #
-  # Cropping the empty rows away was tried first: ship the band that holds art, put it where the
-  # square's rows would have fallen, and neither the cartridge nor the walk down the screen pays
-  # for the sky. It made a firing frame take HALF AGAIN as long. The reason is that the framework
-  # already skips see-through rows, and far better than a band can — it ships, for each COLUMN of
-  # a see-through picture, the stretches of rows that hold pixels, and walks those and nothing
-  # else. That is the same trick the original's own scaler uses, and it needs the picture's height
-  # to be a power of two, because turning a picture row into a screen row divides by it. Thirty-
-  # eight is not one. So the crop bought a third of the rows and gave up all of them.
+  # Cropping the empty rows away was tried: ship the band that holds art, put it where the
+  # square's rows would have fallen, and the walk down the screen never sees the sky. It bought
+  # no time at all, because the framework was already skipping those rows and far better than a
+  # band can — it ships, for each COLUMN of a see-through picture, the stretches of rows that
+  # hold pixels, and walks those and nothing else. That is the same trick the original's own
+  # scaler uses. The sky above the gun is not what a crop saves; nothing was walking it.
   #
-  # Sixty-four is, so the square ships whole and the walk touches the gun and not the sky.
-  # Measured in a room with nothing else moving, tapping the trigger: 1.52 frames a pass cropped,
-  # 1.02 whole.
+  # WHAT THE CROP COSTS is the divide. Turning a picture row into a screen row divides by the
+  # picture's height, and a height that is a power of two divides by shifting where any other
+  # multiplies — one more instruction and a longer one, twice per stretch. Measured against the
+  # whole square on the real pictures, the crop is a little dearer rather than a little cheaper.
+  # Sixty-four is a power of two, so the square ships whole, the walk touches the gun and not the
+  # sky, and the arithmetic is the cheap one.
+  #
+  # A picture that cannot ship its stretches at all — one over the framework's row ceiling — is
+  # named by `rom.explain`, with what to change.
   class WeaponAtlas
     SIDE = Vswap::Sprite::SIDE
 

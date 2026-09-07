@@ -27,16 +27,18 @@ module RubyGBA
     # what "assembled straight from machine code" looks like.
     attr_reader :built
 
-    # The six things the record holds, read straight off it. Each is nil without a record,
+    # The things the record holds, read straight off it. Each is nil without a record,
     # and each is documented on {BuildRecord}: the IR program this cartridge was built from,
     # which routines it keeps in the console's quick memory, where its variables landed,
-    # which shape each of its loops got, how many colors each screen draws through, and how
-    # far asset packing shrank it.
+    # which shape each of its loops got, how many colors each screen draws through, which
+    # see-through pictures skip the rows they have nothing in, and how far asset packing
+    # shrank it.
     def source_program = @built&.source_program
     def placement = @built&.placement
     def var_addresses = @built&.var_addresses
     def loop_shapes = @built&.loop_shapes
     def palette_entries = @built&.palette_entries
+    def column_stretches = @built&.column_stretches
     def compression = @built&.compression
 
     # Package finished machine code into a cartridge: write the header, drop the
