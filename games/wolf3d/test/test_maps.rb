@@ -19,6 +19,48 @@ class TestMaps < Minitest::Test
     assert_equal [64, 64], [@maps[0].width, @maps[0].height]
   end
 
+  # HOW MANY EPISODES A COPY HOLDS, which is what a cartridge is built in and what its own menu
+  # asks you to pick between. Six for the registered release, one for the shareware — and one
+  # for anything whose maps do not divide into tens, which is Spear of Destiny: twenty-one
+  # floors in a single campaign. Counting those in tens would offer three episodes that are not
+  # there.
+  #
+  # A stand-in rather than a real copy, because what is being checked is the arithmetic and the
+  # release that would prove the interesting case is one almost nobody has. MAPHEAD is a run tag
+  # and a slot per level, so a count is all it takes.
+  def maps_holding(count)
+    Wolf3D::Maps.new(maphead: [0].pack("v") + Array.new(count, 1).pack("V*"), gamemaps: "")
+  end
+
+  def test_the_registered_release_is_six_episodes_of_ten
+    maps = maps_holding(60)
+
+    assert_equal 6, maps.episodes
+    assert_equal (0..9).to_a, maps.floors_of(1)
+    assert_equal (50..59).to_a, maps.floors_of(6)
+  end
+
+  def test_the_shareware_release_is_one_episode
+    maps = maps_holding(10)
+
+    assert_equal 1, maps.episodes
+    assert_equal (0..9).to_a, maps.floors_of(1)
+  end
+
+  # Spear of Destiny, and anything else that is not episodes of ten: one campaign, all of it.
+  def test_a_release_whose_floors_do_not_divide_into_tens_is_one_campaign
+    maps = maps_holding(21)
+
+    refute_predicate maps, :episodic?
+    assert_equal 1, maps.episodes
+    assert_equal (0..20).to_a, maps.floors_of(1)
+  end
+
+  def test_the_fixtures_one_level_is_a_campaign_of_one
+    assert_equal 1, @maps.episodes
+    assert_equal [0], @maps.floors_of(1)
+  end
+
   def test_asking_for_a_level_that_is_not_there_says_so
     error = assert_raises(IndexError) { @maps[7] }
 

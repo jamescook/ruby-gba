@@ -353,9 +353,9 @@ module Wolf3D
 
     # --- THE EPISODE LIST --------------------------------------------------------------------
 
-    # Only worth a screen when the cartridge holds more than one episode to start. A build with
-    # one has nothing to ask, and a build begun in the MIDDLE of an episode — which is what
-    # WOLF3D_FROM makes, for measuring a later floor — has no episode start at all.
+    # Only worth a screen when the cartridge holds more than one episode to start. A cartridge
+    # with one has nothing to ask, and one begun in the MIDDLE of an episode — which is what the
+    # dial for measuring a later floor's cost makes — has no episode start at all.
     def offers_episodes? = @episodes.length > 1
 
     def declare_the_episodes
