@@ -180,13 +180,21 @@ module RubyGBA
       # leftover Conditions, not the tree). Either way the pass treats them alike;
       # pass your own list via +checks:+ to run a different set.
       class Validator
-        def initialize(checks: Guardrails.default_checks)
+        # A check's identifier said the way a person says it. The identifier is already how a
+        # finding names itself, so a check does not need a second name — except where the
+        # identifier is a hardware word, and then it is said the way the rest of the framework
+        # says it, because this line is read by somebody who does not know what IWRAM is.
+        PLAIN_WORDS = { iwram_budget: "quick memory budget" }.freeze
+
+        def initialize(checks: Guardrails.default_checks, progress: Progress.silent)
           @checks = checks
+          @progress = progress
         end
 
         def run(program, autofix: true)
           findings = []
-          @checks.each do |check|
+          @checks.each_with_index do |check, n|
+            @progress.of(n + 1, @checks.length, plain_name(check))
             check.detect(program).each do |finding|
               if autofix && finding.fix
                 program = finding.fix.apply.call(program)
@@ -199,6 +207,18 @@ module RubyGBA
             end
           end
           Report.new(program: program, findings: findings)
+        end
+
+        private
+
+        # A check that has no identifier of its own — one a pack or a game registered — is
+        # named by its class instead, so every check in the list has something to show.
+        def plain_name(check)
+          klass = check.class
+          return klass.name.to_s.split("::").last unless klass.const_defined?(:NAME, false)
+
+          name = klass::NAME
+          PLAIN_WORDS.fetch(name) { name.to_s.tr("_", " ") }
         end
       end
     end

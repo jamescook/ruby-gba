@@ -120,6 +120,11 @@ module RubyGBA
           # loop's body measures without these, because inline it needs neither.
           ROUTINE_WRAPPER = 8
 
+          # The two routines the author did not write, said the way the report says them. The
+          # names above are for the build's own use and a person reading a build reads these.
+          PLAIN_NAMES = { FRAME_ROUTINE => "the game loop",
+                          IRQ_ROUTINE => "answering the display and the timers" }.freeze
+
           # Names of the routines that will run from the quick memory. Valid after #lower.
           def fast_funcs = @fast_funcs.dup
 
@@ -159,7 +164,10 @@ module RubyGBA
             insisted = funcs_marked(program, true)
             return insisted if insisted.empty? && !@fast_code
 
-            probe = self.class.new(fast_cartridge: @fast_cartridge)
+            # The probe reports through the same object this one does, so the measuring pass
+            # shows its own progress rather than going quiet for as long as a lowering takes.
+            @progress.step("measuring the routines")
+            probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress)
             probe.lower(program, fast_funcs: Set.new) # measure the program with nothing moved
             sizes = moved_sizes(program, probe.func_sizes)
             room = HOT_CEILING - probe.iwram_high_water - ALIGNMENT_ALLOWANCE
@@ -400,6 +408,7 @@ module RubyGBA
           # the framework's own share. Anything that will not fit is skipped rather than
           # stopping the fill — a small routine after a large one still gets its chance.
           def place_by_frame_cost(program, sizes, room, chosen)
+            @progress.step("choosing what goes in the quick memory")
             forbidden = funcs_marked(program, false)
             ranked_by_frame_cost(program, sizes).each do |name|
               next if chosen.include?(name) || forbidden.include?(name)
@@ -443,13 +452,30 @@ module RubyGBA
           # size moved the game-over screen and left the playing scene behind.
           def ranked_by_frame_cost(program, sizes)
             model = CostModel.new
-            costs = program.walk.select { |node| node.kind == :func }
-                           .to_h { |node| [node.name, model.func_frame_cost(program, node.name)] }
-            costs[FRAME_ROUTINE] = model.frame_body_cost(program) if sizes.key?(FRAME_ROUTINE)
-            costs[IRQ_ROUTINE] = model.interrupt_frame_cost(program) if sizes.key?(IRQ_ROUTINE)
+            # Pricing one routine is a whole pass over the program, and a game with thirty of
+            # them spends longer here than anywhere else in the build — so it says which one it
+            # is on. There is a real count to report: the routines are known before any is
+            # priced.
+            named = program.walk.select { |node| node.kind == :func }.map(&:name)
+            named << FRAME_ROUTINE if sizes.key?(FRAME_ROUTINE)
+            named << IRQ_ROUTINE if sizes.key?(IRQ_ROUTINE)
+            costs = named.each_with_index.to_h do |name, n|
+              @progress.of(n + 1, named.length, PLAIN_NAMES.fetch(name) { "func :#{name}" })
+              [name, frame_cost_of(model, program, name)]
+            end
 
             costs.select { |name, cost| cost >= WORTH_MOVING && sizes[name].to_i.positive? }
                  .sort_by { |name, cost| [-cost, name.to_s] }.map(&:first)
+          end
+
+          # What a frame spends in one routine. The game loop's body and the interrupt routine
+          # are not routines the author wrote, so each has its own question to ask the model.
+          def frame_cost_of(model, program, name)
+            case name
+            when FRAME_ROUTINE then model.frame_body_cost(program)
+            when IRQ_ROUTINE   then model.interrupt_frame_cost(program)
+            else model.func_frame_cost(program, name)
+            end
           end
 
           # A routine the author asked to keep in the quick memory, that will not go

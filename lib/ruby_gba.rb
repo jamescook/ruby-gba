@@ -62,6 +62,9 @@ module RubyGBA
   #   in the console's quick memory, where code runs about two and a half times faster
   #   (default: true). `rom.explain` says what it chose. Pass false to stop it choosing —
   #   a routine you mark `func :name, fast: true` yourself still goes there.
+  # @param progress [RubyGBA::Progress] what the build says it is doing while it does it.
+  #   The default says nothing; `Progress.to($stderr)` names each phase and how far it has
+  #   got. See {RubyGBA::Progress}.
   # @return [RubyGBA::ROM] finalized ROM ready to write
   # +out+/+err+ are the streams dump_func writes its disassembly and warnings to;
   # they default to the process streams and can be pointed at a StringIO in tests.
@@ -107,7 +110,8 @@ module RubyGBA
                 IR::Guardrails::Checks::DroppedFrameSync.new(builder.dropped_syncs),
                 IR::Guardrails::Checks::LayerHoldsNothing.new(builder.sprites),
                 IR::Guardrails::Checks::StackNotHonored.new(builder.sprites)]
-      report = IR::Guardrails::Validator.new(checks: checks).run(program, autofix: false)
+      report = IR::Guardrails::Validator.new(checks: checks, progress: progress)
+                                        .run(program, autofix: false)
       # THE PHASE IS OVER ONCE THE REPORT EXISTS; printing it is presentation. Closing it here
       # rather than letting the next phase close it is what keeps the two apart on a terminal:
       # a progress line is held open and rewritten in place, so a warning printed while one was
@@ -122,9 +126,11 @@ module RubyGBA
 
     # The DSL built an IR tree as the block ran. Turn it into a ROM in two steps,
     # both behind this single call so building stays one operation: lower the tree
-    # to machine code, then assemble that code into a cartridge.
-    progress.step("lowering it to machine code")
-    backend = IR::Backends::GBA.new(fast_cartridge: fast_cartridge, fast_code: fast_code)
+    # to machine code, then assemble that code into a cartridge. Lowering names its
+    # own phases rather than being named from here — most of the time a build spends
+    # is in there, and it is three phases, not one (see Placement#choose_fast_funcs).
+    backend = IR::Backends::GBA.new(fast_cartridge: fast_cartridge, fast_code: fast_code,
+                                    progress: progress)
     machine_code = backend.lower(program)
     progress.step("assembling the cartridge")
     rom = ROM.assemble(machine_code, title: title, code: code, maker: maker,
@@ -147,7 +153,11 @@ module RubyGBA
     unless builder.dump_requests.empty?
       FuncDumper.new(rom, backend.func_ranges, out: out, err: err).dump(builder.dump_requests)
     end
-    progress.done
     rom
+  ensure
+    # However the build ended. A live progress line is held open and rewritten in place, so a
+    # build that stops half way through a phase — a guardrail error, a routine that will not
+    # fit — has to close its line before the message explaining why is printed on top of it.
+    progress.done
   end
 end
