@@ -88,6 +88,26 @@ class TestJukeboxExample < Minitest::Test
     end
   end
 
+  # The cursor is drawn beside the picked row, and moves with it. Worth pinning here
+  # because the example drew ">" for a long time and nothing appeared: the built-in
+  # font had no such glyph, so every frame drew an invisible cursor and the only thing
+  # marking the picked row was its colour.
+  ROW_TOPS = [58, 78, 98].freeze
+
+  def test_the_cursor_hangs_off_the_left_of_the_picked_row
+    at_rest = Reference.new.run(Jukebox.program, max_steps: 4000).screen
+    left_edges = ROW_TOPS.map { |y| lit_span(at_rest, y).first }
+
+    assert_operator left_edges[0], :<, left_edges[1],
+                    "the picked row starts further left, because the cursor is beside it"
+    assert_equal left_edges[1], left_edges[2], "the other two rows line up with each other"
+
+    moved = Reference.new.input_each_frame(&tap_down(1)).run(Jukebox.program, max_steps: 4000)
+    after = ROW_TOPS.map { |y| lit_span(moved.screen, y).first }
+
+    assert_operator after[1], :<, after[0], "the cursor followed the pick down a row"
+  end
+
   # On real hardware: the ROM boots and the music channel is actually driven.
   def test_the_music_channel_is_driven_on_the_console
     rom = Jukebox.build_rom(out: StringIO.new, err: StringIO.new)

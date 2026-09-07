@@ -20,7 +20,8 @@ require_relative "../lib/ruby_gba"
 module Jukebox
   # --- Layout (pixels; the screen is 240x160, origin top-left) ---
   SCREEN_W   = 240
-  ROW_Y      = [58, 78, 98].freeze
+  FIRST_ROW  = 58
+  ROW_GAP    = 20
 
   # The bobbing "it's playing" blocks along the bottom: five 8x8 blocks that
   # bounce between BAR_TOP and BAR_BOTTOM at their own speeds, so they dance a
@@ -105,22 +106,15 @@ module Jukebox
     # column is centred on the widest song name. Ask the font how wide the names come
     # out and nothing here is a number counted by eye: reword a song and the menu
     # moves with it.
-    widest   = SONGS.map { |s| text_width(s[:label]) }.max
-    label_x  = (SCREEN_W - widest) / 2
-    cursor_x = label_x - text_width("> ")
+    widest  = SONGS.map { |s| text_width(s[:label]) }.max
+    label_x = (SCREEN_W - widest) / 2
 
     # --- State ---
-    selected = var :selected, 0        # which row the cursor is on (0..2)
     # A bobbing block's position (bar_y#) and signed speed (bar_v#), one pair each.
     bar_y = BARS.each_index.map { |i| var :"bar_y#{i}", BARS[i][1] }
     BARS.each_index { |i| var :"bar_v#{i}", BARS[i][2] }
 
     game_loop do
-      # --- Move the cursor. Silence the channel on a move so the new tune starts
-      # cleanly instead of bleeding a note from the old one. ---
-      pressed(:up).then   { (selected > 0).then { selected.sub 1; stop_music } }
-      pressed(:down).then { (selected < 2).then { selected.add 1; stop_music } }
-
       # --- Advance the bobbing blocks: move each by its speed, and reverse (snap
       # to the edge, flip the sign) whenever it reaches the top or bottom. ---
       BARS.each_with_index do |(_x, _y0, spd), i|
@@ -137,13 +131,21 @@ module Jukebox
       draw_text "PRESS UP OR DOWN", :center, 34, :gray
       draw_text "NOW PLAYING", :center, 108, :gray
 
-      # Every row in gray; the highlighted one is redrawn in its accent color,
-      # gets the cursor, tints the blocks, and is the tune that actually plays.
-      SONGS.each_with_index { |s, i| draw_text s[:label], label_x, ROW_Y[i], :gray }
+      # The list of tunes. Each row lights up in its own accent color when the cursor
+      # reaches it; the cursor, the wrapping and the held-button walk come with the
+      # verb. There is no block per row because on this screen MOVING is the choice —
+      # whichever row the cursor is on is the tune that plays.
+      songs = menu :songs, at: [label_x, FIRST_ROW], spacing: ROW_GAP, color: :gray do |m|
+        SONGS.each { |s| m.item s[:label], picked: s[:color] }
+      end
+
+      # Silence the channel on a move, so the new tune starts cleanly instead of
+      # bleeding a note from the old one.
+      songs.moved.then { stop_music }
+
+      # The picked row also tints the bobbing blocks and is the tune that plays.
       SONGS.each_with_index do |s, i|
-        (selected == i).then do
-          draw_text ">", cursor_x, ROW_Y[i], s[:color]
-          draw_text s[:label], label_x, ROW_Y[i], s[:color]
+        (songs.picked == i).then do
           BARS.each_with_index { |(bx, _y0, _spd), j| draw_rect_at bx, :"bar_y#{j}", 8, 8, s[:color] }
           play_song s[:name]
         end
