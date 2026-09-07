@@ -153,6 +153,11 @@ module Wolf3D
     START_HEALTH = 100
     START_AMMO = 8
 
+    # HOW MANY PASSES A NOISE STANDS FOR: long enough for every guard on the floor to have
+    # thought once, and no longer. Guards think on alternate passes, so that is two. See the note
+    # where @noise is declared.
+    HEARD_FOR = 2
+
     CEILING = RubyGBA::Color.rgb(7, 7, 9)
     FLOOR_COLOR = RubyGBA::Color.rgb(12, 11, 10)
 
@@ -303,7 +308,18 @@ module Wolf3D
     # business, and this is the one line where the two meet. See Weapons for the cycle — the
     # short of it is that a pistol takes four stages to fire one round, so tapping faster does
     # nothing, and the two automatics repeat from inside the cycle while the button is held.
+    # THE NOISE THE LAST SHOT MADE RUNS DOWN HERE, on the way to making another, and where it
+    # happens is the whole of what decides who hears it.
+    #
+    # The original clears its flag at the top of the loop and then thinks for the PLAYER FIRST
+    # and the guards after, so a shot is heard in the tic it is fired. This game takes its turn
+    # the other way round — the guards think inside move_the_world, and the trigger is read here,
+    # after them, because a button read on its edge has to stay on the pass (see PACING). So the
+    # count comes down after the guards have had their look at it and before the trigger can top
+    # it up again, and a shot is heard on the pass AFTER it is fired. That is a thirtieth of a
+    # second against a reaction time of up to a whole one.
     def fire
+      (@noise > 0).then { @noise.sub 1 }
       @weapons.update
       @weapons.acted.then { @mind.shoot(with_knife: @weapons.in_hand == Weapons::KNIFE) } if @mind
     end
@@ -496,6 +512,21 @@ module Wolf3D
       @secrets = b.var :secrets, 0
       @treasures = b.var :treasures, 0
 
+      # A NOISE THE PLAYER MADE. A gun going off is one, and so is a man crying out when you hit
+      # him — the original's own flag is commented "true when shooting or screaming". A guard who
+      # hears one looks your way without having to see you first, which is what turns a corridor
+      # round. See Weapons#fire_a_round and GuardMind#wound_a_guard for where it is made,
+      # GuardMind#look for who hears it, and #fire for where it runs out.
+      #
+      # IT IS A COUNT AND NOT A FLAG, which is a difference this game has to make and the
+      # original does not. There, every actor thinks on every tic, so a flag that stands for one
+      # tic is heard by all of them. Here a guard thinks on every OTHER pass — half the floor on
+      # one, half on the next, which is what makes a room of them affordable — so a noise that
+      # stood for one pass would be heard by half the room and missed by the other half, chosen
+      # by nothing anyone could see. It stands for HEARD_FOR passes instead, which is how long it
+      # takes every guard to have thought once.
+      @noise = b.var :noise, 0
+
       # DYING AND THE GOES YOU GET COME FIRST, because what stands in the level reaches both: the
       # guard who lands the last shot sets the death off, and a thing you pick up can hand you
       # another go.
@@ -514,7 +545,8 @@ module Wolf3D
       @sounds = Sounds.new(build: b, vswap: @vswap, switch: @sound_on)
       # ...then the gun in your hands: after the sounds, because each of the three guns has one
       # of its own, and before the things lying on the floor, because two of those ARE guns.
-      @weapons = Weapons.new(build: b, ammo: @ammo, atlas: @gun_art, sounds: @sounds)
+      @weapons = Weapons.new(build: b, ammo: @ammo, atlas: @gun_art, sounds: @sounds,
+                             noise: @noise)
       # ...and before both of them, because a guard asks it whether to think and every piece of
       # scenery asks it whether to be looked at.
       declare_the_rooms
@@ -759,8 +791,11 @@ module Wolf3D
       # wherever he stands; until then he thinks only while his room is open to the player. That
       # is the original's own rule (it calls him "active") and it is what keeps a floor of
       # twenty-nine guards affordable — see Rooms.
+      # +ambush+ is a guard put down lying in wait, who has to SEE you: he is the one a gunshot
+      # does not bring. Carried on him rather than read off the map because the original clears
+      # it the moment he does see you, and from then on he is a guard like any other.
       @guard = b.pool :guard, x: 0.0, y: 0.0, dir: 0, state: 0, ticks: 0, wait: 0, togo: 0.0,
-                              hp: 0, shown: 0, awake: 0, turn: 0, dropped: 0,
+                              hp: 0, shown: 0, awake: 0, turn: 0, dropped: 0, ambush: 0,
                               capacity: room_for(:guards),
                               estimate: { usually: how_many(:guards)[:usually] }
       # THE FIRST FLOOR'S GUARDS AT BOOT, written out rather than read from the tables, because
@@ -772,7 +807,7 @@ module Wolf3D
         @guard.spawn x: guard.x + 0.5, y: guard.y + 0.5,
                      dir: Guards.direction_of(guard.facing),
                      state: state, ticks: Guards::STATES.fetch(state).ticks,
-                     hp: Guards::HIT_POINTS,
+                     hp: Guards::HIT_POINTS, ambush: guard.ambush ? 1 : 0,
                      # ...and thinks on every other frame, alternately with his neighbours, so
                      # the floor's thinking is spread evenly over the frames rather than
                      # arriving all at once.
@@ -791,7 +826,7 @@ module Wolf3D
                             sounds: @sounds, rooms: @rooms,
                             floors: @floors, map_base: @map_base,
                             player: { x: @px, y: @py, health: @health, score: @score,
-                                      kills: @kills, cos: @vcos, sin: @vsin })
+                                      kills: @kills, cos: @vcos, sin: @vsin, noise: @noise })
     end
 
     # WHICH ROOMS ARE OPEN TO THE PLAYER'S, which is what stops a guard on the far side of the
@@ -823,6 +858,8 @@ module Wolf3D
       @guard_home_ticks = b.table :guard_home_ticks,
                                   at_least_one(starting.map { |s| Guards::STATES.fetch(s).ticks }),
                                   width: :byte
+      @guard_home_ambush = b.table :guard_home_ambush,
+                                   at_least_one(everyone.map { |g| g.ambush ? 1 : 0 }), width: :byte
     end
 
     # STARTING THE FLOOR AGAIN, which is everything the level holds that CHANGES put back the way
@@ -939,7 +976,7 @@ module Wolf3D
                      dir: @guard_home_dir[@slot],
                      state: @guard_home_state[@slot], ticks: @guard_home_ticks[@slot],
                      hp: Guards::HIT_POINTS, wait: 0, togo: 0.0, shown: 0, awake: 0, dropped: 0,
-                     turn: n % 2
+                     ambush: @guard_home_ambush[@slot], turn: n % 2
       end
     end
 

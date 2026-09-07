@@ -87,11 +87,13 @@ module Wolf3D
     # +atlas+ is the pictures, or nil on a build with no copy of the game to read them from —
     # and then everything below still works and simply draws nothing. +sounds+ is the recorded
     # sounds, or nil where there are none. +ammo+ is what the guns spend, as the view keeps it.
-    def initialize(build:, ammo:, atlas: nil, sounds: nil)
+    # +noise+ is the flag a guard listens on, or nil on a game with nobody to hear.
+    def initialize(build:, ammo:, atlas: nil, sounds: nil, noise: nil)
       @b = build
       @ammo = ammo
       @atlas = atlas
       @sounds = sounds
+      @noise = noise
       declare
     end
 
@@ -312,10 +314,16 @@ module Wolf3D
     # A ROUND LEAVES THE BARREL, and the gun goes quiet if that was the last one — a player with
     # nothing left is holding the knife, and the choice they made is remembered for the clip
     # they are about to go looking for.
+    #
+    # A GUN IS HEARD WHETHER OR NOT IT HITS ANYTHING, which is where the original puts it too:
+    # GunAttack says so before it has even looked for a target. The knife is not here, and that
+    # is the whole of the difference — a swing that meets nothing is silent, and one that lands
+    # makes its noise where the man cries out (GuardMind#wound_a_guard).
     def fire_a_round
       (@ammo > 0).then do
         @ammo.sub 1
         @acted.set 1
+        @noise&.set(FP::HEARD_FOR)
         the_gun_is_heard
         (@ammo == 0).then { @in_hand.set KNIFE }
       end
