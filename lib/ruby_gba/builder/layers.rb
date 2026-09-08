@@ -95,10 +95,6 @@ module RubyGBA
         see_through: :free,
       }.freeze
 
-      # The verb an author writes for each kind that cannot go in a layer, so the error
-      # names the line they wrote rather than the node it became.
-      VERB_FOR = { draw_digit: :draw_number }.freeze
-
       # Declare the program's stack of layers, backmost first — the one line that says
       # what is in front of what.
       #
@@ -455,7 +451,7 @@ module RubyGBA
         # A verb drawing its own text names ITSELF here: a `menu`'s rows really cannot
         # belong to a layer on a bitmap screen, and the author wrote `menu`, not the
         # `draw_text` underneath it (see Text#verb_owns_its_text).
-        verb = @verb_owns_text || VERB_FOR.fetch(node.kind, node.kind)
+        verb = @verb_owns_text || PlainWords.verb(node.kind)
         raise ArgumentError,
               "`#{verb}` paints where you call it#{on_a_bitmap_screen(node)}, so it cannot " \
               "belong to the layer :#{@current_layer}. A layer holds the things the framework " \
@@ -476,9 +472,10 @@ module RubyGBA
       # find it. A layer holds things; a fade is not a thing in the picture, it is
       # something done to the picture from a place in the stack.
       def refuse_whole_screen_in_layer!(node)
+        verb = PlainWords.verb(node.kind)
         raise ArgumentError,
-              "`#{node.kind}` changes the whole screen, so it cannot belong to the layer " \
-              ":#{@current_layer}. To fix this, call `#{node.kind}` outside the `layer` " \
+              "`#{verb}` changes the whole screen, so it cannot belong to the layer " \
+              ":#{@current_layer}. To fix this, call `#{verb}` outside the `layer` " \
               "block.#{fade_can_be_placed(node)}"
       end
 

@@ -314,22 +314,20 @@ module RubyGBA
         end
       end
 
-      # What to call each thing that moved. Two of them are routines the machine sees but
-      # the author never wrote, so they are named for what they do rather than by the
-      # placeholder the build files them under.
+      # What to call each thing that moved. Two of them are routines the machine sees but the
+      # author never wrote, so they are named for what they do rather than by the placeholder
+      # the build files them under — and named from {PlainWords}, which is where the progress
+      # line that ran minutes earlier got the same two names.
       #
       # The interrupt routine also says its own figure, because it is the one thing here
       # that does NOT gain the factor on the line above: some of answering an interrupt is
       # the console's own doing and runs at the console's own speed wherever ours lives.
       def quick_memory_label(name, program)
-        case name
-        when :__frame then "the game loop"
-        when :__interrupt
-          "the routine that answers the display and the timers " \
-            "(~#{CostModel.fmt(interrupt_gain(program))}x here — part of an interrupt is the " \
-            "console's own work, which does not move)"
-        else "func :#{name}"
-        end
+        label = PlainWords.routine(name)
+        return label unless name == Backends::GBA::Placement::IRQ_ROUTINE
+
+        "#{label} (~#{CostModel.fmt(interrupt_gain(program))}x here — part of an interrupt " \
+          "is the console's own work, which does not move)"
       end
 
       # How much moving that routine is worth for THIS program, which depends on what

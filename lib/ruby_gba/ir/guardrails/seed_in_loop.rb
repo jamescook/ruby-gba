@@ -27,6 +27,7 @@ module RubyGBA
           include PerFrameScope
 
           NAME = :seed_in_loop
+          PLAIN_NAME = "a seed set every frame"
 
           def detect(program)
             per_frame = per_frame_func_names(program)

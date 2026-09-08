@@ -23,6 +23,7 @@ module RubyGBA
         # is (correctly) left alone. Advisory, like the other soft checks.
         class RedrawEverything
           NAME = :redraw_everything
+          PLAIN_NAME = "a frame that repaints everything"
 
           # The pixel-drawing ops (draw is a category, but it also covers `screen`,
           # a mode-set, which isn't painting).

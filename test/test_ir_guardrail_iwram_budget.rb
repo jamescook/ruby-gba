@@ -65,7 +65,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
     assert_match(/list :trail/, message)         # the offender, by name
     assert_match(/32KB/, message)                # the hardware total
     assert_match(/#{Budget::BUDGET_BYTES / 1024}KB/, message) # the usable budget
-    assert_match(/fast RAM/i, message)
+    assert_match(/#{RubyGBA::PlainWords::QUICK_MEMORY}/, message) # ...said the one way it is said
   end
 
   # A pool's several backing lists collapse into one "pool :name" contributor — the
@@ -116,7 +116,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
       end
     end
     assert_match(/problem/i, error.message)
-    assert_match(/fast RAM/i, err.string)
+    assert_match(/#{RubyGBA::PlainWords::QUICK_MEMORY}/, err.string)
     assert_match(/list :trail/, err.string)
   end
 
@@ -135,6 +135,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
         enemies.each { |e| e.y.add 1 }
       end
     end
-    refute_match(/fast RAM/i, err.string, "an ordinary game is nowhere near the budget")
+    refute_match(/#{RubyGBA::PlainWords::QUICK_MEMORY}/, err.string,
+                 "an ordinary game is nowhere near the budget")
   end
 end

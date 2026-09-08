@@ -22,6 +22,7 @@ module RubyGBA
         # a transition, not steady work, and is correctly left alone. Advisory.
         class SpriteClearedEachFrame
           NAME = :sprite_cleared_each_frame
+          PLAIN_NAME = "a sprite cleared every frame"
 
           SCREEN_W = Screen::WIDTH
           SCREEN_H = Screen::HEIGHT

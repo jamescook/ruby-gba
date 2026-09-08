@@ -25,6 +25,7 @@ module RubyGBA
         # and the message says the rate that fits.
         class TickRate
           NAME = :tick_rate
+          PLAIN_NAME = "a tick rate too fast to deliver"
 
           # PRICED AT THE HANDLER'S BEST CASE, which is what makes this safe to say out loud.
           # A guardrail runs before the build has decided which routines to keep in the

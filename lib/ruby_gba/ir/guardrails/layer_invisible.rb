@@ -16,6 +16,7 @@ module RubyGBA
         # and the two are easy to swap the first time.
         class LayerInvisible
           NAME = :layer_invisible
+          PLAIN_NAME = "a layer too see-through to see"
 
           # The amount at which nothing of the layer survives. Below it something does,
           # and a very faint layer is a style choice rather than a mistake.

@@ -20,6 +20,7 @@ module RubyGBA
         # we point it out and let the build proceed rather than block it.
         class VblankSync
           NAME = :vblank_sync
+          PLAIN_NAME = "a game loop that never waits for the screen"
 
           PROBLEM =
             "This game loop never waits for the screen to refresh. So it runs " \

@@ -20,6 +20,7 @@ module RubyGBA
         # returns) falls through to the next line, and off the end if it's last.
         class Termination
           NAME = :termination
+          PLAIN_NAME = "a program that runs off the end"
 
           # Definitions emit nothing on their own and don't execute in line, so
           # they can't be what stops the program — skip them when judging the flow.

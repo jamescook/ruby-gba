@@ -30,6 +30,7 @@ module RubyGBA
         # stack describes, and the stack is the one line a reader trusts for this.
         class StackNotHonored
           NAME = :stack_not_honored
+          PLAIN_NAME = "a stack the screen cannot show"
 
           # @param sprites [Array<Sprite>] the build's software sprites, in the order
           #   they were declared — a sprite's layer lives on its handle rather than in

@@ -19,6 +19,7 @@ module RubyGBA
         # rough and the build still produces a ROM.
         class BudgetThreshold
           NAME = :budget_threshold
+          PLAIN_NAME = "how big a collection can get"
 
           def detect(program)
             CostModel.new.budget_thresholds(program).map do |threshold|

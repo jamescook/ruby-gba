@@ -24,6 +24,7 @@ module RubyGBA
         # — there's no legitimate cause to weigh against.
         class OrphanedCondition
           NAME = :orphaned_condition
+          PLAIN_NAME = "a test nothing branched on"
 
           # @param pending [Array<Condition>] the Conditions built but never used
           def initialize(pending)

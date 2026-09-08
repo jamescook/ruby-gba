@@ -81,6 +81,7 @@ module RubyGBA
         # frame boundary. A declared routine with no call to it is exactly this bug.
         class NeedsGameLoop
           NAME = :shake_needs_game_loop
+          PLAIN_NAME = "a shake with no frames to run on"
 
           MESSAGE =
             "This game shakes the screen with `shake_screen`, but it has no " \

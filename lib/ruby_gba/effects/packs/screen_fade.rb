@@ -172,6 +172,7 @@ module RubyGBA
         # warning, and the call looks right where it is written.
         class NeedsGameLoop
           NAME = :fade_needs_game_loop
+          PLAIN_NAME = "a fade with no frames to run on"
 
           MESSAGE =
             "This game fades the screen with `fade_out`, `fade_in` or `flash_screen`, " \
@@ -220,6 +221,7 @@ module RubyGBA
         # `flash_screen` write zero, and nothing else writes that variable at all.
         class FadedOutNeverIn
           NAME = :faded_out_never_in
+          PLAIN_NAME = "a fade out with no fade in"
 
           MESSAGE =
             "This game calls `fade_out` and never calls `fade_in`. A full fade blends " \

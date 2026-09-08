@@ -77,6 +77,7 @@ module RubyGBA
         # nothing looks broken and nothing moves.
         class NeedsGameLoop
           NAME = :pulse_needs_game_loop
+          PLAIN_NAME = "a pulse with no frames to run on"
 
           MESSAGE =
             "This game pulses a sprite with `pulse`, but it has no `game_loop`. A pulse " \

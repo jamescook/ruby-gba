@@ -15,6 +15,7 @@ module RubyGBA
         # bitmap mode for you and leave a warning.
         class ScreenModeSet
           NAME = :screen_mode_set
+          PLAIN_NAME = "drawing with no screen picked"
 
           PROBLEM =
             "This program draws to the screen but never picks a screen mode. On the " \

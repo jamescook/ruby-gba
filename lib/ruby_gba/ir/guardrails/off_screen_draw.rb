@@ -19,6 +19,7 @@ module RubyGBA
         # clipped safely then), so it's left alone here.
         class OffScreenDraw
           NAME = :off_screen_draw
+          PLAIN_NAME = "drawing off the screen"
 
           SCREEN_W = Screen::WIDTH
           SCREEN_H = Screen::HEIGHT

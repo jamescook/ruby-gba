@@ -20,6 +20,7 @@ module RubyGBA
         # wrote by hand. Advisory.
         class ManualSpriteBlit
           NAME = :manual_sprite_blit
+          PLAIN_NAME = "a sprite drawn by hand"
 
           SPRITE_OPS = %i[save_region restore_region].freeze
 
