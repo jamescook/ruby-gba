@@ -37,7 +37,7 @@ module RubyGBA
         @domains.emit_domain_banner(printer, program)
         @verdicts.emit_residual_banner(printer, program, measured)
         printer.puts header_line(measured)
-        printer.puts "  per frame ~ #{CostModel.fmt(frame_total)} scanlines" # the roll-up; the verdict/red is at the bottom
+        frame_totals_lines(program, printer, frame_total)
         tree.each { |cat| category_line(cat, printer, frame_total) } # section subtotals, no detail
         glyph_footprint_lines(program, printer)
         budget_summary_lines(program, printer, frame_total, measured: measured)
@@ -58,7 +58,7 @@ module RubyGBA
         if focus
           printer.puts "  func :#{focus} ~ #{CostModel.fmt(frame_total)} scanlines"
         else
-          printer.puts "  per frame ~ #{CostModel.fmt(frame_total)} scanlines" # the roll-up; the verdict/red is at the bottom
+          frame_totals_lines(program, printer, frame_total)
         end
         render_category_tree(tree, printer, frame_total, max_depth)
         render_hottest(tree, printer, top)
@@ -67,6 +67,27 @@ module RubyGBA
         fast_memory_lines(program, printer) unless focus
         column_stretch_lines(printer) unless focus
         budget_summary_lines(program, printer, frame_total, measured: measured) unless focus
+      end
+
+      # THE TWO FRAMES, named, at the top. They can be a factor apart — a game whose work
+      # sits behind `every 6` pays a sixth of it on a normal frame — and the report used to
+      # lead with the worst one and judge the every-frame one at the bottom, so the headline
+      # and the verdict were different frames with nothing saying so.
+      #
+      # The every-frame figure goes first because it is the one the budget judges and the
+      # one a player feels. The worst frame stays, because the console has to survive it and
+      # because it is what the tree below prices; naming it here is what stops the tree
+      # reading as the cost of playing. Only one line when they are the same, which is most
+      # games — a program with nothing timed or branched pays the same every frame.
+      def frame_totals_lines(program, printer, frame_total)
+        recurring = steady_cost(program) + @verdicts.standing_costs(program)
+        unless @verdicts.looping?(program) && frame_total > recurring + 0.1
+          printer.puts "  per frame ~ #{CostModel.fmt(frame_total)} scanlines"
+          return
+        end
+
+        printer.puts "  every frame ~ #{CostModel.fmt(recurring)} scanlines   (what the budget below judges)"
+        printer.puts "  worst frame ~ #{CostModel.fmt(frame_total)} scanlines   (the tree below prices this one)"
       end
 
       # The report header. The cost TREE below is always the static estimate (the per-op
@@ -430,7 +451,12 @@ module RubyGBA
         hot = Tree.hot_ops(tree, top)
         return if hot.empty?
 
-        printer.puts "  hottest:"
+        # ON AN AVERAGE FRAME, which is not the frame the tree above prices. The tree shows
+        # what each thing costs on the frame it runs; this ranks what a frame really pays,
+        # so a body that fires one frame in six is counted at a sixth. That is the list to
+        # act on — the tree says where the work is, this says where the time goes — and the
+        # two disagreeing is the point rather than a slip.
+        printer.puts "  hottest, on an average frame:"
         # The count is how many times a FRAME runs it — 30 wall divides, not one in a
         # body that happens to loop — which is often the number that explains the cost.
         labels = hot.map { |h| h.count > 1 ? "#{h.name} ×#{h.count}" : h.name.to_s }
@@ -493,11 +519,6 @@ module RubyGBA
         live_slot_line(program, printer)
         early_exit_line(program, printer)
         stretched_column_line(program, printer)
-
-        if frame_total > recurring + 0.1
-          printer.puts "    (a heavier frame reaches #{CostModel.fmt(frame_total)} — the worst case for everything on it, " \
-                       "not the every-frame cost)"
-        end
 
         if measured
           blind_spot_note(program, printer)
@@ -765,10 +786,26 @@ module RubyGBA
       def render_tree(nodes, depth, printer, frame_total)
         nodes.each do |node|
           tag = node.collapsed ? "  (+#{node.collapsed} ops collapsed)" : ""
-          printer.cost_line(("  " * depth) + node.label + tag, CostModel.fmt(node.cost),
+          printer.cost_line(("  " * depth) + node.label + tag + how_often(node), CostModel.fmt(node.cost),
                             severity: heat_for(node.cost, frame_total), group: node.op == :group)
           render_tree(node.children, depth + 1, printer, frame_total) unless node.children.empty?
         end
+      end
+
+      # A body that does not run every frame says so on its own line, with what it really
+      # costs an average one. This is the bridge between the two totals at the top: a tree
+      # that adds up to the worst frame, with the lines that are not in a normal frame
+      # marked, so a reader can see WHERE the difference went instead of being told twice
+      # that there is one.
+      # Timed triggers only. A scene branch also carries a factor — one scene runs a frame
+      # and the estimate charges the dearest, so the others weigh nothing — but saying that
+      # on the branch line needs more words than the label column has, and the case line
+      # above it already shows the total matching the dearest arm. Left as it was.
+      def how_often(node)
+        return "" unless %i[every after].include?(node.op)
+        return "  (once, not every frame)" if node.passes.zero?
+
+        "  (~#{CostModel.fmt(node.cost * node.passes)} on an average frame)"
       end
 
       def heat_for(cost, frame_total)

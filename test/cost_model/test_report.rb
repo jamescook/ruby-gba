@@ -94,6 +94,60 @@ class TestCostReport < CostModelTest
     assert_match(/divide \(worked out\) ×30/, text, "and the hottest list counts a frame's worth")
   end
 
+  # WHICH FRAME EACH NUMBER IS ABOUT. The tree prices the frame a thing runs on; the budget
+  # judges what every frame pays. Those are different numbers whenever work sits behind a
+  # timed trigger, and the report used to lead with the first and judge the second with
+  # nothing at the top saying so.
+  def timed_game
+    program do
+      screen :bitmap
+      total = var :total, 0
+      b = self
+      game_loop do
+        b.every(6) { b.repeat(200) { total.add 1 } }
+        total.add 1
+      end
+    end
+  end
+
+  def test_the_two_frames_are_named_apart_at_the_top
+    text = rendered(timed_game)
+
+    assert_match(/every frame ~\s*[\d.]+ scanlines\s+\(what the budget below judges\)/, text)
+    assert_match(/worst frame ~\s*[\d.]+ scanlines\s+\(the tree below prices this one\)/, text)
+  end
+
+  # ...and a body that does not run every frame carries what it really costs one, which is
+  # what joins the two totals up.
+  def test_a_timed_body_says_what_an_average_frame_pays_for_it
+    assert_match(/every 6\s+\(~[\d.]+ on an average frame\)/, rendered(timed_game))
+  end
+
+  # The hottest list is the one a reader acts on, so it ranks the frame the player pays for:
+  # a body firing one frame in six is counted at a sixth, not whole.
+  def test_the_hottest_list_ranks_an_average_frame
+    text = rendered(timed_game)
+    hottest = text[/hottest[^\n]*:.*/m]
+
+    assert_match(/hottest, on an average frame:/, text)
+    # 200 passes one frame in six is about 33 an average frame, not 200.
+    assert_match(/×3[0-9]\b/, hottest, "a sixth of two hundred, not two hundred")
+    refute_match(/×200\b/, hottest, "counting it whole is the frame nobody plays")
+  end
+
+  # A program with nothing timed pays the same every frame, and then one line says it once
+  # rather than two lines saying it twice.
+  def test_a_game_with_one_frame_says_it_once
+    text = rendered(program do
+      screen :bitmap
+      total = var :total, 0
+      game_loop { total.add 1 }
+    end)
+
+    assert_match(/per frame ~/, text)
+    refute_match(/worst frame/, text)
+  end
+
   # Dropping the walk from the recurring load is only safe while the ceiling is still
   # stated. A game CAN reach it, so the estimate says so instead of quietly losing it.
   def test_the_estimate_names_the_collision_worst_case
@@ -170,7 +224,7 @@ class TestCostReport < CostModelTest
     end
     io = StringIO.new
     rom.cost_model.render(rom.source_program, out: io, color: false)
-    hottest = io.string[/hottest:.*/m]
+    hottest = io.string[/hottest[^\n]*:.*/m]
 
     assert_match(/the loop itself \(in registers\) ×64/, hottest)
     assert_match(/the loop itself \(in registers, saved and put back\) ×64/, hottest)

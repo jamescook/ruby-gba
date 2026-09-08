@@ -310,11 +310,17 @@ module RubyGBA
         end
 
         # One line of the hottest list, from every [leaf, times] pair sharing an op kind.
+        #
+        # The count is rounded because a body that fires one frame in six contributes a
+        # sixth of its statements to an average frame, and "×2045/3" is not a thing anyone
+        # does. Rounded up while it is above zero, so a statement an average frame really
+        # does reach never reads as ×0.
         def self.hot_row(op, rows)
           first, = rows.first
+          times = rows.sum { |leaf, times| (leaf.count || 1) * times }
           Entry.new(op: op, name: name_of(first),
                     cost: rows.sum { |leaf, times| leaf.cost * times },
-                    count: rows.sum { |leaf, times| (leaf.count || 1) * times })
+                    count: times.positive? ? [times.round, 1].max : 0)
         end
 
         # Every leaf in the tree paired with how many times a frame reaches it: the loop
