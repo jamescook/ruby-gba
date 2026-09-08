@@ -693,6 +693,27 @@ module Wolf3D
       # is the one to have there.
       @b.func(:cast_the_walls, fast: true) do
         @b.inside 0, 0, ACROSS, VIEW_H do
+          # THE CEILING AND THE FLOOR, PAINTED WHOLE AND THEN PAINTED OVER. Every wall column
+          # below covers part of this, so much of these two fills never reaches the player.
+          # Filling only what each strip leaves bare — the obvious saving — was written and
+          # measured, drew pixel for pixel the same view, and is SLOWER: about twice what these
+          # two cost, for half the pixels.
+          #
+          # THE REASON IS THE SHAPE RATHER THAN THE PIXEL COUNT, and it is why nobody should try
+          # it again. These two are full-width, so each is one unbroken run of memory — the top
+          # half of the view is 240 pixels a row with nothing between one row and the next — and
+          # a copying engine fills a run like that in a single transfer while the processor sits
+          # frozen. A four-pixel strip is not a run at all: its rows lie 240 pixels apart, so
+          # filling one means walking down the screen a row at a time with an address to work out
+          # for each, and a rect that narrow costs the same per row as one four times as wide
+          # because almost none of that is the pixels (see Buffered#emit_row_address_setup).
+          # Sixty strips is sixty times the rows for half the pixels, and rows are what is paid.
+          #
+          # WHAT THEY ARE WORTH, measured over a full turn on the first floor: about a fourteenth
+          # of a pass, nearly all of it the processor waiting on the copying engine rather than
+          # executing. That is also the ceiling on the whole idea — a cartridge built with these
+          # two lines simply deleted is only that much faster — so there is nothing here worth a
+          # second attempt.
           @b.dma_fill_rect 0, 0, ACROSS, HORIZON, CEILING
           @b.dma_fill_rect 0, HORIZON, ACROSS, VIEW_H - HORIZON, FLOOR_COLOR
           where_the_eye_stands
