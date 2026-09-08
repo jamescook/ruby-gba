@@ -95,14 +95,12 @@ class TestStatusBar < Minitest::Test
   #
   # A RING OF GUARDS RATHER THAN ONE, because this has to be played all the way to a death and one
   # guard takes several hundred frames to manage it — every one of which draws the whole view.
-  # Six standing round the player do it in a fifth of that. The step budget is raised to match:
-  # left alone the oracle stops after about a hundred and fifty frames of this, and a test that
-  # was cut short before anything happened would pass by saying nothing.
+  # Six standing round the player do it in a fifth of that.
   RING = [[9, 8, :west], [7, 8, :east], [8, 9, :north], [8, 7, :south],
           [9, 9, :west], [7, 7, :east]].freeze
 
   def test_the_lives_on_the_bar_come_down_when_you_die
-    died = Reference.new.run(view_of(arena(guards: RING)), frames: 210, max_steps: 8_000_000)
+    died = Reference.new.run(view_of(arena(guards: RING)), frames: 210)
 
     assert_equal Wolf3D::Lives::START - 1, died[:lives], "one go should have been spent by now"
     assert_equal died[:lives], figure(died, :lives), "and the bar should say what is left"
@@ -210,12 +208,22 @@ class TestStatusBar < Minitest::Test
   end
 
   # ...and a hurt player gets a different one. Which one is the release's business; that it
-  # CHANGES is this bead's.
-  def test_a_hurt_player_gets_a_different_face
-    healthy = face_pixels(Reference.new.run(view_of(arena, art: art), frames: 2), art)
-    hurt = face_pixels(watch(frames: 200, guards: RING, art: art), art)
+  # CHANGES is what this asks.
+  #
+  # HURT AND STILL STANDING, which the test reads back rather than trusting a frame count to
+  # land there: a ring of six takes the player down in about a hundred frames, and dying starts
+  # the floor again at a fresh hundred of health — so a run left to play on long enough comes
+  # back wearing the HEALTHY face, and the test would fail with nothing wrong.
+  HURT_BUT_ALIVE = 80
 
-    refute_equal healthy, hurt, "being shot at should change the face"
+  def test_a_hurt_player_gets_a_different_face
+    healthy = Reference.new.run(view_of(arena, art: art), frames: 2)
+    hurt = watch(frames: HURT_BUT_ALIVE, guards: RING, art: art)
+
+    assert_operator hurt[:health], :<, FP::START_HEALTH, "he should have been hit by now"
+    assert_operator hurt[:health], :>, 0, "and still be on his feet, or the face is a fresh one"
+    refute_equal face_pixels(healthy, art), face_pixels(hurt, art),
+                 "being shot at should change the face"
   end
 
   # A KEY IN THE GAME'S OWN PICTURE, which is the other thing on the bar drawn out of a row of

@@ -144,7 +144,7 @@ class TestHearing < Minitest::Test
 
     passes = shot_lands_on
     oracle = Reference.new.input_each_frame { |f| tapping(f) }
-                     .run(program, frames: passes + 1, max_steps: 20_000_000)
+                     .run(program, frames: passes + 1)
     console = RubyGBA::Verifier.new(rom, frames: (passes + 1) * 3,
                                          keys: ->(f) { f == 3 ? RubyGBA::Constants::KEY_B : 0 },
                                          vars: backend.var_addresses)
@@ -201,21 +201,19 @@ class TestHearing < Minitest::Test
   # screen, so a run with nothing drawn is one where a knife can never land at all.
   def play(firing:, knife: false, frames: REACTED, drawn: knife, **)
     Reference.new.input_each_frame { |f| firing ? tapping(f, knife: knife) : [] }
-             .run(game(arena(**), drawing: drawn), frames: frames,
-                  max_steps: drawn ? frames * 50_000 : 60_000_000)
+             .run(game(arena(**), drawing: drawn), frames: frames)
   end
 
   # ...and the two-room level is WATCHED rather than only played, because the far man has to be
   # drawn before he will think at all. See the test.
   def watch_two_rooms(firing:)
     Reference.new.input_each_frame { |f| firing ? tapping(f) : [] }
-             .run(game(two_rooms, drawing: true), frames: REACTED, max_steps: 200_000_000)
+             .run(game(two_rooms, drawing: true), frames: REACTED)
   end
 
   def noise_after(passes)
     Reference.new.input_each_frame { |f| tapping(f) }
-             .run(game(arena(guards: [[*LISTENER, :east]])), frames: passes + 1,
-                  max_steps: 20_000_000)[:noise]
+             .run(game(arena(guards: [[*LISTENER, :east]])), frames: passes + 1)[:noise]
   end
 
   # A WALLED FIELD, all one room, with the player facing east and whatever you name standing in

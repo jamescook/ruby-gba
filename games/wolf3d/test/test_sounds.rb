@@ -59,7 +59,7 @@ class TestSounds < Minitest::Test
   def test_a_build_with_no_copy_of_the_game_is_silent_and_still_builds
     level = arena(guards: [[11, 8, :west]])
     run = Reference.new.input_each_frame { |f| f == 4 ? [:b] : [] }
-                   .run(view_of(level, chunks: nil), frames: 8, max_steps: 4_000_000)
+                   .run(view_of(level, chunks: nil), frames: 8)
 
     assert_empty run.active_samples, "nothing to play, and nothing broken by having nothing"
   end
@@ -203,8 +203,7 @@ class TestSounds < Minitest::Test
   # the renderer put on the screen. So one test draws and the rest stay cheap.
   def play_it(frames:, guards: [], chunks: Chunks.new(ALL), drawn: false, &script)
     Reference.new.input_each_frame(&script)
-             .run(view_of(arena(guards: guards), chunks: chunks, drawing: drawn), frames: frames,
-                  max_steps: drawn ? frames * 50_000 : 8_000_000)
+             .run(view_of(arena(guards: guards), chunks: chunks, drawing: drawn), frames: frames)
   end
 
   # WHAT SOUNDED AT ANY POINT over a run, rather than what happens to be sounding at the end.
@@ -242,6 +241,6 @@ class TestSounds < Minitest::Test
       next [:up] if f < press
 
       []
-    end.run(view_of(fixture_level), frames: frames, max_steps: 8_000_000)
+    end.run(view_of(fixture_level), frames: frames)
   end
 end

@@ -83,7 +83,7 @@ class TestTally < Minitest::Test
 
   def walk_east(level, cells:)
     program, view = view_of(level)
-    [Reference.new.input_each_frame { [:up] }.run(program, frames: cells(cells), max_steps: 8_000_000), view]
+    [Reference.new.input_each_frame { [:up] }.run(program, frames: cells(cells)), view]
   end
 
   # --- what there was to find ---
@@ -150,7 +150,7 @@ class TestTally < Minitest::Test
   # runs off one would not be two readings of the same start.
   def shove(program, frames)
     Reference.new.input_each_frame { |f| f > 2 ? %i[up a] : [:up] }
-             .run(program, frames: frames, max_steps: 8_000_000)
+             .run(program, frames: frames)
   end
 
   def test_shoving_a_secret_wall_counts_once
@@ -167,7 +167,7 @@ class TestTally < Minitest::Test
     level = arena(guards: [[9, ROW, :west]])
     program, = view_of(level, drawn: true)
     run = Reference.new.input_each_frame { |f| (f / 2).even? ? [:b] : [] }
-                   .run(program, frames: 120, max_steps: 120 * 50_000)
+                   .run(program, frames: 120)
 
     assert_equal 1, run[:kills], "one guard down"
     assert_equal Guards::POINTS, run[:score], "and he was worth a hundred, which is separate"

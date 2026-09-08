@@ -58,7 +58,7 @@ class TestWeapons < Minitest::Test
   # the top of it. The fixture paints every picture one flat colour of its own, so the colour on
   # the screen says which of the twenty was drawn.
   def test_the_gun_is_drawn_at_the_bottom_middle_of_the_view
-    run = Reference.new.run(program(drawing: true), frames: 3, max_steps: 8_000_000)
+    run = Reference.new.run(program(drawing: true), frames: 3)
 
     assert_equal frame_colour(Weapons::PISTOL, 0), run.screen.pixel(*where_the_gun_is),
                  "the pistol at rest, in your hands"
@@ -87,7 +87,7 @@ class TestWeapons < Minitest::Test
 
   def test_holding_the_trigger_down_fires_a_pistol_once
     held = Reference.new.input_each_frame { [:b] }
-                   .run(program, frames: Weapons::CYCLE * 4, max_steps: 20_000_000)
+                   .run(program, frames: Weapons::CYCLE * 4)
 
     assert_equal FP::START_AMMO - 1, held[:ammo],
                  "a pistol is one press one round, however long you lean on it"
@@ -182,7 +182,7 @@ class TestWeapons < Minitest::Test
 
   def test_a_knife_costs_no_ammunition
     swung = Reference.new.input_each_frame { |f| swinging(f, with_knife: true) }
-                    .run(program, frames: Weapons::CYCLE * 3, max_steps: 20_000_000)
+                    .run(program, frames: Weapons::CYCLE * 3)
 
     assert_equal Weapons::KNIFE, swung[:weapon]
     assert_equal FP::START_AMMO, swung[:ammo], "a knife spends nothing"
@@ -196,7 +196,7 @@ class TestWeapons < Minitest::Test
     backend = GBA.new
     rom = ROM.assemble(backend.lower(built), title: "WEAPON", code: "ZWPN", maker: "01")
 
-    interp = Reference.new.run(built, frames: 3, max_steps: 8_000_000)
+    interp = Reference.new.run(built, frames: 3)
     gba = RubyGBA::Verifier.new(rom, frames: 8)
 
     across = (Weapons::LEFT...(Weapons::LEFT + FP::VIEW_H)).step(4).to_a
@@ -238,15 +238,14 @@ class TestWeapons < Minitest::Test
   # before it for the button to have been up on.
   def tap_once(passes:, drawing: false)
     Reference.new.input_each_frame { |f| f == 1 ? [:b] : [] }
-             .run(program(drawing: drawing), frames: passes + 2, max_steps: 20_000_000)
+             .run(program(drawing: drawing), frames: passes + 2)
   end
 
   # Press each of these in turn, a pass apart, with the button up between them so every one is
   # read as a press of its own.
   def pressing(*presses, drawing: false)
     Reference.new.input_each_frame { |f| f.odd? ? (presses[f / 2] || []) : [] }
-             .run(program(drawing: drawing), frames: (presses.length * 2) + 4,
-                  max_steps: 20_000_000)
+             .run(program(drawing: drawing), frames: (presses.length * 2) + 4)
   end
 
   # Fire until the pistol is empty, and then — if asked — walk on to the clip lying ahead.
@@ -254,14 +253,13 @@ class TestWeapons < Minitest::Test
     emptying = Weapons::CYCLE * (FP::START_AMMO + 1)
     walking = then_walking ? passes_to_cross(2) : 0
     Reference.new.input_each_frame { |f| f < emptying ? (f.even? ? [:b] : []) : [:up] }
-             .run(program(ahead: [CLIP]), frames: emptying + walking, max_steps: 60_000_000)
+             .run(program(ahead: [CLIP]), frames: emptying + walking)
   end
 
   # Walk east over whatever is laid out in front of you, far enough to cross all of it.
   def walk_over(ahead)
     Reference.new.input_each_frame { [:up] }
-             .run(program(ahead: ahead), frames: passes_to_cross(ahead.length + 1),
-                  max_steps: 40_000_000)
+             .run(program(ahead: ahead), frames: passes_to_cross(ahead.length + 1))
   end
 
   # Take the gun lying in front of you, then lean on the trigger and count what it puts out.
@@ -269,7 +267,7 @@ class TestWeapons < Minitest::Test
     walked = passes_to_cross(2)
     holding = Weapons::CYCLE * 2
     run = Reference.new.input_each_frame { |f| f < walked ? [:up] : [:b] }
-                  .run(program(ahead: [gun]), frames: walked + holding, max_steps: 60_000_000)
+                  .run(program(ahead: [gun]), frames: walked + holding)
 
     FP::START_AMMO + Pickups::WEAPON_ROUNDS - run[:ammo]
   end
@@ -282,8 +280,7 @@ class TestWeapons < Minitest::Test
   def attack_a_guard(with_knife:)
     frames = Weapons::CYCLE * 4
     run = Reference.new.input_each_frame { |f| swinging(f, with_knife: with_knife) }
-                  .run(program(guards: [[9, 8, :west]], drawing: true), frames: frames,
-                       max_steps: frames * 50_000)
+                  .run(program(guards: [[9, 8, :west]], drawing: true), frames: frames)
     run.instance_variable_get(:@lists)[:__pool_guard_hp].get(0)
   end
 

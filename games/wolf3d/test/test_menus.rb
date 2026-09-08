@@ -436,7 +436,7 @@ class TestMenus < Minitest::Test
   def play(frames:, program: self.class.program, &script)
     runner = Reference.new
     runner.input_each_frame(&script) if script
-    runner.run(program, frames: frames, max_steps: 40_000_000)
+    runner.run(program, frames: frames)
   end
 
   # A press on frame 2 opens the menu; anything the caller wants happens after that.
