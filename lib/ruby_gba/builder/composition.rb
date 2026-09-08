@@ -70,18 +70,57 @@ module RubyGBA
       # @param estimate [Hash, nil] what the estimate cannot know — today `usually:` (Integer or Range)
       # @param fields [Hash{Symbol=>Object}] field name => default value
       # @return [Pool]
-      def pool(name, capacity:, image: nil, on_full: :drop, estimate: nil, **fields)
+      def pool(name, capacity:, image: nil, on_full: :drop, estimate: nil, widths: {}, **fields)
         validate_pool!(name, capacity, fields)
         validate_on_full!(name, on_full)
+        validate_pool_widths!(name, fields, widths)
         hitbox = image && spriteful_hitbox!(name, image, fields)
         handle = Pool.new(self, name, fields, capacity, image: image, hitbox: hitbox, on_full: on_full,
                                                         usually: usual_length(estimate, capacity))
-        setup_pool_storage(handle, capacity, fields)
+        setup_pool_storage(handle, capacity, fields, widths)
         setup_pool_sprites(handle, capacity) if image
         handle
       end
 
       private
+
+      # `widths:` names the fields that hold less than a whole 32-bit number, which is nearly
+      # all of them in a real game — a direction, a state number, a countdown, how many hit
+      # points are left, and every plain yes-or-no flag fit in a byte. A pool is one list per
+      # field, so a byte-wide field is a quarter of the memory of a word-wide one, and on a
+      # pool of any size that is the difference between the game's hot code fitting in the
+      # console's fast memory and not.
+      def validate_pool_widths!(name, fields, widths)
+        unless widths.is_a?(Hash)
+          raise ArgumentError,
+                "pool :#{name} got widths: #{widths.inspect}. widths: names a field and how big it is, " \
+                "like widths: { dir: :byte, hp: :byte }."
+        end
+        unknown = widths.keys - fields.keys
+        unless unknown.empty?
+          raise ArgumentError,
+                "pool :#{name} gives a width for :#{unknown.first}, which is not one of its fields. " \
+                "Its fields are #{fields.keys.join(', ')}."
+        end
+        bad = widths.find { |_, width| !Build::ELEMENT_BYTES.key?(width) }
+        return if bad.nil?
+
+        raise ArgumentError,
+              "pool :#{name} gives field :#{bad.first} the width #{bad.last.inspect}. A width must be " \
+              ":byte (0..255), :half (0..65535) or :word."
+      end
+
+      # A field that carries a fraction cannot be narrowed by this, and saying so is better
+      # than a game quietly losing the bottom of every speed: the scale a fraction is kept at
+      # already uses most of a word.
+      def check_width_holds_fractions!(name, field, default, width)
+        return if width == :word || Fraction.bits_of(default).nil?
+
+        raise ArgumentError,
+              "pool :#{name} gives field :#{field} the width :#{width}, but it was declared with " \
+              "#{default.inspect}, so it holds a fraction. A fraction needs a whole word. Remove the " \
+              "width, or declare the field with a whole number."
+      end
 
       def validate_pool!(name, capacity, fields)
         raise ArgumentError, "A pool needs a name that is a Symbol. Got #{name.inspect}." unless name.is_a?(Symbol)
@@ -159,10 +198,24 @@ module RubyGBA
       # Create the backing lists once at boot — not where `pool` is written, so a pool
       # declared inside a scene is still set up once rather than re-created every frame —
       # and fill every slot so each field is randomly addressable from the start.
-      def setup_pool_storage(pool, capacity, fields)
-        lists = fields.keys.map { |f| pool.field_list(f) } + [pool.active_list, pool.free_list]
-        lists << pool.born_list if pool.recycle_oldest? # a per-slot age stamp for the oldest scan
-        lists.each { |list_name| at_boot(Build.list_new(list_name, capacity)) }
+      def setup_pool_storage(pool, capacity, fields, widths = {})
+        fields.each_key do |field|
+          check_width_holds_fractions!(pool.name, field, fields[field], widths.fetch(field, :word))
+          at_boot(Build.list_new(pool.field_list(field), capacity,
+                                 width: widths.fetch(field, :word)))
+        end
+
+        # THE POOL'S OWN BOOKKEEPING IS NARROWED WITHOUT BEING ASKED, because unlike a field
+        # the framework knows exactly what these hold. The active column is a yes or a no, so
+        # it is a byte whatever the pool is; the free stack holds slot numbers, so it is as
+        # wide as the largest slot number needs and no wider. Together they are two of a
+        # pool's lists — on one with a dozen fields that is a modest saving, and on a small
+        # one it is a sixth of the whole pool, for nothing anybody has to write.
+        at_boot(Build.list_new(pool.active_list, capacity, width: :byte))
+        at_boot(Build.list_new(pool.free_list, capacity, width: slot_width(capacity)))
+        # ...but the age stamp is a spawn counter that rises for the whole game, so it stays
+        # a word: narrowing it would wrap, and two instances would then look the same age.
+        at_boot(Build.list_new(pool.born_list, capacity)) if pool.recycle_oldest?
         ensure_var(pool.count_var)
         ensure_var(pool.slot_var)
         at_boot(Build.set(pool.count_var, Build.int(0)))
@@ -171,6 +224,15 @@ module RubyGBA
           at_boot(Build.set(pool.seq_var, Build.int(0))) # the monotonic spawn counter starts at 0
         end
         at_boot(build_pool_fill(pool, capacity, fields))
+      end
+
+      # How wide a slot NUMBER has to be for a pool of this size — the free stack holds one
+      # per entry, and the largest it ever holds is one less than the capacity.
+      def slot_width(capacity)
+        return :byte if capacity <= 256
+        return :half if capacity <= 65_536
+
+        :word
       end
 
       # A boot loop that pushes one slot per iteration: 0 into every field and the active

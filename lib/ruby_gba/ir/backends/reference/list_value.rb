@@ -18,8 +18,15 @@ module RubyGBA
         class ListValue
           attr_reader :capacity
 
-          def initialize(capacity)
+          # +width+ says how big one slot is. A `:word` list holds whole 32-bit numbers and is
+          # what almost everything is; a narrower one holds less, and holding less is the point
+          # of asking for it — a quarter or a half of the memory. A narrow slot can always go
+          # below nothing (see Build.element_range for why there is no choice about that), and
+          # what it does with a number too big for it is the interesting part: it does what the
+          # console does, keeping the low bits and dropping the rest. See #fit.
+          def initialize(capacity, width: :word)
             @capacity = capacity
+            @low, @high = Build.element_range(width)
             @items = []
           end
 
@@ -44,7 +51,7 @@ module RubyGBA
 
           # Append a value at the end (caller ensures there's room).
           def push(value)
-            @items.push(value)
+            @items.push(fit(value))
           end
 
           # The value at an index (caller ensures the index is in range).
@@ -54,7 +61,7 @@ module RubyGBA
 
           # Overwrite the value at an index (caller ensures the index is in range).
           def set(index, value)
-            @items[index] = value
+            @items[index] = fit(value)
           end
 
           # Remove and return the oldest item (the front). Caller ensures the list
@@ -67,6 +74,21 @@ module RubyGBA
           # isn't empty.
           def pop
             @items.pop
+          end
+
+          private
+
+          # WHAT A SLOT REALLY HOLDS once a number has been put in it. A word-wide slot holds
+          # the number; a narrower one keeps the low bits that fit and drops the rest, which is
+          # what the console's byte and halfword stores do and so is what this has to do to
+          # agree with it. The value comes back the way the console's sign-extending load reads
+          # it, so 200 in a byte slot is -56 on both backends rather than 200 here and -56
+          # there — the two agreeing about what was dropped is the whole of the contract.
+          def fit(value)
+            span = @high - @low + 1
+            return value if span > 0xFFFF_FFFF
+
+            @low + ((value - @low) % span)
           end
         end
       end

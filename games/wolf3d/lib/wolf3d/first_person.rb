@@ -120,6 +120,35 @@ module Wolf3D
     # Which bit of what the player carries each key is.
     KEY_BITS = { gold: 1, silver: 2 }.freeze
 
+    # HOW BIG EACH OF A GUARD'S FIELDS REALLY NEEDS TO BE. A pool is one list per field and a
+    # slot is a whole 32-bit number unless it is told otherwise, so the guards were taking four
+    # bytes each to keep a direction, a flag, or how many hit points are left. Ten of the
+    # thirteen hold far less than that, and on a cartridge carrying every floor the pool is
+    # sized for the busiest one — so what those ten cost is memory the placement chooser would
+    # otherwise be giving to the code the frame runs in.
+    #
+    # EVERY RANGE HERE IS READ OFF THE GAME rather than guessed, and the three countdowns are
+    # why that matters. `ticks` and `wait` and `hp` are all written by taking something off and
+    # THEN testing against nothing, so each really does hold a negative number for the length
+    # of its own test. A narrow slot goes below nothing for exactly that reason (see the
+    # framework's `list`), which the first two fit inside a byte:
+    #
+    #   dir      0..7      which way he faces
+    #   state    0..117    every kind's states end to end — a state number IS the kind
+    #   ticks    -7..60    the longest state, less one think
+    #   hp       -64..100  an SS starts at 100 and a shot can take him past nothing
+    #   turn     0..1      which half of the guards think on this frame
+    #   dropped  0..2      nothing, a clip, or a machine gun
+    #   shown, awake, ambush   yes or no
+    #
+    # `wait` is the one that does not fit: a reaction is up to 192 units and it is counted
+    # down the same way, so it wants -7..192 and a byte stops at 127. It takes a half instead,
+    # which is still half of what it took. And x, y and togo carry fractions, which need the
+    # whole word — a fraction is mostly its own fractional part.
+    GUARD_WIDTHS = { dir: :byte, state: :byte, ticks: :byte, hp: :byte, turn: :byte,
+                     dropped: :byte, shown: :byte, awake: :byte, ambush: :byte,
+                     wait: :half }.freeze
+
     TEX = WallAtlas::SIDE # a wall picture is this many columns across...
     PAIR = TEX * 2        # ...and each wall keeps two of them, lit then dark
     ACROSS = 240          # pixels across the screen
@@ -843,7 +872,8 @@ module Wolf3D
       @guard = b.pool :guard, x: 0.0, y: 0.0, dir: 0, state: 0, ticks: 0, wait: 0, togo: 0.0,
                               hp: 0, shown: 0, awake: 0, turn: 0, dropped: 0, ambush: 0,
                               capacity: room_for(:guards),
-                              estimate: { usually: guards_usually_standing }
+                              estimate: { usually: guards_usually_standing },
+                              widths: GUARD_WIDTHS
       # THE FIRST FLOOR'S GUARDS AT BOOT, written out rather than read from the tables, because
       # at boot there is no floor to have started yet. Every floor after this one is filled by
       # #put_the_guards_back from the same tables the first floor's numbers came from.

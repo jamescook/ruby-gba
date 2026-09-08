@@ -435,8 +435,8 @@ module RubyGBA
           when :layers
             nil # a declaration, gathered up front (collect_definitions) — nothing to run
           when :list_new
-            # Create (or reset) the named list, empty, with its rounded capacity.
-            @lists[node.name] = ListValue.new(node.capacity)
+            # Create (or reset) the named list, empty, at its capacity and element width.
+            @lists[node.name] = ListValue.new(node.capacity, width: node.width || :word)
           when :list_push
             exec_list_push(node)
           when :list_drop

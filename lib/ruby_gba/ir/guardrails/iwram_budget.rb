@@ -88,7 +88,10 @@ module RubyGBA
             program.walk do |node|
               next unless node.kind == :list_new
 
-              declarations[node.name] = [(node.capacity + 2) * WORD, node]
+              # ...at the list's own element width, so a byte-wide list is counted as the
+              # quarter of the memory it really takes rather than as a word-wide one.
+              slot = Build::ELEMENT_BYTES.fetch(node.width || :word)
+              declarations[node.name] = [(node.capacity * slot) + (2 * WORD), node]
             end
             declarations
           end

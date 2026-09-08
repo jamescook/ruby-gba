@@ -367,7 +367,7 @@ module RubyGBA
         include Node
         kind :list_new
         category :list
-        operands name: :name, capacity: :int, declared: :int, usually: :int
+        operands name: :name, capacity: :int, declared: :int, usually: :int, width: :option
       end
 
       class ListPush

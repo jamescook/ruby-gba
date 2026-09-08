@@ -335,4 +335,114 @@ class TestList < Minitest::Test
     assert_raises(ArgumentError) { Build.list_new(:x, 8, usually: 0) }
     assert_equal 8, Build.list_new(:x, 8, usually: 8).usually
   end
+
+  # --- a slot narrower than a whole number ----------------------------------------------
+  #
+  # A list slot is a whole 32-bit number unless it is told otherwise, and almost nothing a
+  # game keeps in one needs that much: a direction, a state number, a countdown, a flag. The
+  # point of asking for less is the MEMORY, so what these check is that a narrow slot holds
+  # what it says it holds and hands the same number back that the console would.
+
+  def test_a_byte_slot_holds_a_number_that_fits_it
+    result = interpret do
+      hurt = list :hurt, capacity: 8, width: :byte
+      hurt.push 0
+      hurt.push 100
+      hurt.push 127
+      set :a, hurt[0]
+      set :b, hurt[1]
+      set :c, hurt[2]
+      halt
+    end
+
+    assert_equal [0, 100, 127], [result[:a], result[:b], result[:c]]
+  end
+
+  # A NARROW SLOT GOES BELOW NOTHING WITHOUT BEING ASKED, and this is the case it exists for:
+  # a countdown is written `sub` first and tested second, so it really does hold a negative
+  # number while the test runs. A slot that could not hold one would read -4 back as 252 and
+  # the test would never fire — which is a game that silently stops working, not an error.
+  def test_a_countdown_can_go_below_nothing_in_a_byte_slot
+    result = interpret do
+      wait = list :wait, capacity: 4, width: :byte
+      wait.push 3
+      wait[0] = wait[0] - 7
+      set :a, wait[0]
+      set :b, 0
+      (wait[0] <= 0).then { set :b, 1 }
+      halt
+    end
+
+    assert_equal(-4, result[:a], "three take seven is below nothing and the slot holds it")
+    assert_equal 1, result[:b], "so the countdown's own test fires"
+  end
+
+  # A number too big for its slot keeps the low bits, which is what the console's byte store
+  # does. Silently, because there is nothing else a store CAN do — what stops it being a trap
+  # is that both backends drop exactly the same bits.
+  def test_a_number_too_big_for_a_byte_slot_keeps_the_low_bits
+    result = interpret do
+      hurt = list :hurt, capacity: 4, width: :byte
+      hurt.push 200
+      hurt.push 300
+      set :a, hurt[0]
+      set :b, hurt[1]
+      halt
+    end
+
+    assert_equal(-56, result[:a], "200 does not fit a byte that can go below nothing")
+    assert_equal 44, result[:b], "300 is 256 and 44, and the 256 does not fit"
+  end
+
+  # THERE IS NO WAY TO ASK FOR A SLOT THAT CANNOT GO BELOW NOTHING, on purpose. A `table` can
+  # be asked, because every value in one is known while the cartridge is built; a list's are
+  # written while the game runs, so nothing could check the answer was right — and the wrong
+  # answer breaks countdowns silently.
+  def test_a_narrow_slot_takes_no_signedness_to_get_wrong
+    error = assert_raises(ArgumentError) do
+      Builder.new.instance_eval { list :body, capacity: 8, width: :byte, signed: false }
+    end
+    assert_match(/signed/, error.message)
+  end
+
+  def test_a_half_slot_holds_more_than_a_byte_can
+    result = interpret do
+      big = list :big, capacity: 4, width: :half
+      big.push 32_767
+      big.push(-32_768)
+      set :a, big[0]
+      set :b, big[1]
+      halt
+    end
+
+    assert_equal 32_767, result[:a]
+    assert_equal(-32_768, result[:b])
+  end
+
+  # THE WHOLE POINT, ASSERTED: a narrow list really is smaller in the console's memory. Read
+  # off the backend's own allocator rather than inferred, so nothing can claim the saving
+  # without making it.
+  def test_a_narrow_list_takes_less_of_the_consoles_memory
+    used = { word: nil, half: nil, byte: nil }.keys.to_h do |width|
+      builder = Builder.new
+      builder.instance_eval do
+        list :room, capacity: 256, width: width
+        halt
+      end
+      builder.emit_pending_functions
+      backend = GBA.new
+      backend.lower(builder.program)
+      [width, backend.iwram_high_water]
+    end
+
+    assert_equal 256 * 3, used[:word] - used[:byte], "a byte slot saves three of every four"
+    assert_equal 256 * 2, used[:word] - used[:half], "and a half slot saves two"
+  end
+
+  def test_a_width_the_list_does_not_know_is_refused
+    error = assert_raises(ArgumentError) do
+      Builder.new.instance_eval { list :body, capacity: 8, width: :nibble }
+    end
+    assert_match(/:byte, :half or :word/, error.message)
+  end
 end

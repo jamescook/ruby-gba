@@ -926,7 +926,8 @@ module RubyGBA
               # touches it (anywhere in the tree, including funcs emitted later)
               # already knows its base address and capacity. list_new *executing*
               # only resets it to empty; the storage itself is allocated here.
-              @lists.register_list(node.name, node.capacity, ring: shifted.include?(node.name))
+              @lists.register_list(node.name, node.capacity, ring: shifted.include?(node.name),
+                                                             width: node.width || :word)
             when :backing_buffer
               # Reserve the save-under patch's RAM once, up front, so a save/restore
               # anywhere in the tree already knows its address. Nothing is emitted

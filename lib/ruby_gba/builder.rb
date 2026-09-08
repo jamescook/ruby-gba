@@ -212,13 +212,37 @@ module RubyGBA
     # that moves in halves and quarters never has to pick a scale and carry it by hand. The
     # number itself is only an example — a list still starts empty.
     #
+    # `width:` says HOW BIG ONE SLOT IS, and it is the difference between a list that fits in
+    # the console's fast memory and one that does not. A slot is a whole 32-bit number unless
+    # you say otherwise, and most lists do not hold anything like that much: `:byte` holds
+    # -128..127 and `:half` holds -32768..32767, at a quarter and a half of the memory. A list
+    # of flags, of directions, of which-picture-is-showing, of hit points, of countdowns —
+    # every one of those is a byte, and a game with many of them gets that memory back for
+    # other things.
+    #
+    #   list :hurt, capacity: 64, width: :byte   # 64 bytes, not 256
+    #
+    # A NARROW SLOT ALWAYS GOES BELOW NOTHING, and there is nothing to say about that — it is
+    # not a choice you are given, because there is no way to make it correctly. The case that
+    # decides it is a countdown: `wait.sub 7` followed by `(wait <= 0)` really does hold -4
+    # while that test runs, and a slot that could not go below nothing would read -4 back as
+    # 252 and the test would never fire — a game that quietly stops working. Nothing at build
+    # time can see that coming, since the value is worked out as the game runs. So a `:byte`
+    # holds -128..127, and a number that has to reach past 127 asks for `:half`.
+    #
+    # A number too big for its slot keeps the low bits that fit, exactly as the console does,
+    # and both backends drop the same bits — 200 in a `:byte` reads back as -56 on each.
+    # Reading and writing a narrow slot costs the same as a wide one; only the memory differs.
+    #
     # @param name [Symbol] the list's name
-    # @param capacity [Integer] the most items it can hold (rounded up to 2^n)
+    # @param capacity [Integer] the most items it can hold
     # @param estimate [Hash] what the estimate cannot know — today `usually:` (Integer or Range)
     # @param holds [Numeric] an example of what it holds; a Float means it holds fractions
+    # @param width [Symbol] how big one slot is — :byte, :half or :word (the default)
     # @return [List] a handle to the list
-    def list(name, capacity:, estimate: nil, holds: nil)
-      record(Build.list_new(name, capacity, usually: usual_length(estimate, capacity)))
+    def list(name, capacity:, estimate: nil, holds: nil, width: :word)
+      record(Build.list_new(name, capacity, usually: usual_length(estimate, capacity),
+                                            width: width))
       List.new(self, name, fraction_bits: list_fraction_bits(name, holds))
     end
 
