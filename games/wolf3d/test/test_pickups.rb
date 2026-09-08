@@ -284,8 +284,10 @@ class TestPickups < Minitest::Test
     @shooting_program[drawing] ||= view_of(arena(guards: [[9, 8, :west]]), drawing: drawing)
   end
 
+  # IT DRAWS, because the guard has to actually fall: a shot goes to a man the renderer put on
+  # the screen, so with nothing drawn nobody is ever on it and nothing is ever dropped.
   def shoot_then_walk(frames:)
     Reference.new.input_each_frame { |f| shoot_at_him(f) }
-             .run(shooting_program, frames: frames, max_steps: 8_000_000)
+             .run(shooting_program(drawing: true), frames: frames, max_steps: frames * 50_000)
   end
 end

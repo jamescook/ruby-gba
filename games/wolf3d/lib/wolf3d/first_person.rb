@@ -354,10 +354,26 @@ module Wolf3D
     # count comes down after the guards have had their look at it and before the trigger can top
     # it up again, and a shot is heard on the pass AFTER it is fired. That is a thirtieth of a
     # second against a reaction time of up to a whole one.
+    # HOW OFTEN A ROUND REALLY LEAVES, for the estimate's sake, and it is worth saying because
+    # what hangs off it is the biggest single thing in the frame: the shot walks every guard on
+    # the floor looking for a target. Unsaid, a test the game works out is counted on EVERY frame,
+    # so the report priced that walk as every-frame work and read seventeen times what drawing the
+    # gun costs — which is exactly the number that would send the next reader after the wrong
+    # thing.
+    #
+    # THE FASTEST GUN IN THE GAME IS THE CAUTIOUS ANSWER: a held chain gun puts out a round every
+    # stage, and a stage is Weapons::STAGE_PASSES passes. Everything else is slower — a machine
+    # gun is one stage in two, a tapped pistol one whole cycle of four — so this counts the
+    # worst weapon a player can be holding rather than the one they start with. The heaviest frame
+    # is unchanged either way: a frame that does fire pays for the walk whole.
     def fire
       (@noise > 0).then { @noise.sub 1 }
       @weapons.update
-      @weapons.acted.then { @mind.shoot(with_knife: @weapons.in_hand == Weapons::KNIFE) } if @mind
+      return unless @mind
+
+      @weapons.acted.then(estimate: { usually: 1, in: Weapons::STAGE_PASSES }) do
+        @mind.shoot(with_knife: @weapons.in_hand == Weapons::KNIFE)
+      end
     end
 
     # ...and what the player sees of it: the room, a wall column per strip, then whatever is

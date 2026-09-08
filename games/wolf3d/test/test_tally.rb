@@ -59,7 +59,10 @@ class TestTally < Minitest::Test
   end
 
   # Handed back so a test can ask the build-time totals as well as run the game.
-  def view_of(level)
+  # +drawn+ is what anything that SHOOTS needs, and only that: a shot goes to a man the renderer
+  # put on the screen, so with nothing drawn nobody is ever on it and nothing can be shot. Walking
+  # over a secret or a treasure needs none of it, and drawing costs about a hundred times playing.
+  def view_of(level, drawn: false)
     doors = Wolf3D::Doors.new(level, vswap)
     pushwalls = Wolf3D::Pushwalls.new(level)
     guards = Guards.new(level)
@@ -73,7 +76,7 @@ class TestTally < Minitest::Test
       screen :bitmap, tear_free: true
       seen = FP.new(build: self, level: level, atlas: atlas, doors: doors, pushwalls: pushwalls,
                     guards: guards, things: things, scenery: scenery)
-      game_loop { seen.play }
+      game_loop { drawn ? seen.update : seen.play }
     end.program
     [program, seen]
   end
@@ -162,9 +165,9 @@ class TestTally < Minitest::Test
 
   def test_killing_a_guard_counts_it
     level = arena(guards: [[9, ROW, :west]])
-    program, = view_of(level)
+    program, = view_of(level, drawn: true)
     run = Reference.new.input_each_frame { |f| (f / 2).even? ? [:b] : [] }
-                   .run(program, frames: 120, max_steps: 12_000_000)
+                   .run(program, frames: 120, max_steps: 120 * 50_000)
 
     assert_equal 1, run[:kills], "one guard down"
     assert_equal Guards::POINTS, run[:score], "and he was worth a hundred, which is separate"

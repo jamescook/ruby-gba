@@ -155,7 +155,7 @@ class TestEnemies < Minitest::Test
                  "read out of the original's own table"
 
     assert_operator hp(a_dog_shot_once), :<=, 0, "one bullet finishes a dog"
-    assert_operator hp(shoot_at(:ss, shots: 4, frames: 200)), :>, 0,
+    assert_operator hp(shoot_at(:ss, shots: 4, frames: 4 * A_SHOT)), :>, 0,
                     "and four do not finish an SS"
   end
 
@@ -187,7 +187,7 @@ class TestEnemies < Minitest::Test
   # most of how a player ever gets their second weapon. Without it a floor of SS is a floor you
   # fight with a pistol.
   def test_a_fallen_ss_leaves_the_machine_gun_you_walk_over
-    run = kill_and_collect(:ss, shots: 30, frames: 900)
+    run = kill_and_collect(:ss, shots: 20, frames: (20 * A_SHOT) + 130)
 
     assert_operator hp(run), :<=, 0, "he has to be down for this to mean anything"
     assert_equal Weapons::MACHINE_GUN, run[:weapon_best], "and you should be carrying his gun"
@@ -211,7 +211,8 @@ class TestEnemies < Minitest::Test
   def test_a_dog_leaves_nothing_where_it_fell
     assert_equal [Wolf3D::Pickups::NOTHING_LEFT], dropped(a_dog_shot_once).uniq,
                  "there is nothing lying where a dog was"
-    assert_equal [Wolf3D::Pickups::CLIP_LEFT], dropped(shoot_at(:guard, shots: 8, frames: 300)).uniq,
+    assert_equal [Wolf3D::Pickups::CLIP_LEFT],
+                 dropped(shoot_at(:guard, shots: 8, frames: 8 * A_SHOT)).uniq,
                  "where a guard leaves half a clip"
   end
 
@@ -302,29 +303,40 @@ class TestEnemies < Minitest::Test
 
   # ONE OF A KIND, FACING YOU, so it notices and the run is about what it does then. A dog is
   # always walking a beat, so facing it your way is also what sends it down the corridor.
-  def a_floor_of(name, at:, facing: :west, count: 1)
-    program_for(name, at, facing, count) { |b, view| b.game_loop { view.play } }
+  #
+  # +drawn+ COSTS ABOUT A HUNDRED TIMES AS MUCH and buys one thing, which anything that SHOOTS
+  # needs: a shot goes to a man the renderer put on the screen, so with nothing drawn nobody is
+  # ever on it and nothing can be shot at all. Everything else here reads the pool instead.
+  def a_floor_of(name, at:, facing: :west, count: 1, drawn: false)
+    program_for(name, at, facing, count, drawn ? :drawn : nil) do |b, view|
+      b.game_loop { drawn ? view.update : view.play }
+    end
   end
 
-  # ...and one that really draws, which only the question about the console needs. Every other
-  # test here reads the pool instead, which is a hundred times cheaper and the same answers.
-  def a_drawn_floor_of(name, at:, facing: :west)
-    program_for(name, at, facing, 1, :drawn) { |b, view| b.game_loop { view.update } }
-  end
+  def a_drawn_floor_of(name, at:, facing: :west) = a_floor_of(name, at: at, facing: facing, drawn: true)
 
   # How much killing it takes, read off a floor rather than a table: stand still and tap.
   def shoot_at(name, shots:, frames:, at: 8, count: 1)
     firing = ->(f) { f < shots * A_SHOT && f.even? ? [:b] : [] }
-    Reference.new.input_each_frame { |f| firing.call(f) }
-             .run(a_floor_of(name, at: at, count: count), frames: frames)
+    play(firing, a_floor_of(name, at: at, count: count, drawn: true), frames)
   end
 
   # ...and then walk forward over what it left. The trigger goes up for the last stretch so the
   # player is walking rather than shooting when they reach the body.
   def kill_and_collect(name, shots:, frames:, at: 7, count: 1)
     walking = ->(f) { f < shots * A_SHOT ? (f.even? ? [:b] : []) : [:up] }
-    Reference.new.input_each_frame { |f| walking.call(f) }
-             .run(a_floor_of(name, at: at, count: count), frames: frames)
+    play(walking, a_floor_of(name, at: at, count: count, drawn: true), frames)
+  end
+
+  # A DRAWN RUN NEEDS ITS BUDGET SAID OUT LOUD. The interpreter counts steps as a guard against a
+  # loop that never ends, and its default runs out part-way through a few hundred drawn frames —
+  # so a run stops early and says nothing, and the assertions read a frozen world. This is a whole
+  # drawn frame with room to spare, which still catches a real runaway.
+  STEPS_A_DRAWN_FRAME = 50_000
+
+  def play(keys, program, frames)
+    Reference.new.input_each_frame { |f| keys.call(f) }
+             .run(program, frames: frames, max_steps: frames * STEPS_A_DRAWN_FRAME)
   end
 
   # BACK OVER A MACHINE GUN LYING BEHIND YOU, then stand and empty the thing into the SS coming
@@ -338,9 +350,9 @@ class TestEnemies < Minitest::Test
       code = Enemy[:ss].standing + Guards::FACINGS.index(:west)
       level = with_things({ [12, ROW] => code,
                             [3, ROW] => Wolf3D::Scenery::FIRST_CODE + MACHINE_GUN_ON_THE_FLOOR })
-      program = build(level) { |b, view| b.game_loop { view.play } }
+      program = build(level) { |b, view| b.game_loop { view.update } }
       firing = ->(f) { f < WALKING_BACK_FOR ? [:down] : (f.even? ? [:b] : []) }
-      Reference.new.input_each_frame { |f| firing.call(f) }.run(program, frames: 900)
+      play(firing, program, 500)
     end
   end
 

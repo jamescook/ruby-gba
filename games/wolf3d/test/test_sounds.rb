@@ -90,7 +90,7 @@ class TestSounds < Minitest::Test
   # ...AND ONE OF HIS SCREAMS, whichever the roll picked. Held as "one of them" rather than a
   # named one, because which it is is the whole point of there being several.
   def test_a_guard_who_dies_screams
-    heard = heard_during(120, guards: [[11, 8, :west]]) { |f| f.even? ? [:b] : [] }
+    heard = heard_during(120, guards: [[11, 8, :west]], drawn: true) { |f| f.even? ? [:b] : [] }
     screams = Sounds::DEATH_SCREAMS.map { |n| name_of(n) }
 
     refute_empty heard & screams, "expected one of #{screams.inspect}, heard #{heard.inspect}"
@@ -198,10 +198,13 @@ class TestSounds < Minitest::Test
     end.program
   end
 
-  def play_it(frames:, guards: [], chunks: Chunks.new(ALL), &script)
+  # A GUN IS HEARD WHETHER OR NOT IT HITS, so nothing here needs drawing except the question about
+  # a man SCREAMING — that noise is made where the damage is done, and a shot only goes to a man
+  # the renderer put on the screen. So one test draws and the rest stay cheap.
+  def play_it(frames:, guards: [], chunks: Chunks.new(ALL), drawn: false, &script)
     Reference.new.input_each_frame(&script)
-             .run(view_of(arena(guards: guards), chunks: chunks), frames: frames,
-                  max_steps: 8_000_000)
+             .run(view_of(arena(guards: guards), chunks: chunks, drawing: drawn), frames: frames,
+                  max_steps: drawn ? frames * 50_000 : 8_000_000)
   end
 
   # WHAT SOUNDED AT ANY POINT over a run, rather than what happens to be sounding at the end.

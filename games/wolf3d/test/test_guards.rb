@@ -301,7 +301,7 @@ class TestGuards < Minitest::Test
   # A GUARD STANDING IN FRONT OF YOU CAN BE SHOT. He is close, so the pistol cannot miss and
   # takes a good bite out of him; a few taps and he falls over and stays down.
   def test_enough_shots_kill_a_guard
-    run = shoot_at([[10, 8, :west]], shots: 8, frames: 300)
+    run = shoot_at([[10, 8, :west]], shots: 8, frames: 8 * A_SHOT)
 
     assert_includes FALLING + [DEAD], state_of(run), "he should be going down or down"
     assert_operator guard_hp(run), :<=, 0, "with nothing left"
@@ -314,12 +314,11 @@ class TestGuards < Minitest::Test
   end
 
   # ...and a body stays a body. Once he is down nothing brings him back, and he stops thinking
-  # about anything at all.
+  # about anything at all — so this is the same eight shots as its neighbour and then a long
+  # while longer, and he is still lying there at the end of it.
   def test_a_dead_guard_stays_dead
-    early = shoot_at([[10, 8, :west]], shots: 8, frames: 300)
-    later = shoot_at([[10, 8, :west]], shots: 8, frames: 800)
+    later = shoot_at([[10, 8, :west]], shots: 8, frames: 16 * A_SHOT)
 
-    assert_operator guard_hp(early), :<=, 0
     assert_equal DEAD, state_of(later), "he ends as a body on the floor and stays one"
   end
 
@@ -383,7 +382,7 @@ class TestGuards < Minitest::Test
   # ONE PRESS IS ONE BULLET, and eight is all you start with.
   def test_the_pistol_spends_a_bullet_a_shot
     assert_equal FP::START_AMMO - 3, shoot_at([[10, 8, :west]], shots: 3, frames: 90)[:ammo]
-    assert_equal 0, shoot_at([[10, 8, :west]], shots: 20, frames: 400)[:ammo],
+    assert_equal 0, shoot_at([[10, 8, :west]], shots: 20, frames: 10 * A_SHOT)[:ammo],
                  "and once they are gone the trigger does nothing"
   end
 
@@ -400,10 +399,28 @@ class TestGuards < Minitest::Test
     assert_equal Guards::HIT_POINTS, far[:hp], "and the far one is not"
   end
 
+  # ...AND A WALL STOPS THE BULLET, which is now the same fact as the wall hiding him: the shot
+  # asks the renderer's own answer before anything else, so a man it did not put on the screen is
+  # never measured and no line is ever walked to him. This and
+  # test_a_guard_behind_a_wall_is_not_drawn_at_all are two readings of one thing.
+  #
+  # Held against the same guard with the wall taken away, so it says the shot lands at all rather
+  # than that shooting is broken. Three cells is inside the range a pistol cannot miss at.
+  WALL_IN_THE_WAY = [[10, 7], [10, 8], [10, 9]].freeze
+
+  def test_a_guard_behind_a_wall_cannot_be_shot_through_it
+    open_room = shoot_at([[11, 8, :east]], shots: 3, frames: 3 * A_SHOT)
+    walled = shoot_at([[11, 8, :east]], shots: 3, frames: 3 * A_SHOT, walls: WALL_IN_THE_WAY)
+
+    assert_operator guard_hp(open_room), :<, Guards::HIT_POINTS,
+                    "with nothing in the way he is hit"
+    assert_equal Guards::HIT_POINTS, guard_hp(walled), "and through a wall he is not"
+  end
+
   # ...and one off to the side is not in the sights at all. The window is a tenth of the screen
   # either side of the middle, so a guard a few cells across the room is missed entirely.
   def test_a_guard_out_of_the_sights_is_not_hit
-    run = shoot_at([[10, 3, :west]], shots: 6, frames: 200)
+    run = shoot_at([[10, 3, :west]], shots: 6, frames: 6 * A_SHOT)
 
     assert_equal Guards::HIT_POINTS, guard_hp(run), "he is not down the line you are looking"
   end
@@ -537,11 +554,24 @@ class TestGuards < Minitest::Test
   # middle of a shot does not read it at all, so tapping every other pass is tapping about
   # twenty times too often. That costs nothing and means the first pass the gun is ready on is
   # always a pass the button is going down.
+  #
+  # AND IT DRAWS, unlike the tests that only watch a guard walk about, because in this game a
+  # shot goes to a man the RENDERER put on the screen — which is what stops a bullet finding
+  # somebody through a wall, and is where the original reads it from too. A run with the drawing
+  # off is a run in which nobody is ever on the screen, so nothing can be shot at all.
   def shoot_at(guards, shots:, frames:, **)
     firing = ->(f) { f < shots * A_SHOT && f.even? ? [:b] : [] }
     Reference.new.input_each_frame { |f| firing.call(f) }
-             .run(view_of(arena(guards: guards, **), drawing: false), frames: frames)
+             .run(view_of(arena(guards: guards, **)), frames: frames,
+                            max_steps: frames * STEPS_A_DRAWN_FRAME)
   end
+
+  # ...AND IT NEEDS A BUDGET SAID OUT LOUD. The interpreter carries a step count as a guard
+  # against a loop that never ends, and a drawn frame of this game is thousands of steps — so a
+  # run of a few hundred frames walks past the default long before it has played as far as it was
+  # asked to, and stops without saying so. This is a whole drawn frame with room to spare, which
+  # still catches a real runaway and never cuts a run short.
+  STEPS_A_DRAWN_FRAME = 50_000
 
   # Stand where the level says and look. Nothing moves, so two frames settle it.
   def look_at(**) = Reference.new.run(view_of(arena(**)), frames: 2)
