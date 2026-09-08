@@ -26,3 +26,8 @@ coverage/
 
 # Personal Claude Code settings (permissions, local overrides) — not shared config.
 .claude/settings.local.json
+
+# "rake cost:check passed against exactly this code", read by the pre-commit hook. Local
+# by nature: it says what THIS machine has verified, so committing it would tell a fresh
+# clone the corpus had been scored when nobody had run anything.
+tools/.cost_stamp

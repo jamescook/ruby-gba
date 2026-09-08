@@ -1,0 +1,21 @@
+#!/bin/sh
+# Stop a commit that changes what a frame costs without the corpus having been scored
+# against it. See tools/cost_stamp.rb for what is watched and why a stamp rather than
+# running the check here.
+#
+# Silent unless it has something to say: a commit touching none of the watched files
+# never hears from this.
+#
+# Bypass:  SKIP_COST_CHECK=1 git commit ...   (or git commit --no-verify)
+
+[ -n "$SKIP_COST_CHECK" ] && exit 0
+
+root=$(git rev-parse --show-toplevel)
+
+# No Ruby, no opinion. This is a nudge, and a machine that cannot run it should not be
+# blocked from committing by it.
+command -v ruby >/dev/null 2>&1 || exit 0
+
+ruby "$root/tools/cost_stamp.rb" check || exit 1
+
+exit 0
