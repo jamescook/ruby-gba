@@ -61,11 +61,28 @@ module RubyGBA
 
           # Multi-way dispatch lowers to one "if the variable equals this value, call
           # that scene" per clause — reusing the ordinary if/compare/call path. Each
-          # comparison reloads the variable from memory itself, so a scene call is free
-          # to clobber every register without disturbing the dispatch.
+          # comparison reloads from memory itself, so a scene call is free to clobber
+          # every register without disturbing the dispatch.
+          #
+          # WHICH IS WHY THE VALUE IS COPIED ASIDE FIRST, and it is the whole of this
+          # method. Reloading is right; reloading THE STATE VARIABLE would not be, because
+          # the scene that just ran is usually the thing that changes it. A title screen
+          # sets the state to the menu and returns, and the next comparison would ask "is
+          # it the menu?", find that it is, and run the menu too — in the same pass, on the
+          # same snapshot of the pad, so the menu answers the press that left the title.
+          # Every clause past the one that ran is another scene the player never asked for,
+          # and a game numbers its screens in the order they are met, so an ordinary
+          # transition goes forward and falls the length of the table.
+          #
+          # Nothing a scene does can reach the copy, so the clauses all answer the state as
+          # it was when the dispatch was reached and exactly one runs. That is what running
+          # a scene per frame means, and it is what the interpreter does — it reads the
+          # variable once and compares each clause against that reading.
           def emit_case(node)
+            picked = :"_picked_#{node.var}"
+            @lowering.statement(Build.copy(picked, node.var))
             node.clauses.each do |value, target|
-              test = Build.binop(:==, Build.var_ref(node.var), Build.int(value))
+              test = Build.binop(:==, Build.var_ref(picked), Build.int(value))
               @lowering.statement(Build.if_(test, Build.call(target)))
             end
           end

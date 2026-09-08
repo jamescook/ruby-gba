@@ -142,6 +142,50 @@ class TestScenes < Minitest::Test
     refute v.green?(120, 80), "a stale comparison must not also run the green scene"
   end
 
+  # The same guarantee where it is hardest to keep: the scene that runs CHANGES the
+  # state, which is what a scene ordinarily does on its last line. Scenes are numbered
+  # in the order a player meets them, so an ordinary transition goes FORWARD — to a
+  # clause the dispatch has not reached yet. Each scene here hands on to the next, so a
+  # dispatch that answered the new value would run the whole table in one pass.
+  #
+  # One pass, one scene body: nothing but the first counter moves.
+  HANDING_ON = lambda do |b|
+    b.instance_eval do
+      screen :bitmap
+      scene(:first)  { add :ran_first, 1;  set :state, 1 }
+      scene(:second) { add :ran_second, 1; set :state, 2 }
+      scene(:third)  { add :ran_third, 1 }
+
+      set :state, 0
+      case_var :state do
+        when_val 0, :first
+        when_val 1, :second
+        when_val 2, :third
+      end
+      halt
+    end
+  end
+
+  def test_a_scene_that_hands_on_does_not_run_the_scene_it_hands_to
+    builder = Builder.new
+    HANDING_ON.call(builder)
+    builder.emit_pending_functions
+    ran = Reference.new.run(builder.program)
+
+    assert_equal [1, 0, 0], [ran[:ran_first], ran[:ran_second], ran[:ran_third]],
+                 "one pass should run one scene body, whatever that scene sets the state to"
+    assert_equal 1, ran[:state], "the scene it handed on to runs on the NEXT pass"
+  end
+
+  def test_a_scene_that_hands_on_does_not_run_the_scene_it_hands_to_on_hardware
+    rom = build { HANDING_ON.call(self) }
+    v = assert_gemba_loads_rom(rom, frames: 5, vars: rom.var_addresses)
+
+    assert_equal [1, 0, 0], [v.var(:ran_first), v.var(:ran_second), v.var(:ran_third)],
+                 "the console ran more than one scene in a pass — a transition fell through the table"
+    assert_equal 1, v.var(:state)
+  end
+
   # ========================================================================
   # Integration: runs in mGBA
   # ========================================================================
