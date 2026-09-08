@@ -765,31 +765,51 @@ module Wolf3D
     FAR_AWAY = 1000.0
 
     # Is this one in the sights, in the open, and nearer than the best so far?
+    #
+    # THE FIRST QUESTION IS ONE THE DRAWING ALREADY ANSWERED, and it is the cheapest thing here
+    # by a long way: one byte read and one comparison against work the renderer did anyway. A
+    # guard behind a wall never reaches the two multiplies below, and no sight line is ever
+    # walked to him — the strips he covers were measured against the walls last frame and he was
+    # not put on the screen. The original opens both of its attacks the same way, on the same
+    # flag (`check->flags & FL_VISABLE`, wl_agent.cpp), and for the same reason.
+    #
+    # It is a pass stale, which is what the original's is too. On the second floor of the first
+    # episode it is the difference between measuring twenty-nine men and measuring the one or two
+    # actually in front of you.
+    #
+    # ASKED BEFORE HIS HEALTH, and nested rather than joined with `&`, so that the guard it turns
+    # away costs one list read instead of two: most of a floor is men who are alive and not on
+    # the screen, and the bodies are the few.
     def consider_as_a_target(guard)
-      (guard.hp > 0).then do
-        x = guard.x
-        y = guard.y
-        @dx.set(x - @player[:x])
-        @dy.set(y - @player[:y])
+      (guard.shown == 1).then do
+        (guard.hp > 0).then { measure_him(guard) }
+      end
+    end
 
-        # Where he is in front of the eye, and to the side of it.
-        @fwd.set(@dx * @player[:cos])
-        @fwd.add(@dy * @player[:sin])
-        @sideways.set(@dy * @player[:cos])
-        @sideways.sub(@dx * @player[:sin])
-        @absx.set @sideways
-        @absx.abs
+    # Where he is in front of the eye and to the side of it, and — if that puts him in the sights
+    # and nearer than the best so far — whether the line to him is clear.
+    def measure_him(guard)
+      x = guard.x
+      y = guard.y
+      @dx.set(x - @player[:x])
+      @dy.set(y - @player[:y])
 
-        ((@fwd > 0.0) & (@fwd < @nearest) & (@absx < (@fwd * AIM))).then do
-          # Only now is a line worth walking, and it is walked from him toward you — the same
-          # line either way.
-          @dx.set(@player[:x] - x)
-          @dy.set(@player[:y] - y)
-          walk_the_sight_line_from(x, y)
-          (@clear == 1).then do
-            @nearest.set @fwd
-            @target.set guard.index
-          end
+      @fwd.set(@dx * @player[:cos])
+      @fwd.add(@dy * @player[:sin])
+      @sideways.set(@dy * @player[:cos])
+      @sideways.sub(@dx * @player[:sin])
+      @absx.set @sideways
+      @absx.abs
+
+      ((@fwd > 0.0) & (@fwd < @nearest) & (@absx < (@fwd * AIM))).then do
+        # Only now is a line worth walking, and it is walked from him toward you — the same
+        # line either way.
+        @dx.set(@player[:x] - x)
+        @dy.set(@player[:y] - y)
+        walk_the_sight_line_from(x, y)
+        (@clear == 1).then do
+          @nearest.set @fwd
+          @target.set guard.index
         end
       end
     end

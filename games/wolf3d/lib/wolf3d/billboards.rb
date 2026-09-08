@@ -390,27 +390,38 @@ module Wolf3D
 
     # --- the guards ------------------------------------------------------------------
 
+    # WAS HE REALLY PUT ON THE SCREEN? Written for every guard every frame, and it is the one
+    # thing only the drawing can answer — a guard is where he is whatever the walls do, and this
+    # is the only place that has walked the strips he covers and asked the walls about each one.
+    #
+    # SO IT IS KEPT RATHER THAN THROWN AWAY, and it is read twice on the pass after this one.
+    # Whether the player can see him decides how well he shoots (a guard you have your eye on
+    # misses more often, because you could be dodging — GuardMind#fire_at_the_player), and
+    # whether the player's own shot considers him at all (GuardMind#consider_as_a_target). The
+    # original hangs both off one flag in the same way, FL_VISABLE, set by the renderer where it
+    # queues an actor to be drawn (wl_draw.cpp) and read in T_Shoot and in GunAttack.
+    #
+    # IT IS A PASS BEHIND, since the drawing runs after the shooting, and so is the original's
+    # for exactly the same reason.
     def look_at_a_guard(guard)
       place(guard.x, guard.y, NUDGE)
-
-      # WHETHER HE CAN SEE YOU LOOKING AT HIM, which is not vanity: a guard you have your eye on
-      # misses more often, because you could be dodging. The original halves the falloff of his
-      # hit chance for a guard who is off screen, and this is where that is known.
       guard.shown.set 0
 
       # Behind the eye, or all but touching it. Everything below costs something, and this one
       # comparison is what a guard on the far side of the floor pays.
       (@fwd > NEAREST).then do
-        guard.shown.set 1
         size_it_on_screen
         pick_a_pose(guard)
         @b.call :remember_a_standing_thing
-        # HE HAS BEEN SEEN, and from here he thinks wherever he stands rather than only while his
-        # room is open to yours. The original hangs this off the same fact and in the same place —
-        # the drawing is the only thing that knows an actor was on the screen (wl_draw.cpp sets
-        # `obj->active = ac_yes` where it decides to draw him). Without it a guard across a
-        # courtyard you cannot walk into would stand frozen while you watched him.
-        (@shows == 1).then { guard.awake.set 1 }
+        (@shows == 1).then do
+          guard.shown.set 1
+          # HE HAS BEEN SEEN, and from here he thinks wherever he stands rather than only while
+          # his room is open to yours. The original hangs this off the same fact and in the same
+          # place — the drawing is the only thing that knows an actor was on the screen
+          # (wl_draw.cpp sets `obj->active = ac_yes` where it decides to draw him). Without it a
+          # guard across a courtyard you cannot walk into would stand frozen while you watched him.
+          guard.awake.set 1
+        end
         # ...AND THE CLIP HE LEFT, if he is lying beside one, which costs almost nothing to put
         # here: a body never moves again, so the clip stands exactly where he does and the place
         # and the size are both worked out already. Only its picture differs.

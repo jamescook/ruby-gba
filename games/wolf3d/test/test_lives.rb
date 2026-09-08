@@ -121,7 +121,10 @@ class TestLives < Minitest::Test
   # changes: a door, a locked door with its key lying beside the player, a wall that slides, and
   # a guard. Nothing is drawn — every question below is about what the floor holds, and drawing
   # it costs about a hundred times what playing it does.
-  def floor_program(restart_at:)
+  #
+  # THE ONE THAT HAS TO DRAW is the one that SHOOTS: a shot goes to a man the renderer put on the
+  # screen, so with nothing drawn nobody is ever on it and nothing can be shot.
+  def floor_program(restart_at:, drawn: false)
     level = fixture_level
     doors = Wolf3D::Doors.new(level, vswap)
     pushwalls = Wolf3D::Pushwalls.new(level)
@@ -137,7 +140,7 @@ class TestLives < Minitest::Test
                                      scenery: scenery)
       passes = var :passes, 0
       game_loop do
-        view.play
+        drawn ? view.update : view.play
         passes.add 1
         # The floor is asked for by name, which is the same thing a spent life asks for. Driving
         # it this way rather than by standing in front of a guard until he finishes you off is
@@ -150,11 +153,12 @@ class TestLives < Minitest::Test
   # Play +script+ and take two readings: the pass before the floor is started again, and the pass
   # it happens on. Nothing runs after that one, because whatever the script is holding down would
   # start changing the fresh floor immediately — walk over the key again, open the door again.
-  def either_side_of_a_restart(at:, &script)
+  def either_side_of_a_restart(at:, drawn: false, &script)
     [at - 1, at].map do |until_frame|
       runner = Reference.new
       runner = runner.input_each_frame(&script) if script
-      runner.run(floor_program(restart_at: at), frames: until_frame, max_steps: 4_000_000)
+      runner.run(floor_program(restart_at: at, drawn: drawn), frames: until_frame,
+                 max_steps: until_frame * (drawn ? 50_000 : 20_000))
     end
   end
 
@@ -199,9 +203,10 @@ class TestLives < Minitest::Test
   end
 
   # The guard stands two cells east of the player, who starts facing north — so this turns to
-  # face him and empties the pistol into him.
+  # face him and empties the pistol into him. The one test on this floor that draws, because
+  # shooting a man needs him to have been on the screen.
   def test_a_guard_you_killed_is_standing_again
-    killed, back = either_side_of_a_restart(at: 250) do |f|
+    killed, back = either_side_of_a_restart(at: 250, drawn: true) do |f|
       next [:right] if f <= quarter_turn
       next [:b] if f > quarter_turn && f.even?
 

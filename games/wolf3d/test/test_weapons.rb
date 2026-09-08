@@ -276,10 +276,14 @@ class TestWeapons < Minitest::Test
 
   # Attack the guard standing across the room, with the knife or with the pistol, and read what
   # he has left afterwards.
+  # IT DRAWS, unlike everything else here, and it has to: a shot or a swing goes to a man the
+  # renderer put on the screen, so with nothing drawn nobody is ever on it and neither weapon
+  # would touch him — which would make the knife's answer come out right for the wrong reason.
   def attack_a_guard(with_knife:)
+    frames = Weapons::CYCLE * 4
     run = Reference.new.input_each_frame { |f| swinging(f, with_knife: with_knife) }
-                  .run(program(guards: [[9, 8, :west]]), frames: Weapons::CYCLE * 4,
-                       max_steps: 60_000_000)
+                  .run(program(guards: [[9, 8, :west]], drawing: true), frames: frames,
+                       max_steps: frames * 50_000)
     run.instance_variable_get(:@lists)[:__pool_guard_hp].get(0)
   end
 

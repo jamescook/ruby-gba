@@ -195,9 +195,14 @@ class TestHearing < Minitest::Test
     pass == (knife ? 4 : 1) ? [:b] : []
   end
 
-  def play(firing:, knife: false, frames: REACTED, **)
+  # A GUNSHOT IS HEARD WHETHER OR NOT IT HITS ANYTHING, so the questions about a gun need nothing
+  # drawn. A KNIFE IS THE OTHER WAY ROUND: what makes its noise is the man crying out, so whether
+  # it is heard turns on whether it LANDS — and a shot goes to a man the renderer put on the
+  # screen, so a run with nothing drawn is one where a knife can never land at all.
+  def play(firing:, knife: false, frames: REACTED, drawn: knife, **)
     Reference.new.input_each_frame { |f| firing ? tapping(f, knife: knife) : [] }
-             .run(game(arena(**)), frames: frames, max_steps: 60_000_000)
+             .run(game(arena(**), drawing: drawn), frames: frames,
+                  max_steps: drawn ? frames * 50_000 : 60_000_000)
   end
 
   # ...and the two-room level is WATCHED rather than only played, because the far man has to be
