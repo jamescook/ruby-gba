@@ -27,19 +27,18 @@ module RubyGBA
           NAME = :tick_rate
           PLAIN_NAME = "a tick rate too fast to deliver"
 
-          # PRICED AT THE HANDLER'S BEST CASE, which is what makes this safe to say out loud.
-          # A guardrail runs before the build has decided which routines to keep in the
-          # console's quick memory, and a handler that runs from there is about two and a half
-          # times faster — so pricing it at cartridge speed would warn about programs that keep
-          # up comfortably. The routine an interrupt lands in is also the one this case is
-          # about: a handler busy enough to lose ticks is the busiest routine in the program,
-          # and that is exactly what earns a place in the quick memory.
-          #
-          # So this warns only when the handler cannot keep up even at its fastest, and a
-          # warning that says "you are losing ticks" is then always true.
+          # Takes the cost model rather than building one. Whether the handler runs from the
+          # console's quick memory decides most of what it costs — code kept there is about
+          # two and a half times faster — and that is the build's answer, not something to
+          # assume. This check used to assume the best case (fast_interrupts: true) because it
+          # ran before the build had decided; now it runs after and asks. See
+          # Guardrails.build_checks.
+          def initialize(model)
+            @model = model
+          end
+
           def detect(program)
-            model = CostModel.new(fast_interrupts: true)
-            verdict = model.tick_verdict(program) or return []
+            verdict = @model.tick_verdict(program) or return []
 
             verdict.timers.select { |timer| timer.delivered < timer.hz }.map do |timer|
               Finding.new(check: NAME, severity: :warning, message: message_for(timer),

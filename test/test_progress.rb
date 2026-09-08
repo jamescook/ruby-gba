@@ -329,7 +329,8 @@ class TestProgress < Minitest::Test
   def test_a_real_build_names_every_phase_in_order
     assert_equal ["reading the game", "checking the tree", "the guardrails",
                   "measuring the routines", "choosing what goes in the quick memory",
-                  "lowering it to machine code", "assembling the cartridge"],
+                  "lowering it to machine code", "the guardrails that need the build",
+                  "assembling the cartridge"],
                  phases_of_a_build.map(&:name)
   end
 
@@ -357,7 +358,7 @@ class TestProgress < Minitest::Test
     out = StringIO.new
     progress = Progress.to(out)
     progress.step("the guardrails")
-    checks = [RubyGBA::IR::Guardrails::Checks::DrawBudget.new,
+    checks = [RubyGBA::IR::Guardrails::Checks::DrawBudget.new(RubyGBA::IR::CostModel.new),
               RubyGBA::IR::Guardrails::Checks::IwramBudget.new]
     RubyGBA::IR::Guardrails::Validator.new(checks: checks, progress: progress)
                                       .run(RubyGBA::IR::Build.program, autofix: false)

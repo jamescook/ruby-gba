@@ -21,8 +21,15 @@ module RubyGBA
           NAME = :budget_threshold
           PLAIN_NAME = "how big a collection can get"
 
+          # Takes the cost model rather than building one: the tip-over count is only
+          # right when the model knows how the build turned out. See
+          # Guardrails.build_checks.
+          def initialize(model)
+            @model = model
+          end
+
           def detect(program)
-            CostModel.new.budget_thresholds(program).map do |threshold|
+            @model.budget_thresholds(program).map do |threshold|
               Finding.new(check: NAME, severity: :warning, message: message(threshold),
                           node: threshold.node)
             end

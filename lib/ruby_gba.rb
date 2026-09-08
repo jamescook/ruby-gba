@@ -130,6 +130,19 @@ module RubyGBA
     backend = IR::Backends::GBA.new(fast_cartridge: fast_cartridge, fast_code: fast_code,
                                     progress: progress)
     machine_code = backend.lower(program)
+    record = backend.build_record(program)
+
+    # The guardrails that quote a number run here instead of above, priced with what the
+    # build actually decided. See Guardrails.build_checks for why they cannot run earlier.
+    # Their findings join the ones from the first pass and print together at the end.
+    unless evaluated.debug_halted?
+      progress.step("the guardrails that need the build")
+      model = IR::CostModel.new(**record.for_cost_model)
+      priced = IR::Guardrails::Validator.new(checks: IR::Guardrails.build_checks(model), progress: progress)
+                                        .run(program, autofix: false)
+      findings = findings.with(findings: findings.findings + priced.findings)
+    end
+
     progress.step("assembling the cartridge")
     # The cartridge carries what the build worked out about it — the program it came from,
     # which routines went in the console's quick memory, where the variables landed, and so
@@ -137,7 +150,7 @@ module RubyGBA
     # None of it is in the bytes, and nothing can recover it by reading them back.
     rom = ROM.assemble(machine_code, title: title, code: code, maker: maker,
                                      validate: evaluated.debug_halted? ? false : validate,
-                                     built: backend.build_record(program))
+                                     built: record)
 
     # Every phase is over; a disassembly dump is a debugging aid, not a phase.
     progress.done
