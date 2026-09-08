@@ -673,13 +673,10 @@ module RubyGBA
       #
       # A named collection whose length changes as the program runs — a snake's
       # body, a queue of shots. Push onto it, drop from either end, index into it,
-      # ask its length. `capacity` is the most it can ever hold; it's rounded up to
-      # a power of two (see #round_up_capacity) so a backend can wrap an index with
-      # a cheap mask, and every backend enforces that same rounded ceiling so they
-      # agree on when it overflows.
+      # ask its length. `capacity` is the most it can ever hold, exactly, and every
+      # backend enforces that same ceiling so they agree on when it overflows.
 
-      # Create a named list that can hold up to `capacity` items. The stored
-      # capacity is the rounded value.
+      # Create a named list that can hold up to `capacity` items.
       #
       # `usually` is how many it normally holds, and it changes nothing about what the
       # program does — no backend reads it. It is what a walk over the list is counted
@@ -697,14 +694,12 @@ module RubyGBA
                 "`usually:` must be between 1 and the capacity of #{capacity}. " \
                 "You gave #{usually.inspect}."
         end
-        # +declared+ is what the author asked for, kept beside the rounded ceiling the ring
-        # actually enforces. They are different questions: the ring wraps an index with a
-        # mask so its size has to be a power of two, and rounding 340 up to 512 hands the
-        # program 172 slots nobody planned for. Anything asking how full a list can really
-        # GET wants the number the author wrote — see the growth guardrail, which warned a
-        # snake about a body length its board cannot hold.
-        Nodes.build(:list_new, name: name, capacity: round_up_capacity(capacity),
-                            declared: capacity, usually: usually)
+        # A LIST HOLDS WHAT IT WAS ASKED FOR, which is the only answer that can be explained.
+        # It used to hold the next power of two up, because the storage was a ring whose index
+        # was wrapped with a mask — so `capacity: 340` quietly held 512, and the memory for
+        # those 172 slots nobody planned for came out of the console's 32K. How that storage
+        # is arranged is the backend's business now, and it is arranged around this number.
+        Nodes.build(:list_new, name: name, capacity: capacity, usually: usually)
       end
 
       # Append a value at the end of the list (grows its length by one).
@@ -875,11 +870,11 @@ module RubyGBA
         name ? { under: name } : {}
       end
 
-      # Round a list's capacity up to the next power of two (4 stays 4, 5 becomes
-      # 8, 100 becomes 128). A power-of-two size lets a backend wrap an index with
-      # a single bitwise mask instead of a division, and fixing the rule here — not
-      # in any one backend — is what keeps every backend enforcing the *same*
-      # ceiling, so they agree on exactly when a list is full.
+      # The next power of two at or above a number (4 stays 4, 5 becomes 8, 100 becomes 128).
+      # A list HOLDS what it was asked for, so this no longer decides that; what it decides is
+      # how much room a backend has to set aside for one it wraps an index into — see the GBA
+      # backend's Lists, where a list that is shifted keeps a ring and pays for the rounding
+      # and one that is only indexed does not.
       def round_up_capacity(requested)
         return 1 if requested <= 1
 

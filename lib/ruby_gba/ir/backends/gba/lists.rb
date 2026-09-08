@@ -4,17 +4,28 @@ module RubyGBA
   module IR
     module Backends
       class GBA
-        # A list is stored as a ring buffer in IWRAM: a fixed block of `capacity`
-        # 4-byte slots, plus two hidden variables — `head` (the index of the oldest
-        # item) and `length` (how many items are live). The item logically at
-        # position i sits in the physical slot (head + i) & mask, where mask is
-        # capacity-1. Because capacity is a power of two, that wrap is a single
-        # bitwise AND — no division — and because the AND confines every access to
-        # the list's own block, a bad index can read a stale slot but can never
-        # reach a neighbouring variable. This mirrors the interpreter's list exactly
-        # (same items readable, same length, same overflow point); the interpreter's
-        # friendly errors catch logic bugs in testing, and here the hardware just
-        # stays bounded.
+        # A list is a block of 4-byte slots in IWRAM plus a hidden `length` variable, and it
+        # is stored one of two ways depending on what the program does to it.
+        #
+        # A LIST THAT IS SHIFTED IS A RING. Dropping from the front means the oldest item moves,
+        # so the list keeps a `head` as well, and the item logically at position i sits in the
+        # physical slot (head + i) & mask. The mask is what makes that wrap a single bitwise AND
+        # rather than a division — which needs a power-of-two block, so a ring is given the next
+        # power of two up and pays for the slots in between. It never HOLDS more than it was
+        # asked for; the extra slots exist only so the mask cannot point outside its own block.
+        #
+        # A LIST THAT IS ONLY INDEXED IS A PLAIN ARRAY, which is nearly all of them: a pool's
+        # fields, a board, anything filled once and then read and written by number. Its head
+        # can never move, so the physical slot IS the index — no head to load, no wrap to do,
+        # and no rounding to pay for. A pool of 145 slots takes 145 and not 256, which on a
+        # cartridge with a lot of them is thousands of bytes of the console's 32K.
+        #
+        # EITHER WAY A BAD INDEX STAYS INSIDE THE LIST. The ring's mask confines it; the plain
+        # array compares against its own length and reads slot nought instead. So an index off
+        # the end can pick up a stale slot and can never reach a neighbouring variable. This
+        # mirrors the interpreter's list (same items readable, same length, same overflow
+        # point); the interpreter's friendly errors catch logic bugs in testing, and here the
+        # hardware just stays bounded.
         #
         # A sprite's save-under backing buffer shares this file because it shares this
         # IWRAM allocation story — a name registered once, a layout looked up
@@ -34,7 +45,11 @@ module RubyGBA
           # Reserve a list's IWRAM layout: the slot block, then the head and length
           # variables. Called once per name during the definitions pass; a name
           # created twice with different capacities is a contradiction.
-          def register_list(name, capacity)
+          #
+          # +ring+ says the program SHIFTS this one, so its head moves and its slots have to be
+          # rounded up to a power of two for the wrapping mask. Everything else is a plain
+          # array of exactly the slots it asked for.
+          def register_list(name, capacity, ring: true)
             if (existing = @lists[name])
               return if existing[:capacity] == capacity
 
@@ -43,10 +58,11 @@ module RubyGBA
                     "(#{existing[:capacity]} and #{capacity})"
             end
 
-            base = @memory.alloc(capacity * 4) # the ring's slots
-            @primitives.var_addr(head_var(name))  # head and length, allocated alongside
+            slots = ring ? Build.round_up_capacity(capacity) : capacity
+            base = @memory.alloc(slots * 4)
+            @primitives.var_addr(head_var(name)) if ring # a plain array's head can never move
             @primitives.var_addr(length_var(name))
-            @lists[name] = { capacity: capacity, mask: capacity - 1, base: base }
+            @lists[name] = { capacity: capacity, ring: ring, mask: slots - 1, base: base }
           end
 
           # A list's layout, or a friendly error if the program never created it.
@@ -95,9 +111,9 @@ module RubyGBA
           # register_list); this just zeroes head and length. The slot contents are
           # left as-is — nothing reads them until a push makes them live.
           def emit_list_new(node)
-            list_info(node.name)
+            info = list_info(node.name)
             @emitter.emit(ASM.load_immediate(ACC, 0))
-            @primitives.store_var(ACC, head_var(node.name))
+            @primitives.store_var(ACC, head_var(node.name)) if info[:ring]
             @primitives.store_var(ACC, length_var(node.name))
           end
 
@@ -183,16 +199,38 @@ module RubyGBA
 
           private
 
-          # Turn an offset-from-head (already in r0 — an index, or length for a push)
-          # into the physical slot address in r12: base + ((head + offset) & mask)*4.
-          # Clobbers r0/r1; leaves the address in ADDR (r12), ready for ldr/str.
+          # Turn an offset (already in r0 — an index, or length for a push) into the physical
+          # slot address in r12. Clobbers r0/r1; leaves the address in ADDR (r12), ready for
+          # ldr/str.
+          #
+          # A ring adds its head and wraps with the mask. A plain array's head can never move,
+          # so the offset IS the slot — which saves a variable read and an add on every access,
+          # and costs a compare instead of the mask to keep a bad index inside the block.
           def emit_slot_address(info, name)
-            @primitives.load_var(TMP, head_var(name))                # r1 = head
-            @emitter.emit(ASM.add_reg(ACC, TMP, ACC))             # r0 = head + offset
-            @primitives.emit_and_const(ACC, ACC, info[:mask], TMP)   # r0 = slot (ring-wrapped)
+            if info[:ring]
+              @primitives.load_var(TMP, head_var(name))            # r1 = head
+              @emitter.emit(ASM.add_reg(ACC, TMP, ACC))            # r0 = head + offset
+              @primitives.emit_and_const(ACC, ACC, info[:mask], TMP) # r0 = slot (ring-wrapped)
+            else
+              emit_bound_to_capacity(info[:capacity])              # r0 = slot, or nought
+            end
             @emitter.emit(ASM.lsl_imm(ACC, ACC, 2))               # r0 = slot * 4 bytes
             @emitter.emit(ASM.load_immediate(TMP, info[:base]))   # r1 = base address
             @emitter.emit(ASM.add_reg(ADDR, TMP, ACC))            # r12 = base + slot*4
+          end
+
+          # Hold r0 inside 0...capacity, reading slot nought for anything outside it. The
+          # compare is UNSIGNED, which is what catches a negative index too: as an unsigned
+          # number it is enormous, so it fails the same test. Predicated rather than branched,
+          # so there is no jump in the hottest thing a list does.
+          def emit_bound_to_capacity(capacity)
+            if ASM.encode_rotated_immediate(capacity)
+              @emitter.emit(ASM.cmp_imm(ACC, capacity))
+            else
+              @emitter.emit(ASM.load_immediate(TMP, capacity))
+              @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            end
+            @emitter.emit(ASM.mov_imm_cond(:hs, ACC, 0))
           end
         end
       end

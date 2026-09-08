@@ -604,21 +604,38 @@ module Wolf3D
     #
     # THE CLIP IS INSIDE THE ROUTINE, not around the call, and it has to be: a routine is built
     # once for wherever it is called from, so it cannot carry a caller's clipping with it.
+    # THE VIEW IS THREE ROUTINES, NOT ONE, and the split is about the console's quick memory
+    # rather than about tidiness. There is 32K of it, the game wants more, and the placement
+    # chooser can only ever take a WHOLE routine — so one enormous block is all-or-nothing,
+    # where three are placed on their own merits and whatever fits gets the memory. Written as
+    # one, this was eleven and a half K asking for a space no cartridge of more than one floor
+    # can offer it, and the build died rather than producing a slower game.
+    #
+    # EACH CARRIES ITS OWN EDGES. A routine is built once for wherever it is called from, so it
+    # cannot pick up a caller's clip — which is why the block that holds drawing to the view
+    # goes INSIDE each of them rather than around the calls. The same reason
+    # `draw_a_standing_thing` has carried its own since there were things to stand in a room.
     def declare_the_view
-      # INSISTED ON, because it is the routine the frame is. The framework's own choice puts the
-      # game loop's body in first and then has too little left for this, which is the wrong way
-      # round: the loop body is mostly the CALL to this. Marked, they both fit.
-      @b.func(:draw_the_view, fast: true) do
+      # THE WALLS, which is the loop the frame really goes into: eighty rays and eighty
+      # stretched columns. Insisted on, because if only one thing gets the quick memory this
+      # is the one to have there.
+      @b.func(:cast_the_walls, fast: true) do
         @b.inside 0, 0, ACROSS, VIEW_H do
           @b.dma_fill_rect 0, 0, ACROSS, HORIZON, CEILING
           @b.dma_fill_rect 0, HORIZON, ACROSS, VIEW_H - HORIZON, FLOOR_COLOR
           @b.repeat(COLUMNS) { |col| cast(col) }
-          @standing&.draw
         end
-        # ...and the gun last, over everything, and OUTSIDE the block above rather than in it:
-        # the gun's own routine carries its own edges, and a routine that draws cannot be called
-        # from inside somebody else's clip. It needs none of this one anyway — nothing it draws
-        # can leave the view.
+      end
+
+      # ...then everything standing among them, which sorts itself furthest-first and draws
+      # through routines that carry their own edges, so this one needs none of its own.
+      @b.func(:draw_what_stands_in_the_room) { @standing.draw } if @standing
+
+      @b.func(:draw_the_view) do
+        @b.call :cast_the_walls
+        @b.call :draw_what_stands_in_the_room if @standing
+        # ...and the gun last, over everything: its own routine carries its own edges, and it
+        # needs none of the view's anyway — nothing it draws can leave the view.
         draw_the_gun_if_you_are_alive
       end
     end

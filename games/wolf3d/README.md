@@ -213,8 +213,10 @@ and the effects Wolfenstein never recorded to raw PCM; and the little picture of
 the status bar — the seven fields already there come to 190 of the screen's 240 columns, and an
 eighth takes them past it.
 
-**And a cartridge holds one episode.** `WOLF3D_EPISODES` defaults to every episode your copy
-has, and a build of more than one no longer fits the console's 32K of quick memory: the routine
-that draws the view wants 11.4K of it, the lists a floor is played with want another 11.6K on a
-cartridge of twenty floors, and the pool the enemies stand in wants the rest. Build with
-`WOLF3D_EPISODES=1` (or any single episode) until that is sorted out.
+**Every episode your copy holds fits on one cartridge**, which for the registered release is
+sixty floors and 16MB. It nearly did not: five kinds of enemy took the pool the floor's enemies
+stand in from 78 slots to 145, and a list used to round its capacity up to the next power of
+two — so 145 became 256, and the slots nobody planned for came out of the console's 32K of quick
+memory. A list is allocated at the size it asks for now (see the framework's `list`), which gave
+back 8.5K, and the routine that draws the view is three routines rather than one, so the
+placement chooser can keep the parts that fit rather than turning the whole thing down.

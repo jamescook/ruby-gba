@@ -117,6 +117,61 @@ class TestListHardware < Minitest::Test
                          [10, nil], [50, nil]])
   end
 
+  # A LIST THAT IS NEVER SHIFTED IS A PLAIN ROW OF SLOTS, not a ring, and it is allocated at
+  # exactly the size it asked for — no rounding up to a power of two. Its head can never move,
+  # so the index IS the slot. This is the shape nearly every list in a real game has (a pool's
+  # fields, a board), and the one that used to pay for slots it could never fill.
+  #
+  # A capacity of five is the point: five is not a power of two, so under the old rule this
+  # list held eight and took eight slots' worth of the console's quick memory.
+  def test_a_list_that_is_never_shifted_indexes_a_row_of_its_own_size
+    prog = program(
+      screen(:bitmap), clear_screen(:black),
+      list_new(:xs, 5),
+      list_push(:xs, 10), list_push(:xs, 10), list_push(:xs, 10),
+      list_push(:xs, 10), list_push(:xs, 10),
+      list_set(:xs, 0, 20),  # the first slot...
+      list_set(:xs, 4, 140), # ...and the last, which is where an off-by-one would show
+      list_set(:xs, 2, 80),
+      draw_each_marker(:xs),
+      halt,
+    )
+
+    assert_same_markers(prog,
+                        [[20, :green], [10, :green], [80, :green], [140, :green],
+                         [50, nil], [110, nil]])
+  end
+
+  # ...AND A BAD INDEX STAYS INSIDE IT. There is no mask to confine one on a plain row, so the
+  # index is held against the list's own size instead and lands on slot nought. What must never
+  # happen is that it reaches the variable next door.
+  #
+  # A console-only check, like the overflow one below and for the same reason: the interpreter
+  # RAISES on an index out of range, which is what catches the logic bug in testing. Hardware
+  # has no way to raise, so what it has to do instead is stay bounded, and that is what this
+  # reads off the screen.
+  def test_an_index_past_the_end_of_a_plain_list_lands_on_its_first_slot
+    require_gemba_core!
+
+    prog = program(
+      screen(:bitmap), clear_screen(:black),
+      set(:sentinel, 70),
+      list_new(:xs, 5),
+      list_push(:xs, 10), list_push(:xs, 10), list_push(:xs, 10),
+      list_set(:xs, 9, 30),   # past the end
+      list_set(:xs, -1, 110), # ...and before the start, which as an unsigned number is huge
+      draw_each_marker(:xs),
+      draw_rect_at(var_ref(:sentinel), ROW, 4, 4, :red),
+      halt,
+    )
+
+    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "LISTBD", code: "BLBD", maker: "01")
+    v = assert_gemba_loads_rom(rom)
+    assert v.pixel_is?(110, ROW, :green), "both bad writes landed on the first slot"
+    assert v.pixel_is?(30, ROW, :black), "so the first of them was overwritten by the second"
+    assert v.pixel_is?(70, ROW, :red), "and the variable next to the list is untouched"
+  end
+
   def test_overflow_is_bounded_on_hardware
     # The interpreter *raises* on a push past capacity; hardware can't, so it must
     # instead bound the list safely — drop the extra pushes, keep the oldest two,

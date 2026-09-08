@@ -159,19 +159,28 @@ class TestList < Minitest::Test
 
   # --- capacity ---
 
-  def test_capacity_rounds_up_to_a_power_of_two
-    # capacity: 3 rounds up to 4, so a fourth push still fits.
+  # A LIST HOLDS WHAT IT WAS ASKED FOR, exactly. It used to hold the next power of two up,
+  # because its storage was a ring whose index was wrapped with a mask — so `capacity: 3` quietly
+  # held four, and the slots nobody planned for came out of the console's 32K. How the storage is
+  # arranged is the backend's business; how full the list gets is the author's number.
+  def test_a_list_holds_the_capacity_it_was_given_and_no_more
     result = interpret do
       body = list :body, capacity: 3
       body.push 1
       body.push 2
       body.push 3
-      body.push 4
       set :len, body.length
       halt
     end
 
-    assert_equal 4, result[:len], "the rounded capacity (4) holds all four"
+    assert_equal 3, result[:len], "three fit"
+    assert_raises(RubyGBA::IR::Backends::Reference::ProgramError) do
+      interpret do
+        body = list :body, capacity: 3
+        4.times { |n| body.push n }
+        halt
+      end
+    end
   end
 
   def test_pushing_past_capacity_raises_a_friendly_error
@@ -237,11 +246,14 @@ class TestList < Minitest::Test
   class BuildContract < Minitest::Test
     Build = RubyGBA::IR::Build
 
-    def test_list_new_stores_the_rounded_capacity
-      assert_equal 4, Build.list_new(:x, 3).capacity
-      assert_equal 128, Build.list_new(:x, 100).capacity
+    def test_list_new_stores_the_capacity_it_was_given
+      assert_equal 3, Build.list_new(:x, 3).capacity
+      assert_equal 100, Build.list_new(:x, 100).capacity
     end
 
+    # The rounding is still here, and is still the rule every backend shares — but what it
+    # decides now is how much ROOM a backend sets aside for a list it wraps an index into,
+    # not how many items the list holds.
     def test_round_up_capacity_covers_the_boundaries
       {
         1 => 1, 2 => 2, 3 => 4, 4 => 4, 5 => 8,
