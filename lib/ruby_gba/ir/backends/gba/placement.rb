@@ -107,14 +107,23 @@ module RubyGBA
           # failure that points at the real fault beats a silent margin that pays for it
           # for ever.
 
-          # A call from a moved routine to one still in the cartridge grows from one
-          # instruction to four, so a routine can come out bigger than it measured. This
-          # is the most any one call can add.
-          CROSS_CALL_GROWTH = 12
-
-          # The moved block starts on a whole word, so it can begin up to three bytes
-          # later than the last variable ended.
-          ALIGNMENT_ALLOWANCE = 4
+          # A call from a moved routine to one still in the cartridge grows, so a routine
+          # can come out bigger than it measured. This is the most any one call can add.
+          #
+          # COUNT IT OFF THE EMITTER RATHER THAN OFF THE SENTENCE "one instruction to
+          # four", which is what this used to say and what made it wrong. A plain call is
+          # a four-byte branch. A crossing one is #emit_call_func's other arm: the target
+          # address built by a FIXED-SIZE immediate (four instructions, always, because a
+          # two-pass fixup has to patch a slot it cannot resize), then a move and a jump
+          # through it — sixteen plus four plus four. So it grows by twenty.
+          #
+          # Being short here does not fail loudly at the call. It fails at the very end,
+          # in #guard_fast_code_fits, on a game that fits: the chooser adds up sizes that
+          # are each a little under, takes one routine more than there is room for, and
+          # the build stops with advice about a routine the author would have to guess at.
+          # Twelve was under by eight a call, which was worth 224 bytes on one routine of
+          # games/wolf3d alone.
+          CROSS_CALL_GROWTH = 20
 
           # Saving the return address on the way in and returning at the end. The game
           # loop's body measures without these, because inline it needs neither.
@@ -151,8 +160,8 @@ module RubyGBA
           def iwram_report
             Report.new(funcs: @fast_funcs.to_a,
                        code_bytes: @hot_bytes.to_i,
-                       used_bytes: @memory.high_water - IWRAM_START,
-                       free_bytes: [HOT_CEILING - @memory.high_water, 0].max,
+                       used_bytes: @memory.used,
+                       free_bytes: @memory.free,
                        total_bytes: IWRAM_SIZE,
                        sizes: @routine_sizes || {},
                        passed_over: @passed_over || [])
@@ -170,7 +179,9 @@ module RubyGBA
             probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress)
             probe.lower(program, fast_funcs: Set.new) # measure the program with nothing moved
             sizes = moved_sizes(program, probe.func_sizes)
-            room = HOT_CEILING - probe.iwram_high_water - ALIGNMENT_ALLOWANCE
+            # Every allocation is rounded up to a whole word, so the gap the probe leaves is
+            # the gap there really is — there is no alignment slop to keep back for.
+            room = probe.iwram_free
 
             # Kept for the report: what each routine came to, and what a reader will want to
             # know afterwards is why theirs is not on the list.
@@ -192,9 +203,10 @@ module RubyGBA
             @hot_base + (@emit.labels.fetch(@functions.func_label(name)) - @emit.labels.fetch(HOT_START))
           end
 
-          # How far the variables (and lists, and the mixer's memory) reached. Read off
-          # the throwaway pass to know how much room is left for code.
-          def iwram_high_water = @memory.high_water
+          # What the variables at one end and the lists and buffers at the other have
+          # left between them. Read off the throwaway pass to know how much room there
+          # is for code.
+          def iwram_free = @memory.free
 
           # Each func's size in bytes, likewise read off the throwaway pass.
           def func_sizes
@@ -239,10 +251,21 @@ module RubyGBA
           def place_hot_code
             return if @fast_funcs.empty?
 
-            @memory.align!(4) # the copy moves whole words, so start on one
+            # The copy moves whole words, and every allocation is rounded up to one, so
+            # what comes back is already on a word.
             @hot_bytes = @emit.labels.fetch(HOT_END) - @emit.labels.fetch(HOT_START)
             @hot_base = @memory.alloc(@hot_bytes)
             guard_fast_code_fits
+          end
+
+          # What each moved routine was CHARGED against what it came out at, for the one
+          # test that can tell whether #moved_sizes is still the upper bound it claims to
+          # be (a charge that is short does not fail here — it fails much later, in
+          # #guard_fast_code_fits, on a game that fits). Valid after #lower.
+          def charged_against_emitted
+            @fast_funcs.to_h do |name|
+              [name, [(@routine_sizes || {})[name].to_i, @functions.func_ranges[name]&.size.to_i]]
+            end
           end
 
           # Copy the block from the cartridge into the quick memory, once, at boot.
@@ -329,11 +352,11 @@ module RubyGBA
           # would quietly overwrite the console's own startup stack, so say so instead,
           # and say what to do about it.
           def guard_fast_code_fits
-            return if @memory.high_water <= HOT_CEILING
+            over = @memory.overrun
+            return if over.zero?
 
-            over = @memory.high_water - HOT_CEILING
             raise LoweringError,
-                  "this program needs #{@memory.high_water - IWRAM_START} bytes of the console's quick memory, " \
+                  "this program needs #{@memory.used} bytes of the console's quick memory, " \
                   "which is #{over} more than there is. #{@hot_bytes} of it is routines kept there to " \
                   "run faster. To fix this, mark a routine `func :name, fast: false` to leave it in the " \
                   "cartridge, or build with `fast_code: false` to keep them all there."
@@ -348,20 +371,31 @@ module RubyGBA
           end
 
           # How big each routine will be once moved. A routine measured in the throwaway
-          # pass can only grow, and only in one way — every call it makes to a routine
-          # left behind turns into four instructions — so charging it for ALL of its calls
-          # is an upper bound. Being a little pessimistic here means the last routine
-          # chosen might have fitted after all; being optimistic would mean a build that
-          # overruns the memory, so this is the direction to be wrong in.
+          # pass can only grow, and only in one way — every call it makes to a routine left
+          # behind grows by CROSS_CALL_GROWTH — so charging it for ALL of its calls is an
+          # upper bound. Being a little pessimistic here means the last routine chosen might
+          # have fitted after all; being optimistic would mean a build that overruns the
+          # memory, so this is the direction to be wrong in.
           #
-          # NOT EVERY CROSSING CALL IS A `call` THE AUTHOR WROTE, and missing the other kind
-          # is what made this an under-estimate rather than an upper bound. A run-time digit
-          # shares one glyph-drawing routine per font and CALLS it, so every `draw_digit`
-          # is a crossing call too — with no `call` node anywhere to show for it, because
-          # the routine is the lowering's own and is invented while emitting. A game with a
-          # score on screen has one per digit place, which came to a couple of hundred bytes
-          # in examples/breakout.rb: enough to overrun the memory outright.
+          # NOT EVERY CROSSING CALL IS A `call` THE AUTHOR WROTE, and each kind that was
+          # missed made this an under-estimate rather than an upper bound. Two are invented
+          # by the lowering, with no `call` node anywhere to show for them:
+          #
+          # A RUN-TIME DIGIT shares one glyph-drawing routine per font and calls it, so every
+          # `draw_digit` is a crossing call. A game with a score on screen has one per digit
+          # place, which came to a couple of hundred bytes in examples/breakout.rb.
+          #
+          # A MULTI-WAY DISPATCH calls the scene it lands on, one call per clause, built out
+          # of `call` nodes made while emitting rather than nodes the tree holds (see
+          # Functions#emit_case). That is a game's whole scene table — and it lands on the
+          # game loop's own body, which is the routine that can least afford to be
+          # mismeasured, because it is the first one the chooser takes.
           CROSSING_CALL_KINDS = %i[call draw_digit].freeze
+
+          # ...and a dispatch, whose calls are one per clause rather than one per node.
+          def dispatch_calls_in(node)
+            node.walk.select { |child| child.kind == :case }.sum { |child| child.clauses.length }
+          end
 
           def moved_sizes(program, measured)
             calls = Hash.new(0)
@@ -376,7 +410,8 @@ module RubyGBA
           end
 
           def crossing_calls_in(node)
-            node.walk.count { |child| CROSSING_CALL_KINDS.include?(child.kind) }
+            node.walk.count { |child| CROSSING_CALL_KINDS.include?(child.kind) } +
+              dispatch_calls_in(node)
           end
 
           # The trees the console runs on an announcement: every bending background's block

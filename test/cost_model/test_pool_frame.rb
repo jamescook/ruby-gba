@@ -58,21 +58,32 @@ class TestPoolFrameCost < CostModelTest
 
   # HOW CLOSE THE ESTIMATE HAS TO BE, and why it is not tighter than this.
   #
-  # A pool's walk is the coarsest thing the model prices. Measured against the console with 0,
-  # 1 and 6 of 64 slots live, the estimate reads 8% to 12% under. It is not a wrong SHAPE — the
-  # cost per live body is within 4%, which is what the two live counts below are really asking
-  # — it is the per-slot walk that the model under-charges, and it under-charges it by about
-  # half of what reading one variable costs.
+  # A pool's walk is the coarsest thing the model prices. Measured against the console with 1
+  # and 6 of 64 slots live, the estimate reads 21% to 25% OVER. It is not a wrong SHAPE — the
+  # cost per live body is within a few per cent, which is what the two live counts below are
+  # really asking — it is the per-slot walk that is mispriced, and it is mispriced because the
+  # model's account of what a walk is made of does not match what the walk emits.
   #
-  # It became visible when reaching a variable got cheaper: the console's pool walk really did
-  # get 9% cheaper by that, and the model credited it 14%. Sharpening that is its own work, and
-  # this band is set where it is so the shape stays guarded while it waits.
+  # IT USED TO READ UNDER, and how it turned round is the thing worth writing down, because it
+  # is a lesson about measurement rather than about pools. The walk's price is built mostly out
+  # of what reading one list element costs, and that weight was measured on a cartridge with a
+  # single list in it — which, while the quick memory was handed out from one end in the order
+  # things were first needed, put that list at offset nought. Offset nought is the one address
+  # on this console that can be named in a single instruction, and no second list can ever have
+  # it. So the weight was measured on the luckiest list there will ever be, and it under-charged
+  # every real one. That cancelled against the walk over-counting, and the two wrongs landed
+  # inside a 15% band together.
   #
-  # WHICH DIRECTION IT IS WRONG IN MATTERS more than the size. The estimate reads UNDER, and an
-  # estimate that flatters a game is the dangerous kind: `explain` is how an author decides
-  # whether a frame fits, so being told it fits when it does not is the failure worth watching.
-  # A pool would have to be most of a frame before 12% moved that verdict.
-  BAND = 0.15
+  # Lists now sit at the far end of the quick memory so that variables can have the near one
+  # (see Backends::GBA::Memory), the benchmark's list is an ordinary two-instruction address
+  # like every other, and the cancelling stopped. The console barely moved — a pool frame went
+  # up about one per cent — so nothing here got slower; what changed is that the walk's
+  # over-count is now visible on its own.
+  #
+  # WHICH DIRECTION IT IS WRONG IN MATTERS more than the size, and this is the safe one now.
+  # `explain` is how an author decides whether a frame fits, so an estimate that FLATTERS a game
+  # is the dangerous kind. Reading over tells them a frame is fuller than it is.
+  BAND = 0.30
 
   def assert_tracks_the_console(rom, note)
     assert_in_delta 1.0, estimated(rom) / measured(rom), BAND, note

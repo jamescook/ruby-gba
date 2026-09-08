@@ -376,6 +376,58 @@ class TestFastCodePlacement < Minitest::Test
     assert_operator report.free_bytes, :>=, 0
   end
 
+  # A game of scenes with a live score in it — the two shapes whose calls the author never
+  # wrote. A multi-way dispatch calls one scene per clause, and a run-time digit calls a
+  # shared glyph routine per digit place; neither is a `call` in the tree.
+  def game_of_scenes
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      state = var :state, 0
+      score = var :score, 0
+      func(:tally) { score.add 1 }
+      scene(:title) { clear_screen :black }
+      scene(:playing) do
+        clear_screen :blue
+        draw_number :score, 10, 20, :white, digits: 6
+        call :tally
+        repeat(300) { |i| score.add i }
+      end
+      scene(:over) { draw_number :score, 10, 30, :white, digits: 6 }
+      game_loop do
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :playing
+          when_val 2, :over
+        end
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  # WHAT A ROUTINE IS CHARGED HAS TO COVER WHAT IT COMES OUT AT, and this is the only place
+  # that can say so, because being short does not fail where it happens.
+  #
+  # The chooser adds up what each routine WILL come to once moved and takes routines while the
+  # total still fits. It works from a throwaway pass where nothing has moved, so it has to
+  # predict the one way a routine grows: a call that ends up crossing between the cartridge and
+  # the quick memory stops being a four-byte branch and becomes an address built in full, a
+  # move, and a jump through it. Charge less than that for any of them and nothing goes wrong
+  # until the very end of a build that FITS, where the block comes out bigger than the room it
+  # was given and the author is told to mark a routine `fast: false` — advice about a program
+  # that was never the problem.
+  def test_a_routine_is_charged_at_least_what_it_comes_out_at
+    backend = GBA.new
+    backend.lower(game_of_scenes)
+    charges = backend.charged_against_emitted
+
+    refute_empty charges, "the program has something worth moving"
+    short = charges.select { |_name, (charged, emitted)| charged < emitted }
+    assert_empty short, "these routines came out bigger than the chooser was told: " \
+                        "#{short.map { |name, (c, e)| "#{name} charged #{c}, emitted #{e}" }.join(', ')}"
+  end
+
   # A routine the author insists on that will not fit is a plain error naming it — the one
   # case where the memory can be overrun, because the author asked.
   def test_a_named_routine_that_cannot_fit_is_a_friendly_error

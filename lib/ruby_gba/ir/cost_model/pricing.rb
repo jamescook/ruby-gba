@@ -291,21 +291,29 @@ module RubyGBA
           0
         end
 
-        # WHAT REACHING A VARIABLE COSTS BEYOND ITS WEIGHT, which is nothing — every variable
-        # costs the same to reach, wherever it sits.
+        # WHAT REACHING A VARIABLE COSTS BEYOND ITS WEIGHT, which is nothing for every variable
+        # a real program has — and the reason that is true is worth stating, because it was
+        # true twice and only means what it says the second time.
         #
-        # IT WAS NOT ALWAYS SO, and the history is why this method still exists to say it is
-        # nought. A read used to build the variable's whole ADDRESS and then load from it, and
-        # how many instructions the address took depended on the address: the first variable's
-        # took one, the next sixty-three took two, and anything past the first 256 bytes took
-        # three. A list of 64 items claims that whole 256 bytes on its own, so in a game with a
-        # list, a pool or a grid nearly every variable was in the dearest group — and which
-        # variable was in which came down to the order the build happened to emit things in.
+        # A read used to build the variable's whole ADDRESS and then load from it, and how many
+        # instructions the address took depended on the address: the first variable's took one,
+        # the next sixty-three took two, and anything past the first 256 bytes took three. A
+        # list of 64 items claims that whole 256 bytes on its own, so in a game with a list, a
+        # pool or a grid nearly every variable was in the dearest group.
         #
         # A read now names the BASE of the variable memory, which this console can put in a
         # register in one instruction, and carries the variable's distance from it inside the
-        # load. So the hundredth variable costs what the first does. The weight measures
-        # nought — not by a fortunate rounding, but because there is nothing left to measure.
+        # load. But that distance is twelve bits, so it only reaches 4096 bytes — and when this
+        # comment first said "wherever it sits" it was quietly speaking for a program whose
+        # variables all sat inside that window. In a game with a lot of state they did not:
+        # measured on games/wolf3d, 248 of its 288 variables were past the line and each of them
+        # was back to building a whole address on every read and every write.
+        #
+        # What makes the claim true now is {Backends::GBA::Memory}, which hands variables out at
+        # one end of the quick memory and everything else at the other, so the variables have
+        # the window to themselves. A thousand of them fit. Past that they spill, and this would
+        # be charging nought for real work again — which is a program far larger than any that
+        # exists here, and a weight nobody has measured, so it is a bead rather than a guess.
         def var_reach_cost(_name, _touches) = 0
 
         # The cost of evaluating a value expression: every operator it's built from,
