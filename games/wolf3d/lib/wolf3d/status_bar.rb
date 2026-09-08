@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module Wolf3D
-  # THE BAR ALONG THE BOTTOM: which floor you are on, the score, the lives left, how much health
-  # and ammunition, and which keys are in your pocket.
+  # THE BAR ALONG THE BOTTOM: the score, the lives left, how much health and ammunition, which
+  # keys are in your pocket, and the gun in your hands.
   #
   # It is the part of the screen nobody thinks about and everybody would notice missing. It is
   # also what makes the view SHORTER, which is not a detail: this renderer pays for the rows a
@@ -67,10 +67,10 @@ module Wolf3D
     # position there, so nothing can be moved and left half-moved.
     Field = Data.define(:name, :label, :digits)
 
-    # THE ORIGINAL'S OWN ORDER, and the face goes where the original puts it: after LIVES and
-    # before HEALTH. Read off the plate rather than remembered — the picture has a vertical
-    # rule at each field boundary and a 34-wide well in the middle with nothing drawn in it,
-    # which is the face's.
+    # THE ORIGINAL'S OWN ORDER, and the face and the weapon go where the original puts them: the
+    # face after LIVES and before HEALTH, the weapon last of all, past the keys. Read off the
+    # plate rather than remembered — the picture has a vertical rule at each field boundary and a
+    # 34-wide well in the middle with nothing drawn in it, which is the face's.
     #
     # NO POSITIONS HERE, and that is the point. The original's cannot be used — its plate is 320
     # across and this screen is 240, and squeezing the plate turns the lettering baked into it
@@ -81,32 +81,59 @@ module Wolf3D
     # labels are narrower than the same words set in a font.
     #
     # So the bar is LAID OUT from the widths of what actually goes in it. See .layout.
+    #
+    # THE FLOOR NUMBER IS THE ONE FIELD THE ORIGINAL HAS AND THIS DOES NOT, and it is arithmetic
+    # rather than judgement. Measured on this release, the seven fields the bar carried before
+    # the weapon came to 190 of the 240 columns, which left 6 between each pair — and a groove is
+    # two columns and wants a clear one on each side of it, so there was nothing to give. There
+    # is no size at all a weapon could be drawn at that fits beside all seven: even a gun 24
+    # columns wide leaves gaps of 2, and two columns cannot hold a groove. So one field goes, and
+    # the floor is the one that can: 26 columns for a number that is set when a floor starts and
+    # never moves again, where everything else on the bar answers to what the player is doing.
     FIELDS = [
-      Field.new(name: :floor,  label: "FLOOR",  digits: 1),
       Field.new(name: :score,  label: "SCORE",  digits: 6),
       Field.new(name: :lives,  label: "LIVES",  digits: 1),
       Field.new(name: :face,   label: nil,      digits: nil),
       Field.new(name: :health, label: "HEALTH", digits: 3),
       Field.new(name: :ammo,   label: "AMMO",   digits: 2),
-      Field.new(name: :keys,   label: "KEYS",   digits: nil)
+      Field.new(name: :keys,   label: "KEYS",   digits: nil),
+      Field.new(name: :weapon, label: nil,      digits: nil)
     ].freeze
 
     # The fields that carry a name above their figure. The face carries none — it is a picture,
     # and the original labels it with nothing either.
     def self.labelled = FIELDS.reject { |field| field.label.nil? }
 
-    # WHERE EACH FIELD GOES, worked out from how wide the things in it are and spread evenly
-    # across the bar. +art+ is the game's own pictures, or nil to lay the bar out for the
-    # framework's own font — the two come out quite differently, which is why this is worked
-    # out rather than written down.
+    # THE LEAST ROOM TO LEAVE AT EACH END OF THE BAR. The plate's own frame is ten columns and
+    # there is no room for that here; two is enough that the first field does not start against
+    # the edge of the screen.
+    EDGE = 2
+
+    # WHERE EACH FIELD GOES, worked out from how wide the things in it are. +art+ is the game's
+    # own pictures, or nil to lay the bar out for the framework's own font — the two come out
+    # quite differently, which is why this is worked out rather than written down.
+    #
+    # THE ROOM GOES BETWEEN THE FIELDS AND THE ROW IS THEN CENTRED, rather than one share per gap
+    # including the two at the ends, because the two kinds of gap are not carrying the same
+    # thing: between two fields there is a groove cut down the middle, and at the edge of the
+    # screen there is nothing at all.
+    #
+    # AND IT IS SPREAD IN TWOS, because every field has to START ON AN EVEN COLUMN — a picture on
+    # this screen does, and a label is a picture cut out of the plate. Widths are even for the
+    # same reason, so an even gap and an even first field keep every field after it even too.
+    # That also settles the groove: in a gap of six it lands two columns clear of each side (see
+    # #boundaries), which is the clearance the plate's own rules have.
     def self.layout(art)
       wide = widths(art)
-      gap = (FirstPerson::ACROSS - wide.values.sum) / (FIELDS.length + 1)
-      at = gap
+      between = FIELDS.length - 1
+      gap = even((FirstPerson::ACROSS - wide.values.sum - (2 * EDGE)) / between)
+      at = even((FirstPerson::ACROSS - wide.values.sum - (gap * between)) / 2)
       FIELDS.to_h do |field|
         [field.name, at].tap { at += wide.fetch(field.name) + gap }
       end
     end
+
+    def self.even(columns) = columns - (columns % 2)
 
     # How wide each field has to be: the wider of its label and its figure, so the bar stays
     # arranged whichever of the two is longer. A score is six numerals and the word SCORE is
@@ -119,17 +146,41 @@ module Wolf3D
       case field.name
       when :face then art.face_width
       when :keys then art.key_width
+      when :weapon then art.weapon_width
       else [art.label_width(field.name), field.digits * art.digit_width].max
       end
     end
 
-    # Without the art there is no face at all, and the keys are two blocks side by side.
+    # Without the art there is no face and no weapon at all, and the keys are two blocks side by
+    # side.
     def self.plain_width(field)
       font = RubyGBA::Fonts.get(FONT)
       case field.name
-      when :face then 0
+      when :face, :weapon then 0
       when :keys then [font.text_width(field.label), (METALS.length * KEY_W) + KEY_GAP].max
       else [font.text_width(field.label), field.digits * font.cell_w].max
+      end
+    end
+
+    # WHERE A THING SITS INSIDE ITS FIELD: in the middle of it, on an even column. Both the name
+    # and the figure are placed this way, so neither can lean out of its own box and across the
+    # groove beside it — which the score's six numerals used to do, being centred under a word
+    # ten columns narrower than they are.
+    def self.centred(field, wide, art)
+      layout(art).fetch(field.name) + even((widths(art).fetch(field.name) - wide) / 2)
+    end
+
+    # WHERE THE GROOVES GO: midway between the end of one field and the start of the next, which
+    # is where the plate puts its own. The face gets one on each side for free, which is what its
+    # well is. Rounded to an even column, because that is where a picture can be drawn — and that
+    # rounding is why a gap of six is the smallest that works: in a gap of four the only even
+    # columns are the two that touch a field.
+    def self.boundaries(art)
+      at = layout(art)
+      wide = widths(art)
+      FIELDS.each_cons(2).map do |before, after|
+        ends = at.fetch(before.name) + wide.fetch(before.name)
+        even(ends + ((at.fetch(after.name) - ends - art.rule_width) / 2))
       end
     end
 
@@ -149,14 +200,17 @@ module Wolf3D
     # Where a field's left edge falls, out of the layout worked out for this bar's art.
     def at(field) = @at.fetch(field.name)
 
+    # ...and where something +wide+ columns across sits inside that field.
+    def centred(field, wide) = self.class.centred(field, wide, @art)
+
     # HOW MANY TIMES A CHANGED BAR IS PAINTED, and it is two because the screen keeps two pages
     # and shows them in turn. Painted once, half the frames would show the old figure.
     PAGES = 2
 
     # PAINT IT WHEN IT CHANGED, AND NOT OTHERWISE. Health changes when you are shot, ammunition
-    # when you fire, the score when you kill something; the floor and the lives hardly ever. On
-    # every other frame the bar is asked to put back a picture identical to the one already
-    # there, which measures about a twentieth of the frame.
+    # when you fire, the score when you kill something; the lives and the gun in your hands
+    # hardly ever. On every other frame the bar is asked to put back a picture identical to the
+    # one already there, which measures about a twentieth of the frame.
     #
     # Testing costs a comparison per live field, which is nothing beside the painting.
     # HOW OFTEN IT REALLY PAINTS, for the estimate's sake: about one frame in ten. Firing
@@ -212,6 +266,7 @@ module Wolf3D
       @todo = @b.var :_bar_todo, PAGES
       @face = @b.var :_bar_face, 0
       @looks = @b.var :_bar_look, 0
+      @gun = @b.var :_bar_gun, 0
       @remembered = @shows.filter_map do |name, value|
         [name, @b.var(:"_bar_last_#{name}", -1)] unless value.is_a?(Integer)
       end.to_h
@@ -229,6 +284,8 @@ module Wolf3D
                           data: @art.keys(palette)
       @b.image :bar_numerals, width: @art.numerals_width, height: @art.digit_height,
                               data: @art.numerals(palette)
+      @b.image :bar_weapons, width: @art.weapons_width, height: @art.weapon_height,
+                             data: @art.weapons(palette)
       BarArt::LABEL_FIELDS.each do |name|
         cut = @art.label(name, palette)
         @b.image :"bar_label_#{name}", width: cut[:width], height: cut[:height], data: cut[:data]
@@ -243,20 +300,26 @@ module Wolf3D
         case field.name
         when :face then draw_the_face(field)
         when :keys then draw_the_keys(field)
+        when :weapon then draw_the_weapon(field)
         else draw_a_figure(field)
         end
       end
     end
 
     # THE LABEL OVER A FIELD, cut out of the plate where we have it and set in the framework's
-    # own font where we do not. The face carries none, and neither does the key slot: the
-    # original's is six pixels wide, which is a key and no room for a word.
+    # own font where we do not. The face carries none, and neither does the weapon or the key
+    # slot: the original's key slot is six pixels wide, which is a key and no room for a word.
     def draw_a_label(field)
       return if field.label.nil?
-      return @b.draw_text(field.label, at(field), @top + LABEL_ROW, colour(LABEL), font: FONT) unless @art
+
+      unless @art
+        return @b.draw_text(field.label, centred(field, font.text_width(field.label)),
+                            @top + LABEL_ROW, colour(LABEL), font: FONT)
+      end
       return unless BarArt::LABEL_FIELDS.include?(field.name)
 
-      @b.blit :"bar_label_#{field.name}", at(field), @top + LABEL_ROW
+      @b.blit :"bar_label_#{field.name}", centred(field, @art.label_width(field.name)),
+              @top + LABEL_ROW
     end
 
     # The game's own steel where we have it, and the grey that stood in for it where we do not.
@@ -294,31 +357,19 @@ module Wolf3D
       end
     end
 
-    # Where the grooves go: midway between the end of one field and the start of the next, which
-    # is where the plate puts its own. The face gets one on each side for free, which is what its
-    # well is. Rounded to an even column, because that is where a picture can be drawn.
-    def boundaries
-      wide = self.class.widths(@art)
-      FIELDS.each_cons(2).map do |before, after|
-        ends = at(before) + wide.fetch(before.name)
-        middle = ends + (((at(after) - ends) - @art.rule_width) / 2)
-        middle - (middle % 2)
-      end
-    end
+    def boundaries = self.class.boundaries(@art)
 
     def colour(index) = Palette.game[index]
     def font = RubyGBA::Fonts.get(FONT)
 
-    # Centred under its own label, which is what keeps the bar looking arranged as the numbers
-    # under it grow and shrink. A figure reserves room for every digit it could reach, so the
-    # width is the field's rather than today's value's.
+    # Centred in its own field, which is what keeps the bar looking arranged as the numbers grow
+    # and shrink. A figure reserves room for every digit it could reach, so the width is the
+    # field's rather than today's value's.
     def draw_a_figure(field)
       return draw_a_figure_in_numerals(field) if @art
 
-      room = field.digits * font.cell_w
-      x = at(field) + ((font.text_width(field.label) - room) / 2)
-      @b.draw_number @shows.fetch(field.name), x, @top + FIGURE_ROW, colour(FIGURE),
-                     digits: field.digits, font: FONT
+      @b.draw_number @shows.fetch(field.name), centred(field, field.digits * font.cell_w),
+                     @top + FIGURE_ROW, colour(FIGURE), digits: field.digits, font: FONT
     end
 
     # THE FIGURE IN THE GAME'S OWN NUMERALS, which are pictures rather than letters — the
@@ -332,7 +383,7 @@ module Wolf3D
     def draw_a_figure_in_numerals(field)
       value = @shows.fetch(field.name)
       wide = @art.digit_width
-      left = at(field) + ((label_width(field) - (field.digits * wide)) / 2)
+      left = centred(field, field.digits * wide)
       slot = @b.var :"_bar_digit_#{field.name}", 0
 
       field.digits.times do |i|
@@ -346,13 +397,6 @@ module Wolf3D
         end
         draw_from_strip(:_bar_numeral, slot, left + (i * wide), @top + FIGURE_ROW)
       end
-    end
-
-    # How wide the field's own label is, which is what a figure is centred under.
-    def label_width(field)
-      return font.text_width(field.label) unless @art && BarArt::LABEL_FIELDS.include?(field.name)
-
-      @art.label_width(field.name)
     end
 
     # ONE PICTURE OUT OF A ROW OF THEM, walked column by column. The row holds every picture the
@@ -388,6 +432,7 @@ module Wolf3D
       # picture — the strip's columns do not care where one picture ends and the next begins, so
       # 24 pictures of 24 columns and 72 of 8 are the same columns counted differently.
       strip_routine(:_bar_face, :bar_faces, FACE_GROUP, @art.face_height)
+      strip_routine(:_bar_weapon, :bar_weapons, WEAPON_GROUP, @art.weapon_height)
       declare_the_rule
     end
 
@@ -411,6 +456,11 @@ module Wolf3D
     # How wide a bite of the face the walk takes at a time, and therefore how many bites a face
     # is. It has to divide the face's width exactly.
     FACE_GROUP = 8
+
+    # ...and the same for the guns, which are 36 columns drawn and so want a bite that divides
+    # 36 rather than 24. Six, for the same reason the face's is eight: small enough that one
+    # routine of that many column draws is a small routine.
+    WEAPON_GROUP = 6
 
     def strip_routine(name, picture, wide, height)
       col_x = @col_x
@@ -456,6 +506,24 @@ module Wolf3D
     BANDS = BarArt::BANDS
     LOOKS = BarArt::LOOKS
 
+    # THE GUN IN YOUR HANDS, and this is the field the shoulder buttons move. The four are laid
+    # side by side in one picture like the faces, so which one to show is the number the player
+    # is already holding — no test per weapon, and one drawing in the cartridge rather than four.
+    #
+    # IT IS ON THE BAR AS WELL AS IN YOUR HANDS ON PURPOSE. The gun drawn over the view says the
+    # same thing, but it says it in the middle of the corridor you are looking down; the original
+    # puts a second copy on the bar because that is where a player looks to check.
+    def draw_the_weapon(field)
+      return unless @art
+
+      groups = @art.weapon_width / WEAPON_GROUP
+      @gun.set(@shows.fetch(:weapon) * groups)
+      top = @top + ((HEIGHT - @art.weapon_height) / 2)
+      groups.times do |g|
+        draw_from_strip(:_bar_weapon, @gun + g, at(field) + (g * WEAPON_GROUP), top)
+      end
+    end
+
     # The keys, one above the other in a slot of their own, which is how the original shows
     # them: an empty socket, or the key in the metal it is named for. Drawn out of the one wide
     # picture that holds the empty one and both metals, so which to show is worked out.
@@ -478,7 +546,7 @@ module Wolf3D
     def draw_the_key_blocks(field)
       keys = @shows.fetch(:keys)
       wide = (METALS.length * KEY_W) + ((METALS.length - 1) * KEY_GAP)
-      left = at(field) + ((font.text_width(field.label) - wide) / 2)
+      left = centred(field, wide)
       y = @top + FIGURE_ROW - 2
 
       METALS.each_with_index do |(name, metal), n|

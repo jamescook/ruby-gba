@@ -49,8 +49,8 @@ A floor of the real game, read from your own copy of the data and playable in an
 first-person view, walls textured from VSWAP, doors that slide open and shut, pushwalls, all
 five kinds of enemy — guard, officer, SS, dog and mutant — that patrol, hear and see you, close
 in, and shoot or bite, and can be shot and killed, the things and pickups standing in the rooms,
-all four weapons drawn in your hands, the status bar, and the game's sound effects through the
-sampled mixer. Without your own copy of the data the cartridge
+all four weapons drawn in your hands and shown on the status bar, and the game's sound effects
+through the sampled mixer. Without your own copy of the data the cartridge
 still builds; it shows a title screen and says so instead of a floor.
 
 ## How you play it
@@ -116,8 +116,27 @@ times the guards and three times the scenery of the first — so "what does a fr
 single answer for the game, only one per floor.
 
 The art in VGAGRAPH is read now — the status bar's steel plate, the numerals it counts in, the
-twenty-four faces that watch you, the title screen, and both of Wolfenstein's proportional
-alphabets. The bar and the menus draw with it; the bar's own labels are cut out of the plate.
+twenty-four faces that watch you, the four guns, the title screen, and both of Wolfenstein's
+proportional alphabets. The bar and the menus draw with it; the bar's own labels are cut out of
+the plate.
+
+### The bar does not have room for everything the original's has
+
+Wolfenstein's bar carries eight fields across 320 columns; this screen is 240. The pictures and
+figures alone come to 192 of those, and the five words above them add 46 more — 238, with two
+columns left to divide between nine separations. It does not fit, and no amount of shrinking
+makes it: a groove between two fields is two columns wide and has to start on an even one, so a
+gap of four is already too narrow to keep clear of the lettering on both sides, and even a gun
+drawn half size leaves gaps of two.
+
+So one field goes, and it is **the floor number** — 26 columns for a number that is set when a
+floor starts and never moves again, where everything else on the bar answers to what the player
+is doing. The weapon takes its place, at the far right where the original puts it, drawn at 36
+columns of its 48. That is not a taste either: three quarters is the reduction the whole screen
+is already under, 240 of 320. What it costs is detail rather than the point of the field — two
+of every three columns and rows are kept, and the four guns stay as far apart from each other as
+they were, between a quarter and a half of any pair's pixels differing at either size. The seven
+fields and the six gaps then come to exactly 240.
 
 ## The menus
 
@@ -208,10 +227,8 @@ and after, a frame went from 421.3 scanlines to 423.0. What a floor really costs
 enemies stand on it, which is the game rather than the machinery.
 
 Not yet there: **the bosses** — Hans, Schabbs, Gretel, Gift, Fat and both Hitlers — which is why
-the boss floor at the end of each episode is empty; the tally between floors; the AdLib music
-and the effects Wolfenstein never recorded to raw PCM; and the little picture of your weapon on
-the status bar — the seven fields already there come to 190 of the screen's 240 columns, and an
-eighth takes them past it.
+the boss floor at the end of each episode is empty; the tally between floors; and the AdLib music
+and the effects Wolfenstein never recorded to raw PCM.
 
 **Every episode your copy holds fits on one cartridge**, which for the registered release is
 sixty floors and 16MB. It nearly did not: five kinds of enemy took the pool the floor's enemies
