@@ -75,6 +75,15 @@ them move what a frame really costs:
 
 Nothing else needs it: a DSL verb that only builds a different tree, a doc, a test.
 
+**You do not have to remember that list.** `.githooks/pre-commit` stops a commit that stages
+any of those files unless `cost:check` has passed against exactly that content — a passing run
+writes a digest of the watched files to `tools/.cost_stamp` (local, gitignored) and the hook
+compares it. Edit a watched file again and the stamp goes stale, so a single run cannot wave
+everything through afterwards. The hook is silent on commits that touch none of them, needs no
+emulator itself, and says how to get past it (`SKIP_COST_CHECK=1 git commit`) for a genuinely
+cosmetic edit or a machine with no emulator. `ONLY=` runs never stamp: scoring one example
+says nothing about the other twenty-six.
+
 **Why it is a separate task and not a test.** It needs the emulator, which a pure-Ruby install
 does not have, and its failures are a judgement call rather than a bug — the same bargain
 `rake emitted:check` makes for code size. Accepting a move is `cost:record` plus a committed

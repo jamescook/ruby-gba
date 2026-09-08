@@ -96,18 +96,29 @@ namespace :emitted do
 end
 
 namespace :cost do
+  # The stamp is what the pre-commit hook reads, and only a WHOLE-corpus pass may write it:
+  # scoring one example with ONLY= says nothing about the other twenty-six.
+  def stamp_unless_narrowed(only)
+    require_relative "tools/cost_stamp"
+    CostStamp.write unless only
+  end
+
   desc "Measure every example on the emulator and record how close the estimate is (ONLY=pong,lake)"
   task :record do
     require_relative "lib/ruby_gba"
     require_relative "tools/cost_accuracy"
-    abort "Nothing recorded." unless CostAccuracy::Baseline.record(only: ENV.fetch("ONLY", nil))
+    only = ENV.fetch("ONLY", nil)
+    abort "Nothing recorded." unless CostAccuracy::Baseline.record(only: only)
+    stamp_unless_narrowed(only)
   end
 
   desc "Fail if the estimate drifted further from the emulator on any example"
   task :check do
     require_relative "lib/ruby_gba"
     require_relative "tools/cost_accuracy"
-    abort unless CostAccuracy::Baseline.check(only: ENV.fetch("ONLY", nil))
+    only = ENV.fetch("ONLY", nil)
+    abort unless CostAccuracy::Baseline.check(only: only)
+    stamp_unless_narrowed(only)
   end
 end
 
