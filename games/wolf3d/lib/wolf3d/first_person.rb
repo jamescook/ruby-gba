@@ -679,6 +679,7 @@ module Wolf3D
         @b.inside 0, 0, ACROSS, VIEW_H do
           @b.dma_fill_rect 0, 0, ACROSS, HORIZON, CEILING
           @b.dma_fill_rect 0, HORIZON, ACROSS, VIEW_H - HORIZON, FLOOR_COLOR
+          where_the_eye_stands
           @b.repeat(COLUMNS) { |col| cast(col) }
         end
       end
@@ -694,6 +695,31 @@ module Wolf3D
         # needs none of the view's anyway — nothing it draws can leave the view.
         draw_the_gun_if_you_are_alive
       end
+    end
+
+    # WHERE THE EYE STANDS, worked out once for the whole view.
+    #
+    # A ray needs three things about the player before it can take a single step: which cell they
+    # are standing in, how far through that cell they are, and how far it is from there to the far
+    # side. None of the three can differ from one ray to the next — the player cannot move while
+    # their own view is being drawn — so all sixty rays were working out the same answers, in the
+    # long way round: turning the position into a cell number, then turning that cell number back
+    # into a fraction to subtract it again.
+    #
+    # The angle joins them for the same reason. Each ray's angle is the one before it plus the
+    # spacing, so the loop carries it along and adds the spacing at the end of a pass, rather than
+    # multiplying the column number out and taking half the view off it every time.
+    def where_the_eye_stands
+      @eyex.set @px.to_i
+      @eyey.set @py.to_i
+      @fracx.set(@px - @eyex.to_f)
+      @fracy.set(@py - @eyey.to_f)
+      @backx.set(1.0 - @fracx)
+      @backy.set(1.0 - @fracy)
+      # The first ray points at the left edge of the view, half the fan round from where the
+      # player is looking.
+      @ang.set @view
+      @ang.sub((COLUMNS - 1) * SPREAD / 2)
     end
 
     # THE GUN GOES WHEN YOU DO, which is the original's own behaviour: dying puts the weapon
@@ -730,6 +756,12 @@ module Wolf3D
       @mapx, @mapy, @stepmx, @stepmy, @side = whole(:mapx, :mapy, :stepmx, :stepmy, :side)
       @dx, @dy, @deltax, @deltay = fraction(:dx, :dy, :deltax, :deltay)
       @sidex, @sidey, @dist, @seen, @wallx = fraction(:sidex, :sidey, :dist, :seen, :wallx)
+
+      # ...AND WHERE THE EYE STANDS, which every ray needs and none of them can change: the cell
+      # the player is in, how far through it they are, and how far it is to the far side. Worked
+      # out once at the top of the view instead of sixty times inside it. See #where_the_eye_stands.
+      @eyex, @eyey = whole(:eyex, :eyey)
+      @fracx, @fracy, @backx, @backy = fraction(:fracx, :fracy, :backx, :backy)
 
       # THE PLAYER'S FEET: what is under them, where a step would land, and whether it may.
       @foot, @here, @can, @spot = whole(:foot, :here, :can, :spot)
@@ -1470,39 +1502,38 @@ module Wolf3D
       b = @b
       width = @level.width
 
-      @ang.set @view
-      @ang.add(col * SPREAD)
-      @ang.sub((COLUMNS - 1) * SPREAD / 2)
-
       # Which way the ray points, and how far along it from one grid line to the next — one
-      # answer for the lines running one way, one for the lines running the other.
+      # answer for the lines running one way, one for the lines running the other. The angle was
+      # left pointing here by the ray before this one; see #where_the_eye_stands.
       @dx.set(@sin[@ang + QUARTER])
       @dy.set(@sin[@ang])
       @deltax.set(@reach[@ang + QUARTER])
       @deltay.set(@reach[@ang])
 
-      @mapx.set @px.to_i
-      @mapy.set @py.to_i
+      @mapx.set @eyex
+      @mapy.set @eyey
+      # Nothing else is cleared here. The walk always takes at least one step, and every step
+      # says which side of a cell it crossed, so `side` is written before anything reads it — and
+      # `wall` is read only to work out a picture for a strip that a ray which met nothing does
+      # not draw.
       @hit.set 0
-      @wall.set 0
-      @side.set 0
 
       # How far to the FIRST line of each kind, which depends on which way the ray leans:
       # leaning back it is what has already been crossed of this cell, leaning forward it is
-      # what is left of it.
+      # what is left of it. Both distances belong to the player rather than to this ray.
       (@dx < 0).then do
         @stepmx.set(-1)
-        @sidex.set((@px - @mapx.to_f) * @deltax)
+        @sidex.set(@fracx * @deltax)
       end.else do
         @stepmx.set(1)
-        @sidex.set((@mapx.to_f + 1 - @px) * @deltax)
+        @sidex.set(@backx * @deltax)
       end
       (@dy < 0).then do
         @stepmy.set(-1)
-        @sidey.set((@py - @mapy.to_f) * @deltay)
+        @sidey.set(@fracy * @deltay)
       end.else do
         @stepmy.set(1)
-        @sidey.set((@mapy.to_f + 1 - @py) * @deltay)
+        @sidey.set(@backy * @deltay)
       end
 
       # Take whichever line is nearer, every time. That is all there is to it — and it stops
@@ -1573,6 +1604,9 @@ module Wolf3D
       @top.sub(@colh / 2)
 
       draw_strip(col)
+
+      # ...and leave the angle pointing at the next strip along.
+      @ang.add SPREAD
     end
 
     # Does this floor have a lift at all? Every lever test is built only when it does — see the
