@@ -54,6 +54,39 @@ ruby -Itest test/test_thing.rb                                  # one file, no r
 
 `games/wolf3d/` has the same pair for its own suite, which this one does not run.
 
+## Is the estimate still close to the console? (`rake cost:check`)
+
+Not part of the suite, and run on purpose. It builds every example, measures it on the
+emulator, and compares that against the estimate — about **10 seconds** for the whole corpus.
+
+```bash
+rake cost:check              # fail if any example drifted further from the console
+rake cost:check ONLY=lake    # one example, while working on it
+rake cost:record             # accept the new readings, then commit the JSON diff
+```
+
+**Run `cost:check` before committing when the change touches any of these**, because all of
+them move what a frame really costs:
+
+- `lib/ruby_gba/ir/cost_model/**` or `cost_model.rb` — the model itself
+- `lib/ruby_gba/ir/measured_weights.rb` — a recalibration
+- `lib/ruby_gba/ir/backends/gba/**` — the lowering decides what the emitted code costs
+- an example's per-frame work, which moves that example's own reading
+
+Nothing else needs it: a DSL verb that only builds a different tree, a doc, a test.
+
+**Why it is a separate task and not a test.** It needs the emulator, which a pure-Ruby install
+does not have, and its failures are a judgement call rather than a bug — the same bargain
+`rake emitted:check` makes for code size. Accepting a move is `cost:record` plus a committed
+diff, and that diff is what a reviewer reads.
+
+**What it is really for.** One game cannot tell you the estimate is right, only that it is not
+wrong there — which is how a weight gets fitted to whichever game somebody last looked at. The
+check was written after a corpus run showed the model landing within 12% of the console on the
+eight bitmap-drawing examples and nowhere near on the games that hand work to the console's own
+hardware. Doubling a single drawing weight then improved one example and broke eight, by name.
+That is the failure this catches and a single-game reading cannot.
+
 ## The two backends you assert against
 
 - **Reference interpreter** `RubyGBA::IR::Backends::Reference` — headless oracle, no

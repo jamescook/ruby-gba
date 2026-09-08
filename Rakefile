@@ -95,6 +95,22 @@ namespace :emitted do
   end
 end
 
+namespace :cost do
+  desc "Measure every example on the emulator and record how close the estimate is (ONLY=pong,lake)"
+  task :record do
+    require_relative "lib/ruby_gba"
+    require_relative "tools/cost_accuracy"
+    abort "Nothing recorded." unless CostAccuracy::Baseline.record(only: ENV.fetch("ONLY", nil))
+  end
+
+  desc "Fail if the estimate drifted further from the emulator on any example"
+  task :check do
+    require_relative "lib/ruby_gba"
+    require_relative "tools/cost_accuracy"
+    abort unless CostAccuracy::Baseline.check(only: ENV.fetch("ONLY", nil))
+  end
+end
+
 desc "Render examples/EXAMPLE.rb to a watchable HTML page (rake preview EXAMPLE=parallax KEYS=right FRAMES=64)"
 task :preview do
   example = ENV["EXAMPLE"] || abort("set EXAMPLE, e.g. rake preview EXAMPLE=parallax KEYS=right")
