@@ -184,6 +184,10 @@ module Wolf3D
       @lifts = here.lifts
       @guards = here.guards
       @scenery = here.scenery
+      # WHICH KINDS OF ENEMY THIS CARTRIDGE CAN MEET, over every floor of it — and so which
+      # states, pictures and behaviour it ships. A cartridge with no dogs on any of its floors
+      # emits nothing about dogs at all.
+      @behaviour = Behaviour.for(@floors.flat_map { |floor| floor.guards&.kinds || [] }.uniq)
       @things = things
       @vswap = vswap # the player's own copy of the recorded sounds, or nil for a silent build
       @bar_art = bar_art # Wolfenstein's own art for the bar, or nil to draw it plainly
@@ -836,11 +840,12 @@ module Wolf3D
       # written out and the rest are simply not, which is also why this stays the size it was.
       (@floors.first_floor.guards&.at(Guards::DEFAULT_DIFFICULTY) || []).each_with_index do |guard, n|
         # A guard stands in the middle of his cell, like the player does.
-        state = Guards.starting_state(guard)
+        state = @behaviour.starting_state(guard)
         @guard.spawn x: guard.x + 0.5, y: guard.y + 0.5,
                      dir: Guards.direction_of(guard.facing),
-                     state: state, ticks: Guards::STATES.fetch(state).ticks,
-                     hp: Guards::HIT_POINTS, ambush: guard.ambush ? 1 : 0,
+                     state: state, ticks: @behaviour.state_at(state).ticks,
+                     hp: Enemy[guard.kind].toughness(Guards.number_of(Guards::DEFAULT_DIFFICULTY)),
+                     ambush: guard.ambush ? 1 : 0,
                      # ...and thinks on every other frame, alternately with his neighbours, so
                      # the floor's thinking is spread evenly over the frames rather than
                      # arriving all at once.
@@ -856,6 +861,7 @@ module Wolf3D
       @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
                             world: @world, door_open: @open, walls: { door: DOOR, push: PUSH },
                             things: @things, blocked: @blocked, dying: @dying, pickups: @pickups,
+                            behaviour: @behaviour,
                             sounds: @sounds, rooms: @rooms, difficulty: @difficulty,
                             floors: @floors, map_base: @map_base,
                             player: { x: @px, y: @py, health: @health, score: @score,
@@ -881,7 +887,7 @@ module Wolf3D
     def declare_where_the_guards_start
       b = @b
       everyone = over_floors { |floor| floor.guards&.guards || [] }
-      starting = everyone.map { |guard| Guards.starting_state(guard) }
+      starting = everyone.map { |guard| @behaviour.starting_state(guard) }
       @guard_home_x = b.table :guard_home_x, at_least_one(everyone.map { |g| g.x + 0.5 })
       @guard_home_y = b.table :guard_home_y, at_least_one(everyone.map { |g| g.y + 0.5 })
       @guard_home_dir = b.table :guard_home_dir,
@@ -889,7 +895,7 @@ module Wolf3D
                                 width: :byte
       @guard_home_state = b.table :guard_home_state, at_least_one(starting), width: :byte
       @guard_home_ticks = b.table :guard_home_ticks,
-                                  at_least_one(starting.map { |s| Guards::STATES.fetch(s).ticks }),
+                                  at_least_one(starting.map { |s| @behaviour.state_at(s).ticks }),
                                   width: :byte
       @guard_home_ambush = b.table :guard_home_ambush,
                                    at_least_one(everyone.map { |g| g.ambush ? 1 : 0 }), width: :byte
@@ -898,6 +904,14 @@ module Wolf3D
       # that says which of them a given game stands up. See Guards::FROM.
       @guard_home_from = b.table :guard_home_from,
                                  at_least_one(everyone.map(&:from)), width: :byte
+      # HOW MUCH KILLING EACH ONE TAKES, which needs two tables and not one: the mutant is the
+      # one kind a harder game toughens, and how hard the game is set is picked long after the
+      # cartridge is built. So each one carries where ITS four numbers begin, and the floor's
+      # start reads the one the setting names.
+      @guard_home_tough = b.table :guard_home_tough,
+                                  at_least_one(everyone.map { |g| @behaviour.hit_points_at(g.kind) }),
+                                  width: :byte
+      @hit_points = b.table :guard_hit_points, @behaviour.hit_points, width: :half
       # How many have stood up so far while a floor is being filled, which is what spreads their
       # thinking over the two passes. See #put_the_guards_back.
       @stood = b.var :_stood, 0
@@ -1025,7 +1039,8 @@ module Wolf3D
           @guard.spawn x: @guard_home_x[@slot], y: @guard_home_y[@slot],
                        dir: @guard_home_dir[@slot],
                        state: @guard_home_state[@slot], ticks: @guard_home_ticks[@slot],
-                       hp: Guards::HIT_POINTS, wait: 0, togo: 0.0, shown: 0, awake: 0, dropped: 0,
+                       hp: @hit_points[@guard_home_tough[@slot] + @difficulty],
+                       wait: 0, togo: 0.0, shown: 0, awake: 0, dropped: 0,
                        ambush: @guard_home_ambush[@slot], turn: @stood % 2
           @stood.add 1
         end

@@ -16,6 +16,8 @@ class TestGuards < Minitest::Test
 
   FP = Wolf3D::FirstPerson
   Guards = Wolf3D::Guards
+  Enemy = Wolf3D::Enemy
+  GUARD = Enemy::GUARD
   Release = Wolf3D::Fixture::Release
 
   # A small field, so a ray meets its edge quickly and the tests stay quick with it.
@@ -35,7 +37,8 @@ class TestGuards < Minitest::Test
     guards = Guards.new(arena(guards: [[12, 8, :west]]))
 
     assert_equal 1, guards.count
-    assert_equal({ x: 12, y: 8, facing: :west, patrolling: false, ambush: false, from: 0 },
+    assert_equal({ x: 12, y: 8, kind: :guard, facing: :west, patrolling: false, ambush: false,
+                   from: 0 },
                  guards.guards.first.to_h)
   end
 
@@ -61,7 +64,7 @@ class TestGuards < Minitest::Test
   # further up. The cartridge carries all of them whichever game is played; an easy game must
   # not stand this one up.
   def test_a_guard_from_the_second_block_waits_for_the_middle_setting
-    guards = Guards.new(arena(things: { [12, 8] => Guards::STANDING + Guards::HARDER }))
+    guards = Guards.new(arena(things: { [12, 8] => Guards::STANDING + GUARD.harder }))
 
     assert_equal 1, guards.count, "the cartridge carries him whichever game is played"
     assert_equal 0, guards.at(:baby).length
@@ -72,7 +75,7 @@ class TestGuards < Minitest::Test
 
   # ...and the third block, which only the hardest game holds.
   def test_a_guard_only_the_hardest_game_holds_waits_for_it
-    guards = Guards.new(arena(things: { [12, 8] => Guards::STANDING + (Guards::HARDER * 2) }))
+    guards = Guards.new(arena(things: { [12, 8] => Guards::STANDING + (GUARD.harder * 2) }))
 
     assert_equal [0, 0, 0, 1], Guards::SETTINGS.map { |how| guards.at(how).length }
   end
@@ -355,7 +358,7 @@ class TestGuards < Minitest::Test
   def test_a_guards_clock_runs_at_the_same_rate_the_player_moves_at
     walking = FP::WALK / ORIGINAL_WALK
     turning = (FP::TURN_SPEED * 360.0 / FP::TURN) / ORIGINAL_TURN
-    guard = Guards::TICKS_PER_THINK / Guards::SCALE.to_f / 2 # a think is every other pass
+    guard = Enemy::TICKS_PER_THINK / Enemy::SCALE.to_f / 2 # a think is every other pass
 
     assert_operator guard, :>=, walking * 0.9, "a guard is not slower than the world he is in"
     assert_operator guard, :<=, turning * 1.1, "nor faster than it"
@@ -370,8 +373,8 @@ class TestGuards < Minitest::Test
   # digit — the clock this bead was filed against would have put it near one and a half.
   def test_a_guard_takes_about_as_long_to_fall_as_the_original_gives_him
     falling = Guards::STATES.select { |s| s.name.to_s.start_with?("fall") }.sum(&:ticks)
-    passes = falling / (Guards::TICKS_PER_THINK / 2.0)
-    original = (falling / Guards::SCALE) * ORIGINAL_WALK
+    passes = falling / (Enemy::TICKS_PER_THINK / 2.0)
+    original = (falling / Enemy::SCALE) * ORIGINAL_WALK
 
     assert_in_delta original, passes * FP::WALK, 1.0,
                     "the player covers about as much ground watching him fall as he used to"
@@ -408,7 +411,7 @@ class TestGuards < Minitest::Test
   # BEING SHOT ROUSES HIM. A guard facing away has no idea you are there until the first
   # bullet, and after it he is never back to minding his own business — he is flinching,
   # coming, firing, or on the floor.
-  UNAWARE = (0...Guards::STATES.length).reject { |n| Guards.roused?(Guards::STATES[n]) }
+  UNAWARE = (0...Guards::STATES.length).reject { |n| Wolf3D::Enemy.roused?(Guards::STATES[n]) }
 
   def test_shooting_a_guard_who_had_not_noticed_you_brings_him_round
     run = shoot_at([[10, 8, :east]], shots: 1, frames: 40)
@@ -544,8 +547,8 @@ class TestGuards < Minitest::Test
   def look_at(**) = Reference.new.run(view_of(arena(**)), frames: 2)
 
   # The flat colour the fixture gave each of the eight pictures.
-  def pose_colour(pose) = palette[Release::SPRITE_INK + Guards::FIRST_STANDING_PICTURE + pose]
-  def pose_colours = @pose_colours ||= (0...Guards::POSES).map { |n| pose_colour(n) }
+  def pose_colour(pose) = palette[Release::SPRITE_INK + GUARD.first_picture + pose]
+  def pose_colours = @pose_colours ||= (0...Enemy::POSES).map { |n| pose_colour(n) }
 
   # Which strips of the screen a guard is showing in, read across his middle.
   def guard_columns(run, row: EYE_LINE)

@@ -210,7 +210,7 @@ class TestLives < Minitest::Test
 
     assert_operator pool(killed, :hp), :<=, 0, "eight bullets at two cells should finish him"
     assert_equal Wolf3D::Guards::HIT_POINTS, pool(back, :hp), "and a fresh floor stands him up"
-    assert_equal Wolf3D::Guards.starting_state(guard_zero), pool(back, :state),
+    assert_equal Wolf3D::Behaviour.for([:guard]).starting_state(guard_zero), pool(back, :state),
                  "in the state the level put him in"
     assert_in_delta guard_zero.x + 0.5, pool(back, :x) / ONE, 0.0001, "where the level put him"
   end

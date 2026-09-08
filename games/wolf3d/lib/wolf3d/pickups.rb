@@ -57,9 +57,15 @@ module Wolf3D
     WEAPON_ROUNDS = 6
 
     # THE PICTURES A FLOOR NEEDS FOR WHAT IS PICKED UP, over and above the ones it ships itself:
-    # the clip a guard leaves behind, which a floor may hold none of its own. A floor with nobody
-    # on it needs none, and asks for none.
-    def self.pictures(guards) = guards.nil? || guards.empty? ? [] : [Scenery.clip_picture]
+    # what the enemies on it leave when they fall, which a floor may hold none of its own. A
+    # floor with nobody on it needs none, and asks for none — and one with nothing but dogs needs
+    # none either, since a dog carries nothing.
+    def self.pictures(guards)
+      return [] if guards.nil? || guards.empty?
+
+      guards.kinds.filter_map { |name| Enemy[name].leaves }.uniq
+            .map { |left| left == :machine_gun ? Scenery.machine_gun_picture : Scenery.clip_picture }
+    end
 
     # +player+ is what a pickup changes, as the view keeps it: { x:, y:, health:, ammo:, score:,
     # keys: }. +lives+ is what hands out another go, or nil on a game that does not count them.
@@ -143,15 +149,39 @@ module Wolf3D
     # standing up again has this field put back with the rest of him.
     # +slot+ is which guard, as the shooting knows him — a number rather than a row handle,
     # because that is what the piece that works out who was hit is holding.
-    def a_guard_fell(slot) = @pool.field_ref(:dropped, slot).set(1)
+    # +leaving+ is WHAT he left, as Enemy::LEAVES numbers it — half a clip from most of them, a
+    # machine gun from an SS, and nothing at all from a dog, which carried none.
+    def a_guard_fell(slot, leaving:)
+      left = @pool.field_ref(:dropped, slot)
+      left.set(leaving)
+      # A GUN YOU ALREADY HAVE IS A CLIP INSTEAD, which is the original's own line and the reason
+      # an SS is worth killing twice: the first one arms you and every one after it feeds the gun.
+      return if @weapons.nil?
+
+      (left == MACHINE_GUN_LEFT).then do
+        @weapons.already_has(Weapons::MACHINE_GUN).then { left.set CLIP_LEFT }
+      end
+    end
 
     # --- what the drawing asks -------------------------------------------------------
 
-    # Is this guard still lying beside the clip he left? What asks is the drawing, which walks the
+    # Is this guard still lying beside what he left? What asks is the drawing, which walks the
     # guards row by row and so hands one over rather than a number: a clip on the floor is a thing
     # to look at like any other, and the piece that knows how to draw one is Billboards.
-    def still_dropped(guard) = guard.dropped == 1
-    def dropped_picture = Scenery.clip_picture
+    def still_dropped(guard) = guard.dropped > NOTHING_LEFT
+
+    # WHAT CAN BE LEFT LYING, in the order Enemy::LEAVES numbers them, so a table indexed by what
+    # a guard dropped hands back a picture. Nought is nothing and gets a picture nothing reads.
+    NOTHING_LEFT = Enemy::LEAVES.fetch(nil)
+    CLIP_LEFT = Enemy::LEAVES.fetch(:clip)
+    MACHINE_GUN_LEFT = Enemy::LEAVES.fetch(:machine_gun)
+
+    # The pictures the things that can be left lying need, in that same order.
+    def self.dropped_pictures
+      [Scenery.clip_picture, Scenery.clip_picture, Scenery.machine_gun_picture]
+    end
+
+    def dropped_pictures = self.class.dropped_pictures
 
     private
 
@@ -298,13 +328,34 @@ module Wolf3D
       # first floor's. Compare them as different numbers and a clip is never found.
       @pool.each do |guard|
         still_dropped(guard).then do
-          (guard_cell(guard) == @here).then do
-            @took.set 0
-            give_ammunition(DROPPED_ROUNDS)
-            (@took == 1).then { guard.dropped.set 0 }
-          end
+          (guard_cell(guard) == @here).then { take_what_he_left(guard) }
         end
       end
+    end
+
+    # HALF A CLIP, OR A MACHINE GUN AND SIX ROUNDS, and which is what he was carrying. A cartridge
+    # with no SS on any floor emits only the first arm and pays nothing for the second.
+    def take_what_he_left(guard)
+      @took.set 0
+      unless @weapons && leaves_a_gun?
+        give_ammunition(DROPPED_ROUNDS)
+        return (@took == 1).then { guard.dropped.set NOTHING_LEFT }
+      end
+
+      (guard.dropped == CLIP_LEFT).then { give_ammunition(DROPPED_ROUNDS) }
+      (guard.dropped == MACHINE_GUN_LEFT).then do
+        # A gun off the floor is always taken, rounds or no rounds — the same rule as one the
+        # level put there.
+        give_ammunition(WEAPON_ROUNDS)
+        @weapons.give(Weapons::MACHINE_GUN)
+        @took.set 1
+      end
+      (@took == 1).then { guard.dropped.set NOTHING_LEFT }
+    end
+
+    # Does anything on this cartridge leave a gun behind at all?
+    def leaves_a_gun?
+      @floors.any? { |floor| floor.guards&.kinds&.any? { |name| Enemy[name].leaves == :machine_gun } }
     end
 
     def scenery_of(floor) = @scenery_of.fetch(floor.index)
