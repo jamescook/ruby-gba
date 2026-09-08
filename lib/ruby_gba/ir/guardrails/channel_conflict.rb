@@ -15,6 +15,7 @@ module RubyGBA
         # interrupting each other.
         class ChannelConflict
           NAME = :channel_conflict
+          PLAIN_NAME = "a beep and a song that share a voice"
 
           def detect(program)
             return [] unless program.walk.any? { |node| node.kind == :beep }

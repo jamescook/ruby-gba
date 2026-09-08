@@ -245,6 +245,7 @@ module RubyGBA
         # cursor never moves, and no button does anything.
         class NeedsGameLoop
           NAME = :menu_needs_game_loop
+          PLAIN_NAME = "a menu with no frames to run on"
 
           MESSAGE =
             "This game declares a menu, but it has no `game_loop`. A menu reads the " \

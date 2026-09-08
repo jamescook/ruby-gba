@@ -197,12 +197,6 @@ module RubyGBA
       # leftover Conditions, not the tree). Either way the pass treats them alike;
       # pass your own list via +checks:+ to run a different set.
       class Validator
-        # A check's identifier said the way a person says it. The identifier is already how a
-        # finding names itself, so a check does not need a second name — except where the
-        # identifier is a hardware word, and then it is said the way the rest of the framework
-        # says it, because this line is read by somebody who does not know what IWRAM is.
-        PLAIN_WORDS = { iwram_budget: "quick memory budget" }.freeze
-
         def initialize(checks: Guardrails.default_checks, progress: Progress.silent)
           @checks = checks
           @progress = progress
@@ -228,14 +222,25 @@ module RubyGBA
 
         private
 
-        # A check that has no identifier of its own — one a pack or a game registered — is
-        # named by its class instead, so every check in the list has something to show.
+        # WHAT THE PROGRESS LINE CALLS A CHECK — and the only place a check's name is ever read
+        # by a person. A finding says what went wrong in a sentence of its own and never names
+        # the check that found it, so this line is the whole of a check's public identity.
+        #
+        # Which is why it is a name the check DECLARES rather than its identifier tidied up.
+        # `NAME` is a symbol for the framework's own use, and turning `fade_never_lifted` into
+        # "fade never lifted" only spells the identifier out — worse, it hands a learner
+        # whatever hardware word happened to be in it ("vblank sync", "iwram budget"). The
+        # declared name says what the check is LOOKING FOR, which is the thing worth reading
+        # while a build works: "a fade never lifted", "a game loop that never waits for the
+        # screen".
+        #
+        # A check from a pack or a game that declares none is named by its class, so every
+        # check in the list still has something to show.
         def plain_name(check)
           klass = check.class
-          return klass.name.to_s.split("::").last unless klass.const_defined?(:NAME, false)
+          return klass::PLAIN_NAME if klass.const_defined?(:PLAIN_NAME, false)
 
-          name = klass::NAME
-          PLAIN_WORDS.fetch(name) { name.to_s.tr("_", " ") }
+          klass.name.to_s.split("::").last
         end
       end
     end

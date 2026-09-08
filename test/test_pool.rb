@@ -142,7 +142,7 @@ class TestPool < Minitest::Test
     err = assert_raises(ArgumentError) do
       b.instance_eval { pool :swarm, x: 0, y: 0, capacity: 99_999 }
     end
-    assert_match(/fast RAM/i, err.message)
+    assert_match(/#{RubyGBA::PlainWords::QUICK_MEMORY}/, err.message)
   end
 
   def test_a_reserved_field_name_is_a_friendly_error

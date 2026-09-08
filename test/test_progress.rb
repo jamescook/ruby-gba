@@ -363,9 +363,10 @@ class TestProgress < Minitest::Test
                                       .run(RubyGBA::IR::Build.program, autofix: false)
     progress.done
 
-    # ...and named the way a person hears it. The check calls itself `iwram_budget`, which is
-    # the console's quick memory said in hardware.
-    assert_equal "2 of 2  quick memory budget", phases_in(out).first.where
+    # ...and named the way a person hears it, from the name the check declares for itself. Its
+    # identifier is `iwram_budget`, which is the console's quick memory said in hardware, and
+    # spelling that out is what the progress line used to do.
+    assert_equal "2 of 2  the quick memory budget", phases_in(out).first.where
   end
 
   # A build that dies half way through a phase still closes its line, so the message explaining

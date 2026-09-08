@@ -129,11 +129,6 @@ module RubyGBA
           # loop's body measures without these, because inline it needs neither.
           ROUTINE_WRAPPER = 8
 
-          # The two routines the author did not write, said the way the report says them. The
-          # names above are for the build's own use and a person reading a build reads these.
-          PLAIN_NAMES = { FRAME_ROUTINE => "the game loop",
-                          IRQ_ROUTINE => "answering the display and the timers" }.freeze
-
           # Names of the routines that will run from the quick memory. Valid after #lower.
           def fast_funcs = @fast_funcs.dup
 
@@ -495,7 +490,7 @@ module RubyGBA
             named << FRAME_ROUTINE if sizes.key?(FRAME_ROUTINE)
             named << IRQ_ROUTINE if sizes.key?(IRQ_ROUTINE)
             costs = named.each_with_index.to_h do |name, n|
-              @progress.of(n + 1, named.length, PLAIN_NAMES.fetch(name) { "func :#{name}" })
+              @progress.of(n + 1, named.length, PlainWords.routine(name))
               [name, frame_cost_of(model, program, name)]
             end
 

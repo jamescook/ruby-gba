@@ -101,6 +101,7 @@ module RubyGBA
         # edge of the screen and keeps going.
         class NeedsGameLoop
           NAME = :follow_camera_needs_game_loop
+          PLAIN_NAME = "a follow camera with no frames to run on"
 
           MESSAGE =
             "This game follows a character with `camera_follows`, but it has no " \

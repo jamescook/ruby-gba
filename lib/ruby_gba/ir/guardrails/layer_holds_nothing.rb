@@ -25,6 +25,7 @@ module RubyGBA
         # look empty to a check that walked the tree alone.
         class LayerHoldsNothing
           NAME = :layer_holds_nothing
+          PLAIN_NAME = "a layer that holds nothing"
 
           # @param sprites [Array<Sprite>] the build's software sprites. Empty for a
           #   check run over a tree alone.

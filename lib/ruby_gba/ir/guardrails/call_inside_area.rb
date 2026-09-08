@@ -20,6 +20,7 @@ module RubyGBA
         # routine everywhere it's called from instead of living at one call site.
         class CallInsideArea
           NAME = :call_inside_area
+          PLAIN_NAME = "a routine called inside an area"
 
           # Every draw op `inside` actually clips on the console — see
           # IR::Backends::GBA::Lowering#draw_area and the framebuffer clip bounds it

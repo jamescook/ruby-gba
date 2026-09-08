@@ -28,6 +28,7 @@ module RubyGBA
         # tiled by giving it something to paint.
         class BitmapDrawOnTiled
           NAME = :bitmap_draw_on_tiled
+          PLAIN_NAME = "drawing the tiled screen cannot show"
 
           # The screen modes this check covers — both paint with tile hardware
           # (backgrounds + sprites), neither has a framebuffer a bitmap draw can land in.

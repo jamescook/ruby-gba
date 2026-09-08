@@ -28,6 +28,7 @@ module RubyGBA
         # tiled content.
         class EmptyTiledScreen
           NAME = :empty_tiled_screen
+          PLAIN_NAME = "a tiled screen with nothing on it"
 
           def detect(program)
             return [] unless only_tiled?(program)

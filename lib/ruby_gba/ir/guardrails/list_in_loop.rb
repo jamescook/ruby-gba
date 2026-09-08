@@ -20,6 +20,7 @@ module RubyGBA
           include PerFrameScope
 
           NAME = :list_in_loop
+          PLAIN_NAME = "a list declared every frame"
 
           def detect(program)
             per_frame = per_frame_func_names(program)

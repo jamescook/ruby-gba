@@ -20,6 +20,7 @@ module RubyGBA
         # ordinary allocations adding up.
         class IwramBudget
           NAME = :iwram_budget
+          PLAIN_NAME = "the #{PlainWords::QUICK_MEMORY} budget"
 
           # The GBA's fast RAM is 32KB, but not all of it is free for the program's data:
           # the call stack lives at the top and the framework keeps a little scratch of its
@@ -142,8 +143,9 @@ module RubyGBA
 
           def message(total, users)
             top = users.first(TOP_USERS).map { |user| "#{user[:label]} (#{human(user[:bytes])})" }.join(", ")
-            "This program reserves about #{human(total)} of fast RAM. But the GBA has only #{human(IWRAM_BYTES)} " \
-              "of fast RAM in total. Only about #{human(BUDGET_BYTES)} of that is free for your data. The rest " \
+            "This program reserves about #{human(total)} of the console's #{PlainWords::QUICK_MEMORY}. But the " \
+              "console has only #{human(IWRAM_BYTES)} of #{PlainWords::QUICK_MEMORY} in total. Only about " \
+              "#{human(BUDGET_BYTES)} of that is free for your data. The rest " \
               "holds the call stack and the framework's own state. The biggest users are #{top}. To fix this, " \
               "use a smaller capacity for a pool or a list. Or use fewer fields. Or use one large list in place " \
               "of several. Then it all fits."

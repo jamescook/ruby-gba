@@ -31,20 +31,15 @@ module RubyGBA
         BITMAP_DRAWS = %i[pixel fill_rect dma_fill_rect clear_screen draw_rect_at
                           blit blit_pose draw_text draw_digit].freeze
 
-        # The DSL verb behind a node kind, for kinds whose internal name isn't what
-        # the developer typed. Naming their own verb back to them is what makes a
-        # message land.
-        VERB_FOR = { blit_pose: "sprite", draw_digit: "draw_number" }.freeze
-
         # Does the program give the tile hardware anything to paint?
         def paints?(program)
           program.each.any? { |node| PAINTS.include?(node.kind) }
         end
 
-        # The verb the developer typed for a node, e.g. :fill_rect -> "fill_rect".
-        def verb_for(kind)
-          VERB_FOR[kind] || kind.to_s
-        end
+        # The verb the developer typed for a node, e.g. :fill_rect -> "fill_rect". The table is
+        # {PlainWords}', shared with the builder's own layer refusal, which has to name the
+        # same verbs back to the same person.
+        def verb_for(kind) = PlainWords.verb(kind)
       end
     end
   end

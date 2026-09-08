@@ -20,6 +20,7 @@ module RubyGBA
         # and the build still produces a ROM. `rom.explain` shows the breakdown.
         class DrawBudget
           NAME = :draw_budget
+          PLAIN_NAME = "drawing that overruns a frame"
 
           def detect(program)
             model = CostModel.new

@@ -457,7 +457,7 @@ module RubyGBA
             return unless size > MIX_ROUTINE_IWRAM_MAX
 
             raise LoweringError,
-                  "the mix routine is #{size} bytes but only #{MIX_ROUTINE_IWRAM_MAX} are reserved in IWRAM " \
+                  "the mix routine is #{size} bytes but only #{MIX_ROUTINE_IWRAM_MAX} are reserved for it " \
                   "(raise MIX_ROUTINE_IWRAM_MAX)"
           end
 

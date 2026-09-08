@@ -18,6 +18,7 @@ module RubyGBA
         # knowable here, so those programs are left alone.
         class FadeNeverLifted
           NAME = :fade_never_lifted
+          PLAIN_NAME = "a fade never lifted"
 
           # The amount at which nothing shows through at all. Below this something of
           # the picture survives, and a permanently dimmed screen is a style choice

@@ -21,6 +21,7 @@ module RubyGBA
         # knowable here, so those programs are left alone.
         class TintNeverLifted
           NAME = :tint_never_lifted
+          PLAIN_NAME = "a tint never lifted"
 
           # The amount at which nothing shows through at all. Below this something of the
           # picture survives, and a permanently colored screen is a style choice rather

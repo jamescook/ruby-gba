@@ -21,6 +21,7 @@ module RubyGBA
         # path.
         class DroppedFrameSync
           NAME = :dropped_frame_sync
+          PLAIN_NAME = "a dropped wait for the screen"
 
           MESSAGE =
             "This game waits for the screen with `wait_vblank`, but `game_loop` " \

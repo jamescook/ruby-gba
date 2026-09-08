@@ -21,6 +21,7 @@ module RubyGBA
         # route entirely, so `flash_screen :red` leaves the layer blending.
         class LayerSolidWhileFading
           NAME = :layer_solid_while_fading
+          PLAIN_NAME = "a see-through layer while a fade runs"
 
           def detect(program)
             layers = program.each.find { |n| n.kind == :layers && blends?(n) }
