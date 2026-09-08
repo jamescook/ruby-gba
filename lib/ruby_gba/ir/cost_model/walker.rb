@@ -594,11 +594,24 @@ module RubyGBA
 
         # A timed trigger (every/after) as a labeled container: it carries its body's
         # full cost — the cost of the frame it does fire — so the tree and the
-        # heaviest-frame figure read true; the steady discount is applied separately
-        # (see #steady). The label names the intent, e.g. "every 30".
+        # heaviest-frame figure read true. The label names the intent, e.g. "every 30".
+        #
+        # It also carries HOW OFTEN it fires, which is what stops the hottest list ranking
+        # a frame nobody plays. `every 6` runs one frame in six, so its body is a sixth of
+        # what an average frame pays; `after` fires once ever and pays nothing again. The
+        # cost above stays whole (that is the frame it does fire, and the console still has
+        # to survive it) and the factor says what to multiply it by for a normal frame —
+        # the same discount #steady applies, said here so the tree can apply it too.
         def build_timer(node, label)
           kids = node.children.flat_map { |child| build(child) }
-          Entry.new(op: node.kind, label: label, cost: sum(kids), source: node.source, children: kids)
+          Entry.new(op: node.kind, label: label, cost: sum(kids), source: node.source,
+                    children: kids, factor: timer_share(node))
+        end
+
+        # One frame in +period+ for `every`; nothing at all for `after`, which fires once
+        # and is a boot cost rather than a per-frame one.
+        def timer_share(node)
+          node.kind == :every ? Rational(1, node.period) : 0
         end
 
         def func_children(name)
