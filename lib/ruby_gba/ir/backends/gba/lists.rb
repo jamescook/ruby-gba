@@ -49,9 +49,9 @@ module RubyGBA
           # +ring+ says the program SHIFTS this one, so its head moves and its slots have to be
           # rounded up to a power of two for the wrapping mask. Everything else is a plain
           # array of exactly the slots it asked for.
-          def register_list(name, capacity, ring: true)
+          def register_list(name, capacity, ring: true, width: :word)
             if (existing = @lists[name])
-              return if existing[:capacity] == capacity
+              return if existing[:capacity] == capacity && existing[:width] == width
 
               raise LoweringError,
                     "list #{name.inspect} is created with two different capacities " \
@@ -59,10 +59,14 @@ module RubyGBA
             end
 
             slots = ring ? Build.round_up_capacity(capacity) : capacity
-            base = @memory.alloc(slots * 4)
+            bytes = Build::ELEMENT_BYTES.fetch(width)
+            # Rounded up to a whole word so the NEXT thing allocated stays word-aligned — a
+            # narrow list is allowed to be an odd number of bytes long, but nothing after it is.
+            base = @memory.alloc(((slots * bytes) + 3) & ~3)
             @primitives.var_addr(head_var(name)) if ring # a plain array's head can never move
             @primitives.var_addr(length_var(name))
-            @lists[name] = { capacity: capacity, ring: ring, mask: slots - 1, base: base }
+            @lists[name] = { capacity: capacity, ring: ring, mask: slots - 1, base: base,
+                             width: width, bytes: bytes }
           end
 
           # A list's layout, or a friendly error if the program never created it.
@@ -135,7 +139,7 @@ module RubyGBA
             @emitter.emit(ASM.push(ADDR))                         # hold the address across the value eval
             @lowering.value(node.value)                     # r0 = value
             @emitter.emit(ASM.pop(TMP))                           # r1 = address
-            @emitter.emit(ASM.str(ACC, TMP))                      # slot = value
+            emit_store_element(info, ACC, TMP)                    # slot = value
 
             @primitives.load_var(ACC, length)                        # length += 1
             @emitter.emit(ASM.add_imm(ACC, ACC, 1))
@@ -180,7 +184,7 @@ module RubyGBA
             @emitter.emit(ASM.push(ADDR))
             @lowering.value(node.value)                     # r0 = value
             @emitter.emit(ASM.pop(TMP))                           # r1 = address
-            @emitter.emit(ASM.str(ACC, TMP))                      # slot = value
+            emit_store_element(info, ACC, TMP)                    # slot = value
           end
 
           # list_get: read the item at an index into the accumulator (a value).
@@ -188,7 +192,7 @@ module RubyGBA
             info = list_info(node.name)
             @lowering.value(node.index)                     # r0 = index
             emit_slot_address(info, node.name)         # r12 = &slot[(head+index)&mask]
-            @emitter.emit(ASM.ldr(ACC, ADDR))                     # r0 = slot
+            emit_load_element(info, ACC, ADDR)                    # r0 = slot
           end
 
           # list_len: read the length variable into the accumulator (a value).
@@ -214,9 +218,38 @@ module RubyGBA
             else
               emit_bound_to_capacity(info[:capacity])              # r0 = slot, or nought
             end
-            @emitter.emit(ASM.lsl_imm(ACC, ACC, 2))               # r0 = slot * 4 bytes
+            shift = Math.log2(info[:bytes]).to_i                   # 4 bytes -> 2, 2 -> 1, 1 -> 0
+            @emitter.emit(ASM.lsl_imm(ACC, ACC, shift)) if shift.positive? # r0 = slot * elem size
             @emitter.emit(ASM.load_immediate(TMP, info[:base]))   # r1 = base address
-            @emitter.emit(ASM.add_reg(ADDR, TMP, ACC))            # r12 = base + slot*4
+            @emitter.emit(ASM.add_reg(ADDR, TMP, ACC))            # r12 = base + slot*size
+          end
+
+          # LOAD AND STORE ONE ELEMENT at the address in +addr+, at the list's own width. A
+          # word list is one instruction either way; a narrower one is the same instruction
+          # with the size bits set, so a narrow list is no slower to read or write — it is
+          # only smaller.
+          #
+          # A NARROW ELEMENT IS READ BACK SIGN-EXTENDED, filling the whole register with the
+          # number it holds including its sign, so what comes out of a byte slot holding -4 is
+          # -4 and not 252. That is why there is no unsigned option: a slot that could not come
+          # back negative would break every countdown written `sub` first and tested second.
+          def emit_load_element(info, into, addr)
+            case info[:width]
+            when :word then @emitter.emit(ASM.ldr(into, addr))
+            when :half then @emitter.emit(ASM.ldrsh(into, addr))
+            when :byte then @emitter.emit(ASM.ldrsb(into, addr))
+            end
+          end
+
+          # ...and the store, which keeps only the low bits that fit. A value too big for the
+          # width is cut down rather than reaching the element next door — the same bargain
+          # the index bound makes, and the interpreter cuts it down to exactly the same number.
+          def emit_store_element(info, from, addr)
+            case info[:width]
+            when :word then @emitter.emit(ASM.str(from, addr))
+            when :half then @emitter.emit(ASM.store_halfword(from, addr))
+            when :byte then @emitter.emit(ASM.strb(from, addr))
+            end
           end
 
           # Hold r0 inside 0...capacity, reading slot nought for anything outside it. The

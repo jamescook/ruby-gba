@@ -172,6 +172,60 @@ class TestListHardware < Minitest::Test
     assert v.pixel_is?(70, ROW, :red), "and the variable next to the list is untouched"
   end
 
+  # A SLOT NARROWER THAN A WHOLE NUMBER, on the console. The lowering changes for these: the
+  # address is scaled by the element size rather than always by four, and the load and store
+  # are the byte-sized instructions. So the same markers landing in the same places is the
+  # check that all three moved together.
+  def test_a_byte_wide_list_indexes_the_same_places_the_oracle_does
+    prog = program(
+      screen(:bitmap), clear_screen(:black),
+      list_new(:xs, 8, width: :byte),
+      list_push(:xs, 20),
+      list_push(:xs, 60),
+      list_push(:xs, 100),
+      list_set(:xs, 1, 120), # ...and a write lands on the slot the read comes from
+      draw_each_marker(:xs),
+      halt,
+    )
+
+    assert_same_markers(prog,
+                        [[20, :green], [120, :green], [100, :green],
+                         [60, nil], [180, nil]])
+  end
+
+  # ...AND A NUMBER TOO BIG FOR ONE IS CUT DOWN THE SAME WAY ON BOTH. The console's byte store
+  # keeps the low eight bits and there is nothing else it could do; what makes that safe rather
+  # than a trap is that the interpreter drops exactly the same bits, so a game tested against
+  # the oracle behaves the same on the cartridge. 300 is 256 and 44, and the 256 does not fit.
+  def test_a_number_too_big_for_a_byte_slot_is_cut_down_the_same_way_on_both
+    prog = program(
+      screen(:bitmap), clear_screen(:black),
+      list_new(:xs, 4, width: :byte),
+      list_push(:xs, 300),
+      draw_each_marker(:xs),
+      halt,
+    )
+
+    assert_same_markers(prog, [[44, :green], [300 % 240, nil], [20, nil]])
+  end
+
+  # A SIGNED narrow slot reads back below nothing, which is what a -1 meaning "none" needs.
+  # Read by drawing at 100 plus what came out, so a slot that lost the sign draws at 355 —
+  # off the screen — and one that kept it draws at 99.
+  def test_a_signed_byte_slot_reads_a_negative_back_on_both_backends
+    prog = program(
+      screen(:bitmap), clear_screen(:black),
+      list_new(:xs, 4, width: :byte),
+      list_push(:xs, -1),
+      repeat(list_len(:xs), :i,
+             draw_rect_at(binop(:+, int(100), list_get(:xs, var_ref(:i))), ROW, 4, 4, :green)),
+      halt,
+    )
+
+    # 99 is where a kept sign lands; a lost one would be 100 + 255, off the screen entirely.
+    assert_same_markers(prog, [[99, :green], [95, nil], [104, nil]])
+  end
+
   def test_overflow_is_bounded_on_hardware
     # The interpreter *raises* on a push past capacity; hardware can't, so it must
     # instead bound the list safely — drop the extra pushes, keep the oldest two,

@@ -684,7 +684,7 @@ module RubyGBA
       # the same walk is counted at when it asks what a frame could cost at worst. A
       # snake's body list holds every cell of the board and holds four of them for most
       # of a game, so the two questions have answers 128 times apart.
-      def list_new(name, capacity, usually: nil)
+      def list_new(name, capacity, usually: nil, width: :word)
         unless Whole.positive?(capacity)
           raise ArgumentError,
                 "a list's capacity must be a positive whole number, got #{capacity.inspect}"
@@ -694,12 +694,16 @@ module RubyGBA
                 "`usually:` must be between 1 and the capacity of #{capacity}. " \
                 "You gave #{usually.inspect}."
         end
+        unless ELEMENT_BYTES.key?(width)
+          raise ArgumentError,
+                "a list's width must be :byte, :half or :word, got #{width.inspect}"
+        end
         # A LIST HOLDS WHAT IT WAS ASKED FOR, which is the only answer that can be explained.
         # It used to hold the next power of two up, because the storage was a ring whose index
         # was wrapped with a mask — so `capacity: 340` quietly held 512, and the memory for
         # those 172 slots nobody planned for came out of the console's 32K. How that storage
         # is arranged is the backend's business now, and it is arranged around this number.
-        Nodes.build(:list_new, name: name, capacity: capacity, usually: usually)
+        Nodes.build(:list_new, name: name, capacity: capacity, usually: usually, width: width)
       end
 
       # Append a value at the end of the list (grows its length by one).
@@ -868,6 +872,27 @@ module RubyGBA
       # one it belongs to.
       def under_layer(name)
         name ? { under: name } : {}
+      end
+
+      # HOW BIG ONE ELEMENT IS, in bytes, for each width a table or a list can be given. The
+      # same three names mean the same three sizes wherever they are written.
+      ELEMENT_BYTES = { byte: 1, half: 2, word: 4 }.freeze
+
+      # ...and the smallest and largest number one element of that width can hold.
+      #
+      # A NARROW ELEMENT ALWAYS GOES BELOW NOTHING, and there is deliberately no way to ask for
+      # the other half of the range. A `table` can be asked, because every value in one is
+      # known while the cartridge is built and the answer can be read off them; a list's values
+      # are written while the game RUNS, so nothing at build time can tell. And the case that
+      # decides it is invisible either way: a countdown written `wait.sub 7` and then tested
+      # `wait <= 0` really does hold -4 for the length of that test, and in a slot that could
+      # not go below nothing -4 reads back as 252 and the test never fires. That is a game that
+      # quietly stops working rather than an error — measured in a real one, three of its ten
+      # narrow fields do exactly that. So the safe half is the only half, and a number that
+      # needs to reach past 127 asks for the next width up instead.
+      def element_range(width)
+        bits = ELEMENT_BYTES.fetch(width) * 8
+        [-(1 << (bits - 1)), (1 << (bits - 1)) - 1]
       end
 
       # The next power of two at or above a number (4 stays 4, 5 becomes 8, 100 becomes 128).

@@ -225,6 +225,22 @@ module ConformanceFixture
       B.list_drop(:trail, from: :back),   # pop -> length 1
       B.list_drop(:trail, from: :front),  # shift -> length 0
 
+      # ...and a list whose slots are narrower than a whole number, which the backends reach
+      # by different roads — a byte-sized load and store against a word one, and an address
+      # scaled by one rather than by four. Both the number that fits and the one that does not
+      # are here, since agreeing about what is DROPPED is the whole of the contract.
+      B.list_new(:narrow, 4, width: :byte),
+      B.list_push(:narrow, 100),          # fits a signed byte
+      B.list_push(:narrow, -4),           # ...and so does a countdown that ran past nothing
+      B.set(:acc, B.list_get(:narrow, 0)),
+      B.set(:acc, B.list_get(:narrow, 1)),
+      B.list_new(:tally, 4, width: :byte),
+      B.list_push(:tally, 300),           # too big — keeps the low bits (44)
+      B.set(:acc, B.list_get(:tally, 0)),
+      B.list_new(:owed, 4, width: :half),
+      B.list_push(:owed, -300),           # below nothing, and wide enough to hold it
+      B.set(:acc, B.list_get(:owed, 0)),
+
       # --- control flow: if+else, call, case, repeat ---
       if_else,
       B.call(:helper),
