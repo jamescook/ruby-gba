@@ -19,6 +19,10 @@ class TestFirstPerson < Minitest::Test
   # A view built from our own one-room level, so it needs nobody's copy of the game. On the
   # tear-free screen, which is the one the game itself draws on.
   def view_program
+    @view_program ||= build_the_view
+  end
+
+  def build_the_view
     vswap = Wolf3D::Vswap.new(fixture.files["VSWAP"])
     doors = Wolf3D::Doors.new(@level, vswap)
     pushwalls = Wolf3D::Pushwalls.new(@level)
@@ -137,6 +141,60 @@ class TestFirstPerson < Minitest::Test
     end
 
     assert_equal 0, through, "#{through} strips of the eye line are showing through the wall"
+  end
+
+  # THE WALLS MUST NOT JUDDER AS YOU WALK, and this is the test that the two distances a ray
+  # starts from are the right way round.
+  #
+  # A ray begins by asking how far it is to the first grid line it will cross, and the answer
+  # comes from where the eye stands inside its own cell: for a ray leaning back it is the part of
+  # the cell already behind you, for one leaning forward the part still ahead. Use the wrong one
+  # of the pair and the wall comes out at the wrong distance — by nothing at all while the player
+  # stands in the middle of a cell, by nearly a whole cell at its edge, and back to nothing at the
+  # next cell. So the picture stays a perfectly good flat wall the whole time. What gives it away
+  # is that the wall JUMPS every time the player crosses a grid line.
+  #
+  # WALKED AT AN ANGLE, not straight at a wall, and that is the point of this test existing beside
+  # the ones above. A ray aimed square at a wall crosses grid lines one way only: the distance
+  # along the other axis is never the nearer one, so it never decides anything and a wrong answer
+  # there cannot show. Facing a corner, both axes are in play on every ray.
+  # ALL FOUR CORNERS OF THE ROOM, one walk each, because a ray leaning back along an axis and one
+  # leaning forward ask for different halves of the cell the eye stands in. A fan pointed into one
+  # corner leans the same way on both axes for every ray in it, so one corner exercises one of the
+  # four pairs and says nothing about the other three.
+  CORNERS = [[:left, 11], [:right, 11], [:left, 33], [:right, 33]].freeze
+  WALKING_FRAMES = 14 # steps after the turn: far enough to carry the eye over a grid line
+  JUDDER = 3          # pixels a strip's top edge may move in one frame at this walking speed
+
+  def test_the_walls_do_not_jump_as_you_walk_over_a_grid_line
+    CORNERS.each do |turning, turns|
+      seen = top_edges_walking_into(turning, turns)
+
+      seen.each { |tops| refute_includes tops, nil, "every strip should meet a wall in a closed room" }
+      moved = seen.each_cons(2).flat_map do |before, after|
+        before.zip(after).map { |was, now| (now - was).abs }
+      end
+
+      assert_operator moved.max, :<=, JUDDER,
+                      "turning #{turning} #{turns} times, a strip's top edge moved " \
+                      "#{moved.max} pixels in a single step"
+    end
+  end
+
+  # Turn into a corner, then walk at it, keeping the top edge of every fourth strip on each frame.
+  def top_edges_walking_into(turning, turns)
+    run = Reference.new
+    seen = []
+    run.input_each_frame { |frame| frame <= turns ? [turning] : [:up] }
+       .each_vblank { |frame| seen << top_edges(run) if frame > turns }
+       .run(view_program, frames: turns + WALKING_FRAMES)
+    seen
+  end
+
+  def top_edges(run)
+    (0...FP::ACROSS).step(4).map do |x|
+      (0...FP::HORIZON).find { |y| run.screen.pixel(x, y) != FP::CEILING }
+    end
   end
 
   # NO CONSOLE TEST OF THE SAME WALK, and that is a decision rather than an omission. The console
