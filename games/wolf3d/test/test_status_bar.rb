@@ -46,7 +46,48 @@ class TestStatusBar < Minitest::Test
     assert_equal FP::START_AMMO, figure(run, :ammo)
     assert_equal 0, figure(run, :score)
     assert_equal Wolf3D::Lives::START, figure(run, :lives)
-    assert_equal FP::FLOOR, figure(run, :floor)
+  end
+
+  # THE BAR HAS TO COME TO 240 COLUMNS, which is the one thing about it that cannot be argued
+  # with: it is laid out from the width of what goes in it, and what goes in it is the release's
+  # own art. So the arithmetic is asserted rather than left to be discovered on a screen.
+  #
+  # Every field starts on an EVEN column, because a label is a picture cut out of the plate and a
+  # picture on this screen must.
+  def test_the_fields_fit_the_screen_and_are_spread_evenly
+    wide = Bar.widths(art)
+    at = Bar.layout(art)
+    last = Bar::FIELDS.last
+    gaps = Bar::FIELDS.each_cons(2).map do |before, after|
+      at.fetch(after.name) - (at.fetch(before.name) + wide.fetch(before.name))
+    end
+
+    assert_operator at.fetch(last.name) + wide.fetch(last.name), :<=, FP::ACROSS,
+                    "the fields run off the end of the screen"
+    assert_empty Bar::FIELDS.reject { |f| at.fetch(f.name).even? }.map(&:name),
+                 "a field starting on an odd column cannot have its label drawn"
+    assert_equal 1, gaps.uniq.length, "the gaps between the fields are not all the same: #{gaps}"
+  end
+
+  # ...AND EVERY GROOVE LANDS BETWEEN TWO FIELDS RATHER THAN ON ONE, which is the constraint that
+  # really decides how much room the bar has. A groove is two columns and has to start on an even
+  # one, so a gap of four is not enough however it is arranged: both of its even columns touch a
+  # field. That is what settles the size the weapon is drawn at, so it is asserted here rather
+  # than left to be noticed on a screen.
+  def test_a_groove_lands_clear_of_the_fields_on_both_sides_of_it
+    wide = Bar.widths(art)
+    at = Bar.layout(art)
+
+    Bar.boundaries(art).each_with_index do |groove, n|
+      before = Bar::FIELDS[n]
+      after = Bar::FIELDS[n + 1]
+      ends = at.fetch(before.name) + wide.fetch(before.name)
+
+      assert groove.even?, "the groove after #{before.name} starts on an odd column"
+      assert_operator groove, :>, ends, "the groove after #{before.name} touches it"
+      assert_operator groove + art.rule_width, :<, at.fetch(after.name),
+                      "the groove before #{after.name} touches it"
+    end
   end
 
   # A LIFE COMES OFF AND THE BAR SAYS SO. Read off the screen like every other field, because the
@@ -189,12 +230,52 @@ class TestStatusBar < Minitest::Test
     assert_equal key_picture(:no_key), key_slot(after, :silver), "the other slot is still empty"
   end
 
-  # THE COLOUR THE BAR IS PAINTED IN is read off the plate rather than picked by eye, so it is
-  # the game's own steel and not one somebody matched. Read back off a spot no field reaches.
-  def test_the_bar_is_painted_in_the_plates_own_colour
+  # THE GUN IN YOUR HANDS, ON THE BAR, asked for the same way the face is: which of the four
+  # landed, matched against all four, rather than "something was painted where the weapon goes".
+  # The whole point of the field is telling a chain gun from a machine gun.
+  def test_the_weapon_on_the_bar_is_the_one_you_are_holding
     run = Reference.new.run(view_of(arena, art: art), frames: 2)
 
-    assert_equal palette[Release::PLATE_GROUND], run.screen.pixel(2, FP::VIEW_H + 20)
+    assert_equal :pistol, weapon_on_the_bar(run), "a game opens with the pistol in your hands"
+  end
+
+  # ...AND IT FOLLOWS THE SHOULDER BUTTONS, which is the whole reason the field is worth its
+  # columns: it is the one thing on the bar the player changes on purpose. One press of R walks
+  # past the best gun found so far and wraps round to the knife, so the bar should show a knife.
+  def test_the_weapon_on_the_bar_follows_the_shoulder_buttons
+    changed = Reference.new.input_each_frame { |f| f == 4 ? [:r] : [] }
+                      .run(view_of(arena, art: art), frames: 12)
+
+    assert_equal Weapons::KNIFE, changed[:weapon], "R should have walked the weapon on"
+    assert_equal :knife, weapon_on_the_bar(changed), "and the bar should show what you hold"
+  end
+
+  # ...AND THE CONSOLE DRAWS THE SAME GUN. Worth its own run rather than trusting the oracle,
+  # because the two backends reach the picture by quite different roads: the cartridge walks the
+  # row of guns column by column through a routine and works out which one by arithmetic, where
+  # the interpreter reads it straight off a fake screen. They have to land on the same gun.
+  def test_the_console_draws_the_same_gun_the_interpreter_does
+    rom = ROM.assemble(GBA.new.lower(view_of(arena, art: art)),
+                       title: "BARGUN", code: "ABRG", maker: "01")
+    # Far enough in that the cartridge has painted both pages. Read at four the screen is still
+    # black, which would say nothing about which gun.
+    gba = RubyGBA::Verifier.new(rom, frames: 10)
+
+    assert_equal :pistol, weapon_drawn { |x, y| gba.pixel_gba(x, y) }
+  end
+
+  # THE COLOUR THE BAR IS PAINTED IN is read off the plate rather than picked by eye, so it is
+  # the game's own steel and not one somebody matched.
+  #
+  # Read back off the clear column beside a groove, which the layout works out rather than the
+  # test choosing: with the fields spread to the edges of the screen that is the only place on
+  # the bar where nothing at all is meant to be drawn.
+  def test_the_bar_is_painted_in_the_plates_own_colour
+    run = Reference.new.run(view_of(arena, art: art), frames: 2)
+    first = Bar::FIELDS.first
+    clear = at(first.name, art) + Bar.widths(art).fetch(first.name)
+
+    assert_equal palette[Release::PLATE_GROUND], run.screen.pixel(clear, FP::VIEW_H + 20)
   end
 
   # THE PLATE'S OWN EDGE, re-set at 240: two colours along the top and two along the bottom,
@@ -217,7 +298,7 @@ class TestStatusBar < Minitest::Test
 
     assert_equal FP::START_HEALTH, numeral_figure(run, :health, art)
     assert_equal FP::START_AMMO, numeral_figure(run, :ammo, art)
-    assert_equal FP::FLOOR, numeral_figure(run, :floor, art)
+    assert_equal Wolf3D::Lives::START, numeral_figure(run, :lives, art)
   end
 
   # ...and the leading noughts are blank rather than drawn, which is what makes a six-place
@@ -235,7 +316,7 @@ class TestStatusBar < Minitest::Test
   # Which numeral picture is drawn at each place of a field, or nil where the blank one is.
   def numeral_places(run, name, art)
     f = field(name)
-    left = at(name, art) + ((art.label_width(name) - (f.digits * art.digit_width)) / 2)
+    left = Bar.centred(f, f.digits * art.digit_width, art)
     y = FP::VIEW_H + Bar::FIGURE_ROW
     f.digits.times.map { |place| numeral_at(run, left + (place * art.digit_width), y, art) }
   end
@@ -272,6 +353,37 @@ class TestStatusBar < Minitest::Test
   def key_picture(name)
     picture = pictures.picture(name)
     art.key_height.times.flat_map { |dy| art.key_width.times.map { |dx| palette[picture[dx, dy]] } }
+  end
+
+  # WHICH OF THE FOUR GUNS IS ON THE BAR, matched against all four rather than against the one
+  # expected — so a bar showing the wrong gun comes back naming the gun it really drew.
+  #
+  # Read at the size the bar DRAWS them, which is three quarters of the size they were painted
+  # (see BarArt#shrunk). This test does that arithmetic itself: sampling the release's own
+  # picture the same way and asking which one matches is what makes it a reading rather than a
+  # restatement of the packing.
+  def weapon_on_the_bar(run) = weapon_drawn { |x, y| run.screen.pixel(x, y) }
+
+  # The block reads one pixel, so the same reading works off the oracle's fake screen and off
+  # the console's real one.
+  def weapon_drawn
+    x = at(:weapon, art)
+    y = FP::VIEW_H + ((Bar::HEIGHT - art.weapon_height) / 2)
+    drawn = art.weapon_height.times.flat_map do |dy|
+      art.weapon_width.times.map { |dx| yield(x + dx, y + dy) }
+    end
+    Wolf3D::BarArt::WEAPON_PICTURES.find { |name| weapon_picture(name) == drawn } ||
+      flunk("what is drawn where the weapon goes matches none of the four guns")
+  end
+
+  def weapon_picture(name)
+    picture = pictures.picture(name)
+    art.weapon_height.times.flat_map do |dy|
+      row = (dy * picture.height) / art.weapon_height
+      art.weapon_width.times.map do |dx|
+        palette[picture[(dx * picture.width) / art.weapon_width, row]]
+      end
+    end
   end
 
   def face_pixels(run, art)
@@ -347,9 +459,10 @@ class TestStatusBar < Minitest::Test
   # Is the field's label on the bar, in the label colour, where the layout says?
   def label_shows?(run, field)
     ink = palette[Bar::LABEL]
+    x = Bar.centred(field, font.text_width(field.label), nil)
     y = FP::VIEW_H + Bar::LABEL_ROW
     font.text_width(field.label).times.any? do |dx|
-      font.instance_variable_get(:@height).times.any? { |dy| run.screen.pixel(at(field.name) + dx, y + dy) == ink }
+      font.instance_variable_get(:@height).times.any? { |dy| run.screen.pixel(x + dx, y + dy) == ink }
     end
   end
 
@@ -357,7 +470,7 @@ class TestStatusBar < Minitest::Test
   # so what comes back is the number a player would read.
   def figure(run, name)
     f = field(name)
-    left = at(name) + ((font.text_width(f.label) - (f.digits * font.cell_w)) / 2)
+    left = Bar.centred(f, f.digits * font.cell_w, nil)
     y = FP::VIEW_H + Bar::FIGURE_ROW
     f.digits.times.map { |place| digit_at(run, left + (place * font.cell_w), y) }.join.to_i
   end
@@ -381,9 +494,8 @@ class TestStatusBar < Minitest::Test
 
   # The colours of the two key blocks, read from the middle of each.
   def key_colours(run)
-    f = field(:keys)
     wide = (Bar::METALS.length * Bar::KEY_W) + ((Bar::METALS.length - 1) * Bar::KEY_GAP)
-    left = at(:keys) + ((font.text_width(f.label) - wide) / 2)
+    left = Bar.centred(field(:keys), wide, nil)
     y = FP::VIEW_H + Bar::FIGURE_ROW - 2
     Bar::METALS.each_key.with_index.map do |_metal, n|
       run.screen.pixel(left + (n * (Bar::KEY_W + Bar::KEY_GAP)) + (Bar::KEY_W / 2), y + (Bar::KEY_H / 2))

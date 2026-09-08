@@ -66,7 +66,12 @@ module Wolf3D
     RULE_ROWS = (5...36)
     RULE_INK = 25
 
-    attr_reader :face_width, :face_height, :key_width, :key_height, :digit_width, :digit_height
+    # THE FOUR WEAPONS, in the order the game numbers them — so which one to show is the number
+    # already in the player's hands rather than a name looked up.
+    WEAPON_PICTURES = WeaponAtlas::WEAPONS
+
+    attr_reader :face_width, :face_height, :key_width, :key_height, :digit_width, :digit_height,
+                :weapon_width, :weapon_height
 
     # +vgagraph+ is a release whose pictures have names. Nil for a release we cannot name, and
     # then the bar draws the way it drew before there was any art.
@@ -85,6 +90,9 @@ module Wolf3D
       digit = @vg.picture(:blank_digit)
       @digit_width = digit.width
       @digit_height = digit.height
+      gun = @vg.picture(WEAPON_PICTURES.first)
+      @weapon_width = shrunk(gun.width)
+      @weapon_height = shrunk(gun.height)
     end
 
     def poses = BANDS * LOOKS
@@ -112,6 +120,27 @@ module Wolf3D
     def numerals(palette) = strip(NUMERALS, @digit_width, @digit_height, palette)
 
     def numerals_width = @digit_width * NUMERALS.length
+
+    # THE FOUR GUNS IN ONE ROW, the same arrangement as the faces and for the same reason: which
+    # one you are holding is a number, so a column of the row is `weapon * width + column` and
+    # nothing is chosen.
+    def weapons(palette) = strip(WEAPON_PICTURES, @weapon_width, @weapon_height, palette)
+
+    def weapons_width = @weapon_width * WEAPON_PICTURES.length
+
+    # THE ONE PICTURE ON THIS BAR NOT DRAWN AT THE SIZE IT WAS PAINTED, and how much smaller is
+    # not a taste — it is the screen's own reduction. The plate is 320 columns and this screen is
+    # 240, so everything on the bar is already being asked to fit in three quarters of the room,
+    # and the weapon is the one field where that could not be paid for out of the gaps: with all
+    # seven of the fields the bar already carries, there is no size at all that leaves room for a
+    # groove beside it. So the gun is drawn in three quarters of its own, which is 36 columns of
+    # its 48, and the bar comes to exactly 240.
+    #
+    # What is lost is detail and not the point of the field. Two of every three columns and rows
+    # are kept, which is regular rather than a smear, and the four guns stay as far apart from
+    # each other as they were — between a quarter and a half of any pair's pixels differ, at
+    # either size. A player has to tell a chain gun from a machine gun, and that survives.
+    def shrunk(size) = (size * FirstPerson::ACROSS) / plate.width
 
     # ONE LABEL, CUT OUT OF THE PLATE, as a picture the framework can draw.
     #
@@ -213,10 +242,17 @@ module Wolf3D
 
     # Several same-size pictures laid out side by side, row by row, so a column of the result
     # picks one of them.
+    #
+    # +width+ and +height+ are the size to DRAW them at, which for the faces, the keys and the
+    # numerals is the size they were painted and for the weapons is smaller (see #shrunk). Asking
+    # for the size they already are takes every column and every row, so those are untouched.
     def strip(names, width, height, palette)
       pictures = names.map { |name| @vg.picture(name) }
       height.times.flat_map do |y|
-        pictures.flat_map { |picture| width.times.map { |x| palette[picture[x, y]] } }
+        pictures.flat_map do |picture|
+          row = (y * picture.height) / height
+          width.times.map { |x| palette[picture[(x * picture.width) / width, row]] }
+        end
       end
     end
   end

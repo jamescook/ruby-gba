@@ -655,13 +655,10 @@ module Wolf3D
     def start_y = @level.start.y + 0.5
     def start_view = facing_angle(@level.start.facing)
 
-    # WHICH FLOOR. One, because one is all the cartridge holds.
-    FLOOR = 1
-
     def declare_the_bar
       @bar = StatusBar.new(build: @b, top: VIEW_H, art: @bar_art,
-                           shows: { floor: FLOOR, score: @score, lives: @lives.left,
-                                    health: @health, ammo: @ammo, keys: @keys })
+                           shows: { score: @score, lives: @lives.left, health: @health,
+                                    ammo: @ammo, keys: @keys, weapon: @weapons.in_hand })
     end
 
     # WORKING ROOM. Every one of these is scratch — set, read and finished with inside a single
