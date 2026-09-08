@@ -328,15 +328,9 @@ class TestEnemies < Minitest::Test
     play(walking, a_floor_of(name, at: at, count: count, drawn: true), frames)
   end
 
-  # A DRAWN RUN NEEDS ITS BUDGET SAID OUT LOUD. The interpreter counts steps as a guard against a
-  # loop that never ends, and its default runs out part-way through a few hundred drawn frames —
-  # so a run stops early and says nothing, and the assertions read a frozen world. This is a whole
-  # drawn frame with room to spare, which still catches a real runaway.
-  STEPS_A_DRAWN_FRAME = 50_000
-
   def play(keys, program, frames)
     Reference.new.input_each_frame { |f| keys.call(f) }
-             .run(program, frames: frames, max_steps: frames * STEPS_A_DRAWN_FRAME)
+             .run(program, frames: frames)
   end
 
   # BACK OVER A MACHINE GUN LYING BEHIND YOU, then stand and empty the thing into the SS coming

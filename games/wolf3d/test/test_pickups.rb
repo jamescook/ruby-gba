@@ -161,9 +161,9 @@ class TestPickups < Minitest::Test
   # is nothing on the floor to see.
   def test_the_clip_a_guard_left_is_drawn_on_the_floor
     standing = Reference.new.input_each_frame { [:up] }
-                        .run(shooting_program(drawing: true), frames: 60, max_steps: 8_000_000)
+                        .run(shooting_program(drawing: true), frames: 60)
     down = Reference.new.input_each_frame { |f| shoot_at_him(f) }
-                    .run(shooting_program(drawing: true), frames: 60, max_steps: 8_000_000)
+                    .run(shooting_program(drawing: true), frames: 60)
 
     refute_includes colours_on_screen(standing), clip_colour, "nobody has dropped anything"
     assert_includes colours_on_screen(down), clip_colour, "and there it is on the floor"
@@ -187,7 +187,7 @@ class TestPickups < Minitest::Test
     console = RubyGBA::Verifier.new(rom, frames: cells(4) * 4, keys: walking,
                                          vars: backend.var_addresses)
     oracle = Reference.new.input_each_frame { [:up] }
-                     .run(program, frames: cells(4), max_steps: 4_000_000)
+                     .run(program, frames: cells(4))
 
     assert_equal FP::START_AMMO + 8, oracle[:ammo],
                  "the oracle took the clip, so there is something to compare"
@@ -258,7 +258,7 @@ class TestPickups < Minitest::Test
   # Walk east over whatever is laid out ahead, far enough to cross +cells+ of them.
   def walk_east_over(ahead, cells:, side: 16)
     Reference.new.input_each_frame { [:up] }
-             .run(walking_program(ahead, side: side), frames: cells(cells), max_steps: 4_000_000)
+             .run(walking_program(ahead, side: side), frames: cells(cells))
   end
 
   # STAND ON ONE THING AND BE SHOT AT. The player walks one cell forward onto whatever is there
@@ -267,7 +267,7 @@ class TestPickups < Minitest::Test
   def shot_at_standing_on(piece, frames:)
     level = arena(on_the_spot: piece, guards: [[8, 8, :west]])
     Reference.new.input_each_frame { |f| f <= cells(1) ? [:up] : [] }
-             .run(view_of(level), frames: frames, max_steps: 8_000_000)
+             .run(view_of(level), frames: frames)
   end
 
   # Empty the pistol into the guard ahead, then walk over what is left of him. The button is read
@@ -288,6 +288,6 @@ class TestPickups < Minitest::Test
   # the screen, so with nothing drawn nobody is ever on it and nothing is ever dropped.
   def shoot_then_walk(frames:)
     Reference.new.input_each_frame { |f| shoot_at_him(f) }
-             .run(shooting_program(drawing: true), frames: frames, max_steps: frames * 50_000)
+             .run(shooting_program(drawing: true), frames: frames)
   end
 end

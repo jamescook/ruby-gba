@@ -65,7 +65,7 @@ class TestLives < Minitest::Test
     struck = ->(f) { (f % BETWEEN_DEATHS) == 5 ? [:b] : [] }
     Reference.new
              .input_each_frame { |f| struck.call(f) + (pressing&.call(f) || []) }
-             .run(counting_program, frames: BETWEEN_DEATHS * times, max_steps: 8_000_000)
+             .run(counting_program, frames: BETWEEN_DEATHS * times)
   end
 
   def test_dying_spends_one_go_and_starts_the_floor_again
@@ -157,8 +157,7 @@ class TestLives < Minitest::Test
     [at - 1, at].map do |until_frame|
       runner = Reference.new
       runner = runner.input_each_frame(&script) if script
-      runner.run(floor_program(restart_at: at, drawn: drawn), frames: until_frame,
-                 max_steps: until_frame * (drawn ? 50_000 : 20_000))
+      runner.run(floor_program(restart_at: at, drawn: drawn), frames: until_frame)
     end
   end
 
@@ -244,7 +243,7 @@ class TestLives < Minitest::Test
   # table that turns a facing into an angle.
   def test_the_player_is_put_back_facing_the_way_the_level_points_them
     turned, back = either_side_of_a_restart(at: 40) { [:right] }
-    booted = Reference.new.run(floor_program(restart_at: 0), frames: 1, max_steps: 4_000_000)
+    booted = Reference.new.run(floor_program(restart_at: 0), frames: 1)
 
     refute_equal booted[:view], turned[:view], "the turn should have moved where they look"
     assert_equal booted[:view], back[:view]
@@ -257,7 +256,7 @@ class TestLives < Minitest::Test
   # with a hundred of health and one go fewer. It is the dear one — every frame of it draws the
   # whole view — so there is one of it and it is sized to the moment just after the first death.
   def test_being_killed_really_does_start_the_floor_again
-    ran = Reference.new.run(ringed_program, frames: 200, max_steps: 8_000_000)
+    ran = Reference.new.run(ringed_program, frames: 200)
 
     assert_equal Lives::START - 1, ran[:lives], "one go spent"
     assert_equal FP::START_HEALTH, ran[:health], "and a fresh hundred of health"

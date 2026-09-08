@@ -52,7 +52,10 @@ module RubyGBA
         TableValues = Data.define(:values, :signed)
 
         # A generous cap so an accidental infinite loop can't hang a test forever.
-        # It's the runaway guard, not the usual stop — see DEFAULT_FRAMES.
+        # It's the runaway guard, not the usual stop — see DEFAULT_FRAMES. A run counting
+        # frames spends it per FRAME, and a frame that draws a whole view is a few thousand
+        # steps, so there's room to spare in one and none of it can be taken from the frames
+        # that come after.
         DEFAULT_MAX_STEPS = 1_000_000
 
         # How many frames a game loop runs when the caller caps neither `frames:`
@@ -150,19 +153,28 @@ module RubyGBA
         # Pass `frames:` to play a game loop for exactly N frames and stop with the
         # Nth frame fully drawn (a settled screen, never a torn mid-frame) — the
         # natural way to say "play this far in", and how the gemba tests express it
-        # too. It's the stop condition when given; `max_steps` then only guards the
-        # runaway case of a frame that never reaches vblank.
+        # too. It's the stop condition when given, and every one of those frames is
+        # played however much work each takes: `max_steps` is then the budget for ONE
+        # frame (it starts again at each vblank), guarding the runaway case of a frame
+        # that never reaches one. A frame that spends the whole budget raises, since
+        # there's no boundary ahead to stop cleanly on. The exception is a program that
+        # never reaches a vblank at all (an unpaced `frame_sync: :manual` loop): it has no
+        # frames for `frames:` to count, so the budget stops it and #stopped_at_budget?
+        # says so.
         #
         # Cap neither and a game loop stops after DEFAULT_FRAMES — small and cheap,
         # since a handful of frames is all most tests need; pass a larger `frames:`
-        # to play further. Passing `max_steps:` alone opts back into a step budget.
+        # to play further. Passing `max_steps:` alone opts back into a whole-run step
+        # budget: it stops the run wherever it has got to (at the next frame boundary
+        # if the program has frames), and #stopped_at_budget? says that's what happened.
         def run(node, max_steps: nil, frames: nil)
           frames = DEFAULT_FRAMES if frames.nil? && max_steps.nil?
           @frames_limit = frames
           @max_steps = max_steps || DEFAULT_MAX_STEPS
-          # Past the soft budget a frame-based program runs on to the next frame boundary
+          # Past a whole-run budget a frame-based program runs on to the next frame boundary
           # (so it stops on a complete screen, never a torn mid-frame); the hard cap bounds
           # the rare case where that boundary never comes (a loop that stops calling vblank).
+          # Neither applies to a run counting frames, which has a per-frame budget instead.
           @hard_cap = @max_steps * 2
           @steps = 0
           @stopped_at_budget = false
@@ -320,6 +332,18 @@ module RubyGBA
           @steps += 1
           return if @steps <= @max_steps
 
+          # A run counting frames has spent the whole budget inside ONE frame, since the
+          # count starts again at every vblank (advance_frame). So this frame is never
+          # going to reach one, and there's no settled boundary ahead to stop on. Say so
+          # rather than hand back a part-played run: a run that stopped early looks exactly
+          # like one that finished, and a test then reads a world frozen mid-frame.
+          #
+          # A program that has never reached a vblank AT ALL is a different thing and not an
+          # error: it has no frames to count, so `frames:` was moot and the budget is its only
+          # stop — an unpaced loop (frame_sync: :manual with no wait) is meant to be run that
+          # way. That one falls through to the whole-run stop below, which is what it always got.
+          raise ProgramError, frame_that_never_ended if @frames_limit && @uses_frames
+
           @stopped_at_budget = true
           # A frame-based program doesn't stop here — mid-frame would leave a torn,
           # half-drawn screen. Mark it over budget and let it run on to the next frame
@@ -328,6 +352,17 @@ module RubyGBA
           # stops right here.
           @over_budget = true
           throw :halt unless @uses_frames && @steps <= @hard_cap
+        end
+
+        # Which frame is in flight: @frame is bumped at the vblank that STARTS a frame, so the
+        # work running now belongs to frame @frame. (A program stuck before its first vblank
+        # never gets here — see tick!.)
+        def frame_that_never_ended
+          "frame #{@frame} of this run never ended. The program ran #{@max_steps} steps in " \
+            "that one frame and did not wait for the screen. A frame ends at that wait, so this " \
+            "frame cannot end. Look for a loop in the frame that never stops. If the frame is " \
+            "only a heavy one, pass a larger `max_steps:`. With `frames:`, that budget is for " \
+            "one frame."
         end
 
         def exec(node)
@@ -578,6 +613,13 @@ module RubyGBA
           # draws haven't begun. Not a budget cutoff — it ran exactly as asked, so
           # #stopped_at_budget? stays false.
           throw :halt if @frames_limit && @frame >= @frames_limit
+
+          # A new frame starts here, so the step budget starts again with it: when a run is
+          # counting frames, the budget guards ONE frame rather than the whole run. Counting
+          # the run instead makes the budget the real stop condition on any program whose
+          # frames cost more than a few thousand steps — it cuts the run short wherever it
+          # has got to, and `frames:` silently means nothing.
+          @steps = 0 if @frames_limit
 
           @uses_frames = true
           @prev_held = @held

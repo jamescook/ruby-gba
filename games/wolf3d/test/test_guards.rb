@@ -562,16 +562,8 @@ class TestGuards < Minitest::Test
   def shoot_at(guards, shots:, frames:, **)
     firing = ->(f) { f < shots * A_SHOT && f.even? ? [:b] : [] }
     Reference.new.input_each_frame { |f| firing.call(f) }
-             .run(view_of(arena(guards: guards, **)), frames: frames,
-                            max_steps: frames * STEPS_A_DRAWN_FRAME)
+             .run(view_of(arena(guards: guards, **)), frames: frames)
   end
-
-  # ...AND IT NEEDS A BUDGET SAID OUT LOUD. The interpreter carries a step count as a guard
-  # against a loop that never ends, and a drawn frame of this game is thousands of steps — so a
-  # run of a few hundred frames walks past the default long before it has played as far as it was
-  # asked to, and stops without saying so. This is a whole drawn frame with room to spare, which
-  # still catches a real runaway and never cuts a run short.
-  STEPS_A_DRAWN_FRAME = 50_000
 
   # Stand where the level says and look. Nothing moves, so two frames settle it.
   def look_at(**) = Reference.new.run(view_of(arena(**)), frames: 2)

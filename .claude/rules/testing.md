@@ -69,7 +69,8 @@ pixels — see `test/test_blit_clipping.rb` (`assert_same_pixels`) and the two
 ## Reference interpreter API
 
 ```ruby
-i = Reference.new.run(program)          # returns self; runs to halt / natural end / step budget
+i = Reference.new.run(program)          # returns self; 20 frames of a game loop by default
+i = Reference.new.run(program, frames: 400)  # play this far in — every frame, however heavy
 i.screen.pixel(x, y)               # colour at (x, y); nil if off-screen; 0 = unwritten (black)
 i[:varname]                        # a variable's final value (0 if never written)
 i.screen_mode                      # e.g. :bitmap
@@ -88,6 +89,15 @@ That drives `once_a_frame` (the body runs that many times), a beat in frames, an
 counter. It does **not** make the interpreter slow: timers still accrue a pass's worth, the
 input script is still called once a pass, and `frames:` still counts passes. Use it to pin what
 a program *means* when the console says it is late; use gemba to find out whether it really is.
+
+`frames:` is the stop condition, and every frame asked for is played however much work each
+takes — so a test of a game that draws a whole view says `frames: 400` and gets 400. The step
+budget behind it (`max_steps:`, a million by default) guards ONE frame, so a heavy frame can't
+eat the frames after it; a frame that spends the whole budget never reached a vblank at all, and
+raises rather than handing back a part-played run. **Do not pass `max_steps:` alongside
+`frames:`** — the per-frame default has room to spare, and a hand-sized budget beside a frame
+count is the old workaround for this bug. Reach for it only to run a program with no frames in it (an unpaced `frame_sync: :manual` loop),
+where it becomes the whole-run budget and `stopped_at_budget?` reports it.
 
 Screen default fill is `0` (black). For clip/overwrite tests, `clear_screen` to a
 **distinct** background first so "clipped/absent" reads as that colour, and the

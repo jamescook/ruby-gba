@@ -31,13 +31,12 @@ module Preview
     interp = Reference.new
     interp.input_each_frame(&input) if input
     shots = []
-    interp.each_vblank do |frame|
+    interp.each_vblank do |_frame|
       shots << { width: interp.screen.width, height: interp.screen.height, pixels: interp.screen.to_a }
-      # Stop the run the moment we've collected enough frames — no point running the
-      # game's endless loop out to the step budget once the preview is captured.
-      throw :halt if shots.size >= frames
     end
-    interp.run(program, max_steps: max_steps)
+    # The frame count is the stop condition, so a heavy game gets every frame asked for; the
+    # step budget rides along as the guard on ONE frame (a game loop that never comes round).
+    interp.run(program, frames: frames, max_steps: max_steps)
     shots
   end
 
@@ -194,7 +193,7 @@ if __FILE__ == $PROGRAM_NAME
                "  e.g.  ruby tools/preview.rb parallax --keys right --frames 64\n"
     o.on("--frames N", Integer, "frames to capture (default 60)") { |v| opts[:frames] = v }
     o.on("--keys x,y", Array, "buttons held for the whole run, e.g. right  or  right,a") { |v| opts[:keys] = v.map(&:to_sym) }
-    o.on("--max-steps N", Integer, "interpreter step budget (default 200000)") { |v| opts[:max_steps] = v }
+    o.on("--max-steps N", Integer, "interpreter step budget for one frame (default 200000)") { |v| opts[:max_steps] = v }
     o.on("--scale N", Integer, "pixel zoom (default 3)") { |v| opts[:scale] = v }
     o.on("--fps N", Integer, "playback speed (default 24)") { |v| opts[:fps] = v }
     o.on("-o", "--out PATH", "output path (default EXAMPLE.html here)") { |v| opts[:out] = v }
