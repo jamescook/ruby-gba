@@ -781,6 +781,11 @@ module RubyGBA
 
         # Multi-way dispatch: call the scene/func for the clause whose value equals
         # the variable. Values are distinct, so this runs at most one scene.
+        #
+        # THE READ IS OUTSIDE THE LOOP AND HAS TO BE. A scene's usual last act is to set
+        # the variable to the next scene, and re-reading it per clause would then run that
+        # one too, in the same pass. Every clause answers the state as it was when the
+        # dispatch was reached.
         def exec_case(node)
           value = @vars[node.var]
           node.clauses.each do |clause_value, target|
