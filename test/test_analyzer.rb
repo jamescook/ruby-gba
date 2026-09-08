@@ -159,6 +159,62 @@ class TestAnalyzer < Minitest::Test
     assert_equal 50, Analyzer::Result.new(scanlines: 114.0, fps: nil).percent
   end
 
+  # ---- what a game costs once it is too big for its frame ----
+  #
+  # A video frame holds 228 scanlines and no more, so once a pass spreads across two of them the
+  # per-frame reading stops at the ceiling and stays there. The counted frame RATE is what the
+  # report fell back to, and it is a blunt instrument: a pass takes a whole number of frames, so
+  # the rate is the reciprocal of a ceiling and a change that does not cross one moves it barely
+  # at all. What one PASS cost has no ceiling and no step in it.
+
+  # IT TRACKS THE WORK, which is the property that makes it worth having: twice the drawing
+  # reads as about twice the cost. That is what lets one build be compared against another,
+  # which is the whole reason to measure a game nobody can make fit yet.
+  def test_the_per_pass_cost_is_proportional_to_the_work
+    one = measure_pass(6)
+    two = measure_pass(12)
+
+    assert_in_delta 2.0, two[:per_pass] / one[:per_pass], 0.3,
+                    "twice the drawing should read as about twice the cost"
+  end
+
+  # ...and the number means what it says: a pass costing more than one frame holds is exactly
+  # why the game runs slow, so the two readings have to agree about how many frames it took.
+  def test_the_per_pass_cost_agrees_with_the_rate_it_causes
+    over = measure_pass(12)
+    frames_a_pass = 60.0 / over[:fps]
+
+    assert_operator over[:per_pass], :>, Analyzer::FRAME_SCANLINES,
+                    "a game that cannot hold 60 costs more than one frame holds"
+    assert_operator over[:per_pass], :<=, Analyzer::FRAME_SCANLINES * frames_a_pass,
+                    "and no more than the frames it actually took"
+  end
+
+  # A game that FITS is measured per frame as it always was — a pass is a frame there, so there
+  # is nothing new to say and no second emulator run to pay for.
+  def test_a_game_that_fits_reports_no_per_pass_cost
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+
+    assert_nil Analyzer.measure_program(b.program).per_pass
+  end
+
+  private
+
+  # Build a game loop that draws +n+ full screens a frame and measure what one pass costs.
+  def measure_pass(clears)
+    b = Builder.new
+    b.instance_eval { screen :bitmap }
+    body = proc { clears.times { b.clear_screen :blue } }
+    b.instance_eval { game_loop(&body) }
+    b.emit_pending_functions
+    Analyzer.measure_saturated(b.program)
+  end
+
   # ---- measuring a program must not change it ----
   #
   # Reading a frame rate means counting frames, which means adding something to count them.

@@ -148,7 +148,8 @@ module RubyGBA
     def measured_verdicts(game)
       only = options[:scene].any? ? options[:scene] : nil
       RubyGBA::Analyzer.profile(game, only: only, keys: held_buttons).transform_values do |result|
-        { scanlines: result.scanlines, fps: result.fps, saturated: result.saturated?, keys: result.keys }
+        { scanlines: result.scanlines, fps: result.fps, saturated: result.saturated?,
+          per_pass: result.per_pass, keys: result.keys }
       end
     rescue LoadError
       nil
