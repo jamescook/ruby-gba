@@ -387,8 +387,8 @@ class TestScenery < Minitest::Test
   end
 
   def guard_colours
-    @guard_colours ||= (0...Guards::POSES).map do |n|
-      palette[Release::SPRITE_INK + Guards::FIRST_STANDING_PICTURE + n]
+    @guard_colours ||= (0...Wolf3D::Enemy::POSES).map do |n|
+      palette[Release::SPRITE_INK + Wolf3D::Enemy::GUARD.first_picture + n]
     end
   end
 

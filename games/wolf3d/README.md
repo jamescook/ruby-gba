@@ -46,10 +46,11 @@ separate repository would mean a version bump for every experiment.
 ## What works so far
 
 A floor of the real game, read from your own copy of the data and playable in an emulator: the
-first-person view, walls textured from VSWAP, doors that slide open and shut, pushwalls, guards
-that patrol, hear and see you, close in, and shoot — and can be shot and killed — the things and
-pickups standing in the rooms, all four weapons drawn in your hands, the status bar, and the
-game's sound effects through the sampled mixer. Without your own copy of the data the cartridge
+first-person view, walls textured from VSWAP, doors that slide open and shut, pushwalls, all
+five kinds of enemy — guard, officer, SS, dog and mutant — that patrol, hear and see you, close
+in, and shoot or bite, and can be shot and killed, the things and pickups standing in the rooms,
+all four weapons drawn in your hands, the status bar, and the game's sound effects through the
+sampled mixer. Without your own copy of the data the cartridge
 still builds; it shows a title screen and says so instead of a floor.
 
 ## How you play it
@@ -166,23 +167,54 @@ from a pause). The original's Read This!, View Scores and Control screens are no
 first two have nothing to show yet and the third calibrates a mouse and a joystick.
 
 **How tough you say you are changes the game.** Wolfenstein's four settings decide two things and
-this does both. They decide **which guards are there**: plane 1 holds the same four spawn codes
+this does both. They decide **which enemies are there**: plane 1 holds each kind's eight spawn codes
 three times over, once for every game, once from the middle setting up and once for the hardest,
 so the first floor stands up ten men on "Can I play, Daddy?" and thirty-two on "I am Death
 incarnate!". And they decide **what a shot takes off you** — a quarter of it on the easiest
 setting, which is the easiest setting alone: "Don't hurt me." hurts you as much as the hardest
-does, and the two easiest bring in exactly the same men.
+does, and the two easiest bring in exactly the same men. (They also toughen a mutant, and only a
+mutant: 45 hit points on the easiest and 65 on the hardest, where everything else is flat.)
 
-The cartridge carries every setting's guards, because the screen that asks is a long way after
-the build. Carrying them costs a frame nothing — a guard his setting leaves out is never spawned,
-so he takes no slot, is never drawn and never thinks. Standing them up costs what you would
-expect and it is worth knowing before you pick: on the busiest floor of the first episode the
-easiest setting runs at 30 frames a second, the middle one at 29, and the hardest at 20.
+The cartridge carries every setting's enemies, because the screen that asks is a long way after
+the build. Carrying them costs a frame nothing — one its setting leaves out is never spawned, so
+it takes no slot, is never drawn and never thinks. Standing them up costs what you would expect
+and it is worth knowing before you pick: on the busiest floor of the first episode the easiest
+setting runs at 30 frames a second, the middle one at 29, and the hardest at 20.
 
-Not yet there: the tally between floors, the AdLib music and the effects Wolfenstein never
-recorded to raw PCM, saving progress across power-off, and the little picture of your weapon
-on the status bar — the seven fields already there come to 190 of the screen's 240 columns, and
-an eighth takes them past it.
+**Five kinds of enemy walk the floors**, which is every kind Wolfenstein has short of its
+bosses: the brown guard, the officer, the SS, the dog and the mutant. Each is the same shape of
+thing — a place, a facing, eight poses, a state table and a mind — with different numbers in it,
+and the numbers are what you feel:
 
-There is also only ONE KIND OF GUARD, the brown one, which is why the SS never drops you a
-machine gun the way he does in the original: there are no SS to fall.
+| | takes | runs at | fires | leaves | worth |
+|---|---|---|---|---|---|
+| guard | 25 | 3× its walk | 3 pictures, one shot | half a clip | 100 |
+| dog | 1 | 2× its walk, and it walks fast | nothing — it jumps and bites | nothing | 200 |
+| officer | 50 | **5×** its walk | 3 pictures, gun up in a third of the time | half a clip | 400 |
+| SS | 100 | 4× its walk | 9 pictures, **four** shots a burst | **a machine gun** | 500 |
+| mutant | 45–65 | 3× its walk | 4 pictures, two shots, the first before the arm is up | half a clip | 700 |
+
+**The SS is where the machine gun comes from**, which is most of how a player ever gets their
+second weapon: the original hands you one off a dead SS when you have not got one, and half a
+clip when you have. A dog is the odd one — no gun at all, so it has to reach you, and a barrel
+in a corridor stops it dead where a guard shoots over the top. And the mutant is the one kind a
+harder game toughens: everyone else holds the same hit points on all four settings.
+
+**FIVE KINDS COST WHAT ONE COSTS.** A state number already says which kind is in it, so every
+number a kind decides — its picture, its speed, how it attacks, how it falls, what it leaves —
+is a column of a read-only table looked up by that one number. Nothing in the pool remembers a
+kind and nothing branches on one. Measured on the same floor with the same ten men on it before
+and after, a frame went from 421.3 scanlines to 423.0. What a floor really costs is how many
+enemies stand on it, which is the game rather than the machinery.
+
+Not yet there: **the bosses** — Hans, Schabbs, Gretel, Gift, Fat and both Hitlers — which is why
+the boss floor at the end of each episode is empty; the tally between floors; the AdLib music
+and the effects Wolfenstein never recorded to raw PCM; and the little picture of your weapon on
+the status bar — the seven fields already there come to 190 of the screen's 240 columns, and an
+eighth takes them past it.
+
+**And a cartridge holds one episode.** `WOLF3D_EPISODES` defaults to every episode your copy
+has, and a build of more than one no longer fits the console's 32K of quick memory: the routine
+that draws the view wants 11.4K of it, the lists a floor is played with want another 11.6K on a
+cartridge of twenty floors, and the pool the enemies stand in wants the rest. Build with
+`WOLF3D_EPISODES=1` (or any single episode) until that is sorted out.

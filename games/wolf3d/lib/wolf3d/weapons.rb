@@ -135,6 +135,10 @@ module Wolf3D
       end
     end
 
+    # Are you already carrying this gun or a better one? What asks is a falling SS, who leaves
+    # the machine gun he was carrying only if you have not got one — and half a clip if you have.
+    def already_has(which) = @best >= which
+
     # ...and a floor started again puts the pistol back in your hands.
     #
     # THE ORIGINAL DOES THIS WHEN YOU DIE and not when a floor starts — but this game already

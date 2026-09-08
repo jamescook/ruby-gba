@@ -1,26 +1,30 @@
 # frozen_string_literal: true
 
 module Wolf3D
-  # The guards standing on one floor: where each is, which way it faces, and whether it walks
-  # a beat or waits where it was put.
+  # EVERYTHING STANDING ON ONE FLOOR THAT WILL TRY TO KILL YOU: where each is, which way it
+  # faces, whether it walks a beat or waits where it was put, and which of the five kinds it is.
+  #
+  # "Guard" is the collective, because the brown guard is the one every floor has and the one
+  # every other kind is a variation on. What each kind IS lives in Enemy; this reads a floor.
   #
   # Plane 1 says all of it in one number per cell, and the number carries three things at once.
-  # Four codes in a row are the four ways a guard can face; the next four are the same four
-  # facings for one that patrols; and the whole block repeats twice more further up for the
-  # guards that only turn up when the game is set harder. So a code is decoded by asking which
-  # block it fell in, taking that many blocks off it, and asking which of the eight is left.
+  # Four codes in a row are the four ways a thing can face; the next four are the same four
+  # facings for one that patrols; and each kind's whole block repeats twice more further up for
+  # the ones that only turn up when the game is set harder. So a code is decoded by asking which
+  # kind's block it fell in, taking the harder steps off it, and asking which of the eight is
+  # left.
   #
   # HOW HARD THE GAME IS SET IS NOT KNOWN HERE, because it is picked on a screen long after the
-  # cartridge was built. So every block is read and each guard carries the easiest setting he
+  # cartridge was built. So every block is read and each one carries the easiest setting it
   # turns up on; a floor stands up the ones its own setting names when it starts.
   #
   # WHAT THAT COSTS, and the two halves of it are worth keeping apart.
   #
-  # CARRYING them all costs a frame NOTHING. A guard his setting leaves out is never spawned, so
-  # he takes no slot, is never drawn and never thinks. He costs the cartridge his row in the
-  # tables and the floor's start one comparison. Over the first episode that is about two and a
-  # half times as many rows as the easiest setting alone would have shipped, in a cartridge with
-  # room to spare.
+  # CARRYING them all costs a frame NOTHING. One its setting leaves out is never spawned, so it
+  # takes no slot, is never drawn and never thinks. It costs the cartridge its row in the tables
+  # and the floor's start one comparison. Over the first episode that is about two and a half
+  # times as many rows as the easiest setting alone would have shipped, in a cartridge with room
+  # to spare.
   #
   # STANDING them up costs plenty, and that is the game rather than this reader: the hardest
   # setting really does put twice the men on a busy floor that the easiest does, and a floor is
@@ -28,21 +32,16 @@ module Wolf3D
   #
   # The numbers are read out of the original rather than remembered.
   class Guards
-    # Where the first block of spawn codes starts, and how far along the same block repeats
-    # for a harder game. Everything a floor holds is at 108, plus 36 for the ones that appear
-    # from the middle setting up, plus 36 again for the hardest.
-    STANDING = 108
-    PATROLLING = 112
-    HARDER = 36
-    BLOCK = 8 # the two sets of four facings, standing then patrolling
-
-    # A guard that was already dead when the floor was built — scenery, not an enemy.
+    # A guard that was already dead when the floor was built — scenery, not an enemy. It sits in
+    # the gap the codes leave between the officer's block and the SS's.
     DEAD = 124
 
     # WHICH WAY A CODE FACES, in the order the four codes run. Not the order the player's own
     # start codes run, which is north, east, south, west: the original stores the two in
     # different directions round the circle, and the only way to know that is to look.
     FACINGS = %i[east north west south].freeze
+    FACES = FACINGS.length
+    BLOCK = FACES * 2 # the two sets of four, standing then patrolling
 
     # THE FOUR SETTINGS, in the order the original numbers them — which is also the order the
     # screen asks them in, so the row you pick IS the number. Everything that compares one
@@ -51,7 +50,7 @@ module Wolf3D
 
     # THE EASIEST SETTING EACH BLOCK TURNS UP ON. A code in the first block is on every game, one
     # in the second from the middle setting up, one in the third only on the hardest — so this
-    # runs in block order and says which setting each one waits for. That is what a guard carries
+    # runs in block order and says which setting each one waits for. That is what one carries
     # into the cartridge, and a floor stands up everyone whose number is at or below the one you
     # picked. The two easiest settings share the first entry, which is the whole of why "Can I
     # play, Daddy?" and "Don't hurt me." meet exactly the same men.
@@ -68,171 +67,31 @@ module Wolf3D
     GENTLE = SETTINGS.index(:baby)
     GENTLE_PART = 4 # one part in four of what the shot would otherwise have taken
 
-    # WHERE A GUARD'S PICTURES ARE in the numbering VSWAP's sprites use. That numbering is a
-    # plain list in the original — a demo picture, a death-cam picture, forty-eight pieces of
-    # scenery, and then the guard — which puts the first of its eight standing poses at 50.
-    # Checked against a real VSWAP rather than counted off the source: 50 to 57 are eight
-    # man-shaped pictures of about the same size, and 44 to 49 are visibly not.
-    FIRST_STANDING_PICTURE = 50
-    POSES = 8
+    # HOW NEAR IS NEAR ENOUGH TO BE SEEN WITHOUT LOOKING: one notices anyone this close whichever
+    # way it is facing. One and a half cells, in the original's units.
+    AUTOMATIC_SIGHT = 0x18000 / Enemy::CELL.to_f
 
-    # WHERE EACH OF A GUARD'S PICTURES SITS in his own run of them, counting from the first.
-    # Eight of him standing still, then four sets of eight walking, then the ones that do not
-    # turn: hurt, dying, dead, and firing.
-    STILL_PICTURE = 0
-    WALK_PICTURES = [8, 16, 24, 32].freeze
-    # The two he flinches with sit either side of the three he falls over in, which is the
-    # order they are in the file rather than an order anyone would choose.
-    HURT_PICTURES = [40, 44].freeze
-    FALL_PICTURES = [41, 42, 43].freeze
-    DEAD_PICTURE = 45
-    FIRE_PICTURES = [46, 47, 48].freeze
+    # HOW NEAR A DOG HAS TO BE TO JUMP, and how near for the jump to land. The original measures
+    # both on each axis on its own rather than as a distance: it jumps from about a cell away,
+    # and its teeth reach two.
+    JUMP_FROM = 1.0
+    BITE_REACH = 2.0
 
-    # How much killing a guard takes. The easiest two settings agree on it.
-    HIT_POINTS = 25
+    # ...and how often a jump that reaches you actually bites, out of 256 — with a byte of
+    # randomness shifted down four deciding what it takes off you, whatever the distance. Which
+    # is why a dog at your feet is worse than a guard across the room.
+    BITE_CHANCE = 180
+    BITE_SHIFT = 16
 
-    # ...and what killing one is worth, which is the original's own number.
-    POINTS = 100
-
-    # HOW LONG A STATE LASTS is counted in the original's own units — seventieths of a second —
-    # and the numbers in the table below are its numbers, unchanged.
-    #
-    # THE COUNTER RUNS IN THIRDS OF ONE, so that a rate which is not a whole number of the
-    # original's units can still be carried by a counter that steps in whole numbers. A guard
-    # moves once every two passes and the rate wanted is a little over one unit a pass, which is
-    # not a whole number either way round; in thirds it is.
-    SCALE = 3
-
-    # HOW FAST A GUARD'S CLOCK RUNS, and the unit it is measured in is the thing to get right.
-    #
-    # MEASURE IT PER PASS, NOT PER SECOND. Everything in this game moves once per pass of the
-    # game loop: the player walks WALK of a cell, doors slide DOOR_STEP, push walls count down
-    # one. That is what FirstPerson::PACING means, and it is why a heavy frame slows the whole
-    # world down together instead of tearing it apart. A guard is in that world, so his clock is
-    # per pass too — a think every other pass, this many thirds each time.
-    #
-    # SECONDS ARE NOT A UNIT THIS GAME HAS. On a game that keeps up a pass is a frame and the
-    # two agree, so it is easy to derive this number from "sixty passes a second" and not notice
-    # the assumption. On a game that does NOT keep up the seconds answer is wrong, and it is
-    # wrong in a way that is invisible in the code and shows up in play as guards moving at a
-    # different speed from the world they stand in. Derive it from a pass.
-    #
-    # WHAT THE RIGHT ANSWER IS, then, is whatever puts a guard on the same footing as the player,
-    # and the player says what that is. He walks 0.07 of a cell a pass where the original walks
-    # 0.0801 of one a unit, so a pass is worth 0.87 of a unit; he turns 4.2 degrees a pass where
-    # the original turns 3.5 a unit running, so a pass is worth 1.21. A pass of this game is
-    # worth about ONE of the original's units, and a think — every other pass — about two.
-    # Seven thirds is 2.33 a think, 1.17 a pass, which sits inside that band.
-    # TestGuards holds it there; see the test for what going outside it costs.
-    #
-    # WHY EVERY OTHER PASS. Thinking is the most expensive thing a guard does and half of it is
-    # asking a question whose answer cannot change in one pass — can he see you, is anything in
-    # the way. Measured, a guard costs about eleven scanlines of a frame, and a real floor has
-    # ten of them; halving that is worth more than anything else available here, and it costs a
-    # reaction that is on average half a pass later.
-    #
-    # The guards are split between the two passes rather than all thinking on the same one, so
-    # the cost is the same every pass instead of nothing then double.
-    #
-    # It never steps over a state: the shortest in the table is three of the original's units,
-    # which is nine of ours, and a think advances seven.
-    TICKS_PER_THINK = 7
-
-    # THE STATE TABLE, and it is the behaviour rather than a description of it. Each row is a
-    # picture, how long to stand in it, what to think about while there, and which row comes
-    # next. Read out of the original: guessing these gives something that merely resembles
-    # Wolfenstein.
-    #
-    # Standing lasts forever (a length of nought never runs down) and only looks. The patrol is
-    # four walking pictures at twenty and fifteen with a five-unit step between the pairs; the
-    # chase is the same four at ten and eight with three-unit steps, which is why a guard who
-    # has seen you visibly hurries. Firing is three pictures at twenty each.
-    # +fires+ marks the one state whose END is a shot: the original hangs its actions on
-    # leaving a state rather than on being in one, so a guard aims, fires, and lowers his arm
-    # across three pictures and the bullet leaves on the middle one.
-    State = Data.define(:name, :picture, :turns, :ticks, :think, :becomes, :fires)
-
-    # +ticks+ is written in the ORIGINAL'S units, so the table below stays its table and can be
-    # read against it line for line. It is kept in thirds of one — see SCALE — and the
-    # conversion happens here, once, rather than at every number.
-    def self.state(name, picture, ticks, think, becomes, turns: true, fires: false)
-      State.new(name: name, picture: picture, ticks: ticks * SCALE, think: think,
-                becomes: becomes, turns: turns, fires: fires)
-    end
-
-    STATES = [
-      state(:stand,   STILL_PICTURE,    0,  :look,   :stand),
-
-      state(:path1,   WALK_PICTURES[0], 20, :patrol, :path1s),
-      state(:path1s,  WALK_PICTURES[0], 5,  nil,     :path2),
-      state(:path2,   WALK_PICTURES[1], 15, :patrol, :path3),
-      state(:path3,   WALK_PICTURES[2], 20, :patrol, :path3s),
-      state(:path3s,  WALK_PICTURES[2], 5,  nil,     :path4),
-      state(:path4,   WALK_PICTURES[3], 15, :patrol, :path1),
-
-      state(:chase1,  WALK_PICTURES[0], 10, :chase,  :chase1s),
-      state(:chase1s, WALK_PICTURES[0], 3,  nil,     :chase2),
-      state(:chase2,  WALK_PICTURES[1], 8,  :chase,  :chase3),
-      state(:chase3,  WALK_PICTURES[2], 10, :chase,  :chase3s),
-      state(:chase3s, WALK_PICTURES[2], 3,  nil,     :chase4),
-      state(:chase4,  WALK_PICTURES[3], 8,  :chase,  :chase1),
-
-      state(:shoot1,  FIRE_PICTURES[0], 20, nil,     :shoot2, turns: false),
-      state(:shoot2,  FIRE_PICTURES[1], 20, nil,     :shoot3, turns: false, fires: true),
-      state(:shoot3,  FIRE_PICTURES[2], 20, nil,     :chase1, turns: false),
-
-      # Hurt but not finished: he flinches and comes straight back at you. Which of the two
-      # pictures he wears is whether the hits he has left are an odd number, which is the
-      # original's way of making the same wound look different twice running.
-      state(:hurt1,   HURT_PICTURES[0], 10, nil,     :chase1, turns: false),
-      state(:hurt2,   HURT_PICTURES[1], 10, nil,     :chase1, turns: false),
-
-      # ...and finished: three pictures of falling and then a body on the floor, which lasts
-      # for good because its length is nought.
-      state(:fall1,   FALL_PICTURES[0], 15, nil,     :fall2, turns: false),
-      state(:fall2,   FALL_PICTURES[1], 15, nil,     :fall3, turns: false),
-      state(:fall3,   FALL_PICTURES[2], 15, nil,     :dead,  turns: false),
-      state(:dead,    DEAD_PICTURE,     0,  nil,     :dead,  turns: false)
-    ].freeze
-
-    THINKING = { nil => 0, look: 1, patrol: 2, chase: 3 }.freeze
-
-    # A guard who has noticed you keeps knowing it, through being hurt and into falling over.
-    # The one thing it changes: a guard who has NOT noticed you takes double from a shot, which
-    # is the original quietly rewarding you for getting the first one in.
-    def self.roused?(state) = !%i[stand path1 path1s path2 path3 path3s path4].include?(state.name)
-
-    def self.dead?(state) = state.name == :dead
-
-    def self.state_number(name) = STATES.index { |s| s.name == name } ||
-                                  raise(ArgumentError, "there is no guard state #{name.inspect}")
-
-    # HOW FAST A GUARD WALKS, in the original's units: so many 65536ths of a cell per unit of
-    # time. A guard who has seen you moves at three times his patrolling speed.
-    PATROL_SPEED = 512
-    CHASE_TIMES = 3
-    CELL = 1 << 16
-
-    # ...and the same as this game counts it: cells per THINK, which is every other frame. The
-    # division by SCALE is what turns our thirds back into the original's units, so the distance
-    # per second comes out as the original's however the counting is arranged.
-    def self.speed(chasing: false)
-      PATROL_SPEED * (chasing ? CHASE_TIMES : 1) * TICKS_PER_THINK / SCALE / CELL.to_f
-    end
-
-    # HOW NEAR IS NEAR ENOUGH TO BE SEEN WITHOUT LOOKING: a guard notices anyone this close
-    # whichever way he is facing. One and a half cells, in the original's units.
-    AUTOMATIC_SIGHT = 0x18000 / CELL.to_f
-
-    # HOW LONG A GUARD TAKES TO REACT once he has seen you — one plus a quarter of a random
-    # byte of the original's time units, so up to about a second. This delay is why the game
-    # feels fair: you get a moment between being seen and being shot at. Kept in the same thirds
-    # everything else that counts down is kept in.
-    REACTION = 64 * SCALE
+    # HOW LONG ONE TAKES TO REACT once it has seen you — one plus a quarter of a random byte of
+    # the original's time units, so up to about a second. This delay is why the game feels fair:
+    # you get a moment between being seen and being shot at. Kept in the same thirds everything
+    # else that counts down is kept in.
+    REACTION = 64 * Enemy::SCALE
 
     # WHICH WAY EACH DIRECTION GOES, in the order the original numbers them: counter-clockwise
-    # from east, with the diagonals between. Eight is "nowhere", which is what a guard who
-    # cannot move in any direction is left with.
+    # from east, with the diagonals between. Eight is "nowhere", which is what one hemmed in on
+    # every side is left with.
     WAYS = [[1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1], [1, 1]].freeze
     NOWHERE = WAYS.length
 
@@ -240,14 +99,34 @@ module Wolf3D
     # it turns to the direction it names and carries on.
     FIRST_ARROW = 90
 
-    # +ambush+ is a guard put down on an ambush tile: one lying in wait, who has to SEE you and
-    # is the one guard a gunshot does not bring. See Level::AMBUSH and GuardMind#look.
-    # +from+ is the easiest setting he turns up on — see FROM.
-    Guard = Data.define(:x, :y, :facing, :patrolling, :ambush, :from)
+    # --- THE GUARD'S OWN NUMBERS ------------------------------------------------------------
+    #
+    # The rest of the game grew up around the brown guard and is written against him: he is the
+    # kind on all but one floor, and the one every test builds. These are his, named here so that
+    # nothing which only ever means a guard has to say so twice.
 
-    # EVERY GUARD THE FLOOR CAN HOLD, at any setting, because how hard the game is set is not
-    # known while the cartridge is built. So all of them are read and each carries the setting
-    # he needs; which of them stand up is settled when a floor starts.
+    STANDING = Enemy::GUARD.standing
+    PATROLLING = Enemy::GUARD.patrolling
+    STATES = Enemy::GUARD.states
+    HIT_POINTS = Enemy::GUARD.hit_points.first
+    POINTS = Enemy::GUARD.points
+
+    def self.state_number(name) = Enemy::GUARD.state_number(name) ||
+                                  raise(ArgumentError, "there is no guard state #{name.inspect}")
+
+    def self.pictures = Enemy::GUARD.pictures
+    def self.speed(chasing: false) = Enemy::GUARD.speed(chasing: chasing)
+
+    # --- reading one floor ------------------------------------------------------------------
+
+    # +ambush+ is one put down on an ambush tile: one lying in wait, which has to SEE you and is
+    # the one a gunshot does not bring. See Level::AMBUSH and GuardMind#look.
+    # +from+ is the easiest setting it turns up on — see FROM.
+    Guard = Data.define(:x, :y, :kind, :facing, :patrolling, :ambush, :from)
+
+    # EVERYONE THE FLOOR CAN HOLD, at any setting, because how hard the game is set is not known
+    # while the cartridge is built. So all of them are read and each carries the setting it
+    # needs; which of them stand up is settled when a floor starts.
     attr_reader :guards
 
     def initialize(level)
@@ -270,26 +149,17 @@ module Wolf3D
     def count = @guards.length
     def empty? = @guards.empty?
 
-    # The pictures a floor needs for its guards: every one any state can wear. A state that
-    # turns needs all eight of its own, because which one shows depends on where the player is
-    # standing — a guard facing east still has his back to you from the other side of the room.
-    # A state that does not turn needs the one.
-    def self.pictures
-      @pictures ||= STATES.flat_map { |s| s.turns ? (0...POSES).map { |n| s.picture + n } : [s.picture] }
-                          .uniq.sort.map { |offset| FIRST_STANDING_PICTURE + offset }
-    end
+    # WHICH KINDS THIS FLOOR HOLDS, in the order a state table lays them out. What reads it is
+    # the cartridge, which ships the pictures and the behaviour of the kinds it can meet and
+    # nothing else — a floor of nothing but mutants pays for no dogs.
+    def kinds = Enemy::ALL.select { |kind| @guards.any? { |g| g.kind == kind.name } }.map(&:name)
 
-    # Which picture a state wears, as VSWAP numbers sprites. Where that sits in the row of
-    # pictures a floor ships is the atlas's business, because the row holds the scenery too.
-    def self.picture_of(state) = FIRST_STANDING_PICTURE + state.picture
+    # The pictures this floor needs, which is every picture of every kind standing on it.
+    def pictures = kinds.flat_map { |name| Enemy[name].pictures }.uniq.sort
 
-    # Which way a guard put down facing +facing+ is pointing, as the original numbers
-    # directions: counter-clockwise from east, so the four square ones are every other number.
+    # Which way one put down facing +facing+ is pointing, as the original numbers directions:
+    # counter-clockwise from east, so the four square ones are every other number.
     def self.direction_of(facing) = FACINGS.index(facing) * 2
-
-    def self.starting_state(guard) = state_number(guard.patrolling ? :path1 : :stand)
-
-    def pictures = self.class.pictures
 
     # Which way a turning point sends a patrolling guard who reaches it, or nil where the cell
     # holds no turning point.
@@ -303,24 +173,32 @@ module Wolf3D
     private
 
     def guard_at(x, y)
-      code, step = spawn_code(x, y)
-      return nil if code.nil?
+      kind, within, step = spawn_code(x, y)
+      return nil if kind.nil?
 
-      within = code - STANDING
-      Guard.new(x: x, y: y,
-                facing: FACINGS.fetch(within % FACINGS.length),
-                patrolling: within >= (PATROLLING - STANDING),
+      patrolling = within >= FACES
+      # A KIND THAT NEVER STANDS reads its standing block as nothing at all, which is the dog:
+      # the original has no arm for a standing one, and no floor of the game puts one down.
+      return nil if !patrolling && !kind.stands
+
+      Guard.new(x: x, y: y, kind: kind.name,
+                facing: FACINGS.fetch(within % FACES),
+                patrolling: patrolling,
                 ambush: @level.ambush?(x, y),
                 from: FROM.fetch(step))
     end
 
-    # The code as the easiest setting would write it and which block it came out of, or nothing
-    # where this cell holds no guard at all. A harder game's codes come down to the same eight.
+    # Which kind stands here, which of its eight codes this is, and which block it came out of —
+    # or nothing where this cell holds no enemy at all. A harder game's codes come down to the
+    # same eight. The five kinds' fifteen blocks do not overlap, so the order they are tried in
+    # cannot change the answer.
     def spawn_code(x, y)
       code = @level.thing_code(x, y)
-      (0...FROM.length).each do |step|
-        base = code - (step * HARDER)
-        return [base, step] if base >= STANDING && base < STANDING + BLOCK
+      Enemy::ALL.each do |kind|
+        FROM.each_index do |step|
+          within = code - (step * kind.harder) - kind.standing
+          return [kind, within, step] if within >= 0 && within < BLOCK
+        end
       end
       nil
     end

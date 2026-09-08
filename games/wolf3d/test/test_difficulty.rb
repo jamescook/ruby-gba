@@ -31,9 +31,10 @@ class TestDifficulty < Minitest::Test
   HARDEST_ONLY = 14
 
   def one_of_each_block
+    harder = Wolf3D::Enemy::GUARD.harder
     arena(things: { [EVERY_GAME, 4] => Guards::STANDING,
-                    [FROM_MEDIUM, 4] => Guards::STANDING + Guards::HARDER,
-                    [HARDEST_ONLY, 4] => Guards::STANDING + (Guards::HARDER * 2) })
+                    [FROM_MEDIUM, 4] => Guards::STANDING + harder,
+                    [HARDEST_ONLY, 4] => Guards::STANDING + (harder * 2) })
   end
 
   # WHO REALLY STOOD UP, read off the game rather than off the level: every live slot of the

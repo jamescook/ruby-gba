@@ -29,6 +29,10 @@ require_relative "wolf3d/pushwalls"
 require_relative "wolf3d/elevator"
 # ...after the doors, whose panels are the only thing that joins one room to the next.
 require_relative "wolf3d/rooms"
+# WHAT THE FIVE KINDS OF ENEMY ARE, then how a cartridge lays their states out, then how a floor
+# is read for them. Each needs the one before it.
+require_relative "wolf3d/enemy"
+require_relative "wolf3d/behaviour"
 require_relative "wolf3d/guards"
 require_relative "wolf3d/scenery"
 # ...after all of them, because a floor is made of every one.

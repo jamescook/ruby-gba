@@ -79,11 +79,14 @@ module Wolf3D
     # Which picture a code wears, in the numbering VSWAP's sprites use.
     def self.picture_of(code) = FIRST_PICTURE + PICTURES.fetch(code - FIRST_CODE)
 
-    # Which picture the clip a dead guard leaves behind wears. It is the same clip that lies on
-    # the floor of a level, so a floor that ships none of its own still needs this one.
+    # Which pictures the two things a dead guard can leave behind wear. Both are pieces that lie
+    # on the floor of a level in their own right, so a floor that ships neither of its own still
+    # needs them: a clip from nearly everybody, and a machine gun from an SS.
     CLIP = 26
+    MACHINE_GUN = 27
 
     def self.clip_picture = picture_of(FIRST_CODE + CLIP)
+    def self.machine_gun_picture = picture_of(FIRST_CODE + MACHINE_GUN)
 
     # +bonus+ is what walking onto it gives you, as a [kind, amount] pair, or nil for a piece
     # that is only something to look at.

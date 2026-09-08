@@ -257,7 +257,13 @@ module Wolf3D
     def declare_what_guards_leave
       return if @pickups.nil? || @pool.nil?
 
-      @drop_shape = @things.position_of(@pickups.dropped_picture)
+      # WHICH PICTURE, read by what he left — a clip from nearly everybody and a machine gun from
+      # an SS. A cartridge whose pictures include neither draws nothing, which a build with no
+      # data is: the ammunition still works, there is simply nothing to look at.
+      shapes = @pickups.dropped_pictures.map { |picture| @things.position_of(picture) }
+      return if shapes.compact.empty?
+
+      @drop_shape = @b.table :guard_left, shapes.map { |at| at || 0 }, width: :half
     end
 
     def declare_the_guards
@@ -267,7 +273,7 @@ module Wolf3D
       # directions counter-clockwise from east and this view runs its angles clockwise, because
       # its y grows down the screen — so the two run opposite ways and this is where they meet.
       @dir_angle = @b.table :guard_angle,
-                            (0..Guards::NOWHERE).map { |n| (-n * (FP::TURN / Guards::POSES)) % FP::TURN }
+                            (0..Guards::NOWHERE).map { |n| (-n * (FP::TURN / Enemy::POSES)) % FP::TURN }
     end
 
     # --- putting one on the screen ---------------------------------------------------
@@ -416,7 +422,7 @@ module Wolf3D
       return if @drop_shape.nil?
 
       @pickups.still_dropped(guard).then do
-        @shape.set @drop_shape
+        @shape.set @drop_shape[guard.dropped]
         @b.call :remember_a_standing_thing
       end
     end
@@ -435,9 +441,9 @@ module Wolf3D
     def pick_a_pose(guard)
       @pose.set(@dir_angle[guard.dir] - @eye[:angle])
       @pose.sub((@cx - (FP::ACROSS / 2)) / FP::COLUMN_W)
-      @pose.add((FP::TURN / 2) + (FP::TURN / (Guards::POSES * 2)))
+      @pose.add((FP::TURN / 2) + (FP::TURN / (Enemy::POSES * 2)))
       @pose.set(@pose % FP::TURN)
-      @pose.set(@pose / (FP::TURN / Guards::POSES))
+      @pose.set(@pose / (FP::TURN / Enemy::POSES))
 
       @shape.set(@mind.picture_of[guard.state] + (@pose * @mind.turns_of[guard.state]))
     end

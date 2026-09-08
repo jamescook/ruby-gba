@@ -1,13 +1,18 @@
 # frozen_string_literal: true
 
 module Wolf3D
-  # WHAT A GUARD DOES with each frame, which is a state machine and almost nothing else.
+  # WHAT AN ENEMY DOES with each frame, which is a state machine and almost nothing else.
   #
   # The original's actor table is plain data — a picture, how long to stand in it, what to think
   # about while there, and which row comes next — and the whole of a guard's behaviour is that
-  # table plus three things to think about. He looks for you while standing. He walks his beat
+  # table plus four things to think about. He looks for you while standing. He walks his beat
   # while patrolling, looking as he goes. He closes on you once he has seen you, and stops to
-  # take a shot when he has a clear line.
+  # take a shot when he has a clear line. A dog, having no gun, hunts you down instead.
+  #
+  # ONE MIND FOR ALL FIVE KINDS, and that is not a simplification: a state number already says
+  # which kind is in it (see Behaviour), so every number a kind decides — its picture, its speed,
+  # how it attacks, how it falls, what it leaves — is a column of a table read by that one
+  # number. Nothing here asks what it is looking at, and five kinds cost what one costs.
   #
   # WHAT LIVES HERE AND WHAT DOES NOT: this decides where a guard is and which state he is in.
   # Drawing him is the view's business, and it reads the same pool.
@@ -16,11 +21,16 @@ module Wolf3D
     # between them, which is what makes "can he go that way" a question about a single cell.
     CELL = 1.0
 
-    # What each of the three thinking jobs is numbered, so one table can say which to do.
-    NOTHING = 0
-    LOOK = 1
-    PATROL = 2
-    CHASE = 3
+    # What each of the thinking jobs is numbered, so one table can say which to do.
+    NOTHING = Enemy::THINKING.fetch(nil)
+    LOOK = Enemy::THINKING.fetch(:look)
+    PATROL = Enemy::THINKING.fetch(:patrol)
+    CHASE = Enemy::THINKING.fetch(:chase)
+    HUNT = Enemy::THINKING.fetch(:hunt)
+
+    # ...and the two ways of attacking, the same way.
+    WITH_A_GUN = Enemy::ATTACKS.fetch(:gun)
+    WITH_TEETH = Enemy::ATTACKS.fetch(:teeth)
 
     # WHETHER HE FIRES is a chance against distance, taken every frame he has a clear line —
     # which is why a guard sometimes just stands there aiming. The original's number is sixteen
@@ -38,9 +48,12 @@ module Wolf3D
     NOBODY = -1
 
     def initialize(build:, guards:, pool:, level:, world:, player:, door_open:, walls:, things:,
-                   blocked: nil, dying: nil, pickups: nil, sounds: nil, rooms: nil,
-                   floors: nil, map_base: nil, difficulty: nil)
+                   behaviour: nil, blocked: nil, dying: nil, pickups: nil, sounds: nil,
+                   rooms: nil, floors: nil, map_base: nil, difficulty: nil)
       @b = build
+      # THE STATE TABLE OF EVERY KIND THIS CARTRIDGE HOLDS. A build that says nothing gets the
+      # guard's alone, which is what every test of the guard himself wants.
+      @behaviour = behaviour || Behaviour.for([:guard])
       @difficulty = difficulty # how tough the game is set, or nil where nothing can change it
       @dying = dying      # what to tell when a shot takes the last of the health, or nil
       @pickups = pickups  # what to tell when a guard falls, so he can leave a clip behind
@@ -66,6 +79,9 @@ module Wolf3D
     # What the picture of a state is, and whether it turns — the view reads these to draw.
     attr_reader :picture_of, :turns_of
 
+    # ...and which kinds this cartridge holds, for anything that has to ship their pictures.
+    attr_reader :behaviour
+
     # One frame of thinking, for every guard on the floor.
     #
     # KEPT IN A ROUTINE OF ITS OWN, and told to stay out of the quick memory. The framework
@@ -83,18 +99,40 @@ module Wolf3D
 
     def declare
       b = @b
-      states = Guards::STATES
+      states = @behaviour.states
+      rows = (0...states.length)
 
       # THE STATE TABLE, as tables the game reads by state number. Kept apart rather than as one
       # row per state because each is read on its own.
+      #
+      # A picture takes a HALF rather than a byte: a cartridge with all five kinds on it ships
+      # nearly three hundred pictures of them, and the scenery stands in the same row.
       @picture_of = b.table :guard_picture,
-                            states.map { |s| @things.position_of(Guards.picture_of(s)) }, width: :byte
+                            rows.map { |n| @things.position_of(@behaviour.picture_of(n)) }, width: :half
       @turns_of = b.table :guard_turns, states.map { |s| s.turns ? 1 : 0 }, width: :byte
       @ticks_of = b.table :guard_ticks, states.map(&:ticks), width: :byte
-      @becomes_of = b.table :guard_becomes, states.map { |s| Guards.state_number(s.becomes) }, width: :byte
-      @think_of = b.table :guard_think, states.map { |s| Guards::THINKING.fetch(s.think) }, width: :byte
-      @fires_of = b.table :guard_fires, states.map { |s| s.fires ? 1 : 0 }, width: :byte
-      @roused_of = b.table :guard_roused, states.map { |s| Guards.roused?(s) ? 1 : 0 }, width: :byte
+      @becomes_of = b.table :guard_becomes, rows.map { |n| @behaviour.becomes_from(n) }, width: :byte
+      @think_of = b.table :guard_think, states.map { |s| Enemy::THINKING.fetch(s.think) }, width: :byte
+      @attacks_of = b.table :guard_attacks, states.map { |s| Enemy::ATTACKS.fetch(s.fires) },
+                            width: :byte
+      @roused_of = b.table :guard_roused, states.map { |s| Enemy.roused?(s) ? 1 : 0 }, width: :byte
+
+      # WHAT THE THING IN THIS STATE DOES NEXT, which is where the five kinds really live. Each
+      # of these used to be one number, because there was one kind and one answer; now the state
+      # a thing is in says which kind it is, so the answer is a column read by the number the
+      # mind is already holding. Nothing branches on a kind and nothing remembers one.
+      @chase_of = b.table :guard_chase, rows.map { |n| @behaviour.chase_from(n) }, width: :byte
+      @attack_of = b.table :guard_attack, rows.map { |n| @behaviour.attack_from(n) }, width: :byte
+      @hurt_of = b.table :guard_hurt, rows.map { |n| @behaviour.flinch_from(n) }, width: :byte
+      @hurt2_of = b.table :guard_hurt2,
+                          rows.map { |n| @behaviour.flinch_from(n, second: true) }, width: :byte
+      @fall_of = b.table :guard_fall, rows.map { |n| @behaviour.fall_from(n) }, width: :byte
+      # ...and how far it walks each think, which is how an officer runs you down and a dog is
+      # quicker than either. Written as a fraction, so it ships as a word.
+      @step_of = b.table :guard_step, rows.map { |n| @behaviour.step_from(n) }
+      # ...and what killing it is worth, and what it leaves lying where it fell.
+      @points_of = b.table :guard_points, rows.map { |n| @behaviour.points_from(n) }, width: :half
+      @leaves_of = b.table :guard_leaves, rows.map { |n| @behaviour.leaves_from(n) }, width: :byte
 
       # WHICH WAY EACH DIRECTION GOES, one cell at a time. Nine entries: eight ways round and
       # then nowhere, which is where a guard hemmed in on every side ends up.
@@ -109,13 +147,10 @@ module Wolf3D
       reach = [@level.width, @level.height].max
       @shot = b.table :guard_shot, (0..reach).map { |away| shot_chance(away) }
 
-      @chase1 = Guards.state_number(:chase1)
-      @shoot1 = Guards.state_number(:shoot1)
-      @hurt1 = Guards.state_number(:hurt1)
-      @hurt2 = Guards.state_number(:hurt2)
-      @fall1 = Guards.state_number(:fall1)
-      @patrol_step = Guards.speed
-      @chase_step = Guards.speed(chasing: true)
+      # HOW NEAR A DOG JUMPS FROM: about a cell, plus the ground it covers in the think it is
+      # deciding on — which is the original's own test, made against the step it is about to take
+      # rather than against where it already stands.
+      @jump_from = Guards::JUMP_FROM + Enemy[:dog].speed(chasing: true)
       @width = @level.width
       @reach = reach
 
@@ -127,7 +162,7 @@ module Wolf3D
 
       # WHOSE TURN IT IS. Flipped each time this routine runs, and a guard thinks on the turns
       # that match his — so half of them think each time and a guard is thought about every
-      # other one. See Guards::TICKS_PER_THINK for why that is often enough.
+      # other one. See Enemy::TICKS_PER_THINK for why that is often enough.
       #
       # FLIPPED HERE rather than on its own beat, so that whatever paces the world paces this
       # too. A turn flipped once a FRAME while the world moved once a PASS would flip twice
@@ -158,15 +193,15 @@ module Wolf3D
     def shot_chance(away)
       return CHANCES if away.zero?
 
-      [(16 * Guards::TICKS_PER_THINK / Guards::SCALE) / away, CHANCES].min
+      [(16 * Enemy::TICKS_PER_THINK / Enemy::SCALE) / away, CHANCES].min
     end
 
     def declare_the_scratch
       b = @b
       @state, @dir, @job, @try, @slot, @cellx, @celly, @clear, @done, @ahead, @way, @picked,
-        @tx, @ty, @away, @target, @odds, @wound, @spot =
+        @tx, @ty, @away, @target, @odds, @wound, @spot, @blow, @left =
         %i[gstate gdir gjob gtry gslot gcellx gcelly gclear gdone gahead gway gpicked
-           gtx gty gaway gtarget godds gwound gspot].map { |name| b.var(:"_#{name}", 0) }
+           gtx gty gaway gtarget godds gwound gspot gblow gleft].map { |name| b.var(:"_#{name}", 0) }
       @dx, @dy, @absx, @absy, @stepx, @stepy, @far, @atx, @aty, @pace, @fwd, @sideways, @nearest,
         @fromx, @fromy =
         %i[gdx gdy gabsx gabsy gstepx gstepy gfar gatx gaty gpace gfwd gsideways gnearest
@@ -195,34 +230,72 @@ module Wolf3D
       @state.set guard.state
       step_the_state(guard)
 
-      # EXACTLY ONE OF THESE RUNS. They are three arms of one choice — a guard is standing, or
-      # walking his beat, or coming after you — and nothing at build time can see that, so unsaid
-      # the report counts all three on every guard on every frame. It is not a small lie: nearly
-      # all of a job is the line of sight it walks, so counting three jobs where one runs put
-      # `guard_thinking` at three times its real cost and sent a whole afternoon after the wrong
-      # thing. One in three, and the worst frame is unchanged either way.
+      # EXACTLY ONE OF THESE RUNS. They are the arms of one choice — a guard is standing, or
+      # walking his beat, or coming after you, or (a dog) hunting you down — and nothing at build
+      # time can see that, so unsaid the report counts all of them on every guard on every frame.
+      # It is not a small lie: nearly all of a job is the line of sight it walks, so counting
+      # three jobs where one runs put `guard_thinking` at three times its real cost and sent a
+      # whole afternoon after the wrong thing. One in however many there are, and the worst frame
+      # is unchanged either way.
       #
       # HALF AGAIN ON TOP OF THAT: a guard thinks on alternate frames (see @turn), so the body
       # this sits in runs for half the pool on any one frame. That one is said where the loop is.
+      #
+      # A CARTRIDGE WITH NO DOGS HAS NO HUNTING ARM, so it pays nothing for one.
+      arms = @behaviour.jobs
       @job.set(@think_of[guard.state])
-      (@job == LOOK).then(estimate: { usually: 1, in: 3 }) { look(guard) }
-      (@job == PATROL).then(estimate: { usually: 1, in: 3 }) { patrol(guard) }
-      (@job == CHASE).then(estimate: { usually: 1, in: 3 }) { chase(guard) }
+      (@job == LOOK).then(estimate: { usually: 1, in: arms }) { look(guard) }
+      (@job == PATROL).then(estimate: { usually: 1, in: arms }) { patrol(guard) }
+      (@job == CHASE).then(estimate: { usually: 1, in: arms }) { chase(guard) } if hunts?(:chase)
+      (@job == HUNT).then(estimate: { usually: 1, in: arms }) { hunt(guard) } if hunts?(:hunt)
     end
+
+    # Does anything on this cartridge think this way at all?
+    def hunts?(job) = @behaviour.any?(job)
 
     # A state with no length never runs down — that is how standing goes on forever. One step a
     # think is enough for every other: the shortest state in the table is nine of these units
     # long and a think is worth seven, so a think can never step clean over one.
     def step_the_state(guard)
       (@ticks_of[@state] > 0).then do
-        guard.ticks.sub Guards::TICKS_PER_THINK
+        guard.ticks.sub Enemy::TICKS_PER_THINK
         (guard.ticks <= 0).then do
           # The shot leaves as he LEAVES the state he aimed in, which is where the original
           # hangs it: aiming, firing and lowering the arm are three pictures and the bullet
           # belongs to the join between the second and the third.
-          (@fires_of[@state] == 1).then { fire_at_the_player(guard) }
+          attack_the_player(guard)
           guard.state.set(@becomes_of[@state])
           guard.ticks.add(@ticks_of[guard.state])
+        end
+      end
+    end
+
+    # A GUN OR A SET OF TEETH, and which is a column of the state table like everything else. A
+    # cartridge with no dogs on it has only the one answer, so it asks only the one question.
+    def attack_the_player(guard)
+      unless @behaviour.any?(:teeth)
+        return (@attacks_of[@state] == WITH_A_GUN).then { fire_at_the_player(guard) }
+      end
+
+      @blow.set(@attacks_of[@state])
+      (@blow == WITH_A_GUN).then { fire_at_the_player(guard) }
+      (@blow == WITH_TEETH).then { bite_the_player(guard) }
+    end
+
+    # A DOG HAS NO GUN, so the only way it can hurt you is to reach you — and its jaws close at
+    # the end of the second picture of the jump, whether or not anything is in the way. There is
+    # no line of sight to walk and no distance to fall off with: it is near enough or it is not,
+    # and what it takes is a byte of randomness shifted down four. Which is why a dog at your
+    # feet is worse than a guard across the room, and why backing away from one works.
+    def bite_the_player(guard)
+      @dx.set(@player[:x] - guard.x)
+      @dx.abs
+      @dy.set(@player[:y] - guard.y)
+      @dy.abs
+      ((@dx <= Guards::BITE_REACH) & (@dy <= Guards::BITE_REACH)).then do
+        (@b.rand(0..CHANCES - 1) < Guards::BITE_CHANCE).then do
+          @wound.set(@b.rand(0..CHANCES - 1) / Guards::BITE_SHIFT)
+          take_it_out_of_the_player(guard)
         end
       end
     end
@@ -232,9 +305,8 @@ module Wolf3D
     # could be dodging. That is the game quietly being fair, and it is in the original's
     # numbers rather than anywhere else.
     #
-    # What it does when it lands is by distance too: a byte of randomness shifted down twice
-    # inside two cells, three times inside four, four times beyond. So a guard across the room
-    # does almost nothing and one in your face does real harm.
+    # What it does when it lands falls off with distance too, so a guard across the room does
+    # almost nothing and one in your face does real harm.
     def fire_at_the_player(guard)
       # HEARD WHETHER OR NOT IT LANDS, and before either question is asked. A guard fires; the
       # chance and the line of sight decide what it does to you, not whether he pulled.
@@ -250,13 +322,23 @@ module Wolf3D
       end
     end
 
-    # THE SHOT THAT TAKES THE LAST OF THE HEALTH IS THE ONE THE DEATH NEEDS TO KNOW ABOUT, and
-    # this is the only place that knows which guard fired it. The view turns to face him, so who
-    # it was has to be caught here rather than worked out afterwards from a body on the floor.
+    # WHAT A SHOT THAT LANDS TAKES OFF YOU, by distance: a byte of randomness shifted down twice
+    # inside two cells, three times inside four, four times beyond.
     def wound_the_player(guard)
       @wound.set(@b.rand(0..CHANCES - 1) / 4)
       (@away >= 2).then { @wound.set(@b.rand(0..CHANCES - 1) / 8) }
       (@away >= 4).then { @wound.set(@b.rand(0..CHANCES - 1) / 16) }
+      take_it_out_of_the_player(guard)
+    end
+
+    # THE BLOW THAT TAKES THE LAST OF THE HEALTH IS THE ONE THE DEATH NEEDS TO KNOW ABOUT, and
+    # this is the only place that knows who struck it. The view turns to face him, so who it was
+    # has to be caught here rather than worked out afterwards from a body on the floor.
+    #
+    # A bullet and a set of teeth both come through here, which is where the original puts the
+    # setting's own softening too — at the health rather than at the shot, so every wound goes
+    # through it.
+    def take_it_out_of_the_player(guard)
       gently
       @player[:health].sub @wound
       (@player[:health] <= 0).then do
@@ -265,9 +347,10 @@ module Wolf3D
       end
     end
 
-    # THE EASIEST SETTING TAKES A QUARTER OF WHAT THE SHOT WOULD TAKE, and it is the only thing
-    # about a guard that how tough you said you were changes. Everything else — how well he
-    # shoots, how far he sees, how much killing him takes — is the same on all four.
+    # THE EASIEST SETTING TAKES A QUARTER OF WHAT THE BLOW WOULD TAKE, and it is nearly the only
+    # thing about an enemy that how tough you said you were changes. How well it shoots and how
+    # far it sees are the same on all four; how much killing it takes is the same too, except for
+    # a mutant, whose four differ.
     #
     # IT IS THE EASIEST SETTING ALONE. The second one hurts you exactly as much as the hardest
     # does, which is worth saying out loud because the two easiest agree about the other thing
@@ -285,7 +368,7 @@ module Wolf3D
     # you get a beat between being seen and being come after.
     def look(guard)
       (guard.wait > 0).then do
-        guard.wait.sub Guards::TICKS_PER_THINK
+        guard.wait.sub Enemy::TICKS_PER_THINK
         (guard.wait <= 0).then do
           guard.wait.set 0
           first_sighting(guard)
@@ -333,10 +416,13 @@ module Wolf3D
       @rooms.open_to_the_player?(guard.x, guard.y).then { @clear.set 1 }
     end
 
-    # He has seen you: he breaks into a chase, and from here he moves three times as fast.
+    # He has seen you: he breaks into a chase, and from here he moves several times as fast —
+    # three for a guard, four for an SS, five for an officer, which is a table read rather than a
+    # number because the state he lands in is the one that says how fast his kind runs.
     def first_sighting(guard)
-      guard.state.set @chase1
-      guard.ticks.set(@ticks_of[@chase1])
+      @blow.set(@chase_of[guard.state])
+      guard.state.set @blow
+      guard.ticks.set(@ticks_of[@blow])
       guard.togo.set 0.0
       # "Halt!" — which is the one sound in this game that tells you something you could not
       # otherwise know: that you have been seen, and by how many.
@@ -496,7 +582,7 @@ module Wolf3D
       look(guard)
       (@think_of[guard.state] == PATROL).then do
         (guard.togo <= 0.0).then { choose_a_patrol_way(guard) }
-        walk(guard, @patrol_step, patrolling: true)
+        walk(guard, patrolling: true)
       end
     end
 
@@ -521,8 +607,30 @@ module Wolf3D
       take_a_shot(guard)
       (@think_of[guard.state] == CHASE).then do
         (guard.togo <= 0.0).then { choose_a_chase_way(guard) }
-        walk(guard, @chase_step, patrolling: false)
+        walk(guard, patrolling: false)
       end
+    end
+
+    # A DOG CLOSES INSTEAD OF STOPPING FOR A SHOT, and that is the whole difference between
+    # hunting and chasing. It picks its way toward you exactly as a guard does; where a guard
+    # asks whether he has a clear line, a dog asks whether it is near enough to jump — and it
+    # asks about the step it is ABOUT to take, so it leaves the ground a stride early.
+    def hunt(guard)
+      near_enough_to_jump(guard)
+      (@think_of[guard.state] == HUNT).then do
+        (guard.togo <= 0.0).then { choose_a_chase_way(guard) }
+        walk(guard, patrolling: false)
+      end
+    end
+
+    # Near enough on EACH axis on its own rather than as a distance, which is the original's own
+    # test and is why a dog catches you round a corner it could not see you through.
+    def near_enough_to_jump(guard)
+      @dx.set(@player[:x] - guard.x)
+      @dx.abs
+      @dy.set(@player[:y] - guard.y)
+      @dy.abs
+      ((@dx <= @jump_from) & (@dy <= @jump_from)).then { start_attacking(guard) }
     end
 
     def take_a_shot(guard)
@@ -531,7 +639,7 @@ module Wolf3D
       line_of_sight(guard)
       (@clear == 1).then do
         how_far_away(guard)
-        (@b.rand(0..CHANCES - 1) < @shot[@away]).then { start_firing(guard) }
+        (@b.rand(0..CHANCES - 1) < @shot[@away]).then { start_attacking(guard) }
       end
     end
 
@@ -547,9 +655,12 @@ module Wolf3D
       @away.clamp 0, @reach
     end
 
-    def start_firing(guard)
-      guard.state.set @shoot1
-      guard.ticks.set(@ticks_of[@shoot1])
+    # He raises his gun, or the dog gathers itself — which of the two is a column of the state
+    # table, so this is one piece of code and not two.
+    def start_attacking(guard)
+      @blow.set(@attack_of[guard.state])
+      guard.state.set @blow
+      guard.ticks.set(@ticks_of[@blow])
       guard.togo.set 0.0
     end
 
@@ -744,16 +855,21 @@ module Wolf3D
       hp.sub @wound
 
       (hp <= 0).then do
-        state.set @fall1
-        ticks.set(@ticks_of[@fall1])
-        # A guard is worth a hundred, which is the original's own number...
-        @player[:score]&.add(Guards::POINTS)
+        # WHAT KILLING HIM IS WORTH AND WHAT HE WAS CARRYING, both read BEFORE he starts falling
+        # over — a state number is what says which kind he is, and in a moment it will say he is
+        # a body instead.
+        @player[:score]&.add(@points_of[state])
+        @left.set(@leaves_of[state])
+        @blow.set(@fall_of[state])
+        state.set @blow
+        ticks.set(@ticks_of[@blow])
         # ...and one off the floor's tally, which is a different thing from the score: the score
         # is kept across floors and this is how much of THIS floor has been cleared.
         @player[:kills]&.add(1)
-        # ...and he leaves half a clip of ammunition in the cell he fell in, which is the loop
-        # the whole game runs on: shoot a guard, take what he was carrying, shoot the next one.
-        @pickups&.a_guard_fell(@target)
+        # ...and he leaves what he was carrying in the cell he fell in, which is the loop the
+        # whole game runs on: shoot a guard, take what he was carrying, shoot the next one. Half
+        # a clip from most of them, a machine gun from an SS, and nothing at all from a dog.
+        @pickups&.a_guard_fell(@target, leaving: @left)
         # ...and one of his eight screams, picked as the game runs so a firefight does not
         # sound like a loop.
         @sounds&.a_guard_dies
@@ -761,16 +877,22 @@ module Wolf3D
         # Odd or even decides which of the two flinches he wears, so the same wound twice
         # running does not look like a repeat. Landing in one of them is also what rouses a
         # guard who had not noticed you: being shot at counts as being seen.
-        state.set @hurt1
-        ((hp % 2) == 0).then { state.set @hurt2 }
-        ticks.set(@ticks_of[state])
+        @blow.set(@hurt_of[state])
+        ((hp % 2) == 0).then { @blow.set(@hurt2_of[state]) }
+        state.set @blow
+        ticks.set(@ticks_of[@blow])
       end
     end
 
     # Move him the way he is going. When he reaches the middle of the next cell, pick another.
-    def walk(guard, pace, patrolling:)
+    #
+    # HOW FAR HE GOES IS A COLUMN OF THE STATE TABLE, because it is the one thing about walking
+    # that differs between the kinds and between the beat and the chase — and the state he is in
+    # already says both. So an officer running you down and a dog trotting past cost the same
+    # here as a guard did.
+    def walk(guard, patrolling:)
       (guard.dir < Guards::NOWHERE).then do
-        @pace.set pace
+        @pace.set(@step_of[guard.state])
         guard.x.add(@pace * @step_x[guard.dir].to_f)
         guard.y.add(@pace * @step_y[guard.dir].to_f)
         guard.togo.sub @pace
