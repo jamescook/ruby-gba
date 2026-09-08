@@ -287,14 +287,14 @@ module Wolf3D
     # so. The guards go on about their business around the body, which is what the original does
     # too while the death is playing out.
     def play
-      move_the_world if PACING == :by_the_pass
+      @b.call :the_world_takes_a_step if PACING == :by_the_pass
       still_playing.then do
-        open_a_door
-        fire
+        @b.call :a_door_opens
+        @b.call :the_player_fires
       end
       # ...and outside that, because a lift already on its way does not stop because the thing
       # that pulled it has since been shot.
-      run_the_lift if lifts?
+      @b.call :the_lift_runs if lifts?
     end
 
     # Is the game still the player's to play? Until something can kill you it always is.
@@ -615,7 +615,34 @@ module Wolf3D
       declare_the_floor_start
       declare_the_bar
       declare_the_view
+      declare_what_a_pass_does
       declare_the_clock
+    end
+
+    # WHAT A PASS OF THE GAME DOES, AS ROUTINES RATHER THAN AS ONE BLOCK — the same reason
+    # `draw_the_view` is three routines and not one, one level up.
+    #
+    # The placement chooser can only ever take a WHOLE routine into the console's quick memory,
+    # and a scene's body is a routine: everything the frame does, emitted inline, in one piece.
+    # Measured on a two-episode cartridge that came to 22.5K against about 8K free when its turn
+    # came, so it missed — and missing means the WHOLE frame runs from the cartridge at about
+    # two and a third times the cost. Nothing else in the frame mattered next to that: with the
+    # rays cut by three AND the guards' minds removed entirely AND the room-visibility pass with
+    # them, the measured frame did not move.
+    #
+    # Split, each part is offered the memory on its own merits and whatever fits gets it. The
+    # cuts are along what a pass actually is — the world takes a step, the player acts, the lift
+    # runs — so each is a thing with a name rather than an arbitrary slice of a block.
+    def declare_what_a_pass_does
+      @b.func(:the_world_takes_a_step) { move_the_world } if PACING == :by_the_pass
+      # ...and the two the player does, which are read on their button's EDGE and so belong on
+      # the pass whatever paces the world (see PACING). One routine each, because the two are
+      # nothing like the same size — shoving a door open is a few tests where the gun is a
+      # four-stage cycle with a different answer per weapon — and one routine for both would
+      # make the small one wait on room for the big one.
+      @b.func(:a_door_opens) { open_a_door }
+      @b.func(:the_player_fires) { fire }
+      @b.func(:the_lift_runs) { run_the_lift } if lifts?
     end
 
     # DRAWING THE VIEW IS A ROUTINE, and the reason is about SIZE rather than about tidiness.
