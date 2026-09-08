@@ -7,8 +7,24 @@ module Wolf3D
   # Plane 1 says all of it in one number per cell, and the number carries three things at once.
   # Four codes in a row are the four ways a guard can face; the next four are the same four
   # facings for one that patrols; and the whole block repeats twice more further up for the
-  # guards that only turn up when the game is set harder. So a code is decoded by taking the
-  # difficulty steps off it first, then asking which of the eight it landed on.
+  # guards that only turn up when the game is set harder. So a code is decoded by asking which
+  # block it fell in, taking that many blocks off it, and asking which of the eight is left.
+  #
+  # HOW HARD THE GAME IS SET IS NOT KNOWN HERE, because it is picked on a screen long after the
+  # cartridge was built. So every block is read and each guard carries the easiest setting he
+  # turns up on; a floor stands up the ones its own setting names when it starts.
+  #
+  # WHAT THAT COSTS, and the two halves of it are worth keeping apart.
+  #
+  # CARRYING them all costs a frame NOTHING. A guard his setting leaves out is never spawned, so
+  # he takes no slot, is never drawn and never thinks. He costs the cartridge his row in the
+  # tables and the floor's start one comparison. Over the first episode that is about two and a
+  # half times as many rows as the easiest setting alone would have shipped, in a cartridge with
+  # room to spare.
+  #
+  # STANDING them up costs plenty, and that is the game rather than this reader: the hardest
+  # setting really does put twice the men on a busy floor that the easiest does, and a floor is
+  # slower for it. Which is what picking "I am Death incarnate!" is FOR.
   #
   # The numbers are read out of the original rather than remembered.
   class Guards
@@ -28,10 +44,29 @@ module Wolf3D
     # different directions round the circle, and the only way to know that is to look.
     FACINGS = %i[east north west south].freeze
 
-    # How many of the harder blocks a setting brings in. The game's own default is the second
-    # of the four, which brings in none of them.
-    STEPS = { baby: 0, easy: 0, medium: 1, hard: 2 }.freeze
-    DEFAULT_DIFFICULTY = :easy
+    # THE FOUR SETTINGS, in the order the original numbers them — which is also the order the
+    # screen asks them in, so the row you pick IS the number. Everything that compares one
+    # setting against another compares these numbers, at run time.
+    SETTINGS = %i[baby easy medium hard].freeze
+
+    # THE EASIEST SETTING EACH BLOCK TURNS UP ON. A code in the first block is on every game, one
+    # in the second from the middle setting up, one in the third only on the hardest — so this
+    # runs in block order and says which setting each one waits for. That is what a guard carries
+    # into the cartridge, and a floor stands up everyone whose number is at or below the one you
+    # picked. The two easiest settings share the first entry, which is the whole of why "Can I
+    # play, Daddy?" and "Don't hurt me." meet exactly the same men.
+    FROM = [SETTINGS.index(:baby), SETTINGS.index(:medium), SETTINGS.index(:hard)].freeze
+
+    # What a game plays at until somebody picks, which is where the original's own menu opens.
+    DEFAULT_DIFFICULTY = :medium
+
+    # THE ONE SETTING THAT CHANGES WHAT A SHOT DOES TO YOU: it takes a quarter of what it would
+    # otherwise. The original spends it where the health is taken rather than where the shot is
+    # worked out, so every wound goes through it. It is the easiest setting ALONE — the second
+    # one hurts you as much as the hardest does, which is easy to get wrong, because the two
+    # easiest agree about every other thing on this page.
+    GENTLE = SETTINGS.index(:baby)
+    GENTLE_PART = 4 # one part in four of what the shot would otherwise have taken
 
     # WHERE A GUARD'S PICTURES ARE in the numbering VSWAP's sprites use. That numbering is a
     # plain list in the original — a demo picture, a death-cam picture, forty-eight pieces of
@@ -207,18 +242,29 @@ module Wolf3D
 
     # +ambush+ is a guard put down on an ambush tile: one lying in wait, who has to SEE you and
     # is the one guard a gunshot does not bring. See Level::AMBUSH and GuardMind#look.
-    Guard = Data.define(:x, :y, :facing, :patrolling, :ambush)
+    # +from+ is the easiest setting he turns up on — see FROM.
+    Guard = Data.define(:x, :y, :facing, :patrolling, :ambush, :from)
 
+    # EVERY GUARD THE FLOOR CAN HOLD, at any setting, because how hard the game is set is not
+    # known while the cartridge is built. So all of them are read and each carries the setting
+    # he needs; which of them stand up is settled when a floor starts.
     attr_reader :guards
 
-    def initialize(level, difficulty: DEFAULT_DIFFICULTY)
-      unless STEPS.key?(difficulty)
-        raise ArgumentError, "there is no difficulty #{difficulty.inspect}; the four are #{STEPS.keys.join(', ')}"
-      end
-
+    def initialize(level)
       @level = level
-      @steps = STEPS.fetch(difficulty)
       @guards = level.each_cell.filter_map { |x, y| guard_at(x, y) }
+    end
+
+    # ...and the ones a game set THIS way really has.
+    def at(difficulty)
+      wanted = self.class.number_of(difficulty)
+      @guards.select { |guard| guard.from <= wanted }
+    end
+
+    def self.number_of(difficulty)
+      SETTINGS.index(difficulty) ||
+        raise(ArgumentError,
+              "there is no difficulty #{difficulty.inspect}; the four are #{SETTINGS.join(', ')}")
     end
 
     def count = @guards.length
@@ -257,23 +303,24 @@ module Wolf3D
     private
 
     def guard_at(x, y)
-      code = spawn_code(x, y)
+      code, step = spawn_code(x, y)
       return nil if code.nil?
 
       within = code - STANDING
       Guard.new(x: x, y: y,
                 facing: FACINGS.fetch(within % FACINGS.length),
                 patrolling: within >= (PATROLLING - STANDING),
-                ambush: @level.ambush?(x, y))
+                ambush: @level.ambush?(x, y),
+                from: FROM.fetch(step))
     end
 
-    # The code as the easiest setting would write it, or nil where this cell holds no guard
-    # this game is playing. A harder game's codes come down to the same eight.
+    # The code as the easiest setting would write it and which block it came out of, or nothing
+    # where this cell holds no guard at all. A harder game's codes come down to the same eight.
     def spawn_code(x, y)
       code = @level.thing_code(x, y)
-      (0..@steps).each do |step|
+      (0...FROM.length).each do |step|
         base = code - (step * HARDER)
-        return base if base >= STANDING && base < STANDING + BLOCK
+        return [base, step] if base >= STANDING && base < STANDING + BLOCK
       end
       nil
     end

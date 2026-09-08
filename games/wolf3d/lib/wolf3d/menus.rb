@@ -111,15 +111,20 @@ module Wolf3D
     SOUND = ["SOUND: OFF", "SOUND: ON"].freeze
     BACK = ["BACK TO DEMO", "BACK TO GAME"].freeze
 
-    # THE FOUR ANSWERS TO "HOW TOUGH ARE YOU?", in the order the original asks them, each with
-    # the portrait of BJ that goes beside it.
+    # THE FOUR ANSWERS TO "HOW TOUGH ARE YOU?", in the order the original asks them: which
+    # setting the row means, what it says, and the portrait of BJ that goes beside it.
+    #
+    # THE SETTING IS NAMED rather than left to be the row's position. Picking a row writes a
+    # number the world then plays by, and the two lists live in different files with nothing
+    # about either one hinting at the other — so reordering these rows, or adding a fifth, can
+    # never quietly change what a row means. The one name that differs is the middle setting:
+    # the original's art calls its portrait "normal" and its code calls the setting "medium".
     DIFFICULTIES = [
-      ["Can I play, Daddy?", :difficulty_baby],
-      ["Don't hurt me.", :difficulty_easy],
-      ["Bring 'em on!", :difficulty_normal],
-      ["I am Death incarnate!", :difficulty_hard]
+      [:baby, "Can I play, Daddy?", :difficulty_baby],
+      [:easy, "Don't hurt me.", :difficulty_easy],
+      [:medium, "Bring 'em on!", :difficulty_normal],
+      [:hard, "I am Death incarnate!", :difficulty_hard]
     ].freeze
-    NORMAL = 2
 
     HOW_TOUGH = "How tough are you?"
     WHICH_EPISODE = "Which episode to play?"
@@ -209,9 +214,10 @@ module Wolf3D
       # WHICH FLOOR A GAME WILL START ON, set by the episode list. Nothing else writes it, so a
       # cartridge with no episode list to show simply starts on the first floor it holds.
       @start_floor = @b.var :_start_floor, 0
-      # HOW TOUGH YOU SAID YOU WERE. Nothing reads it yet — which guards a floor holds is
-      # settled while the cartridge is built — so this is the seam and not the feature.
-      @difficulty = @b.var :difficulty, NORMAL
+      # HOW TOUGH YOU SAID YOU WERE, which this screen only WRITES. It belongs to the world —
+      # which guards a floor stands up and what a shot takes off you both read it — so the view
+      # declares it and this asks the view for it.
+      @difficulty = @view.difficulty
       declare_the_fades
       declare_the_screens
     end
@@ -236,7 +242,7 @@ module Wolf3D
 
     def declare_the_art
       %i[notice title credits menu_heading menu_gun menu_gun_firing].each { |name| picture(name) }
-      DIFFICULTIES.each { |(_, portrait)| picture(portrait) }
+      DIFFICULTIES.each { |(_, _, portrait)| picture(portrait) }
     end
 
     def picture(name)
@@ -382,14 +388,14 @@ module Wolf3D
     # --- THE DIFFICULTY SCREEN ---------------------------------------------------------------
 
     def declare_the_difficulty
-      at = layout_for(DIFFICULTIES.map(&:first))
+      at = layout_for(DIFFICULTIES.map { |(_, words, _)| words })
       y = rows_top(under_a_written_heading, DIFFICULTIES.length)
       @b.scene(:the_difficulty) do
         the_ground
         @b.draw_text HOW_TOUGH, :center, HEADING_Y, colour(TEXT), font: HEADING
         picked = the_rows(:difficulty, at, y) do |m|
-          DIFFICULTIES.each_with_index do |(words, _), n|
-            m.item(words) { @difficulty.set n; start_the_game }
+          DIFFICULTIES.each do |(setting, words, _)|
+            m.item(words) { @difficulty.set Guards.number_of(setting); start_the_game }
           end
         end
         the_portrait(y, picked)
@@ -409,7 +415,7 @@ module Wolf3D
       wide, tall = @art.size(DIFFICULTIES.first.last)
       x = even(ACROSS - wide - PORTRAIT_MARGIN)
       y = rows_y + (((DIFFICULTIES.length * ROW_STEP) - tall) / 2)
-      DIFFICULTIES.each_with_index do |(_, portrait), n|
+      DIFFICULTIES.each_with_index do |(_, _, portrait), n|
         (picked == n).then { @b.blit :"menu_#{portrait}", x, y }
       end
     end
