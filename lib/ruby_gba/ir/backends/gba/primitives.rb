@@ -18,9 +18,11 @@ module RubyGBA
           # Every variable's allocated address (name => address) — read by GBA#var_addresses.
           attr_reader :vars
 
-          # A variable is 4 bytes in IWRAM, addresses handed out on first mention.
+          # A variable is 4 bytes in IWRAM, addresses handed out on first mention — and
+          # handed out at the near end, which is what keeps them inside the window the
+          # note below is about. See {Memory}.
           def var_addr(name)
-            @vars[name] ||= @memory.alloc(4)
+            @vars[name] ||= @memory.alloc_near_base(4)
           end
 
           # HOW FAR FROM THE BASE A VARIABLE CAN SIT and still be reached by naming the two

@@ -155,10 +155,11 @@ module RubyGBA
             @divide_fix_routine_iwram = ROUTINES_TOP + DIVIDE_ROUTINE_IWRAM_MAX
           end
 
-          # The variables grow toward the routines, so a program with a great many of
-          # them has to be told rather than quietly overwriting one.
+          # The variables grow up from the base and the lists and buffers grow down from
+          # the routines, so a program with a great many of either has to be told rather
+          # than quietly overwriting the other.
           def guard_variables_clear_of_routines
-            return unless @divide_routine_iwram && @memory.high_water > ROUTINES_TOP
+            return unless @divide_routine_iwram && @memory.overrun.positive?
 
             raise LoweringError,
                   "this program uses more internal memory for its variables than there is " \

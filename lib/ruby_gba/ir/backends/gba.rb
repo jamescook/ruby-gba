@@ -275,7 +275,9 @@ module RubyGBA
           @hot_base = nil        # where that block lands, once every variable has a home
           @hot_bytes = 0
           @emit = Emit.new       # the code buffer + two-pass label/fixup machinery
-          @memory = Memory.new(start: IWRAM_START) # the IWRAM bump allocator
+          # The IWRAM allocator. It stops below the last 4K, which is where the divide
+          # routines are copied and where the console's own startup code keeps its stack.
+          @memory = Memory.new(start: IWRAM_START, ceiling: Placement::HOT_CEILING)
           @primitives = Primitives.new(emitter: @emit, memory: @memory)
           @divide = Divide.new(emitter: @emit, memory: @memory, primitives: @primitives,
                                scales_objects: method(:object_scales?))

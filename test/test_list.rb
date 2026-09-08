@@ -432,7 +432,7 @@ class TestList < Minitest::Test
       builder.emit_pending_functions
       backend = GBA.new
       backend.lower(builder.program)
-      [width, backend.iwram_high_water]
+      [width, backend.iwram_report.used_bytes]
     end
 
     assert_equal 256 * 3, used[:word] - used[:byte], "a byte slot saves three of every four"
