@@ -167,6 +167,27 @@ module RubyGBA
           BUILTIN_CHECKS + @registered_checks
         end
 
+        # The checks that cannot run until the program has been lowered, built with the
+        # cost model that knows how the build turned out.
+        #
+        # These three put a NUMBER in front of the author — how many scanlines a frame
+        # draws, how many items a list can hold before the frame tears, which tick rate
+        # really fits. What each costs depends on decisions the build makes after the
+        # other guardrails have run: which routines are kept in the console's quick
+        # memory (code there runs about two and a half times faster), where the variables
+        # landed, what shape each loop got. Priced without those the number reads
+        # plausibly and is wrong by nearly that factor, which is why ROM#cost_model
+        # refuses to estimate a cartridge that has no record of its build.
+        #
+        # So they take the model instead of making one, and RubyGBA.build runs them after
+        # lowering. Their findings join the rest and print together at the end, so this
+        # changes nothing about when the author reads them.
+        def build_checks(model)
+          [Checks::DrawBudget.new(model),
+           Checks::BudgetThreshold.new(model),
+           Checks::TickRate.new(model)]
+        end
+
         # Stop running a registered check — what unloading a pack does with the
         # checks it brought. Returns true if the check was registered.
         def unregister(check)
@@ -293,9 +314,6 @@ module RubyGBA
         Checks::VblankSync.new,
         Checks::Termination.new,
         Checks::OffScreenDraw.new,
-        Checks::DrawBudget.new,
-        Checks::BudgetThreshold.new,
-        Checks::TickRate.new,
         Checks::ChannelConflict.new,
         Checks::RedrawEverything.new,
         Checks::SpriteClearedEachFrame.new,

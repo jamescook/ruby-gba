@@ -17,23 +17,36 @@ class TestSnakeBufferedExample < Minitest::Test
   include RubyGBA::Constants
 
   # RubyGBA.build runs the guardrails and validation, so a clean build IS the check.
-  # The redraw-everything guardrail stays quiet here (buffering makes the whole-board
-  # repaint tear-safe), and the one that speaks is the growth warning: repainting the
-  # whole body every frame costs more the longer the snake gets, and a few hundred cells
-  # no longer fit in a frame. That warning is the teaching point — buffering stops
-  # tearing, not slowness.
+  # This game used to warn that its frame goes over budget past about 419 cells. It no
+  # longer does, and the warning was wrong rather than the check being broken: it was
+  # priced before the build had decided anything, so it charged cartridge speed for a
+  # frame the build actually keeps in the console's quick memory. The build keeps five of
+  # this game's routines there AND the frame body, which takes the every-frame cost from
+  # about 58 scanlines to about 40 — and a full 448-cell board then fits inside the 228 a
+  # frame has.
   #
-  # WHICH WARNING IS THE RIGHT ONE HERE was settled by measuring. This used to warn that
-  # the game is too heavy for 60fps full stop, which the console disagrees with: it costs
-  # a fraction of a frame with the four-cell snake it opens with, and grows past a whole
-  # frame only once the body is a few hundred cells long. The cost is real and it arrives
-  # WITH LENGTH, so the warning that names the length is the true one.
-  def test_the_example_builds_and_warns_the_frame_grows_with_the_snake
+  # So the game builds clean, and the assertion is that nothing shouts about a budget it
+  # does not exceed. What is NOT settled is whether a full board really fits on the
+  # console: the one measurement on record here is of the four-cell snake the game opens
+  # with. That is a question for a measured run rather than for either estimate.
+  def test_the_example_builds_without_a_budget_warning
     err = StringIO.new
     rom = BufferedSnake.build_rom(err: err)
+
     assert_operator rom.size, :>, 0, "the built ROM should be non-empty"
-    assert_match(/goes over budget/, err.string, "the growing-list warning should fire")
-    assert_match(/:xs/, err.string, "and it should name the list to cap")
+    refute_match(/goes over budget/, err.string,
+                 "priced with the build's own answers, a full board fits in a frame")
+  end
+
+  # ...and that is the build's answer rather than a coincidence: priced with no build
+  # behind it the same game is charged half again as much and does warn.
+  def test_the_pessimistic_price_is_what_used_to_warn
+    program = BufferedSnake.build_rom(err: StringIO.new).send(:built!).source_program
+    bare = RubyGBA::IR::CostModel.new
+
+    assert_operator bare.steady_cost(program), :>, BufferedSnake.build_rom(err: StringIO.new)
+                                                                .cost_model.steady_cost(program),
+                    "a model with no build behind it prices every default the dearer way"
   end
 
   # The title screen shows "SNAKE" in green — the simplest proof it isn't a black

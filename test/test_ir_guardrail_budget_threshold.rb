@@ -9,6 +9,11 @@ require "test_helper"
 # bring the frame back under); a loop that fits even full stays quiet.
 class TestBudgetThresholdGuardrail < Minitest::Test
   Check = RubyGBA::IR::Guardrails::Checks::BudgetThreshold
+
+  # The check is handed a cost model, since the tip-over count depends on how the build
+  # turned out. A model with no build behind it prices pessimistically, which is what these
+  # tests use; a real build hands over its own (Guardrails.build_checks).
+  def check = Check.new(RubyGBA::IR::CostModel.new)
   Cost = RubyGBA::IR::CostModel
 
   def build_program(&block)
@@ -31,7 +36,7 @@ class TestBudgetThresholdGuardrail < Minitest::Test
   end
 
   def test_a_growing_draw_loop_warns_with_the_tip_over_count
-    findings = Check.new.detect(growing_draw_game(cap: 64, cell: 20))
+    findings = check.detect(growing_draw_game(cap: 64, cell: 20))
     assert_equal 1, findings.length
     assert findings.first.warning?, "the threshold is advisory, not a hard error"
     assert_match(/swarm/, findings.first.message)          # names the list to cap
@@ -50,7 +55,7 @@ class TestBudgetThresholdGuardrail < Minitest::Test
 
   # A small per-item draw that fits even at full capacity says nothing.
   def test_a_loop_that_fits_even_full_is_quiet
-    assert_empty Check.new.detect(growing_draw_game(cap: 8, cell: 2))
+    assert_empty check.detect(growing_draw_game(cap: 8, cell: 2))
   end
 
   # NOR DOES A LENGTH THE LIST CANNOT REACH. A list's storage is a ring, and a ring wraps an
@@ -59,7 +64,7 @@ class TestBudgetThresholdGuardrail < Minitest::Test
   # only gives out at 41 gives out at a length this list is never going to hold, and saying
   # so is crying wolf. (The same shape at 64 warns, two tests up: there 41 is reachable.)
   def test_a_tip_over_in_the_rounded_up_headroom_is_quiet
-    assert_empty Check.new.detect(growing_draw_game(cap: 33, cell: 20))
+    assert_empty check.detect(growing_draw_game(cap: 33, cell: 20))
   end
 
   # ...and the same list DOES warn once the body is dear enough to give out inside the length
@@ -109,7 +114,7 @@ class TestBudgetThresholdGuardrail < Minitest::Test
       screen :bitmap
       game_loop { wait_vblank; clear_screen :black }
     end
-    assert_empty Check.new.detect(prog)
+    assert_empty check.detect(prog)
   end
 
   # The finding points at the exact DSL line the loop was written on — built through
@@ -122,17 +127,49 @@ class TestBudgetThresholdGuardrail < Minitest::Test
     refute_nil loop_node.source, "the loop node should carry its DSL call site"
     assert_match(/test_.*\.rb:\d+/, loop_node.source)
 
-    finding = Check.new.detect(prog).first
+    finding = check.detect(prog).first
     assert_equal loop_node.source, finding.source, "the finding carries the loop's source"
     # The location is appended automatically by the framework, not baked into the message.
     assert_includes finding.full_message, loop_node.source
     refute_includes finding.message, loop_node.source, "the raw message stays location-free"
   end
 
-  # It's a builtin: it fires in the default validation pass.
-  def test_it_runs_in_the_default_validation_pass
-    report = RubyGBA::IR::Guardrails::Validator.new.run(growing_draw_game(cap: 64, cell: 20), autofix: false)
-    assert(report.warnings.any? { |w| w.check == :budget_threshold },
-           "the budget-threshold guardrail should be registered as a builtin")
+  # It fires in a real build, in the pass that runs after lowering — where the tip-over
+  # count is worked out from what the build actually decided rather than from defaults.
+  def test_it_runs_in_a_real_build
+    err = StringIO.new
+    RubyGBA.build("THRESHOLD", code: "ZTHR", maker: "01", out: StringIO.new, err: err) do
+      screen :bitmap
+      swarm = list :swarm, capacity: 256
+      game_loop do
+        repeat(swarm.length) { |_i| draw_rect_at 0, 0, 20, 20, :red }
+      end
+    end
+
+    assert_match(/swarm/, err.string, "a growing draw loop should warn during the build")
+    assert_match(/over budget/, err.string)
+  end
+
+  # THE NUMBER COMES FROM THE BUILD, which is the whole point of running this check after
+  # lowering. Priced with no build behind it, a loop is charged as though its counter went
+  # through memory and nothing was kept in the console's quick memory — every default is the
+  # dearer guess — so the count it names is far too small. Held as an inequality rather than
+  # against a figure, because the figures move whenever the lowering does; what must not
+  # move is which side of the other each one falls.
+  def test_the_tip_over_count_is_the_builds_answer_not_the_pessimistic_one
+    program = growing_draw_game(cap: 256, cell: 20)
+    rom = RubyGBA.build("THRESHOLD", code: "ZTHR", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      swarm = list :swarm, capacity: 256
+      game_loop do
+        repeat(swarm.length) { |_i| draw_rect_at 0, 0, 20, 20, :red }
+      end
+    end
+
+    pessimistic = Cost.new.budget_thresholds(program).first.break_even
+    built = rom.cost_model.budget_thresholds(program).first.break_even
+
+    assert_operator built, :>, pessimistic * 2,
+                    "a frame priced with the build's own answers fits far more items than one priced without"
   end
 end

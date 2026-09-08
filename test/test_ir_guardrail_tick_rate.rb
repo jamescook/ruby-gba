@@ -15,6 +15,13 @@ require "tmpdir"
 # The rule is measured, not assumed, and the last test here is the one that measures it.
 class TestTickRateGuardrail < Minitest::Test
   Check = RubyGBA::IR::Guardrails::Checks::TickRate
+
+  # The check is handed a cost model, and for a tick handler the one thing that matters is
+  # whether it runs from the console's quick memory — code there is about two and a half
+  # times faster. The rates these tests pin were measured with the handler kept there, so
+  # that is the model they price with. A real build hands over its own answer, which for a
+  # handler this busy is the same one (Guardrails.build_checks).
+  def check = Check.new(RubyGBA::IR::CostModel.new(fast_interrupts: true))
   Cost = RubyGBA::IR::CostModel
 
   # A timer at +hz+ whose handler is +ops+ statements long.
@@ -58,7 +65,7 @@ class TestTickRateGuardrail < Minitest::Test
   # --- what the author is told ---
 
   def test_a_handler_that_loses_ticks_warns_and_names_the_rate_that_fits
-    findings = Check.new.detect(timed_game(hz: 30_000, ops: 80))
+    findings = check.detect(timed_game(hz: 30_000, ops: 80))
 
     assert_equal 1, findings.length
     assert findings.first.warning?, "it is advisory — a game may want as many ticks as it can get"
@@ -68,8 +75,8 @@ class TestTickRateGuardrail < Minitest::Test
 
   # A handler with room to spare says nothing, which is what keeps the warning worth reading.
   def test_a_handler_that_keeps_up_is_quiet
-    assert_empty Check.new.detect(timed_game(hz: 8_000, ops: 20))
-    assert_empty Check.new.detect(timed_game(hz: 4_000, ops: 80))
+    assert_empty check.detect(timed_game(hz: 8_000, ops: 20))
+    assert_empty check.detect(timed_game(hz: 4_000, ops: 80))
   end
 
   # THE NARROW CASE, and the one that decides whether this warning can be trusted: a handler
@@ -80,7 +87,7 @@ class TestTickRateGuardrail < Minitest::Test
   def test_a_handler_that_only_keeps_up_from_quick_memory_is_quiet
     game = timed_game(hz: 30_000, ops: 20)
 
-    assert_empty Check.new.detect(game)
+    assert_empty check.detect(game)
     assert_equal 30_000, Cost.new(fast_interrupts: true).tick_verdict(game).timers.first.delivered
   end
 
@@ -94,14 +101,25 @@ class TestTickRateGuardrail < Minitest::Test
     end
     b.emit_pending_functions
 
-    assert_empty Check.new.detect(b.program)
+    assert_empty check.detect(b.program)
   end
 
-  def test_it_runs_in_the_default_validation_pass
-    report = RubyGBA::IR::Guardrails::Validator.new.run(timed_game(hz: 30_000, ops: 80), autofix: false)
+  # It runs in a real build, in the pass that happens after lowering — where the model can
+  # be asked whether the handler ended up in the console's quick memory instead of guessing.
+  def test_it_runs_in_a_real_build
+    err = StringIO.new
+    RubyGBA.build("TICKRATE", code: "ZTKR", maker: "01", out: StringIO.new, err: err) do
+      screen :bitmap
+      ticks = var :ticks, 0
+      filler = var :filler, 0
+      timer(:beat, per_second: 30_000).on_tick do
+        ticks.add 1
+        79.times { filler.add 1 }
+      end
+      game_loop { }
+    end
 
-    assert(report.warnings.any? { |w| w.check == :tick_rate },
-           "the tick-rate guardrail should be registered as a builtin")
+    assert_match(/ticks/, err.string, "a rate too fast to deliver should warn during the build")
   end
 
   # --- and the rule itself, against the console ---

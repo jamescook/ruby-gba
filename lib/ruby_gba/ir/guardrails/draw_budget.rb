@@ -22,8 +22,16 @@ module RubyGBA
           NAME = :draw_budget
           PLAIN_NAME = "drawing that overruns a frame"
 
+          # Takes the cost model rather than building one, because the number in the
+          # message is only right when the model knows how the build turned out — which
+          # routines went in the quick memory, what shape each loop got. See
+          # Guardrails.build_checks.
+          def initialize(model)
+            @model = model
+          end
+
           def detect(program)
-            model = CostModel.new
+            model = @model
             return [] unless model.looping?(program)
 
             # A game that switches modes between scenes has no single budget: judge

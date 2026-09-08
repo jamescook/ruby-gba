@@ -11,6 +11,13 @@ class TestDrawBudgetGuardrail < Minitest::Test
   Check = RubyGBA::IR::Guardrails::Checks::DrawBudget
   Build = RubyGBA::IR::Build
 
+  # The check is handed a cost model, because what a frame costs depends on how the build
+  # turned out. These tests price with a model that has no build behind it, which is the
+  # pessimistic default: a loop through memory, a variable far out. That is fine here —
+  # every program below is either far over the budget or far under it, so no verdict turns
+  # on the difference. A real build hands over its own model (Guardrails.build_checks).
+  def check = Check.new(RubyGBA::IR::CostModel.new)
+
   def program(&block)
     b = Builder.new
     b.instance_eval(&block)
@@ -35,7 +42,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
         repeat(100) { |_i| clear_screen :black } # 100 whole-screen clears a frame, far over the ~68-scanline budget
       end
     end
-    findings = Check.new.detect(prog)
+    findings = check.detect(prog)
     assert_equal 1, findings.length
     assert findings.first.warning?, "the render budget is advisory, not a hard error"
     assert_match(/tear/, findings.first.message)
@@ -50,7 +57,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
         draw_rect_at 0, 0, 8, 8, :green
       end
     end
-    assert_empty Check.new.detect(prog)
+    assert_empty check.detect(prog)
   end
 
   def test_quiet_for_a_static_program
@@ -59,20 +66,20 @@ class TestDrawBudgetGuardrail < Minitest::Test
       fill_rect 0, 0, 100, 100, :red # heavy, but drawn once
       halt
     end
-    assert_empty Check.new.detect(prog), "a one-shot draw has no per-frame tear risk"
+    assert_empty check.detect(prog), "a one-shot draw has no per-frame tear risk"
   end
 
   # 3 clears a frame overrun the brief single-buffer window (so it tears) but fit a
   # whole frame, so double-buffered it's quiet — the mode changes the budget.
   def test_buffered_is_judged_against_the_whole_frame_budget
-    refute_empty Check.new.detect(loop_of_clears(3, buffered: false)), "single-buffer: tears"
-    assert_empty Check.new.detect(loop_of_clears(3, buffered: true)), "buffered: fits a whole frame"
+    refute_empty check.detect(loop_of_clears(3, buffered: false)), "single-buffer: tears"
+    assert_empty check.detect(loop_of_clears(3, buffered: true)), "buffered: fits a whole frame"
   end
 
   # Double buffering still has a ceiling: over a whole frame it warns, but about a
   # dropped frame rate, not tearing (buffering makes tearing impossible).
   def test_buffered_over_a_whole_frame_warns_about_frame_rate_not_tearing
-    findings = Check.new.detect(loop_of_clears(10, buffered: true))
+    findings = check.detect(loop_of_clears(10, buffered: true))
     assert_equal 1, findings.length
     assert_match(/frame rate|60 frames/, findings.first.message)
     # It reassures ("won't tear"), it does NOT raise the alarm the single-buffer
@@ -102,7 +109,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
   # Per-scene budgets catch it and name it; the buffered scene, on its own wider
   # budget, stays quiet. (The old whole-program budget hid the direct scene.)
   def test_a_heavy_direct_scene_warns_even_beside_a_buffered_one
-    findings = Check.new.detect(mixed(direct_clears: 3, buffered_clears: 1))
+    findings = check.detect(mixed(direct_clears: 3, buffered_clears: 1))
     assert_equal 1, findings.length
     assert_match(/still/, findings.first.message) # names the offending scene
     assert_match(/tear/, findings.first.message)
@@ -111,7 +118,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
   # When the heavy scene is the buffered one (over a whole frame), the warning is
   # about frame rate, not tearing; the light direct scene stays quiet.
   def test_a_heavy_buffered_scene_warns_about_frame_rate_not_tearing
-    findings = Check.new.detect(mixed(direct_clears: 1, buffered_clears: 10))
+    findings = check.detect(mixed(direct_clears: 1, buffered_clears: 10))
     assert_equal 1, findings.length
     assert_match(/action/, findings.first.message)
     assert_match(/frame rate|60 frames/, findings.first.message)
@@ -119,7 +126,7 @@ class TestDrawBudgetGuardrail < Minitest::Test
 
   # Both scenes comfortably within their own budgets: quiet.
   def test_quiet_when_each_scene_fits_its_own_mode
-    assert_empty Check.new.detect(mixed(direct_clears: 1, buffered_clears: 3))
+    assert_empty check.detect(mixed(direct_clears: 1, buffered_clears: 3))
   end
 
   # It fires during a real build — printed to err — without stopping the ROM.
