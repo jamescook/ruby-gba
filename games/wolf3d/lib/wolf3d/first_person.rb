@@ -196,6 +196,9 @@ module Wolf3D
     # WHICH FLOORS THIS CARTRIDGE HOLDS, so a menu can offer the episodes they make up.
     attr_reader :floors
 
+    # ...and how tough the game is set, so the screen that asks can write the answer here.
+    attr_reader :difficulty
+
     # BEGIN A GAME on the floor +slot+ of the ones this cartridge holds — a fresh player with
     # three goes and no score, on a floor put back the way it was built.
     #
@@ -500,6 +503,15 @@ module Wolf3D
       @ammo = b.var :ammo, START_AMMO
       @score = b.var :score, 0
 
+      # HOW TOUGH YOU SAID YOU WERE, and it lives with the world rather than with the screen
+      # that asks it, because two things in the world read it: which guards stand up when a
+      # floor starts, and what a shot takes off you. The screen only writes it.
+      #
+      # A cartridge with no menu to ask on plays at the setting the original's own menu opens
+      # on, so the guards a test cartridge stands up are the guards a player gets by pressing
+      # the button twice.
+      @difficulty = b.var :difficulty, Guards.number_of(Guards::DEFAULT_DIFFICULTY)
+
       # HOW MUCH OF THE FLOOR HAS BEEN FOUND: how many of its guards are down, how many of its
       # secret walls have been shoved, how many of its treasures are in your pocket. Three
       # numbers the game keeps for the tally at the end of a floor, and they belong to the FLOOR
@@ -698,6 +710,16 @@ module Wolf3D
       { usually: [(counts.sum.to_f / counts.length).ceil, 1].max, most: [counts.max, 1].max }
     end
 
+    # ...and the guards are the one kind where "how many are there" and "how many a loop over
+    # them touches" part company, because a floor carries every setting's men and stands up only
+    # its own. The routine that REFILLS the pool walks all of them, so it is counted by
+    # #how_many like everything else; the pool's own walk touches the ones who stood up, which
+    # is this. Averaged over the floors and taken at the setting a game opens on.
+    def guards_usually_standing
+      counts = @floors.map { |floor| floor.guards&.at(Guards::DEFAULT_DIFFICULTY)&.length || 0 }
+      [(counts.sum.to_f / counts.length).ceil, 1].max
+    end
+
     # A floor whose scenery all lets you through — and every floor, until there is scenery at
     # all — needs no table and pays nothing for one.
     # ...for every floor end to end, like the map itself and reached the same way. A floor whose
@@ -780,6 +802,12 @@ module Wolf3D
     # things on the floor, because a guard who falls leaves one.
     # THE POOL HOLDS ONE FLOOR'S WORTH, not every floor's, because only one floor is ever being
     # played — so it is sized for the busiest and refilled from the tables when a floor starts.
+    #
+    # IT IS SIZED FOR THE HARDEST GAME AND ESTIMATED FOR THE USUAL ONE, and the two are
+    # different numbers on purpose. The room has to be there or the hardest setting could not be
+    # played at all; what a frame really costs is how many stand up, which on a normal game is
+    # about two thirds of that. Counting the room would price every frame for a game nobody is
+    # playing. The worst case is still the room, which is what the ceiling means.
     def declare_the_guards
       return if no_floor_has?(:guards)
 
@@ -797,11 +825,16 @@ module Wolf3D
       @guard = b.pool :guard, x: 0.0, y: 0.0, dir: 0, state: 0, ticks: 0, wait: 0, togo: 0.0,
                               hp: 0, shown: 0, awake: 0, turn: 0, dropped: 0, ambush: 0,
                               capacity: room_for(:guards),
-                              estimate: { usually: how_many(:guards)[:usually] }
+                              estimate: { usually: guards_usually_standing }
       # THE FIRST FLOOR'S GUARDS AT BOOT, written out rather than read from the tables, because
       # at boot there is no floor to have started yet. Every floor after this one is filled by
       # #put_the_guards_back from the same tables the first floor's numbers came from.
-      (@floors.first_floor.guards&.guards || []).each_with_index do |guard, n|
+      #
+      # THESE NEED NO TEST AGAINST THE SETTING, where the refill below does. Nothing has run
+      # yet, so how tough the game is set is still exactly the number the variable was declared
+      # with — a fact known while the cartridge is built. So the ones that setting names are
+      # written out and the rest are simply not, which is also why this stays the size it was.
+      (@floors.first_floor.guards&.at(Guards::DEFAULT_DIFFICULTY) || []).each_with_index do |guard, n|
         # A guard stands in the middle of his cell, like the player does.
         state = Guards.starting_state(guard)
         @guard.spawn x: guard.x + 0.5, y: guard.y + 0.5,
@@ -823,7 +856,7 @@ module Wolf3D
       @mind = GuardMind.new(build: b, guards: @guards, pool: @guard, level: @level,
                             world: @world, door_open: @open, walls: { door: DOOR, push: PUSH },
                             things: @things, blocked: @blocked, dying: @dying, pickups: @pickups,
-                            sounds: @sounds, rooms: @rooms,
+                            sounds: @sounds, rooms: @rooms, difficulty: @difficulty,
                             floors: @floors, map_base: @map_base,
                             player: { x: @px, y: @py, health: @health, score: @score,
                                       kills: @kills, cos: @vcos, sin: @vsin, noise: @noise })
@@ -860,6 +893,14 @@ module Wolf3D
                                   width: :byte
       @guard_home_ambush = b.table :guard_home_ambush,
                                    at_least_one(everyone.map { |g| g.ambush ? 1 : 0 }), width: :byte
+      # ...and the easiest setting each one turns up on, which is the whole of how a harder game
+      # is a fuller floor. Every floor carries every guard it can ever hold; this is the column
+      # that says which of them a given game stands up. See Guards::FROM.
+      @guard_home_from = b.table :guard_home_from,
+                                 at_least_one(everyone.map(&:from)), width: :byte
+      # How many have stood up so far while a floor is being filled, which is what spreads their
+      # thinking over the two passes. See #put_the_guards_back.
+      @stood = b.var :_stood, 0
     end
 
     # STARTING THE FLOOR AGAIN, which is everything the level holds that CHANGES put back the way
@@ -966,17 +1007,28 @@ module Wolf3D
     # Emptying it and filling it again is the honest way to say that, and it is the pool's own
     # two verbs rather than anything reaching inside it. It also costs nothing worth counting:
     # this runs when a floor starts and never while one is being played.
+    #
+    # AND THIS IS WHERE HOW TOUGH YOU SAID YOU WERE IS SPENT. The floor's slice holds every
+    # guard it can ever hold; the ones a game set this way does not have are walked over and
+    # never spawned, so they cost this routine one comparison each and the frame nothing.
     def put_the_guards_back
       return if @guard.nil?
 
       @guard.each(&:remove)
+      # WHICH PASS EACH ONE THINKS ON is counted over the guards who really STAND UP, not over
+      # the slots walked — otherwise an easier game, which spawns from scattered slots, could
+      # land most of its floor on the same pass and pay for it twice over on that one.
+      @stood.set 0
       @b.repeat(@guard_count, estimate: how_many(:guards)) do |n|
         @slot.set(@guard_first + n)
-        @guard.spawn x: @guard_home_x[@slot], y: @guard_home_y[@slot],
-                     dir: @guard_home_dir[@slot],
-                     state: @guard_home_state[@slot], ticks: @guard_home_ticks[@slot],
-                     hp: Guards::HIT_POINTS, wait: 0, togo: 0.0, shown: 0, awake: 0, dropped: 0,
-                     ambush: @guard_home_ambush[@slot], turn: n % 2
+        (@difficulty >= @guard_home_from[@slot]).then do
+          @guard.spawn x: @guard_home_x[@slot], y: @guard_home_y[@slot],
+                       dir: @guard_home_dir[@slot],
+                       state: @guard_home_state[@slot], ticks: @guard_home_ticks[@slot],
+                       hp: Guards::HIT_POINTS, wait: 0, togo: 0.0, shown: 0, awake: 0, dropped: 0,
+                       ambush: @guard_home_ambush[@slot], turn: @stood % 2
+          @stood.add 1
+        end
       end
     end
 

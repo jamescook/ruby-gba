@@ -165,9 +165,22 @@ greyed until there is somewhere to keep a game, SOUND on or off, and BACK TO DEM
 from a pause). The original's Read This!, View Scores and Control screens are not offered — the
 first two have nothing to show yet and the third calibrates a mouse and a joystick.
 
+**How tough you say you are changes the game.** Wolfenstein's four settings decide two things and
+this does both. They decide **which guards are there**: plane 1 holds the same four spawn codes
+three times over, once for every game, once from the middle setting up and once for the hardest,
+so the first floor stands up ten men on "Can I play, Daddy?" and thirty-two on "I am Death
+incarnate!". And they decide **what a shot takes off you** — a quarter of it on the easiest
+setting, which is the easiest setting alone: "Don't hurt me." hurts you as much as the hardest
+does, and the two easiest bring in exactly the same men.
+
+The cartridge carries every setting's guards, because the screen that asks is a long way after
+the build. Carrying them costs a frame nothing — a guard his setting leaves out is never spawned,
+so he takes no slot, is never drawn and never thinks. Standing them up costs what you would
+expect and it is worth knowing before you pick: on the busiest floor of the first episode the
+easiest setting runs at 30 frames a second, the middle one at 29, and the hardest at 20.
+
 Not yet there: the tally between floors, the AdLib music and the effects Wolfenstein never
-recorded to raw PCM, a difficulty that changes which guards a floor holds rather than being
-written down and unread, saving progress across power-off, and the little picture of your weapon
+recorded to raw PCM, saving progress across power-off, and the little picture of your weapon
 on the status bar — the seven fields already there come to 190 of the screen's 240 columns, and
 an eighth takes them past it.
 

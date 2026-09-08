@@ -146,7 +146,7 @@ class TestMenus < Minitest::Test
   def taps_from(frame, count) = (1..count).map { |n| frame + (n * 4) }
 
   def test_the_portrait_changes_as_you_move_down_the_difficulties
-    Menus::DIFFICULTIES.each_with_index do |(_, portrait), n|
+    Menus::DIFFICULTIES.each_with_index do |(_, _, portrait), n|
       taps = taps_from(40, n)
       run = at_the_difficulty(frames: 44 + (n * 4)) { |f| taps.include?(f) ? [:down] : [] }
 
@@ -155,15 +155,32 @@ class TestMenus < Minitest::Test
     end
   end
 
-  # PICKING ONE STARTS THE GAME. The difficulty itself is written down and nothing reads it yet
-  # — which floor holds which guards is settled while the cartridge is built — so this is the
-  # seam and not the feature, and the test says so rather than implying more.
-  def test_picking_a_difficulty_starts_the_game
+  # PICKING ONE STARTS THE GAME, on the setting that row names. What the game then DOES with the
+  # setting — which guards a floor stands up, what a shot takes off you — is held to its own
+  # tests in test_difficulty.rb; this is the screen's half of it, that the right number is
+  # written by the right row.
+  def test_picking_a_difficulty_starts_the_game_on_that_setting
     run = at_the_difficulty(frames: 90) { |f| f == 44 ? [:a] : [] }
 
     assert_equal Menus::PLAYING, run[:screen], "picking a difficulty leaves you in the game"
     assert_equal 1, run[:_in_game]
-    assert_equal 0, run[:difficulty], "and remembers which one you picked"
+    assert_equal Wolf3D::Guards.number_of(:baby), run[:difficulty],
+                 "the cursor starts on the first row, so that is the setting written"
+  end
+
+  # ...and each of the four rows writes its own setting rather than its position. Walking down
+  # the list and pressing A is the only way to say that from the outside.
+  def test_each_row_writes_the_setting_it_names
+    Wolf3D::Guards::SETTINGS.each_with_index do |how, n|
+      taps = taps_from(40, n)
+      picking = 44 + (n * 4)
+      run = at_the_difficulty(frames: picking + 46) do |f|
+        taps.include?(f) ? [:down] : (f == picking ? [:a] : [])
+      end
+
+      assert_equal Wolf3D::Guards.number_of(how), run[:difficulty],
+                   "row #{n} should start a #{how} game"
+    end
   end
 
   def test_a_game_begins_with_a_fresh_player

@@ -39,8 +39,9 @@ module Wolf3D
 
     def initialize(build:, guards:, pool:, level:, world:, player:, door_open:, walls:, things:,
                    blocked: nil, dying: nil, pickups: nil, sounds: nil, rooms: nil,
-                   floors: nil, map_base: nil)
+                   floors: nil, map_base: nil, difficulty: nil)
       @b = build
+      @difficulty = difficulty # how tough the game is set, or nil where nothing can change it
       @dying = dying      # what to tell when a shot takes the last of the health, or nil
       @pickups = pickups  # what to tell when a guard falls, so he can leave a clip behind
       @sounds = sounds    # the recorded sounds, or nil on a build with none
@@ -256,11 +257,25 @@ module Wolf3D
       @wound.set(@b.rand(0..CHANCES - 1) / 4)
       (@away >= 2).then { @wound.set(@b.rand(0..CHANCES - 1) / 8) }
       (@away >= 4).then { @wound.set(@b.rand(0..CHANCES - 1) / 16) }
+      gently
       @player[:health].sub @wound
       (@player[:health] <= 0).then do
         @player[:health].set 0
         @dying&.struck_by(guard)
       end
+    end
+
+    # THE EASIEST SETTING TAKES A QUARTER OF WHAT THE SHOT WOULD TAKE, and it is the only thing
+    # about a guard that how tough you said you were changes. Everything else — how well he
+    # shoots, how far he sees, how much killing him takes — is the same on all four.
+    #
+    # IT IS THE EASIEST SETTING ALONE. The second one hurts you exactly as much as the hardest
+    # does, which is worth saying out loud because the two easiest agree about the other thing
+    # the setting decides: neither of them brings in a single extra guard.
+    def gently
+      return if @difficulty.nil?
+
+      (@difficulty == Guards::GENTLE).then { @wound.set(@wound / Guards::GENTLE_PART) }
     end
 
     # --- looking for you -------------------------------------------------------------

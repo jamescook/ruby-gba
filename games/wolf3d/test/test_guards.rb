@@ -35,7 +35,7 @@ class TestGuards < Minitest::Test
     guards = Guards.new(arena(guards: [[12, 8, :west]]))
 
     assert_equal 1, guards.count
-    assert_equal({ x: 12, y: 8, facing: :west, patrolling: false, ambush: false },
+    assert_equal({ x: 12, y: 8, facing: :west, patrolling: false, ambush: false, from: 0 },
                  guards.guards.first.to_h)
   end
 
@@ -58,17 +58,34 @@ class TestGuards < Minitest::Test
   end
 
   # A harder game puts more guards on the same floor, and says so by repeating the same codes
-  # further up. An easy game must not see them.
-  def test_a_guard_only_a_harder_game_holds_is_left_out_of_an_easy_one
-    level = arena(things: { [12, 8] => Guards::STANDING + Guards::HARDER })
+  # further up. The cartridge carries all of them whichever game is played; an easy game must
+  # not stand this one up.
+  def test_a_guard_from_the_second_block_waits_for_the_middle_setting
+    guards = Guards.new(arena(things: { [12, 8] => Guards::STANDING + Guards::HARDER }))
 
-    assert_equal 0, Guards.new(level, difficulty: :easy).count
-    assert_equal 1, Guards.new(level, difficulty: :medium).count
-    assert_equal 1, Guards.new(level, difficulty: :hard).count
+    assert_equal 1, guards.count, "the cartridge carries him whichever game is played"
+    assert_equal 0, guards.at(:baby).length
+    assert_equal 0, guards.at(:easy).length
+    assert_equal 1, guards.at(:medium).length
+    assert_equal 1, guards.at(:hard).length
+  end
+
+  # ...and the third block, which only the hardest game holds.
+  def test_a_guard_only_the_hardest_game_holds_waits_for_it
+    guards = Guards.new(arena(things: { [12, 8] => Guards::STANDING + (Guards::HARDER * 2) }))
+
+    assert_equal [0, 0, 0, 1], Guards::SETTINGS.map { |how| guards.at(how).length }
+  end
+
+  # Every game holds the first block, so the four settings differ only in what they ADD.
+  def test_every_setting_holds_the_guards_of_the_first_block
+    guards = Guards.new(arena(guards: [[12, 8, :west]]))
+
+    assert_equal [1, 1, 1, 1], Guards::SETTINGS.map { |how| guards.at(how).length }
   end
 
   def test_an_unknown_difficulty_says_which_ones_there_are
-    error = assert_raises(ArgumentError) { Guards.new(arena, difficulty: :nightmare) }
+    error = assert_raises(ArgumentError) { Guards.new(arena).at(:nightmare) }
 
     assert_match(/nightmare/, error.message)
     assert_match(/baby, easy, medium, hard/, error.message)
