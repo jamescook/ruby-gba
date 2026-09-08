@@ -1013,6 +1013,11 @@ module Wolf3D
     def start_the_floor_again
       # WHICH FLOOR'S SLICE OF EVERY TABLE, first, because everything below reads through it.
       go_to_this_floor
+      # ...and that moved the map which rooms are open is read out of, so the answer kept from
+      # the floor before this one is about a different building. It matters on a floor started
+      # AGAIN as well: shutting every door writes each one straight back to nought rather than
+      # sliding it, so the doors never say they moved and nothing else here would notice.
+      @rooms&.floor_started
       @health.set START_HEALTH
       @ammo.set START_AMMO
       @keys.set 0
@@ -1443,6 +1448,10 @@ module Wolf3D
         end.else do
           @swing.approach 0.0, DOOR_STEP
         end
+        # A DOOR THAT MOVED CHANGES WHICH ROOMS ARE OPEN, and this is where that is cheapest to
+        # notice: the old openness is still in hand and the new one is beside it, so it is one
+        # comparison. Asked anywhere else it would mean walking the doors again.
+        (@swing != @open[door]).then { @rooms.a_door_moved } if @rooms
         @open[door] = @swing
       end
     end

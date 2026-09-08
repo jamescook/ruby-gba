@@ -219,6 +219,27 @@ class TestRooms < Minitest::Test
     refute_empty columns_of(opened, BARREL), "so the barrel down the corridor shows"
   end
 
+  # WALKING INTO A ROOM OPENS IT, WITH NO DOOR INVOLVED AT ALL. The sweep is only run on a frame
+  # where the answer can have moved, and one of the two things that moves it is the player
+  # changing room. A door moving is the other and is the obvious one; this is the case that has
+  # no door in it, so nothing else can stand in for the test.
+  #
+  # An ARCHWAY is how a room is entered without a door: it is a hole in the wall, you can walk
+  # through it, and the fill spreads through doors and through nothing else — so the far room is
+  # shut off right up until the player is standing IN it. A version that only noticed doors would
+  # leave it shut off after that too, and the barrel two steps in front of you would not be drawn.
+  def test_walking_through_an_archway_opens_the_room_you_walk_into
+    # The door is put out of the way at the far end and never touched, so it is there to make the
+    # room machinery exist and takes no part in what is being asked.
+    level = two_rooms(player: [6, 8], archway: ARCHWAY, door: FAR_DOOR,
+                      scenery: { [10, 8] => BARREL })
+    walked = Reference.new.input_each_frame { [:up] }.run(game(level, drawing: true), frames: 90)
+
+    assert_operator walked[:px] / ONE, :>, 8.0, "the player walked through the archway"
+    assert_equal 1, room_open(walked, 2), "so the room they walked into is open"
+    refute_empty columns_of(walked, BARREL), "and the barrel standing in it is drawn"
+  end
+
   # STANDING IN THE DOORWAY ITSELF is the case that catches a careless version of this: a doorway
   # belongs to no room, so reading the player's room fresh each frame says "nowhere" and every
   # piece of scenery in the level blinks out for the two steps it takes to walk through.

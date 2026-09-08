@@ -24,11 +24,20 @@ module Wolf3D
   # visible across a courtyard you cannot walk into would stand frozen while you watched him. That
   # half is kept beside the drawing, which is the only thing that knows he was on the screen.
   #
-  # WHAT IT COSTS is one walk over the doors, once a frame, and it is not conditional on anything:
-  # a door either is or is not open, and asking all of them is cheaper than working out whether
-  # anything changed since last time. Measured over every place a player can stand on the second
-  # floor, the room you are in holds 1.5 guards of the 29 — so this is not a small saving, it is
-  # most of the thinking on every floor after the first.
+  # WHAT IT BUYS: measured over every place a player can stand on the second floor, the room you
+  # are in holds 1.5 guards of the 29 — so this is not a small saving, it is most of the thinking
+  # on every floor after the first.
+  #
+  # WHAT IT COSTS is one walk over the doors — and NOT once a frame, which it used to be. The
+  # answer depends on three things and nothing else: which room the player stands in, which doors
+  # are open past AJAR, and which floor is being played. A player changes room a handful of times
+  # a minute and a door crosses the post twice an opening, so on the ordinary frame the walk
+  # would arrive at exactly last frame's answer. It runs when one of the three moved and not
+  # otherwise (see #refresh), which measured 11.2 scanlines a pass off a frame of 372.9.
+  #
+  # It used to say here that asking all the doors was cheaper than working out whether anything
+  # changed. That was worth believing until it was measured: noticing is one comparison inside a
+  # walk the doors were doing anyway.
   class Rooms
     # 0 IS NOT A ROOM. A wall belongs to none, and neither does a doorway or one of the ambush
     # cells the game marks with a code of its own — so every room is stored one higher and nought
@@ -65,8 +74,51 @@ module Wolf3D
       declare
     end
 
-    # Bring it up to date: run once a frame, before anything asks.
-    def refresh = @b.call(:which_rooms_are_open)
+    # BRING IT UP TO DATE, WHICH NEARLY ALWAYS MEANS DOING NOTHING. Run once a frame, before
+    # anything asks — but the walk itself only when the answer can have moved since the last one.
+    #
+    # THE ANSWER DEPENDS ON THREE THINGS AND NOTHING ELSE: which room the player is standing in,
+    # which doors are open past AJAR, and which floor is being played. A player changes room a
+    # handful of times a minute and a door crosses the post twice an opening, so on the ordinary
+    # frame there is nothing to work out — and the walk was being done anyway, at a tenth of the
+    # whole frame, to arrive at last frame's answer again.
+    #
+    # WHICH ROOM THE PLAYER IS IN IS READ HERE rather than inside the walk, because it is one
+    # table read and it is half of the question being asked. The other half is a flag the doors
+    # set when one of them moves (see #a_door_moved) and a floor start sets when it changes the
+    # map underneath all of this.
+    def refresh
+      where_the_player_stands
+      ((@here != @was_here) | (@changed == 1)).then do
+        @was_here.set @here
+        @changed.set 0
+        @b.call(:which_rooms_are_open)
+      end
+    end
+
+    # WHICH ROOM THE PLAYER IS IN, and it is REMEMBERED rather than read fresh, because there are
+    # cells that are in no room and the player walks through them constantly: a doorway is one.
+    # Read fresh, standing in a doorway would say "no room", and then no room at all would be
+    # open and every lamp in the level would blink out for the two steps it takes to walk
+    # through. The room they were last really in is the right answer there — a doorway they are
+    # standing in is open by definition, so the room on the other side of it is open too.
+    def where_the_player_stands
+      @stood.set(@room_of[@map_base + (@player[:y].to_i * @width) + @player[:x].to_i])
+      (@stood > NOWHERE).then { @here.set @stood }
+    end
+
+    # A DOOR MOVED, so the walk has to be done again. Said by the doors rather than worked out
+    # here: they already walk every door every frame and already hold what each one was before
+    # they moved it, so noticing is one comparison where asking again would be the walk itself.
+    #
+    # It says "moved at all" rather than "crossed the post". A door takes about twenty frames to
+    # slide and this recomputes on each of them where two would do, which is twenty frames in a
+    # doorway's lifetime against a test that would have to hold the old side of the post as well.
+    # Being early is also the safe way to be wrong.
+    def a_door_moved = @changed.set(1)
+
+    # ...and so does starting a floor, which changes the map every part of this reads through.
+    def floor_started = @changed.set(1)
 
     # Is the room at this cell open to the player's? +x+ and +y+ are where something stands, as
     # the game keeps them.
@@ -107,6 +159,12 @@ module Wolf3D
       @always = always_joined
       @room, @here, @stood, @spread, @near, @far =
         whole(:room, :here, :stood, :spread, :near, :far)
+      # WHAT THE LAST WALK WAS ABOUT, so this one can tell whether it would say anything new.
+      # The room starts at one nothing can be in and the flag starts set, so the first frame of
+      # the game does the walk however it starts. Declared with those values rather than assigned
+      # them, because a variable's starting value is applied once at boot wherever it is written.
+      @was_here = b.var(:_room_was_here, -1)
+      @changed = b.var(:_room_changed, 1)
       declare_the_fill
     end
 
@@ -182,14 +240,8 @@ module Wolf3D
       # Nowhere in particular is always open — see NOWHERE.
       @open_room[NOWHERE] = 1
 
-      # WHICH ROOM THE PLAYER IS IN, and it is REMEMBERED rather than read fresh, because there
-      # are cells that are in no room and the player walks through them constantly: a doorway is
-      # one. Read fresh, standing in a doorway would say "no room", and then no room at all would
-      # be open and every lamp in the level would blink out for the two steps it takes to walk
-      # through. The room they were last really in is the right answer there — a doorway they are
-      # standing in is open by definition, so the room on the other side of it is open too.
-      @stood.set(@room_of[@map_base + (@player[:y].to_i * @width) + @player[:x].to_i])
-      (@stood > NOWHERE).then { @here.set @stood }
+      # Which room the player is in was read by the caller, which is where the decision to run
+      # this at all was made — see #where_the_player_stands.
       @open_room[@here] = 1
 
       # SPREAD THROUGH THE OPEN DOORS UNTIL NOTHING MORE OPENS. Two rooms joined by an open door
