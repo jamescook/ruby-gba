@@ -675,6 +675,19 @@ module RubyGBA
                      "(#{CostModel.pct(result[:scanlines], FRAME_BUDGET)})"
           return "#{measured}#{held}" unless result[:saturated]
           return "#{measured}#{held} — still #{FULL_FRAME_RATE} fps" if holds_full_rate?(result)
+
+          # OVER BUDGET STILL GETS A NUMBER, and it has to. The per-FRAME reading above stops at
+          # the ceiling once a pass spreads across two frames, so on its own it cannot tell a
+          # game that got a third faster from one that did not move — which is exactly the
+          # question somebody reading this line is asking. What a whole PASS cost has no
+          # ceiling, so that is what is reported here, in the same scanlines the budget is in.
+          if result[:per_pass]
+            over = "measured ~#{CostModel.fmt(result[:per_pass])} of #{FRAME_BUDGET} scanlines " \
+                   "(#{CostModel.pct(result[:per_pass], FRAME_BUDGET)}) a pass"
+            return "#{over}#{held} — running at ~#{result[:fps]} fps" if result[:fps]
+
+            return "#{over}#{held}"
+          end
           return "measured over budget — running at ~#{result[:fps]} fps#{held}" if result[:fps]
 
           "measured over budget#{held} — the frame saturates (drops frames)"

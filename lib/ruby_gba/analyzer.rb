@@ -40,8 +40,17 @@ module RubyGBA
     # scanline reading saturates, because that is the only time it is needed. It settles
     # what the reading cannot: 60 means every pass met its frame. +keys+ is what was held
     # to find that frame — empty when the game is at its worst doing nothing.
-    Result = Data.define(:scanlines, :fps, :keys) do
-      def initialize(scanlines:, fps: nil, keys: [])
+    #
+    # +per_pass+ is what a whole PASS of the game loop cost, and it is the only reading that
+    # keeps meaning something once a game is over budget. A video frame holds 228 scanlines and
+    # no more, so a pass that overruns spreads itself across two of them and each reads a full
+    # frame: the per-frame number stops at the ceiling and stays there however far past it the
+    # game goes. Counting the work over a window and dividing by the PASSES in that window has
+    # no ceiling — a game taking two frames a pass reads about 456, one taking four reads about
+    # 912. Measured only when the per-frame reading saturates, since below that a pass is a
+    # frame and the two numbers are the same. See #measure_saturated.
+    Result = Data.define(:scanlines, :fps, :keys, :per_pass) do
+      def initialize(scanlines:, fps: nil, keys: [], per_pass: nil)
         super
       end
 
@@ -176,7 +185,8 @@ module RubyGBA
       end
       return worst unless worst.saturated?
 
-      Result.new(scanlines: worst.scanlines, fps: measure_fps(program, options, keys: worst.keys),
+      counted = measure_saturated(program, options, keys: worst.keys)
+      Result.new(scanlines: worst.scanlines, fps: counted[:fps], per_pass: counted[:per_pass],
                  keys: worst.keys)
     end
 
@@ -257,15 +267,30 @@ module RubyGBA
       program.walk.filter_map { |node| node.button if INPUT_KINDS.include?(node.kind) }.uniq
     end
 
-    # The counted frame rate, with +keys+ held throughout — the same buttons the winning
-    # reading was taken under, or the count would answer about a different game. A hidden
-    # counter ticks once per game-loop iteration; run a window of emulated frames and the
-    # counter's rise is how many game frames elapsed, so fps = game frames * 60 / window.
-    # A loop waits for the screen, so the answer lands on 60, 30, 20... and 60 means every
-    # pass met its frame. nil when there is no game loop to count.
-    def measure_fps(program, options = {}, keys: [])
+    # WHAT A GAME COSTS ONCE IT IS TOO BIG FOR ITS FRAME, with +keys+ held throughout — the
+    # same buttons the winning reading was taken under, or the count would answer about a
+    # different game. Two numbers out of one run, and the second is the one that matters.
+    #
+    # A hidden counter ticks once per game-loop iteration. Over a window of emulated frames its
+    # rise is how many PASSES the game made, so the frame rate is passes * 60 / window.
+    #
+    # THAT RATE IS COARSE BY CONSTRUCTION, and it is worth being plain about why. A loop waits
+    # for the screen, so a pass takes a whole number of frames and the rate can only land on
+    # 60, 30, 20, 15. "30" therefore covers everything from one frame of work to two — a game
+    # that got a third faster reads exactly the same as one that did not move at all, which is
+    # no use to anybody trying to make it faster.
+    #
+    # SO THE WORK IS ADDED UP TOO. Each video frame holds 228 scanlines and no more, so a frame
+    # reading is capped; the sum over a window is not, and dividing it by the passes in that
+    # window gives what one pass really cost. A game taking two frames a pass comes out about
+    # 456, one taking four about 912, and the number keeps its meaning however far over budget
+    # the game is. Below saturation a pass IS a frame and this agrees with the per-frame
+    # reading, so it is measured only where it says something new.
+    #
+    # Empty when there is no game loop to count.
+    def measure_saturated(program, options = {}, keys: [])
       counter = :__profile_frames
-      counted = instrument_frame_counter(program, counter) or return nil
+      counted = instrument_frame_counter(program, counter) or return {}
 
       measuring = build_for_measuring(counted, options)
       address = measuring[:vars][counter]
@@ -273,11 +298,21 @@ module RubyGBA
         probe = Emulator.probe(path)
         probe.step(SETTLE, keys: keys)
         before = probe.read32(address)
-        probe.step(FPS_WINDOW, keys: keys)
+        # Step the window a frame at a time rather than in one go, so the SAME run that counts
+        # the passes also adds up the work — one emulator run answers both questions, and both
+        # answers are then about the same frames rather than about two different runs.
+        work = FPS_WINDOW.times.sum { frame_scanlines(probe.frame_cost(keys: keys)) }
         elapsed = probe.read32(address) - before
         probe.close
-        elapsed.positive? ? (elapsed * 60.0 / FPS_WINDOW).round(1) : nil
+        next {} unless elapsed.positive?
+
+        { fps: (elapsed * 60.0 / FPS_WINDOW).round(1), per_pass: (work / elapsed).round(1) }
       end
+    end
+
+    # The counted frame rate on its own, for a caller that wants only that.
+    def measure_fps(program, options = {}, keys: [])
+      measure_saturated(program, options, keys: keys)[:fps]
     end
 
     # A COPY of the program with a hidden counter that ticks once per game-loop iteration,
