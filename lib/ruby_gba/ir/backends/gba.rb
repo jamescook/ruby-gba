@@ -886,6 +886,14 @@ module RubyGBA
         # code, never inline, so the main flow doesn't run into them; sounds and
         # songs are pure data with nothing to emit on their own.
         def collect_definitions(program)
+          # WHICH LISTS ARE RINGS, asked before anything is allocated. A list is a ring only if
+          # the program drops from its FRONT, which is what moves its head; every other one is
+          # a plain array and is allocated at the size it asked for rather than rounded up to
+          # the next power of two. Nearly all of them are — a pool's fields, a board, anything
+          # filled once and then read by number — and on a cartridge with a lot of them the
+          # rounding was thousands of bytes of the console's 32K. See Lists.
+          shifted = program.walk.filter_map { |n| n.name if n.kind == :list_drop && n.from == :front }.to_set
+
           program.walk do |node|
             case node.kind
             when :func
@@ -918,7 +926,7 @@ module RubyGBA
               # touches it (anywhere in the tree, including funcs emitted later)
               # already knows its base address and capacity. list_new *executing*
               # only resets it to empty; the storage itself is allocated here.
-              @lists.register_list(node.name, node.capacity)
+              @lists.register_list(node.name, node.capacity, ring: shifted.include?(node.name))
             when :backing_buffer
               # Reserve the save-under patch's RAM once, up front, so a save/restore
               # anywhere in the tree already knows its address. Nothing is emitted
