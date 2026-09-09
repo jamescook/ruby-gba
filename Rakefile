@@ -120,6 +120,16 @@ namespace :cost do
     abort unless CostAccuracy::Baseline.check(only: only)
     stamp_unless_narrowed(only)
   end
+
+  desc "Which parts of the cost model does the corpus exercise, and which has nothing ever run through?"
+  task :regimes do
+    require_relative "lib/ruby_gba"
+    require_relative "tools/cost_regimes"
+    # No emulator: this is the estimate asked about itself, so it prices rather than measures.
+    # It builds every example and prices each once per weight, which is under a minute — a
+    # report you run when the corpus or the model changes, not something the suite waits for.
+    CostRegimes.report(CostRegimes.measure)
+  end
 end
 
 desc "Render examples/EXAMPLE.rb to a watchable HTML page (rake preview EXAMPLE=parallax KEYS=right FRAMES=64)"
