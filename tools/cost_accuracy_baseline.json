@@ -101,10 +101,10 @@
       "distance": 1.001
     },
     "raycaster": {
-      "estimate": 53.739,
+      "estimate": 72.582,
       "measured": 97.994,
-      "ratio": 1.824,
-      "distance": 1.824
+      "ratio": 1.35,
+      "distance": 1.35
     },
     "rotozoom_bg": {
       "estimate": 0.599,

@@ -170,7 +170,7 @@ module Raycaster
         # this loop is nearly the entire frame. The loop gives up the console's registers to
         # ask the question before each pass, which costs a little per step and saves all the
         # steps it does not take.
-        repeat(STEPS, stop_when: hit == 1) do |step|
+        repeat(STEPS, stop_when: hit == 1, estimate: { usually: 8 }) do |step|
           rx.add dx
           ry.add dy
           # The cell the ray is in now. The border ring is solid, so a ray leaving the
@@ -206,12 +206,12 @@ module Raycaster
         # so each band is its own fill and exactly one of them runs. The HEIGHT is the
         # number the ray just worked out, which is the whole wall column in one fill.
         (dist < 1.5).then do
-          draw_rect_at((col * COL_W), top, COL_W, col_h, NEAR)
+          draw_rect_at((col * COL_W), top, COL_W, col_h, NEAR, estimate: { usually: 44 })
         end.else do
           (dist < 3.0).then do
-            draw_rect_at((col * COL_W), top, COL_W, col_h, MID)
+            draw_rect_at((col * COL_W), top, COL_W, col_h, MID, estimate: { usually: 44 })
           end.else do
-            draw_rect_at((col * COL_W), top, COL_W, col_h, FAR)
+            draw_rect_at((col * COL_W), top, COL_W, col_h, FAR, estimate: { usually: 44 })
           end
         end
       end

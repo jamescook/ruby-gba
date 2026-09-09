@@ -193,7 +193,12 @@ module RubyGBA
         include Node
         kind :draw_rect_at
         category :draw
-        operands x: :value, y: :value, w: :value, h: :value, color: :color
+        # +usually+ is how many rows this rectangle normally covers — the estimate's business,
+        # not the program's, and the same hint DrawColumnAt takes for the same reason. A height
+        # the game works out has no size a build can prove, and a rectangle drawn on the screen
+        # has a known ceiling to measure it against (see the note on Pricing#stretched_rows), so
+        # the author can say rather than let it guess.
+        operands x: :value, y: :value, w: :value, h: :value, color: :color, usually: :int
       end
 
       # One column of a picture, stretched to a height the program works out. The whole of a

@@ -108,6 +108,76 @@ class TestStretchedColumn < Minitest::Test
     assert_match(/works out/, error.message)
   end
 
+  # --- the same wall, drawn as a rectangle ---------------------------------------------
+
+  # A GAME CAN WRITE A WALL EITHER WAY: as a column of a picture, or as a plain rectangle as
+  # tall as the distance says. The reasoning above is about a HEIGHT and not about a picture, so
+  # it has to hold for both — and it did not. Measured on examples/raycaster.rb, which draws its
+  # walls with `draw_rect_at`: thirty of them a frame came to nothing at all, and the estimate
+  # read the game at half what the console spends.
+
+  # +tall+ rows per rectangle, COLUMNS of them, on the same screen as the columns above so the
+  # two are comparable.
+  def rects(tall, told: nil, fixed: false, wide: nil)
+    RubyGBA.build("RECT", code: "ZRCT", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :bitmap, tear_free: true
+      h = var :h, tall
+      w = var :w, WIDE
+      game_loop do
+        repeat(COLUMNS) do |col|
+          draw_rect_at(col * WIDE, 0, wide ? w : WIDE, fixed ? tall : h, :red, estimate: told)
+        end
+      end
+    end
+  end
+
+  def test_a_worked_out_rect_height_is_not_free
+    worked_out = steady(rects(64))
+
+    assert_operator worked_out, :>, steady(rects(1, told: { usually: 1 })) * 4,
+                    "a rectangle sixty-four rows tall must cost more than one row"
+  end
+
+  def test_saying_how_tall_a_rect_is_is_what_gets_counted
+    assert_in_delta steady(rects(64, fixed: true)), steady(rects(64, told: { usually: 64 })),
+                    steady(rects(64, fixed: true)) * 0.02,
+                    "told sixty-four, it should cost about what sixty-four rows cost"
+  end
+
+  def test_a_rect_unsaid_guesses_half_the_ceiling_and_says_so
+    assert_in_delta steady(rects(999, told: { usually: 80 })), steady(rects(999)), 0.01,
+                    "half of the screen's 160 rows"
+    assert_includes report_of(rects(999)), "a stretched rectangle counts the rows it usually draws"
+    assert_includes report_of(rects(999)), "a guess"
+  end
+
+  def test_when_a_rect_height_is_given_the_report_says_it_was_told
+    assert_includes report_of(rects(64, told: { usually: 64 })), "the height you gave"
+  end
+
+  def test_a_rect_height_written_in_the_program_may_not_also_be_estimated
+    error = assert_raises(ArgumentError) { rects(64, fixed: true, told: { usually: 64 }) }
+
+    assert_match(/rectangle whose height the game works out/, error.message)
+  end
+
+  # A WIDTH IS DELIBERATELY NOT GUESSED, and the asymmetry is the argument rather than an
+  # oversight: a height is clipped to the screen, so it has a ceiling to be measured against and
+  # tall ones pile up at it. A width has no such story — a bar spreads evenly across its range —
+  # so there is nothing to take half OF, and the estimate says it could not account for the
+  # rectangle rather than inventing a number.
+  def test_a_width_the_game_works_out_is_still_left_out_rather_than_guessed
+    assert_in_delta steady(rects(1, wide: true)), steady(rects(999, wide: true)), 0.01,
+                    "with no provable width the rectangle is charged nothing, so its height cannot matter"
+    assert_operator steady(rects(999)), :>, steady(rects(999, wide: true)),
+                    "...where the same rectangle at a width the build can prove is charged"
+    report = report_of(rects(999, wide: true))
+
+    assert_includes report, "whose size the game works out here isn't counted"
+    refute_includes report, "counts the rows it usually draws",
+                    "it counted no rows for this rectangle, so it must not claim a height it guessed"
+  end
+
   # --- and against the console -------------------------------------------------------
 
   # WHAT IT REALLY COSTS. The whole point of the number is that an author decides by it, so it is

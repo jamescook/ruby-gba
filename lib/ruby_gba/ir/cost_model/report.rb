@@ -663,21 +663,23 @@ module RubyGBA
         end
       end
 
-      # HOW TALL A STRETCHED COLUMN WAS COUNTED AT. The fourth assumption in the budget, and
-      # for a first-person view it is by far the biggest: every height in one is worked out as
-      # the game runs, because that is what perspective IS, so this decides what the whole
-      # renderer costs.
+      # HOW TALL A STRETCHED SHAPE WAS COUNTED AT. The fourth assumption in the budget, and for
+      # a first-person view it is by far the biggest: every height in one is worked out as the
+      # game runs, because that is what perspective IS, so this decides what the whole renderer
+      # costs. A wall can be written as a column of a picture or as a plain rectangle, and both
+      # come through here — a rectangle names no picture, being a color rather than one.
       def stretched_column_line(program, printer)
         columns = @verdicts.stretched_column_verdicts(program)
         return if columns.empty?
 
-        at = columns.map { |c| ":#{c.name} #{c.counted} of #{c.ceiling}" }.uniq.join(", ")
+        shape = columns.any?(&:name) ? "column" : "rectangle"
+        at = columns.map { |c| "#{c.name ? ":#{c.name} " : ''}#{c.counted} of #{c.ceiling}" }.uniq.join(", ")
         if columns.all?(&:said)
-          printer.puts "    (a stretched column counts the rows it usually draws — " \
+          printer.puts "    (a stretched #{shape} counts the rows it usually draws — " \
                        "#{at}, the height you gave)"
         else
-          printer.puts "    (a stretched column counts the rows it usually draws — #{at}, a " \
-                       "guess. To give the real height, write estimate: { usually: N } on the column.)"
+          printer.puts "    (a stretched #{shape} counts the rows it usually draws — #{at}, a " \
+                       "guess. To give the real height, write estimate: { usually: N } on the #{shape}.)"
         end
       end
 

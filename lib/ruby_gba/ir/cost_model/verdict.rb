@@ -112,9 +112,12 @@ module RubyGBA
         # worked out as the game runs.
         EarlyExit = Data.define(:counted, :ceiling, :said)
 
-        # ...and the same for a STRETCHED COLUMN whose height the game works out, which is every
-        # column of a first-person view. +ceiling+ is the most rows it could walk — the screen,
-        # or the part of it being drawn into, because a column is clipped to it.
+        # ...and the same for a SHAPE STRETCHED to a height the game works out, which is every
+        # wall of a first-person view — drawn either as a column of a picture or as a plain
+        # rectangle, so both verbs report here. +name+ is the picture a column shows and nil for
+        # a rectangle, which is a color rather than a picture. +ceiling+ is the most rows it
+        # could cover — the screen, or the part of it being drawn into, because it is clipped
+        # to that.
         StretchedColumn = Data.define(:name, :counted, :ceiling, :said)
 
         # Many rectangles a frame drawn at a column that is odd, or that the build cannot

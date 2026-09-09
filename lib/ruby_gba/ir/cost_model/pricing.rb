@@ -278,8 +278,9 @@ module RubyGBA
             @walker.tear_free? ? tearfree_fill_cost(node) : dma_rows_cost(node.w, node.h)
           when :draw_rect_at
             # Its position is worked out as the game runs — but it is not trimmed, so a caller
-            # keeps it on screen itself.
-            @walker.tear_free? ? tearfree_moving_rect_cost(node) : dma_rows_cost(node.w, node.h, placed: true)
+            # keeps it on screen itself. A height the game works out is answered by #rect_rows
+            # rather than left out, which is what makes a first-person view visible at all.
+            @walker.tear_free? ? tearfree_moving_rect_cost(node, worst) : moving_rect_rows_cost(node, worst)
           when :draw_column_at then draw_column_cost(node, worst)
           when :clear_screen then clear_screen_cost
           when :draw_text then Fonts.get(node.font).text_pixels(node.text) * glyph_pixel_weight(node)
@@ -1062,15 +1063,23 @@ module RubyGBA
         # fixed rectangle's own row. A rect that turns out to cross an edge at run time
         # falls back to the general clip there, which is not priced — the same "cannot be
         # known while building" gap an unbounded loop leaves, not a new one.
-        def tearfree_moving_rect_cost(node)
+        def tearfree_moving_rect_cost(node, worst = true)
           w = const_side(node.w)
-          h = const_side(node.h)
+          h = rect_rows(node, worst)
           return 0 unless w && h && w.positive?
 
           x = const_side(node.x)
-          return tearfree_fill_cost(node) if x && const_side(node.y)
+          return tearfree_fill_cost(node) if x && const_side(node.y) && const_side(node.h)
 
           @weights[:tearfree_moving_start] + (h * tearfree_moving_row_cost(w, node.x))
+        end
+
+        # The same rectangle in direct color, where a row is a transfer rather than a walk. Only
+        # the row COUNT can be guessed: a width the game works out is left out here as it always
+        # was, because a height has a ceiling to be measured against and a width has no such
+        # story — see the note on #stretched_rows.
+        def moving_rect_rows_cost(node, worst)
+          dma_rows_cost(node.w, rect_rows(node, worst), placed: true)
         end
 
         # What the same moving rectangle would cost if its column were proved EVEN — the
@@ -1199,12 +1208,25 @@ module RubyGBA
         # are close to is clipped rather than made shorter. Measured over a first-person game, a
         # wall column averages about half the rows it is allowed. Half is the guess, and the
         # report says it guessed.
-        def column_rows(node, worst)
-          rows = const_side(node.height)
+        def column_rows(node, worst) = stretched_rows(node.height, node.usually, worst)
+
+        # ...and the same question about a RECTANGLE, which is the other way a game draws a
+        # shape as tall as it just worked out. The argument above is about a height, not about a
+        # picture, so it transfers whole — and it has to, because the two verbs are the two ways
+        # to write a first-person view and only one of them was answered. Measured on
+        # examples/raycaster.rb, which draws its walls with `draw_rect_at`: thirty of them a
+        # frame came to nothing at all, and the game read at half what the console spends.
+        def rect_rows(node, worst) = stretched_rows(node.h, node.usually, worst)
+
+        # A height that may not be provable, answered for either shape. A number written in the
+        # program is used as it stands; otherwise the worst frame takes the ceiling and every
+        # frame takes what the author said, or half the ceiling.
+        def stretched_rows(height, usually, worst)
+          rows = const_side(height)
           return rows if rows
           return column_ceiling if worst
 
-          node.usually || (column_ceiling / 2)
+          usually || (column_ceiling / 2)
         end
 
         # The most rows a column can walk. The screen's own height, or less inside an area — a
@@ -1264,10 +1286,14 @@ module RubyGBA
           end
         end
 
-        # Whether a rect's size is only known at run time, so #dma_rows_cost had to
-        # leave it out of the estimate.
+        # Whether a rect's size is only known at run time, so the estimate had to leave it out.
+        #
+        # A `draw_rect_at` is only its WIDTH now: an unprovable height is guessed rather than
+        # skipped (#rect_rows), so it is an assumption the report states rather than a hole it
+        # apologises for, and saying both about the same rectangle would be saying two things.
         def runtime_sized_rect?(node)
-          return false unless %i[fill_rect dma_fill_rect draw_rect_at].include?(node.kind)
+          return const_side(node.w).nil? if node.kind == :draw_rect_at
+          return false unless %i[fill_rect dma_fill_rect].include?(node.kind)
 
           const_side(node.w).nil? || const_side(node.h).nil?
         end

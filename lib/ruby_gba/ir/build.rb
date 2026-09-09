@@ -155,8 +155,11 @@ module RubyGBA
       # A size the program works out is what a bar or a column needs: a health meter
       # that empties sideways, a wall column in a first-person view, a tower rising
       # out of the ground. A width or height of zero or less draws nothing.
-      def draw_rect_at(x, y, w, h, color)
-        Nodes.build(:draw_rect_at, x: wrap(x), y: wrap(y), w: wrap(w), h: wrap(h), color: color)
+      # +usually+ is how many rows it normally covers, for the estimate only — nothing about how
+      # the program runs reads it. See #draw_column_at, which takes it for the same reason.
+      def draw_rect_at(x, y, w, h, color, usually: nil)
+        Nodes.build(:draw_rect_at, x: wrap(x), y: wrap(y), w: wrap(w), h: wrap(h),
+                                   color: color, usually: usually)
       end
 
       # +usually+ is how many rows this column normally draws, for the estimate only — nothing
