@@ -166,6 +166,15 @@ module RubyGBA
         attrs.each_value { |value| walk_attr(value, &block) }
       end
 
+      # Give this statement and everything under it a call site they do not have — the line
+      # of the DECLARATION a framework-built statement serves, so that a sprite's per-frame
+      # repaint is traced to the `sprite` line rather than to no line at all. A node that
+      # already carries one keeps it. Returns self.
+      def stamp(source)
+        each { |node| node.source ||= source }
+        self
+      end
+
       # A separate tree of the same shape: this node, its operands and everything under it,
       # all new objects. Parents are rewired to the copy as it is built, so the two trees
       # share nothing and changing one cannot show up in the other.

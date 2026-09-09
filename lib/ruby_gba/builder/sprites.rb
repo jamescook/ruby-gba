@@ -155,7 +155,7 @@ module RubyGBA
                                   image: (has_poses ? nil : name), poses: poses,
                                   facing_var: pose_var, facing_dirs: facing_dirs,
                                   frame_var: frame_var, frames_per_dir: frames_per_dir,
-                                  layer: current_layer)
+                                  layer: current_layer, source: caller_source_location)
         @sprites << handle
         handle.draw_initial if shown
         handle
@@ -472,7 +472,7 @@ module RubyGBA
                                   active: active, buffer: buffer, hitbox: box, pixel_perfect: hitbox.nil?,
                                   image: nil, poses: poses, facing_dirs: {},
                                   clips: clips, clip_off_var: off, clip_len_var: len, frame_var: frame,
-                                  layer: current_layer)
+                                  layer: current_layer, source: caller_source_location)
         @sprites << handle
         handle.draw_initial if shown
         handle
