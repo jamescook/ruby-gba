@@ -174,10 +174,16 @@ class TestFastCodePlacement < Minitest::Test
   # routine in the cartridge, and a game whose loop moved while its routine did not is a
   # real build rather than a hypothetical one — that is what quick memory running out
   # looks like.
+  #
+  # The frame's own boundary comes off both readings first. Waiting for the screen is the
+  # console's own doing and takes the same time wherever our code lives, so it is the one
+  # part of a frame the move cannot make cheaper.
   def test_the_estimate_follows_the_code_into_quick_memory
     program = looping_program(passes: 200)
-    cart = RubyGBA::IR::CostModel.new.steady_cost(program)
-    quick = RubyGBA::IR::CostModel.new(fast_frame: true, fast_routines: [:work]).steady_cost(program)
+    boundary = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS[:frame_overhead]
+    cart = RubyGBA::IR::CostModel.new.steady_cost(program) - boundary
+    quick = RubyGBA::IR::CostModel.new(fast_frame: true, fast_routines: [:work]).steady_cost(program) -
+            boundary
     speedup = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS[:fast_code_speedup]
 
     assert_in_delta cart / speedup, quick, 0.01

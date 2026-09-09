@@ -500,7 +500,7 @@ module RubyGBA
       # declare it free here, or the estimate calls it out. (Control-flow kinds — loop,
       # if, case, call, and so on — never reach here; they're handled in #build.)
       FREE_STATEMENT_KINDS = %i[
-        screen wait_vblank halt raw object
+        screen halt raw object
         define_sound song data bitmap backing_buffer list_new table
         # naming the depths a picture is built from settles an order at build time —
         # nothing is written, computed or drawn where it is declared
@@ -569,9 +569,6 @@ module RubyGBA
                      placement: nil, var_addresses: nil, loop_shapes: nil,
                      palette_entries: nil, column_stretches: nil, **weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)
-        # The same table with everything but the transfer engine's own work zeroed, so an op
-        # can be priced twice over and the two answers differenced (see Pricing::ENGINE_WEIGHTS).
-        @engine_weights = @weights.transform_values { 0.0 }.merge(@weights.slice(*Pricing::ENGINE_WEIGHTS))
         @fast_routines = Array(fast_routines).to_set
         @fast_frame = fast_frame
         @fast_interrupts = fast_interrupts

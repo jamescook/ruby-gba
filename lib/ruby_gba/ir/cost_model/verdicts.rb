@@ -516,11 +516,24 @@ module RubyGBA
         # no name in the program. A bend's rows are worked out there, once a frame, and no
         # statement in the op tree says so — so a body that is nothing but a bend would read
         # as idle and lose the room to something that matters less.
+        #
+        # WHAT THE FRAME BOUNDARY COSTS IS LEFT OUT, because this answer decides whether the
+        # body is worth quick memory and the boundary cannot get any faster there: waiting for
+        # the screen is the console's own doing and takes the same time wherever our code
+        # lives. It is also several times Placement::WORTH_MOVING on its own, so counting it
+        # would put every looping program over that bar and the bar would decide nothing.
         def frame_body_cost(program)
+          body = @walker.steady_cost(program) - frame_boundary_cost(program)
           bend = bend_verdict(program)
-          return @walker.steady_cost(program) unless bend && Backends::GBA::BendForm.latched?(program)
+          return body unless bend && Backends::GBA::BendForm.latched?(program)
 
-          @walker.steady_cost(program) + bend.filling + bend.offsets
+          body + bend.filling + bend.offsets
+        end
+
+        # What the walk above charged for the frame's boundary, so it can be taken back out.
+        def frame_boundary_cost(program)
+          waits = @walker.steady_statements(program).count { |node| node.kind == :wait_vblank }
+          waits * @weights[:frame_overhead]
         end
 
         # The rate the mixer runs at — the one most of the program's samples were recorded

@@ -15,12 +15,13 @@ require "stringio"
 # example in one go, so a change that improves one and quietly worsens six is a failure
 # instead of a success story.
 #
-# The spread it found on the first run is the reason it exists. Eight examples came in
-# between 0.88 and 1.03 of the console's own reading — the bitmap, draw-it-yourself family
-# the weights were measured on. The games that hand work to the console's own hardware were
-# nowhere near: a lake whose rippling background reads 25 times its estimate, a piano ten
-# times, a scrolling background five. Same model, same weights, one family right and another
-# wrong. Nothing in a single-game reading could have shown that.
+# HOW TO READ A SPREAD, which is what a corpus is for. The examples fall into families —
+# games that draw their own pixels, games that hand the drawing to the console's hardware,
+# games whose frame is one expensive mechanism — and where a family sits tells you what kind
+# of mistake you are looking at. A PER-GAME error is a weight. A PER-FAMILY error is a
+# mechanism nobody priced. A family out by the same fixed AMOUNT points at something a frame
+# pays whatever it does; out by the same FACTOR points at a weight on the work it shares.
+# None of those readings is available from one game.
 #
 # WHAT IT GUARDS is drift, not accuracy. Failing on "the ratio is not 1" would fail forever
 # on the day it was written, and a check nobody can make green is a check that gets deleted.
@@ -91,6 +92,13 @@ module CostAccuracy
   # The estimate is the EVERY-FRAME figure priced with the build's own answers, which is the
   # one the report's budget line judges and the only one the console's reading can be held
   # against. A worst-case total would be a different frame from the one being measured.
+  #
+  # BOTH HALVES OF IT. The walk over the program's statements is only part of a frame: the
+  # sound mixer, a background bent row by row, a timer's tick handlers and the sprites a
+  # placed fade holds itself off are real per-frame work with no statement to hang on, so the
+  # model prices them for the whole frame and the report adds them in. A game whose frame IS
+  # one of those — a bent background, a software mixer — is almost entirely standing cost, so
+  # the walk alone would read it at a fraction of its own estimate.
   def read_one(name)
     game = load_game(name)
     rom = game.build_rom(err: StringIO.new, out: StringIO.new)
@@ -98,7 +106,7 @@ module CostAccuracy
     model = rom.cost_model
     return Reading.new(name: name, note: "no game loop, so nothing recurs") unless model.looping?(program)
 
-    estimate = model.steady_cost(program).to_f
+    estimate = (model.steady_cost(program) + model.standing_costs(program)).to_f
     Reading.new(name: name, estimate: estimate, **console(game))
   rescue StandardError, ScriptError => e
     Reading.new(name: name, note: "#{e.class}: #{e.message.lines.first.to_s.strip}")

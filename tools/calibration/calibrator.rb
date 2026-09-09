@@ -31,6 +31,7 @@ module RubyGBA
 
       # Run every benchmark and answer self, with #weights and #domains filled in.
       def run
+        frame
         logic
         per_pixel_drawing
         live_digit
@@ -56,6 +57,41 @@ module RubyGBA
         @weights[name] = value
         @domains[name] = Domain.new(varies: varies, from: from, to: to, note: note)
         value
+      end
+
+      # --- the frame itself ---
+
+      # What a frame costs before the game does anything: the BIOS sleeping the console until
+      # the display's interrupt, the console's own entry to and exit from the handler that
+      # counts the frame, and the dozen instructions that turn that count into how many frames
+      # the last pass really took. Nobody writes any of it and every frame pays it.
+      #
+      # MEASURED ON ITS OWN, because a marginal rate cannot see it. Differencing two programs
+      # cancels whatever both pay once, and that is exactly this — so the technique every other
+      # weight in this file uses is built to remove the one cost every program shares.
+      #
+      # AS THE BASE OF A LINE rather than an empty loop's reading: two ordinary programs of
+      # plain statements, and where the line through them meets no statements at all. An empty
+      # loop is a program a build is free to treat specially; these two are not. The slope the
+      # same pair gives is op_step, which is the measurement checking itself against a weight
+      # arrived at another way.
+      #
+      # ONE WEIGHT AND NOT TWO, unlike the interrupt weights below. Nearly all of this is the
+      # console's own doing and runs where the console keeps it however fast our memory is;
+      # only the dozen instructions that count the frame are ours. So it is priced as a cost
+      # the quick memory cannot reach — Pricing::CONSOLES_OWN_TIME, the same treatment a
+      # transfer engine's stall gets.
+      #
+      # The two frames are far enough apart to fit a line through and both far enough under a
+      # frame's 228 scanlines that neither reading is anywhere near the ceiling.
+      FRAME_LO = 20
+      FRAME_HI = 120
+
+      def frame
+        _slope, base = Reductions.fit(FRAME_LO, @bench.plain_frame_busy(FRAME_LO),
+                                      FRAME_HI, @bench.plain_frame_busy(FRAME_HI))
+        weigh(:frame_overhead, base,
+              note: "waiting for the screen and counting the frame, which every frame pays")
       end
 
       # --- logic (the op_* tiers) ---

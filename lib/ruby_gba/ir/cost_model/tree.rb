@@ -333,12 +333,16 @@ module RubyGBA
           end
         end
 
+        # Ops the author never wrote, and what to call them instead of their kind. Same
+        # wording #label_of gives the tree, so the two lists agree.
+        DISPLAY_NAMES = { wait_vblank: "waiting for the screen" }.freeze
+
         # What one KIND of op is called, with none of the detail that tells two of them
         # apart — the wording for a fold ("pixel ×10") or a hottest-list line. Most ops
         # are named by their kind; the ones whose kind is machinery rather than English
         # (a divide, a branch test) carry their own name, set where the leaf is made.
         def self.name_of(node)
-          node.name || node.op
+          node.name || DISPLAY_NAMES[node.op] || node.op
         end
 
         def self.leaf_count(node)
@@ -370,6 +374,9 @@ module RubyGBA
         # apart at a glance (which image a blit draws, how big a rect is).
         def label_of(node)
           case node.kind
+          # The one statement in a game loop the author did not write, so its own name would
+          # send a reader hunting through their program for it. What it does is the label.
+          when :wait_vblank then "waiting for the screen"
           when :fill_rect, :dma_fill_rect, :draw_rect_at then "#{node.kind} #{size_of(node)}"
           when :draw_text then "draw_text #{node.text.inspect}"
           when :draw_digit then "draw_digit"

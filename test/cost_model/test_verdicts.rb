@@ -70,8 +70,8 @@ class TestCostVerdicts < CostModelTest
 
     # each priced by the screen it is on — the tear-free one clears for half the work,
     # because a pixel there is one byte where a direct-color one is two...
-    near 3 * dma_blob(240 * 160), Cost.new.steady_cost(single)
-    near 3 * tearfree_clear, Cost.new.steady_cost(double)
+    near frame_boundary + (3 * dma_blob(240 * 160)), Cost.new.steady_cost(single)
+    near frame_boundary + (3 * tearfree_clear), Cost.new.steady_cost(double)
 
     # ...but a different budget applies, and only one calls it buffered.
     assert_equal Cost::VBLANK_BUDGET, Cost.new.budget_for(single) # the vblank window (68 scanlines)
@@ -260,7 +260,7 @@ class TestCostVerdicts < CostModelTest
   # timer reads as costing nothing — the same silent zero a bend had.
   def test_the_frame_total_includes_the_tick_handler
     total = Cost.new.as_json(ticking_game)[:frame_cost]
-    assert_in_delta Cost.new.tick_cost(ticking_game), total, 0.001
+    assert_in_delta Cost.new.tick_cost(ticking_game) + frame_boundary, total, 0.001
     assert_operator total, :>, 1
   end
 

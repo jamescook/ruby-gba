@@ -39,20 +39,20 @@ class TestSoundCost < CostModelTest
   def test_playing_a_song_costs_per_voice_not_per_note
     ten = Cost.new.steady_cost(music_game(10))
     hundred = Cost.new.steady_cost(music_game(100))
-    near WEIGHTS[:music_voice], ten           # one voice
+    near frame_boundary + WEIGHTS[:music_voice], ten # one voice
     near ten, hundred                          # 10x the notes, identical cost
   end
 
   # A beep is a small fixed burst of writes to the sound registers.
   def test_a_beep_costs_its_sound_register_writes
     prog = program(screen(:bitmap), enable_sound, loop_(wait_vblank, beep(440)))
-    near Cost::BEEP_WRITES * WEIGHTS[:sound_write], Cost.new.steady_cost(prog)
+    near frame_boundary + (Cost::BEEP_WRITES * WEIGHTS[:sound_write]), Cost.new.steady_cost(prog)
   end
 
   # Sound counts alongside drawing on the same frame, against the same budget.
   def test_music_counts_alongside_drawing
     prog = music_game(10, draw: clear_screen(:black)) # a whole-screen clear + the song
-    near dma_blob(240 * 160) + song_frame_cost(10), Cost.new.steady_cost(prog)
+    near frame_boundary + dma_blob(240 * 160) + song_frame_cost(10), Cost.new.steady_cost(prog)
   end
 
   # The song shows up in the drill-down tree with its cost and note count.

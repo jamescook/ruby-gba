@@ -65,7 +65,7 @@ class TestDirectPixels < CostModelTest
     filled = direct { game_loop { fill_rect 0, 0, 40, 20, :red } }
     lone = direct { game_loop { pixel 10, 10, :red } }
 
-    near plot_rect(40, 20), Cost.new.steady_cost(filled)
+    near frame_boundary + plot_rect(40, 20), Cost.new.steady_cost(filled)
     assert_operator Cost.new.steady_cost(filled), :<, 40 * 20 * Cost.new.steady_cost(lone),
                     "a pixel of a run is cheaper than a lone one, so a fill of them must be too"
   end
@@ -77,7 +77,7 @@ class TestDirectPixels < CostModelTest
     lit = RubyGBA::Fonts.get(:default).text_pixels("SCORE")
     text = direct { game_loop { draw_text "SCORE", 0, 80, :white } }
 
-    near text_cost("SCORE"), Cost.new.steady_cost(text)
+    near frame_boundary + text_cost("SCORE"), Cost.new.steady_cost(text)
     near Cost.new.steady_cost(direct { game_loop { fill_rect 0, 0, lit, 1, :red } }),
          Cost.new.steady_cost(text)
   end
@@ -89,7 +89,7 @@ class TestDirectPixels < CostModelTest
     lone = direct { game_loop { pixel 10, 10, :red } }
     one_of_a_run = direct { game_loop { fill_rect 0, 0, 2, 1, :red } }
 
-    near WEIGHTS[:plot_pixel], Cost.new.steady_cost(lone)
+    near frame_boundary + WEIGHTS[:plot_pixel], Cost.new.steady_cost(lone)
     assert_operator Cost.new.steady_cost(lone), :>, Cost.new.steady_cost(one_of_a_run) / 2,
                     "a lone pixel costs more than one pixel of a run"
   end
@@ -106,8 +106,8 @@ class TestDirectPixels < CostModelTest
     middle = direct { game_loop { fill_rect 0, 80, 40, 10, :red } }
     bottom = direct { game_loop { fill_rect 0, 145, 40, 10, :red } }
 
-    near 40 * 10 * WEIGHTS[:plot_run_pixel], Cost.new.steady_cost(middle)
-    near 40 * 10 * (WEIGHTS[:plot_run_pixel] + WEIGHTS[:plot_run_address_step]),
+    near frame_boundary + (40 * 10 * WEIGHTS[:plot_run_pixel]), Cost.new.steady_cost(middle)
+    near frame_boundary + (40 * 10 * (WEIGHTS[:plot_run_pixel] + WEIGHTS[:plot_run_address_step])),
          Cost.new.steady_cost(bottom)
   end
 
@@ -131,8 +131,8 @@ class TestDirectPixels < CostModelTest
     bottom = direct { game_loop { draw_text "SCORE", 0, 150, :white } }
 
     lit = RubyGBA::Fonts.get(:default).text_pixels("SCORE")
-    near lit * WEIGHTS[:plot_run_pixel], Cost.new.steady_cost(middle)
-    near lit * (WEIGHTS[:plot_run_pixel] + WEIGHTS[:plot_run_address_step]),
+    near frame_boundary + (lit * WEIGHTS[:plot_run_pixel]), Cost.new.steady_cost(middle)
+    near frame_boundary + (lit * (WEIGHTS[:plot_run_pixel] + WEIGHTS[:plot_run_address_step])),
          Cost.new.steady_cost(bottom)
   end
 
@@ -146,7 +146,7 @@ class TestDirectPixels < CostModelTest
     sprite = sprite_program(width: 16, height: 8, lit: 14)
     fill = direct { game_loop { fill_rect 0, 0, 14, 8, :red } }
 
-    near blit_art(14 * 8, 8) + var_reads(2), Cost.new.steady_cost(sprite)
+    near frame_boundary + blit_art(14 * 8, 8) + var_reads(2), Cost.new.steady_cost(sprite)
     assert_operator Cost.new.steady_cost(sprite), :>, 2 * Cost.new.steady_cost(fill),
                     "a sprite's pixel is tested against the screen edges; a fill's is not"
   end
@@ -159,7 +159,7 @@ class TestDirectPixels < CostModelTest
     dense = sprite_program(width: 16, height: 8, lit: 14)
     sparse = sprite_program(width: 16, height: 8, lit: 4)
 
-    near blit_art(4 * 8, 8) + var_reads(2), Cost.new.steady_cost(sparse)
+    near frame_boundary + blit_art(4 * 8, 8) + var_reads(2), Cost.new.steady_cost(sparse)
     # The two images are the same size, so a price read off the size would make these
     # equal. Every bit of the difference is the pixels that are actually lit.
     near (14 - 4) * 8 * WEIGHTS[:blit_pixel],
@@ -175,8 +175,8 @@ class TestDirectPixels < CostModelTest
     plain = sprite_program(width: 16, height: 8, lit: 14, color: :red)
     wide = sprite_program(width: 16, height: 8, lit: 14, color: :white)
 
-    near blit_art(14 * 8, 8) + var_reads(2), Cost.new.steady_cost(plain)
-    near blit_art(14 * 8, 8, wide: 14 * 8) + var_reads(2), Cost.new.steady_cost(wide)
+    near frame_boundary + blit_art(14 * 8, 8) + var_reads(2), Cost.new.steady_cost(plain)
+    near frame_boundary + blit_art(14 * 8, 8, wide: 14 * 8) + var_reads(2), Cost.new.steady_cost(wide)
     assert_operator Cost.new.steady_cost(wide), :>, Cost.new.steady_cost(plain),
                     "white has to be built before it can be written; red rides along"
   end
@@ -196,7 +196,7 @@ class TestDirectPixels < CostModelTest
       game_loop { blit :art, 40, 20 }
     end
 
-    near blit_art(14 * 8, 8), Cost.new.steady_cost(fixed)
+    near frame_boundary + blit_art(14 * 8, 8), Cost.new.steady_cost(fixed)
     near var_reads(2), Cost.new.steady_cost(moving) - Cost.new.steady_cost(fixed)
   end
 
@@ -233,8 +233,8 @@ class TestDirectPixels < CostModelTest
       game_loop { blit :tile, x, y }
     end
 
-    near dma_rows(16, 8) + var_reads(2), Cost.new.steady_cost(plain)
-    near dma_rows(16, 8) + var_reads(2), Cost.new.steady_cost(named)
+    near frame_boundary + dma_rows(16, 8) + var_reads(2), Cost.new.steady_cost(plain)
+    near frame_boundary + dma_rows(16, 8) + var_reads(2), Cost.new.steady_cost(named)
     assert_operator Cost.new.steady_cost(plain), :<,
                     Cost.new.steady_cost(sprite_program(width: 16, height: 8, lit: 14)),
                     "streaming whole rows beats testing and writing each pixel"

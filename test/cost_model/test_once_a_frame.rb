@@ -39,8 +39,11 @@ class TestOnceAFrameCost < Minitest::Test
     (steady(game(on_the_clock: on_the_clock)) - steady(game(on_the_clock: on_the_clock, busy: 0))) / BUSY
   end
 
-  def steady(program) = Cost.new.steady_cost(program)
-  def worst(program) = Cost.new.frame_cost(program)
+  # What the PROGRAM costs a frame, with the frame's own boundary taken off. A late pass
+  # replays the body on the clock; it does not wait for the screen again, so the boundary is
+  # paid once however late the pass was and has no business in the catching-up arithmetic.
+  def steady(program) = Cost.new.steady_cost(program) - frame_boundary
+  def worst(program) = Cost.new.frame_cost(program) - frame_boundary
 
   def report_of(program)
     io = StringIO.new
