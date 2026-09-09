@@ -37,8 +37,23 @@ module RubyGBA
         # The VERDICT scale, as fractions of the frame budget — the one place red comes
         # from. `:hot` is exactly `cost > budget`, the same test the over-budget verdict
         # uses, so a red verdict and the "over budget" wording can never disagree; the
-        # cooler bands grade a frame that still fits.
+        # cooler bands grade a frame that still fits. A HEDGED verdict — a blind spot the
+        # estimate cannot count, or a cost within the estimate's own margin of the line —
+        # is warm on either side of it, because what the report is saying there is that it
+        # does not know.
         SEVERITY_THRESHOLDS = { hot: 1.0, warm: 0.66, ok: 0.33 }.freeze
+
+        # HOW FAR THE ESTIMATE CAN BE OUT, as a fraction of the budget a verdict is judged
+        # against. A tenth, because a tenth is the band the corpus is scored by: `rake
+        # cost:check` counts an example as close when the estimate is within a tenth of the
+        # console, and most of the corpus sits inside it. So a verdict within a tenth of its
+        # limit is not a verdict — the real frame can be on either side of the line — and the
+        # report says "close" there rather than "fits" or "over".
+        MARGIN = 0.1
+
+        def close_to_limit?(cost, budget)
+          (cost - budget).abs <= budget * MARGIN
+        end
 
         # The rate the screen refreshes at, and so the fastest a game loop can run: a loop
         # waits for the screen, so it runs 60, 30, 20... times a second and nothing in
