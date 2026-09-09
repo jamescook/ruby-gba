@@ -21,9 +21,17 @@ module RubyGBA
   # here because measuring a cartridge means building it again, the same way: a ROM measured
   # with different settings is not the ROM that ships, and the difference between code in the
   # cartridge and code in the console's quick memory is a factor of about two and a half.
+  #
+  # +findings+ is what the guardrails said about the program, kept so a report asked for as
+  # data can carry them beside the numbers. Empty until the build's own checks have run — the
+  # backend makes the record before those checks exist, since they price with it.
   class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
                                   :palette_entries, :column_stretches, :compression,
-                                  :build_options)
+                                  :build_options, :findings)
+    def initialize(findings: [], **rest)
+      super
+    end
+
     # The two routines a program has no name for: the frame's own body, and the one the
     # console jumps into when the display or a timer announces something. The estimate has
     # to be told about each separately for that reason.

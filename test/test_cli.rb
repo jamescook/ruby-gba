@@ -5,6 +5,7 @@ require "test_helper"
 require "open3"
 require "tmpdir"
 require "rbconfig"
+require "json"
 
 # End-to-end tests for the `ruby-gba` command. These are the only tests that touch
 # Thor: they run bin/ruby-gba in a subprocess, the way a user does, so the CLI (and
@@ -214,6 +215,29 @@ class TestCLI < Minitest::Test
       assert status.success?, out
       assert_match(/per-frame cost/, out)
       refute File.exist?(File.join(dir, "demo.gba")), "explain should not write a .gba"
+    end
+  end
+
+  # `explain --format=json` prints the same facts as data, on stdout, as one document — the
+  # guardrails' prose goes to stderr so it cannot land in the middle of it.
+  def test_explain_format_json_prints_one_parseable_document
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, err, status = Open3.capture3(RbConfig.ruby, BIN, "explain", "demo.rb", "--format=json", chdir: dir)
+      assert status.success?, out + err
+      data = JSON.parse(out)
+      assert_operator data["frame_cost"], :>, 0
+      refute_nil data["measured"], "the command always asks for the measurement"
+      assert_kind_of Array, data["findings"]
+    end
+  end
+
+  def test_explain_rejects_an_unknown_format
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = cli("explain", "demo.rb", "--format", "bogus", dir: dir)
+      refute status.success?
+      assert_match(/"bogus" is not an explain format/, out)
     end
   end
 

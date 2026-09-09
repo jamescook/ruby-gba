@@ -142,6 +142,8 @@ module RubyGBA
                                         .run(program, autofix: false)
       findings = findings.with(findings: findings.findings + priced.findings)
     end
+    # The findings ride on the record too, so a report asked for as data carries them.
+    record = record.with(findings: findings.findings) if findings
 
     progress.step("assembling the cartridge")
     # The cartridge carries what the build worked out about it — the program it came from,

@@ -600,7 +600,7 @@ module RubyGBA
       # rows they have nothing in, keyed by picture name. It matters because a picture that
       # cannot skip them walks every row of every column, and the difference is most of what
       # drawing a scaled sprite costs (see Backends::GBA::ColumnStretches).
-      attr_reader :var_addresses, :loop_shapes, :palette_entries, :column_stretches
+      attr_reader :var_addresses, :loop_shapes, :palette_entries, :column_stretches, :placement
 
       def initialize(fast_routines: nil, fast_frame: false, fast_interrupts: false,
                      placement: nil, var_addresses: nil, loop_shapes: nil,

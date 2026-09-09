@@ -55,14 +55,24 @@ module RubyGBA
     long_desc <<~TEXT
       Print the per-frame cost report for the game declared in GAME_FILE — the same
       report `build --explain` prints — without writing a .gba file.
+
+      --format=json prints the same facts as data, for something that is going to
+      compare two builds rather than read one: the frame and its budget, the measured
+      verdict per scene, what the quick memory kept and passed over, and the guardrail
+      findings. It goes to stdout, so it pipes.
     TEXT
+    option :format, banner: "NAME", default: "human",
+                    desc: "What to print: human (the report) or json (the same facts as data)"
     option :scene, type: :array, banner: "NAME", default: [],
                    desc: "Measure only these scenes in the report (default: all scenes)"
     option :keys, type: :array, banner: "BUTTON", default: [],
                   desc: "Hold these buttons while measuring (default: hold each button the game reads, in turn)"
     def explain(game_file)
+      format = { "human" => :human, "json" => :json }[options[:format]] or
+        raise Thor::Error, "#{options[:format].inspect} is not an explain format. The formats are: human, json."
       game = load_game(game_file)
-      explain_rom(game.build_rom)
+      # The guardrails print to stderr either way, so the JSON on stdout stays one document.
+      explain_rom(game.build_rom, format: format)
     end
 
     desc "inspect ROM_FILE", "Show a built .gba's header and a disassembly"
@@ -141,9 +151,9 @@ module RubyGBA
     # the measurement; when the emulator is not built, the report itself says so and shows
     # the estimate instead of failing. An unknown scene name is a friendly error, not a
     # backtrace.
-    def explain_rom(rom)
+    def explain_rom(rom, format: :human)
       only = options[:scene].any? ? options[:scene] : nil
-      rom.explain(measured: true, scenes: only, keys: held_buttons)
+      rom.explain(format: format, measured: true, scenes: only, keys: held_buttons)
     rescue ArgumentError => e
       raise Thor::Error, e.message
     end
