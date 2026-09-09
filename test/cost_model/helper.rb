@@ -57,7 +57,20 @@ module CostArith
   # engine's own moment before the first pixel moves. Two weights because only the first
   # gets faster when the code is kept in the console's quick memory.
   def dma_start = WEIGHTS[:dma_cpu_start] + WEIGHTS[:dma_engine_start]
-  def dma_rows(w, h) = (h * dma_start) + (w * h * WEIGHTS[:dma_pixel])
+
+  # A rectangle copied a row at a time. The pair above is what a row costs when the program
+  # knew where it was going — a fill whose rectangle is written into the code. `placed` is a
+  # row whose address the game works out as it runs, and `clipped` one that may hang off an
+  # edge and be trimmed to the screen first. A software sprite's save and restore are both.
+  def dma_rows(w, h, placed: false, clipped: false)
+    start = dma_start + (placed ? WEIGHTS[:dma_row_address] : 0) + (clipped ? WEIGHTS[:dma_row_clip] : 0)
+    (h * start) + (w * h * WEIGHTS[:dma_pixel])
+  end
+
+  # The two shapes that always carry those, named so a test says which it means rather than
+  # repeating the flags: a rectangle the game places, and a copy that is also trimmed.
+  def dma_rows_placed(w, h) = dma_rows(w, h, placed: true)
+  def dma_rows_clipped(w, h) = dma_rows(w, h, placed: true, clipped: true)
   # fill_rect in direct color: every pixel written out, one store each. They are a RUN,
   # which is cheaper per pixel than a lone `pixel` (that has to work out a whole address
   # and fetch its color for the one write).

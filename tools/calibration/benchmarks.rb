@@ -246,6 +246,40 @@ module RubyGBA
         @m.stall(name, rom)
       end
 
+      # The SAME per-row transfer, with the rectangle's position worked out as the game runs.
+      # The fill above folded every row's address in while the program was built; here the CPU
+      # has to build one from the live x and y before it can kick the engine off. Growing the
+      # height at a fixed width adds rows and nothing else, so the marginal is that per row —
+      # and what it has over the fixed fill's row is the whole of the difference.
+      def rect_at_busy(w, h, per_frame)
+        stable_busy("rat#{w}x#{h}", per_frame) { |b, xv| b.draw_rect_at xv, 0, w, h, :red }
+      end
+
+      # ...and again with the row TRIMMED to the screen, which is what a copy that may hang off
+      # an edge does before either address is any use: a test at the top and bottom, the visible
+      # span worked out at both sides, and both ends of the copy moved to match. A software
+      # sprite's save and restore are this, and so is an opaque picture blitted at a worked-out
+      # position, which is what this measures because it is the one of the three a game can ask
+      # for in a line.
+      #
+      # THE ART IS SOLID ON PURPOSE, which is the mirror of the note on #blit_busy: a picture
+      # with a see-through pixel is drawn a pixel at a time instead of streamed a row at a time,
+      # so keeping one here would measure the other shape entirely.
+      def opaque_blit_busy(w, h, per_frame)
+        name = "obl#{w}x#{h}"
+        art = (["#" * w] * h).join("\n")
+        rom = cartridge_build(name) do
+          screen :bitmap
+          clear_screen :black
+          image(:solid, "#" => :red) { art }
+          xv = var :bx, 40
+          yv = var :by, 20
+          b = self
+          game_loop { b.wait_vblank; b.repeat(per_frame) { b.blit :solid, xv, yv } }
+        end
+        @m.busy(name, rom)
+      end
+
       # A rectangle of a fixed size, written straight out — one address and one store a pixel
       # — so growing the WIDTH at a fixed height adds pixels and nothing else.
       def fill_rect_busy(w, h, per_frame, y = FILL_Y)

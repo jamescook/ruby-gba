@@ -20,7 +20,7 @@ class TestCostTree < CostModelTest
     tree = Cost.new.analyze(prog)
     assert_equal %i[fill_rect draw_rect_at], tree.map(&:op)
     near plot_rect(10, 10), tree[0].cost
-    near dma_rows(8, 8), tree[1].cost
+    near dma_rows_placed(8, 8), tree[1].cost
   end
 
   # A repeat node carries its multiplied cost and keeps its per-iteration body — which
@@ -32,9 +32,9 @@ class TestCostTree < CostModelTest
       halt
     end
     rep = Cost.new.analyze(prog).find { |n| n.op == :repeat }
-    near loop_cost(3, dma_rows(8, 8)), rep.cost
+    near loop_cost(3, dma_rows_placed(8, 8)), rep.cost
     assert_equal "the loop itself", rep.children.first.label
-    near dma_rows(8, 8), rep.children.last.cost # per-iteration
+    near dma_rows_placed(8, 8), rep.children.last.cost # per-iteration
   end
 
   # A case node's cost is its worst branch, but it keeps every branch's cost.
@@ -52,9 +52,9 @@ class TestCostTree < CostModelTest
       end
     end
     cnode = Cost.new.analyze(prog).find { |n| n.op == :case }
-    near dma_rows(10, 10), cnode.cost
-    near dma_rows(2, 2), cnode.children[0].cost
-    near dma_rows(10, 10), cnode.children[1].cost
+    near dma_rows_placed(10, 10), cnode.cost
+    near dma_rows_placed(2, 2), cnode.children[0].cost
+    near dma_rows_placed(10, 10), cnode.children[1].cost
   end
 
   # --- scoping transforms (data in, data out — the guts of the drill-down view) ---

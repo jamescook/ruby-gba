@@ -395,7 +395,7 @@ class TestTearFreeDrawing < CostModelTest
     end
 
     near frame_boundary + tearfree_blit(8, 4), Cost.new.steady_cost(paged)
-    near frame_boundary + dma_rows(8, 4), Cost.new.steady_cost(plain)
+    near frame_boundary + dma_rows_clipped(8, 4), Cost.new.steady_cost(plain)
     assert_operator Cost.new.steady_cost(paged), :<, Cost.new.steady_cost(plain),
                     "half the units through the engine has to cost less"
   end

@@ -238,6 +238,26 @@ module RubyGBA
         # the pair.
         def dma_start_weight = @weights[:dma_cpu_start] + @weights[:dma_engine_start]
 
+        # ...and what a row costs on top of that when the program did not know where it was
+        # going. The pair above is a rectangle written into the program — every row's address
+        # settled while the cartridge was built, leaving the CPU three registers to write — and
+        # almost nothing a game draws is like that.
+        #
+        # A rectangle the game PLACES has to have its address built from the live x and y first.
+        # A copy that can hang off an EDGE has to be trimmed to the screen before either end of
+        # it means anything: a test at the top and the bottom, the visible span worked out at
+        # both sides, and both ends of the copy moved to match. That trim is the dearer of the
+        # two by a wide margin, and dearer than its instructions look, because it is five
+        # branches and a branch costs more than the instruction it is.
+        #
+        # THIS IS MOSTLY WHAT A SOFTWARE SPRITE SPENDS. Such a sprite saves the pixels it is
+        # about to cover and puts them back on the next frame, and both are this shape, as is
+        # the picture it draws in between. A five-pixel heart is five rows of five pixels, so
+        # the row is nearly the whole cost and the pixels are the rounding.
+        def placed_row_weight(clipped: false)
+          @weights[:dma_row_address] + (clipped ? @weights[:dma_row_clip] : 0)
+        end
+
         def own_op_cost(node, worst = true)
           counted(node, worst) || priced_op_cost(node, worst)
         end
@@ -257,13 +277,15 @@ module RubyGBA
           when :dma_fill_rect
             @walker.tear_free? ? tearfree_fill_cost(node) : dma_rows_cost(node.w, node.h)
           when :draw_rect_at
-            @walker.tear_free? ? tearfree_moving_rect_cost(node) : dma_rows_cost(node.w, node.h)
+            # Its position is worked out as the game runs — but it is not trimmed, so a caller
+            # keeps it on screen itself.
+            @walker.tear_free? ? tearfree_moving_rect_cost(node) : dma_rows_cost(node.w, node.h, placed: true)
           when :draw_column_at then draw_column_cost(node, worst)
           when :clear_screen then clear_screen_cost
           when :draw_text then Fonts.get(node.font).text_pixels(node.text) * glyph_pixel_weight(node)
           when :draw_digit then digit_cost(node)
           when :blit then blit_cost(node.name)
-          when :blit_pose then blit_cost(node.poses.first)         # one pose draws; all are the same size
+          when :blit_pose then pose_blit_cost(node, worst)
           when :save_region, :restore_region then region_cost(node.buffer)
           # Tiled-mode per-frame upkeep: a rewrite per presented sprite (dearer for one
           # that turns or resizes — see #present_object_cost), and the two scroll-register
@@ -1217,7 +1239,11 @@ module RubyGBA
           @weights[first] + (((node.width || 1) - 1) * @weights[extra])
         end
 
-        def dma_rows_cost(w, h)
+        # A rectangle copied a row at a time. +placed+ says the game works its position out as
+        # it runs, and +clipped+ that it may hang off an edge and be trimmed to the screen —
+        # see #placed_row_weight for what each of those adds. Neither changes the transfer
+        # itself, only what the CPU does before each row of it starts.
+        def dma_rows_cost(w, h, placed: false, clipped: false)
           w = const_side(w)
           h = const_side(h)
           # A side the game works out as it runs has no provable size, so — like a loop
@@ -1225,7 +1251,8 @@ module RubyGBA
           # the estimate says out loud that it could not account for it.
           return 0 unless w && h
 
-          (h * dma_start_weight) + (w * h * @weights[:dma_pixel])
+          start = dma_start_weight + (placed ? placed_row_weight(clipped: clipped) : 0)
+          (h * start) + (w * h * @weights[:dma_pixel])
         end
 
         # A rect side as a build-time number, or nil when the game works it out as it
@@ -1272,6 +1299,26 @@ module RubyGBA
           song.voices.sum { |voice| voice[:events].to_a.length }
         end
 
+        # A SPRITE THAT SWAPS BETWEEN PICTURES — a coin spinning, a character walking — draws
+        # exactly one of them on any frame, and which one is not known until the game runs.
+        # The poses are all the same SIZE, so a solid one costs the same whichever is showing;
+        # a see-through one is charged by its LIT pixels, and those are what the swapping is
+        # for. A spinning coin is a fat disc face-on and a thin sliver edge-on, six times
+        # apart, so there is no one number and the two questions want different ones.
+        #
+        # The worst frame takes the dearest pose, because that is a frame the game really
+        # reaches and a frame that does not fit tears whichever picture was showing. Every
+        # frame takes the average, which is what a cycle of them delivers: a flipbook shows
+        # each pose for the same number of frames, so the average frame really does cost the
+        # mean. It is the same pair of questions the rest of the model asks; this one node was
+        # answering both with whichever pose happened to be written first.
+        def pose_blit_cost(node, worst)
+          costs = node.poses.map { |pose| blit_cost(pose) }
+          return 0 if costs.empty?
+
+          worst ? costs.max : costs.sum / costs.length.to_f
+        end
+
         # A blit costs by how it is drawn, and the two ways are nothing alike.
         #
         # An image with no see-through color streams onto the screen in whole rows, so it
@@ -1298,7 +1345,9 @@ module RubyGBA
           bmp = @catalogue && @catalogue.bitmaps[name]
           return 0 unless bmp
           return tearfree_blit_cost(bmp) if @walker.tear_free?
-          return dma_rows_cost(bmp.width, bmp.height) unless bmp.transparent
+          # A solid picture streams a row at a time, at a position the game works out and
+          # clipped to the screen — the same shape a sprite's save and restore have.
+          return dma_rows_cost(bmp.width, bmp.height, placed: true, clipped: true) unless bmp.transparent
 
           @weights[:blit_start] + (bmp.lit_rows * @weights[:blit_row]) +
             (bmp.lit_pixels * @weights[:blit_pixel]) +
@@ -1323,11 +1372,12 @@ module RubyGBA
         end
 
         # Saving or restoring a patch copies its footprint by per-row DMA — the same
-        # cost as an opaque blit of that size. The size lives on the backing_buffer
+        # cost as an opaque blit of that size, down to the row being placed where the sprite
+        # is and trimmed where it hangs off an edge. The size lives on the backing_buffer
         # declaration, catalogued in #index. An unknown buffer costs nothing.
         def region_cost(name)
           w, h = @catalogue && @catalogue.backing[name]
-          w ? dma_rows_cost(w, h) : 0
+          w ? dma_rows_cost(w, h, placed: true, clipped: true) : 0
         end
       end
     end

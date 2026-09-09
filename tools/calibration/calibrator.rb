@@ -732,6 +732,34 @@ module RubyGBA
                                                note: "the engine's own moment before a row's first pixel moves, as stall")
         weigh(:dma_pixel, dma_pixel, varies: :dma_row_pixels, from: 40, to: 200,
                                      note: "one pixel of a transfer, as engine stall")
+        placed_rows(cpu_start)
+      end
+
+      # WHAT A ROW COSTS BEFORE ITS PIXELS MOVE, when where it goes is not known until the game
+      # is running. The pair above was measured on a fill whose rectangle is written into the
+      # program, so every row's address was worked out while the cartridge was built and the CPU
+      # had nothing to do but write three registers. Almost nothing a game draws is like that.
+      #
+      # A rectangle the game places has to have its address built from the live x and y first,
+      # and a copy that can hang off an edge — a software sprite saving and restoring the pixels
+      # it covers, or a picture blitted at a position the game works out — has to trim the row to
+      # the screen before either end of it means anything. Both were charged the fixed fill's
+      # row, which is where a screen of small sprites lost most of what it spends: a five-pixel
+      # sprite is five rows of five, so the row is nearly all of it.
+      #
+      # THE TWO ARE A LADDER, and measured as one: each tier does what the tier below does and
+      # more, so taking the tier below out of it leaves what that tier alone added.
+      def placed_rows(cpu_start)
+        placed = Reductions.marginal(@bench.rect_at_busy(2, 40, 15), @bench.rect_at_busy(2, 8, 15),
+                                     over: (40 - 8) * 15)
+        clipped = Reductions.marginal(@bench.opaque_blit_busy(2, 40, 15), @bench.opaque_blit_busy(2, 8, 15),
+                                      over: (40 - 8) * 15)
+        weigh(:dma_row_address, Reductions.residual(placed, cpu_start),
+              varies: :dma_rows, from: 8, to: 40,
+              note: "building one row's address, where the game works its position out as it runs")
+        weigh(:dma_row_clip, Reductions.residual(clipped, placed),
+              varies: :dma_rows, from: 8, to: 40,
+              note: "trimming one such row to the screen, where the copy can hang off an edge")
       end
 
       # --- tiled per-frame upkeep ---
