@@ -424,7 +424,8 @@ module RubyGBA
                                    var_addresses: var_addresses, loop_shapes: loop_shapes,
                                    palette_entries: palette_entries,
                                    column_stretches: @column_stretches,
-                                   compression: compression_report)
+                                   compression: compression_report,
+                                   build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
         end
 
         # Lower a program to finished GBA machine code: run the emit pass and

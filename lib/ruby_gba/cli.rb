@@ -62,8 +62,7 @@ module RubyGBA
                   desc: "Hold these buttons while measuring (default: hold each button the game reads, in turn)"
     def explain(game_file)
       game = load_game(game_file)
-      rom = game.build_rom
-      rom.explain(measured: measured_verdicts(game))
+      explain_rom(game.build_rom)
     end
 
     desc "inspect ROM_FILE", "Show a built .gba's header and a disassembly"
@@ -97,9 +96,7 @@ module RubyGBA
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
       say rom.compression.summary_line if options[:stats] && rom.compression&.any?
       say placement_line(rom) if options[:stats] && rom.placement&.funcs&.any?
-      if options[:explain] || options[:scene].any? || options[:keys].any?
-        rom.explain(measured: measured_verdicts(game))
-      end
+      explain_rom(rom) if options[:explain] || options[:scene].any? || options[:keys].any?
     end
 
     # The "ir" format (--format=ir): the game's IR as a standalone Ruby class, instead
@@ -140,19 +137,13 @@ module RubyGBA
              placement.code_bytes / 1024.0, placement.free_bytes / 1024.0)
     end
 
-    # Measure the game's scenes on the emulator and return the plain verdict hash the
-    # explain report folds in: { scene_or_nil => { scanlines:, fps:, saturated:, keys: } }
-    # — a whole-frame reading for a single-loop game (nil key), or one per scene. Returns
-    # nil when the emulator is not built, so the report shows the hedged estimate instead
-    # of failing. An unknown scene name is a friendly error, not a backtrace.
-    def measured_verdicts(game)
+    # The cost report, with the verdict measured on the emulator. The command always asks for
+    # the measurement; when the emulator is not built, the report itself says so and shows
+    # the estimate instead of failing. An unknown scene name is a friendly error, not a
+    # backtrace.
+    def explain_rom(rom)
       only = options[:scene].any? ? options[:scene] : nil
-      RubyGBA::Analyzer.profile(game, only: only, keys: held_buttons).transform_values do |result|
-        { scanlines: result.scanlines, fps: result.fps, saturated: result.saturated?,
-          per_pass: result.per_pass, keys: result.keys }
-      end
-    rescue LoadError
-      nil
+      rom.explain(measured: true, scenes: only, keys: held_buttons)
     rescue ArgumentError => e
       raise Thor::Error, e.message
     end

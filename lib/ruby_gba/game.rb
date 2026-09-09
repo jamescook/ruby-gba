@@ -14,10 +14,9 @@ module RubyGBA
   class Game
     attr_reader :title, :code, :maker
 
-    # How this game is built, for anything that has to build it the same way — the
-    # profiler especially: a ROM measured with different settings is not the ROM that
-    # ships, and the difference between code in the cartridge and code in the console's
-    # quick memory is a factor of about two and a half.
+    # How this game is built, for anything that has to build it the same way — the IR dump
+    # (`build --format=ir`), whose emitted class has to lower to the same cartridge. A
+    # finished ROM carries the same pair in its {BuildRecord}.
     def build_options
       { fast_cartridge: @fast_cartridge, fast_code: @fast_code }
     end
@@ -36,14 +35,12 @@ module RubyGBA
     # Built with the same frame timing #build_rom uses, so the tree a test runs is
     # the tree that ships.
     #
-    # RUN ONCE AND REMEMBERED, because asking a game what it is should not be an event.
-    # The profiler asks a game for its program once to find its scenes and again for each
-    # scene it measures, so without this a seven-screen game runs its own block eight
-    # times — and a game's block is the slowest thing in a build, since it is where the
-    # art and the levels are read off disk. Every consumer in the library treats the tree
-    # as read-only and the two that rewrite one (see {Analyzer#boot_into} and
-    # {Analyzer#instrument_frame_counter}) already answer a copy, so there is one tree and
-    # everybody shares it.
+    # RUN ONCE AND REMEMBERED, because asking a game what it is should not be an event: a
+    # game's block is the slowest thing in a build, since it is where the art and the levels
+    # are read off disk, and a test or a tool asks more than once. Every consumer in the
+    # library treats the tree as read-only and the two that rewrite one (see
+    # {Analyzer#boot_into} and {Analyzer#instrument_frame_counter}) already answer a copy,
+    # so there is one tree and everybody shares it.
     #
     # The game's own progress reporting is OFF here, deliberately: this path is a test or
     # a tool asking what the game is, and nobody is watching a tree being built. A person

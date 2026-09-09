@@ -28,7 +28,11 @@ module RubyGBA
       # Print a short, human draw-cost estimate to +out+: the per-frame cost against
       # the frame budget for a game loop, or the one-time boot cost otherwise. (The
       # full drill-down tree comes later; this is the at-a-glance summary.)
-      def report(program, out: $stdout, color: :auto, measured: nil)
+      #
+      # +measured+ is the emulator's reading of the frame, when one was taken — then it is
+      # the verdict. +unmeasured+ says why there is none: :not_asked, or :no_emulator when
+      # one was asked for and there was nothing to run it on. The two want different advice.
+      def report(program, out: $stdout, color: :auto, measured: nil, unmeasured: :not_asked)
         index(program)
         printer = Printer.for(out, color: color)
         tree = @tree.category_tree(program)
@@ -41,13 +45,14 @@ module RubyGBA
         frame_totals_lines(program, printer, frame_total)
         tree.each { |cat| category_line(cat, printer, frame_total) } # section subtotals, no detail
         glyph_footprint_lines(program, printer)
-        budget_summary_lines(program, printer, frame_total, measured: measured)
+        budget_summary_lines(program, printer, frame_total, measured: measured, unmeasured: unmeasured)
       end
 
       # The drill-down: the verdict, then the (aggregated, depth-limited) cost tree,
       # then the hottest ops. +focus+ roots the tree at a named func; +max_depth+
       # bounds how deep it prints (deeper subtrees collapse to a rollup line).
-      def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5, color: :auto, measured: nil)
+      def render(program, out: $stdout, max_depth: 3, focus: nil, top: 5, color: :auto, measured: nil,
+                 unmeasured: :not_asked)
         index(program)
         printer = Printer.for(out, color: color)
         tree = @tree.category_tree(program, focus: focus)
@@ -68,7 +73,7 @@ module RubyGBA
         stack_lines(program, printer) unless focus
         fast_memory_lines(program, printer) unless focus
         column_stretch_lines(printer) unless focus
-        budget_summary_lines(program, printer, frame_total, measured: measured) unless focus
+        budget_summary_lines(program, printer, frame_total, measured: measured, unmeasured: unmeasured) unless focus
       end
 
       # THE TWO FRAMES, named, at the top. They can be a factor apart — a game whose work
@@ -477,7 +482,7 @@ module RubyGBA
       # ~228 scanlines) and, for a single-buffered game, tearing (drawing alone vs the
       # ~68-line vblank). A static program reports its one-time boot cost; a scene-
       # switching game reports each scene against its own mode's budget.
-      def budget_summary_lines(program, printer, frame_total, measured: nil)
+      def budget_summary_lines(program, printer, frame_total, measured: nil, unmeasured: :not_asked)
         # A verdict is a comparison, and every comparison against a NaN answers false — so a
         # frame that does not price to a number would print "within budget" and "no tearing"
         # with complete confidence. Refuse instead; the banner above names what produced it.
@@ -539,7 +544,7 @@ module RubyGBA
         if measured
           blind_spot_note(program, printer)
         else
-          estimate_only_hint(program, printer)
+          estimate_only_hint(program, printer, unmeasured)
         end
       end
 
@@ -718,14 +723,20 @@ module RubyGBA
         end
       end
 
-      # No measurement ran (the emulator was not available), so the frame rate is an
-      # estimate. If the estimate is also blind to part of the frame, say a real reading
-      # is the only way to be sure. There is no flag to name — a build measures on its own
-      # when it can.
-      def estimate_only_hint(program, printer)
+      # No measurement ran, so the frame rate is an estimate — and WHY none ran, because the
+      # two reasons want different next steps: not asked for, say how to ask; asked for with
+      # no emulator to run it on, say what to build. If the estimate is also blind to part
+      # of the frame, a real reading is the only way to be sure, whichever reason it was.
+      def estimate_only_hint(program, printer, unmeasured)
         blind = @verdicts.estimate_blind_spots(program)
-        reason = blind.any? ? " — #{blind.join(' and ')} here can't be priced, so run it to be sure" : ""
-        printer.puts "  estimate only — the emulator did not run, so the frame rate is not measured#{reason}"
+        sure = blind.any? ? " The estimate cannot price #{blind.join(' or ')} here, so run the game to be sure." : ""
+        how =
+          if unmeasured == :no_emulator
+            "the measured answer needs the emulator, and it is not built. To build it, run `rake test:mgba`."
+          else
+            "the game did not run, so the frame rate is not measured. To measure it, call explain(measured: true)."
+          end
+        printer.puts "  estimate only — #{how}#{sure}"
       end
 
       # With a measurement in hand, note that the estimate's blind spots (an unbounded
