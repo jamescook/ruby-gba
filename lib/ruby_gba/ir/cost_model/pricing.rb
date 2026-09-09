@@ -872,6 +872,19 @@ module RubyGBA
           @weights[:tearfree_moving_start] + (h * tearfree_moving_row_cost(w, node.x))
         end
 
+        # What the same moving rectangle would cost if its column were proved EVEN — the
+        # price the report holds beside the real one when the column is odd or unproved, so
+        # the author can see what an even grid would buy. nil for a rectangle that is not a
+        # moving one on this screen.
+        def even_column_cost(node)
+          w = const_side(node.w)
+          h = const_side(node.h)
+          return nil unless w && h && w.positive?
+          return nil if const_side(node.x) && const_side(node.y)
+
+          @weights[:tearfree_moving_start] + (h * tearfree_row_parity_cost(w, false))
+        end
+
         # One row of a moving rectangle. Which pixels need an edge write follows from
         # whether the column the rectangle starts in is even or odd, and that is often
         # settled while building even when the column itself is not: a game laying its
