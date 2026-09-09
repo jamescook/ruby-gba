@@ -284,6 +284,19 @@ module RubyGBA
         index = operand_read
         weigh(:list_read, @bench.per_indexed_read(:list) - index,
               note: "reading one element of a list, apart from the index")
+        # ...and ONE element read per pass of a walk, by the loop's own counter, on a plain
+        # list — the shape every pool's live test and every list `each` emits. Measured as a
+        # walk against the same walk testing a variable (see Benchmarks#per_walk_read), because
+        # the read above is measured over several reads inside one pass, and that regime is
+        # cheaper per element than a walk ever sees; priced at it, a pool's whole walk read a
+        # third over the console. Nothing to hand back: the walk's index is its counter.
+        weigh(:list_read_in_walk, @bench.per_walk_read,
+              note: "reading one element of a plain list per pass of a walk, by a counter kept in a register (a pool's live test, a list's each)")
+        # ...and the same walk with its counter in memory — a body that holds a loop of its
+        # own, or drops to raw instructions — where the counter is loaded before the element
+        # is reached.
+        weigh(:list_read_in_walk_memory, @bench.per_walk_read(blocked: true),
+              note: "the same, by a counter that lives in memory")
         # ...and WRITING one, which was charged as a plain variable statement until the two
         # stopped costing alike. A variable is reached from a base held in a register plus a
         # distance settled while building; an element has its index worked out and added, which

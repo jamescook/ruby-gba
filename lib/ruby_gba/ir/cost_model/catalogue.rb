@@ -14,7 +14,7 @@ module RubyGBA
       # dozen ivars on the CostModel instance.
       Catalogue = Data.define(:modes, :funcs, :capacities, :declared, :list_lengths,
                               :table_lengths, :songs, :bitmaps, :objects, :backing,
-                              :sees_through) do
+                              :sees_through, :rings) do
         # THE CATALOGUE OF A PROGRAM, walking it only if this is not the program that was
         # walked last. Ask for it this way rather than calling .build.
         #
@@ -88,9 +88,15 @@ module RubyGBA
             backing[node.name] = [node.width, node.height] if node.kind == :backing_buffer
           end
 
+          # Which lists are rings — the ones the program shifts — decides what a read of them
+          # costs (see Pricing#list_read_weight). The backend is what decides a list's shape,
+          # so it is asked rather than restated.
+          rings = Backends::GBA.shifted_lists(program)
+
           new(modes: modes, funcs: funcs, capacities: capacities, declared: declared,
               list_lengths: list_lengths, table_lengths: table_lengths, songs: songs,
-              bitmaps: bitmaps, objects: objects, backing: backing, sees_through: sees_through)
+              bitmaps: bitmaps, objects: objects, backing: backing, sees_through: sees_through,
+              rings: rings)
         end
 
         # Which screen each routine of the program draws on. A program that reaches one

@@ -192,6 +192,10 @@ module RubyGBA
       "varop6" => "fb7178fbe8079a7031c0f012160ef6930b7f2e8215316e7c8625c096a844511b",
       "vsw2" => "517b6327961f49c4eecc594ef72d342fcaba56614bd4f90f4ee9ec96ce5d8830",
       "vsw6" => "fe5adab1097630abc3ac9b5367b71754f230060521ff7adb331b789ff89a6889",
+      "walklistm" => "db841f449c36958589b90fda3bc0d63d0ba23a8f286c03a950355916eb99fd36",
+      "walklistr" => "c4fa70cf4bb67f4b54bdc6d007864ed9550526c7f202af1fa6e308abe095f65a",
+      "walkvarm" => "4d7ca526e9a9d49aa0b3fc1b2be1655a8ee7a93844fb739c6c728d65b5a51d72",
+      "walkvarr" => "c6e50a5e08a1ffe83244aae41c71ff79dfbc70e11e3ecbadf6904a22583797cc",
     }.freeze
 
     # The emulator that read them (its own sources, in one digest).

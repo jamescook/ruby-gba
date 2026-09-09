@@ -15,7 +15,7 @@ class TestPricingClass < CostModelTest
   def empty_catalogue
     Catalogue.new(modes: nil, funcs: {}, capacities: {}, declared: {}, list_lengths: {},
                   table_lengths: {}, songs: {}, bitmaps: {}, objects: {}, backing: {},
-                  sees_through: false)
+                  sees_through: false, rings: Set.new)
   end
 
   def test_prices_an_op_from_its_own_weights_with_no_costmodel_involved

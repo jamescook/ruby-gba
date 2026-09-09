@@ -414,6 +414,14 @@ module RubyGBA
           )
         end
 
+        # Which lists the program SHIFTS. Those are rings — a head that moves and a mask that
+        # wraps it — where every other list is a plain row of slots, and the two are reached
+        # differently (see Lists#emit_slot_address). A class method because the cost model asks
+        # the same question to price a read: asked here, not restated there.
+        def self.shifted_lists(program)
+          program.walk.filter_map { |n| n.name if n.kind == :list_drop && n.from == :front }.to_set
+        end
+
         # Everything this build worked out about the program it just lowered, in one piece,
         # for the cartridge to carry (see {RubyGBA::BuildRecord}). Valid after #lower —
         # every part of it is a decision the lowering made. Handing it over whole is what
@@ -895,7 +903,7 @@ module RubyGBA
           # the next power of two. Nearly all of them are — a pool's fields, a board, anything
           # filled once and then read by number — and on a cartridge with a lot of them the
           # rounding was thousands of bytes of the console's 32K. See Lists.
-          shifted = program.walk.filter_map { |n| n.name if n.kind == :list_drop && n.from == :front }.to_set
+          shifted = self.class.shifted_lists(program)
 
           program.walk do |node|
             case node.kind
