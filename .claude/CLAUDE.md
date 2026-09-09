@@ -228,6 +228,13 @@ Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, n
   true. Measured numbers belong in the generated weights file, in a calibration note, or in
   a commit message — all of which are dated by construction.
 
+### Writing commit messages
+
+- Commit messages are for humans and should read as if a human wrote them.
+- Be concise.
+- Do not mention beads in git commit messages comments. beads is internal to this machine (for now).
+- Avoid AI "fluff" that sounds pleased with itself - be direct and get to the point.
+
 ### Writing user-facing errors and warnings — use the `simple-english` skill
 
 When you write or change a guardrail finding, a DSL error message, or a validator
@@ -238,6 +245,10 @@ the command. Say what happened, then what to do about it, early. Prefer `can`,
 strings the user reads. It does **not** apply to code comments — those stay
 conversational and explain the hardware generously (see above). The friendly,
 teaching tone stays; the skill only makes it clear and consistent.
+
+### Claude Memory
+- Don't use it, period. Material knowledge for RubyGBA goes in code comments
+- Code style should be Rubocop or similar
 
 ### DSL Conventions
 
