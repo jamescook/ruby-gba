@@ -24,6 +24,37 @@ class TestAnalyzer < Minitest::Test
     end
   end
 
+  # A FRAME THAT IS THE SAME EVERY TIME HAS ONE ANSWER, so both readings give it. This is the
+  # baseline the next test is read against.
+  def test_a_uniform_frame_costs_its_typical_frame
+    result = measure do
+      screen :bitmap
+      n = var :n, 0
+      game_loop { 200.times { n.add 1 } }
+    end
+
+    assert_in_delta result.scanlines, result.typical, result.scanlines * 0.05,
+                    "nothing about this frame varies, so the worst is the usual"
+  end
+
+  # ...AND A FRAME WITH RARE WORK IN IT HAS TWO, far apart. `every 10` fires three times in a
+  # thirty-frame window, so the worst frame carries the whole board and twenty-seven do not.
+  #
+  # Both are worth measuring because the model prices both: what every frame pays, and what the
+  # worst one does. Held against the wrong one, a game like this reads as badly mispriced when
+  # the estimate is right — examples/pacman.rb read 1.60 of the console that way, on a frame
+  # that happened twice in a hundred and fifty.
+  def test_rare_work_makes_the_worst_frame_and_the_usual_one_differ
+    result = measure do
+      screen :bitmap
+      game_loop { every(10) { fill_rect 0, 0, 120, 80, :red } }
+    end
+
+    assert_operator result.scanlines, :>, result.typical * 2,
+                    "the frame that draws the board is far dearer than one that does not"
+    assert_operator result.typical, :>, 0, "and the usual frame still costs something"
+  end
+
   def test_a_light_loop_measures_a_small_per_frame_cost
     result = measure do
       screen :bitmap

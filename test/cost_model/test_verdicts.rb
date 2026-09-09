@@ -503,6 +503,29 @@ class TestCostVerdicts < CostModelTest
     refute_match(/tearing is the estimate's alone/, out)
   end
 
+  # THE WORST FRAME AND THE USUAL ONE ARE TWO ANSWERS, and the budget line gives both when
+  # they differ. The number a budget is about is the worst — a frame that does not fit tears,
+  # however rare it is — but a reader holding that against the "every frame" estimate above
+  # would think the estimate badly wrong when it is right. examples/pacman.rb measures 4.1 at
+  # its worst and 2.5 the rest of the time, against an estimate of 2.6.
+  def test_a_frame_with_rare_work_reports_the_usual_one_beside_the_worst
+    reading = { nil => { scanlines: 40.0, typical: 12.0, fps: nil, saturated: false } }
+    out = reported(loop_of_clears(1, buffered: false), measured: reading)
+
+    assert_match(/measured ~40\.0 of 228 scanlines/, out)
+    assert_match(/a usual frame ~12\.0/, out)
+  end
+
+  # ...and says nothing when the frame is the same every time, rather than printing one number
+  # twice. Most programs are this one.
+  def test_a_uniform_frame_is_not_told_its_own_cost_twice
+    reading = { nil => { scanlines: 40.0, typical: 39.5, fps: nil, saturated: false } }
+    out = reported(loop_of_clears(1, buffered: false), measured: reading)
+
+    assert_match(/measured ~40\.0 of 228 scanlines/, out)
+    refute_match(/a usual frame/, out)
+  end
+
   # A run that looked and found nothing says THAT, which is the answer the estimate could
   # never give.
   def test_a_measured_run_that_found_no_tear_says_so

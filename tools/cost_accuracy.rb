@@ -89,9 +89,17 @@ module CostAccuracy
 
   # What one example costs, estimated and measured.
   #
-  # The estimate is the EVERY-FRAME figure priced with the build's own answers, which is the
-  # one the report's budget line judges and the only one the console's reading can be held
-  # against. A worst-case total would be a different frame from the one being measured.
+  # THE EVERY-FRAME FIGURE AGAINST A TYPICAL FRAME, which is one question asked once. It used
+  # to be the every-frame figure against the WORST frame the profiler found, and those are two
+  # questions: the model deliberately leaves rare work out of what every frame pays, so a game
+  # holding any measured pacman at 1.60 of the console when a typical pacman frame costs 2.48
+  # against an estimate of 2.575 — four per cent over. The dear frames were two in a hundred
+  # and fifty, and the ratio was measuring how spiky the game is.
+  #
+  # Eight of the twenty-four scorable examples hold work the every-frame figure leaves out, so
+  # this was a third of the corpus scoring the mismatch rather than the model. It flattered as
+  # well as penalised: breakout read 0.88 against a worst scene where a typical frame of the
+  # same scene is far cheaper.
   #
   # BOTH HALVES OF IT. The walk over the program's statements is only part of a frame: the
   # sound mixer, a background bent row by row, a timer's tick handlers and the sprites a
@@ -112,14 +120,19 @@ module CostAccuracy
     Reading.new(name: name, note: "#{e.class}: #{e.message.lines.first.to_s.strip}")
   end
 
-  # The console's own reading of the worst scene. A run that overran a frame reports what a
-  # whole pass cost instead, since its scanline reading is pinned at the ceiling and says
-  # only "at least a frame".
+  # A TYPICAL FRAME OF THE WORST SCENE. Which scene is still chosen by its worst frame — that
+  # is the scene an author cares about and the one the report names — and what is read off it
+  # is the middle of its window rather than the peak, so the number means the same thing the
+  # every-frame estimate does.
+  #
+  # A run that overran a frame reports what a whole PASS cost instead, since its scanline
+  # reading is pinned at the ceiling and says only "at least a frame". There is no typical
+  # frame to be had there: every frame in the window is the ceiling.
   def console(rom)
     readings = RubyGBA::Analyzer.profile(rom.source_program, options: rom.build_options)
     reading = readings.values.max_by(&:scanlines)
     return { note: "the emulator gave no reading" } unless reading
-    return { measured: reading.scanlines.to_f } unless reading.saturated?
+    return { measured: (reading.typical || reading.scanlines).to_f } unless reading.saturated?
     return { note: "over a frame, and the pass was not counted" } unless reading.per_pass
 
     { measured: reading.per_pass.to_f }

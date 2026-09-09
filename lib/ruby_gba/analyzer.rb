@@ -28,7 +28,7 @@ module RubyGBA
     # nearly fill and still meet every one. It means "go and count the frames instead".
     SATURATED = 200
     SETTLE = 8            # frames to run before reading, so the game reaches steady state
-    WINDOW = 30           # frames read per attempt; the worst of them is that attempt's cost
+    WINDOW = 30           # frames read per attempt; the worst is its cost and the middle its typical
     FPS_WINDOW = 90       # emulated frames to count game frames over, for a saturated scene's real rate
 
     # The op kinds that read a button, so the profiler can ask a program which buttons it
@@ -52,8 +52,18 @@ module RubyGBA
     # +tearing+ is what the display really showed, on the one screen where that can be
     # asked: how many rows went up before the game had finished them (see {Tearing}). It is
     # the one verdict the report could never check, only estimate.
-    Result = Data.define(:scanlines, :fps, :keys, :per_pass, :tearing) do
-      def initialize(scanlines:, fps: nil, keys: [], per_pass: nil, tearing: Tearing::Reading.none)
+    #
+    # +typical+ is the MIDDLE frame of the same window, and it answers a different question
+    # from +scanlines+. A game whose frame is the same every time has one answer and both
+    # numbers give it. A game with work that only happens sometimes — a per-pixel collision
+    # that walks only when two sprites really touch — has two, and they are far apart:
+    # measured on examples/pacman.rb, a typical frame costs 2.48 and the worst of a hundred
+    # and fifty costs 4.11, with the dear ones happening twice. The model prices both
+    # questions too (what every frame pays, and what the worst one does), so having both
+    # measured is what lets each be held against the estimate that means the same thing.
+    Result = Data.define(:scanlines, :typical, :fps, :keys, :per_pass, :tearing) do
+      def initialize(scanlines:, typical: nil, fps: nil, keys: [], per_pass: nil,
+                     tearing: Tearing::Reading.none)
         super
       end
 
@@ -73,7 +83,8 @@ module RubyGBA
       # this module's types. The tearing reading travels as its three numbers for the same
       # reason, and as nothing at all where the screen could not be asked.
       def for_report
-        { scanlines: scanlines, fps: fps, saturated: saturated?, per_pass: per_pass, keys: keys,
+        { scanlines: scanlines, typical: typical, fps: fps, saturated: saturated?,
+          per_pass: per_pass, keys: keys,
           torn_rows: tearing.rows, torn_from: tearing.first, torn_to: tearing.last }
       end
     end
@@ -91,6 +102,9 @@ module RubyGBA
     # taken at the wrong moment can look cheap when the game is dropping frames. And a
     # game whose work follows the player, or grows on its own, is only expensive some of
     # the time. Returns a {Result} with no fps (that needs the counter run).
+    #
+    # The same window's MIDDLE frame comes back beside it, for the other question — what a
+    # frame usually costs rather than what the worst one did. See {Result}.
     def measure(rom_path, keys: [])
       attempt(rom_path, Array(keys), {}, nil)
     end
@@ -200,8 +214,8 @@ module RubyGBA
       return worst unless worst.saturated?
 
       counted = measure_saturated(program, options, keys: worst.keys)
-      Result.new(scanlines: worst.scanlines, fps: counted[:fps], per_pass: counted[:per_pass],
-                 keys: worst.keys, tearing: worst.tearing)
+      Result.new(scanlines: worst.scanlines, typical: worst.typical, fps: counted[:fps],
+                 per_pass: counted[:per_pass], keys: worst.keys, tearing: worst.tearing)
     end
 
     # How much dearer a held button has to read before the reading is attributed to it.
@@ -233,10 +247,10 @@ module RubyGBA
       probe = Emulator.probe(path)
       probe.step(SETTLE, keys: held)
       watch = scene_watch(vars, stays_in, held)
-      peak = 0.0
+      frames = []
       torn = Tearing::Reading.none
       WINDOW.times do
-        peak = [peak, frame_scanlines(probe.frame_cost(keys: held))].max
+        frames << frame_scanlines(probe.frame_cost(keys: held))
         # Each measured frame leaves the probe at the frame boundary with the game halted,
         # which is where the picture it just showed can be held against the picture it had
         # finished drawing. The worst frame of the window is the one to report, the same
@@ -244,9 +258,19 @@ module RubyGBA
         torn = worst_tear(torn, Tearing.read(probe)) if tearing
         return nil if watch && probe.read32(watch) != stays_in[:value]
       end
-      Result.new(scanlines: peak, fps: nil, keys: held, tearing: torn)
+      Result.new(scanlines: frames.max, typical: middle(frames), fps: nil, keys: held, tearing: torn)
     ensure
       probe&.close
+    end
+
+    # The middle frame of a window. The MEDIAN rather than the mean, because the thing being
+    # kept out is a rare dear frame and a mean would carry a share of it — two collisions in a
+    # hundred and fifty move a mean by enough to matter and move a median by nothing.
+    def middle(frames)
+      return nil if frames.empty?
+
+      sorted = frames.sort
+      sorted[sorted.length / 2]
     end
 
     # The worse of two tearing readings: the one that showed more of the picture stale. An
