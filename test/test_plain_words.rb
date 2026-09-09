@@ -78,12 +78,37 @@ class TestPlainWords < Minitest::Test
   # ...and the machine names it answers to are the build's own, not a second copy of the two
   # symbols. Placement decides what a routine is called internally; PlainWords only says it.
   def test_the_names_it_answers_to_are_the_builds_own
-    assert_equal [Placement::FRAME_ROUTINE, Placement::IRQ_ROUTINE], PlainWords::ROUTINES.keys
+    assert_equal [Placement::FRAME_ROUTINE, Placement::IRQ_ROUTINE,
+                  RubyGBA::IR::Backends::GBA::Divide::ROUTINE,
+                  RubyGBA::IR::Backends::GBA::Divide::FIX_ROUTINE,
+                  RubyGBA::IR::Backends::GBA::Mixer::ROUTINE],
+                 PlainWords::ROUTINES.keys
   end
 
   # A routine somebody did write is given back the way they would type it, from the same place.
   def test_a_routine_the_author_wrote_is_named_the_way_they_wrote_it
     assert_equal "func :draw_hud", PlainWords.routine(:draw_hud)
+  end
+
+  # THE SAME DRIFT ONE STEP FURTHER OUT. The glyph routine each font gets is named by the
+  # lowering, by building the name up out of the font's own, so PlainWords cannot hold the
+  # symbol and has to know the SHAPE of it instead — which is a second copy of a naming rule
+  # rather than of a name, and drifts the same way. A real build is the only thing that
+  # settles it: reword either side and this routine goes back to being reported as a `func`
+  # nobody wrote.
+  def test_the_glyph_routine_a_font_gets_is_named_from_what_the_author_typed
+    rom = RubyGBA.build("DIGIT", code: "DIGI", maker: "01") do
+      screen :bitmap
+      var :score, 0
+      game_loop { draw_number :score, 10, 10, :white, digits: 3 }
+    end
+
+    made_up = rom.built.routines.keys.grep(/digit/)
+    refute_empty made_up, "a game that draws a number gets a glyph routine to draw it with"
+    made_up.each do |name|
+      assert_match(/draw_number/, PlainWords.routine(name),
+                   "#{name} is reported in terms of the verb the author typed")
+    end
   end
 
   # The verb an author typed. A `draw_number` becomes a `draw_digit` node and a `sprite` becomes

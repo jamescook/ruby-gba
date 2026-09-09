@@ -157,6 +157,35 @@ module RubyGBA
       end
     end
 
+    # WHERE THIS GAME'S FRAMES ACTUALLY WENT — measured by running it, not worked out.
+    #
+    # `explain` reads the program and says what it thinks a frame will cost. This runs the
+    # cartridge and says what it did cost, routine by routine, with the frame rate the console
+    # really produced and how much of each frame was left over. Nothing here is predicted, so
+    # nothing here can be wrong about a loop it could not see through.
+    #
+    # +keys+ are held throughout, and it is worth passing them: a game costs what the player
+    # makes it cost, and a profile with nothing held is a profile of a game standing still.
+    # +settle+ runs that many frames first so the measuring starts in the game rather than on
+    # its title screen, and +frames+ is how many to measure over.
+    #
+    # +format+ is :human to print it or :json for the same numbers as data.
+    #
+    # Needs the emulator (gemba-core) and a cartridge that knows how it was built — the
+    # addresses each routine runs at cannot be recovered from the bytes, because a routine kept
+    # in the console's quick memory was copied there at boot.
+    def profile(format: :human, out: $stdout, frames: Profiler::FRAMES,
+                settle: Profiler::SETTLE, keys: [])
+      built! # a cartridge with no record cannot name its own routines
+      result = Profiler.run(self, frames: frames, settle: settle, keys: keys)
+      case format
+      when :human then Profiler.render(result, out: out)
+      when :json  then out.puts(JSON.generate(result.to_h))
+      else raise ArgumentError, "unknown profile format #{format.inspect} (use :human or :json)"
+      end
+      result
+    end
+
     # What the guardrails said about this cartridge, as data: the check, how serious it was,
     # the message, and the author's line it points at.
     def findings_json

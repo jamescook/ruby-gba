@@ -122,6 +122,23 @@ module RubyGBA
           # samples, so a single-rate game plays at its recorded pitch. Reserves only timer 0
           # (the sample clock) — the refill rides on the screen's own interrupt, not on a
           # second timer and not on the game loop.
+          # What the mixing routine is called, and where it RUNS — which is not where it is
+          # stored. It is copied into the console's quick memory at boot, like the divide
+          # routines, because it runs over every sample of every sounding voice once a frame
+          # and is one of the busiest things in a game that plays sampled sound.
+          #
+          # That is exactly why a measured profile has to be able to name it: on
+          # games/wolf3d, which plays sampled audio, it is about a fifth of the frame, and
+          # without this it reads as code nothing can account for.
+          ROUTINE = :__mix_routine
+
+          def mix_routine_addresses
+            return {} unless @mix_routine_iwram
+
+            size = @emitter.labels.fetch(:__mix_routine_end) - @emitter.labels.fetch(ROUTINE)
+            { ROUTINE => @mix_routine_iwram...(@mix_routine_iwram + size) }
+          end
+
           def prepare_mixer(program)
             return unless @plays_samples
 

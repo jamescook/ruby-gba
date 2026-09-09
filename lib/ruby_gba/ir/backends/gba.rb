@@ -450,7 +450,68 @@ module RubyGBA
                                    column_stretches: @column_stretches,
                                    compression: compression_report,
                                    emitted: @attribution.emitted,
+                                   routines: routine_addresses,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
+        end
+
+        # WHERE EACH ROUTINE ENDED UP, as the span of addresses it really occupies while the
+        # console runs. This is what turns a profile's raw addresses back into the author's own
+        # names, and nothing can recover it from the finished bytes afterwards.
+        #
+        # A routine lives in one of two places and the answer differs for each. One left in the
+        # cartridge runs where it was written, so its address is the cartridge's own base plus
+        # the header we put in front of the code plus its offset among the other routines. One
+        # the build kept in the console's quick memory was copied there at boot and runs from a
+        # different address entirely — {Placement#fast_func_address} is the one that knows,
+        # since it is the same answer a call to that routine had to be given.
+        #
+        # Either way the SIZE is its span in the emitted code, because the copy is a copy.
+        def routine_addresses
+          written = @functions.func_ranges.to_h do |name, span|
+            base = runtime_base(name, span)
+            [name, base...(base + span.size)]
+          end
+          # The two that are COPIED into the quick memory go on last: they are also emitted in
+          # the cartridge, so the generic pass above finds them there, and it is the copy that
+          # actually runs.
+          written.merge(lowered_routine_addresses)
+                 .merge(@divide.divide_routine_addresses)
+                 .merge(@mixer.mix_routine_addresses)
+        end
+
+        # Where one routine's first instruction really is. The moved block is copied whole and
+        # in order, so a routine's place inside it is its place in the emitted code — which
+        # func_ranges already gives, and which the routines nobody wrote have as much as the
+        # ones somebody did. (Placement#fast_func_address answers the same question from the
+        # label table, and cannot be used here: the routine the console interrupts into is
+        # labelled for the vector that points at it rather than as a func.)
+        def runtime_base(name, span)
+          hot_start = @emit.labels[Placement::HOT_START]
+          return hot_base + (span.begin - hot_start) if hot_base && hot_start && fast_funcs.include?(name)
+
+          ROM_START + RubyGBA::ROM::ENTRY_OFFSET + span.begin
+        end
+
+        # ROUTINES THE LOWERING MAKES, which an author never wrote and cannot be found in
+        # func_ranges — the shared glyph walker each font gets so that a run-time digit is
+        # called rather than emitted again at every call site, and its tear-free twin.
+        #
+        # They are real work and can be a large part of a frame: measured on
+        # examples/breakout.rb, whose HUD draws numbers, a fifth of the frame is in one of
+        # these. Unnamed it reads as code nothing can account for, which is the least useful
+        # thing a profile can say.
+        #
+        # Found by the convention the divide routine already used — a routine brackets itself
+        # with a start label and the same name with _end — so a new one is picked up by
+        # bracketing it, with nothing to add here.
+        def lowered_routine_addresses
+          @emit.labels.filter_map do |name, start|
+            finish = @emit.labels[:"#{name}_end"] or next
+            next if @functions.func_ranges.key?(name) # a routine somebody wrote, already placed
+
+            base = ROM_START + RubyGBA::ROM::ENTRY_OFFSET
+            [name, (base + start)...(base + finish)]
+          end.to_h
         end
 
         # Lower a program to finished GBA machine code: run the emit pass and
