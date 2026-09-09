@@ -561,6 +561,24 @@ module RubyGBA
           @pricing.unpriced.dup
         end
 
+        # The kinds this program uses that the model prices to something that is not a
+        # number at all — an Infinity, or a NaN. Empty for every program that works.
+        #
+        # WHY THIS IS ASKED AT ALL, because "the arithmetic went wrong" is not usually
+        # something a report checks for itself. A frame total made of a NaN is not merely
+        # wrong: every comparison against a NaN answers false, so the over-budget test says
+        # no, the tearing test says no, and a broken estimate reads exactly like a game that
+        # comfortably fits. It is the one failure this model can turn into silent, confident
+        # approval, so it is worth a walk to catch.
+        def nonsense_kinds(program)
+          found = []
+          program.walk do |node|
+            cost = audit_price(node)
+            found << node.kind unless cost.nil? || cost.to_f.finite?
+          end
+          found.uniq
+        end
+
         # Price one node for no reason but to find out whether the model knows how.
         # Control flow is skipped: it is costed by walking what it contains, never priced
         # on its own, so asking it would flag every `if` in the program.
@@ -648,6 +666,18 @@ module RubyGBA
 
           printer.puts "!! cannot estimate: #{kinds.sort.join(', ')} — counted as FREE, so the real " \
                        "cost can be higher. Teach the cost model to price it.", emphasis: :banner
+        end
+
+        # ...and the louder one: a price that is not a number. This is a fault in the cost
+        # model rather than anything the author did, so it says so — an author who reads
+        # "cannot estimate" about their own game goes looking for the mistake in their game.
+        def emit_nonsense_banner(printer, program)
+          kinds = nonsense_kinds(program)
+          return if kinds.empty?
+
+          printer.puts "!! the estimate for #{kinds.sort.join(', ')} is not a number, so this report " \
+                       "cannot say whether the frame fits. This is a fault in the cost model. Your " \
+                       "game is not the cause of it.", emphasis: :banner
         end
 
         # Which verdict band +cost+ falls in against +budget+ (see {Printer} for colours).

@@ -74,8 +74,18 @@ module RubyGBA
         # faster memory: less, by a measured amount. Every weight in the model describes
         # code running from the cartridge, which is where code runs unless the build
         # decides otherwise, so this is the one place the other case is priced.
+        #
+        # NO DISCOUNT WHILE THE TABLE IS ZEROED, and that guard is load-bearing rather than
+        # defensive. Pricing an op for its console's-own share swaps in a table where every
+        # other weight is 0.0, the speed-up among them — so one over it is Infinity, and
+        # Infinity times a zeroed weight is NaN. A NaN then spreads through the whole frame
+        # and every budget comparison against it answers false, which reads as "this fits".
+        # Nothing is being discounted in that pass anyway, so 1 is also the right answer.
         def fast_memory_factor
-          (@walker && @walker.in_fast_code?) ? 1.0 / @weights[:fast_code_speedup] : 1
+          return 1 unless @walker&.in_fast_code?
+
+          speedup = @weights[:fast_code_speedup]
+          speedup.positive? ? 1.0 / speedup : 1
         end
 
         # THE PART OF AN OP THAT IS NOT OUR INSTRUCTIONS, and so gains nothing from being kept

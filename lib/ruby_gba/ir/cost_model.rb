@@ -286,6 +286,11 @@ module RubyGBA
         @verdicts.unpriced_kinds(program)
       end
 
+      def nonsense_kinds(program)
+        index(program)
+        @verdicts.nonsense_kinds(program)
+      end
+
       def category_tree(program, focus: nil)
         index(program)
         @tree.category_tree(program, focus: focus)
