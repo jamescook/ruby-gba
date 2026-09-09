@@ -25,6 +25,12 @@
       "ratio": 0.975,
       "distance": 1.026
     },
+    "corridor": {
+      "estimate": 171.806,
+      "measured": 187.341,
+      "ratio": 1.09,
+      "distance": 1.09
+    },
     "floating_digits": {
       "estimate": 50.039,
       "measured": 49.813,

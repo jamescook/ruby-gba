@@ -182,6 +182,22 @@ class TestCostReport < CostModelTest
     assert_match(/box test/, io.string, "and says why a typical frame does not pay it")
   end
 
+  # ...AND DOES NOT NAME COLLISION IN A GAME THAT HAS NONE. The same line covers every reason
+  # the worst frame and the usual one disagree, and collision was once the only one — so a
+  # first-person view, whose walls are as tall as the distance says and whose worst frame is a
+  # wall against your face, was told its worst case was per-pixel collision. It has no sprites.
+  def test_a_game_with_no_collision_is_not_told_its_worst_case_is_collision
+    prog = program do
+      screen :bitmap, tear_free: true
+      h = var :h, 40
+      game_loop { repeat(20) { |col| draw_rect_at col * 12, 0, 12, h, :red } }
+    end
+    text = rendered(prog)
+
+    refute_match(/collision/, text, "there is not a sprite in this program")
+    assert_match(/the worst frame costs ~/, text, "it still states the ceiling it left out")
+  end
+
   # THE ONE ASSUMPTION IN THE BUDGET AN AUTHOR CAN CORRECT. The every-frame figure turns on
   # how long a list usually is, and nothing in a program says it — so the report says which
   # number it used and where that number came from. Left silent, a reader would take the
