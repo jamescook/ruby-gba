@@ -167,4 +167,27 @@ class TestCostRanking < Minitest::Test
   def test_a_line_no_statement_carries_cannot_be_taken_away
     assert_nil CostRanking.without(two_fills.source_program, "nowhere.rb:1")
   end
+
+  # A software sprite's per-frame repaint is work nobody wrote a line for, so it carries the
+  # line the sprite was DECLARED on — and taking that line away takes the repaint with it,
+  # which is what lets the sprite's cost be checked against the console at all.
+  def test_a_sprites_per_frame_repaint_is_charged_to_the_line_that_declared_it
+    rom = RubyGBA.build("SPRITE", code: "BSPR", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      image(:dot, "." => :transparent, "#" => :red) { (["#.#.#.#."] * 8).join("\n") }
+      sprite :dot, at: [10, 10]
+      game_loop { fill_rect 0, 0, 8, 8, :blue }
+    end
+    program = rom.source_program
+    declared = program.each.find { |n| n.kind == :backing_buffer }.source
+    loop_node = program.children.find { |n| n.kind == :loop }
+
+    assert loop_node.each.any? { |n| n.kind == :blit && n.source == declared },
+           "the repaint inside the loop carries the sprite's own line"
+
+    base = CostRanking.every_frame(rom.cost_model, program)
+    chosen = CostRanking.chosen_lines(program, rom.build_options, base, [declared])
+    assert_equal [declared], chosen.map(&:first)
+    assert_operator chosen.first.last, :>, 0, "taking the sprite's line away saves its repaint every frame"
+  end
 end

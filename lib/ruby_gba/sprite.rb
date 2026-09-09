@@ -61,11 +61,14 @@ module RubyGBA
     # @param pixel_perfect [Boolean] collide on the drawn pixels (true) or just the box (false,
     #   set when the sprite was given an explicit hitbox:)
     # @param layer [Symbol, nil] the layer it was declared in — its place in the stack
+    # @param source [String, nil] the line it was declared on ("hero.rb:42"), which the
+    #   per-frame repaint carries so the cost report can trace that work to this sprite
     def initialize(builder, x:, y:, old_x:, old_y:, active:, buffer:, hitbox:, pixel_perfect: true,
                    image: nil, poses: nil, facing_var: nil, facing_dirs: nil,
                    frame_var: nil, frames_per_dir: 1,
-                   clips: nil, clip_off_var: nil, clip_len_var: nil, layer: nil)
+                   clips: nil, clip_off_var: nil, clip_len_var: nil, layer: nil, source: nil)
       @builder = builder
+      @source = source
       @layer = layer             # the layer it was declared in, or nil if the game names none
       @image = image             # a plain sprite draws this one image
       @poses = poses             # a faceted sprite draws poses[pose index] instead
@@ -290,16 +293,19 @@ module RubyGBA
     # another's pixels (which would smear when it later moves off). These two nodes
     # are the two passes.
 
+    # Both carry the line the sprite was declared on: nobody wrote these statements, and
+    # the work they do is this sprite's, so that is where a cost report should point.
+
     # Pass one: erase this sprite from where it was last drawn, restoring what it
     # covered. A no-op while the sprite is hidden.
     def erase_node
-      Build.if_(active_is(1), Build.restore_region(@buffer, ref(@old_x), ref(@old_y)))
+      Build.if_(active_is(1), Build.restore_region(@buffer, ref(@old_x), ref(@old_y))).stamp(@source)
     end
 
     # Pass two: draw this sprite where it is now, remembering what's freshly under it
     # so the next frame's erase can put it back. A no-op while hidden.
     def draw_node
-      Build.if_(active_is(1), *draw_at_current)
+      Build.if_(active_is(1), *draw_at_current).stamp(@source)
     end
 
     # Draw the sprite for the first time at its start (used by the sprite verb when
