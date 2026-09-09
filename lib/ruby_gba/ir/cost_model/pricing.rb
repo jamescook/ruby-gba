@@ -20,6 +20,22 @@ module RubyGBA
       # +catalogue+ answers what a declaration means (a bitmap's size, a song's notes);
       # +walker+ answers where the walk is right now (the screen mode, whether the code
       # being priced runs from fast memory) — see {Catalogue} and {Walker}.
+      #
+      # ASK THE BACKEND, DO NOT RESTATE IT. What a node costs depends on decisions the
+      # lowering makes — whether a divisor folds, whether a row is worth handing to the
+      # transfer engine, what shape the lowering builds for a conversion nobody wrote. A
+      # rule written down in both places is a pair that can drift, and every one of them
+      # here was found by a mispricing rather than by review. So the rule is asked for:
+      #
+      #   ASK a class-level predicate, a constant, or a build-time answer the backend
+      #       already hands over (see Backends::GBA::Divide.needs_routine?,
+      #       Buffered.direct_fill?, Drawing.fade_steps_value).
+      #   NEVER construct a backend, and never run a lowering to price a node. Pricing
+      #       has to answer for a program that was never built.
+      #
+      # Where a predicate needs state the backend reads and this cannot (the clipped area,
+      # in Buffered.one_transfer?), the state is a parameter with the whole-screen default
+      # — so the shared rule stays one body and the divergence is visible where it is.
       class Pricing
         # Kinds this Pricing has been asked to price and had no estimate for (see
         # #note_unpriced) — a fresh, empty list every analysis, since a fresh Pricing is
@@ -211,11 +227,14 @@ module RubyGBA
         end
 
         # A fade is two register writes: which way to blend, and how far. "How far" is a
-        # percentage, and the hardware counts in sixteenths — so a level the game works
-        # out has to be converted as the program runs, which is a multiply and a divide on
-        # top. A level written into the program is converted while building and is free.
-        # (The conversion is built by the lowering, so it is not in the tree to be found;
-        # Backends::GBA::Drawing#emit_fade is where it lives. If one moves, both must.)
+        # percentage and the hardware counts in sixteenths, so a level the game works out
+        # has to be converted as the program runs. A level written into the program is
+        # converted while building and is free.
+        #
+        # The conversion is built by the lowering, so it is not in the tree to be found —
+        # and rather than write its shape down a second time here, this asks for the shape
+        # and prices it. Handed a number, the answer is the two operators alone, which is
+        # what the conversion costs on top of the register writes.
         #
         # In a game that can SEE THROUGH a layer there is one more thing to settle. A fade
         # and a see-through layer are the display's one blend unit, so a fade of nothing has
@@ -226,8 +245,14 @@ module RubyGBA
         def fade_cost(node)
           return @weights[:fade_set] if const_side(node.amount)
 
-          @weights[:fade_set] + @weights[:op_mul] + @weights[:op_div_const] +
+          @weights[:fade_set] + fade_conversion_cost +
             (@catalogue.sees_through_a_layer? ? @weights[:op_compare] : 0)
+        end
+
+        # Priced through #raw_expr_cost, like everything else inside an op: the quick-memory
+        # discount lands once, on the whole op, in #op_cost.
+        def fade_conversion_cost
+          raw_expr_cost(Backends::GBA::Drawing.fade_steps_value(Build.int(0)), true)
         end
 
         # SEEING THROUGH A LAYER IS FREE, and this is the one arrangement where it is not.
@@ -466,7 +491,8 @@ module RubyGBA
         # than a call. Only a divisor the GAME works out still reaches the console's
         # divide routine. So `explain` can say a divide by 256 is free, a divide by 100
         # costs about twice an add, and a divide by a variable costs three times
-        # that again. Those are the same facts the lowering acts on; if one moves, both must.
+        # that again. Which divisors still reach the routine is the lowering's own call, so
+        # it is asked for rather than restated (see #divide_weight).
         def op_weight(node)
           case node.op
           when :* then power_of_two_operand?(node.rhs) ? @weights[:op_mul_pow2] : @weights[:op_mul]
@@ -493,15 +519,10 @@ module RubyGBA
 
         # Whether a fraction divide's numerator is a number written into the program and
         # small enough to widen while building — the case that lowers to an ordinary
-        # division, so it is priced and named as one.
-        # (The same test Backends::GBA::Divide#folds_to_plain_divide? makes; if one
-        # moves, both must.)
+        # division, so it is priced and named as one. The lowering decides it, so it is
+        # asked rather than restated.
         def div_fix_folds?(node)
-          numerator = const_side(node.lhs)
-          return false unless numerator
-
-          widened = numerator << node.fraction_bits
-          widened > Int32::MIN && widened <= Int32::MAX
+          Backends::GBA::Divide.folds_to_plain_divide?(const_side(node.lhs), node.fraction_bits)
         end
 
         # What one divide or wrap costs, from where its divisor comes from. A negative
@@ -515,9 +536,8 @@ module RubyGBA
         # third of the divide, so lumping them charged the common `angle % 64` at three times
         # what it costs.
         def divide_weight(op:, numerator:, divisor:)
-          size = divisor&.abs
-          return runtime_divide_weight(numerator) unless size && size > 1
-          return @weights[op == :% ? :op_mod_pow2 : :op_div_pow2] if power_of_two?(size)
+          return runtime_divide_weight(numerator) if Backends::GBA::Divide.needs_routine?(divisor)
+          return @weights[op == :% ? :op_mod_pow2 : :op_div_pow2] if power_of_two?(divisor.abs)
 
           @weights[:op_div_const]
         end
@@ -738,15 +758,11 @@ module RubyGBA
         #             nothing and each one after it pays
         #
         # A narrow run is written out as pairs instead, because starting the engine costs
-        # many times what a pair does (Backends::GBA::Buffered
-        # #emit_buffered_rect_row_middle decides where the line falls; if that moves,
-        # this must). That is what makes a two-pixel column a QUARTER of the price of two
-        # one-pixel ones — the wider one is cheaper, which only shows if a row is priced by
-        # the pieces it is built from rather than as one block fill.
-
-        # How many pairs the block-fill engine is worth starting for. The same number
-        # Backends::GBA::Buffered::DIRECT_STORE_UNITS; if one moves, both must.
-        TEARFREE_DIRECT_PAIRS = 12
+        # many times what a pair does — Backends::GBA::Buffered.direct_fill? is where the
+        # line falls, and it is asked (see #engine_worth_starting?). That is what makes a
+        # two-pixel column a QUARTER of the price of two one-pixel ones — the wider one is
+        # cheaper, which only shows if a row is priced by the pieces it is built from
+        # rather than as one block fill.
 
         # A rectangle of a size settled while building, filled on the tear-free screen —
         # what `fill_rect` and `dma_fill_rect` both lower to there.
@@ -808,11 +824,15 @@ module RubyGBA
           @weights[:tearfree_row] + (((middle / 2) + 1) * @weights[:tearfree_pair])
         end
 
-        # Whether a rectangle covers whole screen rows with nothing clipped off, so it
-        # goes in as one run. (Backends::GBA::Buffered#full_width_rows? decides this; if
-        # one moves, both must.)
+        # Whether a rectangle covers whole screen rows with nothing clipped off, so it goes
+        # in as one run. The lowering decides it and is asked.
+        #
+        # Asked about the WHOLE screen, because that is all this can see: the backend reads
+        # the area in force from its framebuffer and nothing here holds one. So a rectangle
+        # inside an `inside` block is priced as one run where the console would break it
+        # into rows. The question is now in one place, which is where a fix for that goes.
         def full_width_run?(x, y, w, h)
-          x.zero? && w == SCREEN_W && h.positive? && y >= 0 && (y + h) <= SCREEN_H
+          Backends::GBA::Buffered.one_transfer?(x: x, y: y, w: w, h: h)
         end
 
         # A rectangle whose position the game works out, drawn on the tear-free screen —
@@ -895,11 +915,10 @@ module RubyGBA
         end
 
         # Whether a run is long enough to be worth starting the engine for, rather than
-        # writing out as pairs. (Backends::GBA::Buffered#direct_fill? decides this, for
-        # a FIXED rectangle's row — the only shape that still makes the choice; if that
-        # moves, this must.)
+        # writing out as pairs. The lowering decides where that line falls, for a FIXED
+        # rectangle's row — the only shape that still makes the choice — so it is asked.
         def engine_worth_starting?(middle)
-          middle.positive? && (middle / 2) > TEARFREE_DIRECT_PAIRS
+          middle.positive? && !Backends::GBA::Buffered.direct_fill?(middle)
         end
 
         # A rectangle filled/copied by DMA one row at a time (a DMA fill, an opaque blit, a

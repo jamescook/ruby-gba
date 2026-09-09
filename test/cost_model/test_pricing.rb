@@ -373,7 +373,10 @@ class TestCostPricing < CostModelTest
       Build.loop_(Build.wait_vblank, Build.fade(toward: :black, amount: Build.var_ref(:level))),
     )
     assert_operator Cost.new.steady_cost(live), :>, Cost.new.steady_cost(fixed)
-    near frame_boundary + WEIGHTS[:fade_set] + WEIGHTS[:op_mul] + WEIGHTS[:op_div_const] + var_reads,
+    # A SHIFT, not a multiply: the hardware counts a fade in SIXTEENTHS, so converting a
+    # percentage multiplies by 16 — a power of two — and the console shifts instead.
+    near frame_boundary + WEIGHTS[:fade_set] + WEIGHTS[:op_mul_pow2] + WEIGHTS[:op_div_const] +
+         var_reads,
          Cost.new.steady_cost(live), "the conversion, and reading the level it converts"
   end
 

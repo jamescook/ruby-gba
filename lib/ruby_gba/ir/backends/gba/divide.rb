@@ -119,11 +119,19 @@ module RubyGBA
             program.walk.any? { |node| node.kind == :div_fix && !folds_to_plain_divide?(node) }
           end
 
-          # Whether a division by this operand still has to be worked out as the program
+          # Whether a division by this divisor still has to be worked out as the program
           # runs. Anything else the build has already turned into shifts or a multiply.
-          def divisor_needs_routine?(operand)
-            divisor = @primitives.const_int(operand)
+          # +divisor+ is the number written into the program, or nil where the game works
+          # one out. 1, -1 and 0 are written down and still come here.
+          #
+          # A class method because the estimate asks it too — it prices the three tiers of
+          # divide apart and this is what puts a division in the dearest one.
+          def self.needs_routine?(divisor)
             divisor.nil? || divisor.abs <= 1
+          end
+
+          def divisor_needs_routine?(operand)
+            Divide.needs_routine?(@primitives.const_int(operand))
           end
 
           # A fraction divide whose numerator is written into the program can be widened
@@ -137,14 +145,18 @@ module RubyGBA
           # more than a register holds. Everything else divides to something that fits,
           # so the ordinary path's wrapping and this one's holding-at-the-end agree.
           #
-          # CostModel::Pricing#div_fix_weight decides the same thing for the estimate; if
-          # this moves, that must too.
-          def folds_to_plain_divide?(node)
-            numerator = @primitives.const_int(node.lhs)
+          # A class method for the same reason #needs_routine? is one: the estimate prices
+          # the folded case as an ordinary division and has to make the same call.
+          # +numerator+ is nil where the game works it out.
+          def self.folds_to_plain_divide?(numerator, fraction_bits)
             return false unless numerator
 
-            widened = numerator << node.fraction_bits
+            widened = numerator << fraction_bits
             widened > Int32::MIN && widened <= Int32::MAX
+          end
+
+          def folds_to_plain_divide?(node)
+            Divide.folds_to_plain_divide?(@primitives.const_int(node.lhs), node.fraction_bits)
           end
 
           def reserve_divide_routine
