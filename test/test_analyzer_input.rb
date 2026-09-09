@@ -91,7 +91,8 @@ class TestAnalyzerInput < Minitest::Test
   # --- which buttons get held ---
 
   # The game says which buttons matter. A profiler that held all ten would spend its time
-  # on buttons the program never reads.
+  # on buttons the program never reads. The last attempt holds every one of them at once —
+  # see the two tests below for why that is the only one that finds the worst frame.
   def test_the_buttons_tried_are_the_ones_the_program_reads
     program = build do
       screen :bitmap
@@ -101,7 +102,18 @@ class TestAnalyzerInput < Minitest::Test
         pressed(:start).then { add :x, 1 }
       end
     end
-    assert_equal [%i[], [:left], [:start]], Analyzer.attempt_keys(program)
+    assert_equal [%i[], [:left], [:start], %i[left start]], Analyzer.attempt_keys(program)
+  end
+
+  # ...and one button is not worth holding twice. A game reading a single button has
+  # nothing to combine, so there is no all-at-once attempt to make.
+  def test_a_game_that_reads_one_button_gets_no_combined_attempt
+    program = build do
+      screen :bitmap
+      var :x, 0
+      game_loop { held(:left).then { add :x, 1 } }
+    end
+    assert_equal [[], [:left]], Analyzer.attempt_keys(program)
   end
 
   # A game that reads no buttons is measured standing still, and only that.
@@ -121,6 +133,48 @@ class TestAnalyzerInput < Minitest::Test
     assert_equal [:left], pinned.keys
     assert_operator pinned.scanlines, :>, at_rest.scanlines + 5,
                     "holding the button it cares about costs plainly more"
+  end
+
+  # --- the worst frame holds every button, not the dearest one ---
+
+  # THE FRAME A SWEEP OF SINGLE BUTTONS CANNOT REACH. Each button here guards work of its
+  # own, so a frame with both down does both bodies and costs about twice either one. A
+  # profiler holding them one at a time finds half of its own worst frame and calls that the
+  # answer — which is also not the frame the estimate prices, since nothing at build time
+  # says a player will not hold two directions, so every guarded body is charged.
+  def test_the_worst_frame_holds_every_button_the_game_reads
+    program = build do
+      screen :bitmap
+      x = var :x, 0
+      game_loop do
+        held(:left).then { repeat(A_VISIBLE_SLICE) { x.add 1 } }
+        held(:up).then { repeat(A_VISIBLE_SLICE) { x.add 1 } }
+      end
+    end
+    one = Analyzer.measure_program(program, keys: [:left])
+    both = Analyzer.measure_program(program)
+
+    assert_equal %i[left up], both.keys, "the worst frame is the one with both down"
+    assert_operator both.scanlines, :>, one.scanlines * 1.5,
+                    "two bodies cost about twice one: #{both.scanlines} against #{one.scanlines}"
+  end
+
+  # A GAME SMALL ENOUGH THAT ITS WHOLE FRAME IS UNDER THE OLD FLOOR. A button that doubles
+  # such a frame moves the reading by a hundredth of a scanline, and the floor for blaming it
+  # used to be a quarter — so the dearer reading was thrown away and the game was scored
+  # standing still. That is what put four tiled examples a fifth under the console.
+  def test_a_button_is_found_even_when_the_whole_frame_is_a_fraction_of_a_scanline
+    program = build do
+      screen :bitmap
+      x = var :x, 0
+      game_loop { held(:left).then { repeat(20) { x.add 1 } } }
+    end
+    at_rest = Analyzer.measure_program(program, keys: [])
+    found = Analyzer.measure_program(program)
+
+    assert_operator at_rest.scanlines, :<, 1.0, "the whole frame is a fraction of a scanline"
+    assert_equal [:left], found.keys, "the button is still what makes the worst frame"
+    assert_operator found.scanlines, :>, at_rest.scanlines, "and the reading is the dearer one"
   end
 
   # --- every frame in the window, not one sample ---

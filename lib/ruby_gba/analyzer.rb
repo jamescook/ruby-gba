@@ -14,8 +14,14 @@ module RubyGBA
   # standing still can be the cheapest frame it ever draws — examples/raycaster.rb read
   # 225 of 228 doing nothing and 228 the moment the view turned, because turning brings
   # nearer walls and taller columns into view. So the profiler does not read one frame
-  # doing nothing. It holds each button the game reads, in turn, reads EVERY frame over a
-  # window, and reports the worst frame it found and what was held to find it.
+  # doing nothing. It holds each button the game reads, in turn, and then all of them at
+  # once, reads EVERY frame over a window, and reports the worst frame it found and what
+  # was held to find it.
+  #
+  # ALL AT ONCE IS THE ONE THAT FINDS THE WORST FRAME. A game tests its buttons one after
+  # another, and each test guards work of its own, so a frame with two buttons down runs
+  # both bodies. Holding them singly finds the dearest single body, which is not the worst
+  # frame — see #attempt_keys for what that was costing.
   module Analyzer
     module_function
 
@@ -221,13 +227,26 @@ module RubyGBA
     # How much dearer a held button has to read before the reading is attributed to it.
     #
     # Two runs of the same program are not bit-identical to a fraction of a scanline: holding
-    # a button moves nothing about the work, but it does move where the reading lands by a
-    # thousandth or two. Without a floor, the dearest attempt wins by that thousandth and the
-    # report says "the worst frame found while holding LEFT" about a button that costs
-    # nothing — which is worse than saying nothing, because it points a reader at the wrong
-    # thing. A quarter of a scanline is far above that wobble and far below anything a player
-    # could feel, so it names a button only when the button is doing something.
-    WORTH_BLAMING = 0.25
+    # a button moves nothing about the work, but it does move where the reading lands. Without
+    # a floor, the dearest attempt wins by that sliver and the report says "the worst frame
+    # found while holding LEFT" about a button that costs nothing — which is worse than saying
+    # nothing, because it points a reader at the wrong thing.
+    #
+    # SET FROM THE WOBBLE, which is what it has to clear, and not from what a player could
+    # feel. Measured on programs that read a button and do nothing with it, over frames from a
+    # fraction of a scanline to several: the difference is three cycles, it is the same three
+    # however much the frame costs, and it goes the SAFE way — holding the button reads
+    # slightly cheaper, never dearer. So the floor sits a few times above three cycles, which
+    # is still far below the smallest real difference anything in the corpus shows.
+    #
+    # It used to be a quarter of a scanline, chosen as "far below anything a player could
+    # feel" — a hundred times the wobble, and a hundred times too big. A quarter of a scanline
+    # is more than the WHOLE FRAME of a game that hands its drawing to the console, so for
+    # those the dearer reading was always discarded and the game was scored standing still,
+    # against an estimate pricing a frame with its buttons down. What a player can feel is the
+    # wrong question here anyway: this picks which of two measurements to keep, and keeping a
+    # sliver too many costs nothing while discarding a real frame is a corpus-wide error.
+    WORTH_BLAMING = 0.01
 
     # The reading to report: nothing held unless a button really made it dearer. The
     # buttons-free attempt comes first, so it is the one to beat.
@@ -309,11 +328,31 @@ module RubyGBA
       vars[stays_in[:var]]
     end
 
-    # What to hold, one attempt at a time: nothing, then each button the program reads.
-    # The game says which buttons matter — a game that reads none is measured at rest,
-    # and no attempt holds a button the game would ignore.
+    # What to hold, one attempt at a time: nothing, then each button the program reads,
+    # then ALL of them together. The game says which buttons matter — a game that reads
+    # none is measured at rest, and no attempt holds a button the game would ignore.
+    #
+    # THE LAST ATTEMPT IS THE WORST FRAME, and without it this could not reach one. A game
+    # tests its buttons one after another and each test guards its own work, so a frame
+    # with two buttons down does BOTH of their bodies. Holding them one at a time finds the
+    # dearest single body and stops there — which is not the worst frame, and is not the
+    # frame the estimate prices either, since a static count cannot know that a player
+    # will not hold two directions at once and charges every guarded body.
+    #
+    # examples/maze.rb is the plainest case: its frame IS four held-direction tests, so
+    # holding all four costs about four times holding one, and standing still costs almost
+    # nothing at all. Scored against the one-button reading the estimate looked three times
+    # too dear and was the worst thing in the corpus; scored against the frame it is
+    # actually pricing it is within a tenth, and so are examples/sheet.rb, examples/level.rb
+    # and the four tiled ones this was found on.
+    #
+    # ALL OF THEM TOGETHER AND NOT EVERY COMBINATION: the guards are independent, so the
+    # dearest frame holds everything at once, and that is one more run rather than two to
+    # the power of however many buttons the game reads.
     def attempt_keys(program)
-      [[]] + buttons_read(program).map { |button| [button] }
+      buttons = buttons_read(program)
+      singly = buttons.map { |button| [button] }
+      [[]] + singly + (buttons.length > 1 ? [buttons] : [])
     end
 
     # The buttons this program reads, in the order it first reads them.

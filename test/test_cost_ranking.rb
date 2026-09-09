@@ -77,7 +77,7 @@ class TestCostRanking < Minitest::Test
   def test_fewer_than_two_ranked_lines_is_no_order_to_score
     score = Score.new(name: "x", figure: :frame, ablations: [
                         ablation("a.rb:1", estimated: 3.0, measured: 2.0),
-                        ablation("a.rb:2", estimated: 2.0, measured: 0.01),
+                        ablation("a.rb:2", estimated: 2.0, measured: CostRanking::NOISE / 2),
                       ])
 
     refute score.scorable?
