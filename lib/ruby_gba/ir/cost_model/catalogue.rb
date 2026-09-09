@@ -14,7 +14,7 @@ module RubyGBA
       # dozen ivars on the CostModel instance.
       Catalogue = Data.define(:modes, :funcs, :capacities, :declared, :list_lengths,
                               :table_lengths, :songs, :bitmaps, :objects, :backing,
-                              :sees_through, :rings) do
+                              :sees_through, :rings, :reads_edges) do
         # THE CATALOGUE OF A PROGRAM, walking it only if this is not the program that was
         # walked last. Ask for it this way rather than calling .build.
         #
@@ -92,11 +92,16 @@ module RubyGBA
           # costs (see Pricing#list_read_weight). The backend is what decides a list's shape,
           # so it is asked rather than restated.
           rings = Backends::GBA.shifted_lists(program)
+          # ...and whether the program asks anywhere whether a button has just gone down,
+          # which is what makes a frame's boundary latch the buttons (see Pricing#wait_cost).
+          # Asked of the backend for the same reason: it is the backend that decides to emit
+          # the latch, so the rule lives there and is not restated here.
+          reads_edges = Backends::GBA.reads_button_edges?(program)
 
           new(modes: modes, funcs: funcs, capacities: capacities, declared: declared,
               list_lengths: list_lengths, table_lengths: table_lengths, songs: songs,
               bitmaps: bitmaps, objects: objects, backing: backing, sees_through: sees_through,
-              rings: rings)
+              rings: rings, reads_edges: reads_edges)
         end
 
         # Which screen each routine of the program draws on. A program that reaches one
@@ -180,6 +185,10 @@ module RubyGBA
         # Whether any layer in the program can be seen through — the one field a reader
         # asks for by a name of its own rather than the field name (see Pricing#fade_cost).
         def sees_through_a_layer? = sees_through
+
+        # Whether the program reads a button's press edge anywhere, which is what a frame's
+        # boundary pays for latching the buttons (see Pricing#wait_cost).
+        def reads_button_edges? = reads_edges
       end
     end
   end

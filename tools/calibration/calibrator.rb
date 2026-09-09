@@ -33,6 +33,7 @@ module RubyGBA
       def run
         frame
         logic
+        input
         per_pixel_drawing
         live_digit
         sound
@@ -374,6 +375,49 @@ module RubyGBA
                 b.set :fout, (fv / gv)
               end,
               note: "dividing two numbers that hold a fraction")
+      end
+
+      # --- reading a button ---
+      #
+      # Reading one was priced at NOTHING, on the ground that a button is a load like any
+      # other operand. It is not. The console hands back a set of all ten buttons at once, so
+      # asking about one means masking its bit out and turning the flag that leaves into a 1
+      # or a 0 — ten instructions, one of them a jump. Measured, that is five times what
+      # reading a variable costs, and a game whose frame is four button tests and nothing
+      # else was reading at a little over half what the console spends.
+      #
+      # TWO WEIGHTS, because they are two mechanisms. `held` reads the console's key register;
+      # `pressed` reads two saved sets of buttons and combines them (down now, up last frame).
+      # They measure within a ten-thousandth of each other today, and weighing them apart is
+      # what would show it if one of them stopped.
+      def input
+        reads = @bench.button_reads
+        spread = Benchmarks::BUTTON_HI - Benchmarks::BUTTON_LO
+        plain, held, pressed = %i[var held pressed].map do |kind|
+          Reductions.marginal(reads[kind].last, reads[kind].first, over: spread)
+        end
+
+        # Over a PLAIN VARIABLE READ, which is the operand the assignment around it was
+        # measured holding — and the variable read comes back in because op_assign has it
+        # taken out (see #operand_read). What is left is the button read whole.
+        weigh(:read_button, held - plain + operand_read,
+              note: "reading whether one button is down")
+        weigh(:read_button_edge, pressed - plain + operand_read,
+              note: "reading whether one button has just gone down")
+
+        # ...and the SNAPSHOT that makes the second one answerable. Once a frame, this frame's
+        # buttons become last frame's and the console's are latched afresh, so that every
+        # `pressed` in the frame compares against the same previous frame. Nobody writes it,
+        # it is emitted at the frame boundary, and it is there only in a program that reads a
+        # press SOMEWHERE — so a game that reads only `held` pays none of it, and a game that
+        # reads twenty presses pays it once.
+        #
+        # The two ROMs with ONE read in them differ by the snapshot and by how far the two
+        # reads themselves differ, which is the second term here rather than an assumption.
+        weigh(:button_snapshot,
+              Reductions.residual(reads[:pressed].first - reads[:held].first,
+                                  Benchmarks::BUTTON_LO * (pressed - held)),
+              note: "latching the buttons once a frame, which a program that reads a press pays")
       end
 
       # An operator's cost over a plain add, measured at the same shape of statement and the

@@ -515,6 +515,48 @@ module RubyGBA
                             over: COMPARE_PASSES * (COMPARE_HI - COMPARE_LO))
       end
 
+      # --- reading a button, and the snapshot behind it ---
+      #
+      # Built straight from the IR for the reason a comparison is: `held(:a)` hands back a
+      # Condition, which belongs to `.then` and cannot be assigned.
+      #
+      # AND WITH NO `repeat` AROUND IT, which the comparison does have, because the snapshot
+      # is read off these same ROMs. The snapshot happens once a FRAME. Three hundred passes
+      # would multiply every difference between the two reads by six hundred and leave the
+      # snapshot buried under it; written out, a frame with one read of each kind differs by
+      # the snapshot and almost nothing else.
+      #
+      # ONE COPY AND A HUNDRED AND TWENTY. Both counts together give the read's own rate, and
+      # the low one on its own gives the snapshot. Read at twenty copies the snapshot comes
+      # out a quarter light — a longer run of code lands differently in the cartridge's
+      # prefetch — and the instruction count the build emitted says the low reading is the
+      # true one.
+      BUTTON_LO = 1
+      BUTTON_HI = 120
+      BUTTON_READS = { var: -> { IR::Build.var_ref(:d) },
+                       held: -> { IR::Build.held(:a) },
+                       pressed: -> { IR::Build.pressed(:a) } }.freeze
+
+      # Every reading the button weights need, in one go: what a frame costs with each count
+      # of `set :y, <read>` in it, for a plain variable read, a `held` and a `pressed`.
+      def button_reads
+        BUTTON_READS.keys.to_h { |kind| [kind, [BUTTON_LO, BUTTON_HI].map { |ops| button_busy(kind, ops) }] }
+      end
+
+      def button_busy(kind, ops)
+        b = IR::Build
+        value = BUTTON_READS.fetch(kind)
+        name = "btn#{kind}#{ops}"
+        prog = b.program(
+          b.screen(:bitmap), b.set(:y, b.int(0)), b.set(:d, b.int(100)),
+          b.loop_(b.wait_vblank, *Array.new(ops) { b.set(:y, value.call) })
+        )
+        # fast_code: false for the same reason every other ROM here is built that way.
+        rom = ROM.assemble(IR::Backends::GBA.new(fast_code: false).lower(prog),
+                           title: name, code: code_for(name), maker: "01")
+        @m.busy(name, rom)
+      end
+
       # --- reading one element out of a list or a table ---
       #
       # Reading a plain variable is a couple of instructions, and every statement weight above

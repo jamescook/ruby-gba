@@ -429,6 +429,15 @@ module RubyGBA
           program.walk.filter_map { |n| n.name if n.kind == :list_drop && n.from == :front }.to_set
         end
 
+        # Whether the program asks anywhere whether a button has just gone DOWN. That one
+        # question is what makes the frame boundary latch the buttons — this frame's become
+        # last frame's, the console's are read afresh — so a program that never asks it pays
+        # nothing for it and one that asks twenty times pays for it once. A class method for
+        # the reason above: the cost model asks the same question to price a frame's boundary.
+        def self.reads_button_edges?(program)
+          program.walk.any? { |node| node.kind == :pressed }
+        end
+
         # Everything this build worked out about the program it just lowered, in one piece,
         # for the cartridge to carry (see {RubyGBA::BuildRecord}). Valid after #lower —
         # every part of it is a decision the lowering made. Handing it over whole is what
@@ -507,7 +516,7 @@ module RubyGBA
                                                           obj_palette_units: @obj_palette_units,
                                                           blob_codecs: @blob_codecs)
           @palette_tint.prepare_palette_tint(program)
-          @uses_pressed = program.walk.any? { |node| node.kind == :pressed }
+          @uses_pressed = self.class.reads_button_edges?(program)
           # Everything the prepare passes above decided that Drawing/Buffered read, bundled
           # into one record rather than twenty keyword arguments (see Drawing's class
           # comment) — settled now, so handed over right before the first thing that emits.

@@ -575,10 +575,10 @@ module RubyGBA
       # Reads that cost about what the weights already assume an operand costs: a number
       # written into the program is one instruction, and every op weight was measured with one
       # of those in its hand. The reads that are NOT like that are priced instead of listed
-      # here — a plain variable, a list element and a table element all cost more than a number
-      # does, and each has its own case in Pricing#own_cost. Take a case away and the estimate
-      # says it could not account for that kind, rather than going quiet.
-      FREE_VALUE_KINDS = %i[int data_byte list_len held pressed read_scanline timer_ticks].freeze
+      # here — a plain variable, a list element, a table element and a button all cost more
+      # than a number does, and each has its own case in Pricing#own_cost. Take a case away
+      # and the estimate says it could not account for that kind, rather than going quiet.
+      FREE_VALUE_KINDS = %i[int data_byte list_len read_scanline timer_ticks].freeze
 
       # Every costed op falls into one of three buckets, so a frame's work reads as
       # drawing vs sound vs logic — the sections the estimate rolls up into. DRAWING is
