@@ -31,6 +31,13 @@ module RubyGBA
   # the finished one, so it cannot tear and there is nothing to measure. A tiled screen
   # has no framebuffer at all — the console builds the picture from tiles as it draws.
   # Both answer {Reading.none}, which says "not measured here" rather than "no tear".
+  #
+  # AND A CLEAN PIXEL TEST IS NOT PROOF OF NO TEAR, which is worth knowing before hunting
+  # one. A differential test compares the picture at rest, so a program whose drawing
+  # FINISHES before the display reaches those rows comes back identical on both backends
+  # while a heavier version of the same program tears. Days went into treating one of those
+  # as a lowering bug, on the belief that a tear could not reach the emulator at all. This
+  # is the thing to ask instead.
   module Tearing
     # Where the picture lives on a direct-color bitmap screen, and how big it is. Each
     # pixel is one 16-bit color, rows top to bottom, and the display shows exactly this.
