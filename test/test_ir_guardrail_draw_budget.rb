@@ -92,6 +92,37 @@ class TestDrawBudgetGuardrail < Minitest::Test
     refute_match(/choppy/, findings.first.message)
   end
 
+  # --- the number in the unit a developer thinks in ---
+
+  # Scanlines are the console's unit and nobody converts them in their head. Past a whole
+  # frame the warning says the same thing in frames of work and frames per second — and the
+  # rate is the one the console gives, which steps (60, 30, 20, 15) because a pass takes a
+  # whole number of frames: twenty tear-free clears are a little over two frames of work, so
+  # THREE frames a pass, so 20 a second — not the 29 that dividing would promise.
+  def test_over_a_whole_frame_the_warning_says_it_in_frames_and_frames_per_second
+    message = check.detect(loop_of_clears(20, buffered: true)).first.message
+
+    assert_match(/about 2\.\d frames of work/, message)
+    assert_match(/about 20 frames a second/, message)
+  end
+
+  # Over the safe window but inside a frame, a single-buffered game tears and does not slow
+  # down, so no rate is promised — the sentence would be false.
+  def test_inside_a_frame_the_tear_warning_names_no_frame_rate
+    message = check.detect(loop_of_clears(3, buffered: false)).first.message
+
+    assert_match(/tear/, message)
+    refute_match(/frames a second/, message)
+  end
+
+  # ...and past a whole frame it tears AND slows, and says both.
+  def test_past_a_frame_the_tear_warning_says_the_rate_too
+    message = check.detect(loop_of_clears(10, buffered: false)).first.message
+
+    assert_match(/tear/, message)
+    assert_match(/frames a second/, message)
+  end
+
   # A game that runs some scenes direct-color and others tear-free, dispatched by
   # :state — each scene clearing the whole screen a given number of times a frame.
   def mixed(direct_clears:, buffered_clears:)

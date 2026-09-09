@@ -83,14 +83,15 @@ module RubyGBA
           end
 
           # Single-buffered: over budget means the drawing spills past the safe
-          # window and the picture tears.
+          # window and the picture tears. Past a WHOLE frame it also slows down, and that
+          # is said in the unit a developer thinks in.
           def message(steady, budget)
             "This game draws a lot every frame: about #{format('%.0f', steady)} scanlines, against a budget of " \
               "about #{budget}. This is more than the console can finish in the short moment it has to change " \
-              "the screen. So the picture can tear or flicker, and it gets worse as things grow. The usual " \
-              "cause is a full clear and draw of the whole screen each frame. To fix this, draw the fixed parts " \
-              "one time. Then each frame, draw only what moved. Or enable double buffering, which cannot tear. " \
-              "To see where the per-frame drawing goes, call `rom.explain` on the built ROM."
+              "the screen. So the picture can tear or flicker, and it gets worse as things grow. #{slow_down(steady)}" \
+              "The usual cause is a full clear and draw of the whole screen each frame. To fix this, draw the " \
+              "fixed parts one time. Then each frame, draw only what moved. Or enable double buffering, which " \
+              "cannot tear. To see where the per-frame drawing goes, call `rom.explain` on the built ROM."
           end
 
           # Double-buffered: it can't tear, but drawing this much every frame is
@@ -104,10 +105,30 @@ module RubyGBA
           def buffered_message(steady, budget)
             "This game draws a lot every frame: about #{format('%.0f', steady)} scanlines, against a whole-frame " \
               "budget of about #{budget}. It does not tear, because double buffering prevents that. But it is " \
-              "more than fits in one frame. So the game runs at less than 60 frames a second. A game moves " \
-              "things once a frame, so everything in it will also move more slowly: the game runs in slow " \
-              "motion rather than losing frames. To fix this, draw less each frame: draw only what moved, not " \
-              "the whole screen. To see where the per-frame drawing goes, call `rom.explain` on the built ROM."
+              "more than fits in one frame. So the game runs at less than 60 frames a second. " \
+              "#{slow_down(steady)}A game moves things once a frame, so everything " \
+              "in it will also move more slowly: the game runs in slow motion rather than losing frames. To fix " \
+              "this, draw less each frame: draw only what moved, not the whole screen. To see where the " \
+              "per-frame drawing goes, call `rom.explain` on the built ROM."
+          end
+
+          # The same number in frames and in frames per second, which is the unit a developer
+          # thinks in — a count of scanlines is the console's unit and nobody can convert it in
+          # their head. Empty while the work still fits in one frame, since then the rate does
+          # not drop and there is nothing to say.
+          #
+          # THE RATE IS A STEP, NOT A RATIO. A game loop waits for the screen, so a pass takes a
+          # whole number of frames: a pass of 1.2 frames of work takes 2 frames, and the rate
+          # lands on 60, 30, 20, 15 and nothing in between. Dividing 60 by the frames of work
+          # would promise 50 where the console gives 30.
+          def slow_down(steady)
+            frame = CostModel::FRAME_BUDGET
+            return "" unless steady > frame
+
+            frames = steady / frame.to_f
+            fps = CostModel::Verdicts::FULL_FRAME_RATE / frames.ceil
+            "That is about #{format('%.1f', frames)} frames of work for each pass of the game loop, so the " \
+              "game will run at about #{fps} frames a second. "
           end
         end
       end
