@@ -478,6 +478,15 @@ module RubyGBA
           # of small cheap routines first and then has no room left for the one the game
           # actually spends its time in. Measured on examples/breakout.rb, where value for
           # size moved the game-over screen and left the playing scene behind.
+          #
+          # PRICED WITH THE WEIGHTS, not with what the probe counted, and that is a decision
+          # rather than an oversight. The probe DID count what every node came to on its way
+          # past (Attribution), and handing that to the model here is one argument — but it
+          # was tried and measured: on examples/breakout.rb the ranking swapped two routines
+          # below the cut that a normal frame never enters, the console's frame moved by three
+          # thousandths of a scanline, and the ROM grew fifteen instructions. What decides a
+          # placement is which routine the frame spends its time in, and the two pricings
+          # agree about that. So this stays the cheaper answer.
           def ranked_by_frame_cost(program, sizes)
             model = CostModel.new
             # Pricing one routine is a whole pass over the program, and a game with thirty of
