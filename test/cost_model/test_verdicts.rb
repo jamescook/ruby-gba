@@ -286,7 +286,7 @@ class TestCostVerdicts < CostModelTest
   def test_the_mixer_is_priced_against_the_frame_budget
     v = Cost.new.mixer_verdict(sample_game)
     assert_equal Cost::FRAME_BUDGET, v.budget
-    assert_equal Cost::MIXER_VOICES, v.voices
+    assert_equal Cost::MIXER_VOICES, v.capacity
   end
 
   # A silent program has no mixer cost and no sound section.
@@ -302,6 +302,101 @@ class TestCostVerdicts < CostModelTest
     high = Cost.new.mixer_verdict(sample_game(rate: 16000))
     assert_operator high.samples_per_frame, :>, low.samples_per_frame
     assert_operator high.cost, :>, low.cost
+  end
+
+  # --- how many voices sound, which is what the mixer costs ---
+
+  # A program that plays N looping samples has N voices sounding for ever, and nothing about
+  # that has to be worked out: a loop never ends. This is the exact case, and it used to be
+  # charged the mixer's full eight however few played.
+  def looping_game(voices)
+    program do
+      screen :bitmap
+      voices.times { |i| (sample :"v#{i}", pcm: [10, -10] * 100, rate: 8192).play(loop: true) }
+      game_loop {}
+    end
+  end
+
+  def test_a_looping_voice_is_counted_exactly
+    (1..3).each do |n|
+      assert_equal n, Cost.new.mixer_verdict(looping_game(n)).voices, "#{n} looping samples"
+    end
+  end
+
+  def test_the_cost_follows_the_voices_that_sound
+    one = Cost.new.mixer_verdict(looping_game(1))
+    three = Cost.new.mixer_verdict(looping_game(3))
+    assert_operator three.cost, :>, one.cost, "three voices cost more to mix than one"
+  end
+
+  # A LOOP OUTLIVES THE TEST THAT STARTED IT, which is what makes it exact rather than
+  # counted like the rest. Two tracks started under different values of one counter cannot
+  # START on the same frame — but a loop never stops, so once the game has been through both,
+  # both are sounding for ever. Anything reasoning only about which tests can hold at once
+  # would say one.
+  def test_two_loops_started_under_different_tests_both_keep_sounding
+    v = Cost.new.mixer_verdict(program do
+      screen :bitmap
+      calm = sample :calm, pcm: [10, -10] * 100, rate: 8192
+      chase = sample :chase, pcm: [10, -10] * 100, rate: 8192
+      state = var :state, 0
+      game_loop do
+        (state == 0).then { calm.play(loop: true) }
+        (state == 1).then { chase.play(loop: true) }
+      end
+    end)
+    assert_equal 2, v.voices, "a loop does not stop when the state that started it moves on"
+  end
+
+  # More voices than the mixer holds is still what the mixer holds — it drops a play rather
+  # than growing, so its cost has a ceiling.
+  def test_more_plays_than_voices_is_capped_at_what_the_mixer_holds
+    v = Cost.new.mixer_verdict(looping_game(Cost::MIXER_VOICES + 4))
+    assert_equal Cost::MIXER_VOICES, v.voices
+    assert_predicate v, :at_capacity?
+  end
+
+  # THE ONE THE PROGRAM SAYS AND NOTHING MEASURES. A sequencer steps a counter and tests it
+  # against a number, so its plays sit under `beat == 0`, `beat == 24` and so on. Those
+  # cannot happen on the same frame, because a variable holds one value — so a tune of many
+  # notes is not many voices.
+  def beat_game(triggers)
+    program do
+      screen :bitmap
+      clip = sample :note, pcm: [10, -10] * 100, rate: 8192
+      beat = var :beat, 0
+      game_loop do
+        beat.add 1
+        triggers.each { |at, notes| (beat == at).then { notes.times { clip.play } } }
+      end
+    end
+  end
+
+  def test_plays_under_different_values_of_one_counter_cannot_sound_together
+    v = Cost.new.mixer_verdict(beat_game({ 0 => 1, 24 => 1, 48 => 1, 72 => 1 }))
+    assert_equal 1, v.voices, "one note at a time, however many notes the tune has"
+  end
+
+  # ...and plays under the SAME value do sound together — that is a chord.
+  def test_plays_under_one_value_of_a_counter_sound_together
+    v = Cost.new.mixer_verdict(beat_game({ 0 => 3, 24 => 1, 48 => 1 }))
+    assert_equal 3, v.voices, "the frame that strikes the chord sounds three"
+  end
+
+  # A play under no test at all can happen whenever, so it adds to whatever else can.
+  def test_an_unguarded_play_can_sound_beside_a_guarded_one
+    v = Cost.new.mixer_verdict(program do
+      screen :bitmap
+      clip = sample :note, pcm: [10, -10] * 100, rate: 8192
+      beat = var :beat, 0
+      game_loop do
+        beat.add 1
+        clip.play
+        (beat == 0).then { clip.play }
+        (beat == 24).then { clip.play }
+      end
+    end)
+    assert_equal 2, v.voices, "the loose one, plus whichever guarded one fires"
   end
 
   # --- a timer's tick handler: the other place a frame goes outside the loop ---

@@ -226,20 +226,104 @@ module RubyGBA
         # The software mixer's per-frame cost, or nil when the program plays no sampled
         # sound. The mixer sums every sounding voice into the output buffer once a frame —
         # CPU work outside the drawing budget — so it's judged against the whole frame, not
-        # the vblank window. Priced at the worst case (its full voice count) times the
-        # buffer it fills each frame, plus the fixed per-frame overhead (clearing the
+        # the vblank window. Priced at the voices that can SOUND (see #sounding_voices) times
+        # the buffer it fills each frame, plus the fixed per-frame overhead (clearing the
         # accumulator, copying the mixed buffer, the DMA/FIFO refill). Each entry:
-        # { voices:, samples_per_frame:, rate:, cost:, budget:, over: }
+        # { voices:, capacity:, samples_per_frame:, rate:, cost:, budget:, over: }
         def mixer_verdict(program)
-          return nil unless program.walk.any? { |node| node.kind == :play_sample }
+          plays = program.walk.select { |node| node.kind == :play_sample }
+          return nil if plays.empty?
 
           rate = mixer_rate(program)
           spf = [(rate + MIXER_FPS - 1) / MIXER_FPS, 1].max # samples the mixer fills each frame (ceil)
-          mixing = MIXER_VOICES * spf * @weights[:mix_voice_sample]
+          voices = sounding_voices(plays)
+          mixing = voices * spf * @weights[:mix_voice_sample]
           overhead = spf * @weights[:mix_overhead_sample]
           cost = mixing + overhead
-          Verdict::Mixer.new(voices: MIXER_VOICES, samples_per_frame: spf, rate: rate,
-                             cost: cost, budget: FRAME_BUDGET)
+          Verdict::Mixer.new(voices: voices, capacity: MIXER_VOICES, samples_per_frame: spf,
+                             rate: rate, cost: cost, budget: FRAME_BUDGET)
+        end
+
+        # HOW MANY VOICES CAN BE SOUNDING AT ONCE, which is what the mixer costs — not how
+        # many it could hold.
+        #
+        # The mix routine walks its slots once per output sample per SOUNDING voice, and an
+        # idle slot is skipped after a load, a compare and a branch. So its cost is a straight
+        # line in the number really sounding, and charging the full capacity of eight to a
+        # program that plays three is charging nearly three times what it spends.
+        #
+        # A LOOPING VOICE IS EXACT: it never stops, so every one of them sounds on every
+        # frame, and there is nothing to work out.
+        #
+        # A ONE-SHOT IS BOUNDED BY WHAT CAN HAPPEN ON ONE FRAME, and that the program does
+        # say, in the one shape that triggers sound: a counter stepped each frame and tested
+        # against a number. Two plays under `beat == 0` and `beat == 24` can never happen
+        # together, because a variable holds one value — which is a different thing from two
+        # buttons that merely happen never to be pressed together, and is why this can be read
+        # off the program where that cannot (see the cost model header on what is never
+        # estimated).
+        #
+        # WHAT IT CANNOT SEE is a clip still sounding when the next one starts, which adds a
+        # voice the triggers alone do not show. Measured against the reference interpreter,
+        # which models a voice's whole life, this lands between a typical frame and the worst
+        # one on every shape tried — and the report says what it counted so a reader can tell.
+        def sounding_voices(plays)
+          looping, one_shot = plays.partition(&:loop)
+          [looping.length + most_playing_together(one_shot), MIXER_VOICES].min
+        end
+
+        # The most one-shot plays that can happen on the same frame. Two of them cannot, when
+        # they sit under tests wanting one variable to hold two different values.
+        #
+        # Asked by trying each set of values the tests mention and counting the plays it lets
+        # through — a play is let through when every test above it is satisfied, and a play
+        # under no test at all is let through by all of them. The values worth trying are the
+        # ones the program writes: settling a variable on some OTHER value only turns plays
+        # off, so it can never be the busiest frame.
+        #
+        # Trying every combination of them is a product, and a program testing several
+        # variables against many values could make it a large one. Past a ceiling this gives
+        # up and says every play, which is what the whole thing said before it counted at all.
+        COMBINATIONS_WORTH_TRYING = 4096
+
+        def most_playing_together(plays)
+          return 0 if plays.empty?
+
+          # Keyed by IDENTITY: two plays of the same sample under different tests are equal as
+          # trees, and a hash comparing them by value would keep one entry for both.
+          tests = {}.compare_by_identity
+          plays.each { |play| tests[play] = equality_tests_above(play) }
+
+          values = Hash.new { |h, k| h[k] = [] }
+          tests.each_value { |above| above.each { |var, val| values[var] |= [val] } }
+          return plays.length if values.empty?
+
+          combinations = values.values.reduce(1) { |n, vals| n * vals.length }
+          return plays.length if combinations > COMBINATIONS_WORTH_TRYING
+
+          vars = values.keys
+          values.values.first.product(*values.values.drop(1)).map do |picked|
+            frame = vars.zip(Array(picked)).to_h
+            plays.count { |play| tests[play].all? { |var, val| frame[var] == val } }
+          end.max
+        end
+
+        # The equality tests a statement sits under, as { variable => value }, read from every
+        # `if` above it that compares a variable with a number. A statement in an ELSE branch
+        # is under the NEGATION of its test, which says nothing about what else can happen, so
+        # it collects nothing from that one.
+        def equality_tests_above(node)
+          tests = {}
+          child = node
+          while (parent = child.parent)
+            cond = parent.kind == :if && parent.children.include?(child) ? parent.cond : nil
+            if cond&.kind == :binop && cond.op == :== &&
+               cond.lhs&.kind == :var_ref && cond.rhs&.kind == :int
+              tests[cond.lhs.name] = cond.rhs.value
+            end
+            child = parent
+          end
+          tests
         end
 
         # What bending backgrounds row by row costs per frame, or nil when nothing bends.
