@@ -381,4 +381,82 @@ class TestCostVerdicts < CostModelTest
     refute_match(/timer :beat costs/, reported(prog))
     refute_nil leaves(Cost.new.category_tree(prog)).find { |node| node.op == :tick }
   end
+
+  # --- what band the estimate carries ---
+
+  # A single-buffered loop whose every-frame cost lands within a tenth of +limit+, on the side
+  # +over+ says. Found by growing one fill until the model prices it there, and asserted to be
+  # there — so a recalibration that moves it out of the band fails here rather than passing
+  # on the wrong words.
+  def loop_near(limit, over:)
+    band = over ? (limit..(limit * (1 + Cost::Verdicts::MARGIN))) : ((limit * (1 - Cost::Verdicts::MARGIN))..limit)
+    prog = (1..160).lazy.map { |h| single_fill(h) }.find do |p|
+      cost = Cost.new.frame_cost(p)
+      band.cover?(cost) && (cost > limit) == over
+    end
+    refute_nil prog, "no fill lands within a tenth of #{limit} on that side"
+    prog
+  end
+
+  def single_fill(height)
+    Build.program(Build.screen(:bitmap), Build.loop_(Build.wait_vblank, Build.fill_rect(0, 0, 240, height, :red)))
+  end
+
+  def warm = RubyGBA::IR::ColorPrinter::COLORS[:warm]
+
+  # THE POINT. The estimate is within a tenth of the console on most of the corpus, so a frame
+  # within a tenth of the line is on neither side of it, and "ok" would be a claim the estimate
+  # cannot make. Ninety-five percent of the vblank and sixty percent of it must not read the same.
+  def test_a_frame_within_a_tenth_of_the_vblank_reads_close_not_ok
+    out = rendered(loop_near(Cost::VBLANK_BUDGET, over: false), color: true)
+    line = out.lines.find { |l| l.include?("tearing") }
+
+    assert_match(/ok, but close/, line)
+    assert_match(/a tenth out/, line)
+    assert_match(/no measurement can see a tear/, line, "and says a measurement cannot settle this one")
+    assert_includes line, warm, "hedged, so warm — not the green of a frame that fits"
+  end
+
+  def test_a_frame_just_over_the_vblank_reads_over_but_close
+    line = reported(loop_near(Cost::VBLANK_BUDGET, over: true)).lines.find { |l| l.include?("tearing") }
+
+    assert_match(/! over, but close/, line)
+    refute_match(/the screen tears/, line, "not a certainty the estimate does not have")
+  end
+
+  # ...and a frame comfortably inside says so plainly, with nothing hedged.
+  def test_a_frame_well_inside_the_vblank_is_not_called_close
+    line = reported(loop_of_clears(1, buffered: false)).lines.find { |l| l.include?("tearing") }
+
+    assert_match(/ok — no tearing/, line)
+    refute_match(/close/, line)
+  end
+
+  # The frame's own verdict has the same band, and the way to settle it — a measured run.
+  def test_a_frame_within_a_tenth_of_the_budget_says_to_measure_it
+    out = reported(loop_near(Cost::FRAME_BUDGET, over: false))
+    assert_match(/estimate within budget, but close .* measure it to be sure/, out)
+
+    out = reported(loop_near(Cost::FRAME_BUDGET, over: true))
+    assert_match(/! estimate over budget, but close .* measure it to be sure/, out)
+  end
+
+  # --- what only the estimate can answer ---
+
+  # Beside a measured verdict the tearing line is still the estimate's, and it says so — or
+  # the measured column reads as the authority on the line next to it.
+  def test_beside_a_measurement_the_tearing_verdict_says_it_is_the_estimates
+    reading = { nil => { scanlines: 40.0, fps: nil, saturated: false } }
+    out = reported(loop_of_clears(1, buffered: false), measured: reading)
+
+    assert_match(/tearing is the estimate's alone/, out)
+    assert_match(/cannot see a tear/, out)
+  end
+
+  def test_a_double_buffered_game_has_no_tearing_to_be_unsure_of
+    reading = { nil => { scanlines: 40.0, fps: nil, saturated: false } }
+    out = reported(loop_of_clears(1, buffered: true), measured: reading)
+
+    refute_match(/tearing is the estimate's alone/, out)
+  end
 end

@@ -96,6 +96,16 @@ eight bitmap-drawing examples and nowhere near on the games that hand work to th
 hardware. Doubling a single drawing weight then improved one example and broke eight, by name.
 That is the failure this catches and a single-game reading cannot.
 
+**What the estimate is, so a ratio is not read as a fact.** The verdict judges what a frame pays
+every time; the tree and the hottest list price the worst frame. The estimate lands within a tenth
+of the console on most of the corpus, and that tenth is the band `cost:check` scores by, so a
+verdict within a tenth of its limit reads "close" and only a measured run
+(`rom.explain(measured: true)`) settles it. A uniform scale error is harmless. One op wrong
+relative to another is a bug, because a wrong order sends a reader to the wrong line. Tearing is
+the one verdict only the estimate can give: the emulator reads the finished picture and cannot
+see a tear. The same three sentences head `lib/ruby_gba/ir/cost_model.rb`, and the report prints
+them where they apply.
+
 ## The two backends you assert against
 
 - **Reference interpreter** `RubyGBA::IR::Backends::Reference` — headless oracle, no

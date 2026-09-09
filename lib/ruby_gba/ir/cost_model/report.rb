@@ -516,7 +516,10 @@ module RubyGBA
           # Tearing stays an estimate: the emulator reads a settled framebuffer, so it
           # can't see a mid-frame tear.
           measured_verdict_lines(printer, measured)
-          tear_budget_line(program, printer, recurring_tear) unless @verdicts.mixed?(program)
+          unless @verdicts.mixed?(program)
+            tear_budget_line(program, printer, recurring_tear)
+            tearing_is_the_estimates_note(program, printer)
+          end
         elsif @verdicts.mixed?(program)
           scene_verdict_lines(program, printer)
         else
@@ -756,20 +759,33 @@ module RubyGBA
          steady_tear_cost(program)].all? { |cost| cost.to_f.finite? }
       end
 
+      # What a verdict within the estimate's margin of its limit says, on either side of it.
+      # The frame's verdict can be settled by a measurement; the tearing one cannot, and
+      # each says which.
+      CLOSE = "the estimate can be a tenth out"
+      CLOSE_FRAME = "#{CLOSE}, so measure it to be sure".freeze
+      CLOSE_TEAR = "#{CLOSE}, and no measurement can see a tear".freeze
+
       # The per-frame budget check: the frame's estimated work against the ~228-scanline
       # frame. Over budget reads as over (blind spots only add cost, so that verdict is
       # safe). A frame that looks to fit but has a blind spot — an unbounded loop, an
-      # unpriced op — can't be called "within budget": the estimate says it can't tell.
+      # unpriced op — can't be called "within budget": the estimate says it can't tell. And
+      # a frame within the estimate's own margin of the line, on either side, reads as
+      # close: the real frame can be on the other side of it.
       def frame_budget_line(program, printer, frame_total)
         over = frame_total > FRAME_BUDGET
+        close = @verdicts.close_to_limit?(frame_total, FRAME_BUDGET)
         blind = over ? [] : @verdicts.estimate_blind_spots(program)
         verdict =
-          if over then "! estimate over budget"
+          if over && close then "! estimate over budget, but close — #{CLOSE_FRAME}"
+          elsif over then "! estimate over budget"
           elsif blind.any? then "estimate can't tell — #{blind.join(' and ')} here isn't counted"
+          elsif close then "estimate within budget, but close — #{CLOSE_FRAME}"
           else "estimate within budget"
           end
+        hedged = blind.any? || close
         printer.puts "    frame    ~#{CostModel.fmt(frame_total)} of #{FRAME_BUDGET} scanlines (#{CostModel.pct(frame_total, FRAME_BUDGET)})   #{verdict}",
-                     severity: blind.any? ? :warm : @verdicts.severity_for(frame_total, FRAME_BUDGET)
+                     severity: hedged ? :warm : @verdicts.severity_for(frame_total, FRAME_BUDGET)
       end
 
       # The tear check: everything the frame does up to its last write to the screen must
@@ -787,10 +803,27 @@ module RubyGBA
         end
 
         over = cost > VBLANK_BUDGET
+        close = @verdicts.close_to_limit?(cost, VBLANK_BUDGET)
+        verdict =
+          if over && close then "! over, but close — #{CLOSE_TEAR}"
+          elsif over then "! over — the screen tears"
+          elsif close then "ok, but close — #{CLOSE_TEAR}"
+          else "ok — no tearing"
+          end
         printer.puts "    tearing  #{CostModel.fmt(cost)} of the #{VBLANK_BUDGET}-line vblank, everything " \
-                     "up to the last draw (#{CostModel.pct(cost, VBLANK_BUDGET)})   " \
-                     "#{over ? '! over — the screen tears' : 'ok — no tearing'}",
-                     severity: @verdicts.severity_for(cost, VBLANK_BUDGET)
+                     "up to the last draw (#{CostModel.pct(cost, VBLANK_BUDGET)})   #{verdict}",
+                     severity: close ? :warm : @verdicts.severity_for(cost, VBLANK_BUDGET)
+      end
+
+      # Beside a measured verdict, the tearing line is still the estimate's, and it says so —
+      # or the measured column reads as the authority on everything next to it. The emulator
+      # reads the finished picture, so a tear in the middle of drawing it is the one thing it
+      # cannot see. Nothing to say for a double-buffered game, which cannot tear.
+      def tearing_is_the_estimates_note(program, printer)
+        return if @verdicts.buffered?(program)
+
+        printer.puts "    (tearing is the estimate's alone — the emulator reads the finished picture, " \
+                     "so it cannot see a tear)"
       end
 
       # One verdict line per scene, each against its own mode's budget — the report
@@ -798,18 +831,23 @@ module RubyGBA
       def scene_verdict_lines(program, printer)
         blind = @verdicts.estimate_blind_spots(program)
         @verdicts.scene_verdicts(program).each do |s|
-          mode_label = s.mode == Modes::BUFFERED ? "tear-free" : "direct"
+          buffered = s.mode == Modes::BUFFERED
+          close = @verdicts.close_to_limit?(s.steady_cost, s.budget)
           note =
-            if s.over?
-              s.mode == Modes::BUFFERED ? "! estimate over budget" : "! over budget — the screen tears"
+            if s.over? && close
+              buffered ? "! estimate over budget, but close — #{CLOSE_FRAME}" : "! over, but close — #{CLOSE_TEAR}"
+            elsif s.over?
+              buffered ? "! estimate over budget" : "! over budget — the screen tears"
             elsif blind.any?
               "estimate can't tell — #{blind.join(' and ')} here isn't counted"
+            elsif close
+              buffered ? "estimate within budget, but close — #{CLOSE_FRAME}" : "ok, but close — #{CLOSE_TEAR}"
             else
-              s.mode == Modes::BUFFERED ? "estimate within budget" : "ok — fits the safe window"
+              buffered ? "estimate within budget" : "ok — fits the safe window"
             end
-          hedged = !s.over? && blind.any?
-          printer.puts "  scene :#{s.name} (#{mode_label}) ~ #{CostModel.fmt(s.steady_cost)} of ~#{s.budget} scanlines " \
-                       "(#{CostModel.pct(s.steady_cost, s.budget)})   #{note}",
+          hedged = (!s.over? && blind.any?) || close
+          printer.puts "  scene :#{s.name} (#{buffered ? 'tear-free' : 'direct'}) ~ #{CostModel.fmt(s.steady_cost)} " \
+                       "of ~#{s.budget} scanlines (#{CostModel.pct(s.steady_cost, s.budget)})   #{note}",
                        severity: hedged ? :warm : @verdicts.severity_for(s.steady_cost, s.budget)
         end
       end

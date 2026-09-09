@@ -142,13 +142,13 @@ module RubyGBA
     # here, where it is guessed at from the same facts. Every "if that moves, this must" in
     # this file is one of those pairs, and a pair that can drift eventually does.
     #
-    # The measurements say the duplication is even plainer than that. Thirty-four of the
-    # sixty-one weights are an exact whole number of instructions at ~0.0032 scanlines each —
-    # op_assign is 4, tearfree_edge_near is 6, blit_pixel is 11 — which is a number the
-    # backend already has exactly and this file measures approximately, one weight at a time.
-    # The other twenty-seven are the costs that genuinely are not instructions: a transfer's
-    # stall, a BIOS divide, an interrupt, a write to a slow bus, a jump that throws away the
-    # pipeline. Those are the ones a measurement is really for.
+    # The measurements say the duplication is even plainer than that. Most of the weights
+    # are a whole number of instructions at one instruction's price — op_assign is 4,
+    # tearfree_edge_near is 6, blit_pixel is 11 — which is a number the backend already has
+    # exactly and this file measures approximately, one weight at a time. The rest are the
+    # costs that genuinely are not instructions: a transfer's stall, a BIOS divide, an
+    # interrupt, a write to a slow bus, a jump that throws away the pipeline. Those are the
+    # ones a measurement is really for.
     #
     # So the direction of travel is to ASK rather than restate. #extra_address_steps does it
     # already — it asks the assembler how many instructions a pixel's address really takes
@@ -160,6 +160,38 @@ module RubyGBA
     # ratio is. A regime three times out on an op no game does twice a frame matters less than
     # one a tenth out on the op every game does a thousand times, and the corpus in examples/
     # is the thing to ask (`rake emitted` prints it per example).
+    #
+    # WHAT THE ESTIMATE IS, in the three sentences the report also says where they apply
+    # (and .claude/rules/testing.md repeats), so a ratio is not taken for a fact and a gap
+    # is not taken for a bug:
+    #
+    #   WHICH FRAME. The verdict judges what a frame pays EVERY time; the tree and the
+    #   hottest list price the WORST frame the program can reach. The two can be a factor
+    #   apart, and the report names both at the top when they differ.
+    #
+    #   WHAT BAND. The estimate lands within a tenth of the console on most of the corpus,
+    #   and that tenth is the band `rake cost:check` scores by. So a verdict within a tenth
+    #   of its limit reads "close" rather than "fits" or "over" — the real frame can be on
+    #   either side of the line — and only a measured run (`rom.explain(measured: true)`)
+    #   settles it. A uniform scale error is harmless: every number moves together and
+    #   nothing changes order. One op priced wrong RELATIVE to another is a bug, because a
+    #   wrong order sends the reader to the wrong line, and catching that is what the corpus
+    #   check is for.
+    #
+    #   WHAT ONLY THE ESTIMATE CAN ANSWER. Tearing. The emulator reads the finished picture
+    #   and cannot see a tear in the middle of drawing it, so the tearing verdict is the
+    #   estimate's even on a measured run, and the report says so beside the measured lines.
+    #
+    # TWO THINGS DELIBERATELY NOT DONE, so they are not tried again. Declaring the numbers
+    # relative, on an arbitrary scale: the units are emulator-measured scanlines, and the
+    # tearing verdict is an absolute claim only the estimate can make, so a relative model
+    # refuses the one sentence a beginner most needs. And FITTING THE WEIGHTS TO THE CORPUS —
+    # solving for the vector that best predicts the measured frames: the per-program counts
+    # are correlated (a program that draws more also compares more and loops more), so a fit
+    # spreads one operation's cost across whichever weights happen to move with it, and
+    # predicts arbitrarily badly on a program it was not fitted to. That is the overfitting
+    # the corpus check exists to catch, not a way to pass it. Each weight is measured on its
+    # own, by differencing two programs that differ in that one thing.
     class CostModel
       # A scanline cost for a human: one decimal, "<0.1" for a tiny nonzero, "0" for
       # nothing. Keeps the drill-down readable when ops cost fractions. Shared by
