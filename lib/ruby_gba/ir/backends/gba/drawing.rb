@@ -1796,6 +1796,10 @@ module RubyGBA
                 end
               end
               emit(ASM.pop(15))
+              # Where it ends, so a profile of the finished game can say how much of a frame
+              # went into drawing digits. A routine the LOWERING makes has no other record of
+              # its span — func_ranges only knows routines somebody wrote.
+              place_label(:"__digit_routine_#{font_name}_end")
             end
           end
 

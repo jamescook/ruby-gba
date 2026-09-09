@@ -45,10 +45,33 @@ module RubyGBA
     #
     # Everything else on those lists is a routine somebody wrote, and its own name is already
     # the best one there is, so it is given back the way they would type it.
+    # The last two are not routines either, and nobody chose them: this chip cannot divide, so
+    # every division in a program goes through code the build copies in for it. They show up in
+    # a measured profile and need a name a reader can act on — a hot one is worth replacing with
+    # a table.
+    # The symbols are written out rather than reached for, because this file is loaded long
+    # before the backend that defines them. A test holds the two lists against each other.
     ROUTINES = { __frame: "the game loop",
-                 __interrupt: "the routine that answers the display and the timers" }.freeze
+                 __interrupt: "the routine that answers the display and the timers",
+                 __divide_routine: "dividing",
+                 __divide_fix_routine: "dividing numbers that hold a fraction",
+                 __mix_routine: "mixing the sound that is playing" }.freeze
 
-    def self.routine(name) = ROUTINES.fetch(name) { "func :#{name}" }
+    # One routine per font, made by the lowering so that a number worked out as the game runs
+    # is DRAWN by a call rather than by the same code emitted again at every place a number
+    # appears. Nobody wrote it, so it needs saying in terms of what an author did write —
+    # which is `draw_number`.
+    DIGIT_ROUTINE = /\A__digit_routine_(?:buffered_)?(?<font>.+)\z/
+
+    def self.routine(name)
+      ROUTINES.fetch(name) do
+        if (font = DIGIT_ROUTINE.match(name.to_s))
+          "drawing a draw_number's digits (:#{font[:font]})"
+        else
+          "func :#{name}"
+        end
+      end
+    end
 
     # THE VERB AN AUTHOR TYPED, for the few node kinds whose internal name is not that verb. A
     # message naming the kind back at somebody names something they never wrote: nobody types

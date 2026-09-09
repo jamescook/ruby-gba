@@ -37,6 +37,13 @@ module RubyGBA
           DIVIDE_ROUTINE_IWRAM_MAX = 1024
           DIVIDE_FIX_ROUTINE_IWRAM_MAX = 1280
 
+          # What the two routines are called. This chip cannot divide, so every division in a
+          # program goes through one of them — which makes them routines a measured profile has
+          # to be able to name, and the name has to be settled in one place for the report to
+          # say it without keeping a second copy (see PlainWords::ROUTINES).
+          ROUTINE = :__divide_routine
+          FIX_ROUTINE = :__divide_fix_routine
+
           # The widest answer there is: a 32-bit division can need 32 steps.
           LADDER_STEPS = 32
 
@@ -165,6 +172,29 @@ module RubyGBA
 
           def reserve_divide_fix_routine
             @divide_fix_routine_iwram = ROUTINES_TOP + DIVIDE_ROUTINE_IWRAM_MAX
+          end
+
+          # WHERE THE DIVIDE ROUTINES RUN, for a profile of the finished game to report against.
+          #
+          # These are not routines anybody wrote, and they are not among the ones the build
+          # chooses to keep in the quick memory either — they are copied there unconditionally,
+          # above everything else, because this chip cannot divide and every division in the
+          # program comes here. So nothing else in the build knows their spans, and without
+          # them a profile files every division under "somewhere we have no name for": measured
+          # on examples/raycaster.rb that is a sixth of the frame, and on examples/breakout.rb a
+          # fifth. Named, it is the most useful line in the report, because a hot divide is
+          # something an author can act on — a table instead of a sum.
+          #
+          # Each is copied whole from its start label to its end label, so its length in the
+          # cartridge is its length up there.
+          def divide_routine_addresses
+            { ROUTINE => @divide_routine_iwram,
+              FIX_ROUTINE => @divide_fix_routine_iwram }.filter_map do |name, base|
+              next unless base
+
+              size = @emitter.labels.fetch(:"#{name}_end") - @emitter.labels.fetch(name)
+              [name, base...(base + size)]
+            end.to_h
           end
 
           # The variables grow up from the base and the lists and buffers grow down from

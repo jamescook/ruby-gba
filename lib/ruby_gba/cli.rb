@@ -75,6 +75,41 @@ module RubyGBA
       explain_rom(game.build_rom, format: format)
     end
 
+    desc "profile GAME_FILE", "Run the game and report where its frames actually went"
+    long_desc <<~TEXT
+      Build the game in GAME_FILE, run it, and report which of your routines the console
+      really spent its frames in — with the frame rate it produced and how much of each
+      frame was left over.
+
+      This is the measured companion to `explain`. `explain` reads your program and says
+      what it thinks a frame will cost; this runs the cartridge and counts what it did
+      cost, so nothing here is a guess about a loop nobody could see through.
+
+      --keys holds buttons for the whole run, and it is worth passing: a game costs what
+      the player makes it cost, so a profile with nothing held is a profile of a game
+      standing still. --settle runs that many frames first, so the measuring starts in the
+      game rather than on its title screen.
+
+      --format=json prints the same numbers as data, for comparing two builds.
+    TEXT
+    option :format, banner: "NAME", default: "human",
+                    desc: "What to print: human (the report) or json (the same numbers as data)"
+    option :frames, type: :numeric, banner: "N", default: RubyGBA::Profiler::FRAMES,
+                    desc: "How many frames to measure over"
+    option :settle, type: :numeric, banner: "N", default: RubyGBA::Profiler::SETTLE,
+                    desc: "Frames to run first, so the game is past its boot"
+    option :keys, type: :array, banner: "BUTTON", default: [],
+                  desc: "Hold these buttons for the whole run"
+    def profile(game_file)
+      format = { "human" => :human, "json" => :json }[options[:format]] or
+        raise Thor::Error, "#{options[:format].inspect} is not a profile format. The formats are: human, json."
+      game = load_game(game_file)
+      game.build_rom.profile(format: format, frames: options[:frames],
+                             settle: options[:settle], keys: held_buttons || [])
+    rescue ArgumentError => e
+      raise Thor::Error, e.message
+    end
+
     desc "inspect ROM_FILE", "Show a built .gba's header and a disassembly"
     def inspect(rom_file)
       raise Thor::Error, "I cannot find the ROM file #{rom_file}." unless File.file?(rom_file)

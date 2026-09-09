@@ -31,10 +31,14 @@ module RubyGBA
   # one instruction's price, which is a fact the lowering has exactly and a measurement can
   # only recover, so the lowering says it here rather than both saying it separately. See
   # IR::Backends::GBA::Attribution.
+  # +routines+ is the span of addresses each routine really occupies while the console runs
+  # it, which is what lets a profile of the finished cartridge be reported in the author's own
+  # names. It cannot be recovered from the bytes: a routine kept in the console's quick memory
+  # was copied there at boot and runs nowhere near where it sits in the cartridge.
   class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
                                   :palette_entries, :column_stretches, :compression,
-                                  :build_options, :findings, :emitted)
-    def initialize(findings: [], emitted: nil, **rest)
+                                  :build_options, :findings, :emitted, :routines)
+    def initialize(findings: [], emitted: nil, routines: {}, **rest)
       super
     end
 
