@@ -14,7 +14,7 @@
       "distance": 1.094
     },
     "breakout": {
-      "estimate": 74.177,
+      "estimate": 74.169,
       "measured": 64.995,
       "ratio": 0.876,
       "distance": 1.141
@@ -95,7 +95,7 @@
       "note": "no game loop, so nothing recurs"
     },
     "pong": {
-      "estimate": 58.113,
+      "estimate": 58.105,
       "measured": 59.862,
       "ratio": 1.03,
       "distance": 1.03
@@ -125,10 +125,10 @@
       "distance": 3.328
     },
     "shmup": {
-      "estimate": 5.048,
+      "estimate": 5.04,
       "measured": 5.288,
-      "ratio": 1.047,
-      "distance": 1.047
+      "ratio": 1.049,
+      "distance": 1.049
     },
     "snake": {
       "estimate": 64.878,
@@ -141,6 +141,12 @@
       "measured": 35.289,
       "ratio": 0.877,
       "distance": 1.14
+    },
+    "sparks": {
+      "estimate": 53.676,
+      "measured": 54.043,
+      "ratio": 1.007,
+      "distance": 1.007
     },
     "sprite_mover": {
       "estimate": 2.198,
