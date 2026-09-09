@@ -741,13 +741,16 @@ module RubyGBA
 
       # What the reading assumed the player was doing. A game costs what the player makes
       # it cost, so the number above means nothing without this: it is the worst frame
-      # found while holding each button the game reads, in turn. When a held button is
-      # what made a frame the worst one, the verdict line above already names it, and
-      # this line explains where that came from.
+      # found while holding each button the game reads, in turn, and then all of them at
+      # once — which is the dearest frame there is, since each button guards its own work
+      # and nothing stops a player holding two. When a held button is what made a frame the
+      # worst one, the verdict line above already names it, and this line explains where
+      # that came from.
       def how_it_was_played_note(printer, measured)
         return unless measured.values.any? { |result| result[:keys] }
 
-        note = "    (the worst frame found. Each button this game reads was held in turn."
+        note = "    (the worst frame found. Each button this game reads was held in turn, " \
+               "then all together."
         note += " No button cost more than none held." unless measured.values.any? { |r| r[:keys].to_a.any? }
         printer.puts "#{note})"
       end
