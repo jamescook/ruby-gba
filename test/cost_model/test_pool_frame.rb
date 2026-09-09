@@ -79,6 +79,14 @@ class TestPoolFrameCost < CostModelTest
   # WHICH DIRECTION IT IS WRONG IN MATTERS more than the size. `explain` is how an author
   # decides whether a frame fits, so an estimate that FLATTERS a game is the dangerous kind.
   # What is left reads a little OVER, which tells them a frame is fuller than it is.
+  #
+  # THE BAND IS FOR A SPARSE POOL, which is the shape a pool spends a game in and the one
+  # measured below. A pool that is mostly LIVE is a different question and does not hold to a
+  # tenth: the body is charged about a quarter over what the console spends on it, which
+  # hardly shows when one slot in sixty-four runs one and is most of the frame when half of
+  # them do. That is the per-BODY half rather than the walk, it was there before the walk was
+  # put right, and it was hidden by the walk being under: the two moved in opposite
+  # directions and a full pool read about right for the wrong reason.
   BAND = 0.10
 
   def assert_tracks_the_console(rom, note)
