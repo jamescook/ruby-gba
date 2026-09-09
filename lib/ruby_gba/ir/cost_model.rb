@@ -547,6 +547,14 @@ module RubyGBA
       # remeasure.
       DEFAULT_WEIGHTS = MEASURED_WEIGHTS
 
+      # ...and what the console's quick memory buys each of them, where dividing the two
+      # calibration runs meant something. There is no single figure: that memory makes fetching
+      # an instruction cheap and does nothing for a load or a store, so an op that stays in
+      # registers gains about four times over and one that is mostly memory gains half of that.
+      # A weight with no entry keeps :fast_code_speedup, which is the same question answered on
+      # a frame of arithmetic. See Pricing#quick_weights.
+      DEFAULT_GAINS = MEASURED_GAINS
+
       # Kinds that legitimately cost nothing per frame, so they fall through op_cost /
       # expr_cost without being flagged. Everything ELSE that falls through is a kind the
       # model doesn't know how to estimate — it gets counted as zero, which would hide

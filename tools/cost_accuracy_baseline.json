@@ -2,34 +2,34 @@
   "version": 1,
   "examples": {
     "animate": {
-      "estimate": 4.989,
+      "estimate": 3.647,
       "measured": 4.328,
-      "ratio": 0.868,
-      "distance": 1.153
+      "ratio": 1.187,
+      "distance": 1.187
     },
     "bird": {
-      "estimate": 0.707,
+      "estimate": 0.684,
       "measured": 0.688,
-      "ratio": 0.973,
-      "distance": 1.028
+      "ratio": 1.005,
+      "distance": 1.005
     },
     "breakout": {
-      "estimate": 73.899,
+      "estimate": 73.785,
       "measured": 64.995,
-      "ratio": 0.88,
-      "distance": 1.137
+      "ratio": 0.881,
+      "distance": 1.135
     },
     "buffered_bounce": {
-      "estimate": 24.807,
+      "estimate": 24.614,
       "measured": 24.225,
-      "ratio": 0.977,
-      "distance": 1.024
+      "ratio": 0.984,
+      "distance": 1.016
     },
     "floating_digits": {
-      "estimate": 51.336,
+      "estimate": 50.039,
       "measured": 49.835,
-      "ratio": 0.971,
-      "distance": 1.03
+      "ratio": 0.996,
+      "distance": 1.004
     },
     "font_styles": {
       "note": "no game loop, so nothing recurs"
@@ -44,10 +44,10 @@
       "distance": 1.038
     },
     "hero": {
-      "estimate": 0.508,
+      "estimate": 0.49,
       "measured": 0.449,
-      "ratio": 0.883,
-      "distance": 1.132
+      "ratio": 0.916,
+      "distance": 1.092
     },
     "jukebox": {
       "estimate": 48.917,
@@ -56,79 +56,79 @@
       "distance": 1.067
     },
     "lake": {
-      "estimate": 7.607,
+      "estimate": 6.874,
       "measured": 7.393,
-      "ratio": 0.972,
-      "distance": 1.029
+      "ratio": 1.075,
+      "distance": 1.075
     },
     "level": {
-      "estimate": 4.957,
+      "estimate": 4.458,
       "measured": 1.528,
-      "ratio": 0.308,
-      "distance": 3.245
+      "ratio": 0.343,
+      "distance": 2.918
     },
     "maze": {
-      "estimate": 8.431,
+      "estimate": 7.565,
       "measured": 2.374,
-      "ratio": 0.282,
-      "distance": 3.551
+      "ratio": 0.314,
+      "distance": 3.186
     },
     "pacman": {
-      "estimate": 2.828,
+      "estimate": 2.575,
       "measured": 4.114,
-      "ratio": 1.455,
-      "distance": 1.455
+      "ratio": 1.598,
+      "distance": 1.598
     },
     "parallax": {
-      "estimate": 0.371,
+      "estimate": 0.372,
       "measured": 0.298,
-      "ratio": 0.802,
-      "distance": 1.246
+      "ratio": 0.8,
+      "distance": 1.25
     },
     "piano": {
-      "estimate": 36.722,
+      "estimate": 36.378,
       "measured": 19.374,
-      "ratio": 0.528,
-      "distance": 1.895
+      "ratio": 0.533,
+      "distance": 1.878
     },
     "pixels": {
       "note": "no game loop, so nothing recurs"
     },
     "pong": {
-      "estimate": 58.095,
+      "estimate": 59.449,
       "measured": 59.862,
-      "ratio": 1.03,
-      "distance": 1.03
+      "ratio": 1.007,
+      "distance": 1.007
     },
     "raycaster": {
-      "estimate": 52.557,
+      "estimate": 53.739,
       "measured": 100.172,
-      "ratio": 1.906,
-      "distance": 1.906
+      "ratio": 1.864,
+      "distance": 1.864
     },
     "rotozoom_bg": {
-      "estimate": 0.59,
+      "estimate": 0.599,
       "measured": 0.459,
-      "ratio": 0.777,
-      "distance": 1.287
+      "ratio": 0.766,
+      "distance": 1.306
     },
     "scroll": {
-      "estimate": 0.389,
+      "estimate": 0.391,
       "measured": 0.311,
-      "ratio": 0.798,
-      "distance": 1.253
+      "ratio": 0.796,
+      "distance": 1.256
     },
     "sheet": {
-      "estimate": 4.957,
+      "estimate": 4.458,
       "measured": 1.528,
-      "ratio": 0.308,
-      "distance": 3.245
+      "ratio": 0.343,
+      "distance": 2.918
     },
     "shmup": {
-      "estimate": 5.153,
+      "estimate": 4.363,
       "measured": 5.288,
-      "ratio": 1.026,
-      "distance": 1.026
+      "ratio": 1.212,
+      "distance": 1.212
     },
     "snake": {
       "estimate": 64.952,
@@ -137,22 +137,22 @@
       "distance": 1.126
     },
     "snake_buffered": {
-      "estimate": 39.826,
+      "estimate": 42.596,
       "measured": 35.289,
-      "ratio": 0.886,
-      "distance": 1.129
+      "ratio": 0.828,
+      "distance": 1.207
     },
     "sparks": {
-      "estimate": 53.747,
+      "estimate": 52.387,
       "measured": 54.043,
-      "ratio": 1.006,
-      "distance": 1.006
+      "ratio": 1.032,
+      "distance": 1.032
     },
     "sprite_mover": {
-      "estimate": 2.269,
+      "estimate": 1.844,
       "measured": 2.718,
-      "ratio": 1.198,
-      "distance": 1.198
+      "ratio": 1.474,
+      "distance": 1.474
     },
     "tiles": {
       "note": "no game loop, so nothing recurs"

@@ -603,19 +603,18 @@ module RubyGBA
         # them pays for each save, every pass — that is the whole trade, and leaving it out
         # would make the shape look free and the build's choice look better than it is.
         def loop_pass_cost(node)
-          (@weights[held_loop?(node) ? :loop_pass_held : :loop_pass] + spill_cost(node)) *
-            @pricing.fast_memory_factor
+          @pricing.weight_here(held_loop?(node) ? :loop_pass_held : :loop_pass) + spill_cost(node)
         end
 
         def spill_cost(node)
           shape = loop_shape(node)
           return 0 unless shape&.spilled?
 
-          shape.spills * @weights[:loop_spill]
+          shape.spills * @pricing.weight_here(:loop_spill)
         end
 
         def loop_start_cost(node)
-          @weights[held_loop?(node) ? :loop_start_held : :loop_start] * @pricing.fast_memory_factor
+          @pricing.weight_here(held_loop?(node) ? :loop_start_held : :loop_start)
         end
 
         # A timed trigger (every/after) as a labeled container: it carries its body's

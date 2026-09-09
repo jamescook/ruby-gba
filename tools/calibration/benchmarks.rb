@@ -11,15 +11,17 @@ module RubyGBA
     # Nothing here touches the emulator directly — it goes through whatever {Measurer} it was
     # given — so the whole set can be exercised against canned readings.
     #
-    # Every ROM here is built with `fast_code: false`, and that matters more than it looks. A
-    # normal build works out which routines are worth keeping in the console's quick memory
-    # and puts them there, where the same code runs about two and a half times faster —
-    # including the measuring loops below. Left on, it would quietly rescale every weight in
-    # the file to "code in quick memory", and then a program whose routines did NOT fit would
-    # be under-charged by that factor. So the weights describe the slow case, and how much the
-    # quick memory buys is one more measured weight (fast_code_speedup) applied on top. The
-    # two exceptions say so where they are: an interrupt handler is measured BOTH ways,
-    # because how much it gains is not the general factor.
+    # Every ROM here keeps its code in the cartridge by default, and that matters more than it
+    # looks. A normal build works out which routines are worth keeping in the console's quick
+    # memory and puts them there, where the same code runs two to four times faster — including
+    # the measuring loops below. Left on, it would quietly rescale every weight in the file to
+    # "code in quick memory", and then a program whose routines did NOT fit would be
+    # under-charged by that factor. So the weights describe the slow case.
+    #
+    # The whole set is then run a SECOND time with `fast: true`, and dividing one run by the
+    # other says what the quick memory buys each op — see #initialize and Calibrator#gains.
+    # The two interrupt weights are outside that: they are measured both ways by recipes of
+    # their own, because how much a handler gains is not the general answer.
     class Benchmarks
       MIXER_RATE = IR::CostModel::DEFAULT_MIXER_RATE       # 8192
       MIXER_SPF = ((MIXER_RATE + 59) / 60)                 # samples the mixer fills a frame
@@ -48,15 +50,45 @@ module RubyGBA
       TICK_HZ = 8000
       TICKS_PER_FRAME = TICK_HZ / 60.0
 
-      def initialize(measurer)
+      # WHICH MEMORY THE CODE UNDER TEST RUNS FROM. Every weight in the model describes code
+      # running from the cartridge, so that is the default and the whole file reads as before.
+      #
+      # Built with +fast+, the very same recipes measure the very same ops with the build free
+      # to keep them in the console's quick memory — and dividing one run by the other is what
+      # the quick memory buys THAT op. It is not one number: measured over eleven bodies it
+      # runs from about 1.6 for code that is nearly all loads and stores to about 4 for code
+      # that stays in registers. See Calibrator#gains.
+      #
+      # RUNNING THE WHOLE FILE TWICE rather than adding a second recipe per weight, because a
+      # second recipe is a second thing to keep in step with the first. The recipes are the
+      # same by construction, so the ratio compares like with like and no weight can be given
+      # a gain that was measured on a different program from its cost.
+      def initialize(measurer, fast: false)
         @m = measurer
+        @fast = fast
+        @unmoved = 0
       end
+
+      # HOW MANY ROMS ASKED TO RUN FROM THE QUICK MEMORY DID NOT GO. Counted here, where every
+      # build passes, because a gain divided out of a ROM that never moved is 1.000 by
+      # construction rather than by measurement — and there is exactly one way to be sure which
+      # happened, which is to ask the build.
+      #
+      # It is not hypothetical: three recipes force a loop into its memory-kept shape with a
+      # `raw` escape hatch, since that is the only blocker that costs nothing, and a routine
+      # holding raw instructions is one {Placement} will not move. See Calibrator#weigh.
+      attr_reader :unmoved
 
       # --- how a ROM gets built and measured ---
 
       def cartridge_build(name, &block)
-        RubyGBA.build(name, code: code_for(name), maker: "01", fast_code: false,
-                            err: StringIO.new, &block)
+        went(RubyGBA.build(name, code: code_for(name), maker: "01", fast_code: @fast,
+                                 err: StringIO.new, &block))
+      end
+
+      def went(rom)
+        @unmoved += 1 if @fast && rom.placement&.funcs.to_a.empty?
+        rom
       end
 
       # The same, built the way a REAL game is built — the build free to keep hot routines in
@@ -67,6 +99,15 @@ module RubyGBA
       end
 
       def code_for(name) = name[0, 4].upcase.ljust(4, "X")
+
+      # A cartridge from a program built straight out of the IR, for the recipes whose node the
+      # DSL will not let them write. Same memory choice as every other ROM here.
+      def lowered(name, prog)
+        backend = IR::Backends::GBA.new(fast_code: @fast)
+        rom = ROM.assemble(backend.lower(prog), title: name, code: code_for(name), maker: "01",
+                           built: backend.build_record(prog))
+        went(rom)
+      end
 
       # Build a ROM whose game loop runs +body+ (given the builder and the value handles)
       # +repeat_n+ times a frame, and return the scanlines of CPU it burns per frame.
@@ -117,8 +158,14 @@ module RubyGBA
       #
       # The statement and its operand together, because that is what the slope measured: a
       # statement's own instructions and the ones that put its operand in front of it.
+      #
+      # NOTHING IS TIMED HERE, which is why this build is not asked whether it moved: a count
+      # of instructions is the same count wherever they run, and a one-statement loop is far
+      # too small for the build to think moving worthwhile. Counted as a stuck reading it would
+      # take the instruction rate's own gain down with it (see #went).
       def instructions_per_plain_step
-        rom = cartridge_build("stepinst") do
+        rom = RubyGBA.build("stepinst", code: code_for("stepinst"), maker: "01",
+                            fast_code: @fast, err: StringIO.new) do
           screen :bitmap
           n = var :n, 0
           game_loop { n.add 1 }
@@ -249,10 +296,7 @@ module RubyGBA
           b.loop_(b.wait_vblank,
                   *Array.new(copies) { |k| b.draw_digit(b.var_ref(:d), 8, 4 + (k * 9), :white, font: font) }),
         )
-        # fast_code: false for the same reason every other ROM here is built that way.
-        rom = ROM.assemble(IR::Backends::GBA.new(fast_code: false).lower(prog),
-                           title: name, code: code_for(name), maker: "01")
-        @m.busy(name, rom)
+        @m.busy(name, lowered(name, prog))
       end
 
       def per_digit_node(digit, font, tear_free: false)
@@ -416,8 +460,7 @@ module RubyGBA
         prog = b.program(b.screen(:bitmap), b.set(:x, b.int(0)),
                          b.func(:__noop, b.add(:x, b.int(1))),
                          b.loop_(b.wait_vblank, b.repeat(b.int(passes), :__lp, *body)))
-        ROM.assemble(IR::Backends::GBA.new(fast_code: false).lower(prog),
-                     title: name, code: code_for(name), maker: "01")
+        lowered(name, prog)
       end
 
       # A frame holding the given loops, built straight from the IR: the surface has no way to
@@ -434,9 +477,7 @@ module RubyGBA
           b.repeat(b.int(passes), :__lp, *(blocked ? [b.raw("")] : []))
         end
         prog = b.program(b.screen(:bitmap), b.set(:x, b.int(0)), b.loop_(b.wait_vblank, *body))
-        # fast_code: false for the same reason every other ROM here is built that way.
-        ROM.assemble(IR::Backends::GBA.new(fast_code: false).lower(prog),
-                     title: name, code: code_for(name), maker: "01")
+        lowered(name, prog)
       end
 
       # A division worked out as the program runs walks the answer one bit at a time, so it is
@@ -497,10 +538,7 @@ module RubyGBA
           b.loop_(b.wait_vblank,
                   b.repeat(b.int(COMPARE_PASSES), :i, *Array.new(copies) { b.set(:y, value.call) })),
         )
-        # fast_code: false for the same reason every other ROM here is built that way.
-        rom = ROM.assemble(IR::Backends::GBA.new(fast_code: false).lower(prog),
-                           title: name, code: code_for(name), maker: "01")
-        @m.busy(name, rom)
+        @m.busy(name, lowered(name, prog))
       end
 
       # The operator alone, differenced against the same statement holding a bare variable —
@@ -527,10 +565,14 @@ module RubyGBA
       # the snapshot and almost nothing else.
       #
       # ONE COPY AND A HUNDRED AND TWENTY. Both counts together give the read's own rate, and
-      # the low one on its own gives the snapshot. Read at twenty copies the snapshot comes
-      # out a quarter light — a longer run of code lands differently in the cartridge's
-      # prefetch — and the instruction count the build emitted says the low reading is the
-      # true one.
+      # the low one on its own gives the snapshot. Read at twenty copies the snapshot comes out
+      # a quarter light — a longer run of code lands differently in the cartridge's prefetch —
+      # and the instruction count the build emitted says the low reading is the true one.
+      #
+      # A frame with one read in it is far too cheap for the build to think moving it
+      # worthwhile, so these three weights have no measurable GAIN and keep the general figure.
+      # That is the right trade: the cost is what a frame pays and the gain is a correction to
+      # it, so the clean cost is worth more than the measured correction.
       BUTTON_LO = 1
       BUTTON_HI = 120
       BUTTON_READS = { var: -> { IR::Build.var_ref(:d) },
@@ -551,10 +593,7 @@ module RubyGBA
           b.screen(:bitmap), b.set(:y, b.int(0)), b.set(:d, b.int(100)),
           b.loop_(b.wait_vblank, *Array.new(ops) { b.set(:y, value.call) })
         )
-        # fast_code: false for the same reason every other ROM here is built that way.
-        rom = ROM.assemble(IR::Backends::GBA.new(fast_code: false).lower(prog),
-                           title: name, code: code_for(name), maker: "01")
-        @m.busy(name, rom)
+        @m.busy(name, lowered(name, prog))
       end
 
       # --- reading one element out of a list or a table ---
@@ -643,9 +682,7 @@ module RubyGBA
         prog = b.program(b.screen(:bitmap), b.set(:t, b.int(0)), b.set(:f, b.int(0)),
                          b.list_new(:xs, cap), *Array.new(cap) { b.list_push(:xs, b.int(0)) },
                          b.loop_(b.wait_vblank, b.repeat(b.int(cap), :__i, *body)))
-        rom = ROM.assemble(IR::Backends::GBA.new(fast_code: false).lower(prog),
-                           title: name, code: code_for(name), maker: "01")
-        @m.busy(name, rom)
+        @m.busy(name, lowered(name, prog))
       end
 
       def per_walk_read(blocked: false)

@@ -23,6 +23,21 @@ module CostArith
   # nobody writes it, so every per-frame expectation below carries it.
   def frame_boundary = WEIGHTS[:frame_overhead]
 
+  # What the console's quick memory buys ONE op. Not one figure: that memory makes fetching an
+  # instruction cheap and does nothing for a load or a store, so an op that stays in registers
+  # gains about four times over and one that is mostly memory gains half of that. A weight with
+  # no measured gain keeps the general figure, which is the same question asked of arithmetic.
+  # A weight for time the console spends rather than our code is pinned at 1: the CPU executes
+  # nothing through it, so where our instructions live cannot reach it (see Pricing#quick_weights).
+  def gain(name)
+    return 1.0 if RubyGBA::IR::CostModel::Pricing::CONSOLES_OWN_TIME.include?(name)
+
+    RubyGBA::IR::CostModel::DEFAULT_GAINS.fetch(name) { WEIGHTS[:fast_code_speedup] }
+  end
+
+  # ...and what one weight costs where the build kept its code in that memory.
+  def quick(name) = WEIGHTS[name] / gain(name)
+
   # Reading one button — whether it is down, or whether it has just gone down. Two prices
   # because they are two mechanisms, though they measure alike (see Pricing#priced_own_cost).
   def button_down = WEIGHTS[:read_button]

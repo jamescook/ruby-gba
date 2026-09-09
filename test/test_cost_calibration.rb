@@ -388,7 +388,13 @@ class TestCostCalibration < Minitest::Test
                  predict: ->(model, program) { model.tick_cost(program) }),
     Standing.new(name: :frame, weight: :dma_pixel, fast_code: false, shape: FRAME,
                  predict: ->(model, program) { model.frame_cost(program) }),
-    Standing.new(name: :arithmetic, weight: :fast_code_speedup, fast_code: true, shape: ARITHMETIC,
+    # THE ONE CASE BUILT HOT, and what it holds the emulator against is the same instruction
+    # rate the cold cases do — a straight run of adds is priced by counting whichever memory it
+    # runs from. What it adds to those is the OTHER half of the answer: that the gain applied
+    # when the build moves the code is right, which no cold fixture can see (see
+    # CostModel::DEFAULT_GAINS). It cannot NAME that gain, because this file drifts weights and
+    # a gain is not one.
+    Standing.new(name: :arithmetic, weight: :instruction, fast_code: true, shape: ARITHMETIC,
                  predict: ->(model, program) { model.frame_cost(program) }),
     Standing.new(name: :tearfree_odd, weight: :tearfree_edge_near, fast_code: false, shape: TEARFREE_ODD,
                  predict: ->(model, program) { model.frame_cost(program) }),
