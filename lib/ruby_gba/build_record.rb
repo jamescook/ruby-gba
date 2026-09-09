@@ -25,10 +25,16 @@ module RubyGBA
   # +findings+ is what the guardrails said about the program, kept so a report asked for as
   # data can carry them beside the numbers. Empty until the build's own checks have run — the
   # backend makes the record before those checks exist, since they price with it.
+  #
+  # +emitted+ is what each node of the program turned into — how many instructions, and how
+  # many of them jump. Most of the estimate's weights are a whole number of instructions at
+  # one instruction's price, which is a fact the lowering has exactly and a measurement can
+  # only recover, so the lowering says it here rather than both saying it separately. See
+  # IR::Backends::GBA::Attribution.
   class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
                                   :palette_entries, :column_stretches, :compression,
-                                  :build_options, :findings)
-    def initialize(findings: [], **rest)
+                                  :build_options, :findings, :emitted)
+    def initialize(findings: [], emitted: nil, **rest)
       super
     end
 
@@ -42,7 +48,8 @@ module RubyGBA
     # live — both change what the same statement costs.
     def for_cost_model
       decided = { var_addresses: var_addresses, loop_shapes: loop_shapes,
-                  palette_entries: palette_entries, column_stretches: column_stretches }.compact
+                  palette_entries: palette_entries, column_stretches: column_stretches,
+                  emitted: emitted }.compact
       return decided unless placement
 
       names = placement.funcs

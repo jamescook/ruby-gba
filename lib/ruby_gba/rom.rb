@@ -31,9 +31,10 @@ module RubyGBA
     # and each is documented on {BuildRecord}: the IR program this cartridge was built from,
     # which routines it keeps in the console's quick memory, where its variables landed,
     # which shape each of its loops got, how many colors each screen draws through, which
-    # see-through pictures skip the rows they have nothing in, how far asset packing
-    # shrank it, and the options it was built with.
+    # see-through pictures skip the rows they have nothing in, what each node of the program
+    # turned into, how far asset packing shrank it, and the options it was built with.
     def source_program = @built&.source_program
+    def emitted = @built&.emitted
     def placement = @built&.placement
     def var_addresses = @built&.var_addresses
     def loop_shapes = @built&.loop_shapes

@@ -861,8 +861,11 @@ class TestCostPricing < CostModelTest
       rom.cost_model.steady_cost(rom.source_program)
     end
 
-    near frame_boundary + WEIGHTS[:op_assign] + var_reads, costs.first
-    near frame_boundary + WEIGHTS[:op_assign] + var_reads, costs.last
+    # Two instructions — the read and the store — wherever the two variables landed. Counted
+    # off the build rather than taken from :op_assign, which is the same claim for a program
+    # that was never built.
+    near frame_boundary + instructions(2), costs.first
+    near frame_boundary + instructions(2), costs.last
   end
 
   # `set :out, <node>` once a frame. Built straight from the IR because the surface will not
@@ -1160,5 +1163,112 @@ class TestCostPricing < CostModelTest
     base = Cost.new.frame_cost(prog)
     doubled = Cost.new(plot_run_pixel: WEIGHTS[:plot_run_pixel] * 2).frame_cost(prog) # fill_rect writes per pixel
     near 2 * base, doubled
+  end
+
+  # --- what the build counted, against what a weight says (see Pricing#counted) ---
+
+  def built(&block)
+    RubyGBA.build("CNT", code: "BCNT", maker: "01", err: StringIO.new, &block)
+  end
+
+  # A straight run of instructions is priced by counting what the lowering emitted, so the
+  # weight that used to stand for the same instructions no longer decides anything. This is
+  # the claim the whole change rests on, and the shape of the test is: move the weight a
+  # long way and watch the answer not move.
+  def test_a_straight_run_is_priced_by_counting_and_not_by_its_weight
+    rom = built do
+      screen :bitmap
+      y = var :y, 0
+      game_loop { 50.times { y.add 1 } }
+    end
+
+    near rom.cost_model.steady_cost(rom.source_program),
+         rom.cost_model(op_step: WEIGHTS[:op_step] * 5).steady_cost(rom.source_program)
+  end
+
+  # ...and the rate is what decides it instead.
+  def test_the_rate_is_what_a_counted_statement_turns_on
+    rom = built do
+      screen :bitmap
+      y = var :y, 0
+      game_loop { 50.times { y.add 1 } }
+    end
+
+    base = rom.cost_model.steady_cost(rom.source_program) - frame_boundary
+    dearer = rom.cost_model(instruction: WEIGHTS[:instruction] * 2)
+                .steady_cost(rom.source_program) - frame_boundary
+
+    near 2 * base, dearer
+  end
+
+  # A comparison jumps over one of its two answers, so what was emitted is not what a frame
+  # runs and the count is not the price. Its measured weight still decides.
+  def test_a_comparison_keeps_its_measured_weight
+    rom = built do
+      screen :bitmap
+      x = var :x, 3
+      y = var :y, 0
+      game_loop { 50.times { (x > 3).then { y.set 1 } } }
+    end
+
+    dearer = rom.cost_model(op_compare: WEIGHTS[:op_compare] * 2).steady_cost(rom.source_program)
+
+    assert_operator dearer, :>, rom.cost_model.steady_cost(rom.source_program) * 1.2,
+                    "a comparison is not priced by counting, so its weight has to still matter"
+  end
+
+  # WHOLE STATEMENT OR NONE OF IT. A weight was measured with an operand in front of it and
+  # pays for that operand, which is why a plain read and a number written in the program are
+  # priced at nothing. Count those on top of a weighted statement and they are charged
+  # twice — a fifth over, on examples/maze.rb, which is how this was found.
+  #
+  # A moving rectangle is drawn by a loop, so it keeps its measured weights whatever the
+  # rate is; the row it is drawn on is a variable, and the whole frame has to come to the
+  # same either way.
+  def test_the_operands_of_a_weighted_statement_stay_free
+    rom = built do
+      screen :bitmap, tear_free: true
+      y = var :y, 0
+      game_loop { draw_rect_at 40, y, 40, 20, :red }
+    end
+    program = rom.source_program
+
+    near rom.cost_model(instruction: 0.0).steady_cost(program), rom.cost_model.steady_cost(program)
+  end
+
+  # NOTHING EMITTED IS NOT THE SAME AS COSTING NOTHING. A sprite's per-frame repaint passes
+  # through the lowering where it is declared and emits none of what it costs — the drawing
+  # is somewhere else entirely. Read as a count of nought it would take the whole of an
+  # animated sprite's frame with it, which is most of what examples/animate.rb does.
+  def test_a_statement_whose_work_is_emitted_elsewhere_keeps_its_weight
+    rom = built do
+      screen :bitmap
+      image(:a, "." => :transparent, "#" => :red) { "##\n#." }
+      image(:b, "." => :transparent, "#" => :blue) { ".#\n##" }
+      sprite :s, at: [10, 10], frames: %i[a b], rate: 2
+      game_loop { }
+    end
+    program = rom.source_program
+
+    counted = rom.cost_model.steady_cost(program)
+    weighted = rom.cost_model(instruction: 0.0).steady_cost(program)
+
+    # Not to the last decimal — the sprite's own bookkeeping around the draw IS a straight
+    # run and is counted — but the draw itself has to be there either way, and it is most of
+    # both numbers.
+    assert_in_delta weighted, counted, weighted * 0.02
+    assert_operator counted, :>, frame_boundary * 1.5, "drawing the sprite has to cost something"
+  end
+
+  # A program nobody built has no counts to read, so it is priced the older way — which is
+  # what keeps the model able to answer "what would this cost" before there is a cartridge.
+  def test_a_program_with_no_build_behind_it_is_priced_by_the_weights
+    prog = program do
+      screen :bitmap
+      n = var :n, 0
+      game_loop { 50.times { n.add 1 } }
+    end
+
+    near frame_boundary + (50 * WEIGHTS[:op_step]), Cost.new.frame_cost(prog)
   end
 end

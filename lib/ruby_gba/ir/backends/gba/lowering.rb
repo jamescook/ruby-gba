@@ -22,11 +22,16 @@ module RubyGBA
           # count to work towards — nothing knows how many instructions a program comes to
           # until they are emitted — so the growing size is the honest thing to show. (The
           # default never runs: with the silent progress the block below is never called.)
-          def initialize(progress: Progress.silent, emitted: -> { 0 })
+          #
+          # +attribution+ counts what each node turned into. Every node in the program passes
+          # through the two methods below, and this is the only place that is true, so this is
+          # where the counting has to happen. See {Attribution}.
+          def initialize(attribution:, progress: Progress.silent, emitted: -> { 0 })
             @values = {}
             @statements = {}
             @progress = progress
             @emitted = emitted
+            @attribution = attribution
             @mode = :direct  # the mode draws currently lower in (set per func)
             @draw_area = nil # x, y, w, h while inside a clipped area; nil otherwise
           end
@@ -43,7 +48,9 @@ module RubyGBA
           # would also leave, so the coverage lock can't mistake one for the other.
           NOTHING = ->(_node) {}
 
-          def value(node) = @values.fetch(node.kind) { unknown_value(node) }.call(node)
+          def value(node)
+            @attribution.around(node) { @values.fetch(node.kind) { unknown_value(node) }.call(node) }
+          end
 
           # Every statement in the program is lowered through here, nested ones included, so
           # this is where the pass says it is still going. One report per STATEMENT, not per
@@ -51,7 +58,7 @@ module RubyGBA
           # reported on each would spend more time saying so than emitting.
           def statement(node)
             @progress.tick { "#{@emitted.call} bytes" }
-            @statements.fetch(node.kind) { unknown_statement(node) }.call(node)
+            @attribution.around(node) { @statements.fetch(node.kind) { unknown_statement(node) }.call(node) }
           end
 
           # Every kind with a value/statement handler — read by the coverage test that

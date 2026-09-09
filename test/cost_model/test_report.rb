@@ -75,7 +75,10 @@ class TestCostReport < CostModelTest
     io = StringIO.new
     rom.explain(format: :json, out: io)
     data = JSON.parse(io.string)
-    near plot_rect(10, 10), data["frame_cost"]
+    # A fixed-size fill is a straight run of stores, so a built cartridge prices it by
+    # counting what the lowering emitted — a hundred pixels' worth, within a rounding of the
+    # per-pixel weight that used to stand for the same instructions.
+    assert_in_delta plot_rect(10, 10), data["frame_cost"], 0.05
     assert_equal false, data["looping"]
     # The tree is now organized into drawing / sound / logic sections; the fill_rect
     # sits inside the drawing section.

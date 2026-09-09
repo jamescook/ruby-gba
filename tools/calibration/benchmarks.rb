@@ -110,6 +110,24 @@ module RubyGBA
 
       # --- the frame itself ---
 
+      # How many instructions ONE of those plain statements comes to, read off the build
+      # rather than counted by hand. The pair above gives scanlines per statement; this is
+      # what turns that into scanlines per instruction, and the one thing it must not do is
+      # assume a number — the number is what the lowering decides.
+      #
+      # The statement and its operand together, because that is what the slope measured: a
+      # statement's own instructions and the ones that put its operand in front of it.
+      def instructions_per_plain_step
+        rom = cartridge_build("stepinst") do
+          screen :bitmap
+          n = var :n, 0
+          game_loop { n.add 1 }
+        end
+        emitted = rom.emitted
+        step = rom.source_program.walk.find { |node| node.kind == :add }
+        step.walk.sum { |node| emitted[node]&.instructions || 0 }
+      end
+
       # A game loop of +ops+ plain statements, one after another, and nothing else at all.
       # Two of these fit the line the frame's own cost falls out of (see Calibrator#frame).
       #

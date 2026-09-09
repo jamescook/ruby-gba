@@ -88,10 +88,30 @@ module RubyGBA
       FRAME_HI = 120
 
       def frame
-        _slope, base = Reductions.fit(FRAME_LO, @bench.plain_frame_busy(FRAME_LO),
-                                      FRAME_HI, @bench.plain_frame_busy(FRAME_HI))
+        slope, base = Reductions.fit(FRAME_LO, @bench.plain_frame_busy(FRAME_LO),
+                                     FRAME_HI, @bench.plain_frame_busy(FRAME_HI))
         weigh(:frame_overhead, base,
               note: "waiting for the screen and counting the frame, which every frame pays")
+        instruction(slope)
+      end
+
+      # WHAT ONE INSTRUCTION COSTS, which is most of this file's job done once instead of
+      # thirty times. Ten of the operations measured below turned out to be a whole number of
+      # instructions at the same price, over counts from two to twenty-six and across
+      # arithmetic, a list write, a pixel and two register writes — so they were never really
+      # ten measurements. They were this one, taken the slow way, with an instruction count
+      # the lowering already knew recovered from a stopwatch each time.
+      #
+      # The estimate reads the count off the build now (see Pricing#counted) and pays it this
+      # rate, so the operations that are a straight run of instructions no longer need a
+      # weight of their own — and neither does the next one somebody adds.
+      #
+      # It comes free with the frame's line above: the same pair's SLOPE is scanlines per
+      # plain statement, and how many instructions such a statement is is a fact the build
+      # hands over rather than a number written here.
+      def instruction(slope)
+        weigh(:instruction, slope / @bench.instructions_per_plain_step,
+              note: "one instruction, running from the cartridge and reaching the console's own memory")
       end
 
       # --- logic (the op_* tiers) ---

@@ -17,6 +17,17 @@
 # Bytes are attributed EXCLUSIVELY: a loop is charged for the loop's own
 # bookkeeping, not for its body, so the numbers down a column add up instead of
 # counting the same byte at every level of nesting.
+#
+# THE BUILD COUNTS THIS FOR ITSELF NOW — see IR::Backends::GBA::Attribution, which
+# every build fills in because the estimate prices a statement by what it emitted.
+# So today's library is asked rather than watched, and what is left here is the
+# reduction: bytes per func, per kind, per line of the game.
+#
+# The watching stays for one reason, and it is the rule this whole tool is built
+# around (see tools/emitted_probe.rb): it measures with whatever the library at the
+# other end already offers, so that it can run against an OLD commit. A library from
+# before the build counted anything cannot be asked, and #Recorder is how it is
+# measured anyway.
 module EmittedAttribution
   # Remembers, for every statement lowered, how many bytes that statement alone
   # produced. Prepended to a throwaway subclass rather than to the backend itself,
@@ -54,8 +65,16 @@ module EmittedAttribution
 
   module_function
 
+  # A backend that has to be watched, or the plain one when it counts for itself.
   def recording(backend_class)
+    return backend_class if counts_itself?(backend_class)
+
     Class.new(backend_class) { prepend Recorder }
+  end
+
+  # Whether this library's build already records what each node emitted.
+  def counts_itself?(backend_class)
+    backend_class.method_defined?(:attribution)
   end
 
   # Lower +program+ and report where its bytes came from.
@@ -65,10 +84,10 @@ module EmittedAttribution
     breakdown(backend, code.bytesize)
   end
 
-  # The same report, for a caller that already has a recording backend it lowered
-  # with — the probe needs the backend for other reasons too.
+  # The same report, for a caller that already has a backend it lowered with — the
+  # probe needs the backend for other reasons too.
   def breakdown(backend, total)
-    rows = backend.attributed
+    rows = rows_for(backend)
 
     Breakdown.new(
       total: total,
@@ -86,6 +105,17 @@ module EmittedAttribution
       unattributed: total - rows.sum { |_, bytes| bytes },
     )
   end
+
+  # Node and bytes, whichever way this build was measured. The library's own answer is
+  # instructions per node, totalled over every place the node was lowered from — the same
+  # bytes #Recorder collects one place at a time, so the two reduce identically.
+  def rows_for(backend)
+    return backend.attributed unless counts_itself?(backend.class)
+
+    backend.attribution.emitted.map { |node, e| [node, e.instructions * INSTRUCTION_BYTES] }
+  end
+
+  INSTRUCTION_BYTES = 4
 
   def sum_by(rows)
     totals = Hash.new(0)

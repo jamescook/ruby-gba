@@ -147,8 +147,36 @@ class TestEmittedAttribution < Minitest::Test
     program = b.program
 
     plain = GBA.new.lower(program)
-    recorded = Attribution.recording(GBA).new.lower(program)
+    recorded = Class.new(GBA) { prepend EmittedAttribution::Recorder }.new.lower(program)
 
     assert_equal plain, recorded, "watching the build changed the build"
+  end
+
+  # The two ways of measuring have to agree, since only one of them is exercised on a
+  # normal run. The build counts for itself, and the watcher is kept for a library from
+  # before it did — so this is what says the fallback still describes the same ROM.
+  def test_the_build_counts_what_the_watcher_would_have
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      x = var :x, 0
+      game_loop do
+        wait_vblank
+        clear_screen :black
+        x.add 1
+        fill_rect 10, 10, 20, 20, :red
+      end
+    end
+    b.emit_pending_functions
+    program = b.program
+
+    watched = Class.new(GBA) { prepend EmittedAttribution::Recorder }.new
+    watched.lower(program)
+    counted = GBA.new
+    counted.lower(program)
+
+    assert_equal Attribution.breakdown(watched, 0).kinds,
+                 Attribution.breakdown(counted, 0).kinds,
+                 "the build's own count and the watcher disagree about where the bytes went"
   end
 end

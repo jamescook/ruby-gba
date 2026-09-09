@@ -209,12 +209,8 @@ module RubyGBA
           # Call the routine. It takes the numerator in r1 and the divisor in r0, which is
           # exactly where evaluating a two-sided expression already leaves them, so there
           # is nothing to shuffle first. It hands back the quotient in r0 and the leftover
-          # in r1.
-          #
-          # This chip cannot branch-and-link to an address held in a register, so the
-          # return address is set by hand — pc reads as two instructions ahead, which is
-          # the instruction after the branch — and the jump is a BX. The routine returns
-          # with BX LR.
+          # in r1. The routine lives in the quick memory, too far for a relative branch, so
+          # the call goes through a register — see Emit#emit_call_through.
           def emit_call_divide_routine
             emit_call_routine_at(@divide_routine_iwram)
           end
@@ -229,8 +225,7 @@ module RubyGBA
 
           def emit_call_routine_at(address)
             @emitter.emit(ASM.load_immediate(ADDR, address))
-            @emitter.emit(ASM.mov_reg(14, 15)) # lr = where to come back to
-            @emitter.emit(ASM.bx(ADDR))
+            @emitter.emit_call_through(ADDR)
           end
 
           # The routine, emitted once into ROM and copied into internal memory at boot. It

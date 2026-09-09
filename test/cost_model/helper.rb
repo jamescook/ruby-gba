@@ -23,6 +23,12 @@ module CostArith
   # nobody writes it, so every per-frame expectation below carries it.
   def frame_boundary = WEIGHTS[:frame_overhead]
 
+  # What +n+ instructions cost. The expectation to write for a statement priced off a REAL
+  # BUILD, since a straight run of instructions is then charged by counting what the lowering
+  # emitted rather than by the weight that used to stand for the same number (see
+  # Pricing#counted). The weights below still say it for a program nobody built.
+  def instructions(n) = n * WEIGHTS[:instruction]
+
   # Starting one row's transfer, both sides of the line: the CPU's register writes and the
   # engine's own moment before the first pixel moves. Two weights because only the first
   # gets faster when the code is kept in the console's quick memory.
