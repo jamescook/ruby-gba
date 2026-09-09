@@ -236,6 +236,75 @@ module GembaCore
       FrameCost.new(busy_cycles: busy, active_cycles: active, cycles_per_scanline: cycles_per_scanline)
     end
 
+    # WHERE THE CPU SPENT ITS FRAMES, as raw counts against raw addresses.
+    #
+    # The cycle measurements above say how much a frame costs. This says which
+    # code it was spent in, which is the question somebody with a slow game
+    # actually has. Every instruction the run executes is written down, so the
+    # counts are exact rather than a statistical sample — an emulator can look
+    # at each one, where a profiler on real hardware has to interrupt it now and
+    # then and guess the rest.
+    #
+    # This stays a probe. It hands back ADDRESSES, because turning one into the
+    # name of a routine needs the build that made the ROM, and that is not here.
+    #
+    # +halted+ is time with no code in it at all: the game has finished its work
+    # and is asleep until the screen comes round. It is kept apart from the
+    # counts on purpose — the address the CPU happens to hold while it sleeps is
+    # wherever it went to sleep, and blaming that line for the wait would be the
+    # most misleading thing this could report. It is in CYCLES, not instructions,
+    # because a sleep is time rather than code; {#idle_share} puts it against the
+    # frame it slept through.
+    Profile = Data.define(:frames, :samples, :halted, :elsewhere, :pc, :cycles_per_frame) do
+      # The addresses that came up most, dearest first.
+      #
+      # @return [Array<Array(Integer, Integer)>] pairs of [address, times seen]
+      def hottest(count = 10) = pc.sort_by { |_, seen| -seen }.first(count)
+
+      # What share of the run's instructions ran at these addresses, 0.0 to 1.0.
+      # Takes anything that answers +include?+ — a Range covering a routine, or
+      # a Set of addresses.
+      def share_of(addresses)
+        return 0.0 if samples.zero?
+
+        pc.sum { |addr, seen| addresses.include?(addr) ? seen : 0 } / samples.to_f
+      end
+
+      # Instructions per frame, which is what a frame's work amounts to once the
+      # sleeping is taken out.
+      def samples_per_frame = frames.zero? ? 0.0 : samples / frames.to_f
+
+      # How much of the run the console spent asleep, 0.0 to 1.0. This is the
+      # headroom: a game idling four fifths of every frame has room to do four
+      # times the work, and one near 0.0 has none and is about to miss a frame.
+      def idle_share
+        total = frames * cycles_per_frame
+        return 0.0 if total.zero?
+
+        [halted / total.to_f, 1.0].min
+      end
+    end
+
+    # Run +frames+ frames and report where the CPU was — see {Profile}.
+    #
+    # Pass +settle:+ to run that many frames first so the ROM is past its boot
+    # and into its game loop, and +keys:+ to hold buttons for the settling AND
+    # the profiled frames. Both matter more here than anywhere else: a profile
+    # of a title screen, or of a game standing still, is a profile of the wrong
+    # thing.
+    #
+    # @return [Profile]
+    def profile(frames: 1, settle: 0, keys: nil)
+      ensure_open!
+      step(settle, keys: keys) if settle.positive?
+      raw = @core.profile(frames, keys_mask(keys))
+      @frames_run += frames
+      @prev_pixels = @pixels
+      @pixels = @core.video_buffer
+      Profile.new(frames: raw[:frames], samples: raw[:samples], halted: raw[:halted],
+                  elsewhere: raw[:elsewhere], pc: raw[:pc], cycles_per_frame: frame_cycles)
+    end
+
     # Number of pixels lit (non-black) on the current frame — a cheap
     # "is anything on screen?" measure.
     #

@@ -211,6 +211,6 @@ module RubyGBA
     }.freeze
 
     # The emulator that read them (its own sources, in one digest).
-    MEASURED_EMULATOR = "bd4af927f48d9d4375f210c84abd94a53138664b781554a35f88b71712728382"
+    MEASURED_EMULATOR = "b7bd937c9ddcb2a6c3123ef49e468e9d000ac901e64ee68039e26c5ef03e6125"
   end
 end
