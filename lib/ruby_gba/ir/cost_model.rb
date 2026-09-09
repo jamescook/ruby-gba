@@ -191,14 +191,19 @@ module RubyGBA
     #   wrong order sends the reader to the wrong line, and catching that is what the corpus
     #   check is for.
     #
-    #   WHAT ONLY THE ESTIMATE CAN ANSWER. Tearing. The emulator reads the finished picture
-    #   and cannot see a tear in the middle of drawing it, so the tearing verdict is the
-    #   estimate's even on a measured run, and the report says so beside the measured lines.
+    #   TEARING IS THE CAUTIOUS ONE, and it is now checkable rather than only trusted. This
+    #   model asks whether the drawing fits in the safe window, which is a total; whether the
+    #   picture really tears is a race between the display's row and the game's, travelling
+    #   down the screen together, and drawing can overrun the window and still stay ahead.
+    #   So the estimate says "tears" for programs that do not, on purpose — and a measured
+    #   run reads what actually happened and says so instead (see {RubyGBA::Tearing}). Where
+    #   the screen has no framebuffer to read it off, the estimate is still the only answer
+    #   and the report says which one you are looking at.
     #
     # TWO THINGS DELIBERATELY NOT DONE, so they are not tried again. Declaring the numbers
     # relative, on an arbitrary scale: the units are emulator-measured scanlines, and the
-    # tearing verdict is an absolute claim only the estimate can make, so a relative model
-    # refuses the one sentence a beginner most needs. And FITTING THE WEIGHTS TO THE CORPUS —
+    # tearing verdict is an absolute claim about a fixed window, so a relative model refuses
+    # the one sentence a beginner most needs. And FITTING THE WEIGHTS TO THE CORPUS —
     # solving for the vector that best predicts the measured frames: the per-program counts
     # are correlated (a program that draws more also compares more and loops more), so a fit
     # spreads one operation's cost across whichever weights happen to move with it, and

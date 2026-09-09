@@ -75,6 +75,22 @@ module GembaCore
       pixel(x, y) == [0, 0, 0]
     end
 
+    # The whole current frame as the emulator's raw bytes — {BYTES_PER_PIXEL} per pixel,
+    # rows top to bottom. {#pixel} reads one out of this; a caller comparing the WHOLE
+    # picture against something wants it in one piece rather than 38,400 calls.
+    #
+    # WHAT THIS IS A PICTURE OF, which matters for the one job it was added for: the
+    # display draws each scanline as it reaches it, out of video memory as it stands at
+    # that moment. So this is what the screen really showed, mid-frame writes and all —
+    # not a settled picture assembled at the end. A caller comparing it against video
+    # memory afterwards is asking whether the game finished each row before the display
+    # got there, which is the definition of a tear.
+    #
+    # @return [String] raw pixel bytes; raises until at least one {#step} has run
+    def frame_buffer
+      pixels!
+    end
+
     # Read one byte (0..255) from the GBA address bus — any mapped region
     # (IWRAM 0x03000000+, EWRAM 0x02000000+, VRAM, I/O registers).
     def read8(address)

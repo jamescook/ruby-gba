@@ -567,12 +567,16 @@ module RubyGBA
           # A measurement is the verdict: the real per-frame cost / frame rate, per scene
           # (or once for a single-loop game). The estimate's own within/over verdict is
           # suppressed — it's the one that can't see an unbounded loop or the DMA-stall.
-          # Tearing stays an estimate: the emulator reads a settled framebuffer, so it
-          # can't see a mid-frame tear.
+          # Tearing is measured too where the screen allows it, and stays an estimate where
+          # it does not.
           measured_verdict_lines(printer, measured)
           unless @verdicts.mixed?(program)
-            tear_budget_line(program, printer, recurring_tear)
-            tearing_is_the_estimates_note(program, printer)
+            if (torn = measured_tearing(measured))
+              measured_tear_line(printer, torn, recurring_tear)
+            else
+              tear_budget_line(program, printer, recurring_tear)
+              tearing_is_the_estimates_note(program, printer)
+            end
           end
         elsif @verdicts.mixed?(program)
           scene_verdict_lines(program, printer)
@@ -891,15 +895,55 @@ module RubyGBA
                      severity: close ? :warm : @verdicts.severity_for(cost, VBLANK_BUDGET)
       end
 
-      # Beside a measured verdict, the tearing line is still the estimate's, and it says so —
-      # or the measured column reads as the authority on everything next to it. The emulator
-      # reads the finished picture, so a tear in the middle of drawing it is the one thing it
-      # cannot see. Nothing to say for a double-buffered game, which cannot tear.
+      # Beside a measured verdict, the tearing line is still the estimate's whenever the run
+      # did not read one, and it says so — or the measured column reads as the authority on
+      # everything next to it. Nothing to say for a double-buffered game, which cannot tear.
+      #
+      # TWO REASONS, and they are not the same thing to a reader. A tear is read by holding
+      # what the display showed against what the game had finished drawing, so it needs a
+      # screen that keeps one picture in one place; a tiled screen never has that. Or the
+      # screen could have been read and these readings simply do not carry it — a report
+      # handed numbers rather than told to run the game.
       def tearing_is_the_estimates_note(program, printer)
         return if @verdicts.buffered?(program)
 
-        printer.puts "    (tearing is the estimate's alone — the emulator reads the finished picture, " \
-                     "so it cannot see a tear)"
+        why =
+          if Tearing.measurable?(program)
+            "these readings do not include one. Call explain(measured: true) to run the game and read it"
+          else
+            "a tear is read off a framebuffer, and this screen has none"
+          end
+        printer.puts "    (tearing is the estimate's alone here — #{why})"
+      end
+
+      # THE WORST TEARING READING of the scenes measured, or nil where none could be read.
+      # The readings are plain data — see Analyzer::Result#for_report — so this file stays
+      # free of that module's types.
+      def measured_tearing(measured)
+        read = measured.values.select { |result| result[:torn_rows] }
+        read.max_by { |result| result[:torn_rows] }
+      end
+
+      # THE TEARING VERDICT, MEASURED. The display draws each row as it reaches it, so what
+      # it put on screen can be held against what the game had finished drawing. A row that
+      # differs went up before the game was done with it, and that is a tear.
+      #
+      # THE ESTIMATE IS NAMED WHEN THE TWO DISAGREE, because the disagreement is the useful
+      # part. The estimate asks whether the drawing fits in the safe window, which is a
+      # total; whether it tears is a race between two things travelling down the screen, and
+      # a fill that starts at the top when the window opens can overrun it and still stay
+      # ahead of the display all the way down. So the estimate is the cautious one on
+      # purpose, and a reader who has just been told "it fits" wants to know why.
+      def measured_tear_line(printer, torn, estimated)
+        rows = torn[:torn_rows]
+        where = rows.positive? ? " (rows #{torn[:torn_from]} to #{torn[:torn_to]})" : ""
+        what = rows.positive? ? "the display showed #{rows} rows before the game finished them#{where}" : "every row was finished before the display showed it"
+        printer.puts "    tearing  measured — #{what}   #{rows.positive? ? '! the screen tears' : 'ok — no tearing'}",
+                     severity: rows.positive? ? :bad : :good
+        return unless estimated > VBLANK_BUDGET && rows.zero?
+
+        printer.puts "    (the estimate says #{CostModel.fmt(estimated)} of the #{VBLANK_BUDGET}-line vblank, which is over. " \
+                     "Drawing can overrun the window and still stay ahead of the display, so the measured run is the answer.)"
       end
 
       # One verdict line per scene, each against its own mode's budget — the report

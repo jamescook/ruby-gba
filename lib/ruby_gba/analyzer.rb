@@ -49,8 +49,11 @@ module RubyGBA
     # no ceiling — a game taking two frames a pass reads about 456, one taking four reads about
     # 912. Measured only when the per-frame reading saturates, since below that a pass is a
     # frame and the two numbers are the same. See #measure_saturated.
-    Result = Data.define(:scanlines, :fps, :keys, :per_pass) do
-      def initialize(scanlines:, fps: nil, keys: [], per_pass: nil)
+    # +tearing+ is what the display really showed, on the one screen where that can be
+    # asked: how many rows went up before the game had finished them (see {Tearing}). It is
+    # the one verdict the report could never check, only estimate.
+    Result = Data.define(:scanlines, :fps, :keys, :per_pass, :tearing) do
+      def initialize(scanlines:, fps: nil, keys: [], per_pass: nil, tearing: Tearing::Reading.none)
         super
       end
 
@@ -67,9 +70,11 @@ module RubyGBA
       end
 
       # The reading as the plain hash the cost report folds in, so the report stays free of
-      # this module's types.
+      # this module's types. The tearing reading travels as its three numbers for the same
+      # reason, and as nothing at all where the screen could not be asked.
       def for_report
-        { scanlines: scanlines, fps: fps, saturated: saturated?, per_pass: per_pass, keys: keys }
+        { scanlines: scanlines, fps: fps, saturated: saturated?, per_pass: per_pass, keys: keys,
+          torn_rows: tearing.rows, torn_from: tearing.first, torn_to: tearing.last }
       end
     end
 
@@ -184,9 +189,11 @@ module RubyGBA
       measuring = build_for_measuring(program, options)
       pinned = keys ? Array(keys).map(&:to_sym) : nil
       attempts = pinned ? [pinned] : attempt_keys(program)
+      # Only a screen with one framebuffer can be asked whether it tore — see {Tearing}.
+      tearing = Tearing.measurable?(program)
       worst = in_temp_rom(measuring[:rom]) do |path|
         readings = attempts.filter_map do |held|
-          attempt(path, held, measuring[:vars], pinned ? nil : stays_in)
+          attempt(path, held, measuring[:vars], pinned ? nil : stays_in, tearing: tearing)
         end
         worst_reading(readings)
       end
@@ -194,7 +201,7 @@ module RubyGBA
 
       counted = measure_saturated(program, options, keys: worst.keys)
       Result.new(scanlines: worst.scanlines, fps: counted[:fps], per_pass: counted[:per_pass],
-                 keys: worst.keys)
+                 keys: worst.keys, tearing: worst.tearing)
     end
 
     # How much dearer a held button has to read before the reading is attributed to it.
@@ -222,18 +229,34 @@ module RubyGBA
     # the buttons moved the game out of the scene being measured, so the frames read
     # belong to some other scene. Nothing held is always kept — it is the baseline, and
     # a scene that leaves on its own is no worse measured than it was before.
-    def attempt(path, held, vars, stays_in)
+    def attempt(path, held, vars, stays_in, tearing: false)
       probe = Emulator.probe(path)
       probe.step(SETTLE, keys: held)
       watch = scene_watch(vars, stays_in, held)
       peak = 0.0
+      torn = Tearing::Reading.none
       WINDOW.times do
         peak = [peak, frame_scanlines(probe.frame_cost(keys: held))].max
+        # Each measured frame leaves the probe at the frame boundary with the game halted,
+        # which is where the picture it just showed can be held against the picture it had
+        # finished drawing. The worst frame of the window is the one to report, the same
+        # call the cost reading makes.
+        torn = worst_tear(torn, Tearing.read(probe)) if tearing
         return nil if watch && probe.read32(watch) != stays_in[:value]
       end
-      Result.new(scanlines: peak, fps: nil, keys: held)
+      Result.new(scanlines: peak, fps: nil, keys: held, tearing: torn)
     ensure
       probe&.close
+    end
+
+    # The worse of two tearing readings: the one that showed more of the picture stale. An
+    # unmeasured reading loses to any measured one, so a window that could be read at all
+    # reports what it read.
+    def worst_tear(a, b)
+      return b unless a.measured?
+      return a unless b.measured?
+
+      b.rows > a.rows ? b : a
     end
 
     # What one measured frame cost, from the probe's two clocks — the LARGER of them,
