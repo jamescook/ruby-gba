@@ -316,7 +316,7 @@ module RubyGBA
 
         record(Build.draw_column_at(name, Value.node_for(slice), Value.node_for(x),
                                     Value.node_for(top), Value.node_for(height), width: width,
-                                    usually: column_usually(height, estimate)))
+                                    usually: stretched_usually(height, estimate, "column")))
         [slice, x, top, height].each { |operand| ensure_var(operand) }
       end
 
@@ -338,9 +338,12 @@ module RubyGBA
       # @param w [Integer] width in pixels (must be even, settled while building)
       # @param h [Symbol, Integer, Value] height in pixels
       # @param c [Symbol, String, Integer] fill color
-      def draw_rect_at(x_pos, y_pos, w, h, c)
+      # @param estimate [Hash, nil] `{ usually: N }` — how tall it normally is, for the
+      #   estimate only. Changes nothing about how the game runs; see {#draw_column_at}.
+      def draw_rect_at(x_pos, y_pos, w, h, c, estimate: nil)
         record(Build.draw_rect_at(Value.node_for(x_pos), Value.node_for(y_pos),
-                                  Value.node_for(w), Value.node_for(h), c))
+                                  Value.node_for(w), Value.node_for(h), c,
+                                  usually: stretched_usually(h, estimate, "rectangle")))
         ensure_var(x_pos)
         ensure_var(y_pos)
         ensure_var(w)
@@ -368,15 +371,16 @@ module RubyGBA
 
       private
 
-      # What `estimate: { usually: N }` said about how tall this column normally is. Only a
-      # height the game works out can be told: one written in the program is already known, and
-      # saying it twice invites the two to disagree.
-      def column_usually(height, estimate)
+      # What `estimate: { usually: N }` said about how tall this shape normally is — a stretched
+      # column or a rectangle, which take the hint for the same reason and refuse it for the
+      # same one. Only a height the game works out can be told: one written in the program is
+      # already known, and saying it twice invites the two to disagree.
+      def stretched_usually(height, estimate, shape)
         return nil if estimate.nil?
 
         if height.is_a?(Integer)
           raise ArgumentError,
-                "`estimate:` belongs on a column whose height the game works out. This one is " \
+                "`estimate:` belongs on a #{shape} whose height the game works out. This one is " \
                 "#{height} rows tall every time, so the estimate already knows. Remove it."
         end
 

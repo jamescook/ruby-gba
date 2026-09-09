@@ -885,16 +885,29 @@ module RubyGBA
         # expensive thing such a game does, and the one the estimate used to count as nothing at
         # all. It has a ceiling where most computed sizes do not (a column is clipped), so it can
         # be guessed rather than skipped, and the guess is worth saying out loud.
+        # BOTH VERBS ANSWER HERE, because both are ways to write the same wall: a column of a
+        # picture stretched to fit, or a plain rectangle as tall as the distance says. A game
+        # picks one and the reader wants the same line either way.
         def stretched_column_verdicts(program)
           program.walk.filter_map do |node|
-            next unless node.kind == :draw_column_at
-            next if node.height.is_a?(Node) && node.height.kind == :int
+            height = STRETCHED_HEIGHT[node.kind] or next
+            height = node.public_send(height)
+            next if height.is_a?(Node) && height.kind == :int
+            # A rectangle with no provable WIDTH is charged nothing at all, so no height was
+            # guessed for it and saying one would contradict the line that says it was not
+            # counted. Two notes about the same rectangle, one of them untrue.
+            next if @pricing.runtime_sized_rect?(node)
 
             ceiling = column_ceiling_for(node)
-            Verdict::StretchedColumn.new(name: node.name, counted: node.usually || (ceiling / 2),
+            Verdict::StretchedColumn.new(name: node.kind == :draw_column_at ? node.name : nil,
+                                         counted: node.usually || (ceiling / 2),
                                          ceiling: ceiling, said: !node.usually.nil?)
           end
         end
+
+        # The shapes that can be stretched to a height the game works out, and what each calls
+        # that height.
+        STRETCHED_HEIGHT = { draw_column_at: :height, draw_rect_at: :h }.freeze
 
         # Fewer rectangles a frame than this and a column is a thing that moves, not a grid —
         # a ball, a ship — and a freely moving thing cannot have an even column and must not
