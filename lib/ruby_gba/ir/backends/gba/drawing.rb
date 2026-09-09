@@ -992,9 +992,15 @@ module RubyGBA
 
           # How far the fade has come, in the sixteenths the hardware counts in, for an
           # amount the game works out as it runs.
-          def fade_steps_value(amount)
-            Build.binop(:/, Build.binop(:*, amount, Build.int(BLD_MAX)), Build.int(100))
+          #
+          # A class method because the estimate prices this conversion, and the conversion
+          # is not in the tree to be found — the lowering builds it. Handed a number, it
+          # answers the shape, which is what the estimate wants to price.
+          def self.fade_steps_value(amount)
+            Build.binop(:/, Build.binop(:*, amount, Build.int(Constants::BLD_MAX)), Build.int(100))
           end
+
+          def fade_steps_value(amount) = Drawing.fade_steps_value(amount)
 
           # Where the amount waits while the registers around it are written. Free within
           # a statement, like the other scratch registers.

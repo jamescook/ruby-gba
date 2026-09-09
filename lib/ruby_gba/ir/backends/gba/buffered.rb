@@ -21,6 +21,7 @@ module RubyGBA
         # not an object.
         class Buffered
           include Constants
+          extend Constants # the screen's size, for the class-level rules the estimate asks
 
           def initialize(emitter:, primitives:, lowering:, framebuffer:, call_cold_routine:)
             @emitter = emitter
@@ -101,7 +102,11 @@ module RubyGBA
           # routines are competing for.
           DIRECT_STORE_UNITS = 12
 
-          def direct_fill?(w) = w.positive? && (w / 2) <= DIRECT_STORE_UNITS
+          # A class method because the estimate has to price a row the way this decides to
+          # build it — pairs written out, or a transfer started.
+          def self.direct_fill?(width) = width.positive? && (width / 2) <= DIRECT_STORE_UNITS
+
+          def direct_fill?(w) = Buffered.direct_fill?(w)
 
           # The fill colour as one 16-bit unit — the same palette index in both of its
           # pixels — held for as long as a fixed-position rect's narrow rows need it.
@@ -164,10 +169,19 @@ module RubyGBA
           # rows are contiguous) and every row of it may be painted (so there is nothing to skip
           # in the middle of the run). An area narrower than the screen breaks the first of
           # those, and one that starts below the top or stops above the bottom the second.
-          def full_width_rows?(x:, y:, w:, h:)
+          #
+          # The area is passed in rather than read, so the estimate can ask the same question:
+          # it prices this shape and has no framebuffer to read a clip from.
+          def self.one_transfer?(x:, y:, w:, h:, top: 0, bottom: SCREEN_HEIGHT,
+                                 left: 0, right: SCREEN_WIDTH)
             x.zero? && w == SCREEN_WIDTH && h.positive? &&
-              y >= @framebuffer.clip_top && (y + h) <= @framebuffer.clip_bottom &&
-              @framebuffer.clip_left.zero? && @framebuffer.clip_right == SCREEN_WIDTH
+              y >= top && (y + h) <= bottom && left.zero? && right == SCREEN_WIDTH
+          end
+
+          def full_width_rows?(x:, y:, w:, h:)
+            Buffered.one_transfer?(x: x, y: y, w: w, h: h,
+                                   top: @framebuffer.clip_top, bottom: @framebuffer.clip_bottom,
+                                   left: @framebuffer.clip_left, right: @framebuffer.clip_right)
           end
 
           # One row of a rect into the hidden page: +w+ pixels from the even column +x+ of
