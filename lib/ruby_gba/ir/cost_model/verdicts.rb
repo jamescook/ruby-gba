@@ -736,7 +736,7 @@ module RubyGBA
           held = held_suffix(result)
           measured = "measured ~#{CostModel.fmt(result[:scanlines])} of #{FRAME_BUDGET} scanlines " \
                      "(#{CostModel.pct(result[:scanlines], FRAME_BUDGET)})"
-          return "#{measured}#{held}" unless result[:saturated]
+          return "#{measured}#{held}#{usual_frame_suffix(result)}" unless result[:saturated]
           return "#{measured}#{held} — still #{FULL_FRAME_RATE} fps" if holds_full_rate?(result)
 
           # OVER BUDGET STILL GETS A NUMBER, and it has to. The per-FRAME reading above stops at
@@ -754,6 +754,36 @@ module RubyGBA
           return "measured over budget — running at ~#{result[:fps]} fps#{held}" if result[:fps]
 
           "measured over budget#{held} — the frame saturates (drops frames)"
+        end
+
+        # ...AND WHAT A FRAME USUALLY COSTS, said only when that is a different question.
+        #
+        # The number above is the WORST frame, which is what a budget is about: a frame that
+        # does not fit is a frame that tears, however rare it is. But a game with work that
+        # only happens sometimes — a collision that walks when two sprites really touch, a
+        # board redrawn on a beat — pays that on a few frames and something far smaller on the
+        # rest. A reader holding the worst frame against the "every frame" line above would
+        # then think the estimate badly wrong when it is right: examples/pacman.rb measures 4.1
+        # at its worst and 2.5 the rest of the time, against an estimate of 2.6.
+        #
+        # Nothing is said when the two agree, so a game whose frame is the same every time is
+        # not told the same number twice.
+        # How much cheaper the usual frame has to be before it is worth a second number.
+        #
+        # MEASURED ON THE CORPUS RATHER THAN PICKED. The examples fall into two groups with an
+        # empty band between them: the ones holding rare work run from 0.60 to 0.87 of their
+        # worst frame (pacman 0.60, shmup 0.64, animate 0.72, piano 0.79, breakout 0.87), and
+        # every other one is 0.94 or above. A tenth sits in the gap.
+        #
+        # It is a decision about what to PRINT, so being a little wrong costs one line either
+        # way and nothing else — which is why a corpus of twenty-four is enough to settle it.
+        NOTICEABLY_CHEAPER = 0.9
+
+        def usual_frame_suffix(result)
+          usual = result[:typical] or return ""
+          return "" unless usual < result[:scanlines] * NOTICEABLY_CHEAPER
+
+          " — a usual frame ~#{CostModel.fmt(usual)}"
         end
 
         # What the player was holding when this frame was measured. A game costs what the
