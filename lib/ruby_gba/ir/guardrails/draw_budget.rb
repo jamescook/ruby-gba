@@ -48,6 +48,10 @@ module RubyGBA
             # whole frame's recurring work (drawing + logic + sound) against the 60fps budget.
             mixer = model.mixer_verdict(program)&.cost || 0
             steady = buffered ? model.steady_cost(program) + mixer : model.steady_tear_cost(program)
+            # A number that is not a number is a fault in the cost model, and this check
+            # warns an author about their GAME — so it says nothing rather than something
+            # untrue. `rom.explain` banners the fault where it belongs.
+            return [] unless steady.to_f.finite?
             return [] if steady <= budget
 
             message = buffered ? buffered_message(steady, budget) : message(steady, budget)

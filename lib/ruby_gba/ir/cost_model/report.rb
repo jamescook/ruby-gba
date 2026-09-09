@@ -33,6 +33,7 @@ module RubyGBA
         printer = Printer.for(out, color: color)
         tree = @tree.category_tree(program)
         frame_total = tree.sum(&:cost)
+        @verdicts.emit_nonsense_banner(printer, program)
         @verdicts.emit_unpriced_banner(printer, program)
         @domains.emit_domain_banner(printer, program)
         @verdicts.emit_residual_banner(printer, program, measured)
@@ -51,6 +52,7 @@ module RubyGBA
         printer = Printer.for(out, color: color)
         tree = @tree.category_tree(program, focus: focus)
         frame_total = tree.sum(&:cost) # the reference for a node's share-of-frame heat
+        @verdicts.emit_nonsense_banner(printer, program)
         @verdicts.emit_unpriced_banner(printer, program)
         @domains.emit_domain_banner(printer, program) # loud, at the very top, before the estimate itself
         @verdicts.emit_residual_banner(printer, program, measured) unless focus # the tree below is one func, not the frame
@@ -476,6 +478,20 @@ module RubyGBA
       # ~68-line vblank). A static program reports its one-time boot cost; a scene-
       # switching game reports each scene against its own mode's budget.
       def budget_summary_lines(program, printer, frame_total, measured: nil)
+        # A verdict is a comparison, and every comparison against a NaN answers false — so a
+        # frame that does not price to a number would print "within budget" and "no tearing"
+        # with complete confidence. Refuse instead; the banner above names what produced it.
+        #
+        # THE NUMBERS BEING JUDGED, not the tree's total, and the difference is the whole
+        # guard: a leaf is dropped from the tree unless its cost is positive, and a NaN is
+        # not positive — so the tree quietly sums to something finite while the figure the
+        # verdict actually reads is a NaN.
+        unless judgeable?(program, frame_total)
+          printer.puts "  budget: cannot be judged — the estimate is not a number (see above)",
+                       severity: :hot
+          return
+        end
+
         unless @verdicts.looping?(program)
           printer.puts "  budget: boot cost #{CostModel.fmt(frame_total)} scanlines, done once   ok", severity: :good
           return
@@ -720,6 +736,13 @@ module RubyGBA
         return if blind.empty?
 
         printer.puts "    (#{blind.join(' and ')} the tree can't price is included in the measured verdict above)"
+      end
+
+      # Can a verdict be given at all? Every figure a verdict reads has to be a real number,
+      # including the ones the tree's own total does not contain.
+      def judgeable?(program, frame_total)
+        [frame_total, steady_cost(program), @verdicts.standing_costs(program),
+         steady_tear_cost(program)].all? { |cost| cost.to_f.finite? }
       end
 
       # The per-frame budget check: the frame's estimated work against the ~228-scanline

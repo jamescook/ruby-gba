@@ -48,6 +48,74 @@ class TestCostVerdicts < CostModelTest
     assert_match(/cannot estimate: .*mystery_op/, io.string.lines.first, "the warning leads the output")
   end
 
+  # --- a price that is not a number ---
+  #
+  # THE ONE FAILURE THAT READS AS SUCCESS. Every budget verdict is a comparison and every
+  # comparison against a NaN answers false, so a broken estimate does not report over budget,
+  # does not warn about tearing, and looks exactly like a game that comfortably fits. It got
+  # through once: three examples estimated NaN with the whole suite green, and only the
+  # emulator-backed corpus check noticed.
+
+  # One weight set to a NaN, which is the shape of the real fault without depending on which
+  # arithmetic produced it — the model's own what-if override does the work.
+  def a_pixel_a_frame
+    Build.program(Build.screen(:bitmap),
+                  Build.loop_(Build.wait_vblank, Build.pixel(Build.int(1), Build.int(1), 0)))
+  end
+
+  def test_a_price_that_is_not_a_number_is_named
+    assert_includes Cost.new(plot_pixel: Float::NAN).nonsense_kinds(a_pixel_a_frame), :pixel
+  end
+
+  # ...and the report REFUSES rather than passing. This is the assertion that matters: the
+  # budget line must not say the frame fits.
+  def test_a_frame_that_cannot_be_priced_refuses_to_say_it_fits
+    io = StringIO.new
+    Cost.new(plot_pixel: Float::NAN).render(a_pixel_a_frame, out: io)
+
+    assert_match(/is not a number/, io.string, "the fault is announced")
+    assert_match(/cannot be judged/, io.string, "and the budget refuses")
+    refute_match(/within budget/, io.string, "a broken estimate must never read as fitting")
+  end
+
+  # THE TRAP THAT PRODUCED THE REAL ONE, pinned at the level it lives at rather than through a
+  # program, and deliberately so: no pricing path reaches it today, because everything inside
+  # an op goes through #raw_expr_cost. The guard is there so the NEXT path is safe, and a test
+  # driven through a program would pass whether the guard existed or not.
+  #
+  # Pricing an op for the share the quick memory cannot reach swaps in a table where every
+  # other weight is zero — the speed-up among them — so one over it is Infinity, and Infinity
+  # times a zeroed weight is a NaN.
+  def test_the_discount_stays_a_number_while_the_weights_are_zeroed
+    model = Cost.new(fast_frame: true)
+    model.send(:index, a_pixel_a_frame)
+    pricing = model.instance_variable_get(:@pricing)
+
+    model.instance_variable_get(:@walker).in_fast_frame do
+      pricing.with_consoles_own_weights do
+        assert_predicate pricing.fast_memory_factor.to_f, :finite?,
+                         "one over a zeroed speed-up is Infinity, and Infinity times zero is a NaN"
+      end
+    end
+  end
+
+  # Every example a player could build has a finite estimate. Cheap, and it is the assertion
+  # the suite was missing when three of them went NaN.
+  def test_a_real_game_prices_to_a_number
+    prog = program do
+      screen :bitmap
+      level = var :level, 0
+      game_loop do
+        clear_screen :black
+        fade :black, level
+        draw_text "SCORE", 8, 8, :white
+      end
+    end
+
+    assert_predicate Cost.new.steady_cost(prog).to_f, :finite?
+    assert_empty Cost.new.nonsense_kinds(prog)
+  end
+
   # A program the model fully understands prints no such warning.
   def test_a_fully_priced_program_has_no_warning
     prog = program do
