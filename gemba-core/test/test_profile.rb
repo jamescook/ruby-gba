@@ -120,6 +120,23 @@ class TestGembaCoreProfile < Minitest::Test
     assert_operator busy, :<, idle, "a game doing real work has less of its frame left over"
   end
 
+  # HOW MUCH OF THE FRAME IS LEFT is a finer answer than the frame rate, and the
+  # difference is the whole point of measuring it.
+  #
+  # A game loop waits for the screen, so a pass takes a whole number of frames
+  # and a counted frame rate can only land on 60, 30, 20 or 15. Measured on this
+  # ladder, a game costing about 57 scanlines a pass and one costing 227 of the
+  # 228 there are BOTH read 60 — the first has three quarters of its frame spare
+  # and the second is one scanline from dropping to 30, and the rate cannot tell
+  # them apart. What is left over can, and continuously.
+  def test_what_is_left_of_the_frame_separates_games_the_frame_rate_calls_equal
+    roomy = with_probe(adding_rom(5_000, "PROO", "PROO")) { |p| p.profile(settle: 10).idle_share }
+    tight = with_probe(adding_rom(20_000, "PTIG", "PTIG")) { |p| p.profile(settle: 10).idle_share }
+
+    assert_operator roomy, :>, 0.5, "a game using a quarter of its frame has most of it spare"
+    assert_operator tight, :<, 0.1, "a game filling its frame has nothing spare"
+  end
+
   def test_code_addresses_are_whole_instructions
     with_probe(adding_rom(500, "P50E", "P50E")) do |probe|
       ragged = probe.profile(settle: 10).pc.keys.reject { |address| (address % 4).zero? }
@@ -169,6 +186,55 @@ class TestGembaCoreProfile < Minitest::Test
 
       assert_equal 0x0300_0000, address & 0xFF00_0000,
                    "the frame's own body was kept in the console's quick memory"
+    end
+  end
+
+  # WHAT THE CONSOLE IS ACTUALLY PRODUCING, asked of the console rather than of
+  # the game. A game loop ends by waiting for the screen, so a game that made its
+  # deadline is asleep by the end of the frame and one that did not is still
+  # working when the frame runs out. Counting the frames it finished in gives the
+  # rate, with nothing added to the cartridge and no rebuild.
+  def test_a_game_that_fits_in_its_frame_runs_at_sixty
+    with_probe(adding_rom(500, "PF60", "PF60")) do |probe|
+      profile = probe.profile(frames: 60, settle: 20)
+
+      assert_in_delta 60.0, profile.frames_per_second, 0.5
+      refute_predicate profile, :dropping_frames?
+    end
+  end
+
+  def test_a_game_too_big_for_its_frame_runs_slower_and_says_so
+    with_probe(adding_rom(40_000, "PF30", "PF30")) do |probe|
+      profile = probe.profile(frames: 60, settle: 20)
+
+      assert_in_delta 30.0, profile.frames_per_second, 0.5,
+                      "a pass costing about two frames shows half the rate"
+      assert_predicate profile, :dropping_frames?
+    end
+  end
+
+  # THE CROSS-CHECK, and the reason to trust the reading above. ruby-gba already
+  # measures this a completely different way — it rebuilds the program with a
+  # hidden counter ticking once per pass and reads the counter. That needs the
+  # source and a second build; this needs neither and asks the console instead.
+  # They agree exactly, which neither could establish alone.
+  def test_the_measured_rate_agrees_with_counting_the_game_loop_passes
+    [[500, 60.0], [40_000, 30.0], [60_000, 20.0]].each do |passes, expected|
+      program = RubyGBA.game("PFXC", code: "PFXC", maker: "01") do
+        screen :bitmap
+        clear_screen :black
+        var :x, 0
+        game_loop { repeat(passes) { add :x, 1 } }
+      end.program
+
+      counted = RubyGBA::Analyzer.measure_fps(program)
+      measured = with_probe(adding_rom(passes, "PFXC", "PFXC")) do |probe|
+        probe.profile(frames: 60, settle: 20).frames_per_second
+      end
+
+      assert_in_delta expected, counted, 0.5, "the counter reads #{expected} for #{passes} adds"
+      assert_in_delta counted, measured, 0.5,
+                      "counting passes and asking the console agree for #{passes} adds"
     end
   end
 
