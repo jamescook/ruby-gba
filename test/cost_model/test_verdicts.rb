@@ -25,6 +25,29 @@ class TestCostVerdicts < CostModelTest
                  "these kinds have no cost estimate — price them in op_cost/expr_cost, or add to a FREE_*_KINDS list"
   end
 
+  # ...and the same on a REAL CARTRIDGE, which is the path a person actually reads. The audit
+  # above prices a program nobody built, and that is a different route through the model: with
+  # a build behind it a statement is priced by counting what the lowering emitted, so the
+  # weights the audit walks are not the ones a report reads. The two have to be asked
+  # separately, and this one caught a whole banner of value kinds reported as unpriced on
+  # every example there was.
+  def test_a_built_cartridge_prices_every_kind_it_uses
+    rom = RubyGBA.build("AUDIT", code: "BAUD", maker: "01", err: StringIO.new) do
+      screen :bitmap
+      xs = list :xs, capacity: 8
+      t = table :tbl, (0...8).to_a
+      i = var :i, 0
+      y = var :y, 0
+      game_loop do
+        y.set(xs[i] + t[i])
+        (y > 3).then { y.set(y / 2) }
+      end
+    end
+
+    assert_empty rom.cost_model.unpriced_kinds(rom.source_program),
+                 "a report on this cartridge would open with a banner saying it cannot price them"
+  end
+
   # The audit above is only worth anything if it reads the WHOLE program. Asking it for a
   # frame is what let camera, fade and save_store sit unpriced for so long: the fixture
   # keeps every kind above its game loop, so a frame walk saw `wait_vblank, halt` and had
