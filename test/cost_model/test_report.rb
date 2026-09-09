@@ -33,6 +33,26 @@ class TestCostReport < CostModelTest
     assert_match(/estimate over budget/, io.string)
   end
 
+  # One scene runs a frame, so the dispatch costs its dearest arm and the rest weigh
+  # nothing. The case line says so, once, where a reader sees a parent equal to one of its
+  # children and would otherwise have to work out why.
+  def test_the_case_line_says_only_the_dearest_scene_counts
+    prog = program do
+      screen :bitmap
+      var :state, 0
+      scene(:title) { fill_rect 0, 0, 8, 8, :blue }
+      scene(:play)  { clear_screen :red }
+      game_loop do
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+
+    assert_match(/case_var :state \(the dearest scene\)/, rendered(prog))
+  end
+
   # A ROM built through RubyGBA.build can report on itself.
   def test_a_built_rom_explains_itself
     rom = RubyGBA.build("EXPLAIN", code: "BXPL", maker: "01") do

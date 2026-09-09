@@ -482,14 +482,17 @@ module RubyGBA
         # case_var runs one scene per frame, so its cost is the heaviest branch. Every
         # branch is still shown — a reader wants to see the light scenes too — but only
         # the heaviest carries a frame's worth of work, which is what `factor` says (see
-        # Tree#weigh_leaves).
+        # Tree#weigh_leaves). The case line SAYS so, once, since it is a fact about the
+        # dispatch and not about any one scene: a reader sees a parent equal to one of its
+        # children and would otherwise have to work out for themselves why.
         def build_case(node)
           branches = node.clauses.map do |value, target|
             kids = func_children(target)
             Entry.new(op: :branch, label: "#{value} -> :#{target}", cost: sum(kids), children: kids)
           end
           worst = branches.max_by(&:cost)
-          Entry.new(op: :case, label: "case_var :#{node.var}", cost: worst&.cost || 0, source: node.source,
+          Entry.new(op: :case, label: "case_var :#{node.var} (the dearest scene)", cost: worst&.cost || 0,
+                    source: node.source,
                     children: branches.map { |b| b.with(factor: b.equal?(worst) ? 1 : 0) })
         end
 
