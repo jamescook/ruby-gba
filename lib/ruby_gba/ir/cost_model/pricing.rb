@@ -42,7 +42,7 @@ module RubyGBA
         # built for every one (see Rollup#index).
         attr_reader :unpriced
 
-        def initialize(weights:, catalogue:, walker:, palette_entries:, column_stretches:)
+        def initialize(weights:, catalogue:, walker:, palette_entries:, column_stretches:, emitted: nil)
           @weights = weights
           # The same table with everything but the console's own time zeroed, so an op can be
           # priced twice over and the two answers differenced (see #CONSOLES_OWN_TIME).
@@ -51,6 +51,12 @@ module RubyGBA
           @walker = walker
           @palette_entries = palette_entries
           @column_stretches = column_stretches
+          # What the build said each node turned into, or nothing when no build stands behind
+          # this program — see #counted.
+          @emitted = emitted || CostModel::Decided::NOTHING
+          # Whether a node reached now may be priced by counting. False only while pricing the
+          # operands of a node that was not — see #charging_operands.
+          @counting = true
           @unpriced = []
         end
 
@@ -65,9 +71,11 @@ module RubyGBA
         # after, so it is charged in full wherever the code lives. Operands are always
         # instructions, so they are discounted whole.
         def op_cost(node, worst: true)
-          own = own_op_cost(node, worst)
+          count = counted(node, worst)
+          own = count || priced_op_cost(node, worst)
           consoles = consoles_own_cost(node, worst)
-          ((own - consoles + raw_operand_cost(node, worst)) * fast_memory_factor) + consoles
+          operands = charging_operands(count) { raw_operand_cost(node, worst) }
+          ((own - consoles + operands) * fast_memory_factor) + consoles
         end
 
         # What a scanline of work costs when the code doing it lives in the console's
@@ -116,16 +124,84 @@ module RubyGBA
         def consoles_own_cost(node, worst = true)
           return 0 unless @walker&.in_fast_code? # nothing is being discounted, so there is nothing to hold back
 
+          consoles_own_share(node, worst)
+        end
+
+        # The same question with no guard on it, for the one caller that needs the answer
+        # whatever memory the code is in: #counted, which refuses to price a node whose cost
+        # is partly the console's rather than ours.
+        def consoles_own_share(node, worst = true)
           with_consoles_own_weights { own_op_cost(node, worst) }
         end
 
         def with_consoles_own_weights
           was = @weights
           @weights = @consoles_own
+          @in_consoles_own = true
           yield
         ensure
           @weights = was
+          @in_consoles_own = false
         end
+
+        # WHAT THE BUILD SAID THIS NODE COST — its instructions at one instruction's price —
+        # or nil where counting them is not the same question as pricing them.
+        #
+        # Most of this model's weights are a whole number of instructions times one constant.
+        # That number is not really a measurement: it is a fact the lowering has exactly and
+        # the calibration recovers approximately, one weight at a time, so the same decision
+        # ends up written in both places and a pair that can drift eventually does. Read off
+        # the build there is no second copy, and an operation nobody has thought to weigh
+        # prices itself.
+        #
+        # FOUR THINGS BREAK IT, and each is asked rather than assumed:
+        #
+        #   A JUMP. A count is static and a frame is dynamic. Where a node's own code loops,
+        #   the count sees the body once; where it calls, the count sees the handful of
+        #   instructions that set the call up and none of the routine; where it branches over
+        #   an alternative, the frame runs one side and the count has both. So a node that
+        #   emitted a jump keeps its measured weight — which is exactly the divide that traps
+        #   into a routine, and the comparison that turns the console's flags into a 1 or a 0.
+        #
+        #   NOTHING EMITTED, which is not the same as costing nothing. A statement whose work
+        #   the build put somewhere else — a shared routine, an upload done once at boot, a
+        #   sprite the console draws for us every frame — passes through the lowering and
+        #   emits none of what it costs. Priced at nought it takes a real part of a frame with
+        #   it: measured on examples/animate.rb, whose two sprite poses ARE the frame. So an
+        #   empty count says the answer is not here, and the weight stands.
+        #
+        #   TIME THAT IS NOT OUR CODE AT ALL. A transfer's stall, the BIOS asleep at the frame
+        #   boundary: real time, spent while the CPU executes nothing, so no count of
+        #   instructions can see it. The model already names those weights, so the question is
+        #   asked of the node — price it with everything but them zeroed, and a nonzero answer
+        #   means counting would miss something.
+        #
+        #   A READ FROM SLOWER MEMORY. The rate below is what an instruction costs running
+        #   from the cartridge and touching the console's own memory. An instruction that
+        #   reaches back into the cartridge for its DATA costs more, and how much more is not
+        #   in this model's vocabulary yet — {Placement} answers where CODE lives and nothing
+        #   answers it for data. Until it does, a table read stays measured.
+        def counted(node, worst)
+          return nil if @in_consoles_own # our instructions are never the console's own time
+          return nil unless @counting # an operand of a weighted node — see #charging_operands
+          return nil if READS_THE_CARTRIDGE.include?(node.kind)
+
+          rate = @weights[:instruction]
+          return nil unless rate&.positive? # no rate measured: price it the older way
+
+          emitted = @emitted[node]
+          return nil unless emitted&.straight?
+          return nil if emitted.instructions.zero?
+          return nil unless consoles_own_share(node, worst).zero?
+
+          emitted.each_use * rate
+        end
+
+        # Kinds whose instructions reach into the cartridge for the data they read, so what
+        # they cost is not what the same instructions cost reading the console's own memory.
+        # A table is the one place a program keeps data there — a list, a variable and a
+        # sprite's table all live in the quick memory.
+        READS_THE_CARTRIDGE = %i[table_get].freeze
 
         # What STARTING one row's transfer costs, both sides of the line: the CPU's register
         # writes, and the engine's own moment before the first pixel moves. They are separate
@@ -134,6 +210,10 @@ module RubyGBA
         def dma_start_weight = @weights[:dma_cpu_start] + @weights[:dma_engine_start]
 
         def own_op_cost(node, worst = true)
+          counted(node, worst) || priced_op_cost(node, worst)
+        end
+
+        def priced_op_cost(node, worst)
           case node.kind
           # The frame boundary: waiting for the screen, and working out how many frames the
           # last pass really took. It is the one statement in a game loop nobody writes, and
@@ -383,11 +463,37 @@ module RubyGBA
         def raw_expr_cost(value, worst)
           return 0 unless value.is_a?(Node)
 
-          own_cost(value, worst) + raw_operand_cost(value, worst)
+          count = counted(value, worst)
+          own = count || priced_own_cost(value, worst)
+          own + charging_operands(count) { raw_operand_cost(value, worst) }
         end
 
         # What a value's own operator costs, ignoring what it is applied to.
         def own_cost(value, worst)
+          counted(value, worst) || priced_own_cost(value, worst)
+        end
+
+        # WHOLE STATEMENT OR NONE OF IT, and this is the rule that keeps the two ways of
+        # pricing from being added to each other.
+        #
+        # A weight was measured with an operand in front of it and PAYS FOR THAT OPERAND —
+        # which is why a number written in the program and a plain variable read are priced
+        # at nothing here. A count is the other way round: it is exclusive, so a statement's
+        # count leaves its operands out and they have to be counted on their own.
+        #
+        # Mix the two and it is wrong twice over. An operand counted under a weighted parent
+        # is charged twice, and it is not a rounding error: on examples/maze.rb it read a
+        # fifth over. An operand left free under a counted parent is never charged at all. So
+        # the decision is made once, at the statement, and everything inside it follows.
+        def charging_operands(counted)
+          was = @counting
+          @counting = !counted.nil?
+          yield
+        ensure
+          @counting = was
+        end
+
+        def priced_own_cost(value, worst)
           case value.kind
           when :binop then op_weight(value)
           when :mul_fix then @weights[:op_mul_fix]

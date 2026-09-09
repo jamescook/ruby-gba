@@ -2,6 +2,7 @@
 
 require_relative "gba/address_register" # what the address register still holds, as code goes past
 require_relative "gba/emit"
+require_relative "gba/attribution"
 require_relative "gba/lowering"
 require_relative "gba/memory"
 require_relative "gba/loop_form" # which shape a repeat gets; the cost model asks it too
@@ -228,6 +229,9 @@ module RubyGBA
 
         attr_reader :lowering
 
+        # What each node of the program turned into, once #lower has run. See {Attribution}.
+        attr_reader :attribution
+
         # Each func's byte span in @code (for dump_func) — lives on @functions.
         def func_ranges = @functions.func_ranges
 
@@ -285,8 +289,11 @@ module RubyGBA
           @save = Save.new(emitter: @emit, primitives: @primitives)
           # The kind-keyed dispatch that replaces eval_value's case. Every statement in the
           # program goes through it, which also makes it the one place that can say how far
-          # this pass has got.
-          @lowering = Lowering.new(progress: progress, emitted: @emit.method(:pos))
+          # this pass has got — and the one place that can count what each part of the
+          # program turned into.
+          @attribution = Attribution.new(@emit)
+          @lowering = Lowering.new(progress: progress, emitted: @emit.method(:pos),
+                                   attribution: @attribution)
           @defined_sounds = {}   # name -> musical params (from define_sound)
           @songs = {}            # name -> :song node (from song)
           @blob_codecs = {}      # name -> :lz77/:rle/:none (how a VRAM blob was packed, if at all)
@@ -433,6 +440,7 @@ module RubyGBA
                                    palette_entries: palette_entries,
                                    column_stretches: @column_stretches,
                                    compression: compression_report,
+                                   emitted: @attribution.emitted,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
         end
 
@@ -450,6 +458,9 @@ module RubyGBA
           # outside it IS that phase — it is not lowering the program, it is finding out how
           # big the routines come out.
           @progress.step("lowering it to machine code") if fast_funcs.nil?
+          # Nothing counted so far belongs to this pass. A backend lowered twice reports what
+          # it emitted the second time, not the two runs added together.
+          @attribution.reset
           # Which pictures a stretched column reads, which decides whether a see-through one
           # still needs its pixels in the cartridge. Wanted before the assets are registered.
           @column_bitmaps = program.walk.filter_map { |node| node.name if node.kind == :draw_column_at }.uniq
@@ -635,6 +646,7 @@ module RubyGBA
         def place_label(name) = @emit.place_label(name)
         def gensym = @emit.gensym
         def emit_branch(kind, target, cond: nil) = @emit.emit_branch(kind, target, cond: cond)
+        def emit_call_through(reg) = @emit.emit_call_through(reg)
         def emit_data_region = @emit.emit_data_region
         def emit_load_data_address(reg, name) = @emit.emit_load_data_address(reg, name)
         def emit_load_label_address(reg, label) = @emit.emit_load_label_address(reg, label)

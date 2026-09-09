@@ -306,8 +306,7 @@ module RubyGBA
             else
               emit_load_label_address(ADDR, @functions.func_label(name))
             end
-            emit(ASM.mov_reg(14, 15)) # lr = the instruction after the jump below
-            emit(ASM.bx(ADDR))
+            emit_call_through(ADDR)
           end
 
           # Call a routine that never itself moves to the quick memory — always in the
@@ -321,8 +320,7 @@ module RubyGBA
             return emit_branch(:bl, label) unless @emitting_hot
 
             emit_load_label_address(ADDR, label)
-            emit(ASM.mov_reg(14, 15)) # lr = the instruction after the jump below
-            emit(ASM.bx(ADDR))
+            emit_call_through(ADDR)
           end
 
           # Load the quick-memory address of a label inside the moved block. Where the

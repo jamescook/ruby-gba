@@ -280,10 +280,15 @@ class TestCostCalibration < Minitest::Test
   end
 
   # Reading elements out of a list, which was priced at NOTHING until it was measured — on
-  # the grounds that a read is a single load. It is thirteen instructions: a list element
-  # sits in a ring, so reaching it means the head, the wrap, the scale to bytes and the base
-  # before anything is loaded. Nothing else here reads a list, so this case is the only thing
-  # watching that weight.
+  # the grounds that a read is a single load. It is nine instructions: a list element sits in
+  # a ring, so reaching it means the head, the wrap, the scale to bytes and the base before
+  # anything is loaded.
+  #
+  # THE WEIGHT IT GUARDS IS :instruction, and that is the point of the case now. A list read
+  # is a straight run of instructions, so a built cartridge prices it by counting what the
+  # lowering emitted (see Pricing#counted) and the measured :list_read weight is only the
+  # answer for a program nobody built. What this fixture holds the emulator against is
+  # therefore the RATE — the one measurement that stayed — and it is the only case that does.
   LIST_READS = lambda do |with|
     screen :bitmap
     xs = list :xs, capacity: 64
@@ -349,8 +354,10 @@ class TestCostCalibration < Minitest::Test
 
   # A frame of the cheapest arithmetic there is: multiplying by a power of two, which the
   # build turns into a shift. It was charged a whole plain step — six instructions for one —
-  # so `set :y, (x * 8)` read at twice what it costs. Nothing else here shifts, and the
-  # ARITHMETIC case above is adds, so this is the only thing watching that weight.
+  # so `set :y, (x * 8)` read at twice what it costs.
+  #
+  # Like LIST_READS, a shift is a straight run of instructions, so a built cartridge prices
+  # it by counting and the weight this case holds the emulator against is the rate.
   #
   # FOUR SHIFTS TO A STATEMENT, not one, so that the case is actually ABOUT shifting. With one
   # the shift was a fifth of what the frame cost and the statement around it was the rest — and
@@ -387,13 +394,13 @@ class TestCostCalibration < Minitest::Test
                  predict: ->(model, program) { model.frame_cost(program) }),
     Standing.new(name: :tearfree_even, weight: :tearfree_pair, fast_code: false, shape: TEARFREE_EVEN,
                  predict: ->(model, program) { model.frame_cost(program) }),
-    Standing.new(name: :list_reads, weight: :list_read, fast_code: false, shape: LIST_READS,
+    Standing.new(name: :list_reads, weight: :instruction, fast_code: false, shape: LIST_READS,
                  predict: ->(model, program) { model.frame_cost(program) }),
     Standing.new(name: :table_reads, weight: :table_read_clamped, fast_code: false, shape: TABLE_READS,
                  predict: ->(model, program) { model.frame_cost(program) }),
-    Standing.new(name: :shifts, weight: :op_mul_pow2, fast_code: false, shape: SHIFTS,
+    Standing.new(name: :shifts, weight: :instruction, fast_code: false, shape: SHIFTS,
                  predict: ->(model, program) { model.frame_cost(program) }),
-    Standing.new(name: :plain_ops, weight: :op_plain, fast_code: false, shape: PLAIN_OPERATORS,
+    Standing.new(name: :plain_ops, weight: :instruction, fast_code: false, shape: PLAIN_OPERATORS,
                  predict: ->(model, program) { model.frame_cost(program) }),
     Standing.new(name: :comparisons, weight: :op_compare, fast_code: false, shape: COMPARISONS,
                  predict: ->(model, program) { model.frame_cost(program) }),
@@ -426,21 +433,31 @@ class TestCostCalibration < Minitest::Test
   # :bend_row_copied moves the interrupt case as well as its own, and there is no program
   # that shows the one without the other. It is still diagnostic, because the sets differ:
   # the table's drift fails both bending cases and the interrupt's fails one.
+  #
+  # BY WEIGHT AND NOT BY CASE, since several fixtures now guard the same one. A list read, a
+  # shift and a plain operator are each a straight run of instructions, which a built
+  # cartridge prices by counting what the lowering emitted — so what all three hold the
+  # emulator against is the one rate that stayed measured. Each of them still has to notice
+  # when that rate drifts; what they cannot be asked is to tell each other apart, because
+  # there is nothing left to tell apart.
   def test_a_drifted_weight_says_which_weight_drifted
-    signatures = CASES.to_h do |broken|
+    guarded = CASES.group_by(&:weight)
+    signatures = guarded.to_h do |weight, _cases|
       noticing = CASES.select do |watching|
-        predicted = predict(watching, drift: broken.weight)
+        predicted = predict(watching, drift: weight)
         (predicted - measure(watching)).abs > (predicted * BAND) + SLACK
       end
-      [broken, noticing.map(&:name)]
+      [weight, noticing.map(&:name)]
     end
 
-    signatures.each do |broken, noticing|
-      assert_includes noticing, broken.name,
-                      ":#{broken.weight} was tripled and the #{broken.name} case did not notice — " \
-                      "it does not depend on the weight it claims to watch"
-      twin = signatures.find { |other, set| other != broken && set == noticing }
-      assert_nil twin, ":#{broken.weight} and :#{twin&.first&.weight} fail the same cases " \
+    signatures.each do |weight, noticing|
+      guarded.fetch(weight).each do |standing|
+        assert_includes noticing, standing.name,
+                        ":#{weight} was tripled and the #{standing.name} case did not notice — " \
+                        "it does not depend on the weight it claims to watch"
+      end
+      twin = signatures.find { |other, set| other != weight && set == noticing }
+      assert_nil twin, ":#{weight} and :#{twin&.first} fail the same cases " \
                        "(#{noticing.join(', ')}), so a failure here will not say which drifted"
     end
   end

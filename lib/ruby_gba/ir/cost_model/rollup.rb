@@ -97,7 +97,8 @@ module RubyGBA
         # is built one side first and wired back after (see Walker#pricing=/#tree= and
         # Verdicts#tree=).
         @pricing = Pricing.new(weights: @weights, catalogue: @catalogue, walker: @walker,
-                               palette_entries: @palette_entries, column_stretches: @column_stretches)
+                               palette_entries: @palette_entries, column_stretches: @column_stretches,
+                               emitted: @emitted)
         @walker.pricing = @pricing
         @verdicts = Verdicts.new(weights: @weights, catalogue: @catalogue, walker: @walker,
                                  pricing: @pricing, fast_frame: @fast_frame,

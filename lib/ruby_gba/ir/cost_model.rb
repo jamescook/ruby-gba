@@ -101,25 +101,28 @@ module RubyGBA
     # pages times what a page costs, plus rows times what a row costs. The structure does
     # the work and the constants are only units. Nothing measures them; they are knobs.
     #
-    # Ours are the other way round. There are about fifty of them for about twenty
-    # operations, none of them a unit, each one an empirical measurement of a whole
-    # compound operation. That is not laziness: these operations genuinely do not compose.
-    # A blit is not "N pixel writes" — it is a bespoke loop with per-row setup, a step to
-    # build the color, and a see-through test — so there is no per-instruction price to
-    # multiply, and pretending otherwise would be a guess where a measurement is available.
+    # Ours are BOTH, and which half an operation falls in is decided rather than assumed.
+    # There is now one unit — :instruction, the price of one — and a statement whose emitted
+    # code runs the way it is written is priced by counting the instructions the build made
+    # of it (see {Pricing}#counted). Around eighty weights remain for the operations that
+    # genuinely do not compose. A blit is not "N pixel writes": it is a bespoke loop with
+    # per-row setup, a step to build the color, and a see-through test, and a count of it
+    # would see the body once where a frame goes round it a thousand times.
     #
-    # The consequence is the thing to remember. Fifty weights for twenty operations means
-    # the extra forty are REGIMES: op_div against op_div_bit against op_div_const against
+    # The consequence is the thing to remember. Eighty weights for twenty operations means
+    # the extra sixty are REGIMES: op_div against op_div_bit against op_div_const against
     # op_div_fix is one operation measured four ways; the eleven tearfree_* weights are
     # their direct-color twins measured on the other screen mode; bend_line against
-    # bend_line_fast is the same interrupt with the handler in the other memory. So this
-    # model does not grow by adding operations — it grows by enumerating regimes, and it is
-    # accurate exactly as far as somebody has thought of the regime in front of it.
+    # bend_line_fast is the same interrupt with the handler in the other memory. So the
+    # measured half does not grow by adding operations — it grows by enumerating regimes,
+    # and it is accurate exactly as far as somebody has thought of the regime in front of it.
+    # The counted half does not have regimes at all, which is the point of it.
     #
     # So the model guards two things rather than one. A missing OP is loud: #unpriced_kinds
     # collects it, the report banners it above everything else, and a new IR kind fails the
-    # suite until it is priced. And a weight asked for an answer from outside the range it was
-    # MEASURED over says so — see {Domains}, and the range each weight carries in
+    # suite until it is priced — except where counting answers, which is a new kind pricing
+    # itself rather than a hole. And a weight asked for an answer from outside the range it
+    # was MEASURED over says so — see {Domains}, and the range each weight carries in
     # measured_weights.rb.
     #
     # The other half of being wrong is HOW OFTEN, not how much — trip counts, ticks a
@@ -143,23 +146,33 @@ module RubyGBA
     # this file is one of those pairs, and a pair that can drift eventually does.
     #
     # The measurements say the duplication is even plainer than that. Most of the weights
-    # are a whole number of instructions at one instruction's price — op_assign is 4,
-    # tearfree_edge_near is 6, blit_pixel is 11 — which is a number the backend already has
-    # exactly and this file measures approximately, one weight at a time. The rest are the
-    # costs that genuinely are not instructions: a transfer's stall, a BIOS divide, an
-    # interrupt, a write to a slow bus, a jump that throws away the pipeline. Those are the
-    # ones a measurement is really for.
+    # are a whole number of instructions at one instruction's price — op_assign is 2,
+    # op_step is 4, camera_move is 26 — which is a number the backend already has exactly
+    # and this file measured approximately, one weight at a time. The rest are the costs
+    # that genuinely are not instructions: a transfer's stall, a BIOS divide, an interrupt,
+    # a write to a slow bus, a jump that throws away the pipeline. Those are the ones a
+    # measurement is really for.
     #
-    # So the direction of travel is to ASK rather than restate. #extra_address_steps does it
-    # already — it asks the assembler how many instructions a pixel's address really takes
-    # rather than writing the rule down a second time, so there is no pair to drift. Everywhere
-    # else that names a backend decision is a candidate for the same treatment, and pricing a
-    # node from the instructions it actually emitted is where that ends.
+    # So the direction of travel is to ASK rather than restate, and for the first of those
+    # two halves it has arrived: a statement whose code runs the way it is written is priced
+    # by the INSTRUCTIONS THE BUILD EMITTED for it, at one measured rate, rather than by a
+    # weight standing for the same number (see {Pricing}#counted, and
+    # Backends::GBA::Attribution, which counts them while the code is written). A straight
+    # run of instructions therefore has no pair left to drift, and an operation nobody has
+    # thought to weigh prices itself. #extra_address_steps is the same move made earlier and
+    # more narrowly — it asks the assembler how many instructions a pixel's address takes.
     #
-    # Until then: rank what you find by what it moves in a REAL frame, not by how wrong the
-    # ratio is. A regime three times out on an op no game does twice a frame matters less than
-    # one a tenth out on the op every game does a thousand times, and the corpus in examples/
-    # is the thing to ask (`rake emitted` prints it per example).
+    # WHAT IS LEFT IS THE OTHER HALF, and it is the half a measurement was always for. Three
+    # things break a count, each named at #counted: a jump (a loop the count sees once, a
+    # call it cannot see into, an alternative the frame skips), time that is not our code at
+    # all, and a read from slower memory. Those keep their weights, and the weights are also
+    # still the whole answer for a program NOBODY BUILT — the model's own tests, and anything
+    # asking what a tree would cost before there is a cartridge.
+    #
+    # And rank what you find by what it moves in a REAL frame, not by how wrong the ratio is.
+    # A regime three times out on an op no game does twice a frame matters less than one a
+    # tenth out on the op every game does a thousand times, and the corpus in examples/ is
+    # the thing to ask (`rake emitted` prints it per example).
     #
     # WHAT THE ESTIMATE IS, in the three sentences the report also says where they apply
     # (and .claude/rules/testing.md repeats), so a ratio is not taken for a fact and a gap
@@ -600,11 +613,14 @@ module RubyGBA
       # rows they have nothing in, keyed by picture name. It matters because a picture that
       # cannot skip them walks every row of every column, and the difference is most of what
       # drawing a scaled sprite costs (see Backends::GBA::ColumnStretches).
+      # +emitted+ says what each node of the program turned into — the build's answer again,
+      # and the one that replaces a measurement rather than informing one. See {Pricing}#counted.
       attr_reader :var_addresses, :loop_shapes, :palette_entries, :column_stretches, :placement
+      attr_reader :emitted
 
       def initialize(fast_routines: nil, fast_frame: false, fast_interrupts: false,
                      placement: nil, var_addresses: nil, loop_shapes: nil,
-                     palette_entries: nil, column_stretches: nil, **weights)
+                     palette_entries: nil, column_stretches: nil, emitted: nil, **weights)
         @weights = DEFAULT_WEIGHTS.merge(weights)
         @fast_routines = Array(fast_routines).to_set
         @fast_frame = fast_frame
@@ -618,6 +634,10 @@ module RubyGBA
         @loop_shapes = Decided.for(loop_shapes)
         @palette_entries = Decided.for(palette_entries)
         @column_stretches = Decided.for(column_stretches)
+        # Keyed by the node itself rather than by a name out of the program, so this one is
+        # the build's own Hash — already comparing by identity, since two statements written
+        # in different places can be equal as trees and are not the same statement.
+        @emitted = Decided.for(emitted)
         # Readable so a caller can ask whether a build stands behind this estimate at all —
         # a report says a different thing when the answer is "nothing was worked out".
         @in_fast_code = false

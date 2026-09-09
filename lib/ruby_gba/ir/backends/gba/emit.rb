@@ -21,10 +21,17 @@ module RubyGBA
 
           attr_reader :code, :labels, :fixups, :data_blobs, :data_positions, :address_register
 
+          # How many jumps have been emitted so far. Counted here because this is where a
+          # jump is made, and read by {Attribution}, which needs to know whether the code a
+          # node came to runs the way it is written — see that class. A fixup is not the same
+          # question: two of the kinds resolve to an address load rather than to a branch.
+          attr_reader :branches
+
           def initialize
             @code = +"".b          # emitted machine code; byte 0 is where execution starts
             @labels = {}           # label name -> byte offset within @code
             @fixups = []           # branch placeholders to resolve once labels are known
+            @branches = 0
             @label_seq = 0
             @data_blobs = {}       # name -> bytes (embedded data, appended after code)
             @data_positions = {}   # name -> byte offset of its blob within @code
@@ -64,7 +71,23 @@ module RubyGBA
             # so nothing reading the bytes back could tell — this has to say so.
             @address_register.forget if kind == :bl
             @fixups << { pos: pos, kind: kind, cond: cond, target: target }
+            @branches += 1
             emit(ASM.nop)
+          end
+
+          # Call the routine whose address is already in +reg+, and come back here after.
+          # This chip cannot branch-and-link to an address held in a register, so the return
+          # address is set by hand — pc reads as two instructions ahead, which is the
+          # instruction after the jump — and the jump itself is a BX. The routine returns
+          # with BX LR.
+          #
+          # Every caller that reaches a routine too far away for a relative branch does this,
+          # and they do it here so there is one place that knows what such a call looks like
+          # — which is also the one place that can count it as a jump.
+          def emit_call_through(reg)
+            emit(ASM.mov_reg(14, 15)) # lr = the instruction after the jump below
+            @branches += 1
+            emit(ASM.bx(reg))
           end
 
           # Second pass: every label and data-blob position is known now, so patch

@@ -287,15 +287,13 @@ module RubyGBA
           end
 
           # Call the IWRAM mix routine to fill +dest+ (one of the two output buffers) with the
-          # next slice of mixed sound. The routine takes the destination buffer in r0. ARMv4
-          # has no BLX-to-register, so set the return address by hand (`mov lr, pc` reads the
-          # address just past the branch) and BX to the routine's IWRAM address; it returns
-          # with BX LR.
+          # next slice of mixed sound. The routine takes the destination buffer in r0, and it
+          # lives in the quick memory, too far for a relative branch — so the call goes
+          # through a register (see Emit#emit_call_through).
           def emit_call_mix(dest)
             @emitter.emit(ASM.load_immediate(0, dest))                 # r0 = destination buffer (the one param)
             @emitter.emit(ASM.load_immediate(ADDR, @mix_routine_iwram)) # r12 = routine's address in IWRAM
-            @emitter.emit(ASM.mov_reg(14, 15))                         # mov lr, pc  -> lr = the instruction after BX
-            @emitter.emit(ASM.bx(ADDR))                                # jump into IWRAM; the routine returns via BX LR
+            @emitter.emit_call_through(ADDR)
           end
 
           # Channel A's SOUNDCNT_H setup: PSG kept at full volume, A at full volume out to
