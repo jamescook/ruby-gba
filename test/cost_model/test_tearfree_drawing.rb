@@ -45,8 +45,8 @@ class TestTearFreeDrawing < CostModelTest
     loops = direct { game_loop { fill_rect 8, 8, 40, 40, :red } }
     fills = tear_free { game_loop { fill_rect 8, 8, 40, 40, :red } }
 
-    near plot_rect(40, 40), Cost.new.steady_cost(loops)
-    near tearfree_fill(40, 40), Cost.new.steady_cost(fills)
+    near frame_boundary + plot_rect(40, 40), Cost.new.steady_cost(loops)
+    near frame_boundary + tearfree_fill(40, 40), Cost.new.steady_cost(fills)
     assert_operator Cost.new.steady_cost(fills) * 4, :<, Cost.new.steady_cost(loops),
                     "a block fill a row is a different order of work from a pixel at a time"
   end
@@ -299,8 +299,8 @@ class TestTearFreeDrawing < CostModelTest
     here  = tear_free { game_loop { pixel 10, 10, :red } }
     there = direct { game_loop { pixel 10, 10, :red } }
 
-    near WEIGHTS[:tearfree_pixel], Cost.new.steady_cost(here)
-    near WEIGHTS[:plot_pixel], Cost.new.steady_cost(there)
+    near frame_boundary + WEIGHTS[:tearfree_pixel], Cost.new.steady_cost(here)
+    near frame_boundary + WEIGHTS[:plot_pixel], Cost.new.steady_cost(there)
     assert_operator Cost.new.steady_cost(here), :>, Cost.new.steady_cost(there)
   end
 
@@ -322,8 +322,8 @@ class TestTearFreeDrawing < CostModelTest
     there = direct { game_loop { draw_text "SCORE", 0, 80, :white } }
 
     lit = RubyGBA::Fonts.get(:default).text_pixels("SCORE")
-    near lit * WEIGHTS[:tearfree_glyph], Cost.new.steady_cost(here)
-    near lit * WEIGHTS[:plot_run_pixel], Cost.new.steady_cost(there)
+    near frame_boundary + (lit * WEIGHTS[:tearfree_glyph]), Cost.new.steady_cost(here)
+    near frame_boundary + (lit * WEIGHTS[:plot_run_pixel]), Cost.new.steady_cost(there)
   end
 
   # Clearing the screen is one block fill either way, but a pixel here is one byte where
@@ -333,9 +333,13 @@ class TestTearFreeDrawing < CostModelTest
     here  = tear_free { game_loop { clear_screen :black } }
     there = direct { game_loop { clear_screen :black } }
 
-    near tearfree_clear, Cost.new.steady_cost(here)
-    near dma_blob(240 * 160), Cost.new.steady_cost(there)
-    assert_in_delta 2.0, Cost.new.steady_cost(there) / Cost.new.steady_cost(here), 0.01
+    near frame_boundary + tearfree_clear, Cost.new.steady_cost(here)
+    near frame_boundary + dma_blob(240 * 160), Cost.new.steady_cost(there)
+    # The clears themselves, since the frame's own boundary is the same on both screens and
+    # would narrow the ratio this is about.
+    assert_in_delta 2.0,
+                    (Cost.new.steady_cost(there) - frame_boundary) /
+                    (Cost.new.steady_cost(here) - frame_boundary), 0.01
   end
 
   # --- which screen, worked out per routine ---
@@ -371,7 +375,7 @@ class TestTearFreeDrawing < CostModelTest
       game_loop { call :paint }
     end
 
-    near tearfree_fill(40, 40), Cost.new.steady_cost(game)
+    near frame_boundary + tearfree_fill(40, 40), Cost.new.steady_cost(game)
   end
 
   # --- a whole picture ---
@@ -390,8 +394,8 @@ class TestTearFreeDrawing < CostModelTest
       game_loop { blit :block, 100, 40 }
     end
 
-    near tearfree_blit(8, 4), Cost.new.steady_cost(paged)
-    near dma_rows(8, 4), Cost.new.steady_cost(plain)
+    near frame_boundary + tearfree_blit(8, 4), Cost.new.steady_cost(paged)
+    near frame_boundary + dma_rows(8, 4), Cost.new.steady_cost(plain)
     assert_operator Cost.new.steady_cost(paged), :<, Cost.new.steady_cost(plain),
                     "half the units through the engine has to cost less"
   end

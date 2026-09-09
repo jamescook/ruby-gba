@@ -18,6 +18,11 @@ require "stringio"
 module CostArith
   WEIGHTS = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
 
+  # What a frame costs before the program's own code runs: waiting for the screen, and working
+  # out how many frames the pass that just ended really took. Every game loop opens with it and
+  # nobody writes it, so every per-frame expectation below carries it.
+  def frame_boundary = WEIGHTS[:frame_overhead]
+
   # Starting one row's transfer, both sides of the line: the CPU's register writes and the
   # engine's own moment before the first pixel moves. Two weights because only the first
   # gets faster when the code is kept in the console's quick memory.

@@ -143,7 +143,10 @@ class TestLayerCost < Minitest::Test
     program = stacked
     m = RubyGBA::IR::CostModel.new
     total = m.layer_verdicts(program).sum(&:cost)
-    charged = m.as_json(program)[:tree].sum { |category| category[:cost] }
+    # The frame's own boundary is charged to the frame and belongs to no depth — waiting for
+    # the screen is not something a layer does — so it comes off before the two are compared.
+    boundary = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS[:frame_overhead]
+    charged = m.as_json(program)[:tree].sum { |category| category[:cost] } - boundary
 
     assert_in_delta charged, total, 1e-9,
                     "this game draws nothing but its stack, so the two must be the same number"

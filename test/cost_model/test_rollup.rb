@@ -54,8 +54,8 @@ class TestCostRollup < CostModelTest
   def test_the_every_frame_load_counts_a_list_walk_at_what_it_usually_holds
     prog = walking_game(capacity: 64, estimate: { usually: 4 })
 
-    near loop_cost(64, dma_rows(8, 8)), Cost.new.frame_cost(prog), "the worst it can reach"
-    near loop_cost(4, dma_rows(8, 8)), Cost.new.steady_cost(prog), "what a frame usually pays"
+    near frame_boundary + loop_cost(64, dma_rows(8, 8)), Cost.new.frame_cost(prog), "the worst it can reach"
+    near frame_boundary + loop_cost(4, dma_rows(8, 8)), Cost.new.steady_cost(prog), "what a frame usually pays"
   end
 
   # Said nothing, and the estimate has to answer anyway. It guesses — a quarter of the
@@ -65,8 +65,8 @@ class TestCostRollup < CostModelTest
   def test_a_list_that_says_nothing_is_counted_at_a_quarter_of_its_capacity
     prog = walking_game(capacity: 64)
 
-    near loop_cost(64, dma_rows(8, 8)), Cost.new.frame_cost(prog)
-    near loop_cost(16, dma_rows(8, 8)), Cost.new.steady_cost(prog)
+    near frame_boundary + loop_cost(64, dma_rows(8, 8)), Cost.new.frame_cost(prog)
+    near frame_boundary + loop_cost(16, dma_rows(8, 8)), Cost.new.steady_cost(prog)
   end
 
   # A range says a length that moves, and the TOP is what a frame is charged: the dearest of
@@ -173,7 +173,7 @@ class TestCostRollup < CostModelTest
         end
       end
     end
-    near dma_rows(10, 10), Cost.new.frame_cost(prog) # the heavy branch, not the sum of both
+    near frame_boundary + dma_rows(10, 10), Cost.new.frame_cost(prog) # the heavy branch, not the sum of both
   end
 
   # The frame cost is the game LOOP's per-frame work — boot-time setup outside the
@@ -186,7 +186,7 @@ class TestCostRollup < CostModelTest
         draw_rect_at 0, 0, 8, 8, :green # per-frame
       end
     end
-    near dma_rows(8, 8), Cost.new.frame_cost(prog) # the boot fill (20x20) is excluded
+    near frame_boundary + dma_rows(8, 8), Cost.new.frame_cost(prog) # the boot fill (20x20) is excluded
   end
 
   # --- selectivity: cost hints scale work by how often it actually runs ---
@@ -201,8 +201,8 @@ class TestCostRollup < CostModelTest
         every(4) { draw_rect_at 0, 0, 8, 8, :green } # 64 when it fires
       end
     end
-    near dma_rows(8, 8), Cost.new.frame_cost(prog)      # full cost on the frame it fires
-    near dma_rows(8, 8) / 4.0, Cost.new.steady_cost(prog) # spread across 4 frames
+    near frame_boundary + dma_rows(8, 8), Cost.new.frame_cost(prog)      # full cost on the frame it fires
+    near frame_boundary + (dma_rows(8, 8) / 4.0), Cost.new.steady_cost(prog) # spread across 4 frames
   end
 
   # after(n) fires exactly once, ever, so it contributes nothing to the steady
@@ -215,8 +215,8 @@ class TestCostRollup < CostModelTest
         after(30) { draw_rect_at 0, 0, 8, 8, :green } # once, on the frame it fires
       end
     end
-    near dma_rows(8, 8), Cost.new.frame_cost(prog)
-    assert_equal 0, Cost.new.steady_cost(prog)
+    near frame_boundary + dma_rows(8, 8), Cost.new.frame_cost(prog)
+    near frame_boundary, Cost.new.steady_cost(prog), "nothing left but having a frame at all"
   end
 
   # With no cost hints, the steady figure equals the full frame cost.
@@ -239,8 +239,8 @@ class TestCostRollup < CostModelTest
         pressed(:start).then { draw_rect_at 0, 0, 8, 8, :green } # 64 on a press frame only
       end
     end
-    near dma_rows(8, 8), Cost.new.frame_cost(prog) # full cost on the press frame
-    assert_equal 0, Cost.new.steady_cost(prog)     # not part of the every-frame load
+    near frame_boundary + dma_rows(8, 8), Cost.new.frame_cost(prog) # full cost on the press frame
+    near frame_boundary, Cost.new.steady_cost(prog) # not part of the every-frame load
   end
 
   # held is level, not an edge — it can run every frame it's down, so it counts
@@ -252,7 +252,7 @@ class TestCostRollup < CostModelTest
         held(:right).then { draw_rect_at 0, 0, 8, 8, :green }
       end
     end
-    near dma_rows(8, 8), Cost.new.steady_cost(prog)
+    near frame_boundary + dma_rows(8, 8), Cost.new.steady_cost(prog)
   end
 
   # chance(p) holds p% of the time, so a gated body counts at p%.

@@ -34,8 +34,10 @@ class TestHowOften < Minitest::Test
     end.program
   end
 
-  def steady(estimate) = Cost.new.steady_cost(guarded(estimate))
-  def worst(estimate) = Cost.new.frame_cost(guarded(estimate))
+  # What the PROGRAM costs a frame, with the frame's own boundary taken off: every reading
+  # here carries it, and it would flatten every share this file is about.
+  def steady(estimate) = Cost.new.steady_cost(guarded(estimate)) - frame_boundary
+  def worst(estimate) = Cost.new.frame_cost(guarded(estimate)) - frame_boundary
 
   # UNSAID, IT IS COUNTED EVERY FRAME. Pinned so the safe default cannot drift: a game that
   # says nothing must never be told it is cheaper than it is.

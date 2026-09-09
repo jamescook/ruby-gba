@@ -13,9 +13,9 @@ module RubyGBA
       # #raw_operand_cost.
       #
       # A third question is asked only of a node inside a routine the build kept in the
-      # console's quick memory: how much of it is a transfer engine copying rather than the
-      # CPU running instructions, since only the second half of that gets any faster there.
-      # See ENGINE_WEIGHTS.
+      # console's quick memory: how much of it is time the console spends rather than our
+      # instructions running, since only the second half of that gets any faster there.
+      # See CONSOLES_OWN_TIME.
       #
       # +catalogue+ answers what a declaration means (a bitmap's size, a song's notes);
       # +walker+ answers where the walk is right now (the screen mode, whether the code
@@ -28,9 +28,9 @@ module RubyGBA
 
         def initialize(weights:, catalogue:, walker:, palette_entries:, column_stretches:)
           @weights = weights
-          # The same table with everything but the transfer engine's own work zeroed, so an
-          # op can be priced twice over and the two answers differenced (see #ENGINE_WEIGHTS).
-          @engine_weights = @weights.transform_values { 0.0 }.merge(@weights.slice(*ENGINE_WEIGHTS))
+          # The same table with everything but the console's own time zeroed, so an op can be
+          # priced twice over and the two answers differenced (see #CONSOLES_OWN_TIME).
+          @consoles_own = @weights.transform_values { 0.0 }.merge(@weights.slice(*CONSOLES_OWN_TIME))
           @catalogue = catalogue
           @walker = walker
           @palette_entries = palette_entries
@@ -45,13 +45,13 @@ module RubyGBA
         # them every time. Operands are found from the node's attributes, so an op added
         # later can't hold unpriced work.
         #
-        # The engine's share is taken out before the quick-memory discount and added back
+        # The console's own share is taken out before the quick-memory discount and added back
         # after, so it is charged in full wherever the code lives. Operands are always
         # instructions, so they are discounted whole.
         def op_cost(node, worst: true)
           own = own_op_cost(node, worst)
-          engine = engine_op_cost(node, worst)
-          ((own - engine + raw_operand_cost(node, worst)) * fast_memory_factor) + engine
+          consoles = consoles_own_cost(node, worst)
+          ((own - consoles + raw_operand_cost(node, worst)) * fast_memory_factor) + consoles
         end
 
         # What a scanline of work costs when the code doing it lives in the console's
@@ -62,37 +62,40 @@ module RubyGBA
           (@walker && @walker.in_fast_code?) ? 1.0 / @weights[:fast_code_speedup] : 1
         end
 
-        # THE PART OF AN OP THAT IS NOT INSTRUCTIONS, and so gains nothing from being kept in
-        # the quick memory.
+        # THE PART OF AN OP THAT IS NOT OUR INSTRUCTIONS, and so gains nothing from being kept
+        # in the quick memory.
         #
         # A transfer is not the CPU running code. The CPU writes a few registers to set the
         # copy going and is then STOPPED while a separate engine moves the pixels — it executes
         # nothing at all until the copy is done. So moving that code to faster memory speeds up
         # the register writes and cannot touch the copy, however far the rest of the frame gains.
         #
-        # Measured, that is the whole story of a bitmap game's frame. The same program built
-        # both ways: a `clear_screen` on the tear-free screen costs 23.60 scanlines with the loop
-        # in quick memory and 23.70 without it — no gain at all, because it is one transfer of
-        # the whole picture. Five hundred adds go 3.86 against 9.94, the full factor. Charging
-        # both at the full factor made four of the examples estimate at four tenths of what the
-        # emulator measured, and in the direction that matters: a game the estimate called
-        # comfortable would tear on the console.
+        # That is most of a bitmap game's frame. A `clear_screen` is one transfer of the whole
+        # picture and costs the same either way; a few hundred adds gain the whole factor. An
+        # op that is nearly all transfer, charged the factor, reads at well under half its real
+        # cost — and in the direction that matters, since a game the estimate calls comfortable
+        # would tear on the console.
+        #
+        # A frame's own boundary is here too. Waiting for the screen is the BIOS sleeping the
+        # console, and the handler that counts the frame is entered and left by the console
+        # itself — all of it runs where the console keeps it, not where we put our code.
         #
         # So the discount applies to the op MINUS this. It is worked out by pricing the same op
         # again with every other weight zeroed, which keeps one implementation of each op's shape
         # rather than a second copy that could drift from the first.
-        ENGINE_WEIGHTS = %i[dma_engine_start dma_pixel
-                            tearfree_engine_stall tearfree_fill_pixel].freeze
+        CONSOLES_OWN_TIME = %i[frame_overhead
+                               dma_engine_start dma_pixel
+                               tearfree_engine_stall tearfree_fill_pixel].freeze
 
-        def engine_op_cost(node, worst = true)
+        def consoles_own_cost(node, worst = true)
           return 0 unless @walker&.in_fast_code? # nothing is being discounted, so there is nothing to hold back
 
-          with_engine_weights { own_op_cost(node, worst) }
+          with_consoles_own_weights { own_op_cost(node, worst) }
         end
 
-        def with_engine_weights
+        def with_consoles_own_weights
           was = @weights
-          @weights = @engine_weights
+          @weights = @consoles_own
           yield
         ensure
           @weights = was
@@ -106,6 +109,11 @@ module RubyGBA
 
         def own_op_cost(node, worst = true)
           case node.kind
+          # The frame boundary: waiting for the screen, and working out how many frames the
+          # last pass really took. It is the one statement in a game loop nobody writes, and
+          # what a frame pays before any of the program's own code runs. Charged where the
+          # wait is — once a frame in a paced program, once per wait in one that paces itself.
+          when :wait_vblank then @weights[:frame_overhead]
           when :pixel then @walker.tear_free? ? @weights[:tearfree_pixel] : @weights[:plot_pixel]
           # The two screens draw a rectangle in shapes that have nothing in common, so
           # which screen this one is on decides the whole price (see #tearfree_fill_cost).

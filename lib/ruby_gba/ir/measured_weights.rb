@@ -18,6 +18,7 @@ module RubyGBA
   module IR
     class CostModel
       MEASURED_WEIGHTS = {
+        frame_overhead: 0.26656,
         op_step: 0.01285,
         op_assign: 0.00643,
         op_plain: 0.01285,
@@ -97,6 +98,7 @@ module RubyGBA
       }.freeze
 
       WEIGHT_DOMAINS = {
+        frame_overhead: { note: "waiting for the screen and counting the frame, which every frame pays" },
         op_step: { note: "a statement that reads a variable, changes it and writes it back" },
         op_assign: { note: "a statement that only writes a variable, with the value already worked out" },
         op_plain: { note: "a plain operator — add, subtract, and the and/or that combine conditions" },

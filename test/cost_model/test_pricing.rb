@@ -42,8 +42,8 @@ class TestCostPricing < CostModelTest
       screen :bitmap
       game_loop { dma_fill_rect 0, 0, w, h, :red }
     end
-    near(w * h * WEIGHTS[:plot_run_pixel], Cost.new.frame_cost(cpu))
-    near((h * dma_start) + (w * h * WEIGHTS[:dma_pixel]), Cost.new.frame_cost(dma))
+    near(frame_boundary + (w * h * WEIGHTS[:plot_run_pixel]), Cost.new.frame_cost(cpu))
+    near(frame_boundary + (h * dma_start) + (w * h * WEIGHTS[:dma_pixel]), Cost.new.frame_cost(dma))
     assert_operator Cost.new.frame_cost(cpu), :>, Cost.new.frame_cost(dma), "CPU plotting is dearer than a DMA fill"
   end
 
@@ -66,15 +66,17 @@ class TestCostPricing < CostModelTest
     assert_in_delta 1.0, fast / slow, 0.01, "a transfer gains nothing worth seeing"
   end
 
-  # ...and the opposite extreme, which has to keep the whole factor.
+  # ...and the opposite extreme, which has to keep the whole factor. The frame's own boundary
+  # sits in both readings and gains nothing either — the console does that waiting wherever
+  # our code lives — so it comes off both sides before the factor is asked about.
   def test_arithmetic_gains_the_whole_speed_up
     adding = program do
       screen :bitmap
       n = var :n, 0
       game_loop { 100.times { n.add 1 } }
     end
-    near(Cost.new.frame_cost(adding) / WEIGHTS[:fast_code_speedup],
-         Cost.new(fast_frame: true).frame_cost(adding))
+    near((Cost.new.frame_cost(adding) - frame_boundary) / WEIGHTS[:fast_code_speedup],
+         Cost.new(fast_frame: true).frame_cost(adding) - frame_boundary)
   end
 
   # WHERE A ROUTINE LIVES IS ITS OWN BUSINESS, not its caller's — and this is the one the
@@ -96,8 +98,8 @@ class TestCostPricing < CostModelTest
   end
 
   def test_a_routine_left_in_the_cartridge_is_priced_there_though_its_caller_moved
-    left_behind = Cost.new(fast_frame: true).steady_cost(calling_game)
-    moved = Cost.new(fast_frame: true, fast_routines: [:worker]).steady_cost(calling_game)
+    left_behind = Cost.new(fast_frame: true).steady_cost(calling_game) - frame_boundary
+    moved = Cost.new(fast_frame: true, fast_routines: [:worker]).steady_cost(calling_game) - frame_boundary
 
     assert_operator left_behind, :>, moved,
                     "a routine that did not fit cannot cost what one that did costs"
@@ -113,15 +115,16 @@ class TestCostPricing < CostModelTest
       game_loop { 200.times { total.add 1 } }
     end
 
-    near(Cost.new.steady_cost(inline) / WEIGHTS[:fast_code_speedup],
-         Cost.new(fast_frame: true).steady_cost(inline))
+    near((Cost.new.steady_cost(inline) - frame_boundary) / WEIGHTS[:fast_code_speedup],
+         Cost.new(fast_frame: true).steady_cost(inline) - frame_boundary)
   end
 
   # A routine that DID move gains, even when whatever called it did not — the same rule read
   # the other way, and the reason this is about the routine rather than about nesting.
   def test_a_routine_that_moved_gains_though_its_caller_did_not
-    near(Cost.new(fast_routines: [:worker]).steady_cost(calling_game) * WEIGHTS[:fast_code_speedup],
-         Cost.new.steady_cost(calling_game))
+    near((Cost.new(fast_routines: [:worker]).steady_cost(calling_game) - frame_boundary) *
+         WEIGHTS[:fast_code_speedup],
+         Cost.new.steady_cost(calling_game) - frame_boundary)
   end
 
   # The arithmetic in between, stated exactly: a fill's register writes are discounted, its
@@ -135,7 +138,8 @@ class TestCostPricing < CostModelTest
     end
     engine = (h * WEIGHTS[:dma_engine_start]) + (w * h * WEIGHTS[:dma_pixel])
     cpu = h * WEIGHTS[:dma_cpu_start]
-    near((cpu / WEIGHTS[:fast_code_speedup]) + engine, Cost.new(fast_frame: true).frame_cost(fill))
+    near(frame_boundary + (cpu / WEIGHTS[:fast_code_speedup]) + engine,
+         Cost.new(fast_frame: true).frame_cost(fill))
   end
 
   # The same line, on the OTHER screen. A moving rectangle wide enough to be worth starting
@@ -153,7 +157,8 @@ class TestCostPricing < CostModelTest
     engine = h * (WEIGHTS[:tearfree_engine_stall] + (w * WEIGHTS[:tearfree_fill_pixel]))
     cpu = WEIGHTS[:tearfree_moving_start] + var_reads + # the row it is drawn on is a variable
           (h * (WEIGHTS[:tearfree_row] + WEIGHTS[:tearfree_engine_start]))
-    near((cpu / WEIGHTS[:fast_code_speedup]) + engine, Cost.new(fast_frame: true).frame_cost(rect))
+    near(frame_boundary + (cpu / WEIGHTS[:fast_code_speedup]) + engine,
+         Cost.new(fast_frame: true).frame_cost(rect))
   end
 
   # A blit costs its image's footprint (width x height), looked up from the bitmap
@@ -164,8 +169,8 @@ class TestCostPricing < CostModelTest
       Build.bitmap(:ship, width: 8, height: 4, pixels: Array.new(32, 0).pack("v*"), transparent: nil),
       Build.loop_(Build.wait_vblank, Build.blit(:ship, Build.int(0), Build.int(0))),
     )
-    near dma_rows(8, 4), Cost.new.steady_cost(prog) # opaque: one DMA per row
-    near dma_rows(8, 4), Cost.new.frame_cost(prog)
+    near frame_boundary + dma_rows(8, 4), Cost.new.steady_cost(prog) # opaque: one DMA per row
+    near frame_boundary + dma_rows(8, 4), Cost.new.frame_cost(prog)
   end
 
   # A DMA fill costs per ROW (each row is a DMA), so a tall-thin rectangle costs more
@@ -308,7 +313,7 @@ class TestCostPricing < CostModelTest
       Build.screen(:tiled),
       Build.loop_(Build.wait_vblank, Build.present_objects(%i[hero ghost coin])),
     )
-    near 3 * WEIGHTS[:obj_write], Cost.new.steady_cost(prog)
+    near frame_boundary + (3 * WEIGHTS[:obj_write]), Cost.new.steady_cost(prog)
   end
 
   # Scrolling a background costs its two scroll-register writes; constant offsets are
@@ -318,7 +323,7 @@ class TestCostPricing < CostModelTest
       Build.screen(:tiled),
       Build.loop_(Build.wait_vblank, Build.scroll_background(:world, x: Build.int(4), y: Build.int(0))),
     )
-    near WEIGHTS[:scroll_write], Cost.new.steady_cost(prog)
+    near frame_boundary + WEIGHTS[:scroll_write], Cost.new.steady_cost(prog)
   end
 
   # ...and a REAL one reads where the window sits out of the two variables the framework keeps
@@ -333,7 +338,7 @@ class TestCostPricing < CostModelTest
       Build.loop_(Build.wait_vblank,
                   Build.scroll_background(:world, x: Build.var_ref(:sx), y: Build.var_ref(:sy))),
     )
-    near WEIGHTS[:scroll_write] + var_reads(2), Cost.new.steady_cost(prog)
+    near frame_boundary + WEIGHTS[:scroll_write] + var_reads(2), Cost.new.steady_cost(prog)
   end
 
   # Moving the camera and setting the fade redraw nothing, so they are cheap — but not
@@ -345,13 +350,13 @@ class TestCostPricing < CostModelTest
       Build.screen(:bitmap),
       Build.loop_(Build.wait_vblank, Build.camera(x: Build.int(3), y: Build.int(5))),
     )
-    near WEIGHTS[:camera_move], Cost.new.steady_cost(prog)
+    near frame_boundary + WEIGHTS[:camera_move], Cost.new.steady_cost(prog)
 
     fading = Build.program(
       Build.screen(:bitmap),
       Build.loop_(Build.wait_vblank, Build.fade(toward: :black, amount: Build.int(50))),
     )
-    near WEIGHTS[:fade_set], Cost.new.steady_cost(fading)
+    near frame_boundary + WEIGHTS[:fade_set], Cost.new.steady_cost(fading)
   end
 
   # The hardware counts a fade in sixteenths, so a level the GAME works out has to be
@@ -368,7 +373,7 @@ class TestCostPricing < CostModelTest
       Build.loop_(Build.wait_vblank, Build.fade(toward: :black, amount: Build.var_ref(:level))),
     )
     assert_operator Cost.new.steady_cost(live), :>, Cost.new.steady_cost(fixed)
-    near WEIGHTS[:fade_set] + WEIGHTS[:op_mul] + WEIGHTS[:op_div_const] + var_reads,
+    near frame_boundary + WEIGHTS[:fade_set] + WEIGHTS[:op_mul] + WEIGHTS[:op_div_const] + var_reads,
          Cost.new.steady_cost(live), "the conversion, and reading the level it converts"
   end
 
@@ -387,8 +392,8 @@ class TestCostPricing < CostModelTest
       Build.loop_(Build.wait_vblank, Build.tint(color: :red, amount: Build.int(50))),
     )
 
-    near WEIGHTS[:tint_set], Cost.new.steady_cost(direct)
-    near WEIGHTS[:tint_hold] + (ENTRIES * WEIGHTS[:tint_entry]),
+    near frame_boundary + WEIGHTS[:tint_set], Cost.new.steady_cost(direct)
+    near frame_boundary + WEIGHTS[:tint_hold] + (ENTRIES * WEIGHTS[:tint_entry]),
          Cost.new(palette_entries: { buffered: ENTRIES }).steady_cost(buffered)
   end
 
@@ -402,7 +407,7 @@ class TestCostPricing < CostModelTest
       Build.loop_(Build.wait_vblank, Build.tint(color: :red, amount: Build.int(50))),
     )
 
-    near WEIGHTS[:tint_hold] + (256 * WEIGHTS[:tint_entry]), Cost.new.steady_cost(program)
+    near frame_boundary + WEIGHTS[:tint_hold] + (256 * WEIGHTS[:tint_entry]), Cost.new.steady_cost(program)
   end
 
   # ...and the tree says so, because a reader with no idea that a table exists cannot
@@ -412,9 +417,10 @@ class TestCostPricing < CostModelTest
       Build.screen(:bitmap, buffered: true),
       Build.loop_(Build.wait_vblank, Build.tint(color: :red, amount: Build.int(50))),
     )
-    label = leaves(Cost.new(palette_entries: { buffered: ENTRIES }).analyze(program)).first.label
+    tint = leaves(Cost.new(palette_entries: { buffered: ENTRIES }).analyze(program))
+           .find { |leaf| leaf.op == :tint }
 
-    assert_includes label, "#{ENTRIES} colors"
+    assert_includes tint.label, "#{ENTRIES} colors"
   end
 
   # Save memory sits on a slow bus and takes a byte at a time, so keeping a counter in a
@@ -431,8 +437,8 @@ class TestCostPricing < CostModelTest
       score = save_var :score, 0
       game_loop { score.add 1 }
     end
-    near WEIGHTS[:op_step], Cost.new.steady_cost(ordinary)
-    near WEIGHTS[:op_step] + WEIGHTS[:save_write], Cost.new.steady_cost(saved)
+    near frame_boundary + WEIGHTS[:op_step], Cost.new.steady_cost(ordinary)
+    near frame_boundary + WEIGHTS[:op_step] + WEIGHTS[:save_write], Cost.new.steady_cost(saved)
   end
 
   # Both are display writes the visible frame must not catch part-done, so they belong to
@@ -444,7 +450,7 @@ class TestCostPricing < CostModelTest
                   Build.camera(x: Build.int(3), y: Build.int(5)),
                   Build.fade(toward: :black, amount: Build.int(50))),
     )
-    near WEIGHTS[:camera_move] + WEIGHTS[:fade_set], Cost.new.steady_tear_cost(prog)
+    near frame_boundary + WEIGHTS[:camera_move] + WEIGHTS[:fade_set], Cost.new.steady_tear_cost(prog)
   end
 
   # Loading the saved variables happens once at boot, before the first frame, so it is
@@ -487,7 +493,7 @@ class TestCostPricing < CostModelTest
       screen :bitmap
       game_loop { repeat(100) { |_i| nil } }
     end
-    near WEIGHTS[:loop_start] + (100 * WEIGHTS[:loop_pass]), Cost.new.steady_cost(empty)
+    near frame_boundary + WEIGHTS[:loop_start] + (100 * WEIGHTS[:loop_pass]), Cost.new.steady_cost(empty)
   end
 
   # A LOOP IS TWO COSTS AND ONLY ONE OF THEM SCALES. Each pass counts, tests and jumps back;
@@ -503,7 +509,7 @@ class TestCostPricing < CostModelTest
     end
 
     near WEIGHTS[:loop_pass], passes.call(11) - passes.call(10), "one more pass is one more pass"
-    near WEIGHTS[:loop_start] + WEIGHTS[:loop_pass], passes.call(1),
+    near frame_boundary + WEIGHTS[:loop_start] + WEIGHTS[:loop_pass], passes.call(1),
          "and a loop of one is the entering, plus its single pass"
   end
 
@@ -520,7 +526,7 @@ class TestCostPricing < CostModelTest
     end
     cost = Cost.new
 
-    near loop_cost(100, dma_rows(8, 8)), cost.steady_tear_cost(prog)
+    near frame_boundary + loop_cost(100, dma_rows(8, 8)), cost.steady_tear_cost(prog)
     near cost.steady_cost(prog), cost.steady_tear_cost(prog),
          "everything here happens before the last draw, so both measures see all of it"
   end
@@ -539,9 +545,11 @@ class TestCostPricing < CostModelTest
       game_loop { dma_fill_rect 0, 0, 8, 8, :red; repeat(100) { n.add 1 } }
     end
 
-    near dma_rows(8, 8), Cost.new.steady_tear_cost(draws_first)
-    assert_operator Cost.new.steady_tear_cost(thinks_first), :>,
-                    Cost.new.steady_tear_cost(draws_first) * 10,
+    near frame_boundary + dma_rows(8, 8), Cost.new.steady_tear_cost(draws_first)
+    # The frame's own boundary is ahead of the draw in both, so it comes off both before the
+    # spread is asked about — what is being compared is where the PROGRAM put its work.
+    assert_operator Cost.new.steady_tear_cost(thinks_first) - frame_boundary, :>,
+                    (Cost.new.steady_tear_cost(draws_first) - frame_boundary) * 10,
                     "the same work ahead of the draw is what pushes it out of the window"
     near Cost.new.steady_cost(thinks_first), Cost.new.steady_cost(draws_first),
          "the frame costs the same either way — only the tear risk moves"
@@ -559,7 +567,9 @@ class TestCostPricing < CostModelTest
         out = var :out, 0
         game_loop { out.set(numerator / d) }
       end
-      Cost.new.steady_cost(prog)
+      # What the divide costs, so the frame's own boundary — the same in all three — cannot
+      # narrow the spread being asserted on.
+      Cost.new.steady_cost(prog) - frame_boundary
     end
     assert_equal costs.sort, costs, "a wider answer must not cost less"
     assert_operator costs.last, :>, costs.first * 1.5, "and the spread has to be worth pricing"
@@ -578,7 +588,8 @@ class TestCostPricing < CostModelTest
       out = var :out, 0
       game_loop { out.set(n / d) }
     end
-    near WEIGHTS[:op_assign] + WEIGHTS[:op_div] + var_reads(2), Cost.new.steady_cost(prog)
+    near frame_boundary + WEIGHTS[:op_assign] + WEIGHTS[:op_div] + var_reads(2),
+         Cost.new.steady_cost(prog)
   end
 
   # Dividing has three prices, because the lowering gives it three costs, and an author
@@ -665,8 +676,8 @@ class TestCostPricing < CostModelTest
     end
 
     assert_operator Cost.new.steady_cost(changed), :>, Cost.new.steady_cost(assignment_loop)
-    near WEIGHTS[:op_step], Cost.new.steady_cost(changed)
-    near WEIGHTS[:op_assign] + var_reads, Cost.new.steady_cost(assignment_loop)
+    near frame_boundary + WEIGHTS[:op_step], Cost.new.steady_cost(changed)
+    near frame_boundary + WEIGHTS[:op_assign] + var_reads, Cost.new.steady_cost(assignment_loop)
   end
 
   # An operator is charged BESIDE the statement that holds it, so its weight has to be what it
@@ -697,8 +708,8 @@ class TestCostPricing < CostModelTest
     one = pair_loop { |m, _p| m + 1 }
     two = pair_loop { |m, p| m + p }
 
-    near WEIGHTS[:op_assign] + WEIGHTS[:op_plain] + var_reads, Cost.new.steady_cost(one)
-    near WEIGHTS[:op_assign] + WEIGHTS[:op_plain] + var_reads(2), Cost.new.steady_cost(two)
+    near frame_boundary + WEIGHTS[:op_assign] + WEIGHTS[:op_plain] + var_reads, Cost.new.steady_cost(one)
+    near frame_boundary + WEIGHTS[:op_assign] + WEIGHTS[:op_plain] + var_reads(2), Cost.new.steady_cost(two)
     near var_reads, Cost.new.steady_cost(two) - Cost.new.steady_cost(one),
          "the two statements differ by one operand, so they differ by one read"
   end
@@ -707,7 +718,7 @@ class TestCostPricing < CostModelTest
   # the read its own benchmark did, so `n.set 5` — every counter reset in every game — was
   # charged a read it never does.
   def test_a_statement_that_reads_no_variable_is_not_charged_for_one
-    near WEIGHTS[:op_assign], Cost.new.steady_cost(pair_loop { |_m, _p| 5 })
+    near frame_boundary + WEIGHTS[:op_assign], Cost.new.steady_cost(pair_loop { |_m, _p| 5 })
   end
 
   # A `copy` reads a variable as well, and NAMES it where a `set` holds it as an expression.
@@ -722,7 +733,7 @@ class TestCostPricing < CostModelTest
       game_loop { copy :n, :m }
     end
 
-    near WEIGHTS[:op_assign] + var_reads, Cost.new.steady_cost(copied)
+    near frame_boundary + WEIGHTS[:op_assign] + var_reads, Cost.new.steady_cost(copied)
     near Cost.new.steady_cost(assignment_loop), Cost.new.steady_cost(copied)
   end
 
@@ -788,9 +799,9 @@ class TestCostPricing < CostModelTest
   def test_where_a_variable_sits_costs_the_same_wherever_it_is
     at = ->(address) { Cost.new(var_addresses: { x: address }).steady_cost(assignment_loop) }
 
-    near WEIGHTS[:op_assign] + var_reads, at.call(ORDINARY_VAR)
-    near WEIGHTS[:op_assign] + var_reads, at.call(DISTANT_VAR)
-    near WEIGHTS[:op_assign] + var_reads, at.call(0x03000000), "...including the first of all"
+    near frame_boundary + WEIGHTS[:op_assign] + var_reads, at.call(ORDINARY_VAR)
+    near frame_boundary + WEIGHTS[:op_assign] + var_reads, at.call(DISTANT_VAR)
+    near frame_boundary + WEIGHTS[:op_assign] + var_reads, at.call(0x03000000), "...including the first of all"
   end
 
   # An `add` reaches its variable at both ends where a `set` only writes, so distance would
@@ -802,7 +813,7 @@ class TestCostPricing < CostModelTest
       game_loop { x.add 1 }
     end
 
-    near WEIGHTS[:op_step], Cost.new(var_addresses: { x: DISTANT_VAR }).steady_cost(changed)
+    near frame_boundary + WEIGHTS[:op_step], Cost.new(var_addresses: { x: DISTANT_VAR }).steady_cost(changed)
   end
 
   # THE TWO WAYS TO HAVE NO ANSWER, which price the same and mean different things.
@@ -813,14 +824,15 @@ class TestCostPricing < CostModelTest
   # one. Both fall back to ordinary, which is the safe way to be wrong; what the model can
   # say is which of the two it is in.
   def test_a_program_with_no_build_behind_it_prices_every_variable_the_same
-    near WEIGHTS[:op_assign] + var_reads, Cost.new.steady_cost(assignment_loop)
-    near WEIGHTS[:op_assign] + var_reads, Cost.new(var_addresses: {}).steady_cost(assignment_loop)
+    near frame_boundary + WEIGHTS[:op_assign] + var_reads, Cost.new.steady_cost(assignment_loop)
+    near frame_boundary + WEIGHTS[:op_assign] + var_reads,
+         Cost.new(var_addresses: {}).steady_cost(assignment_loop)
   end
 
   def test_a_name_the_build_never_saw_is_priced_as_ordinary_too
     built = Cost.new(var_addresses: { somewhere_else: 0x03007F00 })
 
-    near WEIGHTS[:op_assign] + var_reads, built.steady_cost(assignment_loop)
+    near frame_boundary + WEIGHTS[:op_assign] + var_reads, built.steady_cost(assignment_loop)
   end
 
   # ...and the two are told apart, which the fallback alone cannot say.
@@ -846,8 +858,8 @@ class TestCostPricing < CostModelTest
       rom.cost_model.steady_cost(rom.source_program)
     end
 
-    near WEIGHTS[:op_assign] + var_reads, costs.first
-    near WEIGHTS[:op_assign] + var_reads, costs.last
+    near frame_boundary + WEIGHTS[:op_assign] + var_reads, costs.first
+    near frame_boundary + WEIGHTS[:op_assign] + var_reads, costs.last
   end
 
   # `set :out, <node>` once a frame. Built straight from the IR because the surface will not
@@ -922,8 +934,9 @@ class TestCostPricing < CostModelTest
       var :x, 0
       game_loop { repeat(10) { add :x, 1 } }
     end
-    c_one = Cost.new.steady_cost(one)
-    c_ten = Cost.new.steady_cost(ten)
+    # What the LOOP costs, with the frame's own boundary — the same in both — taken off.
+    c_one = Cost.new.steady_cost(one) - frame_boundary
+    c_ten = Cost.new.steady_cost(ten) - frame_boundary
 
     assert_operator c_one, :>, 0, "a compute loop is not free"
     # Ten passes cost ten passes — but only one entering, which the loop of one also paid.

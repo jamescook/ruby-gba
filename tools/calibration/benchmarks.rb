@@ -108,6 +108,23 @@ module RubyGBA
         Reductions.marginal(b_hi, b_lo, over: repeat_n * (hi - lo))
       end
 
+      # --- the frame itself ---
+
+      # A game loop of +ops+ plain statements, one after another, and nothing else at all.
+      # Two of these fit the line the frame's own cost falls out of (see Calibrator#frame).
+      #
+      # No `repeat`: a loop of its own would put its counter in the line, and the base would
+      # then be the frame's cost plus entering a loop.
+      def plain_frame_busy(ops)
+        name = "frame#{ops}"
+        rom = cartridge_build(name) do
+          screen :bitmap
+          n = var :n, 0
+          game_loop { ops.times { n.add 1 } }
+        end
+        @m.busy(name, rom)
+      end
+
       # --- sound ---
 
       # The mixer's per-frame cost with +n+ looping voices sounding at once.
