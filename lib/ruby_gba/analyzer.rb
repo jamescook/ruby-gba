@@ -65,6 +65,12 @@ module RubyGBA
       def held?
         !keys.empty?
       end
+
+      # The reading as the plain hash the cost report folds in, so the report stays free of
+      # this module's types.
+      def for_report
+        { scanlines: scanlines, fps: fps, saturated: saturated?, per_pass: per_pass, keys: keys }
+      end
     end
 
     # How many scenes to profile by default when the dev names none — enough to cover a
@@ -84,24 +90,25 @@ module RubyGBA
       attempt(rom_path, Array(keys), {}, nil)
     end
 
-    # Profile a game's scenes. A scene the player only reaches after input is measured
+    # Profile a program's scenes. A scene the player only reaches after input is measured
     # by booting straight into it (below), so no button-scripting is needed. Returns a
     # Hash of scene name => {Result}. +only+ narrows to named scenes; nil profiles all,
     # up to SCENE_CAP. A game with no scenes profiles as a whole under the +nil+ key.
     #
+    # +options+ are the build options the game was built with ({BuildRecord#build_options}),
+    # because the measuring ROMs are built here from the program and have to be built the
+    # same way — a differently-built ROM has a frame rate the shipped game does not.
+    #
     # +keys+ pins what the player is doing: nil sweeps the buttons the game reads (the
     # default), a list holds exactly those and nothing else.
-    def profile(game, only: nil, keys: nil)
-      # Build the measuring ROMs exactly as the game builds its own. Measuring a
-      # differently-built ROM would report a frame rate the shipped game does not have.
-      options = game.respond_to?(:build_options) ? game.build_options : {}
-      dispatch = scenes(game.program)
-      return { nil => measure_program(game.program, options: options, keys: keys) } unless dispatch
+    def profile(program, options: {}, only: nil, keys: nil)
+      dispatch = scenes(program)
+      return { nil => measure_program(program, options: options, keys: keys) } unless dispatch
 
       names = pick_scenes(dispatch[:scenes], only)
       names.to_h do |name|
         value = dispatch[:scenes].fetch(name)
-        variant = boot_into(game.program, dispatch[:selector], value)
+        variant = boot_into(program, dispatch[:selector], value)
         [name, measure_program(variant, options: options, keys: keys,
                                stays_in: { var: dispatch[:selector], value: value })]
       end

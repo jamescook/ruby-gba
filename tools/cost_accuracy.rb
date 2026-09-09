@@ -107,7 +107,7 @@ module CostAccuracy
     return Reading.new(name: name, note: "no game loop, so nothing recurs") unless model.looping?(program)
 
     estimate = (model.steady_cost(program) + model.standing_costs(program)).to_f
-    Reading.new(name: name, estimate: estimate, **console(game))
+    Reading.new(name: name, estimate: estimate, **console(rom))
   rescue StandardError, ScriptError => e
     Reading.new(name: name, note: "#{e.class}: #{e.message.lines.first.to_s.strip}")
   end
@@ -115,8 +115,9 @@ module CostAccuracy
   # The console's own reading of the worst scene. A run that overran a frame reports what a
   # whole pass cost instead, since its scanline reading is pinned at the ceiling and says
   # only "at least a frame".
-  def console(game)
-    reading = RubyGBA::Analyzer.profile(game).values.max_by(&:scanlines)
+  def console(rom)
+    readings = RubyGBA::Analyzer.profile(rom.source_program, options: rom.build_options)
+    reading = readings.values.max_by(&:scanlines)
     return { note: "the emulator gave no reading" } unless reading
     return { measured: reading.scanlines.to_f } unless reading.saturated?
     return { note: "over a frame, and the pass was not counted" } unless reading.per_pass

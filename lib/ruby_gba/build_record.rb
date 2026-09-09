@@ -16,8 +16,14 @@ module RubyGBA
   # line there was a ROM that was a valid cartridge and half a report — and nothing said
   # which of the two you were holding. Now a ROM either has a record or has none, and having
   # none is exactly what "assembled straight from machine code" means.
+  # +build_options+ is what the build was TOLD rather than what it worked out — the cartridge
+  # timing it asks for at boot, and whether it chose what to keep in quick memory — and it is
+  # here because measuring a cartridge means building it again, the same way: a ROM measured
+  # with different settings is not the ROM that ships, and the difference between code in the
+  # cartridge and code in the console's quick memory is a factor of about two and a half.
   class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
-                                  :palette_entries, :column_stretches, :compression)
+                                  :palette_entries, :column_stretches, :compression,
+                                  :build_options)
     # The two routines a program has no name for: the frame's own body, and the one the
     # console jumps into when the display or a timer announces something. The estimate has
     # to be told about each separately for that reason.

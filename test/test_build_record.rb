@@ -46,7 +46,7 @@ class TestBuildRecord < Minitest::Test
     end
   end
 
-  # A built one answers all six, and there is no way to have some of them: the record is
+  # A built one answers all of it, and there is no way to have some of it: the record is
   # made whole by the backend and handed over at assembly.
   def test_a_built_cartridge_carries_everything_the_build_worked_out
     rom = a_built_rom
@@ -58,6 +58,19 @@ class TestBuildRecord < Minitest::Test
     refute_empty rom.loop_shapes
     refute_nil rom.palette_entries
     refute_nil rom.compression
+    assert_equal({ fast_cartridge: true, fast_code: true }, rom.build_options)
+  end
+
+  # ...including what it was TOLD, because measuring a cartridge means building it again the
+  # same way, and a ROM built with different settings has a frame rate the shipped one does not.
+  def test_a_built_cartridge_remembers_the_options_it_was_built_with
+    rom = RubyGBA.build("SLOW", code: "ZSLW", maker: "01", fast_code: false, fast_cartridge: false,
+                                out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      game_loop { fill_rect 0, 0, 40, 8, :green }
+    end
+
+    assert_equal({ fast_cartridge: false, fast_code: false }, rom.build_options)
   end
 
   # The half that used to be settable is not any more. A ROM cannot be talked into being

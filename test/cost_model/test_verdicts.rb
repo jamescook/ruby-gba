@@ -162,8 +162,9 @@ class TestCostVerdicts < CostModelTest
   end
 
   # With no measurement, the report is an estimate and says so plainly — it does not
-  # pretend to have run the game or promise a frame rate.
-  def test_estimate_only_says_the_emulator_did_not_run
+  # pretend to have run the game or promise a frame rate — and it says how to get one,
+  # because a reader who wants to know whether the game fits has no other way to find out.
+  def test_estimate_only_says_the_game_did_not_run_and_how_to_run_it
     prog = program do
       screen :bitmap
       var :state, 0
@@ -179,7 +180,18 @@ class TestCostVerdicts < CostModelTest
     io = StringIO.new
     Cost.new.report(prog, out: io)
     assert_match(/estimate only/, io.string)
-    assert_match(/the emulator did not run/, io.string)
+    assert_match(/the game did not run/, io.string)
+    assert_match(/measured: true/, io.string)
+  end
+
+  # ...and when a measurement WAS asked for and there was no emulator to take it on, the
+  # advice is what to build, not to ask again.
+  def test_estimate_only_says_what_the_measurement_needs_when_there_was_no_emulator
+    io = StringIO.new
+    Cost.new.report(loop_of_clears(1, buffered: false), out: io, unmeasured: :no_emulator)
+    assert_match(/estimate only/, io.string)
+    assert_match(/needs the emulator/, io.string)
+    refute_match(/measured: true/, io.string)
   end
 
   # A measurement folds in as the verdict: the report reads the real per-frame number and
