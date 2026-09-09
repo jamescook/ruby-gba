@@ -68,26 +68,98 @@ module Differential
   # measured console values are for.
   EMULATOR_BLEND_SLACK = 1
 
-  def assert_backends_agree(program, frames: 4, name: "DIFF", console_frames: nil, blended: false)
-    oracle, console = backend_pictures(program, frames: frames, name: name, console_frames: console_frames)
+  # A FRAME MEANS TWO DIFFERENT THINGS ONCE A GAME IS OVER BUDGET. The interpreter runs the
+  # game loop once per frame it is asked for, whatever the body costs. The console runs it
+  # once per frame it has TIME for. So a game whose pass takes two display frames plays half
+  # as much game per frame on the console, and the boot offset above stops being the whole
+  # story: measured on the wolf3d view, holding a button for 40 frames walked the player
+  # 2.8 cells in the interpreter and 1.47 on the console.
+  #
+  # So the two are lined up on PASSES of the loop, not on frames. A hidden counter is added
+  # to the program the console runs (the interpreter runs the original), the console is run
+  # for its frames, the counter says how many passes it managed, and the interpreter is run
+  # for exactly that many. No ratio, no measurement, no cost model, and it stays right when
+  # the game gets faster or slower. For a game that fits the counter agrees with the boot
+  # offset and nothing changes.
+  #
+  # Only a tear-free game can be lined up that way: its shown page is the last pass it
+  # finished. A single-buffered game caught mid-pass has a half-drawn picture that no
+  # interpreter frame can match — so that one is refused, with the reason, rather than
+  # compared at two different moments and the lowering blamed.
+  PASSES = :__diff_passes
+
+  # A button name as the console's key bit, for holding buttons on both backends.
+  KEY_BITS = RubyGBA::IR::Buttons::NAMES.to_h do |name|
+    [name, RubyGBA::Constants.const_get(:"KEY_#{name.to_s.upcase}")]
+  end.freeze
+
+  class OverBudget < StandardError; end
+
+  # +keys+ are buttons held for the whole run, on both backends.
+  def assert_backends_agree(program, frames: 4, name: "DIFF", console_frames: nil, blended: false, keys: [])
+    oracle, console, ran = backend_pictures(program, frames: frames, name: name,
+                                            console_frames: console_frames, keys: keys)
     bad = mismatched_pixels(oracle, console, slack: blended ? EMULATOR_BLEND_SLACK : 0)
     return if bad.empty?
 
-    flunk mismatch_report(bad, oracle, console, frames, console_frames || console_frames_for(program, frames))
+    flunk mismatch_report(bad, oracle, console, ran, console_frames || console_frames_for(program, frames))
+  rescue OverBudget => e
+    flunk e.message
   end
 
   # Both backends' screens for the same program, as arrays of 15-bit colors
-  # (index = y*240 + x). Use this directly to assert on a KNOWN disagreement —
-  # a bug that's filed but not fixed — instead of failing the build.
-  # @return [Array(Array<Integer>, Array<Integer>)] the interpreter's, the console's
-  def backend_pictures(program, frames: 4, name: "DIFF", console_frames: nil)
+  # (index = y*240 + x), and how many frames the interpreter played to match. Use this
+  # directly to assert on a KNOWN disagreement — a bug that's filed but not fixed —
+  # instead of failing the build.
+  # @return [Array(Array<Integer>, Array<Integer>, Integer)] the interpreter's, the
+  #   console's, the interpreter's frame count
+  def backend_pictures(program, frames: 4, name: "DIFF", console_frames: nil, keys: [])
     cf = console_frames || console_frames_for(program, frames)
+    console, passes = console_picture(program, cf, name, keys)
+    ran = passes ? oracle_frames_for(program, frames, passes, cf) : frames
     # What the interpreter SHOWS, not what it stored. A fade, a tint and the camera all
     # change the picture without touching a drawn pixel, so reading the stored cells
     # would compare a picture nobody is looking at against one the console really put out.
-    oracle = RubyGBA::IR::Backends::Reference.new.run(program, frames: frames).screen.shown
-    rom = assemble_rom(program, name: name)
-    [oracle, RubyGBA::Verifier.new(rom, frames: cf).frame_gba]
+    oracle = RubyGBA::IR::Backends::Reference.new.hold(*keys).run(program, frames: ran).screen.shown
+    [oracle, console, ran]
+  end
+
+  # The console's picture after +cf+ frames, and how many passes of the game loop it
+  # managed in them — nil for a program with no loop to count.
+  def console_picture(program, cf, name, keys)
+    mask = keys.sum { |key| KEY_BITS.fetch(key) }
+    counted = RubyGBA::Analyzer.instrument_frame_counter(program, PASSES)
+    return [RubyGBA::Verifier.new(assemble_rom(program, name: name), frames: cf, keys: mask).frame_gba, nil] unless counted
+
+    backend = RubyGBA::IR::Backends::GBA.new
+    rom = RubyGBA::ROM.assemble(backend.lower(counted), title: name, code: "TEST", maker: "01")
+    verifier = RubyGBA::Verifier.new(rom, frames: cf, keys: mask, vars: backend.var_addresses)
+    [verifier.frame_gba, verifier.var(PASSES)]
+  end
+
+  # A game that fits is allowed to be this many passes short of the frame count. The boot
+  # offset was measured on a program with almost nothing to set up; one with tiles to
+  # upload or hot code to copy reaches its loop a frame later, and a still picture cannot
+  # show it. A game over budget by a whole frame a pass falls further behind than this
+  # within a few frames, so a test that wants the strict check runs more of them.
+  BOOT_SLACK = 1
+
+  # How many frames the interpreter plays so its picture is the one the console showed.
+  # A game that fits managed a pass a frame, and the boot offset already lines it up; one
+  # that did not is lined up on the passes it managed — if it can be (see PASSES).
+  def oracle_frames_for(program, frames, passes, cf)
+    return frames if passes >= frames - BOOT_SLACK
+    return passes if buffered?(program)
+
+    raise OverBudget,
+          "the console managed only #{passes} passes of the game loop in #{cf} frames, where a game that " \
+          "fits manages at least #{frames - BOOT_SLACK}: this program is over budget, and its single-buffered " \
+          "picture is caught in the middle of a pass, which no interpreter frame can match. Compare it " \
+          "tear-free (screen :bitmap, tear_free: true), or compare a still picture."
+  end
+
+  def buffered?(program)
+    program.walk.any? { |node| node.kind == :screen && node.buffered }
   end
 
   # Every pixel the two disagree on, as [x, y, interpreter_color, console_color].

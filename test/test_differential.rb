@@ -389,6 +389,42 @@ class TestDifferential < Minitest::Test
     assert_equal BOOT_FRAMES[:tiled], measured_offset(tiled, "OFSTIL"), "tiled boot cost changed"
   end
 
+  # --- a game that does not fit in a frame ---
+
+  # A pass that takes two frames plays half as much game per frame on the console, so
+  # "the same picture" is no longer the same frame count. Lined up on the passes the
+  # console managed, an over-budget tear-free game still compares — and a held button is
+  # held for the passes on both sides, not for the frames.
+  def over_budget(tear_free:)
+    build do
+      screen :bitmap, tear_free: tear_free
+      x = var :x, 10
+      game_loop do
+        held(:right).then { x.add 3 }
+        repeat(12) { clear_screen :black } # far more than a frame's worth of drawing
+        draw_rect_at x, 40, 8, 8, Color.resolve(:white)
+      end
+    end
+  end
+
+  def test_an_over_budget_tear_free_game_is_lined_up_on_the_passes_it_managed
+    _oracle, _console, ran = backend_pictures(over_budget(tear_free: true), frames: 6, name: "SLOW", keys: [:right])
+
+    assert_operator ran, :<, 6, "the console managed fewer passes than frames, and the interpreter played that many"
+    assert_backends_agree(over_budget(tear_free: true), frames: 6, name: "SLOW", keys: [:right])
+  end
+
+  # A single-buffered picture caught mid-pass is half drawn, and no interpreter frame can
+  # match it — so the helper says that is what happened, rather than comparing two
+  # different moments and blaming the lowering.
+  def test_an_over_budget_single_buffered_game_is_refused_with_the_reason
+    err = assert_raises(Minitest::Assertion) do
+      assert_backends_agree(over_budget(tear_free: false), frames: 6, name: "TORN", keys: [:right])
+    end
+    assert_match(/over budget/, err.message)
+    assert_match(/passes of the game loop/, err.message)
+  end
+
   # A program that draws in two modes can't have one offset, so the helper says so
   # rather than silently comparing the wrong frames.
   def test_a_mode_switching_program_asks_for_an_explicit_frame_count
