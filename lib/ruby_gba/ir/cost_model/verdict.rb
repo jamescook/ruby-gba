@@ -117,6 +117,13 @@ module RubyGBA
         # or the part of it being drawn into, because a column is clipped to it.
         StretchedColumn = Data.define(:name, :counted, :ceiling, :said)
 
+        # Many rectangles a frame drawn at a column that is odd, or that the build cannot
+        # tell is even, on the tear-free screen — where an odd column costs about three times
+        # an even one and nothing tells the author. +draws+ is how many a frame, +cost+ what
+        # they come to and +even_cost+ what the same rectangles would at an even column;
+        # +proved_odd+ says whether the column is known odd or merely unproved.
+        OddColumn = Data.define(:source, :proved_odd, :draws, :cost, :even_cost)
+
         # Work the model cannot price to a single number because it depends on something
         # only known as the game runs — how far a value ranges, and what that costs at each
         # end. Loud, because a frame figure that quietly left it out would read as fine.

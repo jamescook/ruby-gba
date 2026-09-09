@@ -861,6 +861,49 @@ module RubyGBA
           end
         end
 
+        # Fewer rectangles a frame than this and a column is a thing that moves, not a grid —
+        # a ball, a ship — and a freely moving thing cannot have an even column and must not
+        # be pushed toward one. The note is for the grid case only.
+        MANY_RECTANGLES = 8
+
+        # ...and below this share of the every-frame figure the column is not where the frame
+        # goes, whatever its ratio, so nothing is said.
+        ODD_COLUMN_WORTH_SAYING = 0.05
+
+        # RECTANGLES AT AN ODD COLUMN on the tear-free screen, one entry per source line, for
+        # the note that says so. That screen holds two pixels in one unit, so a row that starts
+        # halfway through a unit is spliced at both ends and costs about three times a row
+        # that does not — and the author, who wrote `cell * 7`, has no way to know. Only the
+        # grid case (many a frame, a real share of the frame) is reported; a lone moving
+        # rectangle is what it is. +leaves+ are the tree's weighed leaves, which is where how
+        # many times a frame each draw runs is known (see Tree.weigh_leaves).
+        def odd_column_verdicts(program, leaves)
+          return [] unless buffered?(program) && !mixed?(program)
+
+          recurring = @walker.steady_cost(program) + standing_costs(program)
+          leaves.select { |leaf, _times| leaf.op == :draw_rect_at && leaf.source }
+                .group_by { |leaf, _times| leaf.source }
+                .filter_map { |source, rows| odd_column_verdict(program, source, rows, recurring) }
+        end
+
+        def odd_column_verdict(program, source, rows, recurring)
+          nodes = program.walk.select { |node| node.kind == :draw_rect_at && node.source == source }
+          moving = nodes.select { |node| @pricing.even_column_cost(node) }
+          return nil if moving.empty?
+
+          parities = moving.map { |node| Parity.of(node.x) }
+          return nil if parities.all?(:even)
+
+          draws = rows.sum { |leaf, times| (leaf.count || 1) * times }
+          cost = rows.sum { |leaf, times| leaf.cost * times }
+          return nil if draws < MANY_RECTANGLES || cost < ODD_COLUMN_WORTH_SAYING * recurring
+
+          sample = moving.first
+          even_share = @pricing.even_column_cost(sample) / @pricing.tearfree_moving_rect_cost(sample)
+          Verdict::OddColumn.new(source: source, proved_odd: parities.all?(:odd), draws: draws.round,
+                                 cost: cost, even_cost: cost * even_share)
+        end
+
         # The most rows this column could walk: the height of the part of the screen it is being
         # drawn into, since it is clipped to that, or the whole screen where it is in no area.
         # Found by looking up rather than down, because the walk here is flat.

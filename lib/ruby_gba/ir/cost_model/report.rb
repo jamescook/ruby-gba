@@ -597,6 +597,7 @@ module RubyGBA
         live_slot_line(program, printer)
         early_exit_line(program, printer)
         stretched_column_line(program, printer)
+        odd_column_lines(program, printer)
 
         if measured
           blind_spot_note(program, printer)
@@ -673,6 +674,27 @@ module RubyGBA
         else
           printer.puts "    (a stretched column counts the rows it usually draws — #{at}, a " \
                        "guess. To give the real height, write estimate: { usually: N } on the column.)"
+        end
+      end
+
+      # WHERE AN ODD COLUMN IS COSTING THE FRAME. The tree prices the rectangles exactly and
+      # never names the column as the reason, so a game laid out on `cell * 7` runs at half the
+      # speed it could, silently, for ever. This says so where the grid case is a real share of
+      # the frame — and says nothing about a lone moving thing, which cannot have an even
+      # column and must not be pushed toward one. No hardware is named: the author is told
+      # what it costs and what to change.
+      def odd_column_lines(program, printer)
+        leaves = Tree.weigh_leaves(@tree.category_tree(program))
+        @verdicts.odd_column_verdicts(program, leaves).each do |v|
+          why =
+            if v.proved_odd
+              "start at an odd column. On this screen that costs more"
+            else
+              "start at a column the build cannot tell is even, so it prices the odd one"
+            end
+          printer.puts format("    (%d rectangles a frame %s: ~%s, where an even column is ~%s. If they sit on a " \
+                              "grid, use an even cell size, such as 8 or 16. at %s)",
+                              v.draws, why, CostModel.fmt(v.cost), CostModel.fmt(v.even_cost), v.source)
         end
       end
 

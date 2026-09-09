@@ -416,4 +416,56 @@ class TestTearFreeDrawing < CostModelTest
     assert_operator Cost.new.steady_cost(wide), :<, Cost.new.steady_cost(tall),
                     "a row is a copy of its own, so more rows is more starts"
   end
+
+  # --- an odd column, named as the reason ---
+
+  # Sixty rectangles a frame laid out on a grid whose column the block works out.
+  def grid(&column)
+    tear_free { game_loop { repeat(60) { |i| draw_rect_at column.call(i), 20, 8, 8, :red } } }
+  end
+
+  # THE POINT. The tree prices an odd column exactly and never says the column is why, so a
+  # game on `cell * 7` runs at half the speed it could, silently. The note names the line,
+  # what it costs beside what an even column would, and the fix in the author's own words.
+  def test_many_rectangles_at_an_odd_column_are_told_the_column_is_why
+    out = reported(grid { |i| (i * 2) + 1 })
+
+    assert_match(/60 rectangles a frame start at an odd column/, out)
+    assert_match(/where an even column is ~[\d.]+/, out)
+    assert_match(/use an even cell size/, out)
+    assert_match(/test_tearfree_drawing\.rb:\d+/, out, "names the line")
+    refute_match(/VRAM|16-bit|splic/i, out, "no hardware")
+  end
+
+  # A column nothing can prove is priced as the odd one, and the note says that is what
+  # happened — the author who wrote `cell * 7` cannot know either.
+  def test_a_column_the_build_cannot_prove_is_told_so
+    out = reported(grid { |i| i * 7 })
+
+    assert_match(/60 rectangles a frame start at a column the build cannot tell is even/, out)
+    assert_match(/use an even cell size/, out)
+  end
+
+  # ...and an even grid is told nothing, because there is nothing to change.
+  def test_an_even_grid_is_told_nothing
+    refute_match(/even cell size/, reported(grid { |i| i * 8 }))
+  end
+
+  # A lone moving rectangle is a thing that moves, not a grid. It cannot have an even
+  # column and must not be pushed toward one.
+  def test_a_single_moving_rectangle_is_told_nothing
+    lone = tear_free do
+      x = var :x, 7
+      game_loop { draw_rect_at x, 20, 8, 8, :red }
+    end
+
+    refute_match(/even cell size/, reported(lone))
+  end
+
+  # The direct-colour screen draws a pixel at a time and has no column to be odd at.
+  def test_the_direct_colour_screen_is_told_nothing
+    odd = direct { game_loop { repeat(60) { |i| draw_rect_at (i * 2) + 1, 20, 8, 8, :red } } }
+
+    refute_match(/even cell size/, reported(odd))
+  end
 end
