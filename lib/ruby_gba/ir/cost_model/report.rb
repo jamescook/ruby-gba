@@ -592,10 +592,7 @@ module RubyGBA
         bend_line(program, printer)
         tick_lines(program, printer)
 
-        if (cw = collision_worst_case(program)).positive?
-          printer.puts "    (collision is the worst case — ~#{CostModel.fmt(cw)} if every per-pixel test lands on one frame. " \
-                       "Most frames the sprites miss and stop at the cheap box test.)"
-        end
+        worst_frame_line(program, printer)
 
         list_walk_line(program, printer)
         live_slot_line(program, printer)
@@ -666,6 +663,31 @@ module RubyGBA
       # HOW TALL A STRETCHED SHAPE WAS COUNTED AT. The fourth assumption in the budget, and for
       # a first-person view it is by far the biggest: every height in one is worked out as the
       # game runs, because that is what perspective IS, so this decides what the whole renderer
+      # HOW MUCH DEARER THE WORST FRAME IS THAN A USUAL ONE, and what makes it so.
+      #
+      # The budget above judges the frame a game usually pays. Some work is left out of that on
+      # purpose — a per-pixel collision test only walks when two things really touch, a wall is
+      # only drawn as tall as the screen when you stand against it — and a game CAN reach all of
+      # it at once. Dropping it from the every-frame figure is only honest while the ceiling is
+      # still stated, so this states it.
+      #
+      # IT NAMES WHAT IS ACTUALLY IN THE PROGRAM. The line used to say collision whatever the
+      # reason was, because collision was once the only thing the two figures disagreed about.
+      # A stretched wall disagrees now too, so a first-person view with no sprites in it at all
+      # was being told its worst case was collision.
+      def worst_frame_line(program, printer)
+        extra = collision_worst_case(program)
+        return unless extra.positive?
+
+        if program.walk.any? { |node| node.kind == :pixels_overlap }
+          printer.puts "    (collision is the worst case — ~#{CostModel.fmt(extra)} if every per-pixel test " \
+                       "lands on one frame. Most frames the sprites miss and stop at the cheap box test.)"
+        else
+          printer.puts "    (the worst frame costs ~#{CostModel.fmt(extra)} more than this, if everything " \
+                       "the lines below give a usual figure for happens at its fullest on the same frame.)"
+        end
+      end
+
       # costs. A wall can be written as a column of a picture or as a plain rectangle, and both
       # come through here — a rectangle names no picture, being a color rather than one.
       def stretched_column_line(program, printer)
