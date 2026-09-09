@@ -187,4 +187,135 @@ class TestCostTree < CostModelTest
     assert sound.children.any? { |n| n.op == :mixer }, "the mixer is a leaf in the sound section"
     assert_operator sound.cost, :>, 0
   end
+
+  # --- the sections: what KIND of work, which is a fact about the statement ---
+
+  # A routine that draws AND thinks appears in both sections, each carrying its own
+  # share. It used to go wholly into whichever section held most of its cost, so a
+  # routine's whole cost sat under one heading and the other read as nearly nothing.
+  def test_a_routine_that_draws_and_thinks_is_in_both_sections
+    sections = Cost.new.category_tree(mixed_routine_game).to_h { |c| [c.category, c] }
+    assert_equal %i[drawing logic], sections.keys.sort
+    calls = sections.transform_values { |section| find_by_title(section.children, "call :mixed") }
+    calls.each do |cat, call|
+      refute_nil call, "the #{cat} section reaches the routine"
+      assert_operator call.cost, :>, 0
+    end
+    assert(calls[:drawing].children.none? { |kid| kid.op == :add },
+           "the routine's counting is not filed under drawing")
+    assert(calls[:logic].children.none? { |kid| kid.op == :dma_fill_rect },
+           "the routine's drawing is not filed under logic")
+  end
+
+  # THE REGRESSION. Keeping a routine in the console's quick memory makes its
+  # instructions cheaper, which is a fact about the cost and not about the kind of work.
+  # When a section was decided by majority, that discount was enough to flip a routine
+  # from `logic` to `drawing` on wolf3d, moving thousands of scanlines between the two
+  # headline lines on a one-word change. So: both sections must fall, and neither may
+  # take the other's work.
+  def test_keeping_a_routine_in_quick_memory_moves_no_work_between_the_sections
+    prog = mixed_routine_game
+    slow = Cost.new.category_tree(prog)
+    fast = Cost.new(fast_routines: [:mixed]).category_tree(prog)
+
+    # The exact property, said without a number: every statement is in the same section
+    # either way. Costs are free to fall — that is what the quick memory is for.
+    assert_equal filed_under(slow), filed_under(fast)
+    slow.zip(fast) do |before, after|
+      assert_operator after.cost, :<, before.cost, "#{before.category} runs faster from the quick memory"
+    end
+  end
+
+  # Every leaf lands in exactly one section, so the three of them still add up to the
+  # frame — and so does every container inside them. This is the guard on Tree.recost,
+  # which repeats what the walker does when it works a container's cost out from its
+  # children: a fourth kind of container over there fails here rather than quietly
+  # mis-adding.
+  def test_the_sections_add_back_up_to_the_tree_they_came_from
+    [mixed_routine_game, scene_game, loop_game, sample_game].each do |prog|
+      cost = Cost.new
+      whole = cost.analyze(prog)
+      sections = cost.category_tree(prog)
+      near whole.sum(&:cost), sections.sum(&:cost) - standing(cost, prog)
+      whole.each_with_index do |node, i|
+        parts = sections.filter_map { |s| find_by_title(s.children, node.title) }
+        near node.cost, parts.sum(&:cost), "statement #{i} (#{node.title}) adds back up"
+      end
+    end
+  end
+
+  private
+
+  # Which section each statement was filed under, by name — what must not move.
+  def filed_under(sections)
+    sections.to_h { |section| [section.category, leaves([section]).map(&:title).tally] }
+  end
+
+  # One routine that both draws and counts, called from the frame. The transfers gain
+  # nothing from the quick memory and the counting gains the lot, which is what makes
+  # this the shape that used to flip.
+  def mixed_routine_game
+    program do
+      screen :bitmap
+      x = var :x, 0
+      func(:mixed) do
+        6.times { |i| dma_fill_rect 0, i * 10, 120, 10, :red }
+        200.times { x.add 1 }
+      end
+      game_loop { call :mixed }
+    end
+  end
+
+  # A game with two scenes, so the tree carries a case_var — the one container whose
+  # cost is not the sum of its children (only the dearest scene is charged).
+  def scene_game
+    program do
+      screen :bitmap
+      var :state, 0
+      x = var :x, 0
+      scene(:light) { fill_rect 0, 0, 2, 2, :red }
+      scene(:heavy) do
+        fill_rect 0, 0, 10, 10, :red
+        20.times { x.add 1 }
+      end
+      game_loop do
+        case_var(:state) do
+          when_val 0, :light
+          when_val 1, :heavy
+        end
+      end
+    end
+  end
+
+  # A loop that both draws and counts. A loop is the container that bakes its passes
+  # into its own cost, so a projection that forgot them would come back eight times
+  # light here.
+  def loop_game
+    program do
+      screen :bitmap
+      x = var :x, 0
+      game_loop do
+        repeat(8) do |i|
+          draw_rect_at 0, i, 40, 1, :red
+          4.times { x.add 1 }
+        end
+      end
+    end
+  end
+
+  # The tree carries the standing costs (the mixer, a bend, a timer's ticks) that the
+  # op tree has no statement for, so they have to come off before the two are compared.
+  def standing(cost, program) = cost.as_json(program)[:frame_cost] - cost.analyze(program).sum(&:cost)
+
+  # The first node with this title anywhere under +nodes+ — a section's copy of one of
+  # the frame's statements, however deep the per-file grouping put it.
+  def find_by_title(nodes, title)
+    nodes.each do |node|
+      return node if node.title == title
+
+      found = find_by_title(node.children, title)
+      return found if found
+    end
+    nil
+  end
 end

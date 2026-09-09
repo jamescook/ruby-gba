@@ -590,15 +590,26 @@ module RubyGBA
 
       # Every costed op falls into one of three buckets, so a frame's work reads as
       # drawing vs sound vs logic — the sections the estimate rolls up into. DRAWING is
-      # the vblank-constrained work (writes to video memory), and it alone carries the
-      # tear check. SOUND is the sound-register writes plus the software mixer. Anything
-      # else the loop computes — moving things, collisions, counters — is LOGIC. They
-      # all share the one frame, so they all roll into the frame total.
-      # camera, fade and tint redraw nothing — they tell the display where to look and
-      # what to mix into what it draws — but they are still writes the visible frame must
-      # not see part-done, so they belong with the drawing the tear check judges. A tint
-      # on a screen drawn through a color table is the clearest case: it rewrites the very
-      # table the display is reading colors out of.
+      # the work that writes to video memory. SOUND is the sound-register writes plus the
+      # software mixer. Anything else the loop computes — moving things, collisions,
+      # counters — is LOGIC. They all share the one frame, so they all roll into the frame
+      # total. camera, fade and tint redraw nothing — they tell the display where to look
+      # and what to mix into what it draws — but they are still writes the visible frame
+      # must not see part-done, so they count as drawing. A tint on a screen drawn through
+      # a color table is the clearest case: it rewrites the very table the display is
+      # reading colors out of.
+      #
+      # WHICH BUCKET IS A FACT ABOUT THE STATEMENT, settled by its own kind and carried up.
+      # A routine that draws and then thinks does both kinds of work and shows in both
+      # sections, each with its own share (Tree#project). Deciding it higher up — putting a
+      # whole routine wherever most of its cost sat — reads the wrong thing entirely, since
+      # how much a routine's instructions cost depends on which memory the build put them
+      # in, and where code lives cannot change what kind of work it is.
+      #
+      # THESE KINDS ARE NOT WHAT THE TEAR CHECK COUNTS, and the difference is worth keeping
+      # straight. They say where a frame's LAST write to the screen is (Walker#draws?), and
+      # the tear check then counts everything up to it — thinking included, because work
+      # that draws nothing still pushes that last write later.
       DRAW_KINDS = %i[
         pixel fill_rect dma_fill_rect draw_rect_at clear_screen draw_text draw_digit
         blit blit_pose save_region restore_region present_objects scroll_background background
