@@ -1199,6 +1199,8 @@ struct pc_tally {
     uint64_t  samples;   /* instructions seen */
     uint64_t  halted;    /* CYCLES slept, not steps — see profile_one_frame */
     uint64_t  elsewhere; /* executing somewhere we have no room to count */
+    uint64_t  finished;  /* frames the game got its work done in — see below */
+    int       awake;     /* was it running when last looked at? carried across frames */
 };
 
 /* Which region an address belongs to, and how far into it. Returns -1 for an
@@ -1330,23 +1332,32 @@ profile_one_frame(struct mgba_core *mc, struct pc_tally *t)
 
     int32_t frame_c = core->frameCycles(core);
     uint64_t start_gc = gba->timing.globalCycles;
+    int slept_this_frame = 0;
 
     long guard = 0;
     long max_iters = (long)frame_c * 4;
 
     while ((gba->timing.globalCycles - start_gc) < (uint64_t)frame_c
            && ++guard < max_iters) {
-        int asleep = gba->cpu->halted;
         uint64_t before = gba->timing.globalCycles;
 
-        if (!asleep) {
+        if (!gba->cpu->halted) {
             pc_tally_hit(t, executing_pc(gba->cpu));
             t->samples++;
-        }
-        core->step(core);
-
-        if (!asleep)
+            t->awake = 1;
+            core->step(core);
             continue;
+        }
+
+        /* GOING to sleep, rather than being found already asleep. A run that
+         * starts partway through a wait would otherwise count that leftover as
+         * this frame's finish, and one frame in a whole run is enough to read
+         * 30.3 where the game is doing a clean 30. */
+        if (t->awake)
+            slept_this_frame = 1;
+        t->awake = 0;
+
+        core->step(core);
 
         /* Clamped to the frame's end, so the step that sleeps past the boundary
          * does not charge this frame for the next one's wait. */
@@ -1358,6 +1369,21 @@ profile_one_frame(struct mgba_core *mc, struct pc_tally *t)
         }
         t->halted += slept;
     }
+
+    /* DID THE GAME FINISH ITS WORK IN THIS FRAME? That is what it sleeping says.
+     *
+     * A game loop ends by waiting for the screen, so a game that made its
+     * deadline is asleep by the end of the frame and one that did not is still
+     * working when the frame runs out. Count the frames it finished in and the
+     * console's real rate falls out: finish every frame and that is sixty a
+     * second, finish one in three and it is twenty.
+     *
+     * This asks the CONSOLE rather than the game. Nothing is added to the
+     * cartridge and nothing is rebuilt, so it can be asked of a ROM that is
+     * already built, which is the difference from counting passes with a
+     * counter put into the program. */
+    if (slept_this_frame)
+        t->finished++;
 }
 
 /* Add one region's counts to +out+ as address => times seen. Only addresses
@@ -1386,6 +1412,7 @@ pc_region_into(VALUE out, const struct pc_tally *t, int region)
  *   :halted    CYCLES spent asleep waiting for the screen — time, not code
  *   :elsewhere instructions executing somewhere with no room to count them
  *   :frames    frames actually run
+ *   :finished  of those, how many the game got its work done in
  *   :pc        { address => times seen }
  *
  * The caller decides what has settled and what to hold: run it after stepping
@@ -1418,6 +1445,7 @@ mgba_core_profile(VALUE self, VALUE rb_frames, VALUE rb_keys)
     rb_hash_aset(out, ID2SYM(rb_intern("samples")),   ULL2NUM(tally.samples));
     rb_hash_aset(out, ID2SYM(rb_intern("halted")),    ULL2NUM(tally.halted));
     rb_hash_aset(out, ID2SYM(rb_intern("elsewhere")), ULL2NUM(tally.elsewhere));
+    rb_hash_aset(out, ID2SYM(rb_intern("finished")),  ULL2NUM(tally.finished));
 
     VALUE pc = rb_hash_new();
     for (int r = 0; r < PROF_REGIONS; ++r)

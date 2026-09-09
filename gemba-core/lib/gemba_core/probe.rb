@@ -255,7 +255,8 @@ module GembaCore
     # most misleading thing this could report. It is in CYCLES, not instructions,
     # because a sleep is time rather than code; {#idle_share} puts it against the
     # frame it slept through.
-    Profile = Data.define(:frames, :samples, :halted, :elsewhere, :pc, :cycles_per_frame) do
+    Profile = Data.define(:frames, :samples, :halted, :elsewhere, :finished, :pc,
+                          :cycles_per_frame) do
       # The addresses that came up most, dearest first.
       #
       # @return [Array<Array(Integer, Integer)>] pairs of [address, times seen]
@@ -283,6 +284,32 @@ module GembaCore
 
         [halted / total.to_f, 1.0].min
       end
+
+      # WHAT THE CONSOLE IS ACTUALLY PRODUCING, in frames a second.
+      #
+      # The screen refreshes sixty times a second whatever the game does, so
+      # that is not the question. The question is how often the game gets a NEW
+      # picture ready in time, and a game that misses shows the same one twice —
+      # which is what a player sees as choppiness. So this counts the frames the
+      # game finished its work in: all of them is sixty, one in three is twenty.
+      #
+      # It is measured from the console, so it is the rate of the cartridge in
+      # front of you rather than of anything drawing it. It needs no counter put
+      # into the game and no rebuild.
+      #
+      # IT IS COARSE BY NATURE and {#idle_share} is the finer reading. A game
+      # loop waits for the screen, so a pass takes a whole number of frames and
+      # this can only land on 60, 30, 20, 15. A game using a quarter of its frame
+      # and one using all but a scanline of it BOTH read 60; what is left over
+      # tells them apart.
+      def frames_per_second
+        return 0.0 if frames.zero?
+
+        (60.0 * finished / frames).round(1)
+      end
+
+      # True when the game did not finish its work in every frame of the run.
+      def dropping_frames? = finished < frames
     end
 
     # Run +frames+ frames and report where the CPU was — see {Profile}.
@@ -302,7 +329,8 @@ module GembaCore
       @prev_pixels = @pixels
       @pixels = @core.video_buffer
       Profile.new(frames: raw[:frames], samples: raw[:samples], halted: raw[:halted],
-                  elsewhere: raw[:elsewhere], pc: raw[:pc], cycles_per_frame: frame_cycles)
+                  elsewhere: raw[:elsewhere], finished: raw[:finished], pc: raw[:pc],
+                  cycles_per_frame: frame_cycles)
     end
 
     # Number of pixels lit (non-black) on the current frame — a cheap
