@@ -170,14 +170,15 @@ module RubyGBA
         # The checks that cannot run until the program has been lowered, built with the
         # cost model that knows how the build turned out.
         #
-        # These three put a NUMBER in front of the author — how many scanlines a frame
+        # Three of these put a NUMBER in front of the author — how many scanlines a frame
         # draws, how many items a list can hold before the frame tears, which tick rate
         # really fits. What each costs depends on decisions the build makes after the
         # other guardrails have run: which routines are kept in the console's quick
         # memory (code there runs about two and a half times faster), where the variables
         # landed, what shape each loop got. Priced without those the number reads
         # plausibly and is wrong by nearly that factor, which is why ROM#cost_model
-        # refuses to estimate a cartridge that has no record of its build.
+        # refuses to estimate a cartridge that has no record of its build. The fourth reads
+        # one of those decisions itself: whether the game loop's body got the quick memory.
         #
         # So they take the model instead of making one, and RubyGBA.build runs them after
         # lowering. Their findings join the rest and print together at the end, so this
@@ -185,7 +186,8 @@ module RubyGBA
         def build_checks(model)
           [Checks::DrawBudget.new(model),
            Checks::BudgetThreshold.new(model),
-           Checks::TickRate.new(model)]
+           Checks::TickRate.new(model),
+           Checks::FrameFromCartridge.new(model)]
         end
 
         # Stop running a registered check — what unloading a pack does with the
@@ -292,6 +294,7 @@ require_relative "guardrails/per_frame_scope" # shared by the one-time-setup che
 require_relative "guardrails/seed_in_loop"
 require_relative "guardrails/list_in_loop"
 require_relative "guardrails/iwram_budget"
+require_relative "guardrails/frame_from_cartridge"
 require_relative "guardrails/layer_holds_nothing"
 require_relative "guardrails/layer_invisible"
 require_relative "guardrails/layer_solid_while_fading"

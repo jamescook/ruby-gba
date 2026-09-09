@@ -223,15 +223,25 @@ module RubyGBA
       # routines, says what they cost in memory, and says what a routine that did not
       # move would have needed — which is the number an author reaches for when they
       # want to make one fit.
+      #
+      # A build that kept NOTHING and passed something over still gets the section, because
+      # that is the worst case of the one below — the game loop itself did not fit and the
+      # whole frame runs from the cartridge — and a report silent about it would be silent
+      # about the biggest thing that happened to the build.
       def fast_memory_lines(program, printer)
-        return if @placement.nil? || @placement.funcs.empty?
+        return if @placement.nil? || (@placement.funcs.empty? && @placement.passed_over.empty?)
 
-        printer.puts "  kept in quick memory (code runs ~#{CostModel.fmt(@weights[:fast_code_speedup])}x faster there):"
-        @placement.funcs.each do |name|
-          printer.puts "    #{routine_size(name)}#{quick_memory_label(name, program)}"
+        faster = "code runs ~#{CostModel.fmt(@weights[:fast_code_speedup])}x faster there"
+        if @placement.funcs.empty?
+          printer.puts "  nothing was kept in quick memory (#{faster}):"
+        else
+          printer.puts "  kept in quick memory (#{faster}):"
+          @placement.funcs.each do |name|
+            printer.puts "    #{routine_size(name)}#{quick_memory_label(name, program)}"
+          end
+          printer.puts format("    %s of 32K used, %s free",
+                              kb(@placement.used_bytes), kb(@placement.free_bytes))
         end
-        printer.puts format("    %s of 32K used, %s free",
-                            kb(@placement.used_bytes), kb(@placement.free_bytes))
         passed_over_lines(program, printer)
       end
 
@@ -262,9 +272,10 @@ module RubyGBA
         return if @placement.passed_over.empty?
 
         @placement.passed_over.first(3).each do |over|
-          printer.puts format("    (func :%s did not fit — it needs %s and %s was left when its " \
+          printer.puts format("    (%s did not fit — it needs %s and %s was left when its " \
                               "turn came, so it runs from the cartridge.%s)",
-                              over.name, kb(over.bytes), kb(over.room), repeated_note(program, over))
+                              PlainWords.routine(over.name), kb(over.bytes), kb(over.room),
+                              repeated_note(program, over))
         end
       end
 
@@ -383,8 +394,23 @@ module RubyGBA
       end
 
       # The analysis as a plain Hash, ready to serialize (rom.explain format: :json).
-      def as_json(program)
+      #
+      # THE SAME FACTS AS THE PROSE, for something that is going to compare two builds rather
+      # than read one. Every number the report states is here — the frame and what it is
+      # judged against, the measured verdict when one was taken, what the quick memory kept
+      # and what it passed over — so a before-and-after never has to match a sentence, and
+      # the prose stays free to change. +measured+ and +unmeasured+ are what #render takes.
+      def as_json(program, measured: nil, unmeasured: :not_asked)
+        index(program)
         {
+          # the emulator's reading per scene (or once, under "frame"), each with whether it
+          # is over budget — or nil, and then +unmeasured+ says why: not asked for, or asked
+          # for with no emulator to take it
+          measured: measured_json(measured),
+          unmeasured: measured ? nil : unmeasured,
+          # what the build kept in the console's quick memory and what it could not fit,
+          # with each routine's size — nil when no build stands behind this program
+          quick_memory: quick_memory_json,
           # everything on a frame, including the standing costs the op tree can't show:
           # the sound mixer, a row-by-row bend's per-line interrupt, a timer's ticks, and
           # the sprites a placed fade has to hold itself off
@@ -416,6 +442,34 @@ module RubyGBA
       end
 
       private
+
+      # The measured readings keyed the way a JSON reader can address them — a scene by its
+      # name, a single-loop game under "frame" — each with the verdict the prose gives it.
+      def measured_json(measured)
+        return nil unless measured
+
+        measured.to_h do |scene, result|
+          [scene ? scene.to_s : "frame",
+           result.merge(over: @verdicts.measured_severity(result) == :hot)]
+        end
+      end
+
+      # What the quick memory holds, with the name a person has for each routine beside the
+      # one the build uses, and what was passed over with what it needed and what was left.
+      def quick_memory_json
+        return nil unless @placement
+
+        {
+          used_bytes: @placement.used_bytes, free_bytes: @placement.free_bytes,
+          total_bytes: @placement.total_bytes,
+          kept: @placement.funcs.map { |name| routine_json(name, bytes: @placement.sizes[name]) },
+          passed_over: @placement.passed_over.map { |o| routine_json(o.name, bytes: o.bytes, room: o.room) },
+        }
+      end
+
+      def routine_json(name, **sizes)
+        { name: name, label: PlainWords.routine(name), **sizes }
+      end
 
       # One verdict as plain data. Whether it is over its budget is worked out rather than
       # stored, so it is put back here — it is part of the answer a reader of the JSON

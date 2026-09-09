@@ -149,8 +149,18 @@ module RubyGBA
       case format
       when :human   then model.render(program, out: out, measured: readings, unmeasured: unmeasured, **opts)
       when :summary then model.report(program, out: out, measured: readings, unmeasured: unmeasured, **opts)
-      when :json    then out.puts(JSON.generate(model.as_json(program)))
+      when :json
+        json = model.as_json(program, measured: readings, unmeasured: unmeasured).merge(findings: findings_json)
+        out.puts(JSON.generate(json))
       else raise ArgumentError, "unknown explain format #{format.inspect} (use :human, :summary, or :json)"
+      end
+    end
+
+    # What the guardrails said about this cartridge, as data: the check, how serious it was,
+    # the message, and the author's line it points at.
+    def findings_json
+      built!.findings.map do |finding|
+        { check: finding.check, severity: finding.severity, message: finding.message, at: finding.source }
       end
     end
 
