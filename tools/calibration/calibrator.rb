@@ -202,6 +202,13 @@ module RubyGBA
               end,
               note: "a comparison, priced on the answer that costs more (false, which jumps)")
 
+        # ...AND WHAT THE BRANCH ROUND IT COSTS, which the comparison above deliberately leaves
+        # out. Measured on a whole `if` whose test says no, then differenced against the
+        # comparison, so what is left is the branch's own test-and-jump. Taken, because that is
+        # the dearer side and the one a walk over slots nearly always takes.
+        weigh(:branch_taken, Reductions.residual(@bench.per_branch, @weights[:op_compare]),
+              note: "an `if` jumping over its body, on the frames its test says no")
+
         # THE TWO THINGS THAT RIDE ON TOP OF ANY OF THE FOUR. Both are about a variable, and
         # they answer different questions: this one is what READING one costs, and the next is
         # what reaching a FAR one costs on top of that.

@@ -47,6 +47,11 @@ module CostArith
   # all by one that only asks whether a button is down.
   def button_latch = WEIGHTS[:button_snapshot]
 
+  # What an `if` costs on the frames its test says NO — taking the answer and jumping over the
+  # body. Charged only where the model knows how often that happens, since an unsaid condition
+  # is already charged its whole body every frame and that is dearer.
+  def skipped_body = WEIGHTS[:branch_taken]
+
   # What +n+ instructions cost. The expectation to write for a statement priced off a REAL
   # BUILD, since a straight run of instructions is then charged by counting what the lowering
   # emitted rather than by the weight that used to stand for the same number (see

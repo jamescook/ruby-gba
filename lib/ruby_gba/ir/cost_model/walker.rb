@@ -210,7 +210,8 @@ module RubyGBA
           # live on every slot it has — so it's priced whole here; only the branch bodies are
           # scaled by how often they run.
           when :if
-            @pricing.expr_cost(node.cond, worst: worst) + branch_cost(node, worst: worst)
+            @pricing.expr_cost(node.cond, worst: worst) + branch_cost(node, worst: worst) +
+              jump_cost(node)
           # A loop costs a rate per pass AND a fixed amount for being entered — see
           # #loop_overhead_leaf for what each of them is.
           when :repeat
@@ -332,6 +333,42 @@ module RubyGBA
 
           share = selectivity(node)
           (share * taken) + ((1 - share) * other)
+        end
+
+        # WHAT THE BRANCH ITSELF COSTS, which is not the same as what its condition costs.
+        #
+        # The condition weight is measured on a comparison with no branch round it, on purpose
+        # (see Benchmarks#compare_busy). So the `if`'s own work — take the answer, and jump over
+        # the body when it says no — was charged nowhere, and a taken jump throws away the
+        # instructions being fetched behind it.
+        #
+        # CHARGED WHERE A WALK WAS TOLD HOW MANY OF ITS SLOTS ARE LIVE, and nowhere else. That
+        # is the one place the model has a HOLE rather than a habit: told the share, it
+        # correctly stops charging the body for the slots that are dead, and then there is
+        # nothing left standing in for the jump those slots make instead.
+        #
+        # Everywhere else something already covers it, which is why widening this would make
+        # the estimate worse rather than better. An unsaid condition is charged its whole body
+        # every frame, and a body is dearer than the jump that replaces it. A button test is
+        # charged a weight measured on a read whose answer is STORED in a variable, which is
+        # dearer than one merely branched on. Measured on both shapes outside a loop, the
+        # estimate already reads over the console before anything is added.
+        #
+        # WHAT IT FIXES is a pool. Sixty-four slots with one live jumps sixty-three times, and
+        # until this was charged the walk over them was priced at four fifths of what the
+        # console spends — the same four fifths at 32, 64, 128 and 192 slots alike, which is
+        # what says it is a per-slot cost and not a body counted wrong.
+        #
+        # NO OTHER WALK IS SHAPED LIKE THIS, which was worth checking rather than assuming. A
+        # list's `each` is a repeat over its length handing each element to the block, with no
+        # per-item test at all (see List#each), so there is no branch to charge; a grid writes
+        # cells and walks nothing. A pool is the only walk with a guard on every pass, because
+        # it is the only one where some of what it walks over is not there.
+        def jump_cost(node)
+          return 0 unless node.of
+
+          skipped = 1 - selectivity(node)
+          skipped.positive? ? skipped * @pricing.weight_here(:branch_taken) : 0
         end
 
         # Whether anything in the program says how often this branch goes one way. A plain

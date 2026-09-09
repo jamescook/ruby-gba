@@ -94,10 +94,16 @@ class TestCostRollup < CostModelTest
   #
   # So the two are separated here, and the shape says it: whatever the pool usually holds,
   # taking one body per live slot back off leaves the SAME walk every time.
+  #
+  # A DEAD SLOT JUMPS AND A LIVE ONE DOES NOT, which is why the jump is put back alongside the
+  # body being taken off. Every slot is tested; the ones that fail jump over the body, and the
+  # ones that pass fall through and run it. So the two are alternatives to each other, and what
+  # is constant across live counts is the test plus whichever of them followed it.
   def test_a_pool_walks_every_slot_and_runs_its_body_only_for_the_live_ones
     body = dma_rows_placed(8, 8)
     walks = [1, 4, 16, 64].map do |live|
-      Cost.new.steady_cost(shooting_game(capacity: 64, estimate: { usually: live })) - (live * body)
+      Cost.new.steady_cost(shooting_game(capacity: 64, estimate: { usually: live })) -
+        (live * body) + (live * skipped_body)
     end
 
     assert_in_delta walks.first, walks.last, 1e-6,
@@ -241,6 +247,11 @@ class TestCostRollup < CostModelTest
     end
     # Reading the press, and the latch the boundary makes for it, are paid on every frame —
     # it is only the BODY that drops out.
+    #
+    # The jump over that body is NOT added here, though the console does make it. A button
+    # test's weight is measured on a read whose answer is stored in a variable, which is
+    # dearer than one merely branched on, so it already covers the jump — see Walker#jump_cost
+    # for why that charge is confined to a walk that was told how many slots are live.
     every_frame = frame_boundary + button_latch + button_press
     near every_frame + dma_rows_placed(8, 8), Cost.new.frame_cost(prog) # full cost on the press frame
     near every_frame, Cost.new.steady_cost(prog) # the body is not part of the every-frame load
