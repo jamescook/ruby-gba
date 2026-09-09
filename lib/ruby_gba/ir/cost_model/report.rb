@@ -585,9 +585,7 @@ module RubyGBA
           tear_budget_line(program, printer, recurring_tear)
         end
 
-        if (mv = @verdicts.mixer_verdict(program))
-          printer.puts "    (sound is the worst case — all #{mv.voices} mixer voices at once; a typical frame sounds fewer)"
-        end
+        mixer_voices_line(program, printer)
 
         bend_line(program, printer)
         tick_lines(program, printer)
@@ -753,6 +751,27 @@ module RubyGBA
                "then all together."
         note += " No button cost more than none held." unless measured.values.any? { |r| r[:keys].to_a.any? }
         printer.puts "#{note})"
+      end
+
+      # HOW MANY VOICES THE SOUND WAS PRICED AT, said because the mixer is usually most of
+      # the frame of a game that plays samples, and because the number is read off the
+      # program rather than measured.
+      #
+      # The count is what the program can be seen to start on one frame, plus every voice
+      # that loops (see Verdicts#sounding_voices). What it cannot see is a clip still
+      # sounding when the next one starts, so the line says what it counted rather than
+      # presenting the number as the whole answer. A program that can fill the mixer is at
+      # the ceiling however it got there, so that one says nothing extra.
+      def mixer_voices_line(program, printer)
+        mixer = @verdicts.mixer_verdict(program) or return
+
+        if mixer.at_capacity?
+          printer.puts "    (sound: all #{mixer.capacity} mixer voices at once, which is the most it holds)"
+        else
+          printer.puts "    (sound: #{mixer.voices} of the mixer's #{mixer.capacity} voices — the most " \
+                       "this game can start on one frame. A clip that still sounds when the next " \
+                       "one starts adds to it.)"
+        end
       end
 
       # What a row-by-row bend costs the frame, and why. This is not in the tree above and

@@ -92,10 +92,10 @@
       "distance": 1.08
     },
     "piano": {
-      "estimate": 36.378,
+      "estimate": 15.828,
       "measured": 15.242,
-      "ratio": 0.419,
-      "distance": 2.387
+      "ratio": 0.963,
+      "distance": 1.038
     },
     "pixels": {
       "note": "no game loop, so nothing recurs"

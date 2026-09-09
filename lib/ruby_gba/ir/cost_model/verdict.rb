@@ -36,8 +36,14 @@ module RubyGBA
 
         # The software mixer, summing every sounding voice into the output buffer once a
         # frame. Priced at its worst case, which is every voice.
-        Mixer = Data.define(:voices, :samples_per_frame, :rate, :cost, :budget) do
+        # +voices+ is how many can sound at once, which is what the mixer costs; +capacity+ is
+        # how many it could hold, which is what it used to be charged.
+        Mixer = Data.define(:voices, :capacity, :samples_per_frame, :rate, :cost, :budget) do
           include Budgeted
+
+          # Whether the program can fill the mixer, in which case there is nothing to say
+          # about how the count was reached — it is the ceiling either way.
+          def at_capacity? = voices >= capacity
         end
 
         # Bending backgrounds row by row, in three parts, because which of them a reader
