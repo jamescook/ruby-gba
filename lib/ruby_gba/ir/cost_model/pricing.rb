@@ -71,7 +71,7 @@ module RubyGBA
         # after, so it is charged in full wherever the code lives. Operands are always
         # instructions, so they are discounted whole.
         def op_cost(node, worst: true)
-          count = counted(node, worst)
+          count = counted(node, worst) { priced_op_cost(node, worst) }
           own = count || priced_op_cost(node, worst)
           consoles = consoles_own_cost(node, worst)
           operands = charging_operands(count) { raw_operand_cost(node, worst) }
@@ -124,13 +124,6 @@ module RubyGBA
         def consoles_own_cost(node, worst = true)
           return 0 unless @walker&.in_fast_code? # nothing is being discounted, so there is nothing to hold back
 
-          consoles_own_share(node, worst)
-        end
-
-        # The same question with no guard on it, for the one caller that needs the answer
-        # whatever memory the code is in: #counted, which refuses to price a node whose cost
-        # is partly the console's rather than ours.
-        def consoles_own_share(node, worst = true)
           with_consoles_own_weights { own_op_cost(node, worst) }
         end
 
@@ -174,7 +167,9 @@ module RubyGBA
         #   boundary: real time, spent while the CPU executes nothing, so no count of
         #   instructions can see it. The model already names those weights, so the question is
         #   asked of the node — price it with everything but them zeroed, and a nonzero answer
-        #   means counting would miss something.
+        #   means counting would miss something. The BLOCK is how: a statement and a value are
+        #   priced by different methods, so the caller hands over its own, and asking a value
+        #   node through the statement one would report it as a kind nobody priced.
         #
         #   A READ FROM SLOWER MEMORY. The rate below is what an instruction costs running
         #   from the cartridge and touching the console's own memory. An instruction that
@@ -192,7 +187,7 @@ module RubyGBA
           emitted = @emitted[node]
           return nil unless emitted&.straight?
           return nil if emitted.instructions.zero?
-          return nil unless consoles_own_share(node, worst).zero?
+          return nil unless with_consoles_own_weights { yield }.zero?
 
           emitted.each_use * rate
         end
@@ -463,14 +458,14 @@ module RubyGBA
         def raw_expr_cost(value, worst)
           return 0 unless value.is_a?(Node)
 
-          count = counted(value, worst)
+          count = counted(value, worst) { priced_own_cost(value, worst) }
           own = count || priced_own_cost(value, worst)
           own + charging_operands(count) { raw_operand_cost(value, worst) }
         end
 
         # What a value's own operator costs, ignoring what it is applied to.
         def own_cost(value, worst)
-          counted(value, worst) || priced_own_cost(value, worst)
+          counted(value, worst) { priced_own_cost(value, worst) } || priced_own_cost(value, worst)
         end
 
         # WHOLE STATEMENT OR NONE OF IT, and this is the rule that keeps the two ways of
