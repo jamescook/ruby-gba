@@ -66,16 +66,16 @@ class TestCostPricing < CostModelTest
     assert_in_delta 1.0, fast / slow, 0.01, "a transfer gains nothing worth seeing"
   end
 
-  # ...and the opposite extreme, which has to keep the whole factor. The frame's own boundary
-  # sits in both readings and gains nothing either — the console does that waiting wherever
-  # our code lives — so it comes off both sides before the factor is asked about.
-  def test_arithmetic_gains_the_whole_speed_up
+  # ...and the opposite extreme, which gains everything its own op gains. The frame's own
+  # boundary sits in both readings and gains almost nothing either — the console does that
+  # waiting wherever our code lives — so it comes off both sides first.
+  def test_arithmetic_gains_what_arithmetic_gains
     adding = program do
       screen :bitmap
       n = var :n, 0
       game_loop { 100.times { n.add 1 } }
     end
-    near((Cost.new.frame_cost(adding) - frame_boundary) / WEIGHTS[:fast_code_speedup],
+    near((Cost.new.frame_cost(adding) - frame_boundary) / gain(:op_step),
          Cost.new(fast_frame: true).frame_cost(adding) - frame_boundary)
   end
 
@@ -103,7 +103,7 @@ class TestCostPricing < CostModelTest
 
     assert_operator left_behind, :>, moved,
                     "a routine that did not fit cannot cost what one that did costs"
-    near(moved * WEIGHTS[:fast_code_speedup], left_behind)
+    near(moved * gain(:op_step), left_behind)
   end
 
   # ...and the frame body's own placement still counts for the frame body's own statements,
@@ -115,7 +115,7 @@ class TestCostPricing < CostModelTest
       game_loop { 200.times { total.add 1 } }
     end
 
-    near((Cost.new.steady_cost(inline) - frame_boundary) / WEIGHTS[:fast_code_speedup],
+    near((Cost.new.steady_cost(inline) - frame_boundary) / gain(:op_step),
          Cost.new(fast_frame: true).steady_cost(inline) - frame_boundary)
   end
 
@@ -123,7 +123,7 @@ class TestCostPricing < CostModelTest
   # the other way, and the reason this is about the routine rather than about nesting.
   def test_a_routine_that_moved_gains_though_its_caller_did_not
     near((Cost.new(fast_routines: [:worker]).steady_cost(calling_game) - frame_boundary) *
-         WEIGHTS[:fast_code_speedup],
+         gain(:op_step),
          Cost.new.steady_cost(calling_game) - frame_boundary)
   end
 
@@ -137,8 +137,7 @@ class TestCostPricing < CostModelTest
       game_loop { dma_fill_rect 0, 0, w, h, :red }
     end
     engine = (h * WEIGHTS[:dma_engine_start]) + (w * h * WEIGHTS[:dma_pixel])
-    cpu = h * WEIGHTS[:dma_cpu_start]
-    near(frame_boundary + (cpu / WEIGHTS[:fast_code_speedup]) + engine,
+    near(frame_boundary + (h * quick(:dma_cpu_start)) + engine,
          Cost.new(fast_frame: true).frame_cost(fill))
   end
 
@@ -155,10 +154,9 @@ class TestCostPricing < CostModelTest
       game_loop { draw_rect_at 40, y, w, h, :red } # an even column: no ends to splice
     end
     engine = h * (WEIGHTS[:tearfree_engine_stall] + (w * WEIGHTS[:tearfree_fill_pixel]))
-    cpu = WEIGHTS[:tearfree_moving_start] + var_reads + # the row it is drawn on is a variable
-          (h * (WEIGHTS[:tearfree_row] + WEIGHTS[:tearfree_engine_start]))
-    near(frame_boundary + (cpu / WEIGHTS[:fast_code_speedup]) + engine,
-         Cost.new(fast_frame: true).frame_cost(rect))
+    cpu = quick(:tearfree_moving_start) + var_reads + # the row it is drawn on is a variable
+          (h * (quick(:tearfree_row) + quick(:tearfree_engine_start)))
+    near(frame_boundary + cpu + engine, Cost.new(fast_frame: true).frame_cost(rect))
   end
 
   # A blit costs its image's footprint (width x height), looked up from the bitmap
@@ -1270,6 +1268,48 @@ class TestCostPricing < CostModelTest
     end
 
     near frame_boundary + (50 * WEIGHTS[:op_step]), Cost.new.frame_cost(prog)
+  end
+
+  # WHAT THE QUICK MEMORY BUYS IS A PROPERTY OF THE OP, not one figure for all of them. That
+  # memory makes FETCHING an instruction cheap and does nothing for a load or a store, so an op
+  # that stays in registers gains far more than one that is mostly memory — measured, a shift
+  # gains 3.9 and a plain multiply 2.0. One figure in the middle read a drawing-heavy frame a
+  # sixth dear, in the direction that says "you do not fit" when the console says you do.
+  def test_two_ops_gain_different_amounts_from_the_quick_memory
+    shifting = program do
+      screen :bitmap
+      x = var :x, 7
+      game_loop { 100.times { set :y, (x * 8) } }
+    end
+    multiplying = program do
+      screen :bitmap
+      x = var :x, 7
+      game_loop { 100.times { set :y, (x * 100) } }
+    end
+
+    shift_gain = (Cost.new.steady_cost(shifting) - frame_boundary) /
+                 (Cost.new(fast_frame: true).steady_cost(shifting) - frame_boundary)
+    multiply_gain = (Cost.new.steady_cost(multiplying) - frame_boundary) /
+                    (Cost.new(fast_frame: true).steady_cost(multiplying) - frame_boundary)
+
+    assert_operator shift_gain, :>, multiply_gain * 1.1,
+                    "a shift is nearly all fetching and gains more than a multiply does"
+  end
+
+  # ...and the console's own time gains nothing at all, whatever the rest of the frame gains.
+  # The CPU executes nothing while a transfer engine copies, so where our instructions live
+  # cannot reach it — pinned rather than measured (see Pricing#quick_weights).
+  def test_the_transfer_engines_own_time_gains_nothing
+    filling = program do
+      screen :bitmap
+      game_loop { dma_fill_rect 0, 0, 200, 60, :red }
+    end
+    engine = (60 * WEIGHTS[:dma_engine_start]) + (200 * 60 * WEIGHTS[:dma_pixel])
+
+    assert_operator Cost.new(fast_frame: true).steady_cost(filling), :>, engine,
+                    "the engine's own time survives the move whole"
+    near frame_boundary + (60 * quick(:dma_cpu_start)) + engine,
+         Cost.new(fast_frame: true).steady_cost(filling)
   end
 
   # Reading a button is not the free load it was priced as. The console hands back all ten

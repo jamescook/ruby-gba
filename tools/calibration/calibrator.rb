@@ -21,12 +21,53 @@ module RubyGBA
     # order they appear in the generated fixture — so a re-run produces a diff of numbers,
     # not a reshuffle.
     class Calibrator
-      attr_reader :weights, :domains
+      attr_reader :weights, :domains, :stuck
 
-      def initialize(measurer)
-        @bench = Benchmarks.new(measurer)
+      def initialize(measurer, fast: false)
+        @bench = Benchmarks.new(measurer, fast: fast)
         @weights = {}
         @domains = {}
+        # Weights whose measurement included a ROM that would not move into the quick memory,
+        # so a gain divided out of this run would be 1.000 by construction. See #weigh.
+        @stuck = []
+        @stuck_at = 0
+      end
+
+      # WHAT THE QUICK MEMORY BUYS EACH OP, from the same recipes run in both memories.
+      #
+      # There is no one figure, and the model had one. Moving code to the quick memory makes
+      # FETCHING an instruction cheap and does nothing at all for a load or a store — the data
+      # is in the same place either way — so an op that stays in registers gains about four
+      # times over and one that is mostly memory gains about half of that. Measured over the
+      # whole file: a shift gains 3.9, a plain multiply 2.0, a pixel 3.3, the transfer engine's
+      # own stall exactly 1.0.
+      #
+      # WHICH ONES ARE KEPT, and the rule is about the recipe rather than the number. Most
+      # weights are a marginal rate and divide cleanly. A few are a difference of DIFFERENCES —
+      # loop_spill, scroll_write — and those can land near zero in one of the two runs, where a
+      # ratio stops being a measurement: loop_spill reads 43 and scroll_write reads negative.
+      # Physics bounds the real answer, so anything outside it is an artefact and the weight
+      # keeps the general figure instead. The quick memory is never SLOWER, which is the floor;
+      # and it can never buy more than the ratio of the two fetch rates, which measured on
+      # eleven bodies is a little over four.
+      GAIN_FLOOR = 1.0
+      GAIN_CEILING = 4.5
+
+      # Each weight's gain, for the weights where dividing the two runs means something.
+      def self.gains(cartridge, quick)
+        cartridge.weights.filter_map do |name, cost|
+          next if name == :fast_code_speedup # the general figure itself, and its own recipe
+          next if quick.stuck.include?(name) # measured on code that never moved — see #weigh
+          next unless cost.positive?
+
+          fast = quick.weights[name]
+          next unless fast&.positive?
+
+          gain = cost / fast
+          next if gain > GAIN_CEILING
+
+          [name, [gain, GAIN_FLOOR].max]
+        end.to_h
       end
 
       # Run every benchmark and answer self, with #weights and #domains filled in.
@@ -54,11 +95,21 @@ module RubyGBA
       # Record a weight and where it was measured. +varies+ names the program-visible quantity
       # the measurement swept, if there is one; leaving it out says this weight has no
       # countable regime (an add costs what an add costs) and so is never warned about.
+      # ...and, on a run measuring the quick memory, whether any ROM built since the last weight
+      # refused to move. Those builds belong to this weight — a recipe runs, then says what it
+      # measured — and a weight measured on code that stayed in the cartridge cannot be divided
+      # by the same weight from the cartridge run to say what moving buys.
       def weigh(name, value, varies: nil, from: nil, to: nil, note: nil)
         @weights[name] = value
         @domains[name] = Domain.new(varies: varies, from: from, to: to, note: note)
+        stuck!(name) if @bench.unmoved > @stuck_at
+        @stuck_at = @bench.unmoved
         value
       end
+
+      # ...and the same said for a whole batch, where several weights come out of one set of
+      # ROMs and #weigh would blame only the first of them.
+      def stuck!(*names) = @stuck.concat(names)
 
       # --- the frame itself ---
 
@@ -391,6 +442,7 @@ module RubyGBA
       # They measure within a ten-thousandth of each other today, and weighing them apart is
       # what would show it if one of them stopped.
       def input
+        before = @bench.unmoved
         reads = @bench.button_reads
         spread = Benchmarks::BUTTON_HI - Benchmarks::BUTTON_LO
         plain, held, pressed = %i[var held pressed].map do |kind|
@@ -418,6 +470,11 @@ module RubyGBA
               Reductions.residual(reads[:pressed].first - reads[:held].first,
                                   Benchmarks::BUTTON_LO * (pressed - held)),
               note: "latching the buttons once a frame, which a program that reads a press pays")
+
+        # ONE BATCH OF SIX ROMS answers all three of those, so a single build that would not
+        # move makes every ratio here a mixed reading — not only the first one weighed, which
+        # is all #weigh can see on its own.
+        stuck!(:read_button, :read_button_edge, :button_snapshot) if @bench.unmoved > before
       end
 
       # An operator's cost over a plain add, measured at the same shape of statement and the

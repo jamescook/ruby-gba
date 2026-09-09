@@ -14,6 +14,17 @@
 # the model uses these ranges to say so out loud instead of answering confidently.
 # An empty range means the weight has no countable regime: an add costs what an add
 # costs, and no number in a program changes it. See tools/calibration/domain.rb.
+#
+# MEASURED_GAINS is how many times faster each op runs when the build keeps its code
+# in the console's quick memory. There is no one figure: the quick memory makes
+# FETCHING an instruction cheap and does nothing for a load or a store, so an op that
+# stays in registers gains about four times and one that is mostly memory gains about
+# half of that. Measured by running every recipe above a second time with the build
+# free to move the code, and dividing.
+#
+# A weight with no line here keeps the general figure (fast_code_speedup). Those are
+# the ones whose recipe is a difference of differences, which can land near zero in
+# one of the two runs and give a ratio that is an artefact rather than a measurement.
 module RubyGBA
   module IR
     class CostModel
@@ -187,6 +198,80 @@ module RubyGBA
         tearfree_glyph: { note: "a lit pixel of a glyph, on the tear-free screen, halfway down" },
         overlap_pixel: { varies: :overlap_pixels, from: 64, to: 256, note: "one pixel of a per-pixel collision walk" },
         fast_code_speedup: { note: "how many times faster the same code runs from the quick memory" },
+      }.freeze
+
+      MEASURED_GAINS = {
+        frame_overhead: 1.066,
+        instruction: 2.258,
+        op_step: 2.270,
+        op_assign: 2.630,
+        op_plain: 2.271,
+        op_compare: 3.138,
+        loop_pass_held: 4.286,
+        loop_start_held: 3.681,
+        op_mul: 1.988,
+        op_mul_pow2: 3.912,
+        op_mod_pow2: 3.912,
+        op_div_pow2: 3.975,
+        list_read: 3.234,
+        list_read_in_walk: 3.871,
+        list_write: 2.715,
+        table_read: 3.049,
+        table_read_clamped: 3.580,
+        op_div: 1.579,
+        op_div_bit: 1.000,
+        op_div_const: 3.176,
+        op_mul_fix: 2.166,
+        op_div_fix: 1.132,
+        plot_pixel: 3.315,
+        plot_run_pixel: 3.177,
+        plot_run_address_step: 3.965,
+        blit_pixel: 3.635,
+        blit_wide_color: 3.884,
+        blit_row: 3.473,
+        blit_start: 3.029,
+        column_row: 3.174,
+        tearfree_column_row: 3.001,
+        column_extra_pixel: 2.073,
+        tearfree_column_extra_pixel: 2.655,
+        digit_pixel: 1.003,
+        digit_cell: 1.004,
+        digit_start: 1.116,
+        tearfree_digit_pixel: 1.000,
+        sound_write: 3.285,
+        mix_overhead_sample: 1.000,
+        music_voice: 2.864,
+        dma_cpu_start: 3.307,
+        dma_engine_start: 2.439,
+        dma_pixel: 1.000,
+        obj_write: 3.101,
+        obj_window_write: 3.089,
+        bend_row_copied: 3.012,
+        bend_row_copied_fast: 1.000,
+        bend_line: 2.040,
+        bend_line_fast: 1.000,
+        tick_interrupt_fast: 1.000,
+        obj_turn: 2.890,
+        obj_resize: 1.637,
+        camera_move: 3.226,
+        fade_set: 3.175,
+        tint_set: 3.220,
+        tint_entry: 3.104,
+        tint_hold: 3.297,
+        save_write: 1.726,
+        tearfree_pair: 1.966,
+        tearfree_row: 3.989,
+        tearfree_edge: 2.261,
+        tearfree_edge_near: 2.644,
+        tearfree_part: 3.944,
+        tearfree_moving_start: 3.147,
+        tearfree_rect_start: 2.966,
+        tearfree_fill_pixel: 1.000,
+        tearfree_engine_start: 3.169,
+        tearfree_engine_stall: 2.189,
+        tearfree_pixel: 2.445,
+        tearfree_glyph: 2.774,
+        overlap_pixel: 2.267,
       }.freeze
     end
   end

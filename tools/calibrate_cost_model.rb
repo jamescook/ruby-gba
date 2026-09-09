@@ -47,24 +47,37 @@ CARTRIDGES = File.expand_path("calibration/measured_cartridges.rb", __dir__)
 log = RubyGBA::Calibration::Provenance::Log.new(RubyGBA::Calibration::Measurer.new)
 calibration = RubyGBA::Calibration::Calibrator.new(log).run
 
+# ...and the whole set again, with the build free to keep the code under test in the console's
+# quick memory. Dividing one run by the other is what that memory buys each op, which is not
+# one number — see Calibrator.gains. The provenance log is not wrapped round this pass: it
+# records which cartridges the COSTS were measured on, and these are the same programs placed
+# differently.
+quick = RubyGBA::Calibration::Calibrator.new(RubyGBA::Calibration::Measurer.new, fast: true).run
+gains = RubyGBA::Calibration::Calibrator.gains(calibration, quick)
+
 # --- report what moved, against what is committed ---
 current = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
-puts format("%-20s %12s %12s %8s", "weight", "current", "measured", "ratio")
-puts "-" * 56
+was_gains = RubyGBA::IR::CostModel::DEFAULT_GAINS
+puts format("%-20s %12s %12s %8s %8s %8s", "weight", "current", "measured", "ratio", "gain", "was")
+puts "-" * 74
 calibration.weights.each do |name, value|
   was = current[name]
-  puts format("%-20s %s %12.5f %s", name,
+  gain = gains[name]
+  puts format("%-20s %s %12.5f %s %8s %8s", name,
               was ? format("%12.5f", was) : format("%12s", "(new)"),
               value,
-              was ? format("%7.2fx", value / was) : format("%8s", "-"))
+              was ? format("%7.2fx", value / was) : format("%8s", "-"),
+              gain ? format("%.3f", gain) : "general",
+              was_gains[name] ? format("%.3f", was_gains[name]) : "general")
 end
 
 File.write(FIXTURE, RubyGBA::Calibration::WeightsFixture.new(weights: calibration.weights,
-                                                             domains: calibration.domains).render)
+                                                             domains: calibration.domains,
+                                                             gains: gains).render)
 File.write(CARTRIDGES,
            RubyGBA::Calibration::CartridgesFixture.new(
              digests: log.digests, emulator: RubyGBA::Calibration::Provenance.emulator_digest
            ).render)
 puts
-puts "wrote #{calibration.weights.size} weights to #{FIXTURE.sub("#{Dir.pwd}/", '')}"
+puts "wrote #{calibration.weights.size} weights and #{gains.size} gains to #{FIXTURE.sub("#{Dir.pwd}/", '')}"
 puts "wrote #{log.digests.size} cartridges to #{CARTRIDGES.sub("#{Dir.pwd}/", '')}"

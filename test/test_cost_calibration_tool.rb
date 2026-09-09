@@ -106,6 +106,7 @@ class TestCostCalibrationTool < Minitest::Test
     rendered = Calibration::WeightsFixture.new(
       weights: committed::MEASURED_WEIGHTS,
       domains: committed::WEIGHT_DOMAINS.transform_values { |d| Domain.new(**d) },
+      gains: committed::MEASURED_GAINS,
     ).render
     assert_equal File.read(fixture_path), rendered
   end

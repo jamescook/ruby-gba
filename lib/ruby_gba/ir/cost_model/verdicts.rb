@@ -302,7 +302,7 @@ module RubyGBA
           # A window has a weight of its own, measured, and it is about four fifths of a
           # sprite write: it rides its sprite's numbers rather than working out its own, so
           # the frame copies each attribute on the way past and tests where the fade sits.
-          cost = @walker.in_fast_frame { kept.length * @weights[:obj_window_write] * @pricing.fast_memory_factor }
+          cost = @walker.in_fast_frame { kept.length * @pricing.weight_here(:obj_window_write) }
           Verdict::KeptSprites.new(layers: layers, sprites: kept.length,
                                    cost: cost, budget: FRAME_BUDGET)
         end

@@ -178,15 +178,21 @@ class TestFastCodePlacement < Minitest::Test
   # The frame's own boundary comes off both readings first. Waiting for the screen is the
   # console's own doing and takes the same time wherever our code lives, so it is the one
   # part of a frame the move cannot make cheaper.
+  #
+  # A BAND RATHER THAN A FACTOR, because there is no longer one factor to assert. What the
+  # quick memory buys is a property of the op: it makes fetching an instruction cheap and does
+  # nothing for a load or a store, so a loop of arithmetic and a rectangle of pixels gain
+  # different amounts and this frame holds both (see CostModel::DEFAULT_GAINS). The band is the
+  # one physics allows — never slower, and never more than fetching itself gets cheaper.
   def test_the_estimate_follows_the_code_into_quick_memory
     program = looping_program(passes: 200)
     boundary = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS[:frame_overhead]
     cart = RubyGBA::IR::CostModel.new.steady_cost(program) - boundary
     quick = RubyGBA::IR::CostModel.new(fast_frame: true, fast_routines: [:work]).steady_cost(program) -
             boundary
-    speedup = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS[:fast_code_speedup]
 
-    assert_in_delta cart / speedup, quick, 0.01
+    assert_operator cart / quick, :>, 1.0, "moving the code has to make the estimate cheaper"
+    assert_operator cart / quick, :<, 4.5, "and no op gains more than fetching itself does"
   end
 
   # ...and the half of that which is easy to lose: moving the frame's own body does NOT carry

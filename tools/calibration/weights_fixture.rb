@@ -19,9 +19,10 @@ module RubyGBA
       INDENT = " " * 6 # inside `class CostModel`
       ROW = " " * 8    # inside a hash literal
 
-      def initialize(weights:, domains: {})
+      def initialize(weights:, domains: {}, gains: {})
         @weights = weights
         @domains = domains
+        @gains = gains
       end
 
       def render
@@ -41,7 +42,25 @@ module RubyGBA
           "# Each value is scanlines per op, measured on the emulated GBA timing model via",
           "# gemba-core (emulated-cycle counts, not host wall-clock — the same on any machine).",
         ]
-        lines + (@domains.empty? ? [] : domains_preamble)
+        lines + (@domains.empty? ? [] : domains_preamble) + (@gains.empty? ? [] : gains_preamble)
+      end
+
+      # ...and why the gains are there, which is the thing a reader of this file is most likely
+      # to be surprised by: there is no single figure for what the console's quick memory buys.
+      def gains_preamble
+        [
+          "#",
+          "# MEASURED_GAINS is how many times faster each op runs when the build keeps its code",
+          "# in the console's quick memory. There is no one figure: the quick memory makes",
+          "# FETCHING an instruction cheap and does nothing for a load or a store, so an op that",
+          "# stays in registers gains about four times and one that is mostly memory gains about",
+          "# half of that. Measured by running every recipe above a second time with the build",
+          "# free to move the code, and dividing.",
+          "#",
+          "# A weight with no line here keeps the general figure (fast_code_speedup). Those are",
+          "# the ones whose recipe is a difference of differences, which can land near zero in",
+          "# one of the two runs and give a ratio that is an artefact rather than a measurement.",
+        ]
       end
 
       # Why the ranges are there at all. Worth saying in the generated file itself, because this
@@ -62,6 +81,9 @@ module RubyGBA
       def body
         inner = hash_literal("MEASURED_WEIGHTS", weight_rows)
         inner += [""] + hash_literal("WEIGHT_DOMAINS", domain_rows) unless @domains.empty?
+        # Always written, even empty: the cost model reads it as a constant, so a run that
+        # measured no gain has to leave a hash rather than nothing to load.
+        inner += [""] + hash_literal("MEASURED_GAINS", gain_rows)
         ["module RubyGBA", "  module IR", "    class CostModel"] + inner + ["    end", "  end", "end"]
       end
 
@@ -75,6 +97,16 @@ module RubyGBA
 
       def domain_rows
         @weights.keys.map { |name| "#{ROW}#{name}: #{(@domains[name]&.to_source) || '{}'}," }
+      end
+
+      # In the weights' own order, so the two hashes read side by side and a weight with no
+      # measurable gain is a visible hole rather than a silently missing row.
+      def gain_rows
+        @weights.keys.filter_map do |name|
+          gain = @gains[name] or next
+
+          "#{ROW}#{name}: #{format('%.3f', gain)},"
+        end
       end
     end
   end

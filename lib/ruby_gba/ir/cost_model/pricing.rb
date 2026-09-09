@@ -47,6 +47,10 @@ module RubyGBA
           # The same table with everything but the console's own time zeroed, so an op can be
           # priced twice over and the two answers differenced (see #CONSOLES_OWN_TIME).
           @consoles_own = @weights.transform_values { 0.0 }.merge(@weights.slice(*CONSOLES_OWN_TIME))
+          # ...and the same table again for code the build kept in the console's quick memory.
+          # Worked out ONCE, here, from the real weights — never from the zeroed table above,
+          # where dividing by a speed-up of nought would spread NaN through a whole frame.
+          @quick = quick_weights(@weights)
           @catalogue = catalogue
           @walker = walker
           @palette_entries = palette_entries
@@ -67,33 +71,63 @@ module RubyGBA
         # them every time. Operands are found from the node's attributes, so an op added
         # later can't hold unpriced work.
         #
-        # The console's own share is taken out before the quick-memory discount and added back
-        # after, so it is charged in full wherever the code lives. Operands are always
-        # instructions, so they are discounted whole.
+        # Priced through the table for the memory this code runs from, so the console's own
+        # share needs no taking out and adding back: it is the same number in both tables.
         def op_cost(node, worst: true)
-          count = counted(node, worst) { priced_op_cost(node, worst) }
-          own = count || priced_op_cost(node, worst)
-          consoles = consoles_own_cost(node, worst)
-          operands = charging_operands(count) { raw_operand_cost(node, worst) }
-          ((own - consoles + operands) * fast_memory_factor) + consoles
+          at_code_speed do
+            count = counted(node, worst) { priced_op_cost(node, worst) }
+            own = count || priced_op_cost(node, worst)
+            own + charging_operands(count) { raw_operand_cost(node, worst) }
+          end
         end
 
-        # What a scanline of work costs when the code doing it lives in the console's
-        # faster memory: less, by a measured amount. Every weight in the model describes
-        # code running from the cartridge, which is where code runs unless the build
-        # decides otherwise, so this is the one place the other case is priced.
+        # WHAT EVERY WEIGHT COSTS FROM THE CONSOLE'S QUICK MEMORY, which is not one discount.
         #
-        # NO DISCOUNT WHILE THE TABLE IS ZEROED, and that guard is load-bearing rather than
-        # defensive. Pricing an op for its console's-own share swaps in a table where every
-        # other weight is 0.0, the speed-up among them — so one over it is Infinity, and
-        # Infinity times a zeroed weight is NaN. A NaN then spreads through the whole frame
-        # and every budget comparison against it answers false, which reads as "this fits".
-        # Nothing is being discounted in that pass anyway, so 1 is also the right answer.
-        def fast_memory_factor
-          return 1 unless @walker&.in_fast_code?
+        # That memory makes FETCHING an instruction cheap and does nothing at all for a load or
+        # a store — the data is in the same place either way. So an op that stays in registers
+        # gains about four times over and one that is mostly memory gains about half of that,
+        # and the model had a single figure measured on a frame of arithmetic sitting in the
+        # middle. Measured on a first-person view's frame, that read the drawing a sixth dear,
+        # in the direction that says "you do not fit" when the console says you do.
+        #
+        # A weight with no measured gain keeps that general figure, which is the same question
+        # answered on arithmetic and is the best available answer for an op nobody has divided.
+        #
+        # THE CONSOLE'S OWN TIME GAINS NOTHING, and that is pinned here rather than measured.
+        # The CPU executes nothing while a transfer engine copies or the BIOS sleeps, so where
+        # our instructions live cannot reach it — that is what puts a weight in
+        # CONSOLES_OWN_TIME in the first place. The two measured DIRECTLY agree (dma_pixel and
+        # tearfree_fill_pixel both divide to 1.000, which is the check worth having); the two
+        # found as a residual do not, because a residual of a residual can divide to anything.
+        def quick_weights(weights)
+          general = weights[:fast_code_speedup].to_f
+          weights.to_h do |name, value|
+            next [name, value] if CONSOLES_OWN_TIME.include?(name)
 
-          speedup = @weights[:fast_code_speedup]
-          speedup.positive? ? 1.0 / speedup : 1
+            gain = CostModel::DEFAULT_GAINS.fetch(name) { general }
+            [name, gain.positive? ? value / gain : value]
+          end
+        end
+
+        # What ONE weight costs where the code being walked runs, for the two callers that price
+        # a weight directly rather than through an op: a loop's own pass, and the sprites a
+        # placed fade holds itself off.
+        def weight_here(name) = at_code_speed { @weights[name] }
+
+        # Price the block against the memory the code being walked runs from. Nothing to swap
+        # while the console's-own pass is running: that table is already the answer it wants,
+        # and its weights are the ones the quick memory does not touch anyway.
+        def at_code_speed
+          return yield unless @walker&.in_fast_code?
+          return yield if @in_consoles_own
+
+          was = @weights
+          @weights = @quick
+          begin
+            yield
+          ensure
+            @weights = was
+          end
         end
 
         # THE PART OF AN OP THAT IS NOT OUR INSTRUCTIONS, and so gains nothing from being kept
@@ -467,7 +501,7 @@ module RubyGBA
         # could cost", false for "what every frame really pays". They differ only where an
         # op has a worst case it seldom reaches — see #pixels_overlap_cost.
         def expr_cost(value, worst: true)
-          raw_expr_cost(value, worst) * fast_memory_factor
+          at_code_speed { raw_expr_cost(value, worst) }
         end
 
         # The same before the faster-memory discount. Everything inside an op is priced

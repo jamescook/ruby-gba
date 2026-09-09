@@ -107,19 +107,32 @@ class TestCostVerdicts < CostModelTest
   # driven through a program would pass whether the guard existed or not.
   #
   # Pricing an op for the share the quick memory cannot reach swaps in a table where every
-  # other weight is zero — the speed-up among them — so one over it is Infinity, and Infinity
-  # times a zeroed weight is a NaN.
-  def test_the_discount_stays_a_number_while_the_weights_are_zeroed
+  # other weight is zero — the speed-up among them. A table of quick-memory weights worked out
+  # from THAT one would divide by nought, and one NaN spreads through a whole frame until every
+  # budget comparison answers false, which reads as "this fits". So the quick table is worked
+  # out once, from the real weights, and the zeroed pass does not swap it in at all.
+  def test_the_weights_stay_numbers_while_the_table_is_zeroed
     model = Cost.new(fast_frame: true)
     model.send(:index, a_pixel_a_frame)
     pricing = model.instance_variable_get(:@pricing)
 
     model.instance_variable_get(:@walker).in_fast_frame do
       pricing.with_consoles_own_weights do
-        assert_predicate pricing.fast_memory_factor.to_f, :finite?,
-                         "one over a zeroed speed-up is Infinity, and Infinity times zero is a NaN"
+        assert_predicate pricing.weight_here(:op_step).to_f, :finite?,
+                         "a quick-memory weight worked out from a zeroed table is a NaN"
       end
     end
+  end
+
+  # ...and the table itself holds numbers for every weight, gain or no gain. A weight the
+  # calibration could not divide falls back to the general figure rather than to nothing.
+  def test_every_weight_has_a_quick_memory_price
+    pricing = Cost.new.instance_variable_get(:@pricing) ||
+              (Cost.new.tap { |m| m.send(:index, a_pixel_a_frame) }.instance_variable_get(:@pricing))
+    quick = pricing.quick_weights(Cost::DEFAULT_WEIGHTS)
+
+    assert_equal Cost::DEFAULT_WEIGHTS.keys, quick.keys
+    quick.each { |name, value| assert_predicate value.to_f, :finite?, "#{name} has no quick price" }
   end
 
   # Every example a player could build has a finite estimate. Cheap, and it is the assertion
