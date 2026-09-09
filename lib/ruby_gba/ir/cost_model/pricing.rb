@@ -417,10 +417,27 @@ module RubyGBA
           # before anything is loaded, and a table read makes the index safe first. Thirteen
           # instructions for a list read, and up to twenty-three for a table's, all charged
           # at nothing.
-          when :list_get then @weights[:list_read]
+          when :list_get then list_read_weight(value)
           when :table_get then table_read_weight(value)
           else note_unpriced(value.kind, FREE_VALUE_KINDS) # int/var_ref/held/… are free loads; anything else is unknown
           end
+        end
+
+        # A list read is three prices, and which one follows from the SHAPE of the read. A
+        # pool's live test and a list's `each` read a plain row ONCE per pass by the loop's own
+        # counter — a walk — where the general weight was measured over several reads back to
+        # back in one pass, which is cheaper per element than a walk ever sees. So a walk has
+        # weights of its own, two of them, because which memory the loop's counter lives in
+        # decides whether the index has to be loaded first. A read by a variable in memory, or
+        # of a ring (a list the program shifts, with a head to add and a mask to apply), pays
+        # the general read. Priced at that alone, a pool's whole walk read a third over.
+        def list_read_weight(node)
+          index = node.index
+          ring = @catalogue&.rings&.include?(node.name)
+          loop = index.is_a?(Node) && index.kind == :var_ref && !ring && @walker&.loop_counted_by(index.name)
+          return @weights[:list_read] unless loop
+
+          @weights[@walker.held_loop?(loop) ? :list_read_in_walk : :list_read_in_walk_memory]
         end
 
         # Reading one element of a table, which comes in two prices. A read can never reach

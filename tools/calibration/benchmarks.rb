@@ -551,6 +551,48 @@ module RubyGBA
         @m.busy(name, rom)
       end
 
+      # --- reading a list element once per pass of a walk ---
+      #
+      # A pool's live test and a list's `each` read ONE element per pass, by the loop's own
+      # counter, and then test it. That is a different regime from the reads above, which read
+      # several elements back to back inside one pass: after the first, the base and the index
+      # are already in registers, and the marginal read is cheap in a way a walk never sees.
+      # Measured, the read above and a walk's read by the loop counter come out the SAME per
+      # element, and a walk on the console pays about a third of it — so the regime is the
+      # walk, not the index.
+      #
+      # So it is measured AS a walk: one pass per slot, against the same walk testing a plain
+      # variable instead, so the loop, the test and the branch all cancel and what is left is
+      # reaching the element. No more passes than the list has slots, so every read lands
+      # inside it — an index off the end takes the other arm of the bounds test.
+      #
+      # TWO SHAPES, because where the loop's counter lives decides whether the index has to be
+      # loaded before the element can be reached. +blocked+ puts the empty escape hatch in the
+      # body, which sends the counter to memory (see #loop_rom); the two walks are otherwise
+      # the same. Built straight from the IR for that reason.
+      WALK_PASSES = 64
+
+      def walk_read_busy(kind, blocked: false)
+        name = "walk#{kind}#{blocked ? 'm' : 'r'}"
+        b = IR::Build
+        cap = WALK_PASSES
+        element = kind == :list ? b.list_get(:xs, b.var_ref(:__i)) : b.var_ref(:f)
+        body = []
+        body << b.raw("") if blocked
+        body << b.if_(b.binop(:==, element, b.int(1)), b.add(:t, b.int(1)))
+        prog = b.program(b.screen(:bitmap), b.set(:t, b.int(0)), b.set(:f, b.int(0)),
+                         b.list_new(:xs, cap), *Array.new(cap) { b.list_push(:xs, b.int(0)) },
+                         b.loop_(b.wait_vblank, b.repeat(b.int(cap), :__i, *body)))
+        rom = ROM.assemble(IR::Backends::GBA.new(fast_code: false).lower(prog),
+                           title: name, code: code_for(name), maker: "01")
+        @m.busy(name, rom)
+      end
+
+      def per_walk_read(blocked: false)
+        Reductions.marginal(walk_read_busy(:list, blocked: blocked), walk_read_busy(:var, blocked: blocked),
+                            over: WALK_PASSES)
+      end
+
       # WRITING one element of a list, which is not the same as writing a variable and was
       # charged as one until the two stopped costing alike. A variable is reached from a base
       # this console can hold in a register plus a distance settled while building; an element

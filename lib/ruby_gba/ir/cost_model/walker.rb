@@ -51,6 +51,7 @@ module RubyGBA
           @fast_interrupts = fast_interrupts
           @loop_shapes = loop_shapes
           @stack = []
+          @loops = []
           @in_fast_code = false
           @at_full_capacity = false
           @draw_height = nil
@@ -64,6 +65,23 @@ module RubyGBA
         def reindex(catalogue)
           @catalogue = catalogue
           @stack = []
+          @loops = []
+        end
+
+        # The repeats the walk is inside right now, innermost last — so a price can ask whether
+        # a list is being read by a loop's own counter (see Pricing#list_read_weight).
+        def within_loop(node)
+          @loops.push(node)
+          yield
+        ensure
+          @loops.pop
+        end
+
+        # The repeat the walk is inside whose counter is +name+, or nil when +name+ is not a
+        # counter of any enclosing loop. Which shape that loop got says what a read by its
+        # counter costs (see #held_loop?).
+        def loop_counted_by(name)
+          @loops.find { |loop| loop.index == name }
         end
 
         # The draw work of one frame as a structured cost tree: an array of nodes
@@ -196,7 +214,7 @@ module RubyGBA
           # A loop costs a rate per pass AND a fixed amount for being entered — see
           # #loop_overhead_leaf for what each of them is.
           when :repeat
-            body = node.children.sum { |child| steady(child, worst: worst) }
+            body = within_loop(node) { node.children.sum { |child| steady(child, worst: worst) } }
             # A walk over a list counts at what the list USUALLY holds here, where the tree
             # above counts it at the capacity: this is the every-frame load, and no frame
             # pays for a list it has not filled (see #repeat_factor).
@@ -507,7 +525,8 @@ module RubyGBA
         # cost of going round, which leads the body because that is when it happens.
         def build_repeat(node)
           factor, note = repeat_factor(node)
-          kids = loop_overhead_leaf(node, factor) + node.children.flat_map { |child| build(child) }
+          kids = loop_overhead_leaf(node, factor) +
+                 within_loop(node) { node.children.flat_map { |child| build(child) } }
           Entry.new(op: :repeat, label: "repeat #{note}", cost: factor * sum(kids), factor: factor,
                     source: node.source, children: kids)
         end
