@@ -121,6 +121,15 @@ namespace :cost do
     stamp_unless_narrowed(only)
   end
 
+  desc "Does the report point at the right line? Take each example's hottest lines away and measure (ONLY=snake)"
+  task :ranking do
+    require_relative "lib/ruby_gba"
+    require_relative "tools/cost_ranking"
+    # Every ablated line is a build and an emulator run, so this is several times cost:check
+    # — a report you run on purpose when the model or the corpus changes.
+    CostRanking.run(only: ENV.fetch("ONLY", nil))
+  end
+
   desc "Which parts of the cost model does the corpus exercise, and which has nothing ever run through?"
   task :regimes do
     require_relative "lib/ruby_gba"
