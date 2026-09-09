@@ -27,7 +27,7 @@ class TestCostRollup < CostModelTest
       repeat(3) { |_i| draw_rect_at 0, 0, 8, 8, :green } # 3 * (one 8x8 rect + one pass)
       halt
     end
-    near loop_cost(3, dma_rows(8, 8)), Cost.new.frame_cost(prog)
+    near loop_cost(3, dma_rows_placed(8, 8)), Cost.new.frame_cost(prog)
   end
 
   # A repeat over a list is bounded by the list's CAPACITY — the worst case we can
@@ -42,7 +42,7 @@ class TestCostRollup < CostModelTest
     end
     # ...but the estimate assumes the worst: 8 (capacity) passes of one 8x8 rect, plus the
     # one-time push that seeded the list.
-    near loop_cost(8, dma_rows(8, 8)) + WEIGHTS[:list_write], Cost.new.frame_cost(prog)
+    near loop_cost(8, dma_rows_placed(8, 8)) + WEIGHTS[:list_write], Cost.new.frame_cost(prog)
   end
 
   # ...THE WORST CASE. The every-frame load asks the other question, and the capacity is the
@@ -54,8 +54,8 @@ class TestCostRollup < CostModelTest
   def test_the_every_frame_load_counts_a_list_walk_at_what_it_usually_holds
     prog = walking_game(capacity: 64, estimate: { usually: 4 })
 
-    near frame_boundary + loop_cost(64, dma_rows(8, 8)), Cost.new.frame_cost(prog), "the worst it can reach"
-    near frame_boundary + loop_cost(4, dma_rows(8, 8)), Cost.new.steady_cost(prog), "what a frame usually pays"
+    near frame_boundary + loop_cost(64, dma_rows_placed(8, 8)), Cost.new.frame_cost(prog), "the worst it can reach"
+    near frame_boundary + loop_cost(4, dma_rows_placed(8, 8)), Cost.new.steady_cost(prog), "what a frame usually pays"
   end
 
   # Said nothing, and the estimate has to answer anyway. It guesses — a quarter of the
@@ -65,8 +65,8 @@ class TestCostRollup < CostModelTest
   def test_a_list_that_says_nothing_is_counted_at_a_quarter_of_its_capacity
     prog = walking_game(capacity: 64)
 
-    near frame_boundary + loop_cost(64, dma_rows(8, 8)), Cost.new.frame_cost(prog)
-    near frame_boundary + loop_cost(16, dma_rows(8, 8)), Cost.new.steady_cost(prog)
+    near frame_boundary + loop_cost(64, dma_rows_placed(8, 8)), Cost.new.frame_cost(prog)
+    near frame_boundary + loop_cost(16, dma_rows_placed(8, 8)), Cost.new.steady_cost(prog)
   end
 
   # A range says a length that moves, and the TOP is what a frame is charged: the dearest of
@@ -95,7 +95,7 @@ class TestCostRollup < CostModelTest
   # So the two are separated here, and the shape says it: whatever the pool usually holds,
   # taking one body per live slot back off leaves the SAME walk every time.
   def test_a_pool_walks_every_slot_and_runs_its_body_only_for_the_live_ones
-    body = dma_rows(8, 8)
+    body = dma_rows_placed(8, 8)
     walks = [1, 4, 16, 64].map do |live|
       Cost.new.steady_cost(shooting_game(capacity: 64, estimate: { usually: live })) - (live * body)
     end
@@ -173,7 +173,7 @@ class TestCostRollup < CostModelTest
         end
       end
     end
-    near frame_boundary + dma_rows(10, 10), Cost.new.frame_cost(prog) # the heavy branch, not the sum of both
+    near frame_boundary + dma_rows_placed(10, 10), Cost.new.frame_cost(prog) # the heavy branch, not the sum of both
   end
 
   # The frame cost is the game LOOP's per-frame work — boot-time setup outside the
@@ -186,7 +186,7 @@ class TestCostRollup < CostModelTest
         draw_rect_at 0, 0, 8, 8, :green # per-frame
       end
     end
-    near frame_boundary + dma_rows(8, 8), Cost.new.frame_cost(prog) # the boot fill (20x20) is excluded
+    near frame_boundary + dma_rows_placed(8, 8), Cost.new.frame_cost(prog) # the boot fill (20x20) is excluded
   end
 
   # --- selectivity: cost hints scale work by how often it actually runs ---
@@ -201,8 +201,8 @@ class TestCostRollup < CostModelTest
         every(4) { draw_rect_at 0, 0, 8, 8, :green } # 64 when it fires
       end
     end
-    near frame_boundary + dma_rows(8, 8), Cost.new.frame_cost(prog)      # full cost on the frame it fires
-    near frame_boundary + (dma_rows(8, 8) / 4.0), Cost.new.steady_cost(prog) # spread across 4 frames
+    near frame_boundary + dma_rows_placed(8, 8), Cost.new.frame_cost(prog)      # full cost on the frame it fires
+    near frame_boundary + (dma_rows_placed(8, 8) / 4.0), Cost.new.steady_cost(prog) # spread across 4 frames
   end
 
   # after(n) fires exactly once, ever, so it contributes nothing to the steady
@@ -215,7 +215,7 @@ class TestCostRollup < CostModelTest
         after(30) { draw_rect_at 0, 0, 8, 8, :green } # once, on the frame it fires
       end
     end
-    near frame_boundary + dma_rows(8, 8), Cost.new.frame_cost(prog)
+    near frame_boundary + dma_rows_placed(8, 8), Cost.new.frame_cost(prog)
     near frame_boundary, Cost.new.steady_cost(prog), "nothing left but having a frame at all"
   end
 
@@ -242,7 +242,7 @@ class TestCostRollup < CostModelTest
     # Reading the press, and the latch the boundary makes for it, are paid on every frame —
     # it is only the BODY that drops out.
     every_frame = frame_boundary + button_latch + button_press
-    near every_frame + dma_rows(8, 8), Cost.new.frame_cost(prog) # full cost on the press frame
+    near every_frame + dma_rows_placed(8, 8), Cost.new.frame_cost(prog) # full cost on the press frame
     near every_frame, Cost.new.steady_cost(prog) # the body is not part of the every-frame load
   end
 
@@ -256,7 +256,7 @@ class TestCostRollup < CostModelTest
       end
     end
     # No latch here: a program that never asks about a press does not pay for one.
-    near frame_boundary + button_down + dma_rows(8, 8), Cost.new.steady_cost(prog)
+    near frame_boundary + button_down + dma_rows_placed(8, 8), Cost.new.steady_cost(prog)
   end
 
   # chance(p) holds p% of the time, so a gated body counts at p%.
@@ -276,7 +276,7 @@ class TestCostRollup < CostModelTest
       end
     end
     overhead = Cost.new.steady_cost(roll_only)
-    near overhead + (dma_rows(8, 8) * 0.25), Cost.new.steady_cost(gated)
+    near overhead + (dma_rows_placed(8, 8) * 0.25), Cost.new.steady_cost(gated)
   end
 
   def test_a_game_that_might_collide_is_not_reported_over_budget

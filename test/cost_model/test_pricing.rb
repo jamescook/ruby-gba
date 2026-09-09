@@ -167,8 +167,9 @@ class TestCostPricing < CostModelTest
       Build.bitmap(:ship, width: 8, height: 4, pixels: Array.new(32, 0).pack("v*"), transparent: nil),
       Build.loop_(Build.wait_vblank, Build.blit(:ship, Build.int(0), Build.int(0))),
     )
-    near frame_boundary + dma_rows(8, 4), Cost.new.steady_cost(prog) # opaque: one DMA per row
-    near frame_boundary + dma_rows(8, 4), Cost.new.frame_cost(prog)
+    # Opaque: one DMA per row, at a position the game works out and trimmed to the screen.
+    near frame_boundary + dma_rows_clipped(8, 4), Cost.new.steady_cost(prog)
+    near frame_boundary + dma_rows_clipped(8, 4), Cost.new.frame_cost(prog)
   end
 
   # A DMA fill costs per ROW (each row is a DMA), so a tall-thin rectangle costs more

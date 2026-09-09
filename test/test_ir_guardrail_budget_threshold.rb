@@ -84,7 +84,7 @@ class TestBudgetThresholdGuardrail < Minitest::Test
   # the pool here and the list gets told it has more room than it has.
   def test_a_pool_beside_a_growing_list_is_counted_full_while_the_list_is_solved
     quiet = Cost.new.budget_thresholds(pool_and_list_game(usually: 1)).first
-    busy = Cost.new.budget_thresholds(pool_and_list_game(usually: 32)).first
+    busy = Cost.new.budget_thresholds(pool_and_list_game(usually: POOL_SLOTS)).first
     alone = Cost.new.budget_thresholds(growing_draw_game(cap: 64, cell: 20)).first
 
     refute_nil quiet, "the list still tips over"
@@ -94,12 +94,20 @@ class TestBudgetThresholdGuardrail < Minitest::Test
                     "a frame already full of pool bodies leaves the list far less room"
   end
 
+  # HOW BIG THE POOL IS, and it is picked so the question above stays askable at both ends. A
+  # full pool has to eat real room — most of the length the list would otherwise reach — or
+  # the test proves nothing. It also has to leave SOME, because a frame the pool fills on its
+  # own has no length at which the list gives out, and then there is nothing to compare. At
+  # this size a full pool takes about three quarters of the room and the list still tips over
+  # well inside its 64.
+  POOL_SLOTS = 24
+
   # The same growing list, with a pool of equally dear bodies beside it.
   def pool_and_list_game(usually:)
     build_program do
       screen :bitmap
       swarm = list :swarm, capacity: 64
-      shots = pool :shot, x: 0, y: 0, capacity: 32, estimate: { usually: usually }
+      shots = pool :shot, x: 0, y: 0, capacity: POOL_SLOTS, estimate: { usually: usually }
       game_loop do
         wait_vblank
         shots.each { |_s| draw_rect_at 0, 0, 20, 20, :blue }

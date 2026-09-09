@@ -2,10 +2,10 @@
   "version": 1,
   "examples": {
     "animate": {
-      "estimate": 3.647,
+      "estimate": 3.462,
       "measured": 3.133,
-      "ratio": 0.859,
-      "distance": 1.164
+      "ratio": 0.905,
+      "distance": 1.105
     },
     "bird": {
       "estimate": 0.684,
@@ -95,10 +95,10 @@
       "note": "no game loop, so nothing recurs"
     },
     "pong": {
-      "estimate": 59.449,
+      "estimate": 59.745,
       "measured": 59.823,
-      "ratio": 1.006,
-      "distance": 1.006
+      "ratio": 1.001,
+      "distance": 1.001
     },
     "raycaster": {
       "estimate": 53.739,
@@ -143,16 +143,16 @@
       "distance": 1.217
     },
     "sparks": {
-      "estimate": 52.387,
+      "estimate": 52.614,
       "measured": 51.42,
-      "ratio": 0.982,
-      "distance": 1.019
+      "ratio": 0.977,
+      "distance": 1.023
     },
     "sprite_mover": {
-      "estimate": 1.844,
+      "estimate": 2.701,
       "measured": 2.541,
-      "ratio": 1.378,
-      "distance": 1.378
+      "ratio": 0.941,
+      "distance": 1.063
     },
     "tiles": {
       "note": "no game loop, so nothing recurs"

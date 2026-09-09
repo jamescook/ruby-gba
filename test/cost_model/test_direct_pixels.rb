@@ -233,10 +233,77 @@ class TestDirectPixels < CostModelTest
       game_loop { blit :tile, x, y }
     end
 
-    near frame_boundary + dma_rows(16, 8) + var_reads(2), Cost.new.steady_cost(plain)
-    near frame_boundary + dma_rows(16, 8) + var_reads(2), Cost.new.steady_cost(named)
+    near frame_boundary + dma_rows_clipped(16, 8) + var_reads(2), Cost.new.steady_cost(plain)
+    near frame_boundary + dma_rows_clipped(16, 8) + var_reads(2), Cost.new.steady_cost(named)
     assert_operator Cost.new.steady_cost(plain), :<,
                     Cost.new.steady_cost(sprite_program(width: 16, height: 8, lit: 14)),
                     "streaming whole rows beats testing and writing each pixel"
+  end
+
+  # --- a sprite that swaps between pictures ---
+
+  # A flipbook draws ONE of its pictures on any frame, and which one is not known until the
+  # game runs. They are all the same size, so a solid one costs the same whichever is
+  # showing; a see-through one is charged by its LIT pixels, and swapping is exactly what
+  # moves those. A spinning coin is a fat disc face-on and a thin sliver edge-on.
+  #
+  # So the two questions want different answers, and this is the same pair the model asks
+  # everywhere else: the worst frame takes the dearest picture, because that is a frame the
+  # game really reaches and a frame that does not fit tears whichever one was showing.
+  def test_the_worst_frame_of_a_flipbook_takes_its_dearest_pose
+    # The THINNEST picture written first, which is the order that tells the answers apart.
+    prog = flipbook(2, 4)
+
+    near frame_boundary + blit_art(16 * 4, 4) + var_reads(2), Cost.new.frame_cost(prog)
+  end
+
+  # ...and every frame takes the average, which is what a cycle of them delivers: each
+  # picture is shown for the same number of frames, so the average frame really does cost
+  # the mean of them. Before this, both questions were answered with whichever picture
+  # happened to be written first — so a coin listed face-on first read at twice its cost
+  # every frame, and one listed edge-on first read at half.
+  def test_every_frame_of_a_flipbook_takes_the_average_of_its_poses
+    prog = flipbook(16, 4)
+    mean_lit = ((16 * 4) + (8 * 4) + (2 * 4)) / 3.0
+
+    near frame_boundary + blit_art(mean_lit, 4) + var_reads(2), Cost.new.steady_cost(prog)
+  end
+
+  # The order they are written in cannot change either answer, which is the bug this pair
+  # guards: a max and a mean do not care, and reading `poses.first` cared about nothing else.
+  def test_the_order_the_poses_are_written_in_changes_nothing
+    near Cost.new.steady_cost(flipbook(16, 4)), Cost.new.steady_cost(flipbook(2, 4)),
+         "the average is the same set of pictures either way round"
+    near Cost.new.frame_cost(flipbook(16, 4)), Cost.new.frame_cost(flipbook(2, 4)),
+         "and so is the dearest of them"
+  end
+
+  # Three pictures the same size, lit `lit` pixels across each of `rows` rows — a coin
+  # face-on, half-turned and edge-on. Built straight from the IR rather than through
+  # `sprite ..., frames:`, so what is priced is the pose swap alone and not the saving and
+  # restoring a sprite does around it. `first` says which picture is written first, so a
+  # test can show that the order decides nothing.
+  POSE_WIDTHS = [16, 8, 2].freeze
+
+  def flipbook(first, rows)
+    widths = (POSE_WIDTHS - [first]).unshift(first)
+    names = widths.each_index.map { |i| :"pose#{i}" }
+    Build.program(
+      Build.screen(:bitmap),
+      *widths.each_with_index.map { |lit, i| pose_bitmap(names[i], lit, rows) },
+      Build.set(:sx, Build.int(40)),
+      Build.set(:sy, Build.int(20)),
+      Build.loop_(Build.wait_vblank,
+                  Build.blit_pose(names, Build.int(0), Build.var_ref(:sx), Build.var_ref(:sy))),
+    )
+  end
+
+  # One of those pictures: `lit` red pixels at the start of each of `rows` rows, the rest
+  # see-through. Red is a color that fits inside the instruction that writes it, so the
+  # wide-color weight stays out of the arithmetic.
+  def pose_bitmap(name, lit, rows)
+    red = RubyGBA::Color.resolve(:red)
+    pixels = Array.new(rows) { Array.new(16) { |col| col < lit ? red : 0 } }.flatten
+    Build.bitmap(name, width: 16, height: rows, pixels: pixels.pack("v*"), transparent: 0)
   end
 end
