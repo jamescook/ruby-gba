@@ -333,8 +333,10 @@ module RubyGBA
           end
         end
 
-        # Ops the author never wrote, and what to call them instead of their kind. Same
-        # wording #label_of gives the tree, so the two lists agree.
+        # Ops the author never wrote, and what to call them instead of their kind. The same
+        # wording #label_of gives the tree, less the detail it adds about one program: a fold
+        # and a hottest line name the KIND, so they say what the boundary is rather than what
+        # this game happens to do at it.
         DISPLAY_NAMES = { wait_vblank: "waiting for the screen" }.freeze
 
         # What one KIND of op is called, with none of the detail that tells two of them
@@ -375,8 +377,15 @@ module RubyGBA
         def label_of(node)
           case node.kind
           # The one statement in a game loop the author did not write, so its own name would
-          # send a reader hunting through their program for it. What it does is the label.
-          when :wait_vblank then "waiting for the screen"
+          # send a reader hunting through their program for it. What it does is the label —
+          # and in a game that reads a press it does one thing more, which is why that line
+          # is dearer there than in a game beside it (see Pricing#wait_cost).
+          when :wait_vblank
+            if @catalogue&.reads_button_edges?
+              "waiting for the screen, and latching the buttons"
+            else
+              "waiting for the screen"
+            end
           when :fill_rect, :dma_fill_rect, :draw_rect_at then "#{node.kind} #{size_of(node)}"
           when :draw_text then "draw_text #{node.text.inspect}"
           when :draw_digit then "draw_digit"

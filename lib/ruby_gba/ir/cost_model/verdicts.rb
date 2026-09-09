@@ -546,6 +546,11 @@ module RubyGBA
         end
 
         # What the walk above charged for the frame's boundary, so it can be taken back out.
+        #
+        # THE BUTTON LATCH STAYS IN, though the walk charges it at the boundary too (see
+        # Pricing#wait_cost). It is ten of our own instructions, and unlike the BIOS asleep
+        # they run faster from the quick memory — so they are part of what moving the body
+        # there would buy, which is the question this answer decides.
         def frame_boundary_cost(program)
           waits = @walker.steady_statements(program).count { |node| node.kind == :wait_vblank }
           waits * @weights[:frame_overhead]

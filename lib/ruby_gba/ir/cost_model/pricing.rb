@@ -214,7 +214,7 @@ module RubyGBA
           # last pass really took. It is the one statement in a game loop nobody writes, and
           # what a frame pays before any of the program's own code runs. Charged where the
           # wait is — once a frame in a paced program, once per wait in one that paces itself.
-          when :wait_vblank then @weights[:frame_overhead]
+          when :wait_vblank then wait_cost
           when :pixel then @walker.tear_free? ? @weights[:tearfree_pixel] : @weights[:plot_pixel]
           # The two screens draw a rectangle in shapes that have nothing in common, so
           # which screen this one is on decides the whole price (see #tearfree_fill_cost).
@@ -295,6 +295,24 @@ module RubyGBA
           when :save_store then @weights[:save_write]
           else note_unpriced(node.kind, FREE_STATEMENT_KINDS)
           end
+        end
+
+        # What the frame's boundary costs. Mostly the console's own: the BIOS sleeping it
+        # until the display's interrupt, and the handler that counts the frame.
+        #
+        # A GAME THAT READS A PRESS PAYS ONE THING MORE. `pressed` means "down now, up last
+        # frame", and the only place the answer can be settled the same way for every test in
+        # the frame is the boundary: this frame's buttons become last frame's, and the
+        # console's are read afresh. Nobody writes it, it happens once however many presses
+        # the frame then reads, and a game that only asks whether a button is DOWN never pays
+        # it at all.
+        #
+        # Ours rather than the console's, so it is charged apart from frame_overhead: the
+        # latch is ten of our instructions and runs faster from the quick memory, where the
+        # BIOS asleep does not (see CONSOLES_OWN_TIME).
+        def wait_cost
+          @weights[:frame_overhead] +
+            (@catalogue&.reads_button_edges? ? @weights[:button_snapshot] : 0)
         end
 
         # What drawing one sprite costs this frame. A sprite that only moves is its
@@ -520,6 +538,15 @@ module RubyGBA
           # at nothing.
           when :list_get then list_read_weight(value)
           when :table_get then table_read_weight(value)
+          # Reading a button, which was charged at nothing on the ground that it is a load
+          # like any other operand. It is not one. The console hands back all ten buttons at
+          # once, so asking about ONE means masking its bit out and turning the flag that
+          # leaves into a 1 or a 0 — ten instructions with a jump among them, five times what
+          # reading a variable costs. Two prices because they are two mechanisms: `held`
+          # reads the console's key register, `pressed` reads the frame's two latched sets
+          # and combines them (see #wait_cost for what the latching costs).
+          when :held then @weights[:read_button]
+          when :pressed then @weights[:read_button_edge]
           else note_unpriced(value.kind, FREE_VALUE_KINDS) # int/var_ref/held/… are free loads; anything else is unknown
           end
         end

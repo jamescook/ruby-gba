@@ -18,7 +18,7 @@ class TestWalker < CostModelTest
   def empty_catalogue
     Catalogue.new(modes: nil, funcs: {}, capacities: {}, declared: {}, list_lengths: {},
                   table_lengths: {}, songs: {}, bitmaps: {}, objects: {}, backing: {},
-                  sees_through: false, rings: Set.new)
+                  sees_through: false, rings: Set.new, reads_edges: false)
   end
 
   # A walker wired the way Rollup#index wires the real one — its own Pricing (for

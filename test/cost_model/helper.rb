@@ -23,6 +23,15 @@ module CostArith
   # nobody writes it, so every per-frame expectation below carries it.
   def frame_boundary = WEIGHTS[:frame_overhead]
 
+  # Reading one button — whether it is down, or whether it has just gone down. Two prices
+  # because they are two mechanisms, though they measure alike (see Pricing#priced_own_cost).
+  def button_down = WEIGHTS[:read_button]
+  def button_press = WEIGHTS[:read_button_edge]
+  # ...and the latch a frame's boundary makes so that every press test in the frame answers
+  # about the same frame. Paid once by a program that asks about a press ANYWHERE, and not at
+  # all by one that only asks whether a button is down.
+  def button_latch = WEIGHTS[:button_snapshot]
+
   # What +n+ instructions cost. The expectation to write for a statement priced off a REAL
   # BUILD, since a straight run of instructions is then charged by counting what the lowering
   # emitted rather than by the weight that used to stand for the same number (see

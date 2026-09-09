@@ -1271,4 +1271,62 @@ class TestCostPricing < CostModelTest
 
     near frame_boundary + (50 * WEIGHTS[:op_step]), Cost.new.frame_cost(prog)
   end
+
+  # Reading a button is not the free load it was priced as. The console hands back all ten
+  # buttons at once, so asking about ONE means masking its bit out and turning the flag that
+  # leaves into a 1 or a 0 — several times what reading a variable costs, and the whole of a
+  # frame in a game that does nothing but steer.
+  def test_reading_a_button_is_not_free
+    bare = program do
+      screen :bitmap
+      game_loop {}
+    end
+    down = program do
+      screen :bitmap
+      game_loop { held(:a).then {} }
+    end
+
+    near frame_boundary, Cost.new.frame_cost(bare)
+    near frame_boundary + button_down, Cost.new.frame_cost(down)
+  end
+
+  # ...and the latch behind `pressed`. Once a frame, this frame's buttons become last
+  # frame's and the console's are read afresh, so every press test in the frame answers
+  # about the same frame. It is paid ONCE however many presses a game reads, and not at all
+  # by a game that only asks whether a button is down.
+  def test_the_button_latch_is_paid_once_a_frame_and_only_where_a_press_is_read
+    down = program do
+      screen :bitmap
+      game_loop { held(:a).then {} }
+    end
+    one = program do
+      screen :bitmap
+      game_loop { pressed(:a).then {} }
+    end
+    two = program do
+      screen :bitmap
+      game_loop do
+        pressed(:a).then {}
+        pressed(:b).then {}
+      end
+    end
+
+    near frame_boundary + button_down, Cost.new.frame_cost(down)
+    near frame_boundary + button_latch + button_press, Cost.new.frame_cost(one)
+    near frame_boundary + button_latch + (2 * button_press), Cost.new.frame_cost(two)
+  end
+
+  # The latch belongs to the frame's BOUNDARY and not to the test, so a press the frame
+  # never reaches still makes the boundary latch. The backend decides that — it emits the
+  # latch for a program that reads a press anywhere — and the model asks it rather than
+  # restating the rule, so this is the two agreeing.
+  def test_a_press_the_frame_never_reads_still_costs_the_latch
+    prog = program do
+      screen :bitmap
+      func(:never_called) { pressed(:a).then { set :n, 1 } }
+      game_loop {}
+    end
+
+    near frame_boundary + button_latch, Cost.new.frame_cost(prog)
+  end
 end

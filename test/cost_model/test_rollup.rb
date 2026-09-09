@@ -239,8 +239,11 @@ class TestCostRollup < CostModelTest
         pressed(:start).then { draw_rect_at 0, 0, 8, 8, :green } # 64 on a press frame only
       end
     end
-    near frame_boundary + dma_rows(8, 8), Cost.new.frame_cost(prog) # full cost on the press frame
-    near frame_boundary, Cost.new.steady_cost(prog) # not part of the every-frame load
+    # Reading the press, and the latch the boundary makes for it, are paid on every frame —
+    # it is only the BODY that drops out.
+    every_frame = frame_boundary + button_latch + button_press
+    near every_frame + dma_rows(8, 8), Cost.new.frame_cost(prog) # full cost on the press frame
+    near every_frame, Cost.new.steady_cost(prog) # the body is not part of the every-frame load
   end
 
   # held is level, not an edge — it can run every frame it's down, so it counts
@@ -252,7 +255,8 @@ class TestCostRollup < CostModelTest
         held(:right).then { draw_rect_at 0, 0, 8, 8, :green }
       end
     end
-    near frame_boundary + dma_rows(8, 8), Cost.new.steady_cost(prog)
+    # No latch here: a program that never asks about a press does not pay for one.
+    near frame_boundary + button_down + dma_rows(8, 8), Cost.new.steady_cost(prog)
   end
 
   # chance(p) holds p% of the time, so a gated body counts at p%.
