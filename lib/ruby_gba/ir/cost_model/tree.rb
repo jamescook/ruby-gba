@@ -127,38 +127,65 @@ module RubyGBA
           :logic
         end
 
-        # The section a cost-tree node belongs to: a leaf by its op (or an explicit
-        # :category a synthetic node declares), a container by where most of its cost
-        # lives — a repeat that's mostly drawing counts as drawing.
-        def self.node_category(node)
-          return node.category if node.category
-          return category_of(node.op) if node.children.empty?
-
-          category_totals(node).max_by { |_cat, cost| cost }&.first || :logic
+        # The section one LEAF belongs to: its op, or the section a synthetic leaf (the
+        # mixer, a bend, a timer's ticks) declares for itself.
+        def self.leaf_category(node)
+          node.category || category_of(node.op)
         end
 
-        # Sum a subtree's leaf costs by section — used to place a container in the
-        # section holding most of its work.
-        def self.category_totals(node, sums = Hash.new(0))
-          if node.children.empty?
-            sums[node.category || category_of(node.op)] += node.cost
-          else
-            node.children.each { |child| category_totals(child, sums) }
+        # The part of +nodes+ that belongs to one section: every leaf of that kind, with the
+        # containers above it kept as the path to it.
+        #
+        # WHAT KIND OF WORK A STATEMENT IS, IS A FACT ABOUT THE STATEMENT. A routine that
+        # clears the screen and then counts to a thousand does both kinds of work, so it
+        # appears under both sections, carrying its own share each time. The obvious
+        # alternative — put a whole routine in whichever section holds most of its cost —
+        # reads something else entirely, because how much a routine's instructions cost
+        # depends on which memory the build put it in. Keeping a frame's body in the quick
+        # memory makes its logic cheap enough to lose the majority, and then thousands of
+        # scanlines move from `logic` to `drawing` on a one-word change. Where the code
+        # lives can change what it costs; it cannot change what kind of work it is.
+        #
+        # Every leaf lands in exactly one section, so the three sections still add up to the
+        # frame — only the containers above them are shared out.
+        def self.project(nodes, category)
+          nodes.filter_map do |node|
+            if node.children.empty?
+              node if leaf_category(node) == category
+            else
+              kids = project(node.children, category)
+              node.with(children: kids, cost: recost(node, kids)) unless kids.empty?
+            end
           end
-          sums
+        end
+
+        # What a container costs once its children are narrowed to one section. One rule per
+        # way {Walker} builds a container, and they have to stay in step with it: a loop
+        # multiplies its body by the passes (#build_repeat), a case_var runs one scene a
+        # frame and charges the dearest (#build_case, which marks that branch with a factor
+        # of 1 and the rest with 0), and everything else sums its children (#build_call,
+        # #build_timer). A test holds the three projections against the whole tree, so a
+        # fourth rule appearing over there fails here rather than quietly mis-adding.
+        def self.recost(node, kids)
+          case node.op
+          when :repeat then node.passes * kids.sum(&:cost)
+          when :case then kids.find { |kid| kid.passes.positive? }&.cost || 0
+          else kids.sum(&:cost)
+          end
         end
 
         # Group a frame's cost nodes into drawing / sound / logic sections, each a
-        # rolled-up subtotal, in that fixed order. The software mixer's per-frame cost
-        # joins the sound section as a leaf — it's real recurring work, just not an IR op
-        # — so it stops being a bolt-on and rolls up with everything else. Within a
+        # rolled-up subtotal, in that fixed order. Every section is the whole frame seen
+        # through one kind of work (see #project), so a routine that draws and thinks
+        # appears in two of them with its own share in each. The software mixer's per-frame
+        # cost joins the sound section as a leaf — it's real recurring work, just not an IR
+        # op — so it stops being a bolt-on and rolls up with everything else. Within a
         # section the per-file / repeat folding still applies.
         def group_by_category(nodes, program)
           nodes += mixer_nodes(program) + bend_nodes(program) + tick_nodes(program) + kept_nodes(program)
-          buckets = nodes.group_by { |node| self.class.node_category(node) }
           CATEGORY_ORDER.filter_map do |cat|
-            kids = buckets[cat]
-            next if kids.nil? || kids.empty?
+            kids = self.class.project(nodes, cat)
+            next if kids.empty?
 
             Entry.new(op: :category, category: cat, label: cat.to_s, cost: kids.sum(&:cost),
                       children: self.class.group_by_source(kids))

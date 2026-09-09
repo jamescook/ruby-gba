@@ -525,12 +525,6 @@ module RubyGBA
         hot.zip(labels) { |h, label| printer.puts "    • #{label.ljust(width)}  ~#{CostModel.fmt(h.cost)}" }
       end
 
-      # The drawing section's cost from the categorized tree (0 if it draws nothing) —
-      # the figure the tear check judges against the vblank window.
-      def drawing_total(tree)
-        tree.find { |cat| cat[:category] == :drawing }&.dig(:cost) || 0
-      end
-
       # The budget verdict, at the BOTTOM — the pass/fail summary once the costs are
       # laid out above. Two deadlines share the one frame: 60fps (the whole frame vs
       # ~228 scanlines) and, for a single-buffered game, tearing (drawing alone vs the
