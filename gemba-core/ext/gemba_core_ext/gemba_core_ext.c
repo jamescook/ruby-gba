@@ -1156,6 +1156,278 @@ mgba_core_measure_frame_work(VALUE self)
     return out;
 }
 
+/* --------------------------------------------------------- */
+/* Profiling — where the CPU actually spent its frames        */
+/*                                                            */
+/* The cycle measurements above say how much a frame costs.   */
+/* They cannot say WHICH code it was spent in, and that is    */
+/* the question somebody with a slow game actually has.       */
+/*                                                            */
+/* So: step the emulation one instruction at a time and, at   */
+/* each step, write down the address about to run. Tally      */
+/* those and the shape of the frame falls out — the addresses */
+/* that come up most are where the time went. That is what    */
+/* every profiler does; the only thing particular to an       */
+/* emulator is that the sampling is exact rather than         */
+/* statistical, because we can look at every instruction      */
+/* instead of interrupting a real CPU periodically.           */
+/*                                                            */
+/* This stays a probe: it hands back raw counts against raw   */
+/* addresses. Turning an address into the name of a routine   */
+/* needs the build that made the ROM, which is not here.      */
+/* --------------------------------------------------------- */
+
+/* Where executable code can live. Registers, video memory and the like are
+ * left out: nothing runs from them, and a sample landing outside these is
+ * counted as elsewhere rather than silently dropped. */
+enum {
+    PROF_BIOS = 0,
+    PROF_EWRAM,
+    PROF_IWRAM,
+    PROF_ROM,
+    PROF_REGIONS
+};
+
+/* Counts per halfword, not per word, so Thumb code lands on its own
+ * instructions rather than two of them sharing a slot. ARM code simply leaves
+ * every odd slot empty. */
+#define PROF_GRAIN 2
+
+struct pc_tally {
+    uint32_t *count[PROF_REGIONS];
+    size_t    slots[PROF_REGIONS];
+    uint64_t  samples;   /* instructions seen */
+    uint64_t  halted;    /* CYCLES slept, not steps — see profile_one_frame */
+    uint64_t  elsewhere; /* executing somewhere we have no room to count */
+};
+
+/* Which region an address belongs to, and how far into it. Returns -1 for an
+ * address nothing executes from.
+ *
+ * The cartridge appears THREE TIMES over — at 0x08000000, 0x0A000000 and
+ * 0x0C000000 — which are the same bytes offered at three different memory
+ * speeds. They fold together here, or one routine would be counted as three
+ * depending on which mirror the build happened to reach it through. */
+static int
+pc_region(uint32_t addr, uint32_t *offset)
+{
+    switch (addr >> BASE_OFFSET) {
+    case 0x0: *offset = addr & (SIZE_BIOS - 1);         return PROF_BIOS;
+    case 0x2: *offset = addr & (SIZE_WORKING_RAM - 1);  return PROF_EWRAM;
+    case 0x3: *offset = addr & (SIZE_WORKING_IRAM - 1); return PROF_IWRAM;
+    case 0x8: case 0x9:
+    case 0xA: case 0xB:
+    case 0xC: case 0xD: *offset = addr & 0x01FFFFFF;    return PROF_ROM;
+    default: return -1;
+    }
+}
+
+/* The base address each region's counts are reported against, so a caller can
+ * turn a slot back into the address it stands for. */
+static const uint32_t PROF_BASE[PROF_REGIONS] = {
+    BASE_BIOS, BASE_WORKING_RAM, BASE_WORKING_IRAM, BASE_CART0
+};
+
+static void
+pc_tally_free(struct pc_tally *t)
+{
+    for (int r = 0; r < PROF_REGIONS; ++r) {
+        free(t->count[r]);
+        t->count[r] = NULL;
+        t->slots[r] = 0;
+    }
+}
+
+/* Flat arrays rather than a hash: an address maps straight to a slot, so the
+ * tally costs one add per instruction and cannot degrade. The cartridge array
+ * is sized to the ROM actually loaded — a cartridge region is 32MB of address
+ * space and almost none of it is real. */
+static int
+pc_tally_init(struct pc_tally *t, size_t rom_bytes)
+{
+    memset(t, 0, sizeof(*t));
+    size_t bytes[PROF_REGIONS] = {
+        SIZE_BIOS, SIZE_WORKING_RAM, SIZE_WORKING_IRAM, rom_bytes
+    };
+    for (int r = 0; r < PROF_REGIONS; ++r) {
+        t->slots[r] = bytes[r] / PROF_GRAIN;
+        if (t->slots[r] == 0)
+            continue;
+        t->count[r] = calloc(t->slots[r], sizeof(uint32_t));
+        if (!t->count[r]) {
+            pc_tally_free(t);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static inline void
+pc_tally_hit(struct pc_tally *t, uint32_t addr)
+{
+    uint32_t offset;
+    int region = pc_region(addr, &offset);
+    size_t slot = offset / PROF_GRAIN;
+    if (region < 0 || slot >= t->slots[region]) {
+        t->elsewhere++;
+        return;
+    }
+    t->count[region][slot]++;
+}
+
+/* THE ADDRESS OF THE INSTRUCTION ABOUT TO RUN, which is not what r15 holds.
+ *
+ * This chip reads ahead while it works, so r15 is never the address that is
+ * running. How far ahead depends on WHERE YOU ASK, and the difference is the
+ * one thing about this that is easy to get wrong: mid-instruction r15 is two
+ * instructions past, which is the figure the ARM manuals quote — but BETWEEN
+ * two steps, which is where this asks, it is exactly ONE instruction past.
+ * So one instruction's width comes off: four bytes of ARM code, or two of
+ * Thumb, a Thumb instruction being half the size.
+ *
+ * mGBA's own debugger does the same subtraction in the same place — see
+ * _readPC in its gdb stub, and ARMDebuggerCheckBreakpoints, which is called
+ * immediately after a step exactly as this is.
+ *
+ * Getting this wrong is quiet, which is why it is spelled out. Every address
+ * would move by the same four bytes, so every count stays where it was and
+ * every test of the SHAPE of a profile still passes — a loop's body is still
+ * counted once a pass. The report simply blames the instruction before the one
+ * doing the work. Nothing but a reading of the emulator's own source says so.
+ *
+ * The mode is read from cpsr rather than executionMode because that is the one
+ * the processor itself switches, and it is read here, beside the register, so a
+ * branch that changes mode cannot be answered with the mode from before it. */
+static inline uint32_t
+executing_pc(struct ARMCore *cpu)
+{
+    uint32_t width = cpu->cpsr.t ? WORD_SIZE_THUMB : WORD_SIZE_ARM;
+    return (uint32_t)cpu->gprs[ARM_PC] - width;
+}
+
+/* Step one frame, writing down where the CPU was at each step.
+ *
+ * The frame is walked the same way measure_frame_split walks it — by global
+ * time, since that is what advances by exactly a frame — so the two agree
+ * about where a frame ends.
+ *
+ * A SLEEP IS COUNTED APART, AND IN CYCLES RATHER THAN STEPS. When a game has
+ * finished its work it sleeps until the screen comes round, and the emulator
+ * answers that by jumping straight to whatever is due next. So the sleep is ONE
+ * step however long it lasts, and counting steps would say a game that slept
+ * nine tenths of its frame slept twice. What the sleep is worth is the time it
+ * covered, so the clock is read either side of it.
+ *
+ * It gets no address at all, which is the point of separating it. The address
+ * sitting in r15 while a game sleeps is wherever it happened to go to sleep,
+ * and blaming that line for the wait would be the most misleading thing this
+ * could report. */
+static void
+profile_one_frame(struct mgba_core *mc, struct pc_tally *t)
+{
+    struct mCore *core = mc->core;
+    struct GBA *gba = (struct GBA *)core->board;
+
+    int32_t frame_c = core->frameCycles(core);
+    uint64_t start_gc = gba->timing.globalCycles;
+
+    long guard = 0;
+    long max_iters = (long)frame_c * 4;
+
+    while ((gba->timing.globalCycles - start_gc) < (uint64_t)frame_c
+           && ++guard < max_iters) {
+        int asleep = gba->cpu->halted;
+        uint64_t before = gba->timing.globalCycles;
+
+        if (!asleep) {
+            pc_tally_hit(t, executing_pc(gba->cpu));
+            t->samples++;
+        }
+        core->step(core);
+
+        if (!asleep)
+            continue;
+
+        /* Clamped to the frame's end, so the step that sleeps past the boundary
+         * does not charge this frame for the next one's wait. */
+        uint64_t slept = gba->timing.globalCycles - before;
+        uint64_t elapsed = gba->timing.globalCycles - start_gc;
+        if (elapsed > (uint64_t)frame_c) {
+            uint64_t over = elapsed - (uint64_t)frame_c;
+            slept = over < slept ? slept - over : 0;
+        }
+        t->halted += slept;
+    }
+}
+
+/* Add one region's counts to +out+ as address => times seen. Only addresses
+ * that came up at all are included, so a game that touches a corner of a large
+ * cartridge hands back a small hash. Regions cannot collide — each reports
+ * against its own base — so they all go in the one hash. */
+static void
+pc_region_into(VALUE out, const struct pc_tally *t, int region)
+{
+    const uint32_t *count = t->count[region];
+    if (!count)
+        return;
+
+    for (size_t slot = 0; slot < t->slots[region]; ++slot) {
+        if (count[slot] == 0)
+            continue;
+        uint32_t addr = PROF_BASE[region] + (uint32_t)(slot * PROF_GRAIN);
+        rb_hash_aset(out, UINT2NUM(addr), UINT2NUM(count[slot]));
+    }
+}
+
+/* Core#profile(frames, keys) — run that many frames and report where the CPU
+ * was. Returns a Hash:
+ *
+ *   :samples   how many instructions were seen
+ *   :halted    CYCLES spent asleep waiting for the screen — time, not code
+ *   :elsewhere instructions executing somewhere with no room to count them
+ *   :frames    frames actually run
+ *   :pc        { address => times seen }
+ *
+ * The caller decides what has settled and what to hold: run it after stepping
+ * past the boot frames, with whatever keys the measured behaviour needs.
+ * GBA-only. */
+static VALUE
+mgba_core_profile(VALUE self, VALUE rb_frames, VALUE rb_keys)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA)
+        rb_raise(rb_eRuntimeError, "profile is GBA-only");
+
+    long frames = NUM2LONG(rb_frames);
+    if (frames <= 0)
+        rb_raise(rb_eArgError, "frames must be positive, got %ld", frames);
+
+    struct mCore *core = mc->core;
+    struct pc_tally tally;
+    if (!pc_tally_init(&tally, core->romSize(core)))
+        rb_raise(rb_eNoMemError, "could not allocate the profile tally");
+
+    if (!NIL_P(rb_keys))
+        core->setKeys(core, (uint32_t)NUM2UINT(rb_keys));
+
+    for (long f = 0; f < frames; ++f)
+        profile_one_frame(mc, &tally);
+
+    VALUE out = rb_hash_new();
+    rb_hash_aset(out, ID2SYM(rb_intern("frames")),    LONG2NUM(frames));
+    rb_hash_aset(out, ID2SYM(rb_intern("samples")),   ULL2NUM(tally.samples));
+    rb_hash_aset(out, ID2SYM(rb_intern("halted")),    ULL2NUM(tally.halted));
+    rb_hash_aset(out, ID2SYM(rb_intern("elsewhere")), ULL2NUM(tally.elsewhere));
+
+    VALUE pc = rb_hash_new();
+    for (int r = 0; r < PROF_REGIONS; ++r)
+        pc_region_into(pc, &tally, r);
+    rb_hash_aset(out, ID2SYM(rb_intern("pc")), pc);
+
+    pc_tally_free(&tally);
+    return out;
+}
+
 #ifdef GEMBA_CORE_RCHEEVOS
 /* --------------------------------------------------------- */
 /* GembaCore::RARuntime — thin wrapper around rc_runtime_t   */
@@ -1500,6 +1772,7 @@ Init_gemba_core_ext(void)
     rb_define_method(cCore, "cpu_halted?",   mgba_core_cpu_halted_p, 0);
     rb_define_method(cCore, "measure_frame_busy_cycles", mgba_core_measure_frame_busy_cycles, 0);
     rb_define_method(cCore, "measure_frame_work", mgba_core_measure_frame_work, 0);
+    rb_define_method(cCore, "profile",       mgba_core_profile, 2);
 
     /* BIOS checksum utility */
     rb_define_module_function(mGembaCore, "gba_bios_checksum", mgba_gba_bios_checksum, 1);
