@@ -397,7 +397,8 @@ module RubyGBA
             # The test itself runs every frame, whichever way it branches, so its cost is
             # real per-frame work and shown as its own leaf — a per-pixel collision test
             # especially is not free. Then the branches.
-            condition_leaf(node.cond) + (node.children + [node.else].compact).flat_map { |child| build(child) }
+            condition_leaf(node.cond, source: node.source) +
+              (node.children + [node.else].compact).flat_map { |child| build(child) }
           when :else then node.children.flat_map { |child| build(child) }
           when :case then [build_case(node)]
           when :call then [build_call(node)]
@@ -412,18 +413,21 @@ module RubyGBA
         # A branch test as a cost leaf — the work of evaluating an `if`'s condition every
         # frame. Only shown when it isn't free (a comparison and up cost something; a bare
         # variable read doesn't). A collision (`overlaps?`) reads as "collision test", since
-        # its per-pixel half is the expensive part; anything else reads as "test".
-        def condition_leaf(cond)
+        # its per-pixel half is the expensive part; anything else reads as "test". The leaf
+        # carries the line the test was written on, like any other statement's, so a frame
+        # that is mostly tests can still be traced to the lines that do the testing.
+        def condition_leaf(cond, source:)
           c = @pricing.expr_cost(cond)
           return [] unless c.positive?
 
-          arithmetic = arithmetic_leaves(cond, category: :logic, source: nil)
+          arithmetic = arithmetic_leaves(cond, category: :logic, source: source)
           own = c - sum(arithmetic)
           return arithmetic unless own.positive?
 
           collision = cond.walk.any? { |n| n.kind == :pixels_overlap }
           name = collision ? "collision test" : "test"
-          arithmetic + [Entry.new(op: collision ? :collision : :cond, name: name, label: name, cost: own)]
+          arithmetic + [Entry.new(op: collision ? :collision : :cond, name: name, label: name, cost: own,
+                                  source: source)]
         end
 
         # A drawing or compute op becomes a leaf, with the dear arithmetic it was handed
