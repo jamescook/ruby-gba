@@ -102,9 +102,11 @@ of the console on most of the corpus, and that tenth is the band `cost:check` sc
 verdict within a tenth of its limit reads "close" and only a measured run
 (`rom.explain(measured: true)`) settles it. A uniform scale error is harmless. One op wrong
 relative to another is a bug, because a wrong order sends a reader to the wrong line. Tearing is
-the one verdict only the estimate can give: the emulator reads the finished picture and cannot
-see a tear. The same three sentences head `lib/ruby_gba/ir/cost_model.rb`, and the report prints
-them where they apply.
+the cautious verdict: the estimate asks whether the drawing fits the safe window, where a real
+tear is a race down the screen the drawing can win even after overrunning — so a measured run
+reads what happened and overrides it (`RubyGBA::Tearing`), except on a screen with no framebuffer
+to read it off. The same three sentences head `lib/ruby_gba/ir/cost_model.rb`, and the report
+prints them where they apply.
 
 ## The two backends you assert against
 

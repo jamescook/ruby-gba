@@ -466,14 +466,39 @@ class TestCostVerdicts < CostModelTest
 
   # --- what only the estimate can answer ---
 
-  # Beside a measured verdict the tearing line is still the estimate's, and it says so — or
-  # the measured column reads as the authority on the line next to it.
-  def test_beside_a_measurement_the_tearing_verdict_says_it_is_the_estimates
+  # Beside a measured verdict the tearing line is still the estimate's whenever the readings
+  # carry no tear of their own, and it says so — or the measured column reads as the
+  # authority on the line next to it. These readings are handed over as numbers rather than
+  # run, so there is no tear in them, and the note says which of its two reasons applies.
+  def test_beside_a_measurement_with_no_tear_read_the_verdict_says_it_is_the_estimates
     reading = { nil => { scanlines: 40.0, fps: nil, saturated: false } }
     out = reported(loop_of_clears(1, buffered: false), measured: reading)
 
     assert_match(/tearing is the estimate's alone/, out)
-    assert_match(/cannot see a tear/, out)
+    assert_match(/these readings do not include one/, out)
+  end
+
+  # ...and a run that DID read one says what it saw, rather than deferring to the estimate.
+  # The reading travels as plain numbers, the way Analyzer::Result#for_report hands it over.
+  def test_a_measured_tear_is_the_verdict
+    reading = { nil => { scanlines: 40.0, fps: nil, saturated: false,
+                         torn_rows: 12, torn_from: 30, torn_to: 41 } }
+    out = reported(loop_of_clears(1, buffered: false), measured: reading)
+
+    assert_match(/tearing  measured — the display showed 12 rows before the game finished them/, out)
+    assert_match(/rows 30 to 41/, out)
+    refute_match(/tearing is the estimate's alone/, out)
+  end
+
+  # A run that looked and found nothing says THAT, which is the answer the estimate could
+  # never give.
+  def test_a_measured_run_that_found_no_tear_says_so
+    reading = { nil => { scanlines: 40.0, fps: nil, saturated: false,
+                         torn_rows: 0, torn_from: nil, torn_to: nil } }
+    out = reported(loop_of_clears(1, buffered: false), measured: reading)
+
+    assert_match(/tearing  measured — every row was finished before the display showed it/, out)
+    assert_match(/ok — no tearing/, out)
   end
 
   def test_a_double_buffered_game_has_no_tearing_to_be_unsure_of
