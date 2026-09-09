@@ -587,6 +587,48 @@ module RubyGBA
                             over: COMPARE_PASSES * (COMPARE_HI - COMPARE_LO))
       end
 
+      # --- ...AND THE BRANCH THAT ACTS ON THE ANSWER, which is a separate thing ---
+      #
+      # The comparison above is measured with NO BRANCH round it, deliberately and for a good
+      # reason (see its note). So nothing yet prices what an `if` does with the answer: test it
+      # and jump over the body when it says no. That is a compare and a jump of its own, and a
+      # taken jump throws away the instructions being fetched behind it.
+      #
+      # THE BODY NEVER RUNS HERE, which is what makes this the branch alone. The comparison is
+      # `d > 200` and d holds 100, so every copy tests false, jumps, and leaves its body
+      # untouched — so the difference between two counts of them is compares and taken jumps
+      # and nothing else. Differenced against the comparison weight afterwards, what is left is
+      # the branch.
+      #
+      # THE TAKEN SIDE IS THE ONE MEASURED because it is the dearer one and because it is the
+      # side a walk over slots spends nearly all its time on: a pool of sixty-four with six live
+      # jumps fifty-eight times. Where the model knows how often the body runs it charges this
+      # for the rest, and where it does not it charges the body every frame instead — which is
+      # dearer than this and already covers it.
+      BRANCH_PASSES = 300 # the same size the comparison uses, and for the same reason
+      BRANCH_LO = 2
+      BRANCH_HI = 8
+
+      def branch_busy(name, copies)
+        b = IR::Build
+        one = -> { b.if_(b.binop(:>, b.var_ref(:d), b.int(200)), b.set(:y, b.int(1))) }
+        prog = b.program(
+          b.screen(:bitmap),
+          # :pad first, keeping the cheap first slot clear — as #stable_busy does.
+          b.set(:pad, b.int(0)), b.set(:y, b.int(0)), b.set(:d, b.int(100)),
+          b.loop_(b.wait_vblank,
+                  b.repeat(b.int(BRANCH_PASSES), :i, *Array.new(copies) { one.call })),
+        )
+        @m.busy(name, lowered(name, prog))
+      end
+
+      # One `if` whose test says no: the comparison, plus the branch's own work.
+      def per_branch
+        Reductions.marginal(branch_busy("br#{BRANCH_HI}", BRANCH_HI),
+                            branch_busy("br#{BRANCH_LO}", BRANCH_LO),
+                            over: BRANCH_PASSES * (BRANCH_HI - BRANCH_LO))
+      end
+
       # --- reading a button, and the snapshot behind it ---
       #
       # Built straight from the IR for the reason a comparison is: `held(:a)` hands back a

@@ -149,10 +149,10 @@
       "distance": 1.217
     },
     "sparks": {
-      "estimate": 52.614,
+      "estimate": 52.682,
       "measured": 51.42,
-      "ratio": 0.977,
-      "distance": 1.023
+      "ratio": 0.976,
+      "distance": 1.025
     },
     "sprite_mover": {
       "estimate": 2.701,

@@ -24,10 +24,10 @@ class TestPoolFrameCost < CostModelTest
 
   # A pool that fills +live+ of its slots at boot and then leaves them alone, so a frame's
   # cost is the walk over every slot plus +live+ bodies and nothing else.
-  def bullets(code, live, usually: live)
+  def bullets(code, live, usually: live, slots: SLOTS)
     RubyGBA.build("POOLFRAME", code: code, maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
-      shots = pool(:bullet, x: 0, y: 0, vy: 0, capacity: SLOTS, estimate: { usually: usually })
+      shots = pool(:bullet, x: 0, y: 0, vy: 0, capacity: slots, estimate: { usually: usually })
       live.times { |n| shots.spawn(x: n * 3, y: 100, vy: 1) }
       game_loop do
         shots.each do |shot|
@@ -58,26 +58,28 @@ class TestPoolFrameCost < CostModelTest
 
   # HOW CLOSE THE ESTIMATE HAS TO BE, and why it is not tighter than this.
   #
-  # A pool's walk is the coarsest thing the model prices. Measured against the console with 1
-  # and 6 of 64 slots live, the estimate reads about a third OVER. It is not a wrong SHAPE — the
-  # cost per live body is within a few per cent, which is what the two live counts below are
-  # really asking — it is the per-slot walk that is mispriced, and it is mispriced because the
-  # model's account of what a walk is made of does not match what the walk emits.
+  # A pool's walk is the coarsest thing the model prices, and it now tracks the console to
+  # within a few per cent at any capacity — so the band is the epic's tenth rather than the
+  # ceiling on a known error it used to be.
   #
-  # The band is a ceiling on that ONE error, not a statement that the model is vague to this
-  # much: two errors of the same size in opposite directions sit inside any band at all. What
-  # keeps it honest is that the parts under it are measured where a real program meets them —
-  # the walk's price is built mostly out of what reading a list element costs, and that weight
-  # is measured on a list at an ordinary two-instruction address (lists sit at the far end of
-  # the quick memory so variables can have the near one; see Backends::GBA::Memory). A
-  # benchmark whose list landed at offset nought would be measuring the one address on this
-  # console that can be named in a single instruction, undercharging every real list and
-  # hiding most of this gap behind it.
+  # WHAT THE WALK IS MADE OF, since this is the test that would catch it moving: a loop pass,
+  # a read of the live column by the loop's own counter, a compare, and — on the slots that
+  # are not live — a jump over the body. That last one was charged nothing until the branch
+  # was given a weight, and it is most of what used to be missing here: measured as a slope
+  # over capacity with the body held fixed, the walk read four fifths of the console at 32, 64,
+  # 128 and 192 slots alike. The same four fifths at every capacity is what said it was a
+  # per-SLOT cost rather than a body counted wrong.
   #
-  # WHICH DIRECTION IT IS WRONG IN MATTERS more than the size, and this is the safe one now.
-  # `explain` is how an author decides whether a frame fits, so an estimate that FLATTERS a game
-  # is the dangerous kind. Reading over tells them a frame is fuller than it is.
-  BAND = 0.40
+  # WHY IT SHOWED UP HERE AND NOWHERE ELSE, which is the part worth remembering. Everywhere
+  # else the model charges a body it cannot prove will run, every frame — and a body is dearer
+  # than the jump that replaces it, so that over-charge covered the missing jump. A pool is the
+  # one place the model is told how many slots are live and correctly declines to charge the
+  # rest, and with nothing left to cancel against, the hole showed.
+  #
+  # WHICH DIRECTION IT IS WRONG IN MATTERS more than the size. `explain` is how an author
+  # decides whether a frame fits, so an estimate that FLATTERS a game is the dangerous kind.
+  # What is left reads a little OVER, which tells them a frame is fuller than it is.
+  BAND = 0.10
 
   def assert_tracks_the_console(rom, note)
     assert_in_delta 1.0, estimated(rom) / measured(rom), BAND, note
@@ -93,6 +95,24 @@ class TestPoolFrameCost < CostModelTest
   # estimate falls well below what the console spends here.
   def test_it_follows_the_console_down_to_a_pool_that_holds_almost_nothing
     assert_tracks_the_console bullets("BPF2", 1), "one live of sixty-four"
+  end
+
+  # THE WALK ON ITS OWN, which is the half this test is really about and the half that was
+  # wrong. Holding the live count fixed and varying the CAPACITY leaves the bodies alone, so
+  # the slope between two readings is one slot of walk and nothing else. A ratio that holds
+  # across a sixfold range of capacities is what says the per-slot price is right, where a
+  # single reading could be right by two errors meeting.
+  def test_one_more_slot_costs_what_the_console_spends_on_one_more_slot
+    require_gemba_core!
+    small = bullets("BPF5", 1, slots: 32)
+    large = bullets("BPF6", 1, slots: 192)
+    per_slot = lambda do |from, to|
+      (estimated(to) - estimated(from)) / (192 - 32) /
+        ((measured(to) - measured(from)) / (192 - 32))
+    end
+
+    assert_in_delta 1.0, per_slot.call(small, large), BAND,
+                    "one more slot of walk, priced against the console"
   end
 
   # THE BUG IT REPLACES, and why the shape had to change rather than the numbers. Counting a
