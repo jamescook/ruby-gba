@@ -34,16 +34,24 @@ module RubyGBA
     end
 
     # Open an emulator core on a ROM file path.
-    def open(rom_path)
-      core_class.new(rom_path)
+    #
+    # +save_dir+ says where the cartridge's battery-backed save memory is kept. The core
+    # keeps no opinion: leave it out and the emulator writes a .sav beside the ROM, and
+    # creates one if it is not there. {probe} is the layer that has an opinion about that.
+    def open(rom_path, save_dir: nil, bios_path: nil)
+      core_class.new(rom_path, save_dir, bios_path)
     end
 
     # Open a high-level probe on a ROM file path — the API that runs frames, reads
     # memory, and measures how many of a frame's scanlines the CPU burns. The analyzer
     # profiles through this.
-    def probe(rom_path)
+    #
+    # It writes no save file beside the ROM unless +save_dir+ says to, so profiling a game
+    # twice profiles the same game — a saved high score carried from one run into the next
+    # would quietly make them different games.
+    def probe(rom_path, save_dir: nil, bios_path: nil)
       load!
-      GembaCore.open(rom_path)
+      GembaCore.open(rom_path, save_dir: save_dir, bios_path: bios_path)
     end
 
     # Whether the backend can be loaded. For the rare caller that legitimately

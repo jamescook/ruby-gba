@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "tmpdir"
 
 # Tests for GembaCore::Probe — the dev-facing wrapper that returns plain data
 # (pixels as [r,g,b], memory as ints, audio as an energy number, a snapshot
@@ -155,5 +156,66 @@ class TestGembaCoreProbe < Minitest::Test
     assert_predicate probe, :closed?
     probe.close # no raise on second close
     assert_raises(RuntimeError) { probe.step(1) }
+  end
+
+  # --- Where the cartridge's save memory goes ---------------------------------
+  #
+  # The emulator keeps a cartridge's battery-backed save chip as a .sav file, and left
+  # to itself it writes one beside the ROM it opened, whether the game saves anything or
+  # not. Looking at somebody's cartridge is not permission to write next to it, and a
+  # second run that finds the first run's save is not the same run.
+
+  def test_a_probe_writes_nothing_beside_the_rom_it_opened
+    in_a_directory_of_its_own do |dir, rom|
+      probe = GembaCore.open(rom)
+      probe.step(6)
+      assert_equal ["saver.gba"], Dir.children(dir).sort, "the probe left a file beside the ROM"
+      probe.close
+      assert_equal ["saver.gba"], Dir.children(dir).sort, "closing the probe left a file behind"
+    end
+  end
+
+  def test_a_probe_puts_the_save_where_it_is_told
+    in_a_directory_of_its_own do |dir, rom|
+      saves = File.join(dir, "saves")
+      Dir.mkdir(saves)
+      probe = GembaCore.open(rom, save_dir: saves)
+      probe.step(6)
+      assert_equal ["saver.sav"], Dir.children(saves), "the save should be where it was told to go"
+      probe.close
+      assert_equal ["saver.sav"], Dir.children(saves), "a save the caller placed is the caller's"
+    end
+  end
+
+  def test_the_temporary_save_directory_goes_away_with_the_probe
+    in_a_directory_of_its_own do |_dir, rom|
+      probe = GembaCore.open(rom)
+      probe.step(6)
+      dir = probe.instance_variable_get(:@own_save_dir)
+      assert Dir.exist?(dir), "the probe should have a save directory of its own while it runs"
+      probe.close
+      refute Dir.exist?(dir), "closing the probe should take its save directory away"
+    end
+  end
+
+  private
+
+  # A scratch directory holding one ROM that really does save, so a .sav has a reason to
+  # appear. Yields [directory, rom path]; the directory goes when the block ends.
+  def in_a_directory_of_its_own
+    Dir.mktmpdir("probe-save") do |dir|
+      rom = RubyGBA.build("SAVER", code: "TSAV", maker: "01") do
+        screen :bitmap
+        high = save_var :high_score, 0
+        s = var :s, 0
+        game_loop do
+          s.set 7
+          (s > high).then { high.set s }
+        end
+      end
+      path = File.join(dir, "saver.gba")
+      rom.write(path)
+      yield dir, path
+    end
   end
 end

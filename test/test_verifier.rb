@@ -162,4 +162,45 @@ class TestVerifier < Minitest::Test
     assert_raises(ArgumentError) { v.pixel(0, 160) }
     assert_raises(ArgumentError) { v.pixel(-1, 0) }
   end
+
+  # A verified ROM goes to a temporary file, and the emulator keeps a cartridge's save
+  # memory in a .sav beside whatever ROM it opened — creating it whether the game saves
+  # anything or not. That is one abandoned file per verification, and this suite verifies
+  # thousands. So the save goes in a directory of the Verifier's own instead.
+  def test_verifying_a_rom_leaves_no_save_file_loose_in_the_temp_directory
+    rom = RubyGBA.build("SAVER", code: "BSVR", maker: "01") do
+      screen :bitmap
+      high = save_var :high_score, 0
+      s = var :s, 0
+      game_loop do
+        s.set 7
+        (s > high).then { high.set s }
+      end
+    end
+
+    in_a_temp_directory_of_its_own do |dir|
+      v = RubyGBA::Verifier.new(rom, frames: 6)
+      v.pixel(0, 0) # force the render, which is what opens the emulator
+
+      loose = Dir.children(dir).grep(/\.sav\z/)
+      assert_empty loose, "verifying a ROM dropped a save file next to it in the temp directory"
+    end
+  end
+
+  private
+
+  # Run the block with the temp directory pointed at an empty one, so what a Verifier
+  # leaves behind can be read off it directly.
+  def in_a_temp_directory_of_its_own
+    require "tmpdir"
+    Dir.mktmpdir("verify-check") do |dir|
+      was = ENV["TMPDIR"]
+      ENV["TMPDIR"] = dir
+      begin
+        yield dir
+      ensure
+        ENV["TMPDIR"] = was
+      end
+    end
+  end
 end

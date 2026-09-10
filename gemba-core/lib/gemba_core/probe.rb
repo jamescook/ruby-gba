@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require "tmpdir"
+require "fileutils"
+
 module GembaCore
   # A headless, dev-only probe over a GBA ROM.
   #
@@ -26,9 +29,28 @@ module GembaCore
 
     attr_reader :width, :height, :frames_run
 
+    # WHERE THE CARTRIDGE'S SAVE MEMORY GOES, which a probe has an opinion about.
+    #
+    # A GBA cartridge can hold a battery-backed chip the game writes its high scores and
+    # save files into, and the emulator keeps that chip as a .sav file on disk. Left to
+    # itself it puts one beside the ROM it opened, and creates it if it is not there — so
+    # merely LOOKING at somebody's cartridge drops a file next to it, and the second run
+    # of the same ROM is not the first, because the game now finds a save. That second
+    # part is the one that costs real time: it reads as the emulator being unrepeatable.
+    #
+    # A probe is a dev tool for asking what a ROM does, so by default it gets a temporary
+    # directory of its own and takes it away again on {#close}: nothing of the caller's is
+    # touched, and every run starts from a fresh cartridge. Pass +save_dir:+ to say where
+    # the save really lives — a game you want to profile from its own save file wants
+    # +save_dir: File.dirname(rom_path)+. {Core} keeps no opinion at all; it is the layer
+    # for a caller that wants to place these itself.
+    #
     # @param rom_path [String] path to a .gba (or .gb/.gbc) ROM file
-    def initialize(rom_path)
-      @core = Core.new(rom_path)
+    # @param save_dir [String, nil] directory for the .sav; nil for a private temporary one
+    # @param bios_path [String, nil] a BIOS image to boot through, or nil for mGBA's own
+    def initialize(rom_path, save_dir: nil, bios_path: nil)
+      @own_save_dir = save_dir.nil? ? Dir.mktmpdir("gemba-save") : nil
+      @core = Core.new(rom_path, save_dir || @own_save_dir, bios_path)
       @width = @core.width
       @height = @core.height
       @frames_run = 0
@@ -447,9 +469,12 @@ module GembaCore
       end
     end
 
-    # Shut down the underlying core and free its buffers. Idempotent.
+    # Shut down the underlying core and free its buffers, and take away the temporary
+    # save directory if this probe made one. Idempotent.
     def close
       @core.destroy unless @core.destroyed?
+      FileUtils.remove_entry(@own_save_dir) if @own_save_dir && Dir.exist?(@own_save_dir)
+      @own_save_dir = nil
       nil
     end
 
