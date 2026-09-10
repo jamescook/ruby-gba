@@ -98,6 +98,8 @@ module RubyGBA
       @sprite_seq = 0          # counts sprites, to name each one's hidden position/backing vars
       @images = {}             # image name → [width, height], so a sprite can size itself from its art
       @image_bounds = {}       # image name → [x, y, w, h] box around its visible (non-transparent) pixels, for collision
+      @pictures = {}           # image name → its {IR::Assets::Image}, so `mirror` can turn one round
+      @mirrored_images = {}    # image name → the name of its mirror, so mirroring one twice makes one picture
       @tilesets = {}           # tileset name → { chars:, by_number:, tile_w:, tile_h:, solid_images: } — a tile-image map addressable by character or by number (a CSV cell)
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
       @sprites = []            # live software sprites, repainted after every wait_vblank

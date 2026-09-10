@@ -38,7 +38,7 @@
       "data": 0
     },
     "hero": {
-      "code": 2900,
+      "code": 3064,
       "data": 0
     },
     "jukebox": {
@@ -50,11 +50,11 @@
       "data": 0
     },
     "level": {
-      "code": 15068,
+      "code": 6348,
       "data": 0
     },
     "maze": {
-      "code": 25008,
+      "code": 4928,
       "data": 0
     },
     "pacman": {
@@ -90,7 +90,7 @@
       "data": 0
     },
     "sheet": {
-      "code": 15068,
+      "code": 6348,
       "data": 0
     },
     "shmup": {
@@ -114,7 +114,7 @@
       "data": 0
     },
     "tiles": {
-      "code": 1640,
+      "code": 7920,
       "data": 0
     }
   }

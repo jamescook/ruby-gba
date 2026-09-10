@@ -23,6 +23,19 @@ module RubyGBA
           new(width: node.width, height: node.height,
               transparent: node.transparent, pixels: node.pixels, colors: node.colors)
         end
+
+        # THE SAME PICTURE THE OTHER WAY ROUND — every row read right to left.
+        #
+        # "Left is the right one, backwards" is close to universal in 2D games, and this
+        # is the one place a picture is turned round. A program that SAYS a pose is a
+        # mirror and a build that NOTICES one already is therefore compare the same bytes,
+        # which is what lets the second recognize the first.
+        def mirrored
+          turned = (0...height).each_with_object(+"".b) do |row, bytes|
+            bytes << pixels.byteslice(row * width * 2, width * 2).unpack("v*").reverse.pack("v*")
+          end
+          with(pixels: turned)
+        end
       end
 
       # A recorded sound: how many samples a second it was recorded at, how many there are,

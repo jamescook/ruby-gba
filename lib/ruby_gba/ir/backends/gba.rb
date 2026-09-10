@@ -1924,6 +1924,13 @@ module RubyGBA
         # comment maps the framework's words onto this console's.
         OBJ_256_COLOR = 0x2000
 
+        # attr1 bit 12: draw this sprite reversed left to right. The console does it as it
+        # composites, for nothing, which is what lets a pose that is another pose mirrored
+        # keep no pixels of its own (see #object_pose_mirrors). It only means this while
+        # the sprite is upright — once one turns, this bit and the one above it name its
+        # rotation group instead.
+        OBJ_HFLIP = 0x1000
+
         # attr2 bits 12-15: which palette bank a 4bpp sprite reads. Per SPRITE, so all of
         # its poses share one — unlike a background, where each tile names its own.
         OBJ_BANK_SHIFT = 12
@@ -2361,25 +2368,45 @@ module RubyGBA
           end
 
           # EACH POSE IS STORED AT ITS OWN SIZE, trimmed to what it actually draws (see
-          # #object_pose_box) rather than at the canvas they were all drawn on.
+          # #object_pose_box) rather than at the canvas they were all drawn on — and a pose
+          # that is another one MIRRORED is not stored at all (see #object_pose_mirrors).
           place = @obj_banks.placement(name)
-          # A SPRITE THAT TURNS OR RESIZES IS NOT TRIMMED, and that is about being right
-          # rather than about being easy: the console spins an object about the middle of
-          # its own box, so trimming the blank away would move the pivot and the sprite
-          # would swing around a different point than the author drew it to. The blank is
-          # what holds the pivot where they put it.
-          boxes =
-            if object_transformed?(node)
-              poses.map { [0, 0, width, height] }
-            else
-              poses.map { |image| object_pose_box(@bitmaps.fetch(image)) }
-            end
+          # A SPRITE THAT TURNS OR RESIZES IS NEITHER TRIMMED NOR MIRRORED, and that is
+          # about being right rather than about being easy. The console spins an object
+          # about the middle of its own box, so trimming the blank away would move the
+          # pivot and the sprite would swing around a different point than the author drew
+          # it to; and the two attribute bits that mirror an object are the ones that name
+          # the rotation group once it is turning, so there are none left to mirror with.
+          plain = !object_transformed?(node)
+          mirrors = plain ? object_pose_mirrors(poses) : Array.new(poses.length)
+          boxes = poses.each_with_index.each_with_object([]) do |(image, k), found|
+            found << if !plain
+                       [0, 0, width, height]
+                     elsif mirrors[k]
+                       mirrored_pose_box(found[mirrors[k]], width)
+                     else
+                       object_pose_box(@bitmaps.fetch(image))
+                     end
+          end
+          # Where each pose's tiles begin, in the 32-byte units a tile number counts in —
+          # taken from the bytes already written rather than from a tile count, since a
+          # picture stored the big way is two units to the tile. A mirrored pose adds
+          # nothing and points back at the pose it mirrors.
           tiles = +"".b
-          poses.each_with_index { |image, k| tiles << encode_object_tiles(@bitmaps.fetch(image), place, boxes[k]) }
-          # Where each pose's tiles begin, in the 32-byte units a tile number counts in.
-          starts = boxes.each_with_object([0]) { |(_, _, w, h), at| at << at.last + ((w / TILE_PX) * (h / TILE_PX)) }
-          per_pose = starts[1] # stride between poses, meaningful only when they are alike
-          alike = boxes.uniq.size == 1
+          starts = []
+          poses.each_with_index do |image, k|
+            if mirrors[k]
+              starts << starts[mirrors[k]] # point it at the pose it mirrors and store nothing
+              next
+            end
+            starts << tiles.bytesize / 32
+            tiles << encode_object_tiles(@bitmaps.fetch(image), place, boxes[k])
+          end
+          alike = boxes.uniq.size == 1 && mirrors.none?
+          # The stride from one pose's tiles to the next, which means anything only when
+          # the poses are alike — and then every one is the same number of units, so it is
+          # simply what one pose came to.
+          per_pose = alike ? (tiles.bytesize / 32) / poses.length : 0
           tile_blob, tile_unit = @obj_art.place(name, tiles, narrow: place.narrow?)
           # Poses that trimmed alike carry their one size in the sprite's own entry. Poses
           # that differ carry NOTHING here — the size and shape come out of the table with
@@ -2394,12 +2421,13 @@ module RubyGBA
             pose: node.pose,     # the run-time pose selector (which pose to show)
             # Every pose trimmed the same way is the ordinary case — a walk cycle drawn
             # inside one outline — and it keeps the plain draw: one size in the sprite's
-            # own entry, one stride between poses. Poses that came out DIFFERENT sizes
-            # carry a table instead (#object_pose_table), read once a frame.
+            # own entry, one stride between poses. Poses that came out DIFFERENT sizes, or
+            # that are another pose mirrored, carry a table instead (#object_pose_table),
+            # read once a frame.
             alike: alike,
-            boxes: boxes, starts: starts,
+            mirrors: mirrors, # which poses are drawn backwards, so the draw knows to say so
             pose_table: alike ? nil : :"__poses_#{name}",
-            pose_words: alike ? nil : object_pose_table(name, boxes, starts, tile_unit),
+            pose_words: alike ? nil : object_pose_table(name, boxes, starts, mirrors, tile_unit),
             # Where the first pose sits inside the canvas it was drawn on. The sprite is
             # drawn that much further along so the picture does not move; for poses that
             # differ it comes out of the table instead.
@@ -2424,24 +2452,30 @@ module RubyGBA
           }
         end
 
-        # EVERYTHING THAT CHANGES BETWEEN POSES OF DIFFERENT SIZES, one word each, read
-        # by the per-frame draw when a sprite's poses did not all trim the same way.
+        # EVERYTHING THAT CHANGES BETWEEN POSES THAT ARE NOT INTERCHANGEABLE, one word
+        # each, read by the per-frame draw.
         #
         # A uniform sprite needs none of this: its size is the same every frame, so it
-        # sits in the sprite's own entry and the pose is a stride. Once the poses differ,
-        # four things move with the pose — which tiles, what shape, what size, and how far
-        # along to draw it so the picture does not shift — and all four fit in one word.
-        # One read a frame and some shifting, against storing every pose at the biggest
-        # one's size.
+        # sits in the sprite's own entry and the pose is a stride. Once the poses differ
+        # in size, four things move with the pose — which tiles, what shape, what size,
+        # and how far along to draw it so the picture does not shift. A pose that is
+        # another one MIRRORED breaks the stride too, since its tiles are the pose it
+        # mirrors, and adds a fifth. All five fit in one word: one read a frame and some
+        # shifting, against storing every pose at the biggest one's size and every mirror
+        # a second time.
         #
         #   bits  0..9   the pose's first tile
         #        10..11  shape          12..13  size
         #        14..21  how far right   22..29  how far down (both a whole number of tiles)
-        def object_pose_table(name, boxes, starts, tile_unit)
+        #           30   draw it mirrored
+        POSE_MIRRORED = 1 << 30
+
+        def object_pose_table(name, boxes, starts, mirrors, tile_unit)
           blob = :"__poses_#{name}"
           words = boxes.each_with_index.map do |(x0, y0, w, h), k|
             shape, size = OBJ_SIZES.fetch([w, h])
-            (tile_unit + starts[k]) | (shape << 10) | (size << 12) | (x0 << 14) | (y0 << 22)
+            (tile_unit + starts[k]) | (shape << 10) | (size << 12) | (x0 << 14) | (y0 << 22) |
+              (mirrors[k] ? POSE_MIRRORED : 0)
           end
           @emit.data_blobs[blob] = words.pack("V*")
           # Kept unpacked: the draw reads one word straight out of the middle of this,
@@ -2449,6 +2483,42 @@ module RubyGBA
           # compressed stream.
           plain_blob!(blob)
           words
+        end
+
+        # WHICH POSES ARE ANOTHER POSE MIRRORED, so they can be stored once.
+        #
+        # "Left is the right one, backwards" is close to universal in 2D games, and the
+        # console draws an object reversed for nothing — so a character that faces two
+        # ways need only keep the pixels once. An eight-frame walk drawn both ways comes
+        # to 128 tiles rather than 256; a four-way character whose left mirrors its right,
+        # 240 rather than 320.
+        #
+        # NOBODY HAS TO SAY SO. The sameness is judged on the pixels, so a game that drew
+        # its left-facing art by hand gets this with nothing to change, exactly as two
+        # sprites showing the same picture already share it (see ObjectArt). Saying it —
+        # `mirror(:hero_right)` — is then a way to skip drawing the art, not a way to ask
+        # for the saving.
+        #
+        # Returns the pose each pose mirrors, or nil for one stored in its own right. A
+        # mirror always points at a STORED pose, never at another mirror, so there is
+        # never a chain to follow.
+        def object_pose_mirrors(poses)
+          reversed = {} # what a mirror of a stored pose would look like -> that pose
+          poses.each_with_index.map do |image, k|
+            bmp = @bitmaps.fetch(image)
+            next reversed[bmp.pixels] if reversed.key?(bmp.pixels)
+
+            reversed[bmp.mirrored.pixels] ||= k
+            nil
+          end
+        end
+
+        # Where a mirrored pose's box sits: the source's box reflected in the canvas it
+        # was drawn on. Taken from the source rather than worked out from the mirrored
+        # picture's own pixels because that is what the console will actually draw —
+        # it reverses the source's box, so this is the window those tiles land in.
+        def mirrored_pose_box((x0, y0, w, h), width)
+          [width - x0 - w, y0, w, h]
         end
 
         # WHAT ONE POSE ACTUALLY DRAWS, as a box the console can hold: [x0, y0, w, h],

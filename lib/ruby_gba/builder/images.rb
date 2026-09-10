@@ -105,6 +105,39 @@ module RubyGBA
         ensure_var(y)
       end
 
+      # THE SAME PICTURE FACING THE OTHER WAY, without drawing it twice.
+      #
+      #   sprite :hero, at: [100, 60],
+      #          facing: { right: :hero_right, left: mirror(:hero_right) }
+      #
+      # "Left is the right one, backwards" is how nearly every 2D game faces a
+      # character, and until now saying it meant drawing the art twice — or exporting
+      # it twice, for art that came from somewhere else. This hands back a picture
+      # name like any other, so it drops into `facing:`, `frames:`, a `pool`, or a
+      # plain `blit` wherever a picture name goes.
+      #
+      # A whole animation turns round in one go: pass the list and get a list back.
+      #
+      #   WALK = [:walk_r1, :walk_r2, :walk_r3]
+      #   sprite :hero, at: [100, 60], rate: 6,
+      #          facing: { right: WALK, left: mirror(WALK) }
+      #
+      # ON `screen :tiled` A MIRRORED POSE COSTS NO SPRITE MEMORY. The console can
+      # draw an object reversed for nothing, so the build stores the picture once and
+      # says "that one, backwards" — a third off a character that faces both ways.
+      # (It notices art that is ALREADY a mirror too, so a game that drew both ways by
+      # hand gets the same saving with nothing to change. On `screen :bitmap` there is
+      # no such hardware, so a mirrored picture is drawn like any other: this saves you
+      # the art, not the memory.)
+      #
+      # @param names [Array<Symbol>] one picture name, several, or a list of them
+      # @return [Symbol, Array<Symbol>] a name for one, a list of names for several
+      def mirror(*names)
+        one = names.length == 1 && !names.first.is_a?(Array)
+        turned = names.flatten.map { |source| mirrored_image(source) }
+        one ? turned.first : turned
+      end
+
       # Pack 5-bit RGB channels (0-31 each) into a 15-bit GBA color.
       # Raises on out-of-range values to catch mistakes early.
       def rgb(r, g, b)
@@ -123,6 +156,44 @@ module RubyGBA
       end
 
       private
+
+      # Record a picture's declaration and everything the rest of the build asks about
+      # it: its shape, so a sprite can size itself from its art, and its pixels, so
+      # `mirror` can turn it round.
+      def remember_picture(node)
+        record(node)
+        @pictures[node.name] = IR::Assets::Image.of(node)
+        @images[node.name] = [node.width, node.height]
+      end
+
+      # The mirror of one picture, made the first time it is asked for and handed back
+      # after that — so mirroring the same art from two sprites makes one picture, not
+      # two. Its visible-pixel box turns round with it, so a character built this way
+      # collides on the art facing either way.
+      def mirrored_image(source)
+        @mirrored_images[source] ||= begin
+          picture = @pictures[source] ||
+                    raise(ArgumentError,
+                          "mirror names the picture :#{source}, which is not defined. Define it first " \
+                          "with `image :#{source}, ...`.")
+          name = free_mirror_name(source)
+          turned = picture.mirrored
+          remember_picture(Build.bitmap(name, width: turned.width, height: turned.height,
+                                              pixels: turned.pixels, transparent: turned.transparent,
+                                              colors: turned.colors))
+          box_x, box_y, box_w, box_h = @image_bounds[source] || [0, 0, turned.width, turned.height]
+          @image_bounds[name] = [turned.width - box_x - box_w, box_y, box_w, box_h]
+          name
+        end
+      end
+
+      # A name for the mirror that reads like the picture it came from, and that no
+      # other picture has already taken.
+      def free_mirror_name(source)
+        return :"#{source}_mirrored" unless @images.key?(:"#{source}_mirrored")
+
+        (2..).lazy.map { |n| :"#{source}_mirrored#{n}" }.find { |name| !@images.key?(name) }
+      end
 
       # Draw whichever of +names+ the +showing+ value picks. Written the long way this is
       # a test and a draw per picture, which is what it lowers to anyway — so this is the
@@ -185,9 +256,8 @@ module RubyGBA
         data = data.map { |c| c == :transparent ? transparent : c } if transparent == TRANSPARENT_PIXEL
         pixels = data.map { |c| c == transparent ? transparent : Color.resolve(c) }.pack("v*")
         given = own_colors(name, colors, pixels, transparent)
-        record(Build.bitmap(name, width: width, height: height, pixels: pixels,
-                                  transparent: transparent, colors: given))
-        @images[name] = [width, height] # remember the shape, so a sprite can size itself from it
+        remember_picture(Build.bitmap(name, width: width, height: height, pixels: pixels,
+                                            transparent: transparent, colors: given))
         record_visible_bounds(name: name, width: width, height: height, cells: data, transparent: transparent)
       end
 
@@ -216,10 +286,9 @@ module RubyGBA
           end
         end
 
-        record(Build.bitmap(name, width: widths.first, height: rows.size,
-                                  pixels: colors.pack("v*"),
-                                  transparent: transparent ? TRANSPARENT_PIXEL : nil))
-        @images[name] = [widths.first, rows.size] # remember the shape, so a sprite can size itself from it
+        remember_picture(Build.bitmap(name, width: widths.first, height: rows.size,
+                                            pixels: colors.pack("v*"),
+                                            transparent: transparent ? TRANSPARENT_PIXEL : nil))
         record_visible_bounds(name: name, width: widths.first, height: rows.size, cells: colors, transparent: transparent ? TRANSPARENT_PIXEL : nil)
       end
 
