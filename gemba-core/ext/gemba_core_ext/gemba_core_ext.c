@@ -4,6 +4,8 @@
 #endif
 #include <mgba/core/config.h>
 #include <mgba/core/serialize.h>
+#include <mgba/internal/gba/serialize.h>
+#include <mgba-util/memory.h>
 #include <ruby/thread.h>
 #include <string.h>
 #include <stdlib.h>
@@ -765,6 +767,57 @@ mgba_core_load_state_from_file(VALUE self, VALUE rb_path)
     bool ok = mCoreLoadStateNamed(mc->core, vf, SAVESTATE_ALL);
     vf->close(vf);
     return ok ? Qtrue : Qfalse;
+}
+
+/* --------------------------------------------------------- */
+/* Core#state_file_identity(path)                            */
+/* Which cartridge a save state was taken from, WITHOUT      */
+/* loading it. Returns {rom_crc32:, title:} or nil.          */
+/*                                                           */
+/* A state is a snapshot of the console's registers and RAM, */
+/* and every address in it belongs to the exact cartridge it */
+/* was taken from. Load one into a cartridge built even a    */
+/* moment later and the addresses point at whatever has      */
+/* moved into those places — which still reads as numbers,   */
+/* and so measures rubbish quietly. mGBA itself only refuses */
+/* a state from a different GAME (a different title in the   */
+/* header); it accepts one from a different BUILD of the     */
+/* same game, which is the case that happens constantly      */
+/* while a game is being written. So the caller needs the    */
+/* identity to compare itself.                               */
+/*                                                           */
+/* The file is a PNG with the state in its chunks, so        */
+/* mCoreExtractState is asked to unwrap it rather than this  */
+/* parsing a format it does not own.                         */
+/* --------------------------------------------------------- */
+
+static VALUE
+mgba_core_state_file_identity(VALUE self, VALUE rb_path)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    Check_Type(rb_path, T_STRING);
+    const char *path = StringValueCStr(rb_path);
+
+    struct VFile *vf = VFileOpen(path, O_RDONLY);
+    if (!vf) {
+        return Qnil;
+    }
+
+    void *raw = mCoreExtractState(mc->core, vf, NULL);
+    vf->close(vf);
+    if (!raw) {
+        return Qnil;
+    }
+
+    /* The serialized fields are little-endian, which is a plain read on every
+     * host this builds on. */
+    struct GBASerializedState *state = (struct GBASerializedState *)raw;
+    VALUE out = rb_hash_new();
+    rb_hash_aset(out, ID2SYM(rb_intern("rom_crc32")), UINT2NUM(state->romCrc32));
+    rb_hash_aset(out, ID2SYM(rb_intern("title")),
+                 rb_str_new(state->title, strnlen(state->title, sizeof(state->title))));
+    mappedMemoryFree(raw, mc->core->stateSize(mc->core));
+    return out;
 }
 
 /* --------------------------------------------------------- */
@@ -1796,6 +1849,7 @@ Init_gemba_core_ext(void)
     rb_define_method(cCore, "rom_size",    mgba_core_rom_size, 0);
     rb_define_method(cCore, "save_state_to_file", mgba_core_save_state_to_file, 1);
     rb_define_method(cCore, "load_state_from_file", mgba_core_load_state_from_file, 1);
+    rb_define_method(cCore, "state_file_identity", mgba_core_state_file_identity, 1);
     rb_define_method(cCore, "color_correction=", mgba_core_set_color_correction, 1);
     rb_define_method(cCore, "color_correction?", mgba_core_color_correction_p, 0);
     rb_define_method(cCore, "frame_blending=", mgba_core_set_frame_blending, 1);

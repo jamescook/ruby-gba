@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "stringio"
+require "tmpdir"
 
 # `rom.profile` — where a game's frames actually went, measured by running it.
 #
@@ -177,6 +178,136 @@ class TestProfiler < Minitest::Test
 
     assert_match(/no scene called/, error.message)
     assert_match(/:title/, error.message)
+  end
+
+  # --- a moment somebody played to ---
+
+  # The work runs only once a variable is set, and nothing sets it. No held button reaches
+  # this and no scene contains it — it is STATE, which is what a saved moment carries and a
+  # booted scene does not.
+  def armed_game(bump = 1)
+    RubyGBA.build("PSAV", code: "PSAV", maker: "01") do
+      screen :bitmap
+      clear_screen :black
+      armed = var :armed, 0
+      var :x, 0
+      func(:the_work) { repeat(2000) { add :x, bump } }
+      game_loop { (armed == 1).then { call :the_work } }
+    end
+  end
+
+  # Play to the moment — here by reaching in and arming it, which is what a player pressing
+  # buttons would have done — and save it.
+  def moment_in(rom, dir, name: "moment.state")
+    path = File.join(dir, name)
+    rom_path = File.join(dir, "#{name}.gba")
+    rom.write(rom_path)
+    probe = RubyGBA::Emulator.probe(rom_path)
+    begin
+      probe.step(12)
+      probe.write32(rom.built.var_addresses[:armed], 1)
+      probe.step(2)
+      probe.save_state(path)
+    ensure
+      probe.close
+    end
+    path
+  end
+
+  def test_a_saved_moment_is_what_gets_measured
+    Dir.mktmpdir do |dir|
+      rom = armed_game
+      booted = rom.profile(out: StringIO.new, frames: 10)
+      resumed = rom.profile(out: StringIO.new, frames: 10, from: moment_in(rom, dir))
+
+      refute_includes booted.lines.map(&:name), :the_work,
+                      "nothing arms this game, so booting it measures a game doing nothing"
+      assert_equal :the_work, resumed.lines.first.name,
+                   "the saved moment carries the state that makes the work run"
+    end
+  end
+
+  # THE ONE THAT MATTERS MOST. A state holds addresses, and a rebuild moves all of them. Read
+  # one anyway and it still produces numbers — about whatever code moved into those addresses.
+  # Measuring the wrong thing quietly is worse than refusing to measure.
+  def test_a_moment_saved_from_another_build_is_refused
+    Dir.mktmpdir do |dir|
+      saved = moment_in(armed_game(1), dir)
+      rebuilt = armed_game(2) # one number changed, and every address has moved
+
+      error = assert_raises(ArgumentError) do
+        rebuilt.profile(out: StringIO.new, frames: 10, from: saved)
+      end
+
+      assert_match(/different build/, error.message)
+      assert_match(/save it again/, error.message, "...and says what to do about it")
+    end
+  end
+
+  # ...and the other half of that, which is what keeps the guard from being a nuisance: a
+  # build is deterministic, so re-running one costs nobody their saved moments. Only a real
+  # change moves the addresses, which is exactly when a moment has stopped meaning anything.
+  def test_rebuilding_the_same_game_keeps_a_saved_moment
+    Dir.mktmpdir do |dir|
+      saved = moment_in(armed_game(1), dir)
+      again = armed_game(1) # the same source, built a second time
+
+      result = again.profile(out: StringIO.new, frames: 10, from: saved)
+      assert_equal :the_work, result.lines.first.name
+    end
+  end
+
+  def test_a_moment_that_is_not_there_says_so
+    error = assert_raises(ArgumentError) do
+      armed_game.profile(out: StringIO.new, from: "/nowhere/boss.state")
+    end
+
+    assert_match(/no saved moment/, error.message)
+  end
+
+  # A saved moment already says which scene the game was in, so the two ways of reaching a
+  # moment would be fighting each other.
+  def test_asking_for_a_scene_and_a_moment_at_once_says_so
+    Dir.mktmpdir do |dir|
+      rom = armed_game
+      error = assert_raises(ArgumentError) do
+        rom.profile(out: StringIO.new, from: moment_in(rom, dir), scene: :playing)
+      end
+
+      assert_match(/not both/, error.message)
+    end
+  end
+
+  # A profile without this is not reproducible: the same cartridge measured on its title
+  # screen and in its boss fight are different numbers about different code, and nothing in
+  # the numbers says which you are holding.
+  def test_the_report_says_how_the_moment_was_reached
+    Dir.mktmpdir do |dir|
+      rom = armed_game
+      out = StringIO.new
+      rom.profile(out: out, frames: 10, from: moment_in(rom, dir))
+      assert_match(/from the saved moment in moment\.state/, out.string)
+
+      booted = StringIO.new
+      rom.profile(out: booted, frames: 10)
+      assert_match(/as the game boots/, booted.string)
+
+      scened = StringIO.new
+      scened_game.profile(out: scened, frames: 10, scene: :playing)
+      assert_match(/held in the :playing scene/, scened.string)
+    end
+  end
+
+  def test_how_the_moment_was_reached_comes_back_as_data_too
+    Dir.mktmpdir do |dir|
+      rom = armed_game
+      out = StringIO.new
+      rom.profile(format: :json, out: out, frames: 10, from: moment_in(rom, dir))
+
+      reached = JSON.parse(out.string)["reached"]
+      assert_equal "state", reached["how"]
+      assert_match(/moment\.state/, reached["detail"])
+    end
   end
 
   # A cartridge assembled straight from machine code has no record of where its routines

@@ -90,6 +90,13 @@ module RubyGBA
       standing still. --settle runs that many frames first, so the measuring starts in the
       game rather than on its title screen.
 
+      --scene holds the game in one screen and measures that, with nobody having to play to
+      it. --from measures a saved moment instead — an emulator save state you made by
+      playing to it once. Use --from for a moment a scene cannot give: a scene says which
+      routines run, a saved moment also carries the state that makes them expensive, so the
+      boss fight with twelve fireballs on screen needs the state. A state saved from a
+      different build of the game is refused, since all of its addresses have moved.
+
       --format=json prints the same numbers as data, for comparing two builds.
     TEXT
     option :format, banner: "NAME", default: "human",
@@ -102,13 +109,15 @@ module RubyGBA
                   desc: "Hold these buttons for the whole run"
     option :scene, banner: "NAME",
                    desc: "Measure this scene, holding the game there (default: measure it as it boots)"
+    option :from, banner: "PATH",
+                  desc: "Measure a saved moment: an emulator save state, made by playing to it once"
     def profile(game_file)
       format = { "human" => :human, "json" => :json }[options[:format]] or
         raise Thor::Error, "#{options[:format].inspect} is not a profile format. The formats are: human, json."
       game = load_game(game_file)
       game.build_rom(profile: false).profile(format: format, frames: options[:frames],
                                              settle: options[:settle], scene: options[:scene],
-                                             keys: held_buttons || [])
+                                             from: options[:from], keys: held_buttons || [])
     rescue ArgumentError => e
       raise Thor::Error, e.message
     end

@@ -169,6 +169,13 @@ module RubyGBA
     # a held button is one press however long it is held. Naming a scene holds the game there
     # and measures that, with nobody having to play it (see {Profiler.pinned_to}).
     #
+    # +from+ names a saved moment instead — an emulator save state, made by playing to the
+    # moment once. It is the general answer, and the one for a moment a scene cannot give: a
+    # scene booted into gives the routines that scene RUNS, where a saved moment also gives the
+    # STATE that makes it expensive. The boss scene with nothing spawned is not the boss fight.
+    # A state from a different build of the game is refused, because its addresses have all
+    # moved and reading it would measure the wrong code while still looking like numbers.
+    #
     # +keys+ are held throughout, and it is worth passing them: a game costs what the player
     # makes it cost, and a profile with nothing held is a profile of a game standing still.
     # +settle+ runs that many frames first, and +frames+ is how many to measure over.
@@ -179,9 +186,10 @@ module RubyGBA
     # addresses each routine runs at cannot be recovered from the bytes, because a routine kept
     # in the console's quick memory was copied there at boot.
     def profile(format: :human, out: $stdout, frames: Profiler::FRAMES,
-                settle: Profiler::SETTLE, keys: [], scene: nil)
+                settle: Profiler::SETTLE, keys: [], scene: nil, from: nil)
       built! # a cartridge with no record cannot name its own routines
-      result = Profiler.run(self, frames: frames, settle: settle, keys: keys, scene: scene)
+      result = Profiler.run(self, frames: frames, settle: settle, keys: keys, scene: scene,
+                            from: from)
       case format
       when :human then Profiler.render(result, out: out)
       when :json  then out.puts(JSON.generate(result.to_h))
