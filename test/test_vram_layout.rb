@@ -12,11 +12,11 @@ require "test_helper"
 # picture data gets read as tile numbers, which looks like confetti rather than
 # like an error.
 #
-# The framework picks both addresses, so a game can never point them anywhere. The
-# layout leaves no room for an overlap: tile pictures start at the bottom of video
-# memory and are capped at one character block, and the first map starts at the
-# byte immediately after that block. Two build-time limits hold that shape, and
-# both are friendly errors rather than a corrupt picture.
+# The framework picks both addresses, so a game can never point them anywhere. They
+# grow toward each other — tile pictures from the bottom, maps from the top in
+# 2K blocks — and the build stops with an explanation when they would meet. What
+# that replaced was a fixed rule (tiles capped at the first 16K, maps at fixed
+# places just above it) which gave a whole game 256 tiles however few maps it had.
 class TestVramLayout < Minitest::Test
   include RubyGBA::IR::Build
 
@@ -24,21 +24,22 @@ class TestVramLayout < Minitest::Test
 
   # --- The layout itself ---
 
-  # The invariant the whole design rests on: the most tile data a program can have
-  # ends exactly where the first map begins. One byte more and they would overlap,
-  # which is what the tile cap below exists to stop.
-  def test_the_tile_area_ends_exactly_where_the_first_map_begins
-    tile_bytes = GBA::TILE_PX * GBA::TILE_PX # 256-color tiles: one byte per pixel
-    tile_area_end = GBA::CHAR_BLOCK_TILES * tile_bytes
-    first_map_start = GBA::FIRST_MAP_SCREENBLOCK * GBA::SCREENBLOCK_BYTES
+  # The invariant the whole design rests on: whatever the tiles took and whatever the
+  # maps took, together they are inside the memory there is. Held against a program
+  # that uses every layer the console has.
+  def test_the_tiles_and_the_maps_are_inside_the_memory_there_is
+    backend = GBA.new
+    backend.lower(four_layer_program)
 
-    assert_equal first_map_start, tile_area_end,
-                 "tile pictures must end where the first map starts — a gap wastes memory, " \
-                 "an overlap corrupts both"
+    tile_end = backend.bg_shared[:char_units] * 2
+    first_map = backend.backgrounds.values.map(&:screen_block).min * GBA::SCREENBLOCK_BYTES
+    assert_operator tile_end, :<=, first_map, "tile pictures must stop before the first map"
+    assert_operator backend.backgrounds.values.map(&:screen_block).max, :<,
+                    GBA::TileVram::SCREEN_BLOCKS, "and the last map inside the memory"
   end
 
-  # Every map gets a screen block of its own, in declaration order, and one map is
-  # exactly one screen block — so no two layers' maps can land on each other.
+  # Every map gets a screen block of its own, and one map is exactly one screen block
+  # — so no two layers' maps can land on each other.
   def test_each_layer_gets_its_own_screen_block
     backend = GBA.new
     backend.lower(four_layer_program)
@@ -46,7 +47,6 @@ class TestVramLayout < Minitest::Test
 
     blocks = backgrounds.values.map(&:screen_block)
     assert_equal blocks.uniq, blocks, "two layers must never share a screen block"
-    assert_equal GBA::FIRST_MAP_SCREENBLOCK, blocks.min, "maps start just past the tile pictures"
 
     backgrounds.each_value do |bg|
       assert_equal GBA::SCREENBLOCK_BYTES, bg.map_units * 2,
@@ -56,34 +56,65 @@ class TestVramLayout < Minitest::Test
 
   # --- The two limits that keep the layout true ---
 
-  # Past one character block the tile pictures would run into the first map. The
-  # build stops with an explanation instead.
-  #
-  # HOW MANY TILES that is depends on how each one is stored: a tile drawn from
-  # fifteen colors or fewer is packed two pixels to a byte, so twice as many fit.
-  # These are, so it takes twice the old cap plus one to run out.
+  # What limits a tileset now is not the memory but how far a MAP CELL CAN POINT: it
+  # holds a tile number in ten bits, counted in that layer's own tile size. So a
+  # layer stored two pixels to a byte can name anything in the first 32K — four times
+  # what the old fixed cap allowed — and past that the build says so.
+  # The headline, as a number rather than as a ratio: a whole game used to get 256
+  # distinct tiles across all four layers, and one room of a commercial game uses more
+  # than that on its own. A thousand builds now.
+  def test_a_thousand_distinct_tiles_build
+    names = (0...1000).map { |i| :"t#{i}" }
+    prog = program(
+      screen(:tiled),
+      *names.each_with_index.map { |n, i| striped_tile(n, i) },
+      background(:big, tiles: names, map: [[0]], tile_w: 8, tile_h: 8),
+      halt,
+    )
+
+    backend = GBA.new
+    backend.lower(prog)
+    assert_equal 1000 * GBA::SMALL_TILE_BYTES, (backend.bg_shared[:char_units] * 2) - GBA::BIG_TILE_BYTES
+  end
+
   def test_too_many_tiles_is_a_friendly_build_error
-    over = (GBA::CHAR_BLOCK_BYTES / GBA::SMALL_TILE_BYTES) + 1
+    over = GBA::TileVram::MOST_TILES + 2
     names = (0...over).map { |i| :"t#{i}" }
     prog = program(
       screen(:tiled),
-      # Colors repeat, so this trips the tile limit and not the color limit.
-      *names.each_with_index.map { |n, i| tile_bitmap(n, 0x0001 + (i % 8)) },
+      # Every tile a different color, so none of them is shared away and the count is
+      # really the count. Colors repeat every eight so the color table still fits.
+      *names.each_with_index.map { |n, i| striped_tile(n, i) },
       background(:big, tiles: names, map: [[0]], tile_w: 8, tile_h: 8),
       halt,
     )
 
     error = assert_raises(GBA::LoweringError) { GBA.new.lower(prog) }
-    assert_match(/#{GBA::CHAR_BLOCK_BYTES}/, error.message, "it names the room there is")
-    assert_match(/:big/, error.message, "and names the background that used it")
+    assert_match(/:big/, error.message, "it names the background")
     assert_match(/fewer/i, error.message, "and says what to do about it")
   end
 
-  # Storing tiles two pixels to a byte is what doubles this, and it is worth pinning
-  # as a number rather than as a ratio: a tileset that fits today is a tileset that
-  # would not have fitted before.
-  def test_twice_as_many_small_tiles_fit_as_big_ones
-    assert_equal 2 * GBA::CHAR_BLOCK_TILES, GBA::CHAR_BLOCK_BYTES / GBA::SMALL_TILE_BYTES
+  # Two tiles that come out the same are stored once, whatever tilesets they came
+  # from. Nothing about a tileset says which of its tiles are really the same picture,
+  # and on a real one that is a large fraction — a wall's interior repeats in every
+  # variation of that wall.
+  def test_identical_tiles_are_stored_once
+    backend = GBA.new
+    backend.lower(repeated_tiles_program)
+
+    # The blank tile every empty cell points at (stored the big way so either kind of
+    # layer can read it), plus the ONE picture the four tilesets all drew.
+    assert_equal GBA::BIG_TILE_BYTES + GBA::SMALL_TILE_BYTES, backend.bg_shared[:char_units] * 2
+  end
+
+  def test_tiles_that_differ_are_not_shared
+    backend = GBA.new
+    backend.lower(four_layer_program)
+
+    # The blank tile (stored the big way so either kind of layer can read it) and the
+    # four landmark tiles, each a different color.
+    assert_equal GBA::BIG_TILE_BYTES + (4 * GBA::SMALL_TILE_BYTES),
+                 backend.bg_shared[:char_units] * 2
   end
 
   # Every tiled layer draws from one table of colors, so a game whose tiles name
@@ -158,6 +189,33 @@ class TestVramLayout < Minitest::Test
   def many_color_tile(name, run)
     colors = (0...16).map { |i| 0x0001 + (run * 16) + i }
     bitmap(name, width: 8, height: 8, pixels: (colors * 4).pack("v*"), transparent: nil)
+  end
+
+  # A tile no other tile matches, drawn from a handful of colors that repeat across
+  # the set — so a program of thousands of these fills the tile area without also
+  # filling the color table. The run number is spelled out in the first four pixels,
+  # eight colors to a digit, which is four thousand distinct tiles out of eight colors.
+  def striped_tile(name, run)
+    pixels = Array.new(64, 0x0001)
+    4.times { |digit| pixels[digit] = 0x0001 + ((run >> (digit * 3)) & 7) }
+    bitmap(name, width: 8, height: 8, pixels: pixels.pack("v*"), transparent: nil)
+  end
+
+  # Four tilesets that all draw the same picture. Nothing in the program says they
+  # are the same; the build notices.
+  def repeated_tiles_program
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image(:brick, "#" => :red) { SOLID8 }
+      4.times do |layer|
+        tiles :"set#{layer}", "#" => :brick
+        background :"layer#{layer}", tiles: :"set#{layer}", map: [(" " * layer) + "#"]
+      end
+      game_loop {}
+    end
+    builder.emit_pending_functions
+    builder.program
   end
 
   # All four layers at once. Each puts one solid landmark tile in its own column of
