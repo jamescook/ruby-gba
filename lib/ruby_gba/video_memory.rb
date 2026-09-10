@@ -29,20 +29,27 @@ module RubyGBA
     # size again, since the small way is exactly half. +shared+ is how many pictures turned
     # out to be one another and were stored once.
     #
+    # +repeats+ is bytes a picture did not cost because part of it was already there. A
+    # sprite's poses are stored as pieces, and most of a character does not change between
+    # two frames of a walk — the head, the torso, the arm that is not moving — so the
+    # pieces that did not change are stored once and every frame points at them. This is
+    # the one saving a game written straight against the console cannot have, since an
+    # object reads a contiguous run of tiles and every frame there has to be its own run.
+    #
     # +skipped+ is bytes nothing draws from. A background layer names its tiles by counting
     # from a starting point, and a game with more tiles than one layer can count across gets
     # a second starting point — which the console only allows at fixed marks, so lining a
     # layer up with one can leave a gap behind it. Nobody writes any of that, and the gap is
     # otherwise invisible, so it is worth a number.
-    Area = Data.define(:used, :capacity, :small, :big, :saved, :shared, :skipped) do
-      def initialize(skipped: 0, **rest) = super
+    Area = Data.define(:used, :capacity, :small, :big, :saved, :shared, :repeats, :skipped) do
+      def initialize(repeats: 0, skipped: 0, **rest) = super
 
       def free = capacity - used
       def share = capacity.zero? ? 0.0 : used.to_f / capacity
 
       def to_h
-        { used: used, capacity: capacity, free: free,
-          small: small, big: big, saved: saved, shared: shared, skipped: skipped }
+        { used: used, capacity: capacity, free: free, small: small, big: big,
+          saved: saved, shared: shared, repeats: repeats, skipped: skipped }
       end
     end
 
