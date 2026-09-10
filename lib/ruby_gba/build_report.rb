@@ -191,10 +191,15 @@ module RubyGBA
     # pictures rather than as a bit depth: how many colours a picture uses is a fact about the
     # art, and how the console reads it is not something an author ever writes.
     def storage_note(area)
-      return "" if area.small.zero?
-
-      note = " (#{area.small} of #{area.small + area.big} stored small, saving #{room(area.saved)}"
-      note + (area.big.zero? ? ")" : "; #{area.big} use more colours than a small one holds)")
+      parts = []
+      unless area.small.zero?
+        parts << "#{area.small} of #{area.small + area.big} stored small, saving #{room(area.saved)}"
+        parts << "#{area.big} use more colours than a small one holds" unless area.big.zero?
+      end
+      # Nothing in a tileset says which of its tiles are really the same picture, so this is
+      # the one line that says how much of it was repeats.
+      parts << "#{area.shared} were the same picture as another and stored once" if area.shared.positive?
+      parts.empty? ? "" : " (#{parts.join('; ')})"
     end
 
     # WHAT THE BUILD KEPT IN THE QUICK MEMORY, with each routine's size beside it — size is the

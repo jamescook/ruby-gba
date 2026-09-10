@@ -24,13 +24,15 @@ module RubyGBA
   class VideoMemory
     # One of the two areas. +small+ and +big+ are how many pictures got each storage, and
     # +saved+ is what the small ones would have cost stored the big way — which is their own
-    # size again, since the small way is exactly half.
-    Area = Data.define(:used, :capacity, :small, :big, :saved) do
+    # size again, since the small way is exactly half. +shared+ is how many pictures turned
+    # out to be one another and were stored once.
+    Area = Data.define(:used, :capacity, :small, :big, :saved, :shared) do
       def free = capacity - used
       def share = capacity.zero? ? 0.0 : used.to_f / capacity
 
       def to_h
-        { used: used, capacity: capacity, free: free, small: small, big: big, saved: saved }
+        { used: used, capacity: capacity, free: free,
+          small: small, big: big, saved: saved, shared: shared }
       end
     end
   end
