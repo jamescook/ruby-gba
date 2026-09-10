@@ -35,10 +35,14 @@ module RubyGBA
   # it, which is what lets a profile of the finished cartridge be reported in the author's own
   # names. It cannot be recovered from the bytes: a routine kept in the console's quick memory
   # was copied there at boot and runs nowhere near where it sits in the cartridge.
+  # +video_memory+ is how much of the console's picture memory the sprites and background
+  # tiles took, and how much the framework's own choice of storage saved. Nothing in a running
+  # cartridge can say the second half: the pictures are there at the size the build chose them,
+  # and what they would have cost the other way is gone.
   class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
                                   :palette_entries, :column_stretches, :compression,
-                                  :build_options, :findings, :emitted, :routines)
-    def initialize(findings: [], emitted: nil, routines: {}, **rest)
+                                  :build_options, :findings, :emitted, :routines, :video_memory)
+    def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil, **rest)
       super
     end
 

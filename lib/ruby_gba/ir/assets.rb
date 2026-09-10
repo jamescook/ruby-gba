@@ -15,12 +15,13 @@ module RubyGBA
     # and stays there: where the GBA packed a table into the cartridge, or which hardware
     # layer a background got, means nothing to an interpreter and is not here.
     module Assets
-      # A picture: its size, which color index is see-through (nil if none is), and the
-      # pixels themselves.
-      Image = Data.define(:width, :height, :transparent, :pixels) do
+      # A picture: its size, which color index is see-through (nil if none is), the
+      # pixels themselves, and — where the art came from somewhere that already decided
+      # them — its own table of colors in its own order (nil where it did not).
+      Image = Data.define(:width, :height, :transparent, :pixels, :colors) do
         def self.of(node)
           new(width: node.width, height: node.height,
-              transparent: node.transparent, pixels: node.pixels)
+              transparent: node.transparent, pixels: node.pixels, colors: node.colors)
         end
       end
 

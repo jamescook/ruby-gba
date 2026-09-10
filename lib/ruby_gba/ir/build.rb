@@ -451,9 +451,13 @@ module RubyGBA
       # shape a draw op needs. +transparent+, when set, is the pixel value that
       # means "don't draw" (so the background shows through); nil means opaque. A
       # definition — a later blit references it by name.
-      def bitmap(name, width:, height:, pixels:, transparent: nil)
+      # +colors+ is the picture's own table of colors, in its own order, where the art
+      # came from somewhere that already decided one. It changes nothing about the
+      # pixels — they are still colors — but it pins how a backend that draws through a
+      # table lays that table out, which is what keeps imported art lining up.
+      def bitmap(name, width:, height:, pixels:, transparent: nil, colors: nil)
         Nodes.build(:bitmap, name: name, width: width, height: height,
-                          pixels: pixels, transparent: transparent)
+                          pixels: pixels, transparent: transparent, colors: colors)
       end
 
       # Draw a defined bitmap with its top-left at (x, y). x/y may be constants or

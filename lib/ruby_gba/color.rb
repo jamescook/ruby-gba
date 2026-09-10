@@ -101,5 +101,13 @@ module RubyGBA
         raise ArgumentError, "expected Integer, Symbol, or hex String, got #{value.class}"
       end
     end
+
+    # A color as a person would name it — :magenta where there is a name for it, and
+    # the raw value where there is not. For messages: an author reading about a color
+    # in their own art wants the word they typed, not a number they never saw.
+    def name_for(value)
+      @names ||= PRESETS.to_h { |name, resolved| [resolved, name.inspect] }
+      @names.fetch(value) { format("#%04X", value) }
+    end
   end
 end

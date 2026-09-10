@@ -46,6 +46,7 @@ module RubyGBA
       program = built.source_program
 
       stack_lines(program, printer)
+      video_memory_lines(built.video_memory, printer)
       quick_memory_lines(built.placement, program, printer)
       glyph_lines(program, printer)
       column_stretch_lines(built.column_stretches, printer)
@@ -159,6 +160,43 @@ module RubyGBA
                    ":#{node.transparent} is solid until it lifts"
     end
 
+    # WHERE THE PICTURES WENT, and what the framework's own choice of storage bought back.
+    #
+    # The console keeps the pictures it draws in a memory of its own, and it is small and
+    # fixed. Running out is a build error, so the number worth having is the room left —
+    # before a game grows into it rather than after.
+    #
+    # The second half is the part nobody could work out by reading their own program. A
+    # picture drawn from few enough colours is stored at half the size, decided from the art
+    # and never asked for, so how much of that room came from the decision is invisible unless
+    # the build says. It is usually most of it.
+    def video_memory_lines(video, printer)
+      return if video.nil? || !video.any?
+
+      printer.puts "  the pictures the console draws:"
+      { "sprites" => video.sprites, "tiles" => video.tiles }.each do |what, area|
+        next if area.nil?
+
+        printer.puts format("    %-8s %s of %s used, %s free%s",
+                            what, room(area.used), room(area.capacity), room(area.free),
+                            storage_note(area))
+      end
+    end
+
+    # Picture memory runs from a handful of bytes to tens of kilobytes, and a small sprite
+    # rounded to "0.0K" says nothing. Below a kilobyte it is said in bytes.
+    def room(bytes) = bytes < 1024 ? "#{bytes} bytes" : kb(bytes)
+
+    # How the pictures in one area were stored, and what that saved. Said as a count of
+    # pictures rather than as a bit depth: how many colours a picture uses is a fact about the
+    # art, and how the console reads it is not something an author ever writes.
+    def storage_note(area)
+      return "" if area.small.zero?
+
+      note = " (#{area.small} of #{area.small + area.big} stored small, saving #{room(area.saved)}"
+      note + (area.big.zero? ? ")" : "; #{area.big} use more colours than a small one holds)")
+    end
+
     # WHAT THE BUILD KEPT IN THE QUICK MEMORY, with each routine's size beside it — size is the
     # whole of why one routine is on this list and another is not, so it belongs next to them.
     def quick_memory_lines(placement, program, printer)
@@ -259,10 +297,11 @@ module RubyGBA
     # reading one. Did the routine that just missed the quick memory now fit? That is the
     # question a before-and-after asks, and nothing should have to match a sentence to ask it.
     def as_json(rom)
+      video = { video_memory: rom.built.video_memory&.to_h }
       placement = rom.built.placement
-      return { quick_memory: nil } if placement.nil?
+      return video.merge(quick_memory: nil) if placement.nil?
 
-      { quick_memory: {
+      video.merge(quick_memory: {
         total_bytes: placement.used_bytes + placement.free_bytes,
         used_bytes: placement.used_bytes,
         free_bytes: placement.free_bytes,
@@ -274,7 +313,7 @@ module RubyGBA
           { name: over.name.to_s, label: PlainWords.routine(over.name),
             bytes: over.bytes, room: over.room }
         end
-      } }
+      })
     end
 
     def kb(bytes) = format("%.1fK", bytes / 1024.0)

@@ -229,10 +229,7 @@ module RubyGBA
       end
 
       # Say :magenta rather than #7C1F where the color has a name people write.
-      def name_for(value)
-        @names ||= Color::PRESETS.to_h { |name, resolved| [resolved, name.inspect] }
-        @names.fetch(value) { format("#%04X", value) }
-      end
+      def name_for(value) = Color.name_for(value)
 
       def conflict_message(tables)
         "Two screens were given different colors (#{tables.map(&:length).join(' and ')} of them). " \

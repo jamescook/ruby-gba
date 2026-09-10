@@ -81,7 +81,8 @@ module RubyGBA
         include Node
         kind :bitmap
         category :data
-        operands name: :name, width: :int, height: :int, pixels: :text, transparent: :int
+        operands name: :name, width: :int, height: :int, pixels: :text, transparent: :int,
+                 colors: :list
       end
 
       class Blit

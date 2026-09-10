@@ -707,7 +707,8 @@ module RubyGBA
             return emit_affine_background_hardware(bg) if bg.affine
 
             emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
-            write_reg16(BG_CNT_REGS[bg.bg], bg.priority | BG_256_COLOR | (bg.screen_block << 8))
+            depth = bg.small ? 0 : BG_256_COLOR # a small layer's tiles each name their own bank
+            write_reg16(BG_CNT_REGS[bg.bg], bg.priority | depth | (bg.screen_block << 8))
             write_reg16(BG_HOFS_REGS[bg.bg], 0) # start unscrolled
             write_reg16(BG_VOFS_REGS[bg.bg], 0)
           end
