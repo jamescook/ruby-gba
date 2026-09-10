@@ -1275,14 +1275,16 @@ module RubyGBA
         SMALL_TILE_BYTES = (TILE_PX * TILE_PX) / 2
         BIG_TILE_BYTES = TILE_PX * TILE_PX
 
-        # BGxCNT bit 7: this layer's pixels are whole bytes, so it reads across the
-        # console's whole 256-color background table. Left clear, a pixel is half a byte
-        # and each TILE says which bank of sixteen it draws from — half the memory for
+        # BGxCNT bit 7 (8bpp): this layer's pixels are whole bytes, so it reads across the
+        # console's whole 256-color background table. Left clear (4bpp) a pixel is half a
+        # byte and each TILE says which bank of sixteen it draws from — half the memory for
         # the same picture, and twice as many tiles in the block. Which a layer gets is
-        # worked out from the colors in its tiles; nothing in the DSL says.
+        # worked out from the colors in its tiles; nothing in the DSL says. See
+        # {PaletteBanks}, whose comment maps the framework's words onto this console's.
         BG_256_COLOR = 0x0080
 
-        # A map entry's bits 12-15: which bank of sixteen this cell's tile draws from.
+        # A map entry's bits 12-15: which palette bank this cell's tile draws from. Per
+        # TILE, not per layer — so one 4bpp background can span all sixteen banks.
         BG_BANK_SHIFT = 12
         BG_SHARED_PAL = :__bg_shared_pal   # the one palette every layer indexes into
         BG_SHARED_CHAR = :__bg_shared_char # every layer's tile pictures, uploaded as one piece
@@ -1584,7 +1586,8 @@ module RubyGBA
         # Pack one 8x8 tile the way the tile hardware reads it: 64 pixels row by row,
         # each the number that picks its color. A tile stored the small way packs two
         # pixels into every byte, the left one in the low half — the same order a sprite
-        # stored that way uses.
+        # stored that way uses. (In this console's own words: 4bpp, low nibble first, so a
+        # 4bpp tile is 32 bytes and an 8bpp one 64.)
         def encode_tile(bmp, place)
           bytes = (+"").b
           pending = nil
@@ -1774,14 +1777,16 @@ module RubyGBA
           [8, 16] => [2, 0], [8, 32] => [2, 1],  [16, 32] => [2, 2], [32, 64] => [2, 3],
         }.freeze
 
-        # attr0 bit 13: this sprite's pixels are whole bytes, so it reads across the
-        # console's whole 256-color sprite table. Left clear, a pixel is half a byte and
-        # the sprite draws from one bank of sixteen — half the memory for the same
+        # attr0 bit 13 (8bpp): this sprite's pixels are whole bytes, so it reads across the
+        # console's whole 256-color sprite table. Left clear (4bpp) a pixel is half a byte
+        # and the sprite draws from one bank of sixteen — half the memory for the same
         # picture. Which one a sprite gets is worked out from the colors in its art (see
-        # #build_shared_object_palette); nothing in the DSL says.
+        # #build_shared_object_palette); nothing in the DSL says. See {PaletteBanks}, whose
+        # comment maps the framework's words onto this console's.
         OBJ_256_COLOR = 0x2000
 
-        # attr2 bits 12-15: which bank of sixteen a small-storage sprite reads.
+        # attr2 bits 12-15: which palette bank a 4bpp sprite reads. Per SPRITE, so all of
+        # its poses share one — unlike a background, where each tile names its own.
         OBJ_BANK_SHIFT = 12
 
         # attr2 bits 10-11: how deep this sprite sits, on the console's own scale where 0
@@ -2271,7 +2276,10 @@ module RubyGBA
         #
         # A NARROW sprite packs two pixels into every byte — the left one in the low
         # half, the right one in the high half, which is the order the console reads
-        # them back in — so its picture is half the size for the same pixels.
+        # them back in — so its picture is half the size for the same pixels. (In this
+        # console's own words: 4bpp, low nibble first. A 4bpp OBJ tile is 32 bytes and an
+        # 8bpp one 64, but OBJ tile NUMBERS count in 32s either way — which is why a wide
+        # sprite has to start on an even one, see #prepare_objects.)
         def encode_object_tiles(bmp, placement)
           pixels = bmp.pixels
           width = bmp.width
