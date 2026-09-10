@@ -191,7 +191,7 @@ module RubyGBA
       result = Profiler.run(self, frames: frames, settle: settle, keys: keys, scene: scene,
                             from: from)
       case format
-      when :human then Profiler.render(result, out: out)
+      when :human then Profiler.render(result, out: out, rom: self)
       when :json  then out.puts(JSON.generate(result.to_h))
       else raise ArgumentError, "unknown profile format #{format.inspect} (use :human or :json)"
       end

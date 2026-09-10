@@ -180,6 +180,53 @@ class TestProfiler < Minitest::Test
     assert_match(/:title/, error.message)
   end
 
+  # --- did the picture tear ---
+
+  # The build says a game CAN tear, which is a fact about the screen it chose. Whether one
+  # that can DOES is a race between the display's row and the game's, and only running it
+  # settles that — so it is measured here rather than priced.
+  def test_a_game_that_draws_more_than_fits_is_seen_to_tear
+    heavy = RubyGBA.build("PTER", code: "PTER", maker: "01") do
+      screen :bitmap
+      var :x, 0
+      game_loop do
+        clear_screen :black
+        6.times { |i| fill_rect 0, i * 24, 240, 24, :red }
+        add :x, 1
+      end
+    end
+    result = heavy.profile(out: StringIO.new, frames: 10)
+
+    assert_predicate result.tearing, :torn?
+    assert_operator result.tearing.worst, :>, 0, "and it says how many rows showed early"
+  end
+
+  def test_a_game_that_keeps_up_is_seen_not_to_tear
+    light = RubyGBA.build("PTEL", code: "PTEL", maker: "01") do
+      screen :bitmap
+      var :x, 0
+      game_loop { fill_rect 0, 0, 8, 8, :red; add :x, 1 }
+    end
+    result = light.profile(out: StringIO.new, frames: 10)
+
+    refute_predicate result.tearing, :torn?
+  end
+
+  # "We did not look" must never read as "nothing was wrong", so a screen that cannot tear
+  # reports nothing at all rather than a reassuring zero.
+  def test_a_screen_that_cannot_tear_reports_nothing_rather_than_no_tear
+    buffered = RubyGBA.build("PTEB", code: "PTEB", maker: "01") do
+      screen :bitmap, tear_free: true
+      var :x, 0
+      game_loop { clear_screen :black; add :x, 1 }
+    end
+    out = StringIO.new
+    result = buffered.profile(out: out, frames: 10)
+
+    assert_nil result.tearing
+    refute_match(/tore|held together/, out.string)
+  end
+
   # --- a moment somebody played to ---
 
   # The work runs only once a variable is set, and nothing sets it. No held button reaches

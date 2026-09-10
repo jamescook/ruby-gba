@@ -52,10 +52,24 @@ module RubyGBA
       def to_h = detail ? { how: how.to_s, detail: detail.to_s } : { how: how.to_s }
     end
 
+    # WHETHER THE PICTURE HELD TOGETHER, on the frames that were looked at. +looked+ is how
+    # many, +torn+ how many of those showed a seam, +worst+ the most rows one of them showed
+    # before the game had finished them. nil where the screen cannot tear at all.
+    Tear = Data.define(:looked, :torn, :worst) do
+      def torn? = torn.positive?
+    end
+
+    # HOW MANY FRAMES TO LOOK AT FOR A TEAR, and why it is a handful rather than all of them.
+    # Reading one costs a bus read per pixel — 38,400 of them — where the profiling itself
+    # costs nothing per frame. And a tear is not a rare accident: it is a frame that does more
+    # drawing than fits in the gap between frames, so a game that tears tears steadily. A few
+    # frames answer it; sixty would only cost sixty times as much to say the same thing.
+    TEAR_FRAMES = 6
+
     # A finished profile. +unattributed+ is the share that ran outside every routine the build
     # knows about.
     Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
-                         :reached) do
+                         :reached, :tearing) do
       def dropping_frames? = fps < 59.5
 
       # Instructions a frame — what the game actually does, where a share only says how that
@@ -66,6 +80,7 @@ module RubyGBA
       def to_h
         { frames: frames, samples: samples, fps: fps, idle_share: idle_share,
           keys: keys.map(&:to_s), unattributed: unattributed, reached: reached.to_h,
+          tearing: tearing && { looked: tearing.looked, torn: tearing.torn, worst: tearing.worst },
           routines: lines.map do |line|
             { name: line.name.to_s, label: line.label, samples: line.samples,
               share: line.share, where: line.where.to_s }
@@ -76,7 +91,11 @@ module RubyGBA
     # Run +rom+ and report where its frames went. +keys+ are held for the settling and the
     # measured frames alike, because a game costs what the player makes it cost and a reading
     # with nothing held is a reading of a game standing still.
-    def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [], enter: nil, scene: nil, from: nil)
+    # +tearing+ is off for the run the BUILD makes of itself to choose what goes in the quick
+    # memory: that pass wants the routine counts and nothing else, and looking for a tear costs
+    # a bus read per pixel, per frame, which is the dearest thing here by a wide margin.
+    def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [], enter: nil, scene: nil, from: nil,
+                 tearing: true)
       routines = rom.built.routines
       held = Array(keys)
       raise ArgumentError, "give `scene:` or `from:`, not both. A saved moment already says " \
@@ -84,22 +103,43 @@ module RubyGBA
       enter ||= scene_state(rom, scene)
       reached = reached_by(scene, from)
 
-      profile = in_temp_rom(rom) do |path|
+      profile, tearing = in_temp_rom(rom) do |path|
         probe = Emulator.probe(path)
         begin
-          if from
-            resumed_from(probe, from, path, frames, held)
-          elsif enter
-            pinned_to(probe, enter, frames, held)
-          else
-            plain_run(probe, frames, settle, held)
-          end
+          measured =
+            if from
+              resumed_from(probe, from, path, frames, held)
+            elsif enter
+              pinned_to(probe, enter, frames, held)
+            else
+              plain_run(probe, frames, settle, held)
+            end
+          # Looked at AFTER the profiling, from wherever it left the game — so the frames
+          # judged are the same frames that were measured, doing the same work.
+          [measured, tearing && tearing_in(probe, rom.built.source_program, held)]
         ensure
           probe.close
         end
       end
 
-      build_result(profile, routines, held, reached)
+      build_result(profile, routines, held, reached, tearing)
+    end
+
+    # DID THE PICTURE ACTUALLY TEAR — the question the build can only ask, not answer.
+    #
+    # The build says whether a game CAN tear, which is a fact about the screen it chose: a
+    # game that draws straight into the one picture the display is reading can, and a
+    # double-buffered or tiled game cannot, however slow it is. Whether one that can does is a
+    # race between the display's row and the game's, and only running it settles that.
+    def self.tearing_in(probe, program, held)
+      return nil unless Tearing.measurable?(program)
+
+      readings = TEAR_FRAMES.times.map do
+        probe.step(1, keys: held)
+        Tearing.read(probe)
+      end
+      torn = readings.select(&:torn?)
+      Tear.new(looked: readings.length, torn: torn.length, worst: torn.map(&:rows).max || 0)
     end
 
     def self.reached_by(scene, from)
@@ -244,10 +284,11 @@ module RubyGBA
     def self.every_scene(rom, frames: FRAMES, keys: [])
       dispatch = Analyzer.scenes(rom.built.source_program)
       address = dispatch && rom.built.var_addresses[dispatch[:selector]]
-      return work_in(run(rom, frames: frames, keys: keys)) unless address
+      return work_in(run(rom, frames: frames, keys: keys, tearing: false)) unless address
 
       per_scene = dispatch[:scenes].map do |_name, value|
-        work_in(run(rom, frames: frames, keys: keys, enter: { address: address, value: value }))
+        work_in(run(rom, frames: frames, keys: keys, tearing: false,
+                    enter: { address: address, value: value }))
       end
       per_scene.reduce(Hash.new(0)) do |busiest, scene|
         scene.each { |name, work| busiest[name] = [busiest[name], work].max }
@@ -265,7 +306,8 @@ module RubyGBA
             .to_h { |line| [line.name, (line.samples.to_f / result.frames).round] }
     end
 
-    def self.build_result(profile, routines, held, reached = Reached.new(how: :boot, detail: nil))
+    def self.build_result(profile, routines, held, reached = Reached.new(how: :boot, detail: nil),
+                          tearing = nil)
       tally, outside = attribute(profile.pc, routines)
       total = profile.samples
 
@@ -281,7 +323,7 @@ module RubyGBA
       Result.new(frames: profile.frames, samples: total, fps: profile.frames_per_second,
                  idle_share: profile.idle_share.round(4), lines: lines,
                  unattributed: share(outside.sum { |_, seen| seen }, total), keys: held,
-                 reached: reached)
+                 reached: reached, tearing: tearing)
     end
 
     # WHAT RAN THAT IS NOT A ROUTINE THE AUTHOR WROTE, named by where it ran rather than
@@ -330,8 +372,16 @@ module RubyGBA
 
     # Print a measured profile the way `rom.explain` prints an estimated one — the dearest
     # line first, because that is the one worth looking at.
-    def self.render(result, out: $stdout)
+    def self.render(result, out: $stdout, rom: nil)
       printer = IR::Printer.for(out)
+      # WHAT THE BUILD MADE COMES FIRST, and it is here rather than under a verb of its own
+      # because the two halves answer one question between them. The build says a routine
+      # missed the quick memory by four tenths of a kilobyte; the run says that routine is
+      # most of the frame. Either alone sends a reader the wrong way.
+      if rom
+        BuildReport.render(rom, out: out)
+        printer.puts("")
+      end
       printer.puts("where your frames went, measured over #{result.frames} frames#{held_note(result.keys)}")
       # Which moment this is of, said out loud: the same cartridge measured on its title screen
       # and measured in its boss fight are different numbers about different code.
@@ -339,6 +389,7 @@ module RubyGBA
       printer.puts("")
       printer.puts("  #{result.fps} frames a second#{dropped_note(result)}")
       printer.puts("  #{(result.idle_share * 100).round(1)}% of each frame spare")
+      tearing_line(result.tearing, printer)
       printer.puts("")
 
       result.lines.each { |line| printer.cost_line(label_for(line), "#{line.share}%") }
@@ -355,6 +406,20 @@ module RubyGBA
 
     def self.words_for(where)
       { quick_memory: "quick memory", cartridge: "cartridge" }.fetch(where, "somewhere else")
+    end
+
+    # Said only where a tear could be looked for. A screen that cannot tear says nothing here,
+    # because "we did not look" must never read as "nothing was wrong".
+    def self.tearing_line(tear, printer)
+      return if tear.nil?
+
+      if tear.torn?
+        printer.puts("  the picture tore on #{tear.torn} of the #{tear.looked} frames looked " \
+                     "at — up to #{tear.worst} rows showed before the game had finished them",
+                     severity: :bad)
+      else
+        printer.puts("  the picture held together on all #{tear.looked} frames looked at")
+      end
     end
 
     def self.held_note(keys) = keys.empty? ? "" : ", holding #{keys.map(&:to_s).join(' + ').upcase}"
