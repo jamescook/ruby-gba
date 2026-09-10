@@ -538,7 +538,8 @@ module RubyGBA
           shared = @objects.count { |_name, obj| obj[:tiles].nil? }
           RubyGBA::VideoMemory::Area.new(used: @obj_art.bytes, capacity: OBJ_TILE_CAPACITY,
                                          small: small, big: @objects.size - small,
-                                         saved: sprite_memory_saved, shared: shared)
+                                         saved: sprite_memory_saved, shared: shared,
+                                         repeats: @obj_repeats)
         end
 
         # What the same pictures would have cost stored the old way: a small one is exactly
@@ -2040,6 +2041,7 @@ module RubyGBA
           end
           @obj_art = ObjectArt.new(@emit)
           @scene_art = {}
+          @obj_repeats = 0 # bytes a piece did not cost because another piece already held them
 
           # ALWAYS-THERE ART FIRST, then each scene's own over the same room.
           #
@@ -2535,8 +2537,19 @@ module RubyGBA
           # taken from the bytes already written rather than from a tile count, since a
           # picture stored the big way is two units to the tile. One number per piece, and
           # a mirrored pose adds nothing and points back at the pose it mirrors.
+          #
+          # A PIECE THAT HOLDS TILES ALREADY WRITTEN IS NOT WRITTEN AGAIN, and this is the
+          # one saving a game written straight against the console cannot have. An object
+          # reads a CONTIGUOUS run of tiles, so by hand every frame of an animation has to
+          # be its own run and a part that did not move between two frames is kept twice.
+          # A pose built as a table of PIECES is under no such rule — each piece names its
+          # own first tile — so the head and the still arm of a walk cycle are stored once
+          # and every frame points at them. Judged on the encoded bytes, which say the
+          # pixels and the size of the box together, so two pieces match only when they
+          # would draw the same thing.
           tiles = +"".b
           starts = []
+          written = {} # the bytes of every run so far -> the unit it starts at
           poses.each_with_index do |image, k|
             if mirrors[k]
               starts << starts[mirrors[k]].dup # point it at the pose it mirrors and store nothing
@@ -2544,17 +2557,26 @@ module RubyGBA
             end
             bmp = @bitmaps.fetch(image)
             starts << boxes[k].map do |box|
-              at = tiles.bytesize / 32
-              tiles << encode_object_tiles(bmp, place, box)
+              bytes = encode_object_tiles(bmp, place, box)
+              at = written[bytes]
+              if at
+                @obj_repeats += bytes.bytesize # already written: point at it, and say so
+              else
+                at = written[bytes] = tiles.bytesize / 32
+                tiles << bytes
+              end
               at
             end
           end
           pad_object_pieces(boxes, starts, tiles, place, pieces)
-          alike = pieces == 1 && boxes.map(&:first).uniq.size == 1 && mirrors.none?
+          alike = pieces == 1 && boxes.map(&:first).uniq.size == 1 && mirrors.none? &&
+                  even_pose_stride?(starts)
           # The stride from one pose's tiles to the next, which means anything only when
-          # the poses are alike — and then every one is the same number of units, so it is
-          # simply what one pose came to.
-          per_pose = alike ? (tiles.bytesize / 32) / poses.length : 0
+          # the poses are alike — and then it is simply where the second one landed. Read
+          # off the poses rather than divided out of the total, because a cycle whose
+          # frames are all the SAME picture shares one run between them: the stride is
+          # then 0, which is the truth, where the division would say a sixth of a pose.
+          per_pose = alike ? pose_stride(starts) : 0
           tile_blob, tile_unit = @obj_art.place(name, tiles, narrow: place.narrow?)
           # Poses that trimmed alike carry their one size in the sprite's own entry. Poses
           # that differ carry NOTHING here — the size and shape come out of the table with
@@ -2600,6 +2622,30 @@ module RubyGBA
             attr2_base: (hardware_priority(name) << OBJ_PRIORITY_SHIFT) |
               (place.narrow? ? place.bank << OBJ_BANK_SHIFT : 0),
           }
+        end
+
+        # DOES ONE POSE'S TILES FOLLOW THE LAST'S, ALL THE WAY DOWN? That is what the plain
+        # draw assumes: it multiplies the pose the game is showing by a fixed stride, so
+        # the poses have to sit an even distance apart in the order they were declared. A
+        # pose that REPEATS an earlier one is stored once and points back at it, which
+        # usually breaks the run — so such a sprite carries the pose table instead, where
+        # each pose says where its own tiles are. Usually, and not always: a cycle whose
+        # frames are ALL the same picture shares one run, which is an even distance of
+        # nothing, and it keeps the plain draw.
+        #
+        # THAT TRADE IS THE ONE DECISION HERE, and it goes this way because the two sides
+        # are not the same kind of thing. Falling to the table measured 12 instructions a
+        # frame on a four-pose sprite; what it buys is at least one whole pose of picture
+        # memory, and picture memory is a WALL — a game that runs out does not build at
+        # all, where a frame that is 12 instructions longer is a frame nobody can see.
+        # Keeping the plain draw and looking the pose up in a table of its own would cost
+        # about two instructions instead of twelve, and it was not worth a third way
+        # through the hottest code in the frame to save ten.
+        def pose_stride(starts) = starts.length > 1 ? starts[1].first : 0
+
+        def even_pose_stride?(starts)
+          stride = pose_stride(starts)
+          starts.each_with_index.all? { |at, k| at.first == k * stride }
         end
 
         # EVERYTHING THAT CHANGES BETWEEN POSES THAT ARE NOT INTERCHANGEABLE, one word
@@ -2682,12 +2728,21 @@ module RubyGBA
         # Returns the pose each pose mirrors, or nil for one stored in its own right. A
         # mirror always points at a STORED pose, never at another mirror, so there is
         # never a chain to follow.
+        #
+        # A pose that repeats an earlier one EXACTLY is not called a mirror, even though a
+        # symmetric picture is its own mirror and would answer to the test below. Its
+        # pieces already share the earlier pose's tiles (see #prepare_one_object), so
+        # calling it a mirror would only add the bit that draws it backwards — three more
+        # instructions a frame to reverse a picture that reads the same either way.
         def object_pose_mirrors(poses)
+          seen = {}     # the pixels of every pose stored so far
           reversed = {} # what a mirror of a stored pose would look like -> that pose
           poses.each_with_index.map do |image, k|
             bmp = @bitmaps.fetch(image)
+            next nil if seen.key?(bmp.pixels)
             next reversed[bmp.pixels] if reversed.key?(bmp.pixels)
 
+            seen[bmp.pixels] = k
             reversed[bmp.mirrored.pixels] ||= k
             nil
           end

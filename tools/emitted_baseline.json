@@ -50,7 +50,7 @@
       "data": 0
     },
     "level": {
-      "code": 6348,
+      "code": 6336,
       "data": 0
     },
     "maze": {
@@ -58,7 +58,7 @@
       "data": 0
     },
     "pacman": {
-      "code": 15988,
+      "code": 16036,
       "data": 0
     },
     "parallax": {
@@ -90,7 +90,7 @@
       "data": 0
     },
     "sheet": {
-      "code": 6348,
+      "code": 6336,
       "data": 0
     },
     "shmup": {
