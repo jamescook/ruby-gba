@@ -32,14 +32,54 @@ module RubyGBA
     # @param affine [Boolean] built under `screen :rotozoom` — the console's rotate/scale
     #   layer, which pans by moving the whole matrix (see #rotate / #scale) rather than
     #   the plain scroll registers a `screen :tiled` layer pans with
-    def initialize(builder, name:, scroll_x:, scroll_y:, walls: [], affine: false)
+    # @param cells [Array(Integer, Integer)] how many cells across and down the map is
+    # @param tile_index [Hash] each name the map was written in (a tileset character, or
+    #   a number from an imported sheet) to the tile it means — what `set_tile` reads
+    # @param bitmap [Boolean] declared under `screen :bitmap`, where a background is
+    #   stamped into the one picture rather than drawn by tile hardware
+    def initialize(builder, name:, scroll_x:, scroll_y:, walls: [], affine: false,
+                   cells: [0, 0], tile_index: {}, bitmap: false)
       @builder = builder
       @name = name
       @scroll_x = scroll_x
       @scroll_y = scroll_y
       @walls = walls
       @affine = affine
+      @cells = cells
+      @tile_index = tile_index
+      @bitmap = bitmap
     end
+
+    # PUT A DIFFERENT TILE IN ONE CELL, while the game runs.
+    #
+    #   room.set_tile 4, 7, "."    # the door is open now
+    #   room.set_tile 4, 7, "#"    # ...and shut again
+    #
+    # A door that opens, a pot that breaks, a wall a bomb takes out, a block the player
+    # pushes — every one of those is one tile changing, and without this every one of
+    # them has to be a sprite instead, out of a budget a game would rather spend on
+    # things that move.
+    #
+    # +col+ and +row+ are CELL coordinates, not pixels, and either may be something the
+    # game works out. The tile is named the way the map was written — one of the
+    # tileset's own characters, or a number from an imported sheet — so nothing here is
+    # a tile number, a place in video memory, or a moment it is safe to write.
+    #
+    # A cell outside the map is left alone rather than writing over something else, so a
+    # coordinate the game worked out can be off the edge without a test around it.
+    def set_tile(col, row, tile)
+      refuse_on_a_bitmap_screen!
+      index = @tile_index[tile]
+      raise ArgumentError, unknown_tile_message(tile) if index.nil?
+
+      record(Build.set_tile(@name, Value.node_for(col), Value.node_for(row), index))
+      self
+    end
+
+    # How many cells across and down this background's map is — what a game needs to
+    # walk it, and what `set_tile` holds a coordinate against.
+    def cols = @cells[0]
+    def rows = @cells[1]
 
     # The background's walls as {Box}es a sprite can be tested against — the merged
     # solid-tile rectangles from the tileset's `solid:` tiles. Empty if none were
@@ -161,6 +201,25 @@ module RubyGBA
     # (`screen :rotozoom`) layer doesn't have — it pans by moving its whole matrix instead
     # (see #rotate / #scale). Friendly error rather than a register write that does
     # nothing on real hardware.
+    # On `screen :bitmap` a background is stamped into the one picture where it is
+    # declared and nothing draws it again, so there is no cell left to change — the
+    # pixels are simply part of the picture now. Drawing over them is what a `blit`
+    # already does, so that is what the message says.
+    def refuse_on_a_bitmap_screen!
+      return unless @bitmap
+
+      raise ArgumentError,
+            "background :#{@name} was declared under `screen :bitmap`, where a background is " \
+            "painted into the picture once — so there is no cell left for set_tile to change. " \
+            "Draw over the spot with `blit`, or use `screen :tiled`."
+    end
+
+    def unknown_tile_message(tile)
+      known = @tile_index.keys.first(8).map(&:inspect).join(", ")
+      "background :#{@name} has no tile #{tile.inspect}, so set_tile cannot put one there. Its " \
+        "tiles are #{known}#{@tile_index.size > 8 ? ', and more' : ''} — the ones its tileset names."
+    end
+
     def ensure_not_affine!(verb)
       return unless @affine
 

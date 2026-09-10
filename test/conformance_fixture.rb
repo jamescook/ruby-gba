@@ -164,6 +164,10 @@ module ConformanceFixture
                           map: [[0, 1], [1, nil]], tile_w: 2, tile_h: 2,
                           layer: :scenery),                   # ...at the back of the stack
       B.scroll_background(:grid, x: B.var_ref(:x), y: B.var_ref(:y)), # move the window over it
+      # ...and change one of its cells while the program runs, at a place worked out from
+      # a variable — a door opening. A backend that wrote the wrong cell, or none, draws a
+      # different picture.
+      B.set_tile(:grid, B.var_ref(:x), B.int(1), 0),
       # ...and bend it row by row: every row of the picture gets its own sideways offset,
       # worked out from the row number a backend puts in :bend_row. `% 2` keeps the offsets
       # small and makes alternate rows differ, so a backend that ignored the bend, or

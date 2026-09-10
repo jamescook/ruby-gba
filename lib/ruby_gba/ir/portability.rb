@@ -71,6 +71,8 @@ module RubyGBA
         see_through: :portable,       # how much of what is behind a layer shows — any backend can
         # a composited moving picture — software compositing or sprite hardware, any backend can
         object: :portable, present_objects: :portable,
+        # one cell of the scenery becomes a different tile — every backend has a map to change
+        set_tile: :portable,
         # save/restore a screen patch — copying pixels to/from a buffer, any backend can
         save_region: :portable, restore_region: :portable,
 

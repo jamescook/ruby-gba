@@ -56,6 +56,17 @@ module RubyGBA
         operands name: :name, angle: :value, scale: :value, active: :value
       end
 
+      # One cell of a declared background becomes a different tile, while the game runs —
+      # a door opening, a pot breaking, a wall a bomb took out. +col+ and +row+ are cell
+      # coordinates and may be worked out as the game runs; +tile+ is which of the
+      # background's own tiles goes there, settled while the program is written.
+      class SetTile
+        include Node
+        kind :set_tile
+        category :draw
+        operands name: :name, col: :value, row: :value, tile: :int
+      end
+
       class BackingBuffer
         include Node
         kind :backing_buffer

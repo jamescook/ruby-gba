@@ -167,7 +167,10 @@ module RubyGBA
         scroll_y = :"__bg_#{name}_sy"
         [scroll_x, scroll_y].each { |var| at_boot(Build.set(var, Build.int(0))); ensure_var(var) }
         Background.new(self, name: name, scroll_x: scroll_x, scroll_y: scroll_y,
-                             walls: wall_rects(img_rows, set), affine: @screen_mode == :rotozoom)
+                             walls: wall_rects(img_rows, set), affine: @screen_mode == :rotozoom,
+                             cells: [grid.map(&:length).max || 0, grid.length],
+                             tile_index: tile_lookup(set, index_of),
+                             bitmap: @screen_mode == :bitmap)
       end
 
       # Make a background able to turn and resize as a whole (see {Background#rotate} /
@@ -226,6 +229,16 @@ module RubyGBA
       end
 
       private
+
+      # WHICH OF A BACKGROUND'S OWN TILES EACH NAME MEANS, so `set_tile` can be written
+      # the way the map was — a tileset's own characters, or, for a sheet imported as
+      # numbered tiles, those numbers. Every tile of the tileset is shipped whether the
+      # map used it or not, so a door can be drawn in the tileset and only ever appear
+      # once something opens it.
+      def tile_lookup(set, index_of)
+        named = set[:chars].empty? ? (set[:by_number] || {}) : set[:chars]
+        named.to_h { |name, image| [name, index_of[image]] }.compact
+      end
 
       # Import a tileset from a sheet by CHARACTER: slice the file into cells of the
       # given size and define the cell each character points at as an image, returning
