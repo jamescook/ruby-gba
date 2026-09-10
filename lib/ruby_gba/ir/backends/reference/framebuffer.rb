@@ -75,6 +75,13 @@ module RubyGBA
 
           def paged? = !@shown_pixels.equal?(@pixels)
 
+          # Both pictures, as [the one being drawn into, the one being shown]. Labelled by
+          # ROLE rather than by which page it is, which is what {Flicker} wants: two flips
+          # put the roles back where they started, so two readings taken a whole number of
+          # PAIRS of frames apart label the same picture the same way. With one page the two
+          # are the same picture, and the reading has nothing to compare.
+          def pages = [@pixels.dup, @shown_pixels.dup]
+
           # Show the page just drawn and hand the program the other one. Called at the
           # frame boundary, which is the only moment it is safe on real hardware — and
           # it is a swap of two references, never a copy, for the same reason it is a

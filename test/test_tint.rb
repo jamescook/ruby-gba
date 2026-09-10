@@ -537,7 +537,7 @@ class TestTint < Minitest::Test
       screen :bitmap
       game_loop { body.call(self) }
     end
-    RubyGBA::Profiler.run(rom, frames: 20, tearing: false).samples_per_frame
+    RubyGBA::Profiler.run(rom, frames: 20, picture: false).samples_per_frame
   end
 
   # What a tint adds to a frame must not depend on what else that frame draws. Measured as a

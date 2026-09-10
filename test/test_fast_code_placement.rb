@@ -213,7 +213,7 @@ class TestFastCodePlacement < Minitest::Test
   end
 
   def profile_of(rom)
-    RubyGBA::Profiler.run(rom, frames: 30, tearing: false)
+    RubyGBA::Profiler.run(rom, frames: 30, picture: false)
   end
 
   # --- the routine the console interrupts into ---

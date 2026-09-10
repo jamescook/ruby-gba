@@ -527,6 +527,6 @@ class TestRowBend < Minitest::Test
   end
 
   def instructions_a_frame(rom)
-    RubyGBA::Profiler.run(rom, frames: 20, tearing: false).samples_per_frame
+    RubyGBA::Profiler.run(rom, frames: 20, picture: false).samples_per_frame
   end
 end
