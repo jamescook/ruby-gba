@@ -182,6 +182,24 @@ module RubyGBA
                             what, room(area.used), room(area.capacity), room(area.free),
                             storage_note(area))
       end
+      object_count_lines(video.objects, printer)
+    end
+
+    # HOW MANY OF THE CONSOLE'S SPRITES THE GAME REALLY SPENDS — said only when it is not
+    # one per sprite, which is the only time it can surprise anybody. A picture too big for
+    # one object is drawn as several standing shoulder to shoulder, and the author wrote
+    # one sprite; the same goes for the windows that hold a placed fade off a sprite.
+    def object_count_lines(objects, printer)
+      return if objects.nil?
+
+      printer.puts "  the sprites the console draws at once: " \
+                   "#{objects.used} of #{objects.capacity} used, #{objects.free} free"
+      objects.big.each do |name, count|
+        printer.puts "    :#{name} is bigger than one sprite, so it is drawn as #{count}"
+      end
+      return if objects.twins.zero?
+
+      printer.puts "    #{objects.twins} of them hold the placed fade off the sprites in front of it"
     end
 
     # Picture memory runs from a handful of bytes to tens of kilobytes, and a small sprite

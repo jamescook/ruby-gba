@@ -13,11 +13,13 @@ module RubyGBA
   # picture drawn from few enough colors at half the size, silently, deciding from the art
   # rather than from anything in the program — so how much of the room in hand came from that
   # decision is invisible unless the build says. It is usually most of it.
-  VideoMemory = Data.define(:sprites, :tiles) do
+  VideoMemory = Data.define(:sprites, :tiles, :objects) do
+    def initialize(objects: nil, **rest) = super
+
     def any? = !sprites.nil? || !tiles.nil?
 
     def to_h
-      { sprites: sprites&.to_h, tiles: tiles&.to_h }.compact
+      { sprites: sprites&.to_h, tiles: tiles&.to_h, objects: objects&.to_h }.compact
     end
   end
 
@@ -41,6 +43,26 @@ module RubyGBA
       def to_h
         { used: used, capacity: capacity, free: free,
           small: small, big: big, saved: saved, shared: shared, skipped: skipped }
+      end
+    end
+
+    # HOW MANY OF THE CONSOLE'S SPRITES THE GAME SPENDS, which is not the same number as
+    # how many sprites the author declared. The console draws 128 at once, and a picture
+    # bigger than the largest one of them is drawn as SEVERAL standing shoulder to
+    # shoulder — so a boss can quietly cost nine. Nobody writes that, and it comes out of
+    # the same 128 as everything else, so it is worth a number.
+    #
+    # +big+ is [picture name, how many objects] for each sprite spending more than one,
+    # and +twins+ is what the windows that hold a placed fade off a sprite cost, since
+    # each of those shadows a sprite object for object.
+    Objects = Data.define(:used, :capacity, :big, :twins) do
+      def initialize(big: [], twins: 0, **rest) = super
+
+      def free = capacity - used
+
+      def to_h
+        { used: used, capacity: capacity, free: free,
+          big: big.map { |name, count| { name: name, objects: count } }, twins: twins }
       end
     end
   end

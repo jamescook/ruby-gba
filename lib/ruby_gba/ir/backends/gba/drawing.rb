@@ -1511,32 +1511,45 @@ module RubyGBA
           # sprite holds, so it is filled in from the SAME numbers on the way past rather
           # than worked out again — a copy of each attribute as it is written, and one test
           # of where the fade is sitting. See GBA#prepare_object_windows.
+          #
+          # A picture too big for one object is drawn as SEVERAL, standing shoulder to
+          # shoulder — so this walks the pieces, and a sprite the console can draw in one
+          # go is simply the case where there is one of them. The pieces take a run of
+          # slots from the sprite's own, so the whole thing keeps one place in the stack.
           def emit_present_object(obj, twin: nil)
-            base = OAM_START + (obj[:slot] * 8)
-            mirror = twin && OAM_START + (twin[:slot] * 8)
-
             @lowering.value(obj[:active])
             emit(ASM.cmp_imm(ACC, 0))
             draw = gensym
             done = gensym
             emit_branch(:bcond, draw, cond: :ne)
-            write_reg16(base, OBJ_HIDDEN_ATTR0) # active == 0: mark the slot unused
-            write_reg16(mirror, OBJ_HIDDEN_ATTR0) if mirror # ...and the window over it
+            obj[:pieces].times do |piece|
+              write_reg16(oam_slot(obj[:slot], piece), OBJ_HIDDEN_ATTR0) # active == 0: mark it unused
+              write_reg16(oam_slot(twin[:slot], piece), OBJ_HIDDEN_ATTR0) if twin # ...and its window
+            end
             emit_branch(:b, done)
 
             place_label(draw)
-            if obj[:transformed]
-              emit_draw_object_transformed(obj, base, mirror)
-            else
-              emit_draw_object_upright(obj, base, mirror)
+            # Worked out once for the whole sprite when it is drawn as several objects:
+            # every piece stands at the same place and reads it back from there.
+            emit_hold_object_position(obj) if obj[:pieces] > 1
+            obj[:pieces].times do |piece|
+              base = oam_slot(obj[:slot], piece)
+              mirror = twin && oam_slot(twin[:slot], piece)
+              if obj[:transformed]
+                emit_draw_object_transformed(obj, base, mirror)
+              else
+                emit_draw_object_upright(obj, base, mirror, piece)
+              end
             end
-            emit_window_gate(twin, mirror) if mirror
+            emit_window_gate(twin, obj[:pieces]) if twin
             place_label(done)
           end
 
+          def oam_slot(first, piece) = OAM_START + ((first + piece) * 8)
+
           # An upright sprite: position and size straight into its slot.
-          def emit_draw_object_upright(obj, base, mirror = nil)
-            return emit_draw_object_sized_poses(obj, base, mirror) unless obj[:alike]
+          def emit_draw_object_upright(obj, base, mirror = nil, piece = 0)
+            return emit_draw_object_sized_poses(obj, base, mirror, piece) unless obj[:alike]
 
             # attr0 = (y & 0xFF) | shape + 256-color flag. The offset is where this pose
             # sits inside the canvas it was drawn on — added back so trimming the blank
@@ -1577,13 +1590,17 @@ module RubyGBA
           POSE_DRAW_X = :__pose_draw_x
           POSE_DRAW_Y = :__pose_draw_y
 
-          def emit_draw_object_sized_poses(obj, base, mirror = nil)
+          def emit_hold_object_position(obj)
             @lowering.value(obj[:y])
             store_var(ACC, POSE_DRAW_Y)
             @lowering.value(obj[:x])
             store_var(ACC, POSE_DRAW_X)
+          end
 
-            emit_load_pose_word(obj)
+          def emit_draw_object_sized_poses(obj, base, mirror = nil, piece = 0)
+            # A sprite of several pieces had this done once for all of them, by the caller.
+            emit_hold_object_position(obj) if obj[:pieces] == 1
+            emit_load_pose_word(obj, piece)
             # attr0 = (y + how far down) & 0xFF, then the shape out of bits 10..11.
             load_var(ACC, POSE_DRAW_Y)
             emit(ASM.lsr_imm(TMP, POSE_WORD, 22))
@@ -1624,18 +1641,34 @@ module RubyGBA
             emit(ASM.orr_reg(ACC, ACC, TMP))
           end
 
-          # r4 = the word describing the pose this sprite is showing. A fixed pose is one
-          # load of a number settled while building; a pose the game works out is a read
-          # from the table at that index.
-          def emit_load_pose_word(obj)
-            fixed = const_int(obj[:pose])
+          # How far a load can reach from a register on its own (the instruction carries a
+          # 12-bit offset). Only a sprite of many pieces with a great many poses runs past
+          # it, and then the address is worked out instead.
+          LDR_OFFSET_LIMIT = 4096
+
+          # r4 = the word describing the piece of the pose this sprite is showing. A fixed
+          # pose is one load of a number settled while building; a pose the game works out
+          # is a read from the table at that index. The table is laid out piece first, so
+          # this piece's row starts at a place the build already knows and the read is the
+          # same one instruction whichever piece it is.
+          def emit_load_pose_word(obj, piece = 0)
             words = obj[:pose_words]
-            return emit(ASM.load_immediate(POSE_WORD, words[fixed] || words.first)) if fixed
+            row = piece * obj[:pose_count]
+            fixed = const_int(obj[:pose])
+            if fixed
+              at = fixed.between?(0, obj[:pose_count] - 1) ? row + fixed : row
+              return emit(ASM.load_immediate(POSE_WORD, words[at]))
+            end
 
             @lowering.value(obj[:pose])
             emit(ASM.lsl_imm(ACC, ACC, 2)) # a word each
             emit_load_data_address(TMP, obj[:pose_table])
             emit(ASM.add_reg(TMP, TMP, ACC))
+            offset = row * 4
+            return emit(ASM.ldr(POSE_WORD, TMP)) if offset.zero?
+            return emit(ASM.ldr_offset(POSE_WORD, TMP, offset)) if offset < LDR_OFFSET_LIMIT
+
+            emit_add_const(TMP, TMP, offset, ACC) # ACC is spent: the pose is already added in
             emit(ASM.ldr(POSE_WORD, TMP))
           end
 
@@ -1651,13 +1684,15 @@ module RubyGBA
 
           # Put the window away when the fade in force is not behind this sprite — a fade
           # over the whole screen, or one placed further forward. The sprite itself has
-          # already been written, so this only has to hide the twin.
-          def emit_window_gate(twin, mirror)
+          # already been written, so this only has to hide the twin — one window per piece
+          # for a sprite drawn as several objects, since the hole has to be the shape of
+          # the whole picture. Asked once for all of them, after they are drawn.
+          def emit_window_gate(twin, pieces)
             @lowering.value(twin[:gate])
             emit(ASM.cmp_imm(ACC, 0))
             keeps = gensym
             emit_branch(:bcond, keeps, cond: :ne)
-            write_reg16(mirror, OBJ_HIDDEN_ATTR0)
+            pieces.times { |piece| write_reg16(oam_slot(twin[:slot], piece), OBJ_HIDDEN_ATTR0) }
             place_label(keeps)
           end
 
