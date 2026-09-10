@@ -51,6 +51,15 @@ module RubyGBA
       # block), width:/height:/data: (array form), or from:/width:/height: (file
       # form). It's positional, not keywords, so the char map's string keys (like
       # "#") pass through cleanly.
+      # Add colors: [...] for art that came from somewhere that already decided its
+      # colors — a picture pulled out of another game, or one an artist drew against a
+      # fixed set. The list is that set, in its own order, see-through first:
+      #
+      #   image :link, from: "link.png", colors: [:transparent, :white, :green, ...]
+      #
+      # Say it and the framework keeps that order rather than working one out. Say
+      # nothing, which is almost always right, and it works one out from the colors in
+      # the art.
       def image(name, opts = {}, &block)
         if block
           define_ascii_image(name, opts, &block)
@@ -58,10 +67,10 @@ module RubyGBA
           bmp = Image.load(resolve_asset_path(opts[:from]), width: opts[:width], height: opts[:height],
                                                             transparent: opts.fetch(:transparent, false))
           define_pixel_image(name, width: bmp.width, height: bmp.height, data: bmp.data,
-                                   transparent: bmp.transparent)
+                                   transparent: bmp.transparent, colors: opts[:colors])
         else
           define_pixel_image(name, width: opts[:width], height: opts[:height], data: opts[:data],
-                                   transparent: opts[:transparent])
+                                   transparent: opts[:transparent], colors: opts[:colors])
         end
       end
 
@@ -107,7 +116,7 @@ module RubyGBA
       # color. That's for art a program builds itself — pictures converted out of
       # some other game's files, say — which arrives as an array rather than as
       # rows of characters, and otherwise had to know the marker color's value.
-      def define_pixel_image(name, width:, height:, data:, transparent: nil)
+      def define_pixel_image(name, width:, height:, data:, transparent: nil, colors: nil)
         positive_dims!(name, width, height)
         expected = width * height
         unless data.length == expected
@@ -118,7 +127,9 @@ module RubyGBA
         transparent = TRANSPARENT_PIXEL if transparent == true
         data = data.map { |c| c == :transparent ? transparent : c } if transparent == TRANSPARENT_PIXEL
         pixels = data.map { |c| c == transparent ? transparent : Color.resolve(c) }.pack("v*")
-        record(Build.bitmap(name, width: width, height: height, pixels: pixels, transparent: transparent))
+        given = own_colors(name, colors, pixels, transparent)
+        record(Build.bitmap(name, width: width, height: height, pixels: pixels,
+                                  transparent: transparent, colors: given))
         @images[name] = [width, height] # remember the shape, so a sprite can size itself from it
         record_visible_bounds(name: name, width: width, height: height, cells: data, transparent: transparent)
       end
@@ -153,6 +164,50 @@ module RubyGBA
                                   transparent: transparent ? TRANSPARENT_PIXEL : nil))
         @images[name] = [widths.first, rows.size] # remember the shape, so a sprite can size itself from it
         record_visible_bounds(name: name, width: widths.first, height: rows.size, cells: colors, transparent: transparent ? TRANSPARENT_PIXEL : nil)
+      end
+
+      # How many colors a picture may be given, and how many of those a pixel may
+      # actually be. A picture drawn from its own list has a see-through slot at the
+      # front, which the console reads as "leave this pixel alone" whatever color sits
+      # there — so it holds one fewer real color than its length.
+      OWN_COLORS = 16
+
+      # A picture's own table, checked while the author is still looking at the line
+      # that wrote it. Three things can be wrong, and each is a plain sentence rather
+      # than a number turning up later in a lowering pass:
+      # too many colors, a pixel drawn in a color the list does not hold, and a pixel
+      # sitting on the see-through slot (where it would vanish).
+      def own_colors(name, colors, pixels, transparent)
+        return nil if colors.nil?
+
+        unless colors.length <= OWN_COLORS
+          raise ArgumentError,
+                "image :#{name} was given #{colors.length} colors. A picture drawn from its own list of " \
+                "colors can have #{OWN_COLORS} of them, the first meaning see-through. Give it " \
+                "#{OWN_COLORS} or fewer, or give it none and the framework works the list out."
+        end
+
+        table = colors.map { |c| c == :transparent ? nil : Color.resolve(c) }
+        drawn = pixels.unpack("v*").uniq
+        drawn.each do |value|
+          next if transparent && value == transparent
+
+          slot = table.index(value & 0x7FFF)
+          raise ArgumentError, unlisted_color(name, value & 0x7FFF) if slot.nil?
+          next unless slot.zero?
+
+          raise ArgumentError,
+                "image :#{name} draws with #{Color.name_for(value & 0x7FFF)}, which is first in its list of " \
+                "colors. The first color in the list means see-through, so those pixels will not be drawn. " \
+                "Put a see-through entry first and move this color after it."
+        end
+        table.map { |value| value || 0x0000 }
+      end
+
+      def unlisted_color(name, value)
+        "image :#{name} draws with #{Color.name_for(value)}, which is not in the list of colors it was " \
+          "given. A picture given `colors:` is drawn from those colors and no others. Add this one to " \
+          "the list, or draw the picture with a color already in it."
       end
 
       # Remember the box around an image's visible (non-transparent) pixels, so a

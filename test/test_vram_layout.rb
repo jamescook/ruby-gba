@@ -58,8 +58,12 @@ class TestVramLayout < Minitest::Test
 
   # Past one character block the tile pictures would run into the first map. The
   # build stops with an explanation instead.
+  #
+  # HOW MANY TILES that is depends on how each one is stored: a tile drawn from
+  # fifteen colors or fewer is packed two pixels to a byte, so twice as many fit.
+  # These are, so it takes twice the old cap plus one to run out.
   def test_too_many_tiles_is_a_friendly_build_error
-    over = GBA::CHAR_BLOCK_TILES + 1
+    over = (GBA::CHAR_BLOCK_BYTES / GBA::SMALL_TILE_BYTES) + 1
     names = (0...over).map { |i| :"t#{i}" }
     prog = program(
       screen(:tiled),
@@ -70,27 +74,35 @@ class TestVramLayout < Minitest::Test
     )
 
     error = assert_raises(GBA::LoweringError) { GBA.new.lower(prog) }
-    assert_match(/#{GBA::CHAR_BLOCK_TILES}/, error.message, "it names the limit")
-    assert_match(/tile/i, error.message)
-    assert_match(/fewer|shared/i, error.message, "and says what to do about it")
+    assert_match(/#{GBA::CHAR_BLOCK_BYTES}/, error.message, "it names the room there is")
+    assert_match(/:big/, error.message, "and names the background that used it")
+    assert_match(/fewer/i, error.message, "and says what to do about it")
   end
 
-  # Every tiled layer draws from one 256-color palette, and a tile pixel is a single
-  # byte holding an index into it — so the 257th color has no index that fits. The
-  # build has to say that, not fail while packing a byte.
+  # Storing tiles two pixels to a byte is what doubles this, and it is worth pinning
+  # as a number rather than as a ratio: a tileset that fits today is a tileset that
+  # would not have fitted before.
+  def test_twice_as_many_small_tiles_fit_as_big_ones
+    assert_equal 2 * GBA::CHAR_BLOCK_TILES, GBA::CHAR_BLOCK_BYTES / GBA::SMALL_TILE_BYTES
+  end
+
+  # Every tiled layer draws from one table of colors, so a game whose tiles name
+  # more of them between them than the table holds has to be told, not left to fail
+  # while packing a number into a pixel.
   def test_too_many_colors_is_a_friendly_build_error
-    over = GBA::SHARED_PALETTE_COLORS + 1
+    over = GBA::PaletteBanks::CAPACITY + 1
     names = (0...over).map { |i| :"c#{i}" }
     prog = program(
       screen(:tiled),
-      # Every tile a different color, so the color limit is what gives way first.
-      *names.each_with_index.map { |n, i| tile_bitmap(n, 0x0001 + i) },
+      # Each tile takes sixteen colors nothing else uses, so the banks run out first
+      # and every one of these ends up drawing from the whole table.
+      *names.each_with_index.map { |n, i| many_color_tile(n, i) },
       background(:many, tiles: names, map: [[0]], tile_w: 8, tile_h: 8),
       halt,
     )
 
     error = assert_raises(GBA::LoweringError) { GBA.new.lower(prog) }
-    assert_match(/#{GBA::SHARED_PALETTE_COLORS}/, error.message, "it names the limit")
+    assert_match(/#{GBA::PaletteBanks::CAPACITY}/, error.message, "it names the limit")
     assert_match(/color/i, error.message)
     assert_match(/fewer/i, error.message, "and says what to do about it")
   end
@@ -139,6 +151,13 @@ class TestVramLayout < Minitest::Test
   # A flat 8x8 tile picture in one 15-bit color.
   def tile_bitmap(name, color)
     bitmap(name, width: 8, height: 8, pixels: [color].pack("v") * 64, transparent: nil)
+  end
+
+  # A tile drawn from sixteen colors nobody else uses — one past what a bank holds,
+  # so it can only be stored the big way and its colors come out of the whole table.
+  def many_color_tile(name, run)
+    colors = (0...16).map { |i| 0x0001 + (run * 16) + i }
+    bitmap(name, width: 8, height: 8, pixels: (colors * 4).pack("v*"), transparent: nil)
   end
 
   # All four layers at once. Each puts one solid landmark tile in its own column of

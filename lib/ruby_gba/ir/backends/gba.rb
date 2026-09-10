@@ -25,6 +25,7 @@ require_relative "gba/frames" # how many frames a pass of the game loop really t
 require_relative "gba/raster"
 require_relative "gba/mixer"
 require_relative "gba/save"
+require_relative "gba/palette_banks" # sixteen colours to a picture, and the picture stored half the size
 require_relative "gba/palette_tint"
 require_relative "gba/layer_blend"
 require_relative "gba/bios_compress"
@@ -179,8 +180,10 @@ module RubyGBA
         # console's layers draws it, and how far forward that layer is. +affine+ marks a
         # `screen :rotozoom` background — its map is one byte per cell (a plain tile
         # number, no flip bits), and it lives on the console's rotate/scale layer (BG2)
-        # rather than a plain scrolling one.
-        BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :priority, :affine)
+        # rather than a plain scrolling one. +small+ marks a layer whose tiles are stored
+        # half a byte a pixel, each naming its own bank of sixteen colors — worked out
+        # from the colors in its art, never asked for.
+        BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :priority, :affine, :small)
 
         # Two more scratch registers, live only inside one arithmetic expression and
         # never across a statement. A 64-bit multiply needs both of them, because its
@@ -456,7 +459,45 @@ module RubyGBA
                                    compression: compression_report,
                                    emitted: @attribution.emitted,
                                    routines: routine_addresses,
+                                   video_memory: video_memory_report,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
+        end
+
+        # WHAT THE PICTURES COST IN VIDEO MEMORY, and what storing them the small way saved.
+        #
+        # The console keeps sprite pictures in 32K and background tiles in a block of their
+        # own, and a game that outgrows either gets a build error rather than a slow frame. So
+        # what is worth reporting is the room left — and, since the framework chose the
+        # storage without being asked, how much of that room the choice bought back. A build
+        # with no sprites and no tiles has nothing to say and reports nothing.
+        def video_memory_report
+          return nil if @objects.empty? && @backgrounds.empty?
+
+          RubyGBA::VideoMemory.new(sprites: sprite_memory_report, tiles: tile_memory_report)
+        end
+
+        def sprite_memory_report
+          return nil if @objects.empty?
+
+          used = @objects.values.sum { |obj| obj[:tile_units] } * 32
+          small = @objects.count { |name, _obj| @obj_banks.placement(name).narrow? }
+          RubyGBA::VideoMemory::Area.new(used: used, capacity: OBJ_TILE_CAPACITY,
+                                         small: small, big: @objects.size - small,
+                                         saved: sprite_memory_saved)
+        end
+
+        # What the same pictures would have cost stored the old way: a small one is exactly
+        # half the size, so the saving is its own size again.
+        def sprite_memory_saved
+          @objects.sum { |name, obj| @obj_banks.placement(name).narrow? ? obj[:tile_units] * 32 : 0 }
+        end
+
+        def tile_memory_report
+          return nil if @bg_shared.nil?
+
+          RubyGBA::VideoMemory::Area.new(used: @bg_shared[:char_units] * 2, capacity: CHAR_BLOCK_BYTES,
+                                         small: @bg_shared[:small], big: @bg_shared[:big],
+                                         saved: @bg_shared[:saved])
         end
 
         # WHERE EACH ROUTINE ENDED UP, as the span of addresses it really occupies while the
@@ -1165,7 +1206,23 @@ module RubyGBA
         CHAR_BLOCK_TILES = 256
         FIRST_MAP_SCREENBLOCK = 8
         SCREENBLOCK_BYTES = 0x800
-        BG_256_COLOR = 0x0080 # BGxCNT bit 7: 8-bit (256-color) tiles
+
+        # The room the tile pictures have: one character block, ending exactly where the
+        # first map begins. How many TILES that is depends on how each is stored — 512
+        # of the small ones, 256 of the big — so the budget is counted in bytes.
+        CHAR_BLOCK_BYTES = CHAR_BLOCK_TILES * TILE_PX * TILE_PX
+        SMALL_TILE_BYTES = (TILE_PX * TILE_PX) / 2
+        BIG_TILE_BYTES = TILE_PX * TILE_PX
+
+        # BGxCNT bit 7: this layer's pixels are whole bytes, so it reads across the
+        # console's whole 256-color background table. Left clear, a pixel is half a byte
+        # and each TILE says which bank of sixteen it draws from — half the memory for
+        # the same picture, and twice as many tiles in the block. Which a layer gets is
+        # worked out from the colors in its tiles; nothing in the DSL says.
+        BG_256_COLOR = 0x0080
+
+        # A map entry's bits 12-15: which bank of sixteen this cell's tile draws from.
+        BG_BANK_SHIFT = 12
         BG_SHARED_PAL = :__bg_shared_pal   # the one palette every layer indexes into
         BG_SHARED_CHAR = :__bg_shared_char # the one character block every layer's tiles live in
 
@@ -1200,53 +1257,134 @@ module RubyGBA
                   "tiled layers (BG0-BG3) — use at most #{MAX_BG_LAYERS} backgrounds"
           end
 
-          # Seed the shared palette with the transparent backdrop at index 0, and the
-          # shared character block with a blank tile 0 (all index 0), so an empty map cell
-          # points at a see-through tile and layers behind it show through.
-          palette = { 0x0000 => 0 }
-          char = (+"").b << ("\x00" * (TILE_PX * TILE_PX)).b
-          regular_nodes.each_with_index { |node, layer| prepare_one_background(node, layer, palette, char) }
-          affine_nodes.each { |node| prepare_affine_background(node, palette, char) }
+          banks, big = bank_the_tiles(regular_nodes, affine_nodes)
 
-          tiles_total = char.bytesize / (TILE_PX * TILE_PX)
-          if tiles_total > CHAR_BLOCK_TILES
-            raise LoweringError,
-                  "the tiled backgrounds use #{tiles_total} tiles together, past the #{CHAR_BLOCK_TILES}-tile " \
-                  "limit of one character block — use fewer or shared tiles"
+          # Seed the shared character block with a blank tile 0 (every pixel the
+          # see-through number), so an empty map cell points at a see-through tile and
+          # layers behind it show through. It has to be readable BOTH ways, since a
+          # small-storage layer and a big-storage one can both point at it: 64 zero
+          # bytes are 64 see-through pixels read as bytes and 128 read as halves, so
+          # the big form covers the small one and one blank tile serves both.
+          char = (+"").b << ("\x00" * BIG_TILE_BYTES).b
+          regular_nodes.each_with_index { |node, layer| prepare_one_background(node, layer, banks, big, char) }
+          affine_nodes.each { |node| prepare_affine_background(node, banks, char) }
+
+          if char.bytesize > CHAR_BLOCK_BYTES
+            raise LoweringError, tiles_do_not_fit(char.bytesize, regular_nodes + affine_nodes)
           end
 
-          colors = palette.sort_by { |_color, index| index }.map { |color, _index| color }
+          colors = banks.entries
           @emit.data_blobs[BG_SHARED_PAL] = colors.pack("v*")
           @emit.data_blobs[BG_SHARED_CHAR] = char
           @bg_shared = { pal_units: colors.size, char_units: char.bytesize / 2 }
+                       .merge(bank_tally(regular_nodes + affine_nodes, big))
         end
 
-        # Fold one layer into the shared palette and character block, and build its map.
+        # SORT EVERY TILE OF EVERY LAYER INTO THE COLOR TABLE THEY ALL READ FROM.
+        #
+        # A layer is stored one way or the other as a WHOLE — that is one bit in the
+        # layer's own settings — but within a small-storage layer each TILE says which
+        # bank of sixteen it draws from. So a tileset of hundreds of colors still stores
+        # small, as long as no single 8x8 tile needs more than fifteen at once, which is
+        # almost always true and is why this is worth doing.
+        #
+        # A layer with even one tile past that keeps the big storage, and then all of its
+        # tiles read across the whole table together — so it is handed in as one picture
+        # rather than as its tiles.
+        #
+        # A `screen :rotozoom` layer is always big: its map is one byte a cell, with no
+        # room to name a bank. That is the console, not a choice.
+        def bank_the_tiles(regular_nodes, affine_nodes)
+          nodes = regular_nodes + affine_nodes
+          nodes.each { |node| validate_tile_sizes!(node.name, node.tiles) }
+          big = affine_nodes + regular_nodes.reject { |node| every_tile_small?(node) }
+
+          loop do
+            banks = PaletteBanks.new(bank_pictures(nodes, big))
+            spilled = (regular_nodes - big).reject do |node|
+              node.tiles.each_index.all? { |i| banks.placement(tile_key(node, i)).narrow? }
+            end
+            return [banks, big] if spilled.empty?
+
+            big += spilled
+          end
+        rescue PaletteBanks::Overflow
+          raise LoweringError,
+                "The tiled backgrounds use more colors between them than the console's background table " \
+                "holds (#{PaletteBanks::CAPACITY}). Draw the tiles from fewer different colors."
+        end
+
+        def every_tile_small?(node)
+          node.tiles.each_index.all? { |i| tile_colors(node, i).size <= PaletteBanks::BANK_COLORS }
+        end
+
+        # One picture per tile for a layer stored the small way, and one picture for the
+        # whole of a layer stored the big way (its tiles share the table, so they share
+        # an entry).
+        def bank_pictures(nodes, big)
+          nodes.map do |node|
+            if big.include?(node)
+              colors = node.tiles.each_index.flat_map { |i| tile_colors(node, i) }.uniq
+              PaletteBanks::Picture.new(key: node.name, colors: colors, authored: nil)
+            else
+              node.tiles.each_index.map do |i|
+                PaletteBanks::Picture.new(key: tile_key(node, i), colors: tile_colors(node, i),
+                                          authored: @bitmaps.fetch(node.tiles[i]).colors)
+              end
+            end
+          end.flatten
+        end
+
+        def tile_key(node, index) = [node.name, index]
+
+        # A background tile has no see-through marker of its own the way a sprite picture
+        # does. Instead the BACKDROP color — what the screen shows where nothing was
+        # drawn — is what "nothing here" looks like in a tile, so a layer in front of
+        # another lets it through wherever it is that color. It always takes the number
+        # the console reads as see-through, so it needs no slot of its own.
+        BG_SEE_THROUGH = 0x0000
+
+        # A tile's distinct colors, first-seen order, without the see-through one.
+        def tile_colors(node, index)
+          pixels = @bitmaps.fetch(node.tiles[index]).pixels
+          seen = {}
+          (TILE_PX * TILE_PX).times do |i|
+            color = (pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
+            seen[color] = true unless color == BG_SEE_THROUGH
+          end
+          seen.keys
+        end
+
+        # How many TILES got each storage, and what the small ones saved — counted off
+        # the layers rather than off the banks, since a layer stored the big way is one
+        # picture there however many tiles it has.
+        def bank_tally(nodes, big)
+          small = nodes.reject { |node| big.include?(node) }.sum { |node| node.tiles.size }
+          { small: small, big: nodes.sum { |node| node.tiles.size } - small,
+            saved: small * SMALL_TILE_BYTES }
+        end
+
+        def tiles_do_not_fit(used, nodes)
+          worst = nodes.max_by { |node| node.tiles.size }
+          "The tiled backgrounds' tiles need #{used} bytes together, and the console keeps them in " \
+            "#{CHAR_BLOCK_BYTES}. The background with the most tiles is :#{worst.name} (#{worst.tiles.size}). " \
+            "Use fewer different tiles, or draw fewer layers at once."
+        end
+
+        # Fold one layer's tiles into the shared character block, and build its map.
         # +layer+ is its place in the stack, which is also its hardware layer number
         # (BG0, BG1, ...). What decides its paint order is the priority below.
-        def prepare_one_background(node, layer, palette, char)
+        def prepare_one_background(node, layer, banks, big, char)
           name = node.name
-          tiles = node.tiles
-          validate_tile_sizes!(name, tiles)
           validate_map_fits!(name, node.map)
+          small = !big.include?(node)
+          tile_base = append_tiles(node, banks, char, small: small)
 
-          # Append this layer's tiles after whatever earlier layers put in the shared
-          # character block, rewriting each pixel as an index into the shared palette.
-          # tile_base is where this layer's first tile lands, so its map points at the
-          # right tiles.
-          tile_base = char.bytesize / (TILE_PX * TILE_PX)
-          tiles.each do |tile|
-            pixels = @bitmaps.fetch(tile).pixels
-            (TILE_PX * TILE_PX).times do |i|
-              color = (pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
-              char << shared_palette_index(palette, color).chr
-            end
-          end
-
-          # The map: one 16-bit entry per cell in a 32x32 grid, holding the shared-block
-          # tile number to draw there (tile_base + the tile's index within this layer).
-          # Cells outside the authored map, and blank cells, stay 0 — the shared blank
-          # tile, transparent so a layer behind shows through.
+          # The map: one 16-bit entry per cell in a 32x32 grid, holding the tile to draw
+          # there (tile_base + the tile's index within this layer) and — for a layer
+          # stored the small way — which bank of sixteen that tile reads from. Cells
+          # outside the authored map, and blank cells, stay 0: the shared blank tile in
+          # bank 0, see-through so a layer behind shows through.
           entries = Array.new(MAP_CELLS * MAP_CELLS, 0)
           node.map.each_with_index do |row, r|
             next if r >= MAP_CELLS
@@ -1254,7 +1392,8 @@ module RubyGBA
             row.each_with_index do |index, c|
               next if c >= MAP_CELLS || index.nil?
 
-              entries[(r * MAP_CELLS) + c] = tile_base + index
+              bank = small ? banks.placement(tile_key(node, index)).bank : 0
+              entries[(r * MAP_CELLS) + c] = (tile_base + index) | (bank << BG_BANK_SHIFT)
             end
           end
 
@@ -1265,8 +1404,50 @@ module RubyGBA
             bg: layer,                           # hardware layer (BG0..BG3), in stack order
             screen_block: FIRST_MAP_SCREENBLOCK + layer,
             priority: hardware_priority(name),
-            affine: false
+            affine: false,
+            small: small
           )
+        end
+
+        # Append a layer's tiles after whatever earlier layers put in the shared block,
+        # rewriting each pixel as the number that picks its color. Returns where this
+        # layer's first tile landed, counted in the units its own map speaks in.
+        #
+        # A tile is 32 bytes stored the small way and 64 the big way, and a map names its
+        # tiles in units of its own tile size — so a big-storage layer has to start on a
+        # 64-byte boundary or its first tile number would not land on it.
+        def append_tiles(node, banks, char, small:)
+          unit = small ? SMALL_TILE_BYTES : BIG_TILE_BYTES
+          char << ("\x00" * (unit - (char.bytesize % unit))).b unless (char.bytesize % unit).zero?
+          base = char.bytesize / unit
+
+          node.tiles.each_index do |index|
+            place = banks.placement(small ? tile_key(node, index) : node.name)
+            char << encode_tile(@bitmaps.fetch(node.tiles[index]), place)
+          end
+          base
+        end
+
+        # Pack one 8x8 tile the way the tile hardware reads it: 64 pixels row by row,
+        # each the number that picks its color. A tile stored the small way packs two
+        # pixels into every byte, the left one in the low half — the same order a sprite
+        # stored that way uses.
+        def encode_tile(bmp, place)
+          bytes = (+"").b
+          pending = nil
+          (TILE_PX * TILE_PX).times do |i|
+            color = (bmp.pixels.getbyte(i * 2) | (bmp.pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
+            index = color == BG_SEE_THROUGH ? 0 : place.indices.fetch(color)
+            next bytes << index.chr unless place.narrow?
+
+            if pending.nil?
+              pending = index
+            else
+              bytes << (pending | (index << 4)).chr
+              pending = nil
+            end
+          end
+          bytes
         end
 
         # The hardware layer a `screen :rotozoom` background always lives on — the console
@@ -1278,10 +1459,13 @@ module RubyGBA
         # regular one) but build its MAP differently: one byte per cell, not two, because
         # the console's rotate/scale layer reads a plain tile number with no flip bits —
         # so it can name only 256 tiles, not the 1024 a regular layer's map can.
-        def prepare_affine_background(node, palette, char)
+        #
+        # That one byte is also why this layer is always stored the big way: with no room
+        # in a map entry to name a bank of sixteen, its tiles have nothing to draw from
+        # but the whole table.
+        def prepare_affine_background(node, banks, char)
           name = node.name
           tiles = node.tiles
-          validate_tile_sizes!(name, tiles)
           validate_map_fits!(name, node.map)
 
           # The same shared sine table a turning sprite reads (see #prepare_affine) —
@@ -1289,14 +1473,7 @@ module RubyGBA
           # turning a sprite.
           @emit.data_blobs[OBJ_SINE_BLOB] ||= build_sine_table
 
-          tile_base = char.bytesize / (TILE_PX * TILE_PX)
-          tiles.each do |tile|
-            pixels = @bitmaps.fetch(tile).pixels
-            (TILE_PX * TILE_PX).times do |i|
-              color = (pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
-              char << shared_palette_index(palette, color).chr
-            end
-          end
+          tile_base = append_tiles(node, banks, char, small: false)
 
           if tile_base + tiles.size > AFFINE_MAX_TILES
             raise LoweringError,
@@ -1324,7 +1501,8 @@ module RubyGBA
             bg: AFFINE_BG,
             screen_block: FIRST_MAP_SCREENBLOCK,
             priority: hardware_priority(name),
-            affine: true
+            affine: true,
+            small: false
           )
         end
 
@@ -1383,21 +1561,6 @@ module RubyGBA
         # added, because the very next thing the caller does is pack the index into a
         # byte — past 255 that is a raw range error from deep inside the packing, which
         # tells the developer nothing.
-        SHARED_PALETTE_COLORS = 256
-        def shared_palette_index(palette, color)
-          index = palette[color]
-          return index if index
-
-          if palette.size >= SHARED_PALETTE_COLORS
-            raise LoweringError,
-                  "the tiled backgrounds use more than #{SHARED_PALETTE_COLORS} colors together. " \
-                  "All tiled layers share one palette of #{SHARED_PALETTE_COLORS} colors. " \
-                  "To fix this, use fewer different colors in your tile images."
-          end
-
-          palette[color] = palette.size
-        end
-
         # A tiled background fits one screen block: up to 32x32 tiles (256x256 pixels,
         # already larger than the screen, and it wraps). A bigger map would need the
         # multi-block layouts, so for now it's a friendly build error rather than a
@@ -1436,10 +1599,15 @@ module RubyGBA
           [8, 16] => [2, 0], [8, 32] => [2, 1],  [16, 32] => [2, 2], [32, 64] => [2, 3],
         }.freeze
 
-        # attr0 bit 13: every sprite reads an 8-bit (256-color) palette, the same color
-        # model the tiled background uses — so sprite colors are ordinary named colors,
-        # no palette banks to think about.
+        # attr0 bit 13: this sprite's pixels are whole bytes, so it reads across the
+        # console's whole 256-color sprite table. Left clear, a pixel is half a byte and
+        # the sprite draws from one bank of sixteen — half the memory for the same
+        # picture. Which one a sprite gets is worked out from the colors in its art (see
+        # #build_shared_object_palette); nothing in the DSL says.
         OBJ_256_COLOR = 0x2000
+
+        # attr2 bits 12-15: which bank of sixteen a small-storage sprite reads.
+        OBJ_BANK_SHIFT = 12
 
         # attr2 bits 10-11: how deep this sprite sits, on the console's own scale where 0
         # is the front. A sprite is drawn over a background holding the SAME number, which
@@ -1498,6 +1666,12 @@ module RubyGBA
           front = @window_twins.size
           tile_unit = 0 # running offset into sprite tile memory, in 32-byte units
           nodes.each_with_index do |node, index|
+            # Sprite memory is counted in 32-byte units whichever way a picture is
+            # stored, so a picture stored the big way — 64 bytes to a tile — has to
+            # start on an even one or the console would read it starting halfway
+            # through a tile. The gap that leaves is at most 32 bytes and only ever
+            # appears where a small picture is followed by a big one.
+            tile_unit += 1 if tile_unit.odd? && !@obj_banks.placement(node.name).narrow?
             prepare_one_object(node, front + nodes.size - 1 - index, tile_unit)
             tile_unit += @objects[node.name][:tile_units]
           end
@@ -1649,45 +1823,86 @@ module RubyGBA
           under.nil? ? @picture.stack.length : @picture.stack.index(under)
         end
 
-        # Build the one color table every sprite shares (8-bit color has a single
-        # 256-entry palette for all sprites). Collect every color used across all the
-        # sprite pictures — index 0 reserved for see-through — so each sprite's tiles
-        # index into the same table and no sprite's colors overwrite another's.
+        # Sort the sprites' colors into the table they all read from.
+        #
+        # A sprite that draws from few enough colors is stored half a byte a pixel and
+        # reads one BANK of that table — sixteen colors of its own, shared with nothing
+        # unless it happens to use the same ones. It costs half the sprite memory of the
+        # same picture stored the old way, and nothing about the program says so: the
+        # count of colors in the art decides it. A sprite with more colors than a bank
+        # holds keeps the whole-byte storage and reads across the whole table, exactly
+        # as every sprite did before this.
+        #
+        # The unit is the SPRITE, not the picture, because which way the console reads a
+        # sprite is one bit in that sprite's own table entry — so all of its poses are
+        # stored the same way, out of one bank.
         def build_shared_object_palette(nodes)
-          @obj_palette = {} # 15-bit color -> palette index (1-based; 0 = see-through)
-          nodes.each do |node|
+          pictures = nodes.map do |node|
+            colors = []
             node.poses.each do |image|
               bmp = @bitmaps.fetch(image) do
                 raise LoweringError,
                       "sprite object #{node.name.inspect} references undefined image #{image.inspect}"
               end
-              scan_object_colors(bmp, @obj_palette)
+              scan_object_colors(bmp, colors)
             end
-          end
-          if @obj_palette.size + 1 > 256
-            raise LoweringError,
-                  "the sprites use #{@obj_palette.size} colors between them — sprites share one 255-color set " \
-                  "(plus see-through)"
+            PaletteBanks::Picture.new(key: node.name, colors: colors, authored: authored_palette(node))
           end
 
-          colors = Array.new(@obj_palette.size + 1, 0x0000) # entry 0 = the see-through slot
-          @obj_palette.each { |color, index| colors[index] = color }
+          @obj_banks = begin
+            PaletteBanks.new(pictures)
+          rescue PaletteBanks::Overflow
+            raise LoweringError, too_many_object_colors(pictures)
+          end
+
+          colors = @obj_banks.entries
           @obj_palette_blob = :__obj_palette
           @obj_palette_units = colors.size
           @emit.data_blobs[@obj_palette_blob] = colors.pack("v*")
         end
 
-        # Add every non-see-through color in a sprite picture to the shared palette,
-        # each earning the next index the first time it's seen.
-        def scan_object_colors(bmp, palette)
+        # The table a sprite's art came with, where its poses all name the same one.
+        # Art made somewhere else on this console arrives as numbers picking out of its
+        # own sixteen, so the order is the whole point and the framework must not
+        # rearrange it. Poses that disagree is a friendly error rather than a silent
+        # choice of one of them.
+        def authored_palette(node)
+          by_table = node.poses.group_by { |image| @bitmaps.fetch(image).colors }
+          return by_table.keys.first if by_table.size == 1
+
+          named = by_table.values.map { |images| ":#{images.first}" }.first(3).join(" and ")
+          raise LoweringError,
+                "The pictures one sprite shows were given different `colors:` lists (#{named}). All the " \
+                "pictures a sprite shows are drawn from one table of colors. So give them all the same " \
+                "list, or give none of them a list and the framework works the table out."
+        end
+
+        # Every non-see-through color in a sprite picture, first-seen order, deduped.
+        def scan_object_colors(bmp, colors)
           pixels = bmp.pixels
           transparent = bmp.transparent
+          seen = colors.to_h { |color| [color, true] }
           (bmp.width * bmp.height).times do |i|
             color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
             next if transparent && color == transparent
 
-            palette[color & 0x7FFF] ||= palette.size + 1
+            color &= 0x7FFF
+            next if seen[color]
+
+            seen[color] = true
+            colors << color
           end
+        end
+
+        # Nothing fits: even stored the big way, the sprites name more colors than the
+        # console's sprite table holds. Name the greediest pictures, since "255 colors"
+        # on its own leaves the author hunting through their own art.
+        def too_many_object_colors(pictures)
+          worst = pictures.max_by(3) { |picture| picture.colors.size }
+          named = worst.map { |picture| ":#{picture.key} (#{picture.colors.size})" }.join(", ")
+          "The sprites use more colors between them than the console's sprite table holds " \
+            "(#{PaletteBanks::CAPACITY}, one of which means see-through). The sprites with the most colors " \
+            "are #{named}. Draw them from fewer colors, or use fewer sprites at once."
         end
 
         def prepare_one_object(node, slot, tile_unit)
@@ -1703,7 +1918,10 @@ module RubyGBA
 
           # Upload every pose's tiles back to back; the per-frame draw points the
           # sprite at pose k by adding k * (one pose's tile count) to its tile number.
-          tiles = poses.each_with_object(+"".b) { |image, bytes| bytes << encode_object_tiles(@bitmaps.fetch(image)) }
+          place = @obj_banks.placement(name)
+          tiles = poses.each_with_object(+"".b) do |image, bytes|
+            bytes << encode_object_tiles(@bitmaps.fetch(image), place)
+          end
           per_pose = (tiles.bytesize / 32) / poses.size # tile-number stride between poses (32-byte units)
 
           tile_blob = :"__obj_tiles_#{name}"
@@ -1722,13 +1940,15 @@ module RubyGBA
             scales: object_scales?(node),           # ...and does that group need a size worked out?
             # A sprite in the see-through layer carries the blend in its own entry, so it
             # rides here rather than costing anything at draw time.
-            attr0_base: OBJ_256_COLOR | (shape << 14) |
+            attr0_base: (place.narrow? ? 0 : OBJ_256_COLOR) | (shape << 14) |
               (see_through_object?(node) ? LayerBlend::OBJ_SEMI_TRANSPARENT : 0),
             attr1_base: size << 14,
-            # attr2's top bits carry how deep the sprite sits. It stays 0 — the front —
-            # in every picture where the sprites are over all the scenery, which is
-            # every picture that names no layers.
-            attr2_base: hardware_priority(name) << OBJ_PRIORITY_SHIFT,
+            # attr2's top bits carry how deep the sprite sits, and — for a sprite stored
+            # the small way — which bank of sixteen colors it draws from. The depth stays
+            # 0 (the front) in every picture where the sprites are over all the scenery,
+            # which is every picture that names no layers.
+            attr2_base: (hardware_priority(name) << OBJ_PRIORITY_SHIFT) |
+              (place.narrow? ? place.bank << OBJ_BANK_SHIFT : 0),
           }
         end
 
@@ -1746,24 +1966,37 @@ module RubyGBA
                 "(#{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}) — a sprite's poses must all be the same size"
         end
 
-        # Pack a sprite's picture into 8-bit tiles the way sprite hardware reads them:
-        # 8x8 tiles in reading order (left to right, top to bottom), each tile's 64
-        # pixels row by row, every pixel an index into the shared palette. A see-through
-        # pixel becomes index 0. Because we use 1D mapping, the tiles simply sit one
-        # after another in memory.
-        def encode_object_tiles(bmp)
+        # Pack a sprite's picture into tiles the way sprite hardware reads them: 8x8
+        # tiles in reading order (left to right, top to bottom), each tile's 64 pixels
+        # row by row, every pixel a number picking a color out of the table. A
+        # see-through pixel becomes 0. Because we use 1D mapping, the tiles simply sit
+        # one after another in memory.
+        #
+        # A NARROW sprite packs two pixels into every byte — the left one in the low
+        # half, the right one in the high half, which is the order the console reads
+        # them back in — so its picture is half the size for the same pixels.
+        def encode_object_tiles(bmp, placement)
           pixels = bmp.pixels
           width = bmp.width
           transparent = bmp.transparent
+          indices = placement.indices
           bytes = (+"").b
           (bmp.height / TILE_PX).times do |tile_row|
             (width / TILE_PX).times do |tile_col|
               TILE_PX.times do |row|
+                pending = nil
                 TILE_PX.times do |col|
                   i = (((tile_row * TILE_PX) + row) * width) + (tile_col * TILE_PX) + col
                   color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
-                  index = transparent && color == transparent ? 0 : @obj_palette.fetch(color & 0x7FFF)
-                  bytes << index.chr
+                  index = transparent && color == transparent ? 0 : indices.fetch(color & 0x7FFF)
+                  next bytes << index.chr unless placement.narrow?
+
+                  if pending.nil?
+                    pending = index
+                  else
+                    bytes << (pending | (index << 4)).chr
+                    pending = nil
+                  end
                 end
               end
             end
