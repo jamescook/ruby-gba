@@ -77,6 +77,20 @@ class TestVramLayout < Minitest::Test
     assert_equal 1000 * GBA::SMALL_TILE_BYTES, (backend.bg_shared[:char_units] * 2) - GBA::BIG_TILE_BYTES
   end
 
+  # EACH LAYER COUNTS ITS TILE NUMBERS FROM ITS OWN STARTING POINT, which is what makes
+  # the ten-bit reach a per-layer limit rather than a whole game's. One layer counting
+  # from the bottom names the first 32K; a second told to count from halfway names the
+  # rest. So a game can hold more distinct tiles than either layer could name alone —
+  # 1600 here, where a single layer stops at about a thousand.
+  def test_two_layers_hold_more_tiles_than_one_can_name
+    backend = GBA.new
+    backend.lower(two_big_tilesets_program(900, 700))
+
+    bases = backend.backgrounds.values.map(&:char_base)
+    assert_equal [0], [bases.first], "the first layer still counts from the bottom"
+    refute_equal 0, bases.last, "the second one counts from a place of its own"
+  end
+
   def test_too_many_tiles_is_a_friendly_build_error
     over = GBA::TileVram::MOST_TILES + 2
     names = (0...over).map { |i| :"t#{i}" }
@@ -177,7 +191,65 @@ class TestVramLayout < Minitest::Test
     end
   end
 
+  # A LAYER COUNTING FROM SOMEWHERE ELSE STILL DRAWS ITS OWN TILES, on the console.
+  # This is the one that can catch every way the feature goes wrong at once: the first
+  # layer fills the whole run its map can reach, so the second is given a starting point
+  # of its own. If that starting point never reached the hardware, the second layer's
+  # numbers would land a long way back in the first layer's tiles and it would show
+  # filler. If its blank tile were wrong, its empty cells would show filler too, over the
+  # whole screen. Two flat colors where they belong, and backdrop everywhere else.
+  def test_a_layer_with_its_own_starting_point_renders
+    rom = ROM.assemble(GBA.new.lower(stacked_tilesets_program),
+                       title: "CHARBASE", code: "BCHB", maker: "01")
+    v = assert_gemba_loads_rom(rom, frames: 4)
+
+    assert v.pixel_is?((5 * 8) + 4, 4, :red),
+           "the first layer's landmark, got 0x#{format('%04X', v.pixel_gba((5 * 8) + 4, 4))}"
+    assert v.pixel_is?((10 * 8) + 4, 4, :green),
+           "the second layer's landmark, got 0x#{format('%04X', v.pixel_gba((10 * 8) + 4, 4))}"
+    assert v.black?(120, 80),
+           "and an empty cell of the moved layer shows through, got " \
+           "0x#{format('%04X', v.pixel_gba(120, 80))}"
+  end
+
   private
+
+  # Two layers whose tilesets together hold more distinct tiles than one layer's map can
+  # name. Every tile is a different picture, so none of them is shared away.
+  def two_big_tilesets_program(first, second)
+    a = (0...first).map { |i| :"a#{i}" }
+    b = (0...second).map { |i| :"b#{i}" }
+    program(
+      screen(:tiled),
+      *a.each_with_index.map { |n, i| striped_tile(n, i) },
+      *b.each_with_index.map { |n, i| striped_tile(n, first + i) },
+      background(:back, tiles: a, map: [[0]], tile_w: 8, tile_h: 8),
+      background(:front, tiles: b, map: [[0]], tile_w: 8, tile_h: 8),
+      halt,
+    )
+  end
+
+  # The same shape, sized so the second layer really is pushed off the bottom, and with
+  # one flat landmark in each so the console can be asked what it drew. The first layer's
+  # filler fills its reach; the second's is only there to make it too big to squeeze in
+  # behind, which is what forces it a starting point of its own.
+  def stacked_tilesets_program
+    filler = (0...1000).map { |i| :"f#{i}" }
+    spare = (0...30).map { |i| :"s#{i}" }
+    program(
+      screen(:tiled),
+      *filler.each_with_index.map { |n, i| striped_tile(n, i) },
+      *spare.each_with_index.map { |n, i| striped_tile(n, 1000 + i) },
+      tile_bitmap(:mark_a, Color.resolve(:red)),
+      tile_bitmap(:mark_b, Color.resolve(:green)),
+      background(:back, tiles: filler + [:mark_a], map: [[nil] * 5 + [1000]],
+                        tile_w: 8, tile_h: 8),
+      background(:front, tiles: [:mark_b] + spare, map: [[nil] * 10 + [0]],
+                         tile_w: 8, tile_h: 8),
+      halt,
+    )
+  end
+
 
   # A flat 8x8 tile picture in one 15-bit color.
   def tile_bitmap(name, color)

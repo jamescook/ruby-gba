@@ -26,13 +26,21 @@ module RubyGBA
     # +saved+ is what the small ones would have cost stored the big way — which is their own
     # size again, since the small way is exactly half. +shared+ is how many pictures turned
     # out to be one another and were stored once.
-    Area = Data.define(:used, :capacity, :small, :big, :saved, :shared) do
+    #
+    # +skipped+ is bytes nothing draws from. A background layer names its tiles by counting
+    # from a starting point, and a game with more tiles than one layer can count across gets
+    # a second starting point — which the console only allows at fixed marks, so lining a
+    # layer up with one can leave a gap behind it. Nobody writes any of that, and the gap is
+    # otherwise invisible, so it is worth a number.
+    Area = Data.define(:used, :capacity, :small, :big, :saved, :shared, :skipped) do
+      def initialize(skipped: 0, **rest) = super
+
       def free = capacity - used
       def share = capacity.zero? ? 0.0 : used.to_f / capacity
 
       def to_h
         { used: used, capacity: capacity, free: free,
-          small: small, big: big, saved: saved, shared: shared }
+          small: small, big: big, saved: saved, shared: shared, skipped: skipped }
       end
     end
   end

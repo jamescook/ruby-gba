@@ -721,28 +721,32 @@ module RubyGBA
           BG_HOFS_REGS = [REG_BG0HOFS, REG_BG1HOFS, REG_BG2HOFS, REG_BG3HOFS].freeze
           BG_VOFS_REGS = [REG_BG0VOFS, REG_BG1VOFS, REG_BG2VOFS, REG_BG3VOFS].freeze
 
-          # Upload the one palette and one character block every layer shares, once at
-          # boot — the tile pictures go to character block 0 (the start of video memory),
-          # the colors to background palette memory. Each layer's map and control register
-          # are set later, when its background node is reached (emit_background_hardware).
+          # Upload the one palette and the one run of tile pictures every layer draws from,
+          # once at boot — the pictures to the start of video memory, the colors to
+          # background palette memory. It is one run however many layers there are; where
+          # in it each layer starts counting its tile numbers is a per-layer setting, and
+          # goes in with the rest of them below. Each layer's map and control register are
+          # set later, when its background node is reached (emit_background_hardware).
           def emit_boot_backgrounds
             emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @layout.bg_shared[:pal_units])   # colors -> palette memory
-            emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @layout.bg_shared[:char_units]) # tile pictures -> char block 0
+            emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @layout.bg_shared[:char_units]) # tile pictures -> video memory
             @palette_tint.emit_tint_state_reset # the table now holds the originals again
           end
 
           # Point one layer's hardware at its data: DMA its map into its own screen block,
-          # then set its control register (256-color, char block 0, that screen block, and
-          # its paint-order priority) and reset its scroll to the top-left. Drawn once —
-          # after that the hardware repaints the whole layer every frame for free, and
-          # composites the layers by priority so nearer ones sit in front.
+          # then set its control register (how its pixels are stored, where it counts its
+          # tile numbers from, that screen block, and its paint-order priority) and reset
+          # its scroll to the top-left. Drawn once — after that the hardware repaints the
+          # whole layer every frame for free, and composites the layers by priority so
+          # nearer ones sit in front.
           def emit_background_hardware(node)
             bg = @layout.backgrounds.fetch(node.name)
             return emit_affine_background_hardware(bg) if bg.affine
 
             emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
             depth = bg.small ? 0 : BG_256_COLOR # a small layer's tiles each name their own bank
-            write_reg16(BG_CNT_REGS[bg.bg], bg.priority | depth | (bg.screen_block << 8) | bg.size)
+            write_reg16(BG_CNT_REGS[bg.bg], bg.priority | depth | (bg.char_base << CHAR_BASE_SHIFT) |
+                                            (bg.screen_block << 8) | bg.size)
             write_reg16(BG_HOFS_REGS[bg.bg], 0) # start unscrolled
             write_reg16(BG_VOFS_REGS[bg.bg], 0)
           end
@@ -906,7 +910,8 @@ module RubyGBA
           def emit_affine_background_hardware(bg)
             emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
             write_reg16(REG_BG2CNT,
-                        bg.priority | BG_256_COLOR | (bg.screen_block << 8) | AFFINE_WRAP | bg.size)
+                        bg.priority | BG_256_COLOR | (bg.char_base << CHAR_BASE_SHIFT) |
+                        (bg.screen_block << 8) | AFFINE_WRAP | bg.size)
           end
 
           # Scratch memory the affine background's matrix numbers pass through on their
