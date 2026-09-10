@@ -95,16 +95,16 @@ class TestWeapons < Minitest::Test
 
   # --- changing weapon ---------------------------------------------------------------
 
-  # THE SHOULDER BUTTONS WALK THE LIST, and it wraps between the knife and the best you have.
-  # Carrying only a pistol, that list is two long.
-  def test_the_shoulder_buttons_walk_between_the_weapons_you_have
-    assert_equal Weapons::KNIFE, pressing([:r])[:weapon], "forward off the pistol is the knife"
-    assert_equal Weapons::PISTOL, pressing([:r], [:r])[:weapon], "...and round again"
-    assert_equal Weapons::KNIFE, pressing([:l])[:weapon], "back off the pistol is the knife too"
+  # SELECT WALKS THE LIST, and it wraps between the knife and the best you have. Carrying only a
+  # pistol, that list is two long — so one press is the knife and the next is back where you
+  # started. The shoulder buttons step sideways instead; see FirstPerson#step_sideways.
+  def test_select_walks_between_the_weapons_you_have
+    assert_equal Weapons::KNIFE, pressing([:select])[:weapon], "forward off the pistol is the knife"
+    assert_equal Weapons::PISTOL, pressing([:select], [:select])[:weapon], "...and round again"
   end
 
   def test_the_weapon_you_changed_to_is_the_one_on_the_screen
-    run = pressing([:r], drawing: true)
+    run = pressing([:select], drawing: true)
 
     assert_equal frame_colour(Weapons::KNIFE, 0), run.screen.pixel(*where_the_gun_is)
   end
@@ -287,7 +287,7 @@ class TestWeapons < Minitest::Test
   # Change to the knife first if that is what is being asked about, and then tap the trigger as
   # fast as the weapon will take it.
   def swinging(pass, with_knife:)
-    return with_knife ? [:r] : [] if pass == 1
+    return with_knife ? [:select] : [] if pass == 1
     return [] if pass < 4
 
     pass.even? ? [:b] : []

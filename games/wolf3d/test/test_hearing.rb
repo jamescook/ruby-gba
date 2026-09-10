@@ -189,7 +189,7 @@ class TestHearing < Minitest::Test
   # Tap the trigger on pass 1 — the second, because a press is an edge and the first pass has no
   # pass before it for the button to have been up on. Change to the knife first if asked.
   def tapping(pass, knife: false)
-    return [:r] if knife && pass == 1
+    return [:select] if knife && pass == 1
     return [] if knife && pass < 4
 
     pass == (knife ? 4 : 1) ? [:b] : []

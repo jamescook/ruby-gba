@@ -180,6 +180,30 @@ module Wolf3D
     def [](index) = index == which ? level : maps[index]
   end
 
+  # ...AND WHAT IS IN YOUR HANDS WHEN IT BOOTS, which is the last dial of the same family and
+  # exists because the other two are not quite enough on their own: standing next to a boss with
+  # the pistol a new game gives you is standing next to a boss you cannot kill.
+  #
+  #   WOLF3D_ARMED=chain_gun WOLF3D_AMMO=99
+  #
+  # The four are knife, pistol, machine_gun and chain_gun. Left unsaid you get what the game
+  # gives you, which is the pistol and eight rounds.
+  def self.armed_with
+    asked = ENV.fetch("WOLF3D_ARMED", nil).to_s.strip
+    return nil if asked.empty?
+
+    Weapons::NUMBERS.fetch(asked.downcase.to_sym) do
+      raise ArgumentError,
+            "WOLF3D_ARMED does not know #{asked.inspect}. The four weapons are " \
+            "#{Weapons::NUMBERS.keys.join(', ')}."
+    end
+  end
+
+  def self.starting_ammo
+    asked = ENV.fetch("WOLF3D_AMMO", nil).to_s.strip
+    asked.empty? ? nil : Integer(asked)
+  end
+
   # WHICH SCREEN THE CARTRIDGE BOOTS ON, which is a measuring tool rather than a way to play —
   # the same kind of dial as WOLF3D_FROM above. The attract loop takes a quarter of a minute to
   # come round, and the episode list only exists on a cartridge carrying more than one episode,
@@ -241,7 +265,8 @@ module Wolf3D
                                      vswap: Wolf3D.vswap,
                                      bar_art: Wolf3D::BarArt.of(Wolf3D.vgagraph),
                                      gun_art: Wolf3D.gun_art,
-                                     startable: !menu_art.nil?, sound_on: sound_on)
+                                     startable: !menu_art.nil?, sound_on: sound_on,
+                                     armed_with: Wolf3D.armed_with, ammo: Wolf3D.starting_ammo)
       if menu_art
         menus = Wolf3D::Menus.new(build: self, view: view, art: menu_art,
                                   palette: Wolf3D.palette, sound_on: sound_on,

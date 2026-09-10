@@ -126,6 +126,10 @@ module Wolf3D
       @hurt_of = b.table :guard_hurt, rows.map { |n| @behaviour.flinch_from(n) }, width: :byte
       @hurt2_of = b.table :guard_hurt2,
                           rows.map { |n| @behaviour.flinch_from(n, second: true) }, width: :byte
+      # ...and whether it flinches at all, because one that does not is left exactly where it
+      # was rather than being written back over itself. See Behaviour#flinches_from.
+      @flinches_of = b.table :guard_flinches, rows.map { |n| @behaviour.flinches_from(n) },
+                             width: :byte
       @fall_of = b.table :guard_fall, rows.map { |n| @behaviour.fall_from(n) }, width: :byte
       # ...and how far it walks each think, which is how an officer runs you down and a dog is
       # quicker than either. Written as a fraction, so it ships as a word.
@@ -894,13 +898,30 @@ module Wolf3D
         # sound like a loop.
         @sounds&.a_guard_dies
       end.else do
-        # Odd or even decides which of the two flinches he wears, so the same wound twice
-        # running does not look like a repeat. Landing in one of them is also what rouses a
-        # guard who had not noticed you: being shot at counts as being seen.
-        @blow.set(@hurt_of[state])
-        ((hp % 2) == 0).then { @blow.set(@hurt2_of[state]) }
-        state.set @blow
-        ticks.set(@ticks_of[@blow])
+        # BEING SHOT AT COUNTS AS BEING SEEN, whatever the thing does about the wound itself —
+        # the original rouses one that had not noticed you BEFORE it asks which kind it is. So
+        # this comes first and reaches everything, a boss included.
+        (@roused_of[state] == 0).then do
+          @blow.set(@chase_of[state])
+          state.set @blow
+          ticks.set(@ticks_of[@blow])
+          @pool.field_ref(:togo, @target).set 0.0
+          @sounds&.notices_you
+        end
+        # ...and then the flinch, for a kind that has one. Odd or even decides which of the two
+        # it wears, so the same wound twice running does not look like a repeat.
+        #
+        # A KIND WITH NO FLINCH IS LEFT ALONE ENTIRELY, which is what the original's damage code
+        # does by having no arm for it — and it is what lets a boss finish a chaingun burst with
+        # rounds landing on him. Writing the same state back would restart its count and rob him
+        # of the rest of the picture he was in, so the whole block is skipped rather than made
+        # to write over itself. See Behaviour#flinch_from.
+        (@flinches_of[state] == 1).then do
+          @blow.set(@hurt_of[state])
+          ((hp % 2) == 0).then { @blow.set(@hurt2_of[state]) }
+          state.set @blow
+          ticks.set(@ticks_of[@blow])
+        end
       end
     end
 

@@ -247,14 +247,15 @@ class TestStatusBar < Minitest::Test
     assert_equal :pistol, weapon_on_the_bar(run), "a game opens with the pistol in your hands"
   end
 
-  # ...AND IT FOLLOWS THE SHOULDER BUTTONS, which is the whole reason the field is worth its
-  # columns: it is the one thing on the bar the player changes on purpose. One press of R walks
-  # past the best gun found so far and wraps round to the knife, so the bar should show a knife.
-  def test_the_weapon_on_the_bar_follows_the_shoulder_buttons
-    changed = Reference.new.input_each_frame { |f| f == 4 ? [:r] : [] }
+  # ...AND IT FOLLOWS THE BUTTON THAT CHANGES WEAPON, which is the whole reason the field is
+  # worth its columns: it is the one thing on the bar the player changes on purpose. One press
+  # of SELECT walks past the best gun found so far and wraps round to the knife, so the bar
+  # should show a knife.
+  def test_the_weapon_on_the_bar_follows_the_weapon_you_chose
+    changed = Reference.new.input_each_frame { |f| f == 4 ? [:select] : [] }
                       .run(view_of(arena, art: art), frames: 12)
 
-    assert_equal Weapons::KNIFE, changed[:weapon], "R should have walked the weapon on"
+    assert_equal Weapons::KNIFE, changed[:weapon], "SELECT should have walked the weapon on"
     assert_equal :knife, weapon_on_the_bar(changed), "and the bar should show what you hold"
   end
 

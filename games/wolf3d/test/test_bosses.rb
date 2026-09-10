@@ -102,14 +102,34 @@ class TestBosses < Minitest::Test
     end
   end
 
-  # A WOUND THAT DOES NOT KILL HIM SENDS HIM STRAIGHT BACK AT YOU, because he has no flinch to
-  # land in. Read off the table the game really reads rather than off the kind.
-  def test_a_wound_that_does_not_kill_a_boss_puts_him_back_into_the_chase
+  # A WOUND THAT DOES NOT KILL HIM LEAVES HIM EXACTLY WHERE HE WAS, which is the original's own
+  # arrangement: its damage code switches on the kind and has arms for the guard, the officer,
+  # the mutant and the SS — and none at all for a boss. No arm means no new state.
+  #
+  # THAT IS THE WHOLE OF WHY HE IS FRIGHTENING. He fires six times to a burst, and a hit that
+  # moved him would cancel it — so you could hold the trigger down and he would never get a shot
+  # away. Left alone he finishes the burst whatever you do to him.
+  def test_a_wound_that_does_not_kill_a_boss_leaves_him_exactly_where_he_was
     b = Behaviour.for([:hans])
-    stand = b.number_of(:hans, :stand)
 
-    assert_equal b.number_of(:hans, :chase1), b.flinch_from(stand)
-    assert_equal b.number_of(:hans, :chase1), b.flinch_from(stand, second: true)
+    %i[stand chase1 shoot2].each do |name|
+      here = b.number_of(:hans, name)
+
+      assert_equal here, b.flinch_from(here), "a wounded boss in #{name} stays in #{name}"
+      assert_equal here, b.flinch_from(here, second: true)
+      assert_equal 0, b.flinches_from(here), "...so the wounding skips the flinch entirely"
+    end
+  end
+
+  # ...WHERE A GUARD REALLY DOES FLINCH, which is the other half of the same rule and is what
+  # says this is a difference between the kinds rather than the flinch being broken.
+  def test_a_guard_still_flinches
+    b = Behaviour.for([:guard])
+    chasing = b.number_of(:guard, :chase1)
+
+    assert_equal 1, b.flinches_from(chasing)
+    assert_equal b.number_of(:guard, :hurt1), b.flinch_from(chasing)
+    assert_equal b.number_of(:guard, :hurt2), b.flinch_from(chasing, second: true)
   end
 
   # SIX SHOTS TO A BURST, where a guard fires once and an SS four times. The first picture is
@@ -212,9 +232,46 @@ class TestBosses < Minitest::Test
     run = Reference.new
                    .input_each_frame { |f| f.even? ? [:b] : [] }
                    .run(a_floor_with_a_boss(at: 8), frames: 350)
+    # The game is played on the setting a cartridge boots at until somebody picks another.
+    full = Enemy[:hans].toughness(Guards.number_of(Guards::DEFAULT_DIFFICULTY))
 
     assert_operator hp(run), :>, 0, "a pistol does not finish him"
-    assert_operator hp(run), :<, Enemy[:hans].hit_points.first, "...but it told"
+    assert_operator hp(run), :<, full, "...but it told"
+    assert_operator hp(run), :>, full / 2, "and it is nowhere near half of him"
+  end
+
+  # ------------------------------------------------------------------ fighting him
+
+  # STEPPING SIDEWAYS, which is what makes a boss fight a fight rather than a retreat. The
+  # player starts facing east, so a step to either shoulder is a step along y and not along x —
+  # which is also what says the sideways vector is a quarter turn off the facing and not the
+  # facing itself.
+  def test_the_shoulder_buttons_step_sideways
+    still = played([])
+    left = played([:l])
+    right = played([:r])
+
+    assert_operator left[:py] / ONE, :<, still[:py] / ONE, "L steps north when you face east"
+    assert_operator right[:py] / ONE, :>, still[:py] / ONE, "R steps south"
+    assert_in_delta still[:px] / ONE, left[:px] / ONE, 0.2, "and neither walks you forward"
+  end
+
+  # ...AND IT DOES NOT TURN YOU, which is the whole difference between a sidestep and a turn:
+  # you keep looking at what you are shooting at.
+  def test_stepping_sideways_leaves_you_looking_where_you_were
+    still = played([])
+    left = played([:l])
+
+    assert_equal still[:view], left[:view], "a sidestep is not a turn"
+  end
+
+  # A SIDESTEP GOES THROUGH THE SAME WALL TEST the forward step does, or strafing into a wall
+  # would put you through it. The room is walled at x=1, and the player stands on the row below
+  # the top wall, so holding L walks him into it.
+  def test_stepping_sideways_into_a_wall_stops_you
+    against_the_wall = played([:l], frames: 600)
+
+    assert_operator against_the_wall[:py] / ONE, :>, 1.0, "he must not be inside the wall"
   end
 
   # KILLING HIM OUTRIGHT IS NOT TESTED HERE, and it is worth saying why rather than leaving the
@@ -232,6 +289,13 @@ class TestBosses < Minitest::Test
   # ------------------------------------------------------------------ helpers
 
   private
+
+  # Hold these buttons for a while and hand back what the game came to. The boss is put far
+  # enough away that he is still walking over rather than shooting, so what moves the player is
+  # the pad and nothing else.
+  def played(keys, frames: 120)
+    Reference.new.input_each_frame { keys }.run(a_floor_with_a_boss(at: 20), frames: frames)
+  end
 
   # ONE BOSS DOWN THE ROOM, facing you.
   def a_floor_with_a_boss(at:)
