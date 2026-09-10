@@ -2351,21 +2351,40 @@ module RubyGBA
           name = node.name
           poses = node.poses
           width, height = object_pose_size!(name, poses)
-          shape, size = OBJ_SIZES.fetch([width, height]) do
+          # The canvas the author drew on has to be a size the console has, whatever the
+          # poses trim to — that is the picture they wrote, and the message is about that.
+          OBJ_SIZES.fetch([width, height]) do
             raise LoweringError,
                   "a sprite in screen :tiled must be one of these sizes: " \
                   "#{OBJ_SIZES.keys.map { |w, h| "#{w}x#{h}" }.join(', ')} — sprite #{name.inspect} is " \
                   "#{width}x#{height}. Resize it (sprite pictures are built from 8x8 tiles)."
           end
 
-          # Upload every pose's tiles back to back; the per-frame draw points the
-          # sprite at pose k by adding k * (one pose's tile count) to its tile number.
+          # EACH POSE IS STORED AT ITS OWN SIZE, trimmed to what it actually draws (see
+          # #object_pose_box) rather than at the canvas they were all drawn on.
           place = @obj_banks.placement(name)
-          tiles = poses.each_with_object(+"".b) do |image, bytes|
-            bytes << encode_object_tiles(@bitmaps.fetch(image), place)
-          end
-          per_pose = (tiles.bytesize / 32) / poses.size # tile-number stride between poses (32-byte units)
+          # A SPRITE THAT TURNS OR RESIZES IS NOT TRIMMED, and that is about being right
+          # rather than about being easy: the console spins an object about the middle of
+          # its own box, so trimming the blank away would move the pivot and the sprite
+          # would swing around a different point than the author drew it to. The blank is
+          # what holds the pivot where they put it.
+          boxes =
+            if object_transformed?(node)
+              poses.map { [0, 0, width, height] }
+            else
+              poses.map { |image| object_pose_box(@bitmaps.fetch(image)) }
+            end
+          tiles = +"".b
+          poses.each_with_index { |image, k| tiles << encode_object_tiles(@bitmaps.fetch(image), place, boxes[k]) }
+          # Where each pose's tiles begin, in the 32-byte units a tile number counts in.
+          starts = boxes.each_with_object([0]) { |(_, _, w, h), at| at << at.last + ((w / TILE_PX) * (h / TILE_PX)) }
+          per_pose = starts[1] # stride between poses, meaningful only when they are alike
+          alike = boxes.uniq.size == 1
           tile_blob, tile_unit = @obj_art.place(name, tiles, narrow: place.narrow?)
+          # Poses that trimmed alike carry their one size in the sprite's own entry. Poses
+          # that differ carry NOTHING here — the size and shape come out of the table with
+          # the rest of what changes, so these bases must not also hold the canvas's.
+          shape, size = alike ? OBJ_SIZES.fetch(boxes.first.last(2)) : [0, 0]
           @objects[name] = {
             slot: slot,
             tiles: tile_blob, tile_units: tiles.bytesize / 32, # sprite memory counts in 32-byte units
@@ -2373,6 +2392,18 @@ module RubyGBA
             tile_index: tile_unit, # this sprite's base tile number
             per_pose: per_pose,    # stride to the next pose's tiles
             pose: node.pose,     # the run-time pose selector (which pose to show)
+            # Every pose trimmed the same way is the ordinary case — a walk cycle drawn
+            # inside one outline — and it keeps the plain draw: one size in the sprite's
+            # own entry, one stride between poses. Poses that came out DIFFERENT sizes
+            # carry a table instead (#object_pose_table), read once a frame.
+            alike: alike,
+            boxes: boxes, starts: starts,
+            pose_table: alike ? nil : :"__poses_#{name}",
+            pose_words: alike ? nil : object_pose_table(name, boxes, starts, tile_unit),
+            # Where the first pose sits inside the canvas it was drawn on. The sprite is
+            # drawn that much further along so the picture does not move; for poses that
+            # differ it comes out of the table instead.
+            offset_x: boxes.first[0], offset_y: boxes.first[1],
             width: width, height: height,
             x: node.x, y: node.y, active: node.active, # the live position/visibility operands
             angle: node.angle,   # the rotation operand (a constant 0 unless the sprite turns)
@@ -2391,6 +2422,92 @@ module RubyGBA
             attr2_base: (hardware_priority(name) << OBJ_PRIORITY_SHIFT) |
               (place.narrow? ? place.bank << OBJ_BANK_SHIFT : 0),
           }
+        end
+
+        # EVERYTHING THAT CHANGES BETWEEN POSES OF DIFFERENT SIZES, one word each, read
+        # by the per-frame draw when a sprite's poses did not all trim the same way.
+        #
+        # A uniform sprite needs none of this: its size is the same every frame, so it
+        # sits in the sprite's own entry and the pose is a stride. Once the poses differ,
+        # four things move with the pose — which tiles, what shape, what size, and how far
+        # along to draw it so the picture does not shift — and all four fit in one word.
+        # One read a frame and some shifting, against storing every pose at the biggest
+        # one's size.
+        #
+        #   bits  0..9   the pose's first tile
+        #        10..11  shape          12..13  size
+        #        14..21  how far right   22..29  how far down (both a whole number of tiles)
+        def object_pose_table(name, boxes, starts, tile_unit)
+          blob = :"__poses_#{name}"
+          words = boxes.each_with_index.map do |(x0, y0, w, h), k|
+            shape, size = OBJ_SIZES.fetch([w, h])
+            (tile_unit + starts[k]) | (shape << 10) | (size << 12) | (x0 << 14) | (y0 << 22)
+          end
+          @emit.data_blobs[blob] = words.pack("V*")
+          # Kept unpacked: the draw reads one word straight out of the middle of this,
+          # picked by the pose the game is showing, and there is no seeking into a
+          # compressed stream.
+          plain_blob!(blob)
+          words
+        end
+
+        # WHAT ONE POSE ACTUALLY DRAWS, as a box the console can hold: [x0, y0, w, h],
+        # where the corner is on a tile boundary and the size is one of the twelve the
+        # hardware has.
+        #
+        # WHY THIS IS WORTH DOING. Every pose of a sprite is drawn on one canvas, big
+        # enough for the widest frame — a sword swing, a jump — and most frames use a
+        # fraction of it. Stored at the canvas's size, the rest is blank that still costs
+        # sprite memory, because an object reads a CONTIGUOUS run of tiles and cannot
+        # share the blank ones the way a background shares a repeated tile. Measured on a
+        # walk cycle drawn 64x64 whose character covers 24x32, that is four times the
+        # memory the art contains.
+        #
+        # The offset comes back with it because the picture must not MOVE: the character's
+        # origin is the canvas's corner, which is where the author put the sprite, so a
+        # pose trimmed by (x0, y0) is drawn (x0, y0) further along and lands exactly where
+        # it did. Corner-aligned instead, a character jitters around its own feet as the
+        # cycle plays.
+        def object_pose_box(bmp)
+          left, top, right, bottom = drawn_extent(bmp)
+          return [0, 0, *OBJ_SIZES.keys.min_by { |w, h| w * h }] if left.nil?
+
+          # Out to whole tiles, since a pose is stored as tiles and a partial one cannot
+          # be addressed.
+          x0 = (left / TILE_PX) * TILE_PX
+          y0 = (top / TILE_PX) * TILE_PX
+          want_w = right - x0 + 1
+          want_h = bottom - y0 + 1
+          w, h = smallest_object_size(want_w, want_h)
+          # A box that would hang off the canvas is pulled back onto it, so the tiles it
+          # reads are all real.
+          [[x0, bmp.width - w].min.clamp(0, bmp.width), [y0, bmp.height - h].min.clamp(0, bmp.height), w, h]
+        end
+
+        # The first and last row and column of +bmp+ that draw anything, or nils for a
+        # pose that is see-through all over.
+        def drawn_extent(bmp)
+          left = top = right = bottom = nil
+          bmp.height.times do |y|
+            bmp.width.times do |x|
+              i = (y * bmp.width) + x
+              color = bmp.pixels.getbyte(i * 2) | (bmp.pixels.getbyte((i * 2) + 1) << 8)
+              next if bmp.transparent && color == bmp.transparent
+
+              left = x if left.nil? || x < left
+              right = x if right.nil? || x > right
+              top = y if top.nil?
+              bottom = y
+            end
+          end
+          [left, top, right, bottom]
+        end
+
+        # The smallest size the hardware has that holds +w+ by +h+, or the largest if
+        # nothing does (the caller has already been told a picture that big is refused).
+        def smallest_object_size(w, h)
+          fits = OBJ_SIZES.keys.select { |ow, oh| ow >= w && oh >= h }
+          (fits.min_by { |ow, oh| ow * oh } || OBJ_SIZES.keys.max_by { |ow, oh| ow * oh })
         end
 
         # All of a sprite's poses share one size (they swap in place). Confirm that and
@@ -2419,18 +2536,23 @@ module RubyGBA
         # console's own words: 4bpp, low nibble first. A 4bpp OBJ tile is 32 bytes and an
         # 8bpp one 64, but OBJ tile NUMBERS count in 32s either way — which is why a wide
         # sprite has to start on an even one, see #prepare_objects.)
-        def encode_object_tiles(bmp, placement)
+        def encode_object_tiles(bmp, placement, box = nil)
           pixels = bmp.pixels
           width = bmp.width
           transparent = bmp.transparent
           indices = placement.indices
           bytes = (+"").b
-          (bmp.height / TILE_PX).times do |tile_row|
-            (width / TILE_PX).times do |tile_col|
+          # The part of the picture this pose is stored from — its whole self unless it
+          # was trimmed to what it draws (see #object_pose_box).
+          box_x, box_y, box_w, box_h = box || [0, 0, width, bmp.height]
+          (box_h / TILE_PX).times do |tile_row|
+            (box_w / TILE_PX).times do |tile_col|
               TILE_PX.times do |row|
                 pending = nil
                 TILE_PX.times do |col|
-                  i = (((tile_row * TILE_PX) + row) * width) + (tile_col * TILE_PX) + col
+                  y = box_y + (tile_row * TILE_PX) + row
+                  x = box_x + (tile_col * TILE_PX) + col
+                  i = (y * width) + x
                   color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
                   index = transparent && color == transparent ? 0 : indices.fetch(color & 0x7FFF)
                   next bytes << index.chr unless placement.narrow?
