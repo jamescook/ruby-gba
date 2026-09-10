@@ -145,8 +145,15 @@ module RubyGBA
           # it would have taken and what was left. That second one is the actionable half: a
           # routine that just missed is where a program lost the whole factor above, and
           # nothing else in the build can say so afterwards.
+          # +chosen_from+ says which of the two answers decided the list: :measurement when a
+          # profile of a real run was handed to the build, :shape when there was none and the
+          # order came from what the frame can reach. It is on the report because the
+          # difference is the difference between a tuned game and an untuned one, and an
+          # author cannot tell by looking at the numbers.
           Report = Data.define(:funcs, :code_bytes, :used_bytes, :free_bytes, :total_bytes,
-                               :sizes, :passed_over)
+                               :sizes, :passed_over, :chosen_from) do
+            def initialize(chosen_from: :shape, **rest) = super
+          end
 
           # A routine the chooser skipped, and by how much.
           PassedOver = Data.define(:name, :bytes, :room)
@@ -159,7 +166,8 @@ module RubyGBA
                        free_bytes: @memory.free,
                        total_bytes: IWRAM_SIZE,
                        sizes: @routine_sizes || {},
-                       passed_over: @passed_over || [])
+                       passed_over: @passed_over || [],
+                       chosen_from: @routine_profile ? :measurement : :shape)
           end
 
           # Decide what moves. Runs before anything is emitted, and answers a set of func
@@ -436,9 +444,13 @@ module RubyGBA
           # the framework's own share. Anything that will not fit is skipped rather than
           # stopping the fill — a small routine after a large one still gets its chance.
           def place_by_frame_cost(program, sizes, room, chosen)
-            @progress.step("choosing what goes in the quick memory")
             forbidden = funcs_marked(program, false)
-            ranked_by_frame_cost(program, sizes).each do |name|
+            ranked = ranked_by_frame_cost(program, sizes)
+            ranked.each_with_index do |name, n|
+              # Say which routine is being weighed, in the words an author would use. The
+              # phase is quick now that nothing is priced, but it is the one place a build
+              # names the routines it is deciding between, and that is worth seeing.
+              @progress.of(n + 1, ranked.length, PlainWords.routine(name))
               next if chosen.include?(name) || forbidden.include?(name)
 
               size = sizes[name]
@@ -479,41 +491,146 @@ module RubyGBA
           # actually spends its time in. Measured on examples/breakout.rb, where value for
           # size moved the game-over screen and left the playing scene behind.
           #
-          # PRICED WITH THE WEIGHTS, not with what the probe counted, and that is a decision
-          # rather than an oversight. The probe DID count what every node came to on its way
-          # past (Attribution), and handing that to the model here is one argument — but it
-          # was tried and measured: on examples/breakout.rb the ranking swapped two routines
-          # below the cut that a normal frame never enters, the console's frame moved by three
-          # thousandths of a scanline, and the ROM grew fifteen instructions. What decides a
-          # placement is which routine the frame spends its time in, and the two pricings
-          # agree about that. So this stays the cheaper answer.
+          # FROM A MEASUREMENT WHERE THERE IS ONE, and from the shape of the program where
+          # there is not. Nothing here estimates what a routine costs.
+          #
+          # A measured profile is the right answer and the only one that can be checked: the
+          # game was run, and this is what its frames were really spent on. It survives a
+          # rebuild because it is keyed by ROUTINE NAME rather than by anything that moves.
+          #
+          # With no profile there is no honest number to be had, so this does not invent one.
+          # It orders by REACHABILITY instead — the frame's own body, then what the frame calls,
+          # then what those call — which is a fact about the program rather than a guess about
+          # the machine. It gets the common case right (a title screen's routines rank last,
+          # because a frame never reaches them) and says nothing it cannot back.
           def ranked_by_frame_cost(program, sizes)
-            model = CostModel.new
-            # Pricing one routine is a whole pass over the program, and a game with thirty of
-            # them spends longer here than anywhere else in the build — so it says which one it
-            # is on. There is a real count to report: the routines are known before any is
-            # priced.
+            @progress.step("choosing what goes in the quick memory")
+            names = placeable_names(program, sizes)
+            return @routine_profile.rank(names).select { |name| @routine_profile.worth_moving?(name) } if @routine_profile
+
+            reachable_first(program, names)
+          end
+
+          # Everything that could be moved: the routines somebody wrote, plus the two nobody
+          # did — the frame's own body and the routine the console interrupts into.
+          def placeable_names(program, sizes)
             named = program.walk.select { |node| node.kind == :func }.map(&:name)
             named << FRAME_ROUTINE if sizes.key?(FRAME_ROUTINE)
             named << IRQ_ROUTINE if sizes.key?(IRQ_ROUTINE)
-            costs = named.each_with_index.to_h do |name, n|
-              @progress.of(n + 1, named.length, PlainWords.routine(name))
-              [name, frame_cost_of(model, program, name)]
-            end
-
-            costs.select { |name, cost| cost >= WORTH_MOVING && sizes[name].to_i.positive? }
-                 .sort_by { |name, cost| [-cost, name.to_s] }.map(&:first)
+            named.select { |name| sizes[name].to_i.positive? }
           end
 
-          # What a frame spends in one routine. The game loop's body and the interrupt routine
-          # are not routines the author wrote, so each has its own question to ask the model.
-          def frame_cost_of(model, program, name)
-            case name
-            when FRAME_ROUTINE then model.frame_body_cost(program)
-            when IRQ_ROUTINE   then model.interrupt_frame_cost(program)
-            else model.func_frame_cost(program, name)
+          # THE ORDER TO TRY WHEN NOTHING HAS BEEN MEASURED. The frame's own body first, since
+          # it IS the frame; then out along the calls, nearest first, so a routine the frame
+          # reaches every pass is preferred to one only a menu can get to.
+          #
+          # The routine the console interrupts into is placed by a fact about the program too,
+          # not by a guess: a background that bends row by row is entered after every line the
+          # display draws, 228 times a frame, and is then the busiest thing in the game by a
+          # wide margin. Anything else enters it once a frame and it is worth almost nothing,
+          # so it goes last.
+          def reachable_first(program, names)
+            candidates = names.to_set
+            order = []
+            order << FRAME_ROUTINE if candidates.include?(FRAME_ROUTINE) && frame_does_work?(program)
+            order << IRQ_ROUTINE if candidates.include?(IRQ_ROUTINE) && interrupts_often?(program)
+
+            order + calls_outward_from(program, frame_body(program), candidates - order.to_set)
+          end
+
+          # DOES THE CONSOLE INTERRUPT OFTEN ENOUGH FOR THAT ROUTINE TO BE WORTH THE ROOM? Both
+          # answers are facts about the program rather than guesses about the machine, which is
+          # what lets this be decided with nothing measured.
+          #
+          # A background bending row by row, with no copying engine left to feed it, is entered
+          # after every line the display draws — 228 times a frame, which makes it the busiest
+          # thing in the program. A timer is the other one: `per_second: 4000` lands 67 times a
+          # frame. Anything else enters it once a frame and leaves again, and then the room is
+          # better spent on almost anything else.
+          def interrupts_often?(program)
+            # ...and it is a bend the COPIER cannot feed that does it. Where an engine feeds
+            # the rows the display announces nothing at all, and the block runs in the frame
+            # with everything else. BendForm answers this for the report already, so the two
+            # cannot disagree about it.
+            return true if BendForm.kept_interrupt_reason(program)
+
+            program.walk.any? { |node| node.kind == :timer_start && node.hz.to_i >= TICKS_A_FRAME }
+          end
+
+          # A timer at least this fast lands once a frame or more. Below it, the routine the
+          # console interrupts into is entered for the frame's own sake and hardly ever else.
+          TICKS_A_FRAME = 60
+
+          # DOES THE FRAME'S OWN BODY DO ANYTHING? A game loop that only waits for the screen
+          # is the case, and it is worth catching: every frame of it is the console asleep, so
+          # moving the body buys nothing and costs the room and a longer call at every site.
+          # It is the job WORTH_MOVING did for the estimate, asked of the program rather than
+          # of a price.
+          #
+          # A BENDING BACKGROUND COUNTS EVEN THOUGH THE LOOP LOOKS EMPTY. Where the program
+          # waits for frames, a bend's block is worked out IN the frame, into a table — so the
+          # frame is doing 160 rows of the author's own arithmetic that the loop's statements
+          # know nothing about. Miss that and the busiest thing in such a program is left in
+          # the cartridge.
+          NO_WORK_KINDS = %i[loop wait_vblank].freeze
+
+          def frame_does_work?(program)
+            body = frame_body(program) or return false
+            return true unless BendForm.bends(program).empty?
+
+            body.walk.any? { |node| !NO_WORK_KINDS.include?(node.kind) }
+          end
+
+
+          # Walk out along the calls from the code a frame runs, taking each routine WITH
+          # everything it goes on to call before moving to the next.
+          #
+          # DEPTH FIRST, AND THAT IS THE WHOLE OF THIS RULE'S JUDGEMENT. Level by level looks
+          # more sensible and is worse, because of scenes: a `case_var` puts every scene one
+          # call from the frame, so all of them — the title, the game-over screen, the one
+          # being played — rank ahead of anything a scene itself calls. The room then goes to
+          # screens that are not on, and the routines doing the work are left in the cartridge.
+          # Measured on examples/snake_buffered.rb, where level-by-level kept three scenes and
+          # dropped `draw_all`, which is what that game spends its frame in.
+          #
+          # Taken depth first, a scene is followed immediately by what it uses, which matches
+          # the one thing that is certainly true of a dispatch: only ONE of those scenes runs
+          # on any frame.
+          #
+          # A routine a frame CANNOT reach is left off the list entirely rather than put at the
+          # end of it. Moving one would cost nothing in speed — the room is empty otherwise —
+          # but every call that then crosses between the two memories grows, so a title
+          # screen's helpers would be paid for in cartridge size and never earn it back.
+          def calls_outward_from(program, root, candidates)
+            bodies = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
+            found = []
+            visit = lambda do |node|
+              called_by(node).each do |name|
+                next if found.include?(name) || !candidates.include?(name)
+
+                found << name
+                body = bodies[name] and visit.call(body)
+              end
+            end
+            visit.call(root) if root
+            found
+          end
+
+          # The routines one body reaches: the ones it calls outright, and the scenes a
+          # dispatch can land on. A scene IS a routine and a `case_var` IS how a game reaches
+          # the one it is playing, so leaving those out would miss the most important routine
+          # in most games — the playing scene.
+          def called_by(node)
+            node.walk.flat_map do |child|
+              case child.kind
+              when :call then [child.target]
+              when :case then child.clauses.map(&:last)
+              else []
+              end
             end
           end
+
+          def frame_body(program) = program.walk.find { |node| node.kind == :loop }
 
           # A routine the author asked to keep in the quick memory, that will not go
           # there, is a plain error where they wrote it — not a silent shrug.

@@ -51,9 +51,12 @@ require_relative "ruby_gba/verifier"
 require_relative "ruby_gba/tearing"
 require_relative "ruby_gba/analyzer"
 require_relative "ruby_gba/profiler"
+require_relative "ruby_gba/routine_profile"
 
 module RubyGBA
   class ROMError < StandardError; end
+  # A saved profile that cannot be read, or that no longer matches the game it decides for.
+  class ProfileError < StandardError; end
   # Build a GBA ROM using the DSL.
   #
   # @param title [String] Game title (up to 12 chars)
@@ -70,11 +73,36 @@ module RubyGBA
   # @param progress [RubyGBA::Progress] what the build says it is doing while it does it.
   #   The default says nothing; `Progress.to($stderr)` names each phase and how far it has
   #   got. See {RubyGBA::Progress}.
+  # @param profile [true, false, String, RubyGBA::RoutineProfile] where this game's frames
+  #   really go, which decides which routines are kept in the console's quick memory.
+  #
+  #   TRUE MEASURES IT: the build builds the game once, runs it, and builds it again knowing
+  #   what its frames were really spent on — see {.build_measured}. Nothing has to be run or
+  #   saved by hand, and nothing is guessed. It is what {Game#build_rom} asks for, so a
+  #   cartridge somebody is going to play gets it.
+  #
+  #   FALSE, THE DEFAULT HERE, skips the measuring and chooses from the shape of the program
+  #   instead: the frame's own body first, then out along what it calls. It is the default on
+  #   this method because this is the primitive — the suite builds thousands of cartridges
+  #   through it to check pixels and guardrails and emitted code, and not one of them cares
+  #   where a routine ended up. Measuring them all would double the suite for nothing. It is
+  #   also what a reproducible build wants, since it depends on nothing but the source.
+  #
+  #   A PATH or a {RoutineProfile} uses a measurement taken earlier, for the case the automatic
+  #   one cannot reach: a game measures each of its scenes, so a moment WITHIN one — a boss with
+  #   half its health gone, a floor with sixty guards — has to be measured by hand and saved.
   # @return [RubyGBA::ROM] finalized ROM ready to write
   # +out+/+err+ are the streams dump_func writes its disassembly and warnings to;
   # they default to the process streams and can be pointed at a StringIO in tests.
   def self.build(title, code:, maker:, validate: true, frame_sync: :auto, fast_cartridge: true,
-                 fast_code: true, out: $stdout, err: $stderr, progress: Progress.silent, &block)
+                 fast_code: true, out: $stdout, err: $stderr, progress: Progress.silent,
+                 profile: false, &block)
+    if profile == true
+      return build_measured(title, code: code, maker: maker, validate: validate,
+                            frame_sync: frame_sync, fast_cartridge: fast_cartridge,
+                            fast_code: fast_code, out: out, err: err, progress: progress, &block)
+    end
+
     progress.step("reading the game")
     evaluated = EvaluatedGame.new(block, frame_sync: frame_sync, progress: progress)
     program = evaluated.program
@@ -129,8 +157,9 @@ module RubyGBA
     # to machine code, then assemble that code into a cartridge. Lowering names its
     # own phases rather than being named from here — most of the time a build spends
     # is in there, and it is three phases, not one (see Placement#choose_fast_funcs).
+    measured = given_profile(profile, program, err)
     backend = IR::Backends::GBA.new(fast_cartridge: fast_cartridge, fast_code: fast_code,
-                                    progress: progress)
+                                    progress: progress, routine_profile: measured)
     machine_code = backend.lower(program)
     record = backend.build_record(program)
 
@@ -174,5 +203,80 @@ module RubyGBA
     # reader sees the explanation and then the line saying the build stopped.
     progress.done
     findings&.emit(to: err)
+  end
+
+  # BUILD IT, RUN IT, BUILD IT AGAIN — which is how the build knows what a game spends its
+  # frames on instead of guessing.
+  #
+  # The one decision a build cannot measure its way to on its own is which routines to keep in
+  # the console's quick memory, where code runs about two and a third times faster. The choice
+  # is an INPUT to the lowering, so it has to be made before the game it would run exists. So
+  # the game is built once, with the choice made from the shape of the program; that cartridge
+  # is run and measured; and then it is built again, this time knowing.
+  #
+  # NOBODY HAS TO PLAY IT. A game keeps which screen it is on in a variable and the build knows
+  # where that variable lives, so each scene is entered by writing it — see
+  # {Profiler.every_scene}. Without that the measuring would only ever see a title screen,
+  # which is the wrong thing to make a game fast for.
+  #
+  # THE FIRST BUILD'S FINDINGS ARE HELD BACK, and only its findings. They are about a cartridge
+  # nobody gets, and they can differ from the real ones in exactly the way that matters: a
+  # warning is priced with what the build decided, so the throwaway one can say a frame goes
+  # over budget where the measured cartridge comfortably fits. Printing both would be printing
+  # a warning that is not true of the game.
+  #
+  # BUT A BUILD THAT STOPS HAS TO SAY WHY. A guardrail error stops the first build, and its
+  # explanation is the whole point of stopping — so what was held back is let out on the way
+  # past. Anything else swallows the one message an author needs.
+  #
+  # WITH NO EMULATOR THERE IS NOTHING TO RUN, and a build still has to work, so it falls back
+  # to choosing from the shape of the program. `rom.explain` says which of the two happened.
+  def self.build_measured(title, code:, maker:, out:, err:, progress:, **options, &block)
+    held = StringIO.new
+    first = begin
+      build(title, code: code, maker: maker, profile: false,
+            out: out, err: held, progress: progress, **options, &block)
+    rescue StandardError
+      err.write(held.string)
+      raise
+    end
+
+    measurement = RoutineProfile.from_work(Profiler.every_scene(first), game: title)
+    build(title, code: code, maker: maker, profile: measurement,
+          out: out, err: err, progress: progress, **options, &block)
+  rescue LoadError
+    # No emulator to run it on. Choose from the shape of the program instead.
+    build(title, code: code, maker: maker, profile: false,
+          out: out, err: err, progress: progress, **options, &block)
+  end
+
+  # A PROFILE THAT HAS DRIFTED FROM ITS GAME still decides what goes in the quick memory, and
+  # would go on doing it, quietly and increasingly wrongly, as the game moved on. So a routine
+  # the profile names that the program no longer has is said out loud.
+  #
+  # It is a warning and not an error on purpose: renaming one routine should not stop a build,
+  # and the profile is still right about everything else it names. What it means is that the
+  # game has been measured less recently than it has been changed.
+  # What the caller handed over, read into a {RoutineProfile} — or nothing, which means the
+  # choice is made from the shape of the program.
+  def self.given_profile(profile, program, err)
+    measured = profile.is_a?(RoutineProfile) ? profile : RoutineProfile.read(profile || nil)
+    warn_of_forgotten_routines(measured, program, err)
+    measured
+  end
+
+  def self.warn_of_forgotten_routines(measured, program, err)
+    return unless measured
+
+    known = program.walk.filter_map { |node| node.name if node.kind == :func }.to_set
+    known << IR::Backends::GBA::Placement::FRAME_ROUTINE
+    known << IR::Backends::GBA::Placement::IRQ_ROUTINE
+    gone = measured.forgotten(known)
+    return if gone.empty?
+
+    err.puts("This game was measured when it had #{gone.map { |name| "`#{name}`" }.join(', ')}, " \
+             "and it does not now. The measurement decides which routines stay in the console's " \
+             "quick memory, so it is out of date. To fix this, measure the game again and save " \
+             "the result.")
   end
 end

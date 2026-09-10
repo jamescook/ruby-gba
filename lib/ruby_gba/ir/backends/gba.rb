@@ -270,10 +270,15 @@ module RubyGBA
         # one by name with `func :thing, fast: true`.
         # +progress+ is what this pass says it is doing while it does it. Most of a build's
         # time is spent in here, so it names its own phases; the default says nothing.
-        def initialize(fast_cartridge: true, fast_code: true, progress: Progress.silent)
+        def initialize(fast_cartridge: true, fast_code: true, progress: Progress.silent,
+                       routine_profile: nil)
           @fast_cartridge = fast_cartridge
           @fast_code = fast_code
           @progress = progress
+          # What a previous run of this game was MEASURED to spend its frames on, when there is
+          # such a measurement. It decides what goes in the quick memory; without it the choice
+          # is made from the shape of the program instead (see Placement#ranked_by_frame_cost).
+          @routine_profile = routine_profile
           @fast_funcs = Set.new  # routines that run from the quick memory
           @emitting_hot = false  # are we emitting into the block that gets copied there?
           @hot_base = nil        # where that block lands, once every variable has a home
