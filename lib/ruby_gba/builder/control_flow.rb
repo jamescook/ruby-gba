@@ -101,6 +101,10 @@ module RubyGBA
         # Then step every flipbook sprite's pose along its beat, so the next frame
         # shows the next picture.
         @animations.each { |anim| advance_animation(anim).each { |node| record(node) } }
+        # ...and every posed pool along its own beat. A pool keeps one counter for the
+        # whole set and a frame per instance, so a frame that is not a step costs one
+        # compare and a step walks the slots.
+        @pool_animations.each { |anim| advance_pool_animation(anim).each { |node| record(node) } }
         # The scroll position of every background the game moves is written here too,
         # right after the wait. Which backgrounds those are isn't known yet, so this
         # only marks the spot (see Builder#finalize_background_scrolls).
@@ -370,6 +374,16 @@ module RubyGBA
                          Build.add(pose, Build.int(1)),
                          wrap)
         [Build.add(tick, Build.int(1)), step]
+      end
+
+      # One posed pool's beat: count the frame, and when the beat comes round put the
+      # counter back and step every instance on. The step is a walk of the pool's slots,
+      # built where the pool was declared (Composition#register_pool_animation).
+      def advance_pool_animation(anim)
+        step = Build.if_(Build.binop(:>=, Build.var_ref(anim[:tick]), Build.int(anim[:rate])),
+                         Build.set(anim[:tick], Build.int(0)),
+                         anim[:step])
+        [Build.add(anim[:tick], Build.int(1)), step]
       end
 
       # An animation's frame-count or rate as a value node: a Symbol names a variable (a
