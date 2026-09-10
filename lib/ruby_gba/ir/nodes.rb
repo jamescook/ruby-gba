@@ -446,10 +446,14 @@ module RubyGBA
         include Node
         kind :object
         category :draw
+        # +scene+ is the game state this thing belongs to, where it was declared inside
+        # one. It is on screen only while that state is active, which the +active+
+        # operand already carries — what the NAME adds is that a target with somewhere
+        # finite to keep pictures knows which of them are needed at the same time.
         operands name: :name,
                  poses: :list, pose: :value, x: :value,
                  y: :value, active: :value, angle: :value,
-                 scale: :value, layer: :name
+                 scale: :value, layer: :name, scene: :name
       end
 
       class OnTimer

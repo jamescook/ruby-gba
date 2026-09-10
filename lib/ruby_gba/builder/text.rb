@@ -504,7 +504,8 @@ module RubyGBA
         # tests it was written under, so `(blink == 1).then { draw_text ... }` blinks
         # instead of standing still. Neither needs anything toggled by hand.
         record(Build.object(name, poses: poses, pose: pose, x: Build.int(x), y: Build.int(y),
-                                  active: condition_gate(scene_gate(Build.int(1)))))
+                                  active: condition_gate(scene_gate(Build.int(1))),
+                                  scene: declaring_scene))
         @hud_objects << name
         name
       end

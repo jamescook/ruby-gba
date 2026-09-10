@@ -256,7 +256,8 @@ module RubyGBA
           record(Build.object(name, poses: art.poses, pose: pool.pose_node(slot),
                                     x: Build.list_get(pool.field_list(:x), Build.int(slot)),
                                     y: Build.list_get(pool.field_list(:y), Build.int(slot)),
-                                    active: scene_gate(Build.list_get(pool.active_list, Build.int(slot)))))
+                                    active: scene_gate(Build.list_get(pool.active_list, Build.int(slot))),
+                                    scene: declaring_scene))
           @pool_objects << name
         end
         register_pool_animation(pool, capacity, art) if art.animates?

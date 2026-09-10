@@ -329,7 +329,8 @@ module RubyGBA
           # once it does, so the call resolves fine the first time anything actually
           # emits (see the private forwarders).
           @functions = Functions.new(emitter: @emit, lowering: @lowering, placement: self,
-                                     scene_preamble: method(:emit_scene_preamble))
+                                     scene_preamble: method(:emit_scene_preamble),
+                                     scene_art: method(:emit_scene_art_upload))
           @statements = Statements.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                        placement: self, functions: @functions)
           @framebuffer = Framebuffer.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
@@ -484,17 +485,23 @@ module RubyGBA
         def sprite_memory_report
           return nil if @objects.empty?
 
-          used = @objects.values.sum { |obj| obj[:tile_units] } * 32
           small = @objects.count { |name, _obj| @obj_banks.placement(name).narrow? }
-          RubyGBA::VideoMemory::Area.new(used: used, capacity: OBJ_TILE_CAPACITY,
+          shared = @objects.count { |_name, obj| obj[:tiles].nil? }
+          RubyGBA::VideoMemory::Area.new(used: @obj_art.bytes, capacity: OBJ_TILE_CAPACITY,
                                          small: small, big: @objects.size - small,
-                                         saved: sprite_memory_saved, shared: 0)
+                                         saved: sprite_memory_saved, shared: shared)
         end
 
         # What the same pictures would have cost stored the old way: a small one is exactly
-        # half the size, so the saving is its own size again.
+        # half the size, so the saving is its own size again. A sprite sharing another's
+        # pictures costs nothing either way and is not counted twice — what sharing saved
+        # is its own number.
         def sprite_memory_saved
-          @objects.sum { |name, obj| @obj_banks.placement(name).narrow? ? obj[:tile_units] * 32 : 0 }
+          @objects.sum do |name, obj|
+            next 0 if obj[:tiles].nil? || !@obj_banks.placement(name).narrow?
+
+            obj[:tile_units] * 32
+          end
         end
 
         # The tiles' half of the scenery's memory. What is LEFT is the number that matters
@@ -644,7 +651,7 @@ module RubyGBA
             obj_palette_blob: @obj_palette_blob, obj_palette_units: @obj_palette_units,
             default_mode: @default_mode, any_buffered: @any_buffered, mixed_display: @mixed_display,
             manage_modes: @manage_modes, func_mode: @func_mode,
-            map_cells: @map_cells, map_entries: @map_entries,
+            map_cells: @map_cells, map_entries: @map_entries, scene_art: @scene_art || {},
           )
           @drawing.layout = layout
           @buffered.layout = layout
@@ -857,6 +864,7 @@ module RubyGBA
         def emit_boot_backgrounds = @drawing.emit_boot_backgrounds
         def emit_boot_objects = @drawing.emit_boot_objects
         def emit_scene_preamble(name) = @drawing.emit_scene_preamble(name)
+        def emit_scene_art_upload(name) = @drawing.emit_scene_art_upload(name)
 
         # Does the program need any interrupt at all — VBlank (for wait_vblank) or a timer
         # (for an on_tick handler)? The mixer needs none: it refills on the frame loop, in
@@ -1786,23 +1794,146 @@ module RubyGBA
           # nothing, and the sprites keep their order among themselves). It has to be
           # this way round: a twin only holds the effect off a sprite that is BEHIND it.
           front = @window_twins.size
-          tile_unit = 0 # running offset into sprite tile memory, in 32-byte units
-          nodes.each_with_index do |node, index|
-            # Sprite memory is counted in 32-byte units whichever way a picture is
-            # stored, so a picture stored the big way — 64 bytes to a tile — has to
-            # start on an even one or the console would read it starting halfway
-            # through a tile. The gap that leaves is at most 32 bytes and only ever
-            # appears where a small picture is followed by a big one.
-            tile_unit += 1 if tile_unit.odd? && !@obj_banks.placement(node.name).narrow?
-            prepare_one_object(node, front + nodes.size - 1 - index, tile_unit)
-            tile_unit += @objects[node.name][:tile_units]
-          end
-          prepare_affine(nodes)
-          return unless tile_unit * 32 > OBJ_TILE_CAPACITY
+          slot_of = nodes.each_with_index.to_h { |node, index| [node.name, front + nodes.size - 1 - index] }
+          @obj_art = ObjectArt.new(@emit)
+          @scene_art = {}
 
-          raise LoweringError,
-                "the sprites' tiles need #{tile_unit * 32} bytes — sprite tile memory holds #{OBJ_TILE_CAPACITY}. " \
-                "Use fewer or smaller sprites."
+          # ALWAYS-THERE ART FIRST, then each scene's own over the same room.
+          #
+          # A sprite declared inside a scene is on screen only while that scene is the
+          # active state — that is what a scene already means — so no two scenes' pictures
+          # are ever wanted at once. Which means the budget a game has to fit is ONE
+          # SCENE'S, not the whole game's, and a game with more art than the console's 32K
+          # still builds so long as no single scene has. That is what lets a game with
+          # hundreds of rooms declare each room's cast where it belongs.
+          #
+          # A scene's pictures are sent when that scene takes over rather than at boot,
+          # and only when it is not already the one loaded — so staying in a scene costs
+          # one compare a frame and changing scene costs a copy.
+          by_scene = nodes.group_by(&:scene)
+          (by_scene[nil] || []).each { |node| prepare_one_object(node, slot_of.fetch(node.name)) }
+          @obj_art.seal_resident
+          by_scene.each do |scene, in_scene|
+            next if scene.nil?
+
+            @obj_art.begin_scene
+            in_scene.each { |node| prepare_one_object(node, slot_of.fetch(node.name)) }
+            @scene_art[scene] = @obj_art.end_scene
+          end
+
+          prepare_affine(nodes)
+          return unless @obj_art.bytes > OBJ_TILE_CAPACITY
+
+          raise LoweringError, sprite_art_does_not_fit(nodes)
+        end
+
+        # Out of room for sprite pictures. Name the greediest, since the fix is nearly
+        # always one piece of art rather than "fewer sprites" — and say what sharing
+        # already saved, because a reader's first question is whether it is doing
+        # anything.
+        def sprite_art_does_not_fit(nodes)
+          fullest = nodes.group_by(&:scene).max_by { |_scene, in_it| art_bytes_of(in_it) }
+          worst = fullest.last.max_by(3) { |node| @objects[node.name][:tile_units] }
+          # Name the PICTURES rather than the sprites: an author named the pictures, and a
+          # sprite's own name is the framework's.
+          named = worst.map { |node| ":#{node.poses.first} (#{@objects[node.name][:tile_units] * 32})" }
+          "The sprites' pictures need #{@obj_art.bytes} bytes at once, and the console keeps them in " \
+            "#{OBJ_TILE_CAPACITY}. Only one scene's are needed at a time. #{fullest_is(fullest.first)}, " \
+            "and its biggest pictures are #{named.uniq.join(', ')}. Use fewer pictures there, smaller " \
+            "ones, or fewer poses each." \
+            "#{" Sharing already saved #{@obj_art.saved} bytes." if @obj_art.saved.positive?}"
+        end
+
+        # A scene is a routine named after the state it draws, with a prefix of the
+        # framework's in front. The author wrote the state.
+        def fullest_is(scene)
+          return "The fullest is what every screen shows" if scene.nil?
+
+          "The fullest is the :#{scene.to_s.delete_prefix('_scene_')} scene"
+        end
+
+        def art_bytes_of(nodes)
+          nodes.sum { |node| @objects[node.name][:tiles] ? @objects[node.name][:tile_units] * 32 : 0 }
+        end
+
+        # TWO SPRITES THAT SHOW THE SAME PICTURES STORE THEM ONCE.
+        #
+        # Sprite pictures live in 32K and every one a game might ever show is in there at
+        # once. Nothing used to notice that two sprites were showing the same art, so a
+        # game with twenty enemies all walking the same eight-frame walk stored that walk
+        # twenty times — and a POOL is the same thing said in one line, since each of its
+        # slots is a sprite of its own. Thirty-two slots of a four-picture guard was
+        # thirty-two copies.
+        #
+        # Nobody asks for this and nobody can tell. The sameness is judged on the encoded
+        # bytes, so two sprites drawing the same picture out of different banks of colours
+        # correctly stay apart.
+        #
+        # Sprite memory is counted in 32-byte units whichever way a picture is stored, so
+        # a picture stored the big way — 64 bytes to a tile — has to start on an even one
+        # or the console would read it starting halfway through a tile. The gap that
+        # leaves is at most 32 bytes and only ever appears where a small picture is
+        # followed by a big one.
+        class ObjectArt
+          def initialize(emit)
+            @emit = emit
+            @units = 0        # how far the pictures have grown, in 32-byte units
+            @at = {}          # encoded bytes -> the unit they were stored at
+            @saved = 0        # ...and what not storing them twice came to
+            @peak = 0         # the most ever needed at once: the resident art plus one scene's
+            @resident_units = 0
+            @resident = {}
+            @scene_blobs = nil # while a scene's art is being laid out: what it has to send
+          end
+
+          # How much sprite memory the game needs at its fullest — the always-there art
+          # plus the biggest single scene's, since no two scenes' pictures are wanted at
+          # the same time.
+          def bytes = [@units, @peak].max * 32
+          attr_reader :saved
+
+          # The always-there art is finished: remember where it ended and what it holds,
+          # so every scene starts from the same place and can still share it.
+          def seal_resident
+            @resident_units = @units
+            @resident = @at.dup
+            @peak = @units
+          end
+
+          # A scene's art goes over the room the last scene's used.
+          def begin_scene
+            @units = @resident_units
+            @at = @resident.dup
+            @scene_blobs = []
+          end
+
+          # ...and this is what it has to send when it takes over: each blob, where it
+          # goes, and how many units it is.
+          def end_scene
+            @peak = [@peak, @units].max
+            sent = @scene_blobs
+            @scene_blobs = nil
+            sent
+          end
+
+          # Where this sprite's pictures are, storing them if they are new. Returns the
+          # blob to upload (nil when the art is already there) and its first tile number.
+          def place(name, tiles, narrow:)
+            at = @at[tiles]
+            if at
+              @saved += tiles.bytesize
+              return [nil, at]
+            end
+
+            @units += 1 if @units.odd? && !narrow
+            at = @units
+            @units += tiles.bytesize / 32
+            @at[tiles] = at
+            blob = :"__obj_tiles_#{name}"
+            @emit.data_blobs[blob] = tiles
+            @scene_blobs&.push([blob, at, tiles.bytesize / 32])
+            [blob, at]
+          end
         end
 
         # Set up the sprites that turn or change size. Each is given one of the console's
@@ -2027,7 +2158,7 @@ module RubyGBA
             "are #{named}. Draw them from fewer colors, or use fewer sprites at once."
         end
 
-        def prepare_one_object(node, slot, tile_unit)
+        def prepare_one_object(node, slot)
           name = node.name
           poses = node.poses
           width, height = object_pose_size!(name, poses)
@@ -2045,12 +2176,11 @@ module RubyGBA
             bytes << encode_object_tiles(@bitmaps.fetch(image), place)
           end
           per_pose = (tiles.bytesize / 32) / poses.size # tile-number stride between poses (32-byte units)
-
-          tile_blob = :"__obj_tiles_#{name}"
-          @emit.data_blobs[tile_blob] = tiles
+          tile_blob, tile_unit = @obj_art.place(name, tiles, narrow: place.narrow?)
           @objects[name] = {
             slot: slot,
             tiles: tile_blob, tile_units: tiles.bytesize / 32, # sprite memory counts in 32-byte units
+            scene: node.scene, # sent when that scene takes over, rather than at boot
             tile_index: tile_unit, # this sprite's base tile number
             per_pose: per_pose,    # stride to the next pose's tiles
             pose: node.pose,     # the run-time pose selector (which pose to show)

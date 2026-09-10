@@ -17,11 +17,12 @@ module RubyGBA
           # known at construction, so it's set afterward with #modes= rather than
           # passed in here. +scene_preamble+ is Drawing's own #emit_scene_preamble,
           # handed in as a bound method rather than a reference to Drawing as a whole.
-          def initialize(emitter:, lowering:, placement:, scene_preamble:)
+          def initialize(emitter:, lowering:, placement:, scene_preamble:, scene_art:)
             @emitter = emitter
             @lowering = lowering
             @placement = placement
             @scene_preamble = scene_preamble
+            @scene_art = scene_art
             @modes = nil
             @funcs = {}
             @func_ranges = {}
@@ -48,7 +49,12 @@ module RubyGBA
             # Draws in this func lower in its resolved mode; a scene (a per-frame
             # entry point) also switches the hardware to that mode as it takes over.
             @lowering.in_mode(@modes.func_mode.fetch(name, @modes.default_mode)) do
-              @scene_preamble.call(name) if manage_modes? && @modes.scene_funcs.include?(name)
+              if @modes.scene_funcs.include?(name)
+                @scene_preamble.call(name) if manage_modes?
+                # ...and its own sprite pictures, which scenes share the room for, so a
+                # scene taking over sends its own and one already running sends nothing.
+                @scene_art.call(name)
+              end
               fnode.children.each { |stmt| @lowering.statement(stmt) }
             end
             @emitter.emit(ASM.pop(15))                           # pop {pc}  (return)

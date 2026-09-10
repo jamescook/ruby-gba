@@ -116,11 +116,12 @@ module Tiles
     # door opening and B is it shutting, each one cell becoming a different tile — the
     # tileset's own characters, at a column and row of the map, with nothing about video
     # memory anywhere in sight.
-    DOOR = [10, 9].freeze
+    door_col = 10
+    door_row = 9
 
     game_loop do
-      pressed(:a).then { room.set_tile DOOR[0], DOOR[1], "." }
-      pressed(:b).then { room.set_tile DOOR[0], DOOR[1], "#" }
+      pressed(:a).then { room.set_tile door_col, door_row, "." }
+      pressed(:b).then { room.set_tile door_col, door_row, "#" }
     end
   end
 

@@ -643,10 +643,11 @@ module RubyGBA
       end
 
       # Reserves the object; #present_objects is what actually draws it for a frame.
-      def object(name, poses:, pose:, x:, y:, active:, angle: 0, scale: SCALE_ONE, layer: nil)
+      def object(name, poses:, pose:, x:, y:, active:, angle: 0, scale: SCALE_ONE, layer: nil, scene: nil)
         Nodes.build(:object, name: name, poses: poses, pose: wrap(pose),
                           x: wrap(x), y: wrap(y), active: wrap(active),
-                          angle: wrap(angle), scale: wrap(scale), **in_layer(layer))
+                          angle: wrap(angle), scale: wrap(scale),
+                          **in_layer(layer), **in_scene(scene))
       end
 
       # Draw the named objects for this frame, on top of the background, in order
@@ -880,6 +881,12 @@ module RubyGBA
       # the tree it built before layers existed.
       def in_layer(name)
         name ? { layer: name } : {}
+      end
+
+      # The same idea for the game state a thing was declared inside. Absent means it is
+      # always there — a HUD, a hero every screen shows.
+      def in_scene(name)
+        name ? { scene: name } : {}
       end
 
       # The same idea for an effect, which names the layer it sits UNDER rather than the
