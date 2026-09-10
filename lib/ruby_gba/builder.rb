@@ -111,6 +111,7 @@ module RubyGBA
       @prng_used = false       # whether the program draws random numbers (seeds the stream once)
       @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
       @pending_conditions = [] # Conditions built but not yet used; leftovers are orphans
+      @expressions = []        # every expression Value built; the unparented ones are orphans
       @present_nodes = []      # every frame's present-objects node, filled with the full object list at finalize
       @frame_boundaries = []   # each frame's wait node, the anchor the scroll writes are inserted after at finalize
       @scrolled_backgrounds = {} # name → [x var, y var] for every background the game scrolls
@@ -550,6 +551,23 @@ module RubyGBA
     # `&` / `|` — so peel it back out of the pending set.
     def consume_condition(condition)
       @pending_conditions.delete(condition)
+    end
+
+    # Every EXPRESSION Value built during this build — a number worked out, as opposed to
+    # a handle naming a place that keeps one (see Value#handle?). Bookkeeping for one
+    # guardrail only, never part of the program.
+    #
+    # There is no matching "consume" the way a Condition has one, and that is the whole
+    # trick: an expression that gets used is written into another node, and a node wired
+    # into the tree carries a parent. So the tree itself records what was used, and the
+    # leftovers are the ones whose node never found a home.
+    def track_expression(value)
+      @expressions << value
+    end
+
+    # The expressions built during this build, for the orphaned-expression guardrail.
+    def expressions
+      @expressions
     end
 
     # The Conditions still pending at build's end: built but never used. Each did

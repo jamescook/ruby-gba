@@ -35,7 +35,10 @@ module RubyGBA
       #   fix      — an optional Fix the pass may apply; nil if there's no safe one
       Finding = Data.define(:check, :severity, :message, :node, :fix) do
         def initialize(check:, severity:, message:, node:, fix: nil)
-          unless node == :program || node.respond_to?(:source)
+          # `equal?`, not `==`: a Value answers `==` with a COMPARISON to be branched on
+          # later, which is truthy, so asking it that question both gets the wrong answer
+          # and leaves a stray comparison behind for another guardrail to trip over.
+          unless node.equal?(:program) || node.respond_to?(:source)
             raise ArgumentError,
                   "a finding blames an IR node, or :program when it blames the whole " \
                   "program; got #{node.inspect}"
@@ -48,7 +51,7 @@ module RubyGBA
         # whole-program finding, and for a node the builder never stamped (one the
         # framework synthesized rather than the author writing it).
         def source
-          node == :program ? nil : node.source
+          node.equal?(:program) ? nil : node.source
         end
 
         def error?
@@ -278,6 +281,7 @@ require_relative "guardrails/vblank_sync"
 require_relative "guardrails/termination"
 require_relative "guardrails/off_screen_draw"
 require_relative "guardrails/orphaned_condition"
+require_relative "guardrails/orphaned_expression"
 require_relative "guardrails/channel_conflict"
 require_relative "guardrails/redraw_everything"
 require_relative "guardrails/sprite_cleared_each_frame"

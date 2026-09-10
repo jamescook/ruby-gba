@@ -13,11 +13,6 @@ module RubyGBA
   class Condition
     Build = IR::Build
 
-    # The library's own source directory. A Condition is created deep inside the
-    # library (a comparison, a compose), so to point a diagnostic at the line the
-    # *author* wrote, we skip frames under here and take the first one outside it.
-    LIB_DIR = __dir__
-
     def initialize(builder, node)
       @builder = builder
       @node = node
@@ -144,9 +139,6 @@ module RubyGBA
 
     # The first call-stack frame outside the library — the author's line — as
     # "path:line", or nil if every frame is internal.
-    def self.author_source
-      frame = caller_locations.find { |loc| !loc.path.start_with?(LIB_DIR) }
-      "#{frame.path}:#{frame.lineno}" if frame
-    end
+    def self.author_source = AuthorSource.author_source
   end
 end

@@ -26,7 +26,44 @@ module RubyGBA
       # (b.x + 5, b.y > 100) exactly like a variable read. It carries no variable name,
       # so the mutators below override Value's (which write to a named variable).
       super(builder, read, name: nil, fraction_bits: fraction_bits,
-                           declaring: declaring, mixing: mixing)
+                           declaring: self.class.declaring(pool, field),
+                           mixing: self.class.mixing(pool, field))
+    end
+
+    # A handle, not a working-out: it stands for one slot of one field, so writing one
+    # down and doing nothing with it is as harmless as naming a variable. See Value#handle?.
+    def handle? = true
+
+    # WHAT A POOL FIELD KEEPS, without building a handle to ask. A pool checks the values
+    # a `spawn` was given against the fields they are going into, and it has no instance
+    # to hold a handle for — nor any need of one. On the class so that a field's own two
+    # sentences are written once and both callers say the same thing.
+    def self.scale(pool:, field:, bits:)
+      Scale.new(bits: bits, declaring: declaring(pool, field), mixing: mixing(pool, field))
+    end
+
+    # How to make THIS field hold a fraction: say so in the default it is declared with,
+    # which is the same way a variable says it.
+    def self.declaring(pool, field)
+      lambda { |other|
+        "declare the field with one — `pool :#{pool}, #{field}: #{other}` rather than " \
+          "`#{field}: #{other.to_i}`"
+      }
+    end
+
+    # ...and the other mismatch. A field has no left and right side, so the wording a
+    # plain operator uses does not fit it.
+    def self.mixing(pool, field)
+      lambda { |field_holds_fraction|
+        holds, given = if field_holds_fraction
+                         ["numbers with a fraction", "a whole number the game works out"]
+                       else
+                         ["whole numbers", "a number with a fraction"]
+                       end
+        "`pool :#{pool}` keeps #{holds} in its #{field.inspect} field, and this is " \
+          "#{given}. There is no way to tell what it counts. Use `.to_f` on the whole " \
+          "number to give it a fraction, or `.to_i` on the other one to drop its fraction."
+      }
     end
 
     # --- mutation: write back into this instance's slot ---
@@ -92,30 +129,6 @@ module RubyGBA
     # A value on its way into the slot, checked against what the field holds.
     def matched(other, verb)
       node_matching(other, verb)
-    end
-
-    # How to make THIS field hold a fraction: say so in the default it is declared with,
-    # which is the same way a variable says it.
-    def declaring
-      lambda { |other|
-        "declare the field with one — `pool :#{@pool}, #{@field}: #{other}` rather than " \
-          "`#{@field}: #{other.to_i}`"
-      }
-    end
-
-    # ...and the other mismatch. A field has no left and right side, so the wording a
-    # plain operator uses does not fit it.
-    def mixing
-      lambda { |field_holds_fraction|
-        holds, given = if field_holds_fraction
-                         ["numbers with a fraction", "a whole number the game works out"]
-                       else
-                         ["whole numbers", "a number with a fraction"]
-                       end
-        "`pool :#{@pool}` keeps #{holds} in its #{@field.inspect} field, and this is " \
-          "#{given}. There is no way to tell what it counts. Use `.to_f` on the whole " \
-          "number to give it a fraction, or `.to_i` on the other one to drop its fraction."
-      }
     end
 
     def node_of(other)
