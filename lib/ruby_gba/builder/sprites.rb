@@ -313,19 +313,22 @@ module RubyGBA
       # of frames (facing: { left: [:l1, :l2], ... }): the frames flatten in direction
       # order, so pose = direction * frames_per_direction + frame. A plain sprite is a
       # single named image. Returns [poses, facing_dirs, width, height, frames_per_dir].
-      def resolve_sprite_art(name, facing, frames = nil)
+      #
+      # +subject+ is what the thing being resolved is CALLED in an error — "sprite" here,
+      # "pool" where a pool asks the same question of the same art (Composition#pool_art!).
+      def resolve_sprite_art(name, facing, frames = nil, subject: "sprite")
         if frames
-          poses, width, height = same_size_images!(name, "animation frame", frames)
+          poses, width, height = same_size_images!(name, "animation frame", frames, subject)
           return [poses, {}, width, height, 1]
         end
         unless facing
           width, height = @images[name] || raise(ArgumentError,
-                "sprite :#{name} needs an image named :#{name}. Define the image first with `image :#{name}, ...`.")
+                "#{subject} :#{name} needs an image named :#{name}. Define the image first with `image :#{name}, ...`.")
           return [nil, nil, width, height, 1]
         end
-        return resolve_directional_frames(name, facing) if facing.values.any? { |v| v.is_a?(Array) }
+        return resolve_directional_frames(name, facing, subject) if facing.values.any? { |v| v.is_a?(Array) }
 
-        poses, width, height = same_size_images!(name, "facing image", facing.values)
+        poses, width, height = same_size_images!(name, "facing image", facing.values, subject)
         [poses, facing.keys.each_with_index.to_h, width, height, 1]
       end
 
@@ -333,39 +336,39 @@ module RubyGBA
       # The frames flatten in direction order (all of :left, then all of :right, ...), so
       # a pose index of direction * frames_per_direction + frame lands on the right
       # picture. facing_dirs maps each direction to its 0-based row.
-      def resolve_directional_frames(name, facing)
+      def resolve_directional_frames(name, facing, subject = "sprite")
         unless facing.values.all? { |v| v.is_a?(Array) }
           raise ArgumentError,
-                "sprite :#{name} facing: gives some directions a list of frames and some a single image. " \
+                "#{subject} :#{name} facing: gives some directions a list of frames and some a single image. " \
                 "Give every direction the same shape: a list of frames each, or a single image each."
         end
         per_dir = facing.values.map(&:length).uniq
         unless per_dir.size == 1
           raise ArgumentError,
-                "sprite :#{name} facing: needs the same number of frames in every direction. " \
+                "#{subject} :#{name} facing: needs the same number of frames in every direction. " \
                 "Got #{facing.transform_values(&:length).inspect}."
         end
         if per_dir.first < 2
           raise ArgumentError,
-                "sprite :#{name} facing: has one frame per direction, so it is not an animation. " \
+                "#{subject} :#{name} facing: has one frame per direction, so it is not an animation. " \
                 "For a still pose per direction, give a single image: facing: { left: :img_l, right: :img_r }."
         end
 
-        poses, width, height = same_size_images!(name, "facing frame", facing.values.flatten)
+        poses, width, height = same_size_images!(name, "facing frame", facing.values.flatten, subject)
         [poses, facing.keys.each_with_index.to_h, width, height, per_dir.first]
       end
 
       # Resolve a list of image names to [names, width, height], insisting each is
       # defined and they all share one size (poses swap in place — a facing pose or an
       # animation frame). +kind+ names them in the error. Shared by facing: and frames:.
-      def same_size_images!(name, kind, images)
+      def same_size_images!(name, kind, images, subject = "sprite")
         sizes = images.map do |img|
           @images[img] || raise(ArgumentError,
-                "sprite :#{name} #{kind} :#{img} is not defined. Define the image first with `image :#{img}, ...`.")
+                "#{subject} :#{name} #{kind} :#{img} is not defined. Define the image first with `image :#{img}, ...`.")
         end
         unless sizes.uniq.size == 1
           raise ArgumentError,
-                "sprite :#{name} #{kind}s must all be the same size. " \
+                "#{subject} :#{name} #{kind}s must all be the same size. " \
                 "Got #{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}."
         end
         [images, *sizes.first]
@@ -375,11 +378,11 @@ module RubyGBA
       # of facing:/frames:/frames_from: (so not two at once), an animation needs at
       # least two frames to cycle, and it needs a positive rate (frames-per-step).
       # Friendly errors, not silence. By here frames_from: has already become frames.
-      def validate_animation!(name, facing, frames, rate, frames_from: nil)
+      def validate_animation!(name, facing, frames, rate, frames_from: nil, subject: "sprite")
         if facing && frames
           drove = frames_from ? "frames_from:" : "frames:"
           raise ArgumentError,
-                "sprite :#{name} has both facing: and #{drove}. They both set the sprite's pose. Use only one."
+                "#{subject} :#{name} has both facing: and #{drove}. They both set the pose. Use only one."
         end
 
         # A directional animation (facing: with a list of frames per direction) cycles
@@ -388,18 +391,18 @@ module RubyGBA
           return if Whole.positive?(rate)
 
           raise ArgumentError,
-                "sprite :#{name} needs a positive rate: (how many game frames each picture is shown). Got #{rate.inspect}."
+                "#{subject} :#{name} needs a positive rate: (how many game frames each picture is shown). Got #{rate.inspect}."
         end
         return unless frames
 
         source = frames_from ? "frames_from: needs a sheet of at least two frames" : "frames: needs a list of at least two images to cycle, for example frames: [:step1, :step2]"
         unless frames.is_a?(Array) && frames.length >= 2
-          raise ArgumentError, "sprite :#{name} #{source}"
+          raise ArgumentError, "#{subject} :#{name} #{source}"
         end
         return if Whole.positive?(rate)
 
         raise ArgumentError,
-              "sprite :#{name} needs a positive rate: (how many frames each picture is shown). Got #{rate.inspect}."
+              "#{subject} :#{name} needs a positive rate: (how many frames each picture is shown). Got #{rate.inspect}."
       end
 
       # Refuse a second pose source alongside from_aseprite: (they all set the sprite's

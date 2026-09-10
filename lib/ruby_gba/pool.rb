@@ -37,7 +37,10 @@ module RubyGBA
     #   it, a safe no-op) or :recycle_oldest (reuse the longest-lived instance)
     # @param usually [Integer, nil] how many instances are normally live — for the cost
     #   estimate only (see Builder#pool), never for anything the program does
-    def initialize(builder, name, fields, capacity, image: nil, hitbox: nil, on_full: :drop, usually: nil)
+    # @param art [Builder::Composition::PoolArt, nil] what the instances look like — the
+    #   pictures they can show and how a slot picks one (nil for a pure-data pool)
+    def initialize(builder, name, fields, capacity, image: nil, hitbox: nil, on_full: :drop,
+                   usually: nil, art: nil)
       @builder = builder
       @name = name
       @fields = fields
@@ -46,14 +49,15 @@ module RubyGBA
       @hitbox = hitbox
       @on_full = on_full
       @usually = usually
+      @art = art
     end
 
     # The sprite image live instances draw (nil for a pure-data pool), and the collision
     # box derived from it (nil when there's no size).
-    attr_reader :image, :hitbox
+    attr_reader :image, :hitbox, :art
 
-    # Whether instances draw themselves as sprites (an image was given).
-    def spriteful? = !@image.nil?
+    # Whether instances draw themselves as sprites.
+    def spriteful? = !@art.nil?
 
     # Whether a spawn onto a full pool reuses the oldest live instance (rather than
     # dropping the spawn). When true the pool keeps a little extra bookkeeping (below).
@@ -81,6 +85,45 @@ module RubyGBA
     def seq_var = :"__pool_#{@name}_seq"
     def oldest_born_var = :"__pool_#{@name}_oldest"
     def scan_index_var = :"__pool_#{@name}_scan"
+
+    # Pose bookkeeping (allocated only for a pool whose instances face or animate): which
+    # way each instance faces, where each is in its cycle, and the one counter that
+    # decides when the whole pool steps.
+    def facing_list = :"__pool_#{@name}_facing"
+    def frame_list = :"__pool_#{@name}_frame"
+    def tick_var = :"__pool_#{@name}_tick"
+
+    # Which of those two this pool actually keeps — so the boot fill gives every slot one
+    # of each, the same way it does for a field.
+    def pose_lists
+      lists = []
+      lists << facing_list if @art&.faces?
+      lists << frame_list if @art&.animates?
+      lists
+    end
+
+    # WHICH PICTURE ONE SLOT SHOWS, as a value node. A plain pool always shows its one
+    # picture. A pool that faces reads the slot's direction; one that animates reads its
+    # frame; one that does both composes them — direction * frames-per-direction + frame,
+    # which is the order the pictures were flattened in.
+    def pose_node(slot)
+      at = Build.int(slot)
+      facing = Build.list_get(facing_list, at) if @art.faces?
+      frame = Build.list_get(frame_list, at) if @art.animates?
+      return frame || facing || Build.int(0) unless facing && frame
+
+      Build.binop(:+, Build.binop(:*, facing, Build.int(@art.per_dir)), frame)
+    end
+
+    # Which row of the pictures a direction name means, for Instance#face.
+    def facing_row(direction) = @art&.dirs&.[](direction)
+    def facing_names = @art&.dirs&.keys || []
+
+    # Point one instance at a direction (its row among the pictures).
+    def set_facing(index, row)
+      record(Build.list_set(facing_list, index.node, Build.int(row)))
+      self
+    end
 
     # The field names, in declaration order.
     def field_names = @fields.keys
@@ -164,7 +207,7 @@ module RubyGBA
     # on a free slot existing, so a full pool is a clean no-op (nothing half-written).
     def spawn_dropping(values)
       slot = Build.var_ref(slot_var)
-      body = claim_free_slot(slot) + assign_fields(slot, values)
+      body = claim_free_slot(slot) + assign_fields(slot, values) + reset_pose(slot)
       record(Build.if_(free_available, *body))
     end
 
@@ -178,6 +221,7 @@ module RubyGBA
       choose.else = Build.else_(*take_oldest_slot)
       record(choose)
       assign_fields(slot, values).each { |node| record(node) }
+      reset_pose(slot).each { |node| record(node) }
       record(Build.list_set(born_list, slot, Build.var_ref(seq_var)))
       record(Build.add(seq_var, Build.int(1)))
     end
@@ -189,6 +233,17 @@ module RubyGBA
        Build.list_drop(free_list, from: :back),
        Build.list_set(active_list, slot, Build.int(1)),
        Build.add(count_var, Build.int(1))]
+    end
+
+    # A new instance starts facing the first direction and at the start of its cycle,
+    # whatever the slot it took was doing before. Instances spawned at different moments
+    # therefore sit at different points in the same cycle, which is what stops a pool of
+    # them pulsing as one.
+    def reset_pose(slot)
+      nodes = []
+      nodes << Build.list_set(facing_list, slot, Build.int(0)) if @art&.faces?
+      nodes << Build.list_set(frame_list, slot, Build.int(0)) if @art&.animates?
+      nodes
     end
 
     # Statements that leave the oldest live instance's slot index in slot_var. Only reached
@@ -248,6 +303,21 @@ module RubyGBA
       # Retire this instance: free its slot, stop it next frame.
       def remove
         @pool.remove_at(@index)
+      end
+
+      # Turn this instance to face a direction — the same verb, spelled the same way, that
+      # a `sprite` given `facing:` takes. Each instance holds its own direction, so ten
+      # guards in one pool can face ten ways.
+      def face(direction)
+        row = @pool.facing_row(direction)
+        if row.nil?
+          known = @pool.facing_names
+          raise ArgumentError,
+                "pool :#{@pool.name} has no direction #{direction.inspect}. " \
+                "#{known.empty? ? 'It was not given facing: pictures.' : "It faces #{known.join(', ')}."}"
+        end
+        @pool.set_facing(@index, row)
+        self
       end
 
       # This instance's own slot, as a Value. The instance handle itself doesn't survive

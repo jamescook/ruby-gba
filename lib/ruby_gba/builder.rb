@@ -107,6 +107,7 @@ module RubyGBA
       @glyph_images = {}       # [font, char, color] → a cached glyph image name (one 8x8 sprite tile per glyph)
       @verb_owns_text = nil    # the verb drawing its own text right now (a menu's rows), rather than the author placing it
       @animations = []         # flipbook sprites, whose pose is advanced on a beat after every wait_vblank
+      @pool_animations = []    # ...and posed pools, which step every instance on their own beat
       @prng_used = false       # whether the program draws random numbers (seeds the stream once)
       @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
       @pending_conditions = [] # Conditions built but not yet used; leftovers are orphans
