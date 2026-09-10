@@ -87,14 +87,14 @@ module RubyGBA
       # @param fields [Hash{Symbol=>Object}] field name => default value
       # @return [Pool]
       def pool(name, capacity:, image: nil, facing: nil, frames: nil, rate: nil,
-               on_full: :drop, estimate: nil, widths: {}, **fields)
+               on_full: :drop, estimate: nil, widths: {}, fast: nil, **fields)
         validate_pool!(name, capacity, fields)
         validate_on_full!(name, on_full)
         validate_pool_widths!(name, fields, widths)
         art = pool_art!(name, image: image, facing: facing, frames: frames, rate: rate, fields: fields)
         handle = Pool.new(self, name, fields, capacity, image: image, hitbox: art&.hitbox, on_full: on_full,
                                                         usually: usual_length(estimate, capacity), art: art)
-        setup_pool_storage(handle, capacity, fields, widths)
+        setup_pool_storage(handle, capacity, fields, widths, fast)
         setup_pool_art(handle, capacity, art) if art
         handle
       end
@@ -288,11 +288,11 @@ module RubyGBA
       # Create the backing lists once at boot — not where `pool` is written, so a pool
       # declared inside a scene is still set up once rather than re-created every frame —
       # and fill every slot so each field is randomly addressable from the start.
-      def setup_pool_storage(pool, capacity, fields, widths = {})
+      def setup_pool_storage(pool, capacity, fields, widths = {}, fast = nil)
         fields.each_key do |field|
           check_width_holds_fractions!(pool.name, field, fields[field], widths.fetch(field, :word))
           at_boot(Build.list_new(pool.field_list(field), capacity,
-                                 width: widths.fetch(field, :word)))
+                                 width: widths.fetch(field, :word), fast: fast))
         end
 
         # THE POOL'S OWN BOOKKEEPING IS NARROWED WITHOUT BEING ASKED, because unlike a field
@@ -301,19 +301,19 @@ module RubyGBA
         # wide as the largest slot number needs and no wider. Together they are two of a
         # pool's lists — on one with a dozen fields that is a modest saving, and on a small
         # one it is a sixth of the whole pool, for nothing anybody has to write.
-        at_boot(Build.list_new(pool.active_list, capacity, width: :byte))
-        at_boot(Build.list_new(pool.free_list, capacity, width: slot_width(capacity)))
+        at_boot(Build.list_new(pool.active_list, capacity, width: :byte, fast: fast))
+        at_boot(Build.list_new(pool.free_list, capacity, width: slot_width(capacity), fast: fast))
         # A posed pool keeps two more hidden slots beside its fields: which way each
         # instance faces, and where each is in its cycle. Both are small counts, so both
         # are narrowed without being asked, the same as the active column.
-        pool.pose_lists.each { |list| at_boot(Build.list_new(list, capacity, width: :byte)) }
+        pool.pose_lists.each { |list| at_boot(Build.list_new(list, capacity, width: :byte, fast: fast)) }
         if pool.art&.animates?
           ensure_var(pool.tick_var)
           at_boot(Build.set(pool.tick_var, Build.int(0)))
         end
         # ...but the age stamp is a spawn counter that rises for the whole game, so it stays
         # a word: narrowing it would wrap, and two instances would then look the same age.
-        at_boot(Build.list_new(pool.born_list, capacity)) if pool.recycle_oldest?
+        at_boot(Build.list_new(pool.born_list, capacity, fast: fast)) if pool.recycle_oldest?
         ensure_var(pool.count_var)
         ensure_var(pool.slot_var)
         at_boot(Build.set(pool.count_var, Build.int(0)))

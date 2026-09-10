@@ -4,20 +4,25 @@ module RubyGBA
   module IR
     module Guardrails
       module Checks
-        # Every variable, list, and component pool a program declares lives in the GBA's
-        # 32KB of fast on-chip RAM. The allocator just hands out the next free address and
-        # never looks at the ceiling, so a program that reserves more than fits silently
-        # overruns into whatever memory follows — a corrupt, black-screen ROM with nothing
-        # to say why. A component pool (capacity x fields words) makes this easy to hit,
-        # but it's a general gap: enough variables, or one oversized list, does it too.
+        # WHAT A PROGRAM RESERVES, against the memory there really is.
         #
-        # This sums what the whole program reserves — a word per variable, a list's slots
-        # plus its two bookkeeping words, the save-under buffer a moving sprite keeps — and
-        # if the total is over the usable budget it stops the build with a plain-language
-        # error: how much is needed, how much there is, and the biggest users so the fix is
-        # obvious. It's the thorough, whole-program companion to the per-pool capacity
-        # ceiling `pool` bakes in: that catches one insane pool, this catches several
-        # ordinary allocations adding up.
+        # The console has two work memories: 32K of quick on-chip RAM and 256K of roomier
+        # RAM on a chip of its own. A COLLECTION can live in either — the framework puts
+        # what a frame touches in the quick one and lets the rest fall into the roomy one
+        # — so a program with a lot of state is no longer a build failure just because it
+        # will not all fit near to hand.
+        #
+        # What CANNOT move is a variable. Every variable is reached by naming the base of
+        # the quick memory and riding a distance inside the load instruction, which is what
+        # makes a variable read two instructions instead of four; a variable in the roomy
+        # memory would be neither quick nor near. Nor can a sprite's save-under buffer,
+        # which the copying engine streams to and from every frame.
+        #
+        # So this checks two things, and both are real ceilings rather than budgets anybody
+        # chose. What must be in the quick memory has to fit in it. And everything the
+        # program declares, together, has to fit in the two memories added up. Past either
+        # the build stops with a plain-language error: how much is needed, how much there
+        # is, and the biggest users so the fix is obvious.
         class IwramBudget
           NAME = :iwram_budget
           PLAIN_NAME = "the #{PlainWords::QUICK_MEMORY} budget"
@@ -31,14 +36,19 @@ module RubyGBA
           BUDGET_BYTES = IWRAM_BYTES - RESERVED_BYTES
           WORD = 4
 
+          # ...and the roomy one, all of which a collection may use.
+          EWRAM_BYTES = 256 * 1024
+
           # How many top users to name in the error — enough to point at the fix,
           # not so many the message becomes a memory dump.
           TOP_USERS = 3
 
           def detect(program)
             users = contributors(program)
+            pinned = users.reject { |user| user[:movable] }.sum { |user| user[:bytes] }
             total = users.sum { |user| user[:bytes] }
-            return [] if total <= BUDGET_BYTES
+            return pinned_too_big(users, pinned) if pinned > BUDGET_BYTES
+            return [] if total <= BUDGET_BYTES + EWRAM_BYTES
 
             # Blame the biggest user, which is the capacity to shrink. The plain
             # variable count and the sprites' save-buffers are sums over the whole
@@ -46,6 +56,14 @@ module RubyGBA
             # user is one of those blames the program itself.
             [Finding.new(check: NAME, severity: :error, message: message(total, users),
                          node: users.first[:node] || :program)]
+          end
+
+          # The things that can only be in the quick memory are over it on their own, and
+          # no other memory can take them.
+          def pinned_too_big(users, pinned)
+            worst = users.reject { |user| user[:movable] }.first
+            [Finding.new(check: NAME, severity: :error, node: worst&.dig(:node) || :program,
+                         message: pinned_message(pinned, users))]
           end
 
           private
@@ -58,11 +76,14 @@ module RubyGBA
 
             var_count = variable_names(program).size
             if var_count.positive?
-              items << { label: pluralize(var_count, "variable"), bytes: var_count * WORD, node: nil }
+              items << { label: pluralize(var_count, "variable"), bytes: var_count * WORD,
+                         node: nil, movable: false }
             end
 
             buffers = backing_bytes(program)
-            items << { label: "sprite save-buffers", bytes: buffers, node: nil } if buffers.positive?
+            if buffers.positive?
+              items << { label: "sprite save-buffers", bytes: buffers, node: nil, movable: false }
+            end
 
             items.sort_by { |item| -item[:bytes] }
           end
@@ -74,7 +95,8 @@ module RubyGBA
           def list_and_pool_items(program)
             grouped = {}
             list_declarations(program).each do |name, (bytes, node)|
-              item = (grouped[label_for(name)] ||= { label: label_for(name), bytes: 0, node: node })
+              item = (grouped[label_for(name)] ||= { label: label_for(name), bytes: 0,
+                                                     node: node, movable: true })
               item[:bytes] += bytes
             end
             grouped.values
@@ -142,13 +164,27 @@ module RubyGBA
           def round_up_word(bytes) = (bytes + 3) & ~3
 
           def message(total, users)
-            top = users.first(TOP_USERS).map { |user| "#{user[:label]} (#{human(user[:bytes])})" }.join(", ")
-            "This program reserves about #{human(total)} of the console's #{PlainWords::QUICK_MEMORY}. But the " \
-              "console has only #{human(IWRAM_BYTES)} of #{PlainWords::QUICK_MEMORY} in total. Only about " \
-              "#{human(BUDGET_BYTES)} of that is free for your data. The rest " \
-              "holds the call stack and the framework's own state. The biggest users are #{top}. To fix this, " \
-              "use a smaller capacity for a pool or a list. Or use fewer fields. Or use one large list in place " \
-              "of several. Then it all fits."
+            "This program reserves about #{human(total)} of memory for its data. But the console has only " \
+              "#{human(IWRAM_BYTES)} of #{PlainWords::QUICK_MEMORY} and #{human(EWRAM_BYTES)} of roomier " \
+              "memory, and both are full. The biggest users are #{top_users(users)}. To fix this, use a " \
+              "smaller capacity for a pool or a list. Or use fewer fields. Or use narrower items " \
+              "(`width: :byte`). Then it all fits."
+          end
+
+          # The variables and the sprites' save-buffers can only be in the quick memory, so
+          # a program whose variables alone are over it cannot be helped by the other one.
+          def pinned_message(pinned, users)
+            "This program reserves about #{human(pinned)} of the console's #{PlainWords::QUICK_MEMORY} for " \
+              "things that can only live there. But the console has only #{human(IWRAM_BYTES)} of it, and " \
+              "about #{human(BUDGET_BYTES)} of that is free for your data — the rest holds the call stack " \
+              "and the framework's own state. A list or a pool can move to the roomier memory; a variable " \
+              "cannot, because a variable is reached by its distance from the start of the quick one. The " \
+              "biggest users are #{top_users(users.reject { |u| u[:movable] })}. To fix this, use fewer " \
+              "variables. Or keep the same numbers in a list, which can move."
+          end
+
+          def top_users(users)
+            users.first(TOP_USERS).map { |user| "#{user[:label]} (#{human(user[:bytes])})" }.join(", ")
           end
 
           # Bytes as a short human size: whole KB where it's exact, one decimal otherwise,

@@ -699,7 +699,11 @@ module RubyGBA
       # the same walk is counted at when it asks what a frame could cost at worst. A
       # snake's body list holds every cell of the board and holds four of them for most
       # of a game, so the two questions have answers 128 times apart.
-      def list_new(name, capacity, usually: nil, width: :word)
+      # `fast` is what the author said about where it should live on a machine with more
+      # than one work memory: false for "I know this is cold — give it room", true to
+      # insist on the quick one, nil to let the framework decide. It changes nothing the
+      # program does, only how long a read takes.
+      def list_new(name, capacity, usually: nil, width: :word, fast: nil)
         unless Whole.positive?(capacity)
           raise ArgumentError,
                 "a list's capacity must be a positive whole number, got #{capacity.inspect}"
@@ -718,7 +722,9 @@ module RubyGBA
         # was wrapped with a mask — so `capacity: 340` quietly held 512, and the memory for
         # those 172 slots nobody planned for came out of the console's 32K. How that storage
         # is arranged is the backend's business now, and it is arranged around this number.
-        Nodes.build(:list_new, name: name, capacity: capacity, usually: usually, width: width)
+        attrs = { name: name, capacity: capacity, usually: usually, width: width }
+        attrs[:fast] = fast unless fast.nil?
+        Nodes.build(:list_new, **attrs)
       end
 
       # Append a value at the end of the list (grows its length by one).

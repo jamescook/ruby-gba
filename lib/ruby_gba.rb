@@ -11,6 +11,7 @@ require_relative "ruby_gba/progress" # what a build says it is doing while it do
 require_relative "ruby_gba/ir"
 require_relative "ruby_gba/rom_validator"
 require_relative "ruby_gba/video_memory" # how much room the pictures took, and what the storage saved
+require_relative "ruby_gba/roomy_memory" # ...and what went in the other, roomier work memory
 require_relative "ruby_gba/build_record" # what the build worked out, for the cartridge to carry
 require_relative "ruby_gba/rom"
 require_relative "ruby_gba/font"
