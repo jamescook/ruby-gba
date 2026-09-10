@@ -390,6 +390,7 @@ module RubyGBA
             affine_background: @drawing.method(:emit_affine_background),
             scroll_rows: Lowering::NOTHING, camera: @drawing.method(:emit_camera), fade: @drawing.method(:emit_fade),
             tint: @drawing.method(:emit_tint), see_through: @layer_blend.method(:emit_see_through),
+            set_tile: @drawing.method(:emit_set_tile),
             present_objects: @drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
             define_sound: Lowering::NOTHING, song: Lowering::NOTHING, data: Lowering::NOTHING,
@@ -643,6 +644,7 @@ module RubyGBA
             obj_palette_blob: @obj_palette_blob, obj_palette_units: @obj_palette_units,
             default_mode: @default_mode, any_buffered: @any_buffered, mixed_display: @mixed_display,
             manage_modes: @manage_modes, func_mode: @func_mode,
+            map_cells: @map_cells, map_entries: @map_entries,
           )
           @drawing.layout = layout
           @buffered.layout = layout
@@ -1275,6 +1277,10 @@ module RubyGBA
           @small_layers = []
           @tile_bytes_written = {} # the same picture, stored once — see #append_tiles
           @tiles_shared = 0
+          # What a run-time tile change needs, and nothing else does: each background's
+          # grid size, and what to write into a cell to show one of its tiles.
+          @map_cells = {}
+          @map_entries = {}
 
           begin
             regular_nodes.each_with_index { |node, layer| prepare_one_background(node, layer, banks, big, char) }
@@ -1401,10 +1407,13 @@ module RubyGBA
           # outside the authored map, and blank cells, stay 0: the blank tile in bank 0,
           # see-through so a layer behind shows through.
           cols, rows = IR::TileMap.grid(node.map)
-          entries = map_entries(node, cols, rows) do |index|
+          cell_for = node.tiles.each_index.to_h do |index|
             bank = small ? banks.placement(tile_key(node, index)).bank : 0
-            numbers.fetch(index) | (bank << BG_BANK_SHIFT)
+            [index, numbers.fetch(index) | (bank << BG_BANK_SHIFT)]
           end
+          @map_cells[name] = { cols: cols, rows: rows }
+          @map_entries[name] = cell_for
+          entries = map_entries(node, cols, rows) { |index| cell_for.fetch(index) }
 
           map_blob = :"__bg_map_#{name}"
           @emit.data_blobs[map_blob] = entries.pack("v*")

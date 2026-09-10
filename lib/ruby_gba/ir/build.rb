@@ -635,6 +635,13 @@ module RubyGBA
       # same way it can for the angle. Angle and scale describe one transform together:
       # an object may turn, or resize, or both, and a backend that realizes either
       # realizes both at once.
+      # Put a different tile in one cell of a declared background. +col+/+row+ are cell
+      # coordinates and may be worked out as the program runs; +tile+ is an index into
+      # that background's own tiles, settled while the program is written.
+      def set_tile(name, col, row, tile)
+        Nodes.build(:set_tile, name: name, col: wrap(col), row: wrap(row), tile: tile)
+      end
+
       # Reserves the object; #present_objects is what actually draws it for a frame.
       def object(name, poses:, pose:, x:, y:, active:, angle: 0, scale: SCALE_ONE, layer: nil)
         Nodes.build(:object, name: name, poses: poses, pose: wrap(pose),

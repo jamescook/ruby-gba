@@ -46,10 +46,14 @@ module RubyGBA
 
           # The prepare-pass results this file reads, bundled into one record and handed
           # over through #layout= once every pass that decides them has run.
+          # +map_cells+ is each background's grid size and +map_entries+ what to write into
+          # a cell to show one of its tiles — the two things a run-time tile change needs
+          # and nothing else does.
           Layout = Data.define(:bitmaps, :objects, :window_twins, :backgrounds, :bg_shared, :palette,
                                 :indexed_bitmaps, :run_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
                                 :modes, :tiled, :has_objects, :obj_palette_blob, :obj_palette_units,
-                                :default_mode, :any_buffered, :mixed_display, :manage_modes, :func_mode)
+                                :default_mode, :any_buffered, :mixed_display, :manage_modes, :func_mode,
+                                :map_cells, :map_entries)
 
           # Fill the area itself, which is what clearing means when only part of the picture may
           # be painted: a row-at-a-time block fill over exactly those edges. It does not go
@@ -711,6 +715,118 @@ module RubyGBA
             write_reg16(BG_CNT_REGS[bg.bg], bg.priority | depth | (bg.screen_block << 8) | bg.size)
             write_reg16(BG_HOFS_REGS[bg.bg], 0) # start unscrolled
             write_reg16(BG_VOFS_REGS[bg.bg], 0)
+          end
+
+          # PUT A DIFFERENT TILE IN ONE CELL, while the game runs.
+          #
+          # A background's map is a grid of half-word cells in video memory, each naming
+          # the tile to draw there, so changing one is one half-word written to a place
+          # worked out from the cell's column and row.
+          #
+          # WHEN THE WRITE HAPPENS, which is the question this raises and which is worth
+          # writing down because the obvious worry turns out not to hold. The display
+          # reads the map WHILE it draws, so a write can land between two scanlines of the
+          # very cell being drawn — and then that cell shows the old tile on its top rows
+          # and the new one on its bottom rows, for one frame.
+          #
+          # It is not a torn or corrupt picture: a cell is a half-word, and a half-word
+          # store is one write. Nothing can be read half-written. The whole effect is that
+          # one 8-pixel cell is split across a single frame, and only when a write lands
+          # inside that cell's own six-thousandths of a frame.
+          #
+          # So this writes straight away rather than holding the frame's changes and
+          # applying them between frames. Holding them costs a buffer in the console's
+          # scarcest memory, a policy for when it fills, and about four times the
+          # instructions — to remove an artifact of one frame of one cell, on the things
+          # this exists for: a door opening, a pot breaking, a bombable wall. What that
+          # bargain does NOT cover is a BULK change — a whole room swapped in one frame —
+          # where half the old room and half the new really would show at once. That wants
+          # a verb of its own, handing over a map in one go between frames.
+          def emit_set_tile(node)
+            bg = @layout.backgrounds[node.name]
+            return if bg.nil? # a background with no tiled layer (a bitmap-mode program)
+
+            cell = @layout.map_cells.fetch(node.name)
+            entry = @layout.map_entries.fetch(node.name).fetch(node.tile)
+            fixed = [const_int(node.col), const_int(node.row)]
+            return emit_fixed_tile_write(bg, cell, entry, *fixed) if fixed.all?
+
+            emit_computed_tile_write(node, bg, cell, entry)
+          end
+
+          # A cell settled while the program was written: the address is worked out here,
+          # in Ruby, and the console does one store.
+          def emit_fixed_tile_write(bg, cell, entry, col, row)
+            return unless col >= 0 && col < cell[:cols] && row >= 0 && row < cell[:rows]
+
+            write_reg16(map_cell_address(bg, cell, col, row), entry)
+          end
+
+          # THE ADDRESS OF ONE CELL, and why it is not simply row times width.
+          #
+          # A map wider or taller than 32 cells is stored as several 32x32 SQUARES — left
+          # then right, top pair before bottom pair — so a cell's place depends on which
+          # quarter of the map it is in. 32 is a power of two, so that is shifts and masks
+          # rather than division.
+          def map_cell_address(bg, cell, col, row)
+            quarter = ((row / MAP_CELLS) * (cell[:cols] / MAP_CELLS)) + (col / MAP_CELLS)
+            index = (quarter * MAP_CELLS * MAP_CELLS) + ((row % MAP_CELLS) * MAP_CELLS) + (col % MAP_CELLS)
+            VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES) + (index * 2)
+          end
+
+          # A cell the game works out. The two coordinates are held in scratch registers
+          # while the address is assembled, and a cell outside the map is skipped rather
+          # than written somewhere else — so a coordinate that ran off the edge costs a
+          # test and changes nothing.
+          TILE_COL = 4
+          TILE_ROW = 5
+          TILE_ADDR = 6
+
+          def emit_computed_tile_write(node, bg, cell, entry)
+            @lowering.value(node.col)
+            emit(ASM.mov_reg(TILE_COL, ACC))
+            @lowering.value(node.row)
+            emit(ASM.mov_reg(TILE_ROW, ACC))
+
+            done = gensym
+            # One unsigned compare catches both ends: a negative coordinate reads as a
+            # very large number, so anything outside 0...size fails the same test.
+            emit(ASM.cmp_imm(TILE_COL, cell[:cols]))
+            emit_branch(:b, done, cond: ASM::COND_HS)
+            emit(ASM.cmp_imm(TILE_ROW, cell[:rows]))
+            emit_branch(:b, done, cond: ASM::COND_HS)
+
+            emit_cell_index(cell)
+            emit(ASM.load_immediate(TMP, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES)))
+            emit(ASM.lsl_imm(TILE_ADDR, TILE_ADDR, 1)) # two bytes a cell
+            emit(ASM.add_reg(TILE_ADDR, TMP, TILE_ADDR))
+            emit(ASM.load_immediate(ACC, entry))
+            emit(ASM.store_halfword(ACC, TILE_ADDR))
+            place_label(done)
+          end
+
+          # The cell's index within the whole map, built from the column and row into
+          # TILE_ADDR. Which quarter of the map it is in rides in bits 10 and up; a map
+          # that fits one square has no quarters and needs neither shift.
+          def emit_cell_index(cell)
+            emit(ASM.and_imm(TILE_ADDR, TILE_ROW, MAP_CELLS - 1))
+            emit(ASM.lsl_imm(TILE_ADDR, TILE_ADDR, 5))
+            emit(ASM.and_imm(TMP, TILE_COL, MAP_CELLS - 1))
+            emit(ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
+            return if cell[:cols] == MAP_CELLS && cell[:rows] == MAP_CELLS
+
+            unless cell[:rows] == MAP_CELLS
+              # The bottom half of a tall map is a whole square further on — two of them
+              # when the map is also wide, since a row of squares comes first.
+              emit(ASM.lsr_imm(TMP, TILE_ROW, 5))
+              emit(ASM.lsl_imm(TMP, TMP, cell[:cols] == MAP_CELLS ? 10 : 11))
+              emit(ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
+            end
+            return if cell[:cols] == MAP_CELLS
+
+            emit(ASM.lsr_imm(TMP, TILE_COL, 5))
+            emit(ASM.lsl_imm(TMP, TMP, 10))
+            emit(ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
           end
 
           # Bit 13: the map WRAPS at its edge instead of showing the backdrop past it — the

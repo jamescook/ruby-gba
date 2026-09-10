@@ -125,6 +125,7 @@ module RubyGBA
           @obj_prev = {}           # object name -> [x, y] it was last drawn at (to erase before redrawing)
           @repaints = false        # must the whole view be rebuilt every frame? (decided in collect_definitions)
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
+          @bg_maps = {}            # ...and this run's own copy of its cells, once any of them has changed
           @row_bends = {}          # background name -> :scroll_rows node giving each row its own offset
           @bg_affine = {}          # background name -> [angle degrees, scale in SCALE_ONE-ths] this frame
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
@@ -323,6 +324,12 @@ module RubyGBA
               # does: every pixel of it can land somewhere new. Present anywhere in the
               # tree at all (even a branch never taken) is enough to know the scene needs
               # full repaints, the same over-approximation scroll_background makes.
+              @repaints = true
+            when :set_tile
+              # A background whose cells can change is a background that can look
+              # different next frame, so the settled-scene shortcut no longer holds and
+              # the picture is rebuilt from the map each frame — the same
+              # over-approximation, for the same reason.
               @repaints = true
             end
           end
@@ -560,6 +567,8 @@ module RubyGBA
             exec_see_through(node)
           when :present_objects
             exec_present_objects(node)
+          when :set_tile
+            exec_set_tile(node)
           when :enable_sound
             @audio << [:enabled]
           when :define_sound, :song, :sample, :data, :bitmap, :backing_buffer, :object, :table
@@ -866,13 +875,41 @@ module RubyGBA
           in_stack_order(over).each { |bg| stamp_background(bg) }
         end
 
+        # PUT A DIFFERENT TILE IN ONE CELL. The map a background was declared with is the
+        # program and never changes; what changes is this run's own copy of it, made the
+        # first time a cell of that background is written and read by everything that
+        # paints from then on. A coordinate outside the map is left alone rather than
+        # growing the map or writing over a neighbour.
+        def exec_set_tile(node)
+          map = mutable_map(node.name)
+          col = eval_value(node.col)
+          row = eval_value(node.row)
+          return unless row >= 0 && row < map.length && col >= 0 && col < map[row].length
+          return if map[row][col] == node.tile
+
+          map[row][col] = node.tile
+          # The picture this backend shows is painted, not composed by a display reading
+          # the map as it goes — so a changed cell has to be painted again for anything
+          # to see it. Repainting the lot is the same over-approximation a scroll makes,
+          # and this is an oracle: being obviously right matters more than being quick.
+          composite_scrolled_frame
+        end
+
+        def mutable_map(name)
+          @bg_maps[name] ||= @bg_by_name.fetch(name).map.map(&:dup)
+        end
+
+        # What a background's cells hold NOW: this run's own copy where any of them have
+        # been changed, and the declared map where they have not.
+        def map_of(node) = @bg_maps[node.name] || node.map
+
         # Paint one background's whole map onto the screen, cell by cell.
         def stamp_background(node)
           tiles = node.tiles
           tile_w = node.tile_w
           tile_h = node.tile_h
           paint_through_for(node.name)
-          node.map.each_with_index do |row, r|
+          map_of(node).each_with_index do |row, r|
             row.each_with_index do |index, c|
               next if index.nil?
 
@@ -944,7 +981,7 @@ module RubyGBA
           return paint_affine_background_window(bg, *@bg_affine[bg.name]) if @bg_affine.key?(bg.name)
 
           tiles = bg.tiles
-          map = bg.map
+          map = map_of(bg)
           tile_w = bg.tile_w
           tile_h = bg.tile_h
           # Wrap over the console's whole cell grid, not over the rows the author wrote
@@ -996,7 +1033,7 @@ module RubyGBA
         # asking for it.
         def paint_affine_background_window(bg, angle_deg, scale)
           tiles = bg.tiles
-          map = bg.map
+          map = map_of(bg)
           tile_w = bg.tile_w
           tile_h = bg.tile_h
           cols, rows_of_cells = IR::TileMap.grid(map)
