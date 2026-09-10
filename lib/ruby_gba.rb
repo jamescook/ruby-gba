@@ -69,7 +69,7 @@ module RubyGBA
   #   escape hatch for a cartridge that can't keep up.
   # @param fast_code [Boolean] let the build work out which routines are worth keeping
   #   in the console's quick memory, where code runs about two and a half times faster
-  #   (default: true). `rom.explain` says what it chose. Pass false to stop it choosing —
+  #   (default: true). `rom.profile` says what it chose. Pass false to stop it choosing —
   #   a routine you mark `func :name, fast: true` yourself still goes there.
   # @param progress [RubyGBA::Progress] what the build says it is doing while it does it.
   #   The default says nothing; `Progress.to($stderr)` names each phase and how far it has
@@ -180,7 +180,7 @@ module RubyGBA
     progress.step("assembling the cartridge")
     # The cartridge carries what the build worked out about it — the program it came from,
     # which routines went in the console's quick memory, where the variables landed, and so
-    # on — so that a finished ROM can report on itself (see BuildRecord and rom.explain).
+    # on — so that a finished ROM can report on itself (see BuildRecord and rom.profile).
     # None of it is in the bytes, and nothing can recover it by reading them back.
     rom = ROM.assemble(machine_code, title: title, code: code, maker: maker,
                                      validate: evaluated.debug_halted? ? false : validate,
@@ -231,7 +231,7 @@ module RubyGBA
   # past. Anything else swallows the one message an author needs.
   #
   # WITH NO EMULATOR THERE IS NOTHING TO RUN, and a build still has to work, so it falls back
-  # to choosing from the shape of the program. `rom.explain` says which of the two happened.
+  # to choosing from the shape of the program. `rom.profile` says which of the two happened.
   def self.build_measured(title, code:, maker:, out:, err:, progress:, **options, &block)
     held = StringIO.new
     first = begin

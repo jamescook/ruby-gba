@@ -93,12 +93,18 @@ class TestTearing < Minitest::Test
                     "a bigger overrun has to put more of the screen up stale"
   end
 
-  # The report says what was measured instead of deferring to the estimate.
-  def test_the_report_gives_the_measured_tearing_verdict
+  # THE TWO HALVES OF THE TEAR QUESTION, in the one report that carries both. The build says
+  # a game CAN tear — a fact about the screen it chose — and the run says whether it did.
+  # Neither is an estimate, which is the whole change: this used to be a frame priced in
+  # scanlines against the gap between frames, and it was invented arithmetic for a question a
+  # run settles outright.
+  def test_the_report_says_the_game_can_tear_and_then_whether_it_did
     io = StringIO.new
-    alternating_band(90).explain(out: io, measured: true)
+    alternating_band(90).profile(out: io, frames: 10)
 
-    assert_match(/tearing  measured — the display showed \d+ rows before the game finished them/, io.string)
-    refute_match(/tearing is the estimate's alone/, io.string)
+    assert_match(/it can tear/, io.string, "the build says it is possible")
+    assert_match(/the picture tore on \d+ of the \d+ frames looked at/, io.string,
+                 "...and the run says it happened")
+    refute_match(/scanline/i, io.string)
   end
 end

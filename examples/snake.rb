@@ -81,9 +81,10 @@ module Snake
   # ...and this is how long it really is: it opens at four cells and grows one per
   # apple, so a played game spends its time near the bottom of this. The capacity is
   # the only bound the build can prove, and every walk over the body would otherwise
-  # be counted at all 512 cells — a frame nobody ever plays. `rom.explain` reads this
-  # for what a frame usually costs and still counts a full board for the worst it
-  # could reach. It changes nothing about how the game runs.
+  # be counted at all 512 cells — a frame nobody ever plays. The guardrail that warns
+  # when a growing list stops fitting reads this for what a frame usually costs, and
+  # still counts a full board for the worst it could reach. It changes nothing about
+  # how the game runs.
   BODY_USUAL = 4..20
 
   STEP = 6                     # frames between moves — the snake steps ~10x a second

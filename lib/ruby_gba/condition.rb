@@ -70,7 +70,7 @@ module RubyGBA
     # speed difference and never a difference in what the game DOES.
     #
     # AND THE WORST FRAME IS UNCHANGED. A frame where the block does run pays for it in
-    # full, so `rom.explain`'s worst case counts it whole however rare you said it was.
+    # full, so the guardrails' worst case counts it whole however rare you said it was.
     def then(estimate: nil, &block)
       unless block
         raise ArgumentError, "(cond).then needs a block: (x > 0).then { ... }"

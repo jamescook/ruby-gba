@@ -127,7 +127,7 @@ module Wolf3D
   # cartridge boots on the first floor it holds, so the only way to read what a LATER floor
   # costs is to build one that begins there:
   #
-  #   WOLF3D_FROM=1 WOLF3D_FLOORS=1 ruby ../../bin/ruby-gba explain wolf3d.rb
+  #   WOLF3D_FROM=1 WOLF3D_FLOORS=1 ruby ../../bin/ruby-gba profile wolf3d.rb
   #
   # Floors differ enormously in what stands on them — the second floor of the first episode
   # carries three times the guards and three times the scenery of the first — so "what does a

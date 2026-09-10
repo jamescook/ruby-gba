@@ -17,7 +17,7 @@ module RubyGBA
         # drawing (what recurs every frame — a once-per-round transition or an
         # every() tick doesn't count) and flags it when it's over the budget. Like
         # the other soft checks it's advisory, not an error: the estimate is rough,
-        # and the build still produces a ROM. `rom.explain` shows the breakdown.
+        # and the build still produces a ROM. `rom.profile` measures what really happens.
         class DrawBudget
           NAME = :draw_budget
           PLAIN_NAME = "drawing that overruns a frame"
@@ -50,7 +50,7 @@ module RubyGBA
             steady = buffered ? model.steady_cost(program) + mixer : model.steady_tear_cost(program)
             # A number that is not a number is a fault in the cost model, and this check
             # warns an author about their GAME — so it says nothing rather than something
-            # untrue. `rom.explain` banners the fault where it belongs.
+            # untrue.
             return [] unless steady.to_f.finite?
             return [] if steady <= budget
 
@@ -91,7 +91,7 @@ module RubyGBA
               "the screen. So the picture can tear or flicker, and it gets worse as things grow. #{slow_down(steady)}" \
               "The usual cause is a full clear and draw of the whole screen each frame. To fix this, draw the " \
               "fixed parts one time. Then each frame, draw only what moved. Or enable double buffering, which " \
-              "cannot tear. To see where the per-frame drawing goes, call `rom.explain` on the built ROM."
+              "cannot tear. To see where the frames go, call `rom.profile` on the built ROM."
           end
 
           # Double-buffered: it can't tear, but drawing this much every frame is
@@ -109,7 +109,7 @@ module RubyGBA
               "#{slow_down(steady)}A game moves things once a frame, so everything " \
               "in it will also move more slowly: the game runs in slow motion rather than losing frames. To fix " \
               "this, draw less each frame: draw only what moved, not the whole screen. To see where the " \
-              "per-frame drawing goes, call `rom.explain` on the built ROM."
+              "frames go, call `rom.profile` on the built ROM."
           end
 
           # The same number in frames and in frames per second, which is the unit a developer

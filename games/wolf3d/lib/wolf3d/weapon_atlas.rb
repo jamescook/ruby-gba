@@ -32,8 +32,8 @@ module Wolf3D
   # Sixty-four is a power of two, so the square ships whole, the walk touches the gun and not the
   # sky, and the arithmetic is the cheap one.
   #
-  # A picture that cannot ship its stretches at all — one over the framework's row ceiling — is
-  # named by `rom.explain`, with what to change.
+  # A picture that cannot ship its stretches at all — one over the framework's row ceiling —
+  # walks every row of every column it draws instead.
   class WeaponAtlas
     SIDE = Vswap::Sprite::SIDE
 

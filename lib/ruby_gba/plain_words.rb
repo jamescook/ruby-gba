@@ -4,7 +4,7 @@ module RubyGBA
   # WHAT A PERSON CALLS THIS.
   #
   # A build talks: a progress line while it works, a guardrail's warning, a build error, and
-  # `rom.explain` at the end. Those four come from corners of the framework that never meet,
+  # `rom.profile` at the end. Those four come from corners of the framework that never meet,
   # and every one of them has the same small job somewhere in it — take something the machine
   # knows by an internal name and say it in English.
   #
@@ -41,7 +41,7 @@ module RubyGBA
     # routine, and nobody types the routine the console jumps into when the display or a timer
     # announces something — but the build treats both as routines, because that is what lets
     # the same choosing and the same report cover them (see Backends::GBA::Placement). So both
-    # turn up in a progress line and in `rom.explain`, and both need a name a reader can place.
+    # turn up in a progress line and in `rom.profile`, and both need a name a reader can place.
     #
     # Everything else on those lists is a routine somebody wrote, and its own name is already
     # the best one there is, so it is given back the way they would type it.

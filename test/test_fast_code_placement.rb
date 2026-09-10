@@ -158,7 +158,7 @@ class TestFastCodePlacement < Minitest::Test
       end
     end
     out = StringIO.new
-    rom.explain(out: out, color: false)
+    RubyGBA::BuildReport.render(rom, out: out)
 
     assert_match(/kept in quick memory/, out.string)
     assert_match(/the game loop/, out.string)
@@ -372,7 +372,7 @@ class TestFastCodePlacement < Minitest::Test
     rom = rom_of(bending_program, title: "BENDP", code: "BNDP")
 
     out = StringIO.new
-    rom.explain(out: out, color: false)
+    RubyGBA::BuildReport.render(rom, out: out)
     assert_match(/kept in quick memory/, out.string)
     assert_match(/answers the display and the timers/, out.string)
   end

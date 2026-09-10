@@ -115,54 +115,20 @@ module RubyGBA
       end
     end
 
-    # Print the per-frame cost report for this ROM to +out+: where each frame's work goes
-    # (or the one-time boot cost, if it never loops), and whether it fits the frame and the
-    # brief window the console has to change the screen without tearing (see
-    # {IR::CostModel}).
+    # WHAT THE BUILD MADE OF THIS GAME, AND WHAT IT COST WHEN IT RAN.
     #
-    # +measured+ decides what the VERDICT rests on. The breakdown is always the estimate —
-    # it is the only thing that can say where a frame goes, statement by statement. Whether
-    # the frame FITS is a different question, and the estimate can only guess at it: it
-    # cannot see a loop counted at run time, or a stall while the console's own copier works.
-    # `measured: true` runs the cartridge on the emulator and reads the real frame, scene by
-    # scene, so the verdict is a measurement and the report says so. A Hash is a reading
-    # somebody else took, in the shape {Analyzer::Result#for_report} gives. Left out, the
-    # verdict is the estimate's own, and the report says how to ask for the real one.
-    # +scenes+ narrows the measuring to the named scenes and +keys+ pins which buttons are
-    # held while it runs; both need `measured: true`.
+    # TWO HALVES, AND NEITHER ANSWERS THE QUESTION ALONE. First {BuildReport}: what the build
+    # made — how big each routine came out, which fit in the console's quick memory and which
+    # missed. Then the measurement: which routines the console really spent its frames in, the
+    # rate it produced, and how much of each frame was left over. The run says a routine is
+    # most of the frame; the build says that routine missed the quick memory by four tenths of
+    # a kilobyte. A reader given only the first goes and rewrites the routine.
     #
-    # Measuring needs the emulator (gemba-core). A build with no emulator still gets an
-    # answer rather than an error: the estimate, and a line saying what the measured one
-    # needs.
-    #
-    # +format+ selects the view: :human is the drill-down tree (accepts max_depth:,
-    # focus:, top: to scope it), :summary is the one-line verdict, and :json is the
-    # structured cost tree for tools and tests to consume without parsing text.
-    #
-    # The human/summary views print a colour heatmap — each cost line tinted by how much
-    # of the frame budget it uses, file subtotals in bold — when the output is a terminal.
-    # Pass color: false to force plain text (or false-y auto-off happens for a pipe or a
-    # captured StringIO, and whenever NO_COLOR is set).
-    def explain(format: :human, out: $stdout, measured: nil, scenes: nil, keys: nil, **opts)
-      program = built!.source_program
-      model = cost_model
-      readings, unmeasured = measurement(measured, scenes: scenes, keys: keys)
-      case format
-      when :human   then model.render(program, out: out, measured: readings, unmeasured: unmeasured, **opts)
-      when :summary then model.report(program, out: out, measured: readings, unmeasured: unmeasured, **opts)
-      when :json
-        json = model.as_json(program, measured: readings, unmeasured: unmeasured).merge(findings: findings_json)
-        out.puts(JSON.generate(json))
-      else raise ArgumentError, "unknown explain format #{format.inspect} (use :human, :summary, or :json)"
-      end
-    end
-
-    # WHERE THIS GAME'S FRAMES ACTUALLY WENT — measured by running it, not worked out.
-    #
-    # `explain` reads the program and says what it thinks a frame will cost. This runs the
-    # cartridge and says what it did cost, routine by routine, with the frame rate the console
-    # really produced and how much of each frame was left over. Nothing here is predicted, so
-    # nothing here can be wrong about a loop it could not see through.
+    # NOTHING HERE IS PREDICTED. This framework used to carry an estimate — a frame priced in
+    # scanlines against a budget, with a verdict of fits or tears — and it was a second
+    # statement of what the hardware costs, kept in step with the backend by hand, so every
+    # mispricing was a bug. Both halves here are facts: one read off the build, one counted off
+    # a real run.
     #
     # +scene+ names which screen to measure, and it is usually the thing you want: a game boots
     # to its title, and holding a button will not get past one — a menu reads the press EDGE, so
@@ -192,7 +158,10 @@ module RubyGBA
                             from: from)
       case format
       when :human then Profiler.render(result, out: out, rom: self)
-      when :json  then out.puts(JSON.generate(result.to_h))
+      when :json
+        out.puts(JSON.generate(result.to_h
+                                     .merge(BuildReport.as_json(self))
+                                     .merge(findings: findings_json)))
       else raise ArgumentError, "unknown profile format #{format.inspect} (use :human or :json)"
       end
       result
@@ -232,38 +201,6 @@ module RubyGBA
     end
 
     private
-
-    # The readings the verdict rests on, and when there are none, why not: [readings, reason].
-    # The reason is what the report's "estimate only" line turns on — not asked for and
-    # asked for with nothing to run it on want different advice.
-    def measurement(asked, scenes:, keys:)
-      if (scenes || keys) && asked != true
-        raise ArgumentError, "scenes: and keys: say how to measure the game. Pass measured: true with them."
-      end
-
-      case asked
-      when true then measure(scenes: scenes, keys: keys)
-      when Hash then [asked, nil]
-      when nil, false then [nil, :not_asked]
-      else
-        raise ArgumentError, "measured: takes true (run the game on the emulator), a Hash of readings, " \
-                             "or nothing. It does not take #{asked.inspect}."
-      end
-    end
-
-    # Run this cartridge's program on the emulator and hand back the readings the report
-    # folds in. The profiler builds its own measuring ROMs from the program — a scene is
-    # measured by booting straight into it, and an over-budget frame by counting the game
-    # loop's passes — so what it needs is the program and the options it was built with,
-    # not these bytes. Without the emulator there is nothing to run, and that is the reason
-    # handed back.
-    def measure(scenes:, keys:)
-      readings = Analyzer.profile(built!.source_program, options: built!.build_options,
-                                                         only: scenes, keys: keys)
-      [readings.transform_values(&:for_report), nil]
-    rescue LoadError
-      [nil, :no_emulator]
-    end
 
     # What the build worked out, for the two callers that cannot do their job without it.
     def built!

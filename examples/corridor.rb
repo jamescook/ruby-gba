@@ -4,18 +4,18 @@
 # Corridor — a first-person crawl with a status bar, and the example that runs CLOSE TO THE
 # LINE on purpose.
 #
-# Every other example here is comfortable: the heaviest of them uses under half the frame, so
-# `rom.explain` has never had to call a game that is genuinely near the edge. This one is. It
-# casts twice as many rays as examples/raycaster.rb, draws them into a letterboxed view with a
-# status bar underneath, and spends most of a frame doing it. Build it and read the report —
-# the budget line is the point of the example.
+# Every other example here is comfortable: the heaviest of them uses under half the frame.
+# This one is genuinely near the edge. It casts twice as many rays as examples/raycaster.rb,
+# draws them into a letterboxed view with a status bar underneath, and spends most of a frame
+# doing it. Build it and run `rom.profile` — how little of each frame is left over is the
+# point of the example.
 #
 # WHAT A FRAME IS SPENT ON, and it is not what people guess. Nearly all of it is the ray
 # casting: sixty rays, each marching until it meets a wall, each one a handful of table reads
 # and a divide. The DRAWING is cheap by comparison — the sky and the floor are one transfer
 # each, and a wall column is one fill however tall it is. If you want the frame back, cast
 # fewer rays (NUM_COLS below); everything else is rounding. Cast MORE and it stops fitting:
-# eighty rays does not hold a frame, and `rom.explain` says so before you run it.
+# eighty rays does not hold a frame, and `rom.profile` shows the rate drop when you run it.
 #
 # `inside` IS WHY THE STATUS BAR IS FREE. The view is drawn inside a 240x128 window, so the
 # thirty-two rows under it are never touched by the sky, the floor or a wall column — those

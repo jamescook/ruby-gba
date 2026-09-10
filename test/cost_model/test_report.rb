@@ -53,28 +53,26 @@ class TestCostReport < CostModelTest
     assert_match(/case_var :state \(the dearest scene\)/, rendered(prog))
   end
 
-  # A ROM built through RubyGBA.build can report on itself.
-  def test_a_built_rom_explains_itself
+  # A ROM built through RubyGBA.build can be priced by the model that knows how it was built.
+  def test_a_built_rom_can_be_priced_from_its_own_build_record
     rom = RubyGBA.build("EXPLAIN", code: "BXPL", maker: "01") do
       screen :bitmap
       fill_rect 0, 0, 10, 10, :red # 100
       halt
     end
     io = StringIO.new
-    rom.explain(out: io)
+    rom.cost_model.render(rom.source_program, out: io)
     assert_match(/boot cost .* scanlines/, io.string)
   end
 
-  # rom.explain(format: :json) emits structured data tests can parse directly.
-  def test_json_explain_is_parseable_structured_data
+  # The model emits structured data tests can parse directly.
+  def test_json_is_parseable_structured_data
     rom = RubyGBA.build("JSON", code: "BJSN", maker: "01") do
       screen :bitmap
       fill_rect 0, 0, 10, 10, :red # 100
       halt
     end
-    io = StringIO.new
-    rom.explain(format: :json, out: io)
-    data = JSON.parse(io.string)
+    data = JSON.parse(JSON.generate(rom.cost_model.as_json(rom.source_program)))
     # A fixed-size fill is a straight run of stores, so a built cartridge prices it by
     # counting what the lowering emitted — a hundred pixels' worth, within a rounding of the
     # per-pixel weight that used to stand for the same instructions.
@@ -87,7 +85,7 @@ class TestCostReport < CostModelTest
     assert_equal "drawing", data["categories"].first["category"]
   end
 
-  # rom.explain names the intent: a timed trigger reads as "every 30" in the cost
+  # The model names the intent: a timed trigger reads as "every 30" in the cost
   # tree, because the interval survives on the IR node for the report to read.
   def test_rom_explain_names_a_timed_trigger
     prog = program do

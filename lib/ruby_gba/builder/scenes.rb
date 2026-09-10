@@ -19,7 +19,7 @@ module RubyGBA
       # and a half times faster from the quick one. The framework works out on its own
       # which routines are worth keeping there — the ones a frame spends the most time in
       # — so you can leave this alone. Say `fast: true` to insist on one it did not pick,
-      # or `fast: false` to keep one out. `rom.explain` says what it chose and how much
+      # or `fast: false` to keep one out. `rom.profile` says what it chose and how much
       # room is left. (See RubyGBA.build's `fast_code:` to turn the choosing off
       # altogether.)
       #

@@ -8,8 +8,8 @@ module RubyGBA
   # boots on the console knowing none of this. But a great deal was settled on the way there
   # that nobody can recover afterwards by reading the bytes back — which routines were kept
   # in the console's quick memory, where each variable landed, which loops held their counter
-  # in a register — and all of it changes what the same statement costs. So `rom.explain`
-  # cannot price a frame honestly without it, and the build is the only thing that knows.
+  # in a register — and where every routine ended up. So `rom.profile` cannot report on a
+  # cartridge without it, and the build is the only thing that knows.
   #
   # IT ARRIVES IN ONE PIECE, which is most of why it exists. These were six fields a caller
   # set on a ROM one at a time after assembling it, so between the assemble and the sixth

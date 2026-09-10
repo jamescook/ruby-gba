@@ -159,8 +159,7 @@ module RubyGBA
       # Write a variable where you would write a number and that is the whole of it. The
       # difference is what it costs: a number is sent to the display once and never again,
       # where an amount that can change has to be sent again before every frame. That is
-      # one register write, nothing is redrawn either way, and `rom.explain` says which of
-      # the two a picture got.
+      # one register write, and nothing is redrawn either way.
       #
       # A game has ONE see-through layer, and it says the amount one time — every example
       # opens a layer block exactly once, so that is the natural place. Needs

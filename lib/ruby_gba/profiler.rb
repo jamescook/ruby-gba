@@ -370,8 +370,8 @@ module RubyGBA
       end
     end
 
-    # Print a measured profile the way `rom.explain` prints an estimated one — the dearest
-    # line first, because that is the one worth looking at.
+    # Print a profile: what the build made, then what the run measured — the dearest line
+    # first, because that is the one worth looking at.
     def self.render(result, out: $stdout, rom: nil)
       printer = IR::Printer.for(out)
       # WHAT THE BUILD MADE COMES FIRST, and it is here rather than under a verb of its own
@@ -415,7 +415,7 @@ module RubyGBA
 
       if tear.torn?
         printer.puts("  the picture tore on #{tear.torn} of the #{tear.looked} frames looked " \
-                     "at — up to #{tear.worst} rows showed before the game had finished them",
+                     "at — up to #{tear.worst} rows showed before the game finished them",
                      severity: :bad)
       else
         printer.puts("  the picture held together on all #{tear.looked} frames looked at")

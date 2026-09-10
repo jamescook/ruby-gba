@@ -137,7 +137,7 @@ module RubyGBA
           attr_reader :hot_base, :hot_bytes
 
           # How much of the quick memory this build used, and what is left — the numbers
-          # `rom.explain` prints. The field names are ours, fixed when this is written, so it
+          # `rom.profile` prints. The field names are ours, fixed when this is written, so it
           # is a value object: a reader asking for a field that is not here says so instead of
           # answering nil and printing a blank number.
           # +sizes+ is how many bytes each routine came to, whether it moved or not, and

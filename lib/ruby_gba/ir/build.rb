@@ -340,7 +340,7 @@ module RubyGBA
       # the hidden frame counter (cleared once at boot) that a backend ticks each
       # frame and resets when it reaches the period. The whole point of it being a
       # node — not the counter+compare it lowers to — is that the tree still says
-      # "every N frames", so the cost model and rom.explain read the intent.
+      # "every N frames", so anything reading the tree reads the intent.
       def every(counter, period, *body)
         Nodes.build(:every, children: body, counter: counter, period: period)
       end
