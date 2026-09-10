@@ -39,7 +39,7 @@ class TestBuildRecord < Minitest::Test
   def test_a_cartridge_that_cannot_report_on_itself_refuses_rather_than_guessing
     rom = RubyGBA::ROM.new(title: "RAW", code: "ZRAW", maker: "01")
 
-    %i[explain cost_model].each do |asking|
+    %i[profile cost_model].each do |asking|
       error = assert_raises(RubyGBA::ROMError) { rom.public_send(asking, out: StringIO.new) }
       assert_match(/does not know how it was built/, error.message)
       assert_match(/RubyGBA\.build/, error.message)

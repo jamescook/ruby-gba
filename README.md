@@ -76,7 +76,7 @@ Build it and run it in any GBA emulator:
 
 ```bash
 ruby examples/snake.rb             # => writes snake.gba
-ruby-gba build examples/snake.rb   # the same, via the CLI (adds -o / --explain / --stats)
+ruby-gba build examples/snake.rb   # the same, via the CLI (adds -o / --profile / --stats)
 rake test:parallel                 # unit + emulator integration tests (builds gemba-core first)
 ```
 
@@ -140,22 +140,27 @@ The one rule at the seam: **a pack composes public verbs; it never builds IR or 
 
 Screen shake is the worked example, and it ships as a default pack. Moving the picture at all is kernel — `camera` is an IR node with a real lowering on each backend. *Shaking* is not: it's `camera` called with a jittering offset, four variables and a routine that runs each frame. So `shake_screen` lives in a pack written in the same verbs a game is, and neither backend knows the file exists — copy `lib/ruby_gba/effects/packs/screen_shake.rb` to write your own. The rule is enforced, not just documented: a test reads the pack sources and fails one that builds IR or names a hardware register.
 
-### Cost estimator + `rom.explain` — see the work
-
-Because the program is inspectable, `ruby-gba` works out what each frame costs — in **scanlines**, the console's own unit, so "45 of your 228" means something — and exposes it as a structured tree (human-readable *and* JSON):
+### `rom.profile` — see the work, measured
 
 ```ruby
-rom.explain                  # drill-down cost tree: which scene / func / loop costs the most per frame
-rom.explain(measured: true)  # ...and run it on the emulator, so "does it fit" is measured, not estimated
+rom.profile                        # what the build made, then where the frames actually went
+rom.profile(scene: :playing)       # hold the game in one screen and measure that
+rom.profile(from: "boss.state")    # measure a moment you played to and saved
 ```
 
-Every weight in it was **measured**, not guessed: a ROM that does one thing a known number of times, run on emulated hardware timing, differenced against one that does less of it. And each weight ships with the range it was measured over, so when your program asks it for an answer from well outside that range the report says so instead of answering confidently.
+Two halves, and neither answers the question alone.
 
-The estimate also has to face the measurement. When a real frame has been read, the report says **how much of it the breakdown accounts for** — because the failure mode of any cost model is silent: a cost missing from it entirely leaves both halves looking fine, and you spend an afternoon optimizing the biggest line in a breakdown that never had the real cost in it.
+**What the build made** is read off the finished build and cannot drift: how big each routine came out, which ones fit in the console's 32K of quick memory and which missed, what a routine that missed wanted and what was left when its turn came, its most repeated line, and whether that looks like a helper emitted at every call site. None of it survives into a running cartridge — by then the decisions are made and the evidence is gone, which is why a profiler cannot produce it.
 
-It is a **teaching aid** (understand why a frame is heavy, in terms of the verbs you wrote), a **guardrail** (it can warn that a loop redraws the whole screen every frame — the exact reason Snake draws incrementally), and a **build decision**: the estimate is what picks which routines to keep in the console's small pool of fast memory, where the same code runs quicker.[^fast] That choice has to be made while the ROM is still being built, before there is anything to measure — which is why an estimate earns its place next to a real emulator. Ask with `measured: true` (the `ruby-gba` command always does) and, with `gemba-core` installed, the verdict is measured on top; without it, the report says "estimate only", names what it could not price, and says what the measured answer needs. Cost profiles will eventually be parameterized per backend (GBA vs GBC).
+**What it cost** comes from running the cartridge: which of your routines the console really spent its frames in, the rate it produced, and how much of each frame was left over. It samples the program counter every instruction and puts those addresses back against the routines you wrote, so nothing is predicted and nothing can be wrong about a loop it could not see through.
 
-[^fast]: How much quicker, why, and how the build chooses what goes there: [`placement.rb`](lib/ruby_gba/ir/backends/gba/placement.rb). `rom.explain` prints what it chose and how much room is left.
+The same measurement is also a **build decision**: a build runs the game and uses what it learns to choose which routines to keep in the quick memory, where the same code runs about 2.3x faster.[^fast] Measured on a Wolfenstein port, choosing that way rather than from the shape of the program took idle time per frame from 26.0% to 38.7% on identical work.
+
+Tearing is split the same way. Whether a game **can** tear is a fact about the screen it chose — one that draws straight into the picture the display is reading can, a double-buffered or tiled one cannot, however slow it is — so the build says it. Whether one that can **does** is a race between the display's row and the game's, and the run settles it by holding what the display showed against what the game had finished drawing.
+
+This framework used to ship a cost *estimator* instead: a frame priced in scanlines against a budget, with a verdict of fits or tears. It was a second statement of what the hardware costs, kept in step with the backend by hand, so every mispricing was a bug — 169 of the repo's first 567 commits touched it. It is being retired in favour of the above.
+
+[^fast]: How much quicker, why, and how the build chooses what goes there: [`placement.rb`](lib/ruby_gba/ir/backends/gba/placement.rb). `rom.profile` prints what it chose, how much room is left, and what did not fit.
 
 ### Future targets
 
@@ -171,7 +176,7 @@ The backend split is deliberate. Planned peers of the ARM backend, all reusing t
 
 This entire tool is AI-written, and the workflow is designed so an agent can iterate safely and fast:
 
-- **Tight, mechanical feedback loops.** The Ruby interpreter renders the IR headlessly (no emulator needed), a pixel Verifier reads back actual frames, guardrails give plain-language pass/fail at build time, and `rom.explain` emits a machine-readable cost tree an agent can reason over. An agent can build → validate → run → diff → explain without leaving Ruby.
+- **Tight, mechanical feedback loops.** The Ruby interpreter renders the IR headlessly (no emulator needed), a pixel Verifier reads back actual frames, guardrails give plain-language pass/fail at build time, and `rom.profile` emits machine-readable per-routine measurements an agent can reason over. An agent can build → validate → run → diff → profile without leaving Ruby.
 - **Mechanical safety rails.** An IR verifier enforces the value model on every build (a malformed tree is a *library* bug, raised loudly); the conformance fixture diffs backends so a change can't silently break one target.
 - **A checked-in codebase map.** This project uses [understand-anything](https://github.com/Egonex-AI/Understand-Anything) to generate a map of the codebase, kept in `.ua/`.
 
@@ -212,9 +217,9 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Fonts — built-in + register your own (`font` from glyph art)
 - [x] Guardrails (extensible registry) + build-time validation, findings traced to the DSL line
 - [x] Effect packs — register your own DSL verbs (and their guardrails); four ship by default (screen shake, screen fade, follow camera, pulse)
-- [x] Cost estimator + `rom.explain`
+- [x] `rom.profile` — what the build made, and what it cost when it ran
 - [x] IR + two backends (GBA lowering, reference interpreter in pure Ruby) with a conformance fixture + portability tagging
-- [x] CLI — `ruby-gba build / explain / inspect / new` (Thor): per-command help, typed options, friendly errors
+- [x] CLI — `ruby-gba build / profile / inspect / new` (Thor): per-command help, typed options, friendly errors
 
 **Planned / Ideas**
 
@@ -333,7 +338,7 @@ lib/ruby_gba/
     node.rb, build.rb        # the IR op-tree + constructors
     int32.rb, portability.rb # reference semantics; portable vs hardware-only tags
     guardrails/              # the check registry + individual footgun checks
-    cost_model.rb, cost_model/ # per-frame cost estimator + its report (feeds rom.explain)
+    cost_model.rb, cost_model/ # the retiring per-frame estimator (now only the budget guardrails)
     backends/gba*            # lower IR -> ARM7 ROM
     backends/reference*      # interpret IR -> framebuffer (headless oracle)
   asm.rb, rom.rb             # ARM encoding + cartridge assembly
@@ -346,6 +351,6 @@ assets/                      # captured GIFs / screenshots
 
 Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites (rotated and scaled), scrolling and bending backgrounds, a named layer stack, screen effects, four-channel and sampled sound, and the asset pipeline are all in (see `examples/`). Affine backgrounds and the alternate backends are still planned. The current proving ground is a Wolfenstein 3D port (`games/wolf3d/`, built against the framework rather than shipped inside it) — it's what's surfacing most of the framework gaps that still need closing.
 
-Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. Anything that reads what a ROM *actually did* runs it in an emulator through **`gemba-core`**, a small in-repo C extension binding libmgba, which needs a C compiler and libmgba to build. Three things use it: the pixel read-back the tests assert on, the measured frame-rate verdict in `rom.explain`, and — the one that is easy to miss — **calibrating the cost model's weights**.
+Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. Anything that reads what a ROM *actually did* runs it in an emulator through **`gemba-core`**, a small in-repo C extension binding libmgba, which needs a C compiler and libmgba to build. Two things use it: the pixel read-back the tests assert on, and `rom.profile` — which is also what a build runs to decide what to keep in the quick memory. (How you install libmgba varies by platform, and most dev setups have a C compiler already.)
 
-That last one is why the estimate works without it. Every number the cost model charges was measured through `gemba-core` on emulated hardware timing, once, by `tools/calibrate_cost_model.rb`, and committed as data (`lib/ruby_gba/ir/measured_weights.rb`). So the estimate is not a guess standing in for a measurement — it *is* a measurement, generalized and shipped. A pure-Ruby install gets hardware-calibrated cost feedback with no C toolchain; adding `gemba-core` gets you the live verdict for your own game on top, and `explain` says plainly which of the two you are reading. (How you install libmgba varies by platform, and most dev setups have a C compiler already.)
+A build with no emulator still works: it falls back to choosing from the shape of the program, and the report says which of the two happened rather than leaving you to guess.

@@ -34,14 +34,14 @@ module RubyGBA
                           "(default: <name>.gba beside the game file, or the pager for IR)"
     option :format, banner: "NAME", default: "game",
                     desc: "What to emit: game (a .gba cartridge) or ir (a standalone Ruby class holding the IR)"
-    option :explain, type: :boolean, default: false,
-                     desc: "Print the per-frame cost report (verdict measured on the emulator when available)"
+    option :profile, type: :boolean, default: false,
+                     desc: "Also run the game and report what the build made and what it cost (see `profile`)"
     option :stats, type: :boolean, default: false,
                    desc: "Print how far asset packing shrank the cartridge, and what is kept in quick memory"
-    option :scene, type: :array, banner: "NAME", default: [],
-                   desc: "Measure only these scenes in the report (default: all scenes)"
+    option :scene, banner: "NAME",
+                   desc: "With --profile, measure this scene, holding the game there"
     option :keys, type: :array, banner: "BUTTON", default: [],
-                  desc: "Hold these buttons while measuring (default: hold each button the game reads, in turn)"
+                  desc: "With --profile, hold these buttons while measuring"
     def build(game_file)
       case options[:format]
       when "game" then build_cartridge(game_file)
@@ -51,39 +51,19 @@ module RubyGBA
       end
     end
 
-    desc "explain GAME_FILE", "Print the per-frame cost report, without building a cartridge"
+    desc "profile GAME_FILE", "Report what the build made of the game, and what it cost when it ran"
     long_desc <<~TEXT
-      Print the per-frame cost report for the game declared in GAME_FILE — the same
-      report `build --explain` prints — without writing a .gba file.
+      Build the game in GAME_FILE and report on it in two halves.
 
-      --format=json prints the same facts as data, for something that is going to
-      compare two builds rather than read one: the frame and its budget, the measured
-      verdict per scene, what the quick memory kept and passed over, and the guardrail
-      findings. It goes to stdout, so it pipes.
-    TEXT
-    option :format, banner: "NAME", default: "human",
-                    desc: "What to print: human (the report) or json (the same facts as data)"
-    option :scene, type: :array, banner: "NAME", default: [],
-                   desc: "Measure only these scenes in the report (default: all scenes)"
-    option :keys, type: :array, banner: "BUTTON", default: [],
-                  desc: "Hold these buttons while measuring (default: hold each button the game reads, in turn)"
-    def explain(game_file)
-      format = { "human" => :human, "json" => :json }[options[:format]] or
-        raise Thor::Error, "#{options[:format].inspect} is not an explain format. The formats are: human, json."
-      game = load_game(game_file)
-      # The guardrails print to stderr either way, so the JSON on stdout stays one document.
-      explain_rom(game.build_rom, format: format)
-    end
+      First what the BUILD made: how big each of your routines came out, which ones fit in
+      the console's quick memory and which missed, what a routine that missed wanted and
+      what was left when its turn came. None of that can be recovered from a running
+      cartridge — by then the decisions are made and the evidence is gone.
 
-    desc "profile GAME_FILE", "Run the game and report where its frames actually went"
-    long_desc <<~TEXT
-      Build the game in GAME_FILE, run it, and report which of your routines the console
-      really spent its frames in — with the frame rate it produced and how much of each
-      frame was left over.
-
-      This is the measured companion to `explain`. `explain` reads your program and says
-      what it thinks a frame will cost; this runs the cartridge and counts what it did
-      cost, so nothing here is a guess about a loop nobody could see through.
+      Then what it COST: the game is run, and this reports which of your routines the
+      console really spent its frames in, the frame rate it produced, and how much of each
+      frame was left over. Nothing here is predicted, so nothing here can be wrong about a
+      loop nobody could see through.
 
       --keys holds buttons for the whole run, and it is worth passing: a game costs what
       the player makes it cost, so a profile with nothing held is a profile of a game
@@ -115,9 +95,11 @@ module RubyGBA
       format = { "human" => :human, "json" => :json }[options[:format]] or
         raise Thor::Error, "#{options[:format].inspect} is not a profile format. The formats are: human, json."
       game = load_game(game_file)
-      game.build_rom(profile: false).profile(format: format, frames: options[:frames],
-                                             settle: options[:settle], scene: options[:scene],
-                                             from: options[:from], keys: held_buttons || [])
+      # Built the same way `build` builds it — measured placement included — so this reports on
+      # the cartridge somebody would actually ship, not a differently-placed one.
+      game.build_rom.profile(format: format, frames: options[:frames],
+                             settle: options[:settle], scene: options[:scene],
+                             from: options[:from], keys: held_buttons || [])
     rescue ArgumentError => e
       raise Thor::Error, e.message
     end
@@ -153,7 +135,7 @@ module RubyGBA
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
       say rom.compression.summary_line if options[:stats] && rom.compression&.any?
       say placement_line(rom) if options[:stats] && rom.placement&.funcs&.any?
-      explain_rom(rom) if options[:explain] || options[:scene].any? || options[:keys].any?
+      profile_rom(rom) if options[:profile] || options[:scene] || options[:keys].any?
     end
 
     # The "ir" format (--format=ir): the game's IR as a standalone Ruby class, instead
@@ -194,13 +176,10 @@ module RubyGBA
              placement.code_bytes / 1024.0, placement.free_bytes / 1024.0)
     end
 
-    # The cost report, with the verdict measured on the emulator. The command always asks for
-    # the measurement; when the emulator is not built, the report itself says so and shows
-    # the estimate instead of failing. An unknown scene name is a friendly error, not a
-    # backtrace.
-    def explain_rom(rom, format: :human)
-      only = options[:scene].any? ? options[:scene] : nil
-      rom.explain(format: format, measured: true, scenes: only, keys: held_buttons)
+    # What the build made, and what it cost when it ran. An unknown scene name is a friendly
+    # error, not a backtrace.
+    def profile_rom(rom, format: :human)
+      rom.profile(format: format, scene: options[:scene], keys: held_buttons || [])
     rescue ArgumentError => e
       raise Thor::Error, e.message
     end

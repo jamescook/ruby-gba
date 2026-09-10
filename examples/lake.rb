@@ -35,13 +35,12 @@
 # to get in between two lines of a picture being drawn to do this at all.
 #
 # It is not free, and most of what it costs is your own block: all 160 rows are worked out
-# in the gap between frames, before any of the picture is drawn. `explain` puts the whole
-# effect at about a twelfth of the frame's 228 scanlines, and about half of THAT is this
-# example's sine lookup rather than the machinery. The machinery half is small because the
-# framework hands the finished table to one of the console's copying engines, which feeds
+# in the gap between frames, before any of the picture is drawn — and about half of that is
+# this example's sine lookup rather than the machinery. The machinery half is small because
+# the framework hands the finished table to one of the console's copying engines, which feeds
 # the display by itself with the CPU untouched. There are three engines to lend out, so a
-# fourth bending layer would go back to being answered per line — which `explain` names,
-# with the reason. Run `ruby-gba build examples/lake.rb --explain` to see it.
+# fourth bending layer would go back to being answered per line, which is several times
+# dearer. Run `ruby-gba profile examples/lake.rb` to see where the frame really goes.
 #
 # Working the rows out in that gap is also what keeps the jellyfish honest. A sprite's
 # position is settled in the same gap, so the water and the things floating on it are

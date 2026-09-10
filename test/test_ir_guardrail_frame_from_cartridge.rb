@@ -53,11 +53,11 @@ class TestFrameFromCartridgeGuardrail < Minitest::Test
     refute_match(/did not fit/, warnings)
   end
 
-  # rom.explain says the same thing about the same routine, by the name a person has for it.
-  def test_explain_names_the_game_loop_rather_than_its_internal_name
+  # The build report says the same thing about the same routine, by the name a person has for it.
+  def test_the_report_names_the_game_loop_rather_than_its_internal_name
     rom, = game(cold_in_a_func: false)
     io = StringIO.new
-    rom.explain(out: io)
+    RubyGBA::BuildReport.render(rom, out: io)
 
     assert_match(/the game loop did not fit/, io.string)
     refute_match(/__frame/, io.string)

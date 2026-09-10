@@ -70,13 +70,13 @@ class TestMeasuredPlacement < Minitest::Test
       out = StringIO.new
       rom = game_with_work_in_a_later_scene.build_rom(out: StringIO.new, err: StringIO.new,
                                                       profile: expected == :measurement)
-      rom.explain(out: out)
+      RubyGBA::BuildReport.render(rom, out: out)
 
       if expected == :measurement
         assert_match(/chosen from a measurement/, out.string)
       else
         assert_match(/chosen from the shape of the program/, out.string)
-        assert_match(/rom\.profile/, out.string, "...and says how to get the measured one")
+        assert_match(/measures/, out.string, "...and says how to get the measured one")
       end
     end
   end

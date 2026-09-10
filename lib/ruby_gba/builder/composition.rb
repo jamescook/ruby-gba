@@ -60,8 +60,8 @@ module RubyGBA
       #
       #   bullets = pool :bullet, x: 0, y: 0, vy: 0, capacity: 64, estimate: { usually: 6 }
       #
-      # So `rom.explain` counts the body six times a frame instead of sixty-four, and says
-      # which number it used. A range (`usually: 4..8`) counts at its top.
+      # So the guardrails count the body six times a frame instead of sixty-four. A range
+      # (`usually: 4..8`) counts at its top.
       #
       # @param name [Symbol] the pool's name
       # @param capacity [Integer] the most instances that can be live at once

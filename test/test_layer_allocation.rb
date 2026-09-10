@@ -204,7 +204,7 @@ class TestLayerAllocation < Minitest::Test
 
   # --- the report ---
 
-  def test_explain_says_what_each_layer_became
+  def test_the_report_says_what_each_layer_became
     rom = RubyGBA.build("STACKED", code: "BSTK", maker: "01") do
       screen :tiled
       image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
@@ -219,17 +219,17 @@ class TestLayerAllocation < Minitest::Test
     end
 
     out = StringIO.new
-    rom.explain(out: out, color: false)
+    RubyGBA::BuildReport.render(rom, out: out)
     report = out.string
 
     assert_match(/the stack, back to front/, report)
     assert_match(/:sky\s+background :bg/, report)
-    assert_match(/:actors\s+~\S+\s+1 sprite/, report)
-    assert_match(/:ui\s+~\S+\s+2 sprites/, report)
+    assert_match(/:actors\s+1 sprite/, report)
+    assert_match(/:ui\s+2 sprites/, report)
     assert_match(/1 of 4 levels used, 3 free/, report)
   end
 
-  def test_explain_says_nothing_about_a_stack_a_game_never_declared
+  def test_the_report_says_nothing_about_a_stack_a_game_never_declared
     rom = RubyGBA.build("PLAIN", code: "BPLN", maker: "01") do
       screen :bitmap
       fill_rect 0, 0, 10, 10, :red
@@ -237,7 +237,7 @@ class TestLayerAllocation < Minitest::Test
     end
 
     out = StringIO.new
-    rom.explain(out: out, color: false)
+    RubyGBA::BuildReport.render(rom, out: out)
 
     refute_match(/the stack/, out.string)
   end

@@ -42,8 +42,8 @@ module RubyGBA
               "list holds more items. Past about #{threshold.break_even} items, the frame goes over budget, and " \
               "the picture tears or slows. But :#{threshold.list} can grow to #{threshold.cap}. To fix this, " \
               "give :#{threshold.list} a smaller capacity, near #{threshold.break_even}. Or draw less per " \
-              "item: draw only what moved, not the whole list each frame. To see the per-frame breakdown, call " \
-              "`rom.explain` on the built ROM."
+              "item: draw only what moved, not the whole list each frame. To see where the frames go, call " \
+              "`rom.profile` on the built ROM."
           end
         end
       end

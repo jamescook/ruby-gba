@@ -7,7 +7,7 @@ require "stringio"
 # ONE THING, ONE NAME.
 #
 # A build talks in four places that never meet — a progress line while it works, a guardrail's
-# warning, a build error, `rom.explain` at the end — and each of them has the same small job
+# warning, a build error, `rom.profile` at the end — and each of them has the same small job
 # somewhere in it: say what the machine knows in English. Done four times, the answers drift
 # apart, and the console's 32K of fast memory is what that looks like — three different names
 # for it in ONE build. A learner cannot tell three names for one thing from three things.
@@ -59,7 +59,7 @@ class TestPlainWords < Minitest::Test
 
   # The two routines nobody wrote. The build treats a game loop's body and the routine the
   # console interrupts into as routines, so both turn up in a progress line and again in
-  # `rom.explain` minutes later — two places far enough apart that only a shared name keeps
+  # `rom.profile` minutes later — two places far enough apart that only a shared name keeps
   # them saying the same thing.
   def test_the_routines_nobody_wrote_are_named_in_one_place
     said = "a routine with one name"
@@ -68,11 +68,11 @@ class TestPlainWords < Minitest::Test
 
     while_it_says(:routine, said) do
       rom = a_game_worth_moving(progress: RubyGBA::Progress.to(progress))
-      rom.explain(out: explained)
+      RubyGBA::BuildReport.render(rom, out: explained)
     end
 
     assert_includes progress.string, said, "the progress line names a routine from PlainWords"
-    assert_includes explained.string, said, "...and so does rom.explain"
+    assert_includes explained.string, said, "...and so does the build report"
   end
 
   # ...and the machine names it answers to are the build's own, not a second copy of the two

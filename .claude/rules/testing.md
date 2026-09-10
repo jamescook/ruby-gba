@@ -96,17 +96,18 @@ eight bitmap-drawing examples and nowhere near on the games that hand work to th
 hardware. Doubling a single drawing weight then improved one example and broke eight, by name.
 That is the failure this catches and a single-game reading cannot.
 
-**What the estimate is, so a ratio is not read as a fact.** The verdict judges what a frame pays
-every time; the tree and the hottest list price the worst frame. The estimate lands within a tenth
-of the console on most of the corpus, and that tenth is the band `cost:check` scores by, so a
-verdict within a tenth of its limit reads "close" and only a measured run
-(`rom.explain(measured: true)`) settles it. A uniform scale error is harmless. One op wrong
-relative to another is a bug, because a wrong order sends a reader to the wrong line. Tearing is
-the cautious verdict: the estimate asks whether the drawing fits the safe window, where a real
-tear is a race down the screen the drawing can win even after overrunning — so a measured run
-reads what happened and overrides it (`RubyGBA::Tearing`), except on a screen with no framebuffer
-to read it off. The same three sentences head `lib/ruby_gba/ir/cost_model.rb`, and the report
-prints them where they apply.
+**What the estimate is now for, since it no longer reports to anybody.** `rom.explain` is gone:
+what a frame costs is measured, by `rom.profile`, on a real run. What is left of the estimate
+feeds the two guardrails that warn at build time when a frame is growing past what fits
+(`draw_budget`, `budget_threshold`) — and those are next to go (gba-z0y8), which is what
+`cost:check` is still scoring in the meantime. A uniform scale error is harmless. One op wrong
+relative to another matters, because a wrong order sends a reader to the wrong line.
+
+**Tearing is measured, not estimated.** Whether a game CAN tear is a fact about the screen it
+chose, and the build report says it. Whether one that can DOES is a race down the screen the
+drawing can win even after overrunning, so `rom.profile` reads what happened
+(`RubyGBA::Tearing`) — except on a screen with no framebuffer to read it off, where it says
+nothing rather than reporting no tear.
 
 ## The two backends you assert against
 

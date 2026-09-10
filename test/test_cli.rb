@@ -74,12 +74,13 @@ class TestCLI < Minitest::Test
     end
   end
 
-  def test_explain_folds_in_a_measured_per_frame_cost
+  def test_profile_folds_in_what_the_build_made_and_what_it_cost
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)
-      out, status = cli("build", "demo.rb", "--explain", dir: dir)
+      out, status = cli("build", "demo.rb", "--profile", dir: dir)
       assert status.success?, out
-      assert_match(/measured ~.*of 228 scanlines/, out)
+      assert_match(/kept in quick memory/, out, "what the build made")
+      assert_match(/where your frames went/, out, "and what it cost when it ran")
     end
   end
 
@@ -101,25 +102,15 @@ class TestCLI < Minitest::Test
     end
   RUBY
 
-  def test_explain_measures_each_scene_by_booting_into_it
-    Dir.mktmpdir do |dir|
-      File.write(File.join(dir, "scened.rb"), SCENED)
-      out, status = cli("build", "scened.rb", "--explain", dir: dir)
-      assert status.success?, out
-      assert_match(/scene :title\s+measured/, out)
-      assert_match(/scene :play\s+measured/, out)
-    end
-  end
-
   # A game whose expensive state needs a particular combination can say so, instead of
   # relying on the sweep that holds one button at a time. Naming the buttons also asks
-  # for the report, so there is no --explain to remember.
+  # for the report, so there is no --profile to remember.
   def test_keys_holds_the_named_buttons_and_says_so
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "held.rb"), HELD)
       out, status = cli("build", "held.rb", "--keys", "left", "a", dir: dir)
       assert status.success?, out
-      assert_match(/while LEFT\+A are held/, out)
+      assert_match(/holding LEFT \+ A/, out)
     end
   end
 
@@ -151,12 +142,11 @@ class TestCLI < Minitest::Test
       File.write(File.join(dir, "scened.rb"), SCENED)
       out, status = cli("build", "scened.rb", "--scene", "play", dir: dir)
       assert status.success?, out
-      assert_match(/scene :play\s+measured/, out)
-      refute_match(/scene :title\s+measured/, out)
+      assert_match(/held in the :play scene/, out)
 
       bad, bad_status = cli("build", "scened.rb", "--scene", "nope", dir: dir)
       refute bad_status.success?, bad
-      assert_match(/no scene named nope/, bad)
+      assert_match(/no scene called/, bad)
     end
   end
 
@@ -201,85 +191,82 @@ class TestCLI < Minitest::Test
     end
   end
 
-  # `explain` is `build --explain` without the cartridge: same report, no .gba on disk.
-  def test_explain_appears_in_the_command_list
+  # `profile` is `build --profile` without the cartridge: same report, no .gba on disk.
+  def test_profile_appears_in_the_command_list
     out, status = cli("help", dir: Dir.tmpdir)
     assert status.success?, out
-    assert_match(/ruby-gba explain GAME_FILE/, out)
+    assert_match(/ruby-gba profile GAME_FILE/, out)
   end
 
-  def test_explain_prints_the_cost_report_without_building_a_cartridge
+  # ...and the command it replaced is gone rather than quietly still working, since the
+  # report it printed made claims this framework no longer makes.
+  def test_explain_is_no_longer_a_command
+    out, status = cli("explain", "demo.rb", dir: Dir.tmpdir)
+    refute status.success?
+    assert_match(/Could not find command "explain"/, out)
+  end
+
+  def test_profile_prints_the_report_without_building_a_cartridge
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)
-      out, status = cli("explain", "demo.rb", dir: dir)
+      out, status = cli("profile", "demo.rb", dir: dir)
       assert status.success?, out
-      assert_match(/per-frame cost/, out)
-      refute File.exist?(File.join(dir, "demo.gba")), "explain should not write a .gba"
+      assert_match(/where your frames went/, out)
+      refute File.exist?(File.join(dir, "demo.gba")), "profile should not write a .gba"
     end
   end
 
-  # `explain --format=json` prints the same facts as data, on stdout, as one document — the
+  # `profile --format=json` prints the same facts as data, on stdout, as one document — the
   # guardrails' prose goes to stderr so it cannot land in the middle of it.
-  def test_explain_format_json_prints_one_parseable_document
+  def test_profile_format_json_prints_one_parseable_document
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)
-      out, err, status = Open3.capture3(RbConfig.ruby, BIN, "explain", "demo.rb", "--format=json", chdir: dir)
+      out, err, status = Open3.capture3(RbConfig.ruby, BIN, "profile", "demo.rb", "--format=json", chdir: dir)
       assert status.success?, out + err
       data = JSON.parse(out)
-      assert_operator data["frame_cost"], :>, 0
-      refute_nil data["measured"], "the command always asks for the measurement"
+      assert_operator data["frames"], :>, 0
+      refute_nil data["quick_memory"], "what the build made rides along with what it cost"
       assert_kind_of Array, data["findings"]
     end
   end
 
-  def test_explain_rejects_an_unknown_format
+  def test_profile_rejects_an_unknown_format
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)
-      out, status = cli("explain", "demo.rb", "--format", "bogus", dir: dir)
+      out, status = cli("profile", "demo.rb", "--format", "bogus", dir: dir)
       refute status.success?
-      assert_match(/"bogus" is not an explain format/, out)
+      assert_match(/"bogus" is not a profile format/, out)
     end
   end
 
-  def test_explain_a_missing_game_file_is_a_friendly_error_not_a_backtrace
+  def test_profile_a_missing_game_file_is_a_friendly_error_not_a_backtrace
     Dir.mktmpdir do |dir|
-      out, status = cli("explain", "nope.rb", dir: dir)
+      out, status = cli("profile", "nope.rb", dir: dir)
       refute status.success?, "a missing file should fail"
       assert_match(/cannot find the game file/, out)
       refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
     end
   end
 
-  def test_explain_subcommand_measures_each_scene_by_booting_into_it
+  def test_profile_scene_holds_the_game_there_and_an_unknown_scene_is_friendly
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "scened.rb"), SCENED)
-      out, status = cli("explain", "scened.rb", dir: dir)
+      out, status = cli("profile", "scened.rb", "--scene", "play", dir: dir)
       assert status.success?, out
-      assert_match(/scene :title\s+measured/, out)
-      assert_match(/scene :play\s+measured/, out)
-    end
-  end
+      assert_match(/held in the :play scene/, out)
 
-  def test_explain_subcommand_scene_narrows_to_one_and_an_unknown_scene_is_friendly
-    Dir.mktmpdir do |dir|
-      File.write(File.join(dir, "scened.rb"), SCENED)
-      out, status = cli("explain", "scened.rb", "--scene", "play", dir: dir)
-      assert status.success?, out
-      assert_match(/scene :play\s+measured/, out)
-      refute_match(/scene :title\s+measured/, out)
-
-      bad, bad_status = cli("explain", "scened.rb", "--scene", "nope", dir: dir)
+      bad, bad_status = cli("profile", "scened.rb", "--scene", "nope", dir: dir)
       refute bad_status.success?, bad
-      assert_match(/no scene named nope/, bad)
+      assert_match(/no scene called/, bad)
     end
   end
 
-  def test_explain_subcommand_keys_holds_the_named_buttons_and_says_so
+  def test_profile_keys_holds_the_named_buttons_and_says_so
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "held.rb"), HELD)
-      out, status = cli("explain", "held.rb", "--keys", "left", "a", dir: dir)
+      out, status = cli("profile", "held.rb", "--keys", "left", "a", dir: dir)
       assert status.success?, out
-      assert_match(/while LEFT\+A are held/, out)
+      assert_match(/holding LEFT \+ A/, out)
     end
   end
 

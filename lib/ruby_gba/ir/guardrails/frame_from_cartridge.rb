@@ -55,7 +55,7 @@ module RubyGBA
               "large piece of code in the loop that seldom runs. To fix this, move that code into a " \
               "`func` of its own, and mark it `fast: false`. Then the loop is small enough to fit, and " \
               "the rare code runs from the cartridge only when it runs. To see what was kept in the " \
-              "#{PlainWords::QUICK_MEMORY} and what was not, call `rom.explain` on the built ROM."
+              "#{PlainWords::QUICK_MEMORY} and what was not, call `rom.profile` on the built ROM."
           end
 
           def kb(bytes) = format("%.1fK", bytes / 1024.0)

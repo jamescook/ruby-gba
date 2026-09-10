@@ -240,7 +240,7 @@ module RubyGBA
       def every(n, unit = :frames, &block)
         counter = timer_counter!(:every, n, unit, block)
         # Build a first-class `every` node: the tree keeps saying "every N frames"
-        # (which the cost model and rom.explain read directly), and each backend
+        # (which anything reading the tree reads directly), and each backend
         # turns it into the frame counter + compare. The counter itself is still
         # allocated and cleared at boot by timer_counter! above.
         push_container(Build.every(counter, to_frames(n, unit))) do

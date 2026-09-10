@@ -45,9 +45,118 @@ module RubyGBA
       printer = IR::Printer.for(out)
       program = built.source_program
 
+      stack_lines(program, printer)
       quick_memory_lines(built.placement, program, printer)
       glyph_lines(program, printer)
+      column_stretch_lines(built.column_stretches, printer)
       tearing_line(program, printer)
+    end
+
+    # WHICH SEE-THROUGH PICTURES SKIP THE ROWS THEY HAVE NOTHING IN, and which walk the lot.
+    #
+    # A picture drawn as a stretched column normally ships with a list, per column, of where
+    # that column holds pixels — so a lamp in a square of ceiling costs its lit rows and not
+    # its square. Two ceilings can stop that, and when one does the picture goes back to
+    # walking every row of every column it draws. Which of the two happened is a fact the
+    # build settled, and a picture can nearly always be made to fit, so the advice comes with
+    # it. Said only when one missed: a page listing pictures that are all fine teaches nothing.
+    def column_stretch_lines(stretches, printer)
+      decided = (stretches || {}).to_h
+      held_back = decided.reject { |_name, picture| picture.skips_empty_rows? }
+      return if held_back.empty?
+
+      printer.puts "  see-through pictures a stretched column draws:"
+      decided.each do |name, picture|
+        walks = picture.skips_empty_rows? ? "walks only the rows that hold pixels" : "walks every row"
+        printer.puts format("    %9s  :%s — %s", "#{picture.height} rows", name, walks)
+      end
+      held_back.each { |name, picture| printer.puts "    (#{stretch_advice(name, picture)})" }
+    end
+
+    # ...and what to do about the one that missed. Each ceiling has its own answer, and the
+    # answer is the point of the line.
+    def stretch_advice(name, picture)
+      missed = ":#{name} walks every row of every column it draws, and most of them draw nothing. "
+      rows = IR::Backends::GBA::RUNS_MAX_ROWS
+      case picture.held_back_by
+      when :too_tall
+        "#{missed}A picture more than #{rows} rows tall cannot ship where its columns hold " \
+          "pixels. Make it #{rows} rows or fewer."
+      else
+        "#{missed}Its columns hold pixels in too many separate places to ship. " \
+          "Use fewer columns, or draw it from more than one picture."
+      end
+    end
+
+    # WHAT EACH DECLARED LAYER TURNED OUT TO HOLD, and how deep the picture goes.
+    #
+    # A layer is a name an author writes; a LEVEL is what the console actually keeps, and it
+    # has only four of them. Several layers landing on one level is the normal, wanted answer
+    # rather than a compromise — so this shows the levels, with the layers that share each,
+    # and says how many are left.
+    #
+    # WHAT USED TO BE HERE AND IS NOT is a column of scanlines beside each layer, and the
+    # share of a frame they came to. Those were the estimate's. What a layer COSTS is a
+    # question about time, and `Profiler` answers it by routine, from a real run.
+    def stack_lines(program, printer)
+      picture = IR::Stacking.picture(program)
+      held_by = picture.stack.to_h { |layer| [layer, picture.in_layer(layer)] }
+      return if held_by.each_value.all?(&:empty?)
+
+      levels = IR::Backends::GBA::MAX_LEVELS
+      printer.puts "  the stack, back to front (the console keeps #{levels} levels):"
+      held_by.each do |layer, held|
+        next if held.empty?
+
+        printer.puts "    #{layer_level(picture, held).ljust(9)}:#{layer.to_s.ljust(12)}" \
+                     "#{layer_holds(picture, layer)}"
+      end
+      transparency_line(program, printer)
+      used = picture.depths.count
+      printer.puts "    #{used} of #{levels} levels used, #{levels - used} free"
+    end
+
+    # Which level a layer landed on. Nearly always one — a layer holding two backgrounds is
+    # the exception, since scenery is the one thing that has to have a level to itself.
+    def layer_level(picture, held)
+      at = held.map { |name| picture.depths[name] + 1 }.uniq.sort
+      at.length == 1 ? "level #{at.first}" : "levels #{at.first}-#{at.last}"
+    end
+
+    # What a layer turned out to hold. Backgrounds are named, because an author named them;
+    # sprites are counted, because their names are the framework's own.
+    def layer_holds(picture, layer)
+      scenery = picture.scenery.select { |node| node.layer == layer }.map { |node| "background :#{node.name}" }
+      sprites = picture.objects.count { |node| node.layer == layer }
+      scenery.push("#{sprites} sprite#{'s' if sprites > 1}") if sprites.positive?
+      scenery.join(", ")
+    end
+
+    # A see-through layer is worth saying on its own line, because the display blends as it
+    # draws — so seeing through a layer costs the same as drawing it solid. Without the line
+    # a reader has no way to tell a stack that blends from one that does not.
+    def transparency_line(program, printer)
+      node = program.each.find { |n| n.kind == :layers && n.transparent }
+      return unless node
+
+      fixed = Value.fixed_number(node.transparency)
+      if fixed
+        printer.puts "    :#{node.transparent} is #{fixed} see-through — " \
+                     "the display blends it as it draws, for nothing"
+      else
+        # The one arrangement where it is not free — and only half of it: the blending is
+        # still the display's, and it is the TELLING that costs.
+        printer.puts "    :#{node.transparent} is as see-through as the game works out — " \
+                     "the display blends it for nothing"
+        printer.puts "      ...and the amount is written to it on every frame"
+      end
+      return unless program.each.any? { |n| n.kind == :fade }
+
+      # The one thing a reader cannot see anywhere else. A fade uses the same blend unit, so
+      # it takes that "for nothing" away for as long as it runs — and the two verbs are
+      # usually written nowhere near each other.
+      printer.puts "      ...except while a fade runs, which takes the same blend: " \
+                   ":#{node.transparent} is solid until it lifts"
     end
 
     # WHAT THE BUILD KEPT IN THE QUICK MEMORY, with each routine's size beside it — size is the
@@ -75,8 +184,8 @@ module RubyGBA
     def chosen_from_line(placement)
       return "chosen from a measurement of a real run" if placement.chosen_from == :measurement
 
-      "chosen from the shape of the program — nothing has been measured. To choose from " \
-        "what this game really spends its frames on, build it with `RubyGBA.game`, which measures."
+      "chosen from the shape of the program — nothing was measured. To choose from what this " \
+        "game really spends its frames on, build it with `RubyGBA.game`, which measures."
     end
 
     def routine_size(placement, name)
@@ -144,6 +253,28 @@ module RubyGBA
 
       printer.puts "  tearing: this game draws straight into the picture the display is " \
                    "reading, so it can tear. Run it to see whether it does."
+    end
+
+    # THE SAME FACTS AS THE PROSE, as data — for something comparing two builds rather than
+    # reading one. Did the routine that just missed the quick memory now fit? That is the
+    # question a before-and-after asks, and nothing should have to match a sentence to ask it.
+    def as_json(rom)
+      placement = rom.built.placement
+      return { quick_memory: nil } if placement.nil?
+
+      { quick_memory: {
+        total_bytes: placement.used_bytes + placement.free_bytes,
+        used_bytes: placement.used_bytes,
+        free_bytes: placement.free_bytes,
+        chosen_from: placement.chosen_from.to_s,
+        kept: placement.funcs.map do |name|
+          { name: name.to_s, label: PlainWords.routine(name), bytes: placement.sizes[name] }
+        end,
+        passed_over: placement.passed_over.map do |over|
+          { name: over.name.to_s, label: PlainWords.routine(over.name),
+            bytes: over.bytes, room: over.room }
+        end
+      } }
     end
 
     def kb(bytes) = format("%.1fK", bytes / 1024.0)
