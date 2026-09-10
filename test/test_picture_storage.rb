@@ -353,6 +353,83 @@ class TestPictureStorage < Minitest::Test
     assert_equal 15, place.indices.fetch(FIFTEEN.first), "and a colour's number is where they put it"
   end
 
+  # BLACK IS A COLOUR SOMEBODY DRAWS WITH, and the see-through slot holds the same number.
+  #
+  # A list's first entry means see-through, and the number sitting in it is 0x0000 — which is
+  # also plain black, and a GBA sprite palette almost always has one, because that is what an
+  # outline is drawn in. So a picture's black pixels must take the slot the author PUT black
+  # in, never the see-through slot that happens to hold the same number. Given slot 0 they
+  # are not drawn at all, and the character comes out full of holes where his outline was.
+  BLACK = 0x0000
+
+  # Fourteen colours plus black, which is what a real imported sprite table looks like.
+  def fifteen_with_black = [*FIFTEEN.first(14), BLACK].freeze
+
+  def test_a_picture_that_draws_with_black_takes_the_slot_the_author_put_black_in
+    drawn = fifteen_with_black
+    banks = RubyGBA::IR::Backends::GBA::PaletteBanks.new(
+      [RubyGBA::IR::Backends::GBA::PaletteBanks::Picture.new(
+        key: :link, colors: drawn, authored: [BLACK, *drawn]
+      )]
+    )
+
+    place = banks.placement(:link)
+    assert_equal 15, place.indices.fetch(BLACK),
+                 "black was put last in the list, so that is the slot its pixels draw from"
+  end
+
+  # ...and every other colour of that same list still lands where it was put, so the fix
+  # cannot be "shift everything up by one".
+  def test_the_rest_of_a_list_holding_black_is_unmoved
+    drawn = fifteen_with_black
+    banks = RubyGBA::IR::Backends::GBA::PaletteBanks.new(
+      [RubyGBA::IR::Backends::GBA::PaletteBanks::Picture.new(
+        key: :link, colors: drawn, authored: [BLACK, *drawn]
+      )]
+    )
+
+    indices = banks.placement(:link).indices
+    drawn.each_with_index do |color, i|
+      assert_equal i + 1, indices.fetch(color), "colour #{i} of the list"
+    end
+  end
+
+  # ...and the whole way through, on the console, which is where this went wrong.
+  #
+  # The sprite is drawn over a BRIGHT background on purpose. Black pixels handed the
+  # see-through slot are simply not drawn, so they show whatever is behind them — over a
+  # black backdrop that looks identical to working and the test would pass while the
+  # cartridge was perforated.
+  def black_outline_program
+    drawn = fifteen_with_black
+    # A ring of black around a block of colour: an outline, which is where a sprite's black
+    # actually lives.
+    art = (0...256).map do |i|
+      x = i % 16
+      y = i / 16
+      edge = x.zero? || y.zero? || x == 15 || y == 15
+      edge ? BLACK : drawn[(x + y) % 14]
+    end
+
+    builder = Builder.new
+    listed = [:transparent, *drawn]
+    builder.instance_eval do
+      screen :tiled
+      image :bright, width: 8, height: 8, data: Array.new(64, RubyGBA::Color.rgb(31, 31, 31))
+      tiles :field, "#" => :bright
+      background :room, tiles: :field, map: Array.new(20) { "#" * 30 }
+      image :link, width: 16, height: 16, data: art, colors: listed
+      sprite :link, at: [40, 40]
+      game_loop {}
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_sprite_outlined_in_black_draws_that_outline_on_the_console
+    assert_backends_agree(black_outline_program, frames: 2)
+  end
+
   def test_a_picture_without_a_list_reserves_the_see_through_slot
     banks = RubyGBA::IR::Backends::GBA::PaletteBanks.new(
       [RubyGBA::IR::Backends::GBA::PaletteBanks::Picture.new(

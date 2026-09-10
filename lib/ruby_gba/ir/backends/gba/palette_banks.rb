@@ -224,10 +224,23 @@ module RubyGBA
           # An authored bank is the author's list as given, see-through slot included,
           # so a colour's number is where they put it. An automatic one reserves slot 0
           # and hands out 1 upward.
+          #
+          # SLOT 0 IS NEVER THE ANSWER for an authored bank, and skipping it is not a detail.
+          # The first entry of a list means see-through, and the number written there is
+          # 0x0000 — which is also plain black, a colour art really draws with, and the one a
+          # sprite's outline is nearly always drawn in. Matching a black pixel against the
+          # see-through slot hands it slot 0 and the hardware then draws nothing, so a
+          # character comes out full of holes where his outline was. The author's own black
+          # sits further along the list; that is the one to find.
           def slot_in(bank, color)
-            return bank[:colors].index(color) if bank[:fixed]
+            return drawable_slot(bank[:colors], color) if bank[:fixed]
 
             bank[:colors].index(color) + 1
+          end
+
+          # Where +color+ sits in an authored list, looking only at the slots that DRAW.
+          def drawable_slot(colors, color)
+            (1...colors.length).find { |slot| colors[slot] == color }
           end
 
           # The first whole group of sixteen above the wide colours. A game with no wide
