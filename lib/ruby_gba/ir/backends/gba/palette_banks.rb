@@ -43,6 +43,32 @@ module RubyGBA
         # sixteen. So the wide colours are packed from slot 1 up, and the banks are
         # handed out from the first whole group of sixteen above them. A game whose
         # pictures are all narrow puts nothing in the way and gets all sixteen banks.
+        #
+        # ---------------------------------------------------------------------------
+        # IF YOU ALREADY KNOW THIS CONSOLE, here is the same thing in its own words. The
+        # framework does not use them anywhere an author can see, because "four bits per
+        # pixel" is a fact about the Game Boy Advance and "this picture uses sixteen
+        # colours" is a fact about the picture — and only the second is something anybody
+        # writing a game should have to meet. But you came here looking for them, so:
+        #
+        #   narrow                    4bpp — 4 bits per pixel, a nibble, two pixels to a
+        #                             byte (the LEFT pixel in the LOW nibble)
+        #   wide                      8bpp — 8 bits per pixel, one byte each, the 256-colour
+        #                             mode everything here used before this class existed
+        #   bank                      palette bank — one of the 16 groups of 16 entries the
+        #                             palette is read in when a picture is 4bpp
+        #   which bank a picture uses OBJ: attr2 bits 12-15 (see OBJ_BANK_SHIFT).
+        #                             BG: bits 12-15 of each map entry, PER TILE (see
+        #                             BG_BANK_SHIFT), so one 4bpp layer can span many banks
+        #   which way it is read      OBJ: attr0 bit 13 (OBJ_256_COLOR).
+        #                             BG: BGxCNT bit 7 (BG_256_COLOR). Both set = wide
+        #   slot 0 is never drawn     index 0 is transparent in 4bpp, in every bank
+        #
+        # The bit depth is per SPRITE and per BG LAYER, never per tile — which is why a
+        # layer with one greedy tile goes wide as a whole, and why all of a sprite's poses
+        # share one setting. See #build_shared_object_palette and #bank_the_tiles in gba.rb
+        # for the two callers.
+        # ---------------------------------------------------------------------------
         class PaletteBanks
           BANKS = 16
           BANK_SIZE = 16
