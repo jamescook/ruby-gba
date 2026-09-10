@@ -510,7 +510,25 @@ module RubyGBA
         def video_memory_report
           return nil if @objects.empty? && @backgrounds.empty?
 
-          RubyGBA::VideoMemory.new(sprites: sprite_memory_report, tiles: tile_memory_report)
+          RubyGBA::VideoMemory.new(sprites: sprite_memory_report, tiles: tile_memory_report,
+                                   objects: object_count_report)
+        end
+
+        # What the sprites cost out of the 128 the console draws at once. Worth a line only
+        # where it is not simply one each: a picture too big for a single object is drawn as
+        # several, and a fade placed in the stack shadows a sprite with a window per object.
+        def object_count_report
+          return nil if @objects.empty?
+
+          big = @picture.objects.filter_map do |node|
+            pieces = @objects[node.name][:pieces]
+            [node.poses.first, pieces] if pieces > 1
+          end
+          twins = twin_object_count
+          return nil if big.empty? && twins.zero?
+
+          RubyGBA::VideoMemory::Objects.new(used: object_count(@picture.objects) + twins,
+                                            capacity: MAX_SPRITES, big: big, twins: twins)
         end
 
         def sprite_memory_report
@@ -1907,14 +1925,33 @@ module RubyGBA
         end
 
         # The picture sizes sprite hardware can draw, each mapped to the two shape/size
-        # numbers that describe it. A sprite's image must be one of these; anything
-        # else gets a friendly build error listing the choices. (The sizes fall out of
-        # how the hardware groups an object's 8x8 tiles into a rectangle.)
+        # numbers that describe it. (The sizes fall out of how the hardware groups an
+        # object's 8x8 tiles into a rectangle.) A picture that is NOT one of these is
+        # drawn as several objects at once — see #object_pose_pieces.
         OBJ_SIZES = {
           [8, 8] => [0, 0],  [16, 16] => [0, 1], [32, 32] => [0, 2], [64, 64] => [0, 3],
           [16, 8] => [1, 0], [32, 8] => [1, 1],  [32, 16] => [1, 2], [64, 32] => [1, 3],
           [8, 16] => [2, 0], [8, 32] => [2, 1],  [16, 32] => [2, 2], [32, 64] => [2, 3],
         }.freeze
+
+        # The largest object the console has: not one of the twelve draws more than this
+        # many pixels a side.
+        OBJ_MAX_SIDE = 64
+
+        # The largest picture the framework will cut up into objects. The ceiling is the
+        # pose table's own: it says where each piece sits inside the picture as a whole
+        # byte each way, so a bigger picture has corners it could not name.
+        MAX_OBJECT_CANVAS = 256
+
+        # The most objects one sprite is cut into. Cutting more finely drops more blank and
+        # so costs less picture memory, but every piece spends one of the 128 places the
+        # console draws from — and on a large sparse picture the saving alone would happily
+        # take twenty of them.
+        #
+        # The COARSEST cover always fits under this, which is what makes it a preference
+        # rather than a wall: the largest picture is MAX_OBJECT_CANVAS square and the
+        # largest object OBJ_MAX_SIDE square, so a cover of those never comes to more.
+        MAX_OBJECT_PIECES = (MAX_OBJECT_CANVAS / OBJ_MAX_SIDE)**2
 
         # attr0 bit 13 (8bpp): this sprite's pixels are whole bytes, so it reads across the
         # console's whole 256-color sprite table. Left clear (4bpp) a pixel is half a byte
@@ -1982,15 +2019,25 @@ module RubyGBA
             raise LoweringError,
                   "#{nodes.size} sprites declared, but the console draws at most #{MAX_SPRITES} at once"
           end
-          guard_window_twins_fit(nodes)
           build_shared_object_palette(nodes)
+          # HOW MANY OBJECTS EACH SPRITE IS BUILT FROM, before any of them is given a
+          # place: a picture the console can draw in one go is one object, and a bigger
+          # one is several (see #object_pose_pieces), so the places are handed out in runs
+          # rather than one apiece.
+          @obj_plans = nodes.to_h { |node| [node.name, plan_one_object(node)] }
+          guard_objects_fit(nodes)
+          guard_window_twins_fit(nodes)
 
           # The window twins take the front slots and every real sprite moves back by as
           # many, which changes nothing about what is in front of what (a twin paints
           # nothing, and the sprites keep their order among themselves). It has to be
           # this way round: a twin only holds the effect off a sprite that is BEHIND it.
-          front = @window_twins.size
-          slot_of = nodes.each_with_index.to_h { |node, index| [node.name, front + nodes.size - 1 - index] }
+          front = place_window_twins
+          slot_of = {}
+          nodes.reverse_each do |node| # last declared is in front, so it takes the front slots
+            slot_of[node.name] = front
+            front += @obj_plans.fetch(node.name)[:pieces]
+          end
           @obj_art = ObjectArt.new(@emit)
           @scene_art = {}
 
@@ -2242,14 +2289,59 @@ module RubyGBA
         end
 
         def guard_window_twins_fit(nodes)
-          total = nodes.size + @window_twins.size
+          spent = object_count(nodes)
+          total = spent + twin_object_count
           return if total <= MAX_SPRITES
 
           raise LoweringError,
                 "#{@window_twins.size} sprites are kept out of a fade, and each one needs a second " \
                 "slot in the sprite table to hold the fade off it. That is #{total} slots with the " \
-                "#{nodes.size} sprites themselves, and the console draws #{MAX_SPRITES} at once. " \
+                "#{spent} sprites themselves, and the console draws #{MAX_SPRITES} at once. " \
                 "To fix this, keep fewer sprites out of the fade, or use fewer sprites."
+        end
+
+        # How many of the console's 128 places the sprites take between them. Usually one
+        # each; a sprite whose picture is bigger than one object takes one per piece.
+        def object_count(nodes) = nodes.sum { |node| @obj_plans.fetch(node.name)[:pieces] }
+
+        def twin_object_count
+          @window_twins.keys.sum { |name| @obj_plans.fetch(name)[:pieces] }
+        end
+
+        # The twins take the front places, each one a run as long as the sprite it shadows
+        # — a twin has to hold exactly the shape the sprite holds, so a sprite drawn as
+        # four objects needs four windows. Returns where the real sprites start.
+        def place_window_twins
+          front = 0
+          @window_twins.each do |name, twin|
+            twin[:slot] = front
+            front += @obj_plans.fetch(name)[:pieces]
+          end
+          front
+        end
+
+        # Out of places in the console's sprite table. A game whose sprites are one object
+        # each gets the plain count; one with a picture too big for a single object gets
+        # told which sprites are spending several, since that is the part nobody wrote.
+        def guard_objects_fit(nodes)
+          spent = object_count(nodes)
+          return if spent <= MAX_SPRITES
+
+          raise LoweringError,
+                "This game needs #{spent} sprites at once. The console draws #{MAX_SPRITES} at most." \
+                "#{big_sprites_sentence(nodes)}"
+        end
+
+        # Which sprites are drawn as more than one object, said in the author's own names
+        # — the pictures, since a sprite's own name is the framework's.
+        def big_sprites_sentence(nodes)
+          big = nodes.select { |node| @obj_plans.fetch(node.name)[:pieces] > 1 }
+          return " To fix this, use fewer sprites." if big.empty?
+
+          named = big.map { |node| ":#{node.poses.first} (#{@obj_plans.fetch(node.name)[:pieces]} each)" }
+          " A picture bigger than #{OBJ_MAX_SIDE}x#{OBJ_MAX_SIDE} is drawn as several sprites at once. " \
+            "These pictures spend more than one: #{named.uniq.join(', ')}. To fix this, draw them " \
+            "smaller, or use fewer sprites."
         end
 
         # Which layers a fade blends, as the blend register's target bits. With no layer
@@ -2354,23 +2446,13 @@ module RubyGBA
             "are #{named}. Draw them from fewer colors, or use fewer sprites at once."
         end
 
-        def prepare_one_object(node, slot)
-          name = node.name
-          poses = node.poses
-          width, height = object_pose_size!(name, poses)
-          # The canvas the author drew on has to be a size the console has, whatever the
-          # poses trim to — that is the picture they wrote, and the message is about that.
-          OBJ_SIZES.fetch([width, height]) do
-            raise LoweringError,
-                  "a sprite in screen :tiled must be one of these sizes: " \
-                  "#{OBJ_SIZES.keys.map { |w, h| "#{w}x#{h}" }.join(', ')} — sprite #{name.inspect} is " \
-                  "#{width}x#{height}. Resize it (sprite pictures are built from 8x8 tiles)."
-          end
-
-          # EACH POSE IS STORED AT ITS OWN SIZE, trimmed to what it actually draws (see
-          # #object_pose_box) rather than at the canvas they were all drawn on — and a pose
-          # that is another one MIRRORED is not stored at all (see #object_pose_mirrors).
-          place = @obj_banks.placement(name)
+        # EVERYTHING ABOUT A SPRITE'S POSES THAT DOES NOT DEPEND ON MEMORY: which poses are
+        # another pose mirrored, and the boxes each pose is drawn from. Worked out before
+        # any sprite is given a place in the console's table, because a picture too big for
+        # one object is drawn as SEVERAL and each of them takes a place of its own.
+        def plan_one_object(node)
+          width, height = object_pose_size!(node.name, node.poses)
+          guard_object_canvas!(node, width, height)
           # A SPRITE THAT TURNS OR RESIZES IS NEITHER TRIMMED NOR MIRRORED, and that is
           # about being right rather than about being easy. The console spins an object
           # about the middle of its own box, so trimming the blank away would move the
@@ -2378,31 +2460,97 @@ module RubyGBA
           # it to; and the two attribute bits that mirror an object are the ones that name
           # the rotation group once it is turning, so there are none left to mirror with.
           plain = !object_transformed?(node)
-          mirrors = plain ? object_pose_mirrors(poses) : Array.new(poses.length)
-          boxes = poses.each_with_index.each_with_object([]) do |(image, k), found|
-            found << if !plain
-                       [0, 0, width, height]
-                     elsif mirrors[k]
-                       mirrored_pose_box(found[mirrors[k]], width)
-                     else
-                       object_pose_box(@bitmaps.fetch(image))
-                     end
+          # EACH POSE IS STORED AT ITS OWN SIZE, trimmed to what it actually draws (see
+          # #object_pose_pieces) rather than at the canvas they were all drawn on.
+          boxes = node.poses.map do |image|
+            plain ? object_pose_pieces(@bitmaps.fetch(image)) : [[0, 0, width, height]]
           end
+          mirrors = plain ? object_pose_mirrors(node.poses) : Array.new(node.poses.length)
+          mirrors = reflect_mirrored_poses(mirrors, boxes, width)
+          { width: width, height: height, mirrors: mirrors, boxes: boxes,
+            pieces: boxes.map(&:size).max }
+        end
+
+        # A POSE THAT IS ANOTHER ONE MIRRORED IS NOT STORED AT ALL: it is drawn from the
+        # source's tiles, reversed, so its boxes are the source's reflected in the canvas.
+        #
+        # Unless one of them would land at a NEGATIVE offset, and then this pose keeps its
+        # own pixels after all. That happens where a box is bigger than the picture it came
+        # from — a 24x24 picture stored as one 32x32 object overhangs by eight, and its
+        # reflection would have to be drawn eight pixels to the left of the canvas, which
+        # the pose table has no way to say. Rare, and costs only the memory the sharing
+        # would have saved.
+        def reflect_mirrored_poses(mirrors, boxes, width)
+          mirrors.each_with_index.map do |source, k|
+            next nil if source.nil?
+
+            reflected = boxes[source].map { |box| mirrored_pose_box(box, width) }
+            next nil if reflected.any? { |(x0, _y0, _w, _h)| x0.negative? }
+
+            boxes[k] = reflected
+            source
+          end
+        end
+
+        # THE PICTURE THE AUTHOR DREW HAS TO BE MADE OF WHOLE TILES, and small enough that
+        # the pose table can say where each of its pieces sits. Everything between those
+        # two the framework cuts up for itself, so this is the whole of what it refuses.
+        # The message names the PICTURE rather than the sprite, since a sprite's own name
+        # is the framework's and the author named the art.
+        def guard_object_canvas!(node, width, height)
+          art = node.poses.first
+          if width % TILE_PX != 0 || height % TILE_PX != 0
+            raise LoweringError,
+                  "A sprite in screen :tiled is built from #{TILE_PX}x#{TILE_PX} tiles. So its picture " \
+                  "must be a multiple of #{TILE_PX} pixels each way. The picture :#{art} is " \
+                  "#{width}x#{height}. To fix this, resize it."
+          end
+          if width > MAX_OBJECT_CANVAS || height > MAX_OBJECT_CANVAS
+            raise LoweringError,
+                  "A sprite in screen :tiled can be #{MAX_OBJECT_CANVAS} pixels each way at most. " \
+                  "The picture :#{art} is #{width}x#{height}. To fix this, draw it smaller, or build " \
+                  "this part of the picture from a background instead."
+          end
+          return if !object_transformed?(node) || OBJ_SIZES.key?([width, height])
+
+          raise LoweringError,
+                "A sprite that turns or changes size must be one of these sizes: " \
+                "#{OBJ_SIZES.keys.map { |w, h| "#{w}x#{h}" }.join(', ')}. The picture :#{art} is " \
+                "#{width}x#{height}. A picture that size is drawn as several sprites at once. The console " \
+                "turns each sprite about its own middle, so the picture will come apart. To fix this, draw " \
+                "it at one of the sizes above, or do not turn or resize it."
+        end
+
+        def prepare_one_object(node, slot)
+          name = node.name
+          poses = node.poses
+          plan = @obj_plans.fetch(name)
+          width = plan[:width]
+          height = plan[:height]
+          mirrors = plan[:mirrors]
+          boxes = plan[:boxes]
+          pieces = plan[:pieces]
+          place = @obj_banks.placement(name)
           # Where each pose's tiles begin, in the 32-byte units a tile number counts in —
           # taken from the bytes already written rather than from a tile count, since a
-          # picture stored the big way is two units to the tile. A mirrored pose adds
-          # nothing and points back at the pose it mirrors.
+          # picture stored the big way is two units to the tile. One number per piece, and
+          # a mirrored pose adds nothing and points back at the pose it mirrors.
           tiles = +"".b
           starts = []
           poses.each_with_index do |image, k|
             if mirrors[k]
-              starts << starts[mirrors[k]] # point it at the pose it mirrors and store nothing
+              starts << starts[mirrors[k]].dup # point it at the pose it mirrors and store nothing
               next
             end
-            starts << tiles.bytesize / 32
-            tiles << encode_object_tiles(@bitmaps.fetch(image), place, boxes[k])
+            bmp = @bitmaps.fetch(image)
+            starts << boxes[k].map do |box|
+              at = tiles.bytesize / 32
+              tiles << encode_object_tiles(bmp, place, box)
+              at
+            end
           end
-          alike = boxes.uniq.size == 1 && mirrors.none?
+          pad_object_pieces(boxes, starts, tiles, place, pieces)
+          alike = pieces == 1 && boxes.map(&:first).uniq.size == 1 && mirrors.none?
           # The stride from one pose's tiles to the next, which means anything only when
           # the poses are alike — and then every one is the same number of units, so it is
           # simply what one pose came to.
@@ -2411,14 +2559,16 @@ module RubyGBA
           # Poses that trimmed alike carry their one size in the sprite's own entry. Poses
           # that differ carry NOTHING here — the size and shape come out of the table with
           # the rest of what changes, so these bases must not also hold the canvas's.
-          shape, size = alike ? OBJ_SIZES.fetch(boxes.first.last(2)) : [0, 0]
+          shape, size = alike ? OBJ_SIZES.fetch(boxes.first.first.last(2)) : [0, 0]
           @objects[name] = {
             slot: slot,
+            pieces: pieces, # how many of the console's 128 places this one sprite takes
             tiles: tile_blob, tile_units: tiles.bytesize / 32, # sprite memory counts in 32-byte units
             scene: node.scene, # sent when that scene takes over, rather than at boot
             tile_index: tile_unit, # this sprite's base tile number
             per_pose: per_pose,    # stride to the next pose's tiles
             pose: node.pose,     # the run-time pose selector (which pose to show)
+            pose_count: poses.length, # how long one piece's row of the pose table is
             # Every pose trimmed the same way is the ordinary case — a walk cycle drawn
             # inside one outline — and it keeps the plain draw: one size in the sprite's
             # own entry, one stride between poses. Poses that came out DIFFERENT sizes, or
@@ -2427,11 +2577,11 @@ module RubyGBA
             alike: alike,
             mirrors: mirrors, # which poses are drawn backwards, so the draw knows to say so
             pose_table: alike ? nil : :"__poses_#{name}",
-            pose_words: alike ? nil : object_pose_table(name, boxes, starts, mirrors, tile_unit),
+            pose_words: alike ? nil : object_pose_table(name, boxes, starts, mirrors, tile_unit, pieces),
             # Where the first pose sits inside the canvas it was drawn on. The sprite is
             # drawn that much further along so the picture does not move; for poses that
             # differ it comes out of the table instead.
-            offset_x: boxes.first[0], offset_y: boxes.first[1],
+            offset_x: boxes.first.first[0], offset_y: boxes.first.first[1],
             width: width, height: height,
             x: node.x, y: node.y, active: node.active, # the live position/visibility operands
             angle: node.angle,   # the rotation operand (a constant 0 unless the sprite turns)
@@ -2464,18 +2614,27 @@ module RubyGBA
         # shifting, against storing every pose at the biggest one's size and every mirror
         # a second time.
         #
-        #   bits  0..9   the pose's first tile
+        #   bits  0..9   the piece's first tile
         #        10..11  shape          12..13  size
         #        14..21  how far right   22..29  how far down (both a whole number of tiles)
         #           30   draw it mirrored
+        #
+        # ONE WORD PER PIECE PER POSE, laid out PIECE FIRST: a picture too big for one
+        # object is drawn as several, and each of them reads its own row of this. Piece
+        # first is what keeps the read cheap — the game's pose number is scaled by four and
+        # the piece's row is a constant the build already knows, so a piece costs the same
+        # one read whether it is the first or the fourth.
         POSE_MIRRORED = 1 << 30
 
-        def object_pose_table(name, boxes, starts, mirrors, tile_unit)
+        def object_pose_table(name, boxes, starts, mirrors, tile_unit, pieces)
           blob = :"__poses_#{name}"
-          words = boxes.each_with_index.map do |(x0, y0, w, h), k|
-            shape, size = OBJ_SIZES.fetch([w, h])
-            (tile_unit + starts[k]) | (shape << 10) | (size << 12) | (x0 << 14) | (y0 << 22) |
-              (mirrors[k] ? POSE_MIRRORED : 0)
+          words = (0...pieces).flat_map do |piece|
+            boxes.each_with_index.map do |list, k|
+              x0, y0, w, h = list[piece]
+              shape, size = OBJ_SIZES.fetch([w, h])
+              (tile_unit + starts[k][piece]) | (shape << 10) | (size << 12) | (x0 << 14) | (y0 << 22) |
+                (mirrors[k] ? POSE_MIRRORED : 0)
+            end
           end
           @emit.data_blobs[blob] = words.pack("V*")
           # Kept unpacked: the draw reads one word straight out of the middle of this,
@@ -2484,6 +2643,27 @@ module RubyGBA
           plain_blob!(blob)
           words
         end
+
+        # A POSE THAT DRAWS LESS THAN ANOTHER HAS FEWER PIECES TO DRAW IT WITH, and the
+        # frame must not have to test how many. So the short poses are filled out with a
+        # piece that draws NOTHING: one blank tile the whole sprite shares, sitting in the
+        # table like any other piece and composited by the console as nothing at all. That
+        # costs one tile of picture memory once, against a test on every piece of every
+        # frame — and it means the draw is the same code for every piece.
+        def pad_object_pieces(boxes, starts, tiles, place, pieces)
+          return unless boxes.any? { |list| list.size < pieces }
+
+          blank = tiles.bytesize / 32
+          tiles << ("\0" * (place.narrow? ? 32 : 64)).b
+          boxes.each_with_index do |list, k|
+            (pieces - list.size).times do
+              list << BLANK_PIECE
+              starts[k] << blank
+            end
+          end
+        end
+
+        BLANK_PIECE = [0, 0, TILE_PX, TILE_PX].freeze
 
         # WHICH POSES ARE ANOTHER POSE MIRRORED, so they can be stored once.
         #
@@ -2519,6 +2699,101 @@ module RubyGBA
         # it reverses the source's box, so this is the window those tiles land in.
         def mirrored_pose_box((x0, y0, w, h), width)
           [width - x0 - w, y0, w, h]
+        end
+
+        # WHAT ONE POSE DRAWS, as boxes the console can hold — one for a picture that is
+        # already a size it has, SEVERAL for one that is not.
+        #
+        # The console's largest object is 64x64, and it draws only twelve rectangles. That
+        # used to be the ceiling on a sprite: a boss, a vehicle, a title-screen character
+        # had to be hand-assembled out of several sprite handles the game then moved in
+        # step, which is real bookkeeping to ask of an author and easy to get subtly wrong.
+        # Nothing about the hardware requires that, though — several objects standing
+        # shoulder to shoulder look exactly like one big one — so the framework cuts the
+        # picture up and moves the pieces itself, and the author writes one sprite.
+        #
+        # The cut also pays for itself in memory, because a piece that draws NOTHING is not
+        # stored at all. A character is a ragged shape in a rectangular canvas, so the
+        # corners of that canvas are usually empty — and an object reads a contiguous run
+        # of tiles, so a single big box has to keep every blank one.
+        #
+        # A PICTURE THE CONSOLE CAN ALREADY DRAW IS LEFT ALONE, and that is a promise
+        # rather than a shortcut. Cutting one of those up would sometimes pay in memory,
+        # but a pose that came out as several pieces puts the WHOLE sprite on the per-pose
+        # word — so one sparse pose could quietly make every other pose dearer to draw.
+        # Measured on every example in the repo, letting the search have them changed
+        # nothing at all, so the promise costs nothing to keep.
+        def object_pose_pieces(bmp)
+          return [object_pose_box(bmp)] if OBJ_SIZES.key?([bmp.width, bmp.height])
+
+          left, top, right, bottom = drawn_extent(bmp)
+          return [[0, 0, *OBJ_SIZES.keys.min_by { |w, h| w * h }]] if left.nil?
+
+          x0 = (left / TILE_PX) * TILE_PX
+          y0 = (top / TILE_PX) * TILE_PX
+          best_object_grid(bmp, x0, y0, right - x0 + 1, bottom - y0 + 1)
+        end
+
+        # The cheapest cover: each of the twelve sizes tried as the cell, laid over what the
+        # pose draws, with the cells that draw nothing dropped — and the winner judged on
+        # its tiles PLUS what its objects are worth (see TILES_PER_OBJECT), so a finer cut
+        # is taken only when the blank it drops pays for the places it spends.
+        #
+        # Trying all twelve rather than reaching for the biggest is what makes the memory
+        # come out right: 64x64 cells over a 96x96 picture is four objects and 256 tiles,
+        # where 32x32 cells is nine and 144 — and fewer still once the empty ones go.
+        def best_object_grid(bmp, x0, y0, w, h)
+          covers = OBJ_SIZES.keys.map do |cw, ch|
+            cells = object_grid_cells(bmp, x0, y0, w, h, cw, ch)
+            [cells.size * (cw / TILE_PX) * (ch / TILE_PX), cells.size, cells]
+          end
+          # A cover of the coarsest cells is always under the ceiling (see
+          # MAX_OBJECT_PIECES), so there is always something left to choose from.
+          covers.reject { |_tiles, count, _cells| count > MAX_OBJECT_PIECES }
+                .min_by { |tiles, count, _cells| [tiles + (count * TILES_PER_OBJECT), count] }
+                .last
+        end
+
+        # What one of the console's 128 places is worth, in tiles, and so how fine a cut is
+        # worth making. The console holds about a thousand tiles stored the small way and
+        # draws 128 objects at once, so a place and eight tiles are about the same share of
+        # what there is. Without a number here the search spends places freely: a vehicle
+        # came out as twelve objects to save a kilobyte, which is a bad trade twice over,
+        # since every piece also costs its own writes into the sprite table each frame.
+        TILES_PER_OBJECT = 8
+
+        # The cells of one grid that draw something. The grid starts at the corner of what
+        # the pose draws, and a cell that would hang past the far edge is PULLED BACK onto
+        # the canvas — so two cells can overlap, which costs nothing to look at, since both
+        # hold the picture's own pixels there.
+        #
+        # A cell BIGGER than the whole canvas needs no special case: every one of them is
+        # pulled back to the corner, so they all land in the same place and the grid
+        # collapses to the single object that covers the picture. That is how a 24x24
+        # picture — a size the console does not have — comes out as one 32x32 object.
+        def object_grid_cells(bmp, x0, y0, w, h, cw, ch)
+          cells = []
+          (0...h).step(ch) do |dy|
+            cy = [y0 + dy, [bmp.height - ch, 0].max].min
+            (0...w).step(cw) do |dx|
+              cx = [x0 + dx, [bmp.width - cw, 0].max].min
+              cells << [cx, cy, cw, ch] if region_draws?(bmp, cx, cy, cw, ch)
+            end
+          end
+          cells.uniq # pulling two cells back can land them in the same place
+        end
+
+        # Does any pixel of this part of the picture draw anything?
+        def region_draws?(bmp, x0, y0, w, h)
+          transparent = bmp.transparent
+          pixels = bmp.pixels
+          (y0...[y0 + h, bmp.height].min).any? do |y|
+            (x0...[x0 + w, bmp.width].min).any? do |x|
+              i = (y * bmp.width) + x
+              color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
+              transparent.nil? || color != transparent
+            end
+          end
         end
 
         # WHAT ONE POSE ACTUALLY DRAWS, as a box the console can hold: [x0, y0, w, h],
@@ -2609,12 +2884,13 @@ module RubyGBA
         def encode_object_tiles(bmp, placement, box = nil)
           pixels = bmp.pixels
           width = bmp.width
+          height = bmp.height
           transparent = bmp.transparent
           indices = placement.indices
           bytes = (+"").b
           # The part of the picture this pose is stored from — its whole self unless it
-          # was trimmed to what it draws (see #object_pose_box).
-          box_x, box_y, box_w, box_h = box || [0, 0, width, bmp.height]
+          # was trimmed to what it draws (see #object_pose_pieces).
+          box_x, box_y, box_w, box_h = box || [0, 0, width, height]
           (box_h / TILE_PX).times do |tile_row|
             (box_w / TILE_PX).times do |tile_col|
               TILE_PX.times do |row|
@@ -2622,9 +2898,15 @@ module RubyGBA
                 TILE_PX.times do |col|
                   y = box_y + (tile_row * TILE_PX) + row
                   x = box_x + (tile_col * TILE_PX) + col
-                  i = (y * width) + x
-                  color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
-                  index = transparent && color == transparent ? 0 : indices.fetch(color & 0x7FFF)
+                  # A piece of a cut-up picture can hang past the canvas's edge (see
+                  # #object_grid_cells); what is out there draws nothing.
+                  index = if x >= width || y >= height
+                            0
+                          else
+                            i = (y * width) + x
+                            color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
+                            transparent && color == transparent ? 0 : indices.fetch(color & 0x7FFF)
+                          end
                   next bytes << index.chr unless placement.narrow?
 
                   if pending.nil?

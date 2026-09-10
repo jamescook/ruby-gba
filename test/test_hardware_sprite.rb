@@ -78,15 +78,19 @@ class TestHardwareSprite < Minitest::Test
   # --- friendly guardrails ---
   # (facing/poses now work in tiled mode — see test_hardware_sprite_facing.rb)
 
-  def test_a_non_tile_sized_sprite_is_a_friendly_error
+  # A picture that is not a whole number of tiles cannot be a sprite at all — a size
+  # bigger than the console's largest object is fine (it is drawn as several), but a
+  # ragged one has pixels no tile holds.
+  def test_a_sprite_that_is_not_whole_tiles_is_a_friendly_error
     b = Builder.new
     b.instance_eval do
       screen :tiled
-      image(:blob, "#" => :red) { "#####\n#####\n#####" } # 5x3 — not a sprite size
+      image(:blob, "#" => :red) { "#####\n#####\n#####" } # 5x3 — not whole tiles
       sprite :blob, at: [0, 0]
     end
     b.emit_pending_functions
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(b.program) }
-    assert_match(/sizes/, err.message)
+    assert_match(/8x8 tiles/, err.message)
+    assert_match(/:blob is 5x3/, err.message)
   end
 end
