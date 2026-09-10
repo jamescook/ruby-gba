@@ -89,6 +89,147 @@ class TestPictureStorage < Minitest::Test
     RubyGBA::IR::Backends::GBA::CHAR_BLOCK_BYTES / (tiles.used - 64)
   end
 
+  # --- two sprites showing the same pictures store them once ---
+
+  # Nothing in a program says these two show the same art, and nothing has to: a game with
+  # twenty enemies all walking the same walk used to store that walk twenty times, and a POOL
+  # is that said in one line, since each of its slots is a sprite of its own.
+  def test_two_sprites_showing_the_same_picture_store_it_once
+    art = striped(FIFTEEN)
+    rom = build("SHARE") do
+      screen :tiled
+      image :ship, width: 16, height: 16, data: art
+      sprite :ship, at: [20, 20]
+      sprite :ship, at: [60, 20]
+      sprite :ship, at: [100, 20]
+      game_loop {}
+    end
+
+    sprites = rom.built.video_memory.sprites
+    assert_equal 128, sprites.used, "one 16x16 picture, not three"
+    assert_equal 2, sprites.shared, "and two of the three found it already there"
+  end
+
+  def test_sprites_showing_different_pictures_are_not_shared
+    left = striped(FIFTEEN)
+    right = striped(FIFTEEN.reverse)
+    rom = build("DIFF") do
+      screen :tiled
+      image :a, width: 16, height: 16, data: left
+      image :b, width: 16, height: 16, data: right
+      sprite :a, at: [20, 20]
+      sprite :b, at: [60, 20]
+      game_loop {}
+    end
+
+    assert_equal 256, rom.built.video_memory.sprites.used, "two pictures, two places"
+    assert_equal 0, rom.built.video_memory.sprites.shared
+  end
+
+  # --- a scene's art is what is in memory while it runs ---
+
+  # The acceptance that decides whether a game with hundreds of rooms can be written at all: a
+  # sprite declared inside a scene is on screen only while that scene is the active state, so
+  # no two scenes' pictures are wanted at once and they can share the room.
+  def scene_art_program(pictures_each, size: 16)
+    builder = Builder.new
+    per_scene = pictures_each
+    builder.instance_eval do
+      screen :tiled
+      shades = (1..15).map { |c| RubyGBA::Color.rgb(c, 0, 0) }
+      (per_scene * 2).times do |i|
+        # Every picture different, so none is shared away — the run number spelled out in
+        # the first four pixels, fifteen shades to a digit. Only fifteen colours in all of
+        # them, so the colour table is not what gives way.
+        pixels = Array.new(size * size) { shades[0] }
+        4.times { |digit| pixels[digit] = shades[(i / (15**digit)) % 15] }
+        image :"art#{i}", width: size, height: size, data: pixels
+      end
+      state = var :state, 0
+      scene(:one) { per_scene.times { |i| sprite :"art#{i}", at: [8 * i, 20] } }
+      scene(:two) { per_scene.times { |i| sprite :"art#{per_scene + i}", at: [8 * i, 60] } }
+      game_loop do
+        case_var(:state) do
+          when_val 0, :one
+          when_val 1, :two
+        end
+        state.set 0
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  # The number, said plainly: eight pictures over two scenes take what four do, because only
+  # one scene's are needed at a time.
+  def test_a_scenes_pictures_cost_one_scenes_worth
+    one = built_sprite_bytes(scene_art_program(1))
+    four = built_sprite_bytes(scene_art_program(4))
+
+    assert_equal 128, one, "one 16x16 picture per scene, and the two scenes share the room"
+    assert_equal 4 * 128, four, "four each, still one scene's worth"
+  end
+
+  def built_sprite_bytes(program)
+    backend = GBA.new
+    backend.lower(program)
+    backend.build_record(program).video_memory.sprites.used
+  end
+
+  # And the point of it: art that would not fit at all still builds, so long as no one scene's
+  # does. A 64x64 picture stored small is 2K, so twelve is 24K a scene — and 48K over the two,
+  # which is half again what the console holds.
+  def test_more_art_than_the_console_holds_builds_when_no_scene_has_too_much
+    bytes = built_sprite_bytes(scene_art_program(12, size: 64))
+    assert_equal 12 * 2048, bytes, "one scene's worth"
+    assert_operator 24 * 2048, :>, 32 * 1024, "...where both scenes' would not have fitted"
+  end
+
+  # THE ONE THAT PROVES IT ON THE CONSOLE. Two scenes whose sprites sit at the same place in
+  # sprite memory, and the game changes from one to the other — so the second scene's pictures
+  # have to be sent when it takes over, over the first's. A build that sent them at boot would
+  # show the wrong picture here, and only after the change.
+  def two_screens_program(switch_at)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image(:red_thing, "#" => :red) { (["########"] * 8).join("\n") }
+      image(:blue_thing, "#" => :blue) { (["########"] * 8).join("\n") }
+      state = var :state, 0
+      frames = var :frames, 0
+      scene(:first) { sprite :red_thing, at: [40, 40] }
+      scene(:second) { sprite :blue_thing, at: [40, 40] }
+      game_loop do
+        frames.add 1
+        (frames >= switch_at).then { state.set 1 }
+        case_var(:state) do
+          when_val 0, :first
+          when_val 1, :second
+        end
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_the_second_screens_picture_appears_after_the_change
+    before = Reference.new.run(two_screens_program(99), frames: 3).screen
+    after = Reference.new.run(two_screens_program(2), frames: 5).screen
+
+    assert_equal Color.resolve(:red), before.pixel(44, 44), "the first screen's picture"
+    assert_equal Color.resolve(:blue), after.pixel(44, 44), "and the second's, after the change"
+  end
+
+  def test_both_backends_agree_after_a_scene_change
+    assert_backends_agree(two_screens_program(2), frames: 6)
+  end
+
+  def test_one_scene_with_too_much_art_is_a_friendly_error
+    error = assert_raises(GBA::LoweringError) { GBA.new.lower(scene_art_program(20, size: 64)) }
+    assert_match(/one scene/, error.message, "it says only one scene's are needed at a time")
+    assert_match(/:one|:two/, error.message, "and names the fullest")
+  end
+
   # --- the thing that must not change: the pixels ---
 
   # The acceptance that matters. Two pictures with sixteen colours each, sharing none, drawn

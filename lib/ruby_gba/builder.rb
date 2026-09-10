@@ -636,6 +636,11 @@ module RubyGBA
     # both its own shown-flag is set AND its scene is the active one. Rides the object's
     # existing per-frame `active` value, so presentation stays automatic — nothing new to
     # call, and no per-draw flag in game code. Outside a scene, visibility is unchanged.
+    # Which game state a declaration belongs to, or nil where it belongs to none and is
+    # always there. The gate above says the same thing as a run-time test; this says it
+    # as a NAME, which is what something deciding what has to be in memory at once needs.
+    def declaring_scene = @building_scene
+
     def scene_gate(active_node)
       return active_node unless @current_scene_gate
 

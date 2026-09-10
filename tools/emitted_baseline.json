@@ -46,7 +46,7 @@
       "data": 0
     },
     "lake": {
-      "code": 4340,
+      "code": 4096,
       "data": 0
     },
     "level": {
@@ -58,7 +58,7 @@
       "data": 0
     },
     "pacman": {
-      "code": 16508,
+      "code": 15988,
       "data": 0
     },
     "parallax": {
@@ -66,7 +66,7 @@
       "data": 0
     },
     "piano": {
-      "code": 21592,
+      "code": 21504,
       "data": 0
     },
     "pixels": {
@@ -74,7 +74,7 @@
       "data": 0
     },
     "pong": {
-      "code": 37974,
+      "code": 37186,
       "data": 0
     },
     "raycaster": {
@@ -94,7 +94,7 @@
       "data": 0
     },
     "shmup": {
-      "code": 21504,
+      "code": 19972,
       "data": 0
     },
     "snake": {

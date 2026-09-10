@@ -53,7 +53,7 @@ module RubyGBA
                                 :indexed_bitmaps, :run_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
                                 :modes, :tiled, :has_objects, :obj_palette_blob, :obj_palette_units,
                                 :default_mode, :any_buffered, :mixed_display, :manage_modes, :func_mode,
-                                :map_cells, :map_entries)
+                                :map_cells, :map_entries, :scene_art)
 
           # Fill the area itself, which is what clearing means when only part of the picture may
           # be painted: a row-at-a-time block fill over exactly those edges. It does not go
@@ -206,6 +206,36 @@ module RubyGBA
             skip = @emitter.gensym
             @emitter.emit_branch(:bcond, skip, cond: :eq) # already in this mode? nothing to do
             enter_mode(mode)
+            @emitter.place_label(skip)
+          end
+
+          # WHICH SCENE'S SPRITE PICTURES ARE IN MEMORY, so that a scene taking over sends
+          # its own and a scene already running sends nothing.
+          SCENE_ART_STATE = :_scene_art
+
+          # Send a scene's sprite pictures when it takes over. Scenes share the room above
+          # whatever is always there, so this is what makes a game's budget one scene's
+          # rather than the whole game's — and it is guarded, so staying in a scene costs
+          # one compare a frame while changing scene costs the copy.
+          #
+          # A scene with no art of its own emits nothing at all, which is every scene in a
+          # game that declares its sprites at the top level.
+          #
+          # The copy lands where the scene's own routine runs, which is near the top of a
+          # frame rather than strictly between frames. A sprite caught half-replaced would
+          # show for one frame — on the frame a game changes what the whole screen is, and
+          # where the scene it is leaving has already stopped drawing its own sprites.
+          def emit_scene_art_upload(name)
+            sending = @layout.scene_art[name]
+            return if sending.nil? || sending.empty?
+
+            @primitives.load_var(ACC, SCENE_ART_STATE)
+            @emitter.emit(ASM.cmp_imm(ACC, @layout.scene_art.keys.index(name) + 1))
+            skip = @emitter.gensym
+            @emitter.emit_branch(:bcond, skip, cond: :eq) # already loaded? nothing to send
+            sending.each { |blob, at, units| emit_dma_blob(blob, OBJ_TILE_BASE + (at * 32), units * 16) }
+            @emitter.emit(ASM.load_immediate(ACC, @layout.scene_art.keys.index(name) + 1))
+            @primitives.store_var(ACC, SCENE_ART_STATE)
             @emitter.place_label(skip)
           end
 
@@ -1336,8 +1366,17 @@ module RubyGBA
           # these tiles.
           def emit_boot_objects
             clear_object_table
+            # Nothing is loaded yet, and the console's memory is garbage at power-on — so
+            # the first scene to take over has to find a number that is not its own.
+            @primitives.store_word_immediate(0, @primitives.var_addr(SCENE_ART_STATE)) if @layout.scene_art.any?
             emit_dma_blob(@layout.obj_palette_blob, OBJ_PALETTE, @layout.obj_palette_units) # the shared sprite palette, once
             @layout.objects.each_value do |obj|
+              # A sprite showing the same pictures as one already uploaded points at
+              # those, so there is nothing of its own to send. A sprite that belongs to a
+              # scene is sent when that scene takes over, not here (see
+              # #emit_scene_art_upload), since scenes share the room above this.
+              next if obj[:tiles].nil? || obj[:scene]
+
               emit_dma_blob(obj[:tiles], OBJ_TILE_BASE + (obj[:tile_index] * 32), obj[:tile_units] * 16) # tiles -> sprite memory
             end
             emit_boot_object_windows
