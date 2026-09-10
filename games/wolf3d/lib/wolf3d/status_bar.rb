@@ -21,17 +21,17 @@ module Wolf3D
   # is 320 across and this screen is 240 and squeezing it turns its baked-in lettering to noise.
   # Its texture and rules can be re-set at 240; that is the piece left.
   #
-  # IT IS REPAINTED EVERY FRAME, and only one of the two reasons for that is still true.
+  # IT IS PAINTED WHEN A FIELD CHANGES, AND NOT OTHERWISE, which is two decisions.
   #
-  # It used to be that a wall column near enough to fill the screen was drawn straight down
-  # through where the bar sits, because nothing could be told to stop at a line. That is no
-  # longer so: the view is drawn `inside` its own rows and a column too tall for them is clipped,
-  # on both backends. Nothing paints over the bar any more.
+  # Nothing paints over it, so a picture left there stays: the view above is drawn `inside` its
+  # own rows, and a wall column near enough to fill the screen is clipped at the line where the
+  # bar starts rather than running down through it.
   #
-  # What is left is the screen. It keeps two pages and shows them in turn, so anything painted
-  # once is only on one of them — which needs TWO repaints whenever a field changes, not one
-  # every frame. Painting it regardless measures about a twentieth of the frame, nearly always
-  # to put back a picture identical to the one already there.
+  # And a change reaching the whole screen takes more than one paint, because the screen keeps
+  # more than one picture and shows them in turn. How many is `keep_showing`'s business (see
+  # #declare), not this file's. What this file decides is whether a field moved at all —
+  # painting regardless measures about a twentieth of the frame, nearly always to put back a
+  # picture identical to the one already there.
   class StatusBar
     # How many rows along the bottom it takes. The original gives its bar a fifth of the screen
     # and so does this.
@@ -203,39 +203,22 @@ module Wolf3D
     # ...and where something +wide+ columns across sits inside that field.
     def centred(field, wide) = self.class.centred(field, wide, @art)
 
-    # HOW MANY TIMES A CHANGED BAR IS PAINTED, and it is two because the screen keeps two pages
-    # and shows them in turn. Painted once, half the frames would show the old figure.
-    PAGES = 2
-
     # PAINT IT WHEN IT CHANGED, AND NOT OTHERWISE. Health changes when you are shot, ammunition
     # when you fire, the score when you kill something; the lives and the gun in your hands
-    # hardly ever. On every other frame the bar is asked to put back a picture identical to the
-    # one already there, which measures about a twentieth of the frame.
+    # hardly ever. On every other frame the bar would be asked to put back a picture identical
+    # to the one already there, which measures about a twentieth of the frame.
     #
     # Testing costs a comparison per live field, which is nothing beside the painting.
-    # HOW OFTEN IT REALLY PAINTS, for the estimate's sake: about one frame in ten. Firing
-    # spends a bullet and being hit spends health, and each of those asks for both pages —
-    # so a busy second or two of shooting is a handful of painted frames out of sixty, and
-    # walking down a corridor is none at all. Ten is the cautious end of that.
-    #
-    # Unsaid it would be counted on EVERY frame, which is what this whole arrangement exists
-    # to avoid, and the report would show the bar costing what it cost before it was made
-    # conditional.
-    PAINTS_IN = 10
-
     def draw
       notice_a_change
-      (@todo > 0).then(estimate: { usually: 1, in: PAINTS_IN }) do
-        @todo.sub 1
-        @b.call(:draw_the_status_bar)
-      end
+      @bar.draw
     end
 
     private
 
     # Did any field move since it was last painted? Each keeps a copy of what it last showed, and
-    # the copy is taken here rather than in the painting — so a change asks for both pages and
-    # the second of the two does not think it has found another one.
+    # the copy is taken here rather than in the painting — so one change is noticed one time,
+    # however many paints it then takes to reach the whole screen.
     def notice_a_change
       @changed.set 0
       @remembered.each do |name, last|
@@ -245,7 +228,7 @@ module Wolf3D
           last.set value
         end
       end
-      (@changed == 1).then { @todo.set PAGES }
+      (@changed == 1).then { @bar.changed }
     end
 
     # PAINTING THE BAR IS A ROUTINE, and it has to be. A live number drawn into a picture is not
@@ -258,12 +241,18 @@ module Wolf3D
     def declare
       declare_the_art
       declare_the_strip_routines if @art
-      @b.func(:draw_the_status_bar) { paint }
 
-      # What each live field showed when it was last painted, and how many pages still want the
-      # new picture. Both start so that the first frame paints: nothing has been shown yet.
+      # The bar itself: painted when a field moves and then left alone. How many times a
+      # change has to be painted is `keep_showing`'s business, not this file's — the screen
+      # this game draws on keeps two pictures and shows them in turn, and a bar painted once
+      # would reach only half the frames.
+      @bar = @b.keep_showing(:status_bar) { paint }
+      # Asked for at the top level, so it happens once at power-on: nothing has been shown
+      # yet, so the first frames paint.
+      @bar.changed
+
+      # What each live field showed when it was last painted, so a change can be noticed.
       @changed = @b.var :_bar_changed, 0
-      @todo = @b.var :_bar_todo, PAGES
       @face = @b.var :_bar_face, 0
       @looks = @b.var :_bar_look, 0
       @gun = @b.var :_bar_gun, 0

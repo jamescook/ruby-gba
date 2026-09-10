@@ -77,8 +77,15 @@ module RubyGBA
         # hardware). A raw register value doesn't map to a friendly name, so it leaves
         # the mode unnamed.
         @screen_mode = mode if mode.is_a?(Symbol)
+        @tear_free = tear_free
         record(Build.screen(mode, buffered: tear_free, colors: given_colors(colors, tear_free)))
       end
+
+      # HOW MANY PICTURES THIS SCREEN KEEPS. A tear-free screen keeps two and shows
+      # them in turn, so a change drawn once reaches only one of them; a plain screen
+      # keeps one, so a change drawn once is done. This is the number of times a
+      # picture that is drawn and then left alone has to be painted (Packs::KeepShowing).
+      def screen_pages = @tear_free ? 2 : 1
 
       # Everything the block draws stays inside this part of the screen. What falls outside is
       # CUT OFF rather than covered up: those pixels are never worked out, so the drawing costs

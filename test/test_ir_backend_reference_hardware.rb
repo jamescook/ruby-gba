@@ -21,12 +21,19 @@ class TestIRBackendReferenceHardware < Minitest::Test
     assert_equal Color.resolve(:blue), i.screen.pixel(239, 159)
   end
 
-  # Double buffering changes only WHEN a frame becomes visible on hardware, never
-  # which pixels land — and this oracle reads the settled end-of-frame image, so a
-  # buffered program draws exactly the same screen. The flag is recorded, though.
-  def test_double_buffering_records_the_flag_but_draws_the_same_pixels
+  # A tear-free screen is two pages: the program draws into one while the display
+  # shows the other, and they trade places at the frame boundary. So drawing alone
+  # puts nothing on screen — the drawing is sitting on the page nobody is looking
+  # at. That is the console's own behavior, measured, not a quirk of this oracle.
+  def test_drawing_on_a_tear_free_screen_shows_nothing_until_the_frame_ends
     i = run_ir(program(screen(:bitmap, buffered: true), clear_screen(:blue)))
     assert i.buffered
+    assert_equal 0, i.screen.pixel(120, 80)
+  end
+
+  # ...and the frame boundary is what presents it.
+  def test_the_frame_boundary_presents_the_page_just_drawn
+    i = run_ir(program(screen(:bitmap, buffered: true), clear_screen(:blue), wait_vblank))
     assert_equal Color.resolve(:blue), i.screen.pixel(120, 80)
   end
 
