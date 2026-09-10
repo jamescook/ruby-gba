@@ -384,7 +384,13 @@ module RubyGBA
         include Node
         kind :list_new
         category :list
-        operands name: :name, capacity: :int, declared: :int, usually: :int, width: :option
+        # +fast+ is what the author said about where this should live, on a machine with
+        # more than one work memory: false for "I know this is cold — give it room", true
+        # to insist on the quick one, absent to let the framework decide. It is the same
+        # word a routine takes for the same question, and it changes nothing a program
+        # does — only how long a read takes.
+        operands name: :name, capacity: :int, declared: :int, usually: :int, width: :option,
+                 fast: :flag
       end
 
       class ListPush

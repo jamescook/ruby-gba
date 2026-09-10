@@ -48,6 +48,7 @@ module RubyGBA
       stack_lines(program, printer)
       video_memory_lines(built.video_memory, printer)
       quick_memory_lines(built.placement, program, printer)
+      roomy_memory_lines(built.roomy_memory, printer)
       glyph_lines(program, printer)
       column_stretch_lines(built.column_stretches, printer)
       tearing_line(program, printer)
@@ -222,6 +223,30 @@ module RubyGBA
       passed_over_lines(placement, program, printer)
     end
 
+    # WHAT WENT IN THE OTHER WORK MEMORY, which is a decision nobody wrote down.
+    #
+    # The console keeps 256K of it — eight times the quick memory, and about six times the
+    # wait on a read. Everything a program declares goes in the quick one until it will not
+    # fit; then the coldest collections fall into this one. So a game that used to fail to
+    # build now builds, and the only way to see which of its collections moved is to be told.
+    #
+    # Said only when something is there. A game whose state fits in the quick memory, which
+    # is nearly every game, reads nothing about a second memory it never met.
+    def roomy_memory_lines(roomy, printer)
+      return if roomy.nil? || roomy.used.zero?
+
+      printer.puts format("  the roomy memory (a read there waits ~%dx longer): %s of %s used, %s free",
+                          ROOMY_MEMORY_SLOWDOWN, kb(roomy.used), kb(roomy.total), kb(roomy.free))
+      roomy.collections.each do |name, bytes|
+        printer.puts format("    %8s  :%s", kb(bytes), name)
+      end
+    end
+
+    # How much longer a whole number takes to read from the roomy memory than from the quick
+    # one. It is a property of the two memories — how wide each is and how many cycles the
+    # slower one makes the processor wait — not an estimate of anybody's program.
+    ROOMY_MEMORY_SLOWDOWN = 6
+
     # WHICH OF THE TWO ANSWERS PICKED THAT LIST, which an author cannot tell by reading it and
     # which is the difference between a tuned game and an untuned one.
     def chosen_from_line(placement)
@@ -302,7 +327,8 @@ module RubyGBA
     # reading one. Did the routine that just missed the quick memory now fit? That is the
     # question a before-and-after asks, and nothing should have to match a sentence to ask it.
     def as_json(rom)
-      video = { video_memory: rom.built.video_memory&.to_h }
+      video = { video_memory: rom.built.video_memory&.to_h,
+                roomy_memory: rom.built.roomy_memory&.to_h }
       placement = rom.built.placement
       return video.merge(quick_memory: nil) if placement.nil?
 

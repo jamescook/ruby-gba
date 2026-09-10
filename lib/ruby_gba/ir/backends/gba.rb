@@ -25,6 +25,7 @@ require_relative "gba/frames" # how many frames a pass of the game loop really t
 require_relative "gba/raster"
 require_relative "gba/mixer"
 require_relative "gba/save"
+require_relative "gba/roomy"         # which collections go in the other, roomier memory
 require_relative "gba/tile_vram"     # where the scenery's pictures and maps go, so they cannot collide
 require_relative "gba/palette_banks" # sixteen colours to a picture, and the picture stored half the size
 require_relative "gba/palette_tint"
@@ -293,7 +294,8 @@ module RubyGBA
           @emit = Emit.new       # the code buffer + two-pass label/fixup machinery
           # The IWRAM allocator. It stops below the last 4K, which is where the divide
           # routines are copied and where the console's own startup code keeps its stack.
-          @memory = Memory.new(start: IWRAM_START, ceiling: Placement::HOT_CEILING)
+          @memory = Memory.new(start: IWRAM_START, ceiling: Placement::HOT_CEILING,
+                               roomy: EWRAM_START, roomy_ceiling: EWRAM_START + EWRAM_SIZE)
           @primitives = Primitives.new(emitter: @emit, memory: @memory)
           @divide = Divide.new(emitter: @emit, memory: @memory, primitives: @primitives,
                                scales_objects: method(:object_scales?))
@@ -466,7 +468,23 @@ module RubyGBA
                                    emitted: @attribution.emitted,
                                    routines: routine_addresses,
                                    video_memory: video_memory_report,
+                                   roomy_memory: roomy_memory_report,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
+        end
+
+        # WHAT WENT IN THE OTHER MEMORY, and how much of it is left.
+        #
+        # The console has 256K of it, eight times the quick memory and about six times the
+        # wait on a read, and it used to hold nothing but the audio mixer's two buffers.
+        # What is worth reporting is what the framework put there without being asked —
+        # because a collection landing there is a decision nobody wrote, and the only way
+        # to see it is to be told.
+        def roomy_memory_report
+          placed = @lists.roomy_lists
+          return nil if placed.empty? && @memory.roomy_used.zero?
+
+          RubyGBA::RoomyMemory.new(used: @memory.roomy_used, free: @memory.roomy_free,
+                                   collections: placed)
         end
 
         # WHAT THE PICTURES COST IN VIDEO MEMORY, and what storing them the small way saved.
@@ -1050,6 +1068,7 @@ module RubyGBA
           # filled once and then read by number — and on a cartridge with a lot of them the
           # rounding was thousands of bytes of the console's 32K. See Lists.
           shifted = self.class.shifted_lists(program)
+          declarations = [] # every list, gathered here and registered coldest last
 
           program.walk do |node|
             case node.kind
@@ -1079,12 +1098,12 @@ module RubyGBA
               @emit.data_blobs[node.name] = node.pixels if !node.transparent || @column_bitmaps.include?(node.name)
               register_column_runs(node)
             when :list_new
-              # Reserve the list's IWRAM storage once, up front, so every op that
-              # touches it (anywhere in the tree, including funcs emitted later)
-              # already knows its base address and capacity. list_new *executing*
-              # only resets it to empty; the storage itself is allocated here.
-              @lists.register_list(node.name, node.capacity, ring: shifted.include?(node.name),
-                                                             width: node.width || :word)
+              # Storage is reserved once, up front, so every op that touches it (anywhere
+              # in the tree, including funcs emitted later) already knows its base address
+              # and capacity — but NOT here, where the order would be declaration order and
+              # so decide by accident which collections get the quick memory. Gathered now,
+              # registered after the walk, coldest last (see #register_the_collections).
+              declarations << [node, shifted.include?(node.name)]
             when :backing_buffer
               # Reserve the save-under patch's RAM once, up front, so a save/restore
               # anywhere in the tree already knows its address. Nothing is emitted
@@ -1096,6 +1115,32 @@ module RubyGBA
               # before any of them is placed.
               @layer_stack = node.names
             end
+          end
+          register_the_collections(program, declarations)
+        end
+
+        # HAND THE QUICK MEMORY TO THE COLLECTIONS A FRAME TOUCHES, and let the rest fall
+        # into the roomy one.
+        #
+        # Nothing is moved once it is placed — a collection simply takes whichever memory
+        # has room when its turn comes. So the ORDER of the turns is the whole decision,
+        # and it must not be declaration order: a game with a lot of state declares its
+        # big cold tables early, those take the quick memory, and the things a frame walks
+        # every pass land in the memory that makes the processor wait. Which is the wrong
+        # way round, and invisible from the program.
+        #
+        # So the turns go: what a frame touches, then what it does not, then what the
+        # author said is cold. See Roomy for how "what a frame touches" is read off the
+        # program rather than guessed at.
+        def register_the_collections(program, declarations)
+          roomy = Roomy.new(program)
+          ranked = declarations.sort_by do |node, _ring|
+            asked = node.fast
+            [asked == false ? 2 : (asked || roomy.hot?(node.name) ? 0 : 1), -node.capacity]
+          end
+          ranked.each do |node, ring|
+            @lists.register_list(node.name, node.capacity, ring: ring,
+                                                           width: node.width || :word, fast: node.fast)
           end
         end
 

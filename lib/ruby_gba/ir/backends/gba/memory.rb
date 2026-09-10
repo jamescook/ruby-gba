@@ -34,14 +34,23 @@ module RubyGBA
         #
         # Everything is rounded up to a whole word, so both ends stay aligned however
         # odd a size is asked for — a list of bytes, say.
+        # AND THE OTHER MEMORY, which this hands out too because there should be one
+        # owner of both. The console has 256K more of it on a separate chip — eight times
+        # the room, and about six times the wait on a read — and until this it was touched
+        # by nothing but the audio mixer's two output buffers, through six private lines
+        # with no bounds check. A quarter of a megabyte, idle, while everything a program
+        # declared competed for the 32K that also holds the hot code.
         class Memory
           WORD = 4
 
-          def initialize(start:, ceiling:)
+          def initialize(start:, ceiling:, roomy: nil, roomy_ceiling: nil)
             @base = start
             @near = start
             @ceiling = ceiling
             @far = ceiling
+            @roomy_base = roomy
+            @roomy_next = roomy
+            @roomy_ceiling = roomy_ceiling
           end
 
           # Claim +bytes+ next to the base, for something that is cheaper to reach
@@ -56,6 +65,25 @@ module RubyGBA
           def alloc(bytes)
             @far -= whole_words(bytes)
           end
+
+          # Claim +bytes+ in the roomy memory, for something that does not fit in the quick
+          # one or was told it does not need to be there. Nil when there is no more, which
+          # a caller reports as the friendly error it is — this one really is a program
+          # asking for more than the console has.
+          def alloc_roomy(bytes)
+            return nil if @roomy_next.nil? || @roomy_next + whole_words(bytes) > @roomy_ceiling
+
+            addr = @roomy_next
+            @roomy_next += whole_words(bytes)
+            addr
+          end
+
+          # Is there room in the quick memory for one more thing of this size, with the two
+          # ends where they are now?
+          def room_for?(bytes) = free >= whole_words(bytes)
+
+          def roomy_used = @roomy_next ? @roomy_next - @roomy_base : 0
+          def roomy_free = @roomy_next ? @roomy_ceiling - @roomy_next : 0
 
           # How much of this memory is spoken for, both ends added together.
           def used = (@near - @base) + (@ceiling - @far)

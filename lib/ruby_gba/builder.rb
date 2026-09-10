@@ -239,11 +239,22 @@ module RubyGBA
     # @param capacity [Integer] the most items it can hold
     # @param estimate [Hash] what the estimate cannot know — today `usually:` (Integer or Range)
     # @param holds [Numeric] an example of what it holds; a Float means it holds fractions
+    # WHERE IT LIVES is a question you almost never have to answer. The console has two
+    # work memories — a small quick one and a large one that makes it wait — and the
+    # framework puts what a frame touches in the quick one and lets the rest fall into
+    # the roomy one, so a game with a lot of state builds where it used to fail. Say
+    # `fast: false` about one you know is cold (a world state read when a menu opens) to
+    # give the quick memory back to the things that are walked every frame, or `fast:
+    # true` to insist on one the framework did not pick. It is the same word `func`
+    # already uses for the same question about code, and it changes nothing the program
+    # does — only how long a read takes. `rom.profile` says where everything went.
+    #
     # @param width [Symbol] how big one slot is — :byte, :half or :word (the default)
+    # @param fast [Boolean, nil] insist on the quick memory (true) or give it up (false)
     # @return [List] a handle to the list
-    def list(name, capacity:, estimate: nil, holds: nil, width: :word)
+    def list(name, capacity:, estimate: nil, holds: nil, width: :word, fast: nil)
       record(Build.list_new(name, capacity, usually: usual_length(estimate, capacity),
-                                            width: width))
+                                            width: width, fast: fast))
       List.new(self, name, fraction_bits: list_fraction_bits(name, holds))
     end
 

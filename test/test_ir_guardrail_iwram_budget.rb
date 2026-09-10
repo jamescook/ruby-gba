@@ -4,12 +4,18 @@ require "test_helper"
 
 require "stringio"
 
-# The whole-program IWRAM budget guardrail. Every variable, list, and component pool
-# lives in the GBA's 32KB of fast RAM; the allocator never checks the ceiling, so a
-# program that reserves past it silently overruns into a black-screen ROM. This check
-# sums what the program reserves and, if it's over the usable budget, stops the build
-# with a friendly error naming the total, the budget, and the biggest users. A program
-# within budget is untouched.
+# WHAT A PROGRAM RESERVES, against the memory there really is.
+#
+# The console has two work memories: 32K of quick on-chip RAM and 256K of roomier RAM on a
+# chip of its own. A collection can live in either — the framework puts what a frame touches
+# in the quick one and lets the rest fall into the roomy one — so a program with a lot of
+# state is no longer a build failure just because it will not all fit near to hand. That is
+# what this check used to say, and it was the wrong thing to say.
+#
+# What it still says is the part that is really a ceiling. A VARIABLE cannot move: it is
+# reached by its distance from the start of the quick memory, which is what makes a read two
+# instructions instead of four. And everything together still has to fit in the two memories
+# added up.
 class TestIRGuardrailIwramBudget < Minitest::Test
   include RubyGBA::IR::Build
 
@@ -25,7 +31,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
   end
 
   # A list whose capacity, in words, is at least +bytes+ of storage — a blunt way to
-  # reserve a known amount of IWRAM in a test.
+  # reserve a known amount of memory in a test.
   def list_of_bytes(name, bytes)
     list_new(name, bytes / Budget::WORD)
   end
@@ -40,39 +46,66 @@ class TestIRGuardrailIwramBudget < Minitest::Test
     assert_empty findings_for(prog)
   end
 
-  def test_an_over_budget_program_is_a_fatal_error
+  # THE ONE THIS BEAD CHANGED. A list past the quick memory used to stop the build. It
+  # moves now, and moving is not something to report as a problem.
+  def test_a_list_past_the_quick_memory_is_no_longer_a_problem
     prog = program(
       screen(:bitmap),
-      list_of_bytes(:huge, Budget::BUDGET_BYTES + 4 * 1024),
+      list_of_bytes(:huge, Budget::BUDGET_BYTES + (8 * 1024)),
+      loop_(wait_vblank, halt),
+    )
+    assert_empty findings_for(prog), "it goes in the roomier memory instead"
+  end
+
+  def test_past_both_memories_is_a_fatal_error
+    prog = program(
+      screen(:bitmap),
+      list_of_bytes(:huge, Budget::BUDGET_BYTES + Budget::EWRAM_BYTES + (8 * 1024)),
       loop_(wait_vblank, halt),
     )
     findings = findings_for(prog)
     assert_equal 1, findings.size
-    assert findings.first.error?, "over-budget IWRAM would break the ROM, so it's fatal, not advisory"
+    assert findings.first.error?, "past every memory there is would break the ROM"
     assert_equal :huge, findings.first.node.name,
                  "it blames the biggest user — the declaration whose capacity has to shrink"
   end
 
-  # The message names the total, the budget, and the largest contributor by its
-  # friendly name — enough for the fix to be obvious.
-  def test_the_error_names_the_total_the_budget_and_the_offender
+  def test_the_error_names_the_total_the_memories_and_the_offender
     prog = program(
       screen(:bitmap),
-      list_of_bytes(:trail, Budget::BUDGET_BYTES + 8 * 1024),
+      list_of_bytes(:trail, Budget::BUDGET_BYTES + Budget::EWRAM_BYTES + (8 * 1024)),
       loop_(wait_vblank, halt),
     )
     message = findings_for(prog).first.message
-    assert_match(/list :trail/, message)         # the offender, by name
-    assert_match(/32KB/, message)                # the hardware total
-    assert_match(/#{Budget::BUDGET_BYTES / 1024}KB/, message) # the usable budget
-    assert_match(/#{RubyGBA::PlainWords::QUICK_MEMORY}/, message) # ...said the one way it is said
+    assert_match(/list :trail/, message)                          # the offender, by name
+    assert_match(/32KB/, message)                                 # the quick memory
+    assert_match(/256KB/, message)                                # ...and the roomy one
+    assert_match(/#{RubyGBA::PlainWords::QUICK_MEMORY}/, message) # said the one way it is said
+  end
+
+  # VARIABLES CANNOT MOVE, so they have their own ceiling and their own explanation. A
+  # program whose variables alone fill the quick memory cannot be helped by the other one.
+  def test_more_variables_than_the_quick_memory_holds_is_a_fatal_error
+    count = (Budget::BUDGET_BYTES / Budget::WORD) + 512
+    prog = program(
+      screen(:bitmap),
+      *count.times.map { |i| set(:"v#{i}", int(0)) },
+      loop_(wait_vblank, halt),
+    )
+    findings = findings_for(prog)
+    assert_equal 1, findings.size
+    message = findings.first.message
+    assert_match(/variable/, message, "it names what is filling the memory")
+    assert_match(/cannot/, message, "and says why those cannot move like a list can")
+    assert_match(/list/, message, "and what to do instead")
   end
 
   # A pool's several backing lists collapse into one "pool :name" contributor — the
   # author declared one pool, not five lists.
   def test_a_pool_is_named_as_one_contributor
     # Emulate a pool's storage: field lists + active + free, all __pool_<name>_*.
-    big = (Budget::BUDGET_BYTES + 8 * 1024) / (3 * Budget::WORD) # split across three lists
+    over = Budget::BUDGET_BYTES + Budget::EWRAM_BYTES + (8 * 1024)
+    big = over / (3 * Budget::WORD) # split across three lists
     prog = program(
       screen(:tiled),
       list_new(:__pool_enemy_x, big),
@@ -85,38 +118,18 @@ class TestIRGuardrailIwramBudget < Minitest::Test
     refute_match(/__pool_enemy/, message) # the raw storage names never leak to the person
   end
 
-  # Two ordinary allocations that each fit can add up to an overflow — the whole-program
-  # check's reason to exist (each alone would pass a per-item ceiling).
-  def test_two_within_reach_allocations_can_overflow_together
-    half = Budget::BUDGET_BYTES / 2
-    each_ok = program(screen(:bitmap), list_of_bytes(:a, half - 2 * 1024), loop_(wait_vblank, halt))
-    assert_empty findings_for(each_ok), "one half-budget list is fine on its own"
-
-    both = program(
-      screen(:bitmap),
-      list_of_bytes(:a, half),
-      list_of_bytes(:b, half),
-      loop_(wait_vblank, halt),
-    )
-    findings = findings_for(both)
-    assert_equal 1, findings.size, "but two together tip over the budget"
-    assert_match(/list :a/, findings.first.message)
-    assert_match(/list :b/, findings.first.message)
-  end
-
-  # End to end through the DSL: an over-budget program stops the build with the
-  # friendly error on the err stream (a fatal guardrail raises ROMError).
-  def test_the_build_stops_on_an_over_budget_program
+  # End to end through the DSL: a program past every memory there is stops the build with
+  # the friendly error on the err stream (a fatal guardrail raises ROMError).
+  def test_the_build_stops_on_a_program_past_every_memory
     err = StringIO.new
     error = assert_raises(RubyGBA::ROMError) do
       RubyGBA.build("BIG", code: "BBIG", maker: "01", out: StringIO.new, err: err) do
         screen :bitmap
-        list :trail, capacity: 12_000 # ~48KB of slots, well over the budget
+        list :trail, capacity: 100_000 # ~400KB of slots, past both memories together
         game_loop { wait_vblank }
       end
     end
     assert_match(/problem/i, error.message)
-    assert_match(/#{RubyGBA::PlainWords::QUICK_MEMORY}/, err.string)
     assert_match(/list :trail/, err.string)
   end
 

@@ -144,8 +144,8 @@ module RubyGBA
 
             @mixer_rate = common_sample_rate(program)
             @mixer_spf = [(@mixer_rate + MIXER_FPS - 1) / MIXER_FPS, 1].max # samples per frame (ceil)
-            @mix_buf0 = ewram_alloc(@mixer_spf)
-            @mix_buf1 = ewram_alloc(@mixer_spf)
+            @mix_buf0 = @memory.alloc_roomy(@mixer_spf)
+            @mix_buf1 = @memory.alloc_roomy(@mixer_spf)
             @voice_base = @memory.alloc(MAX_VOICES * SLOT_BYTES)
             @mix_routine_iwram = @memory.alloc(MIX_ROUTINE_IWRAM_MAX) # the mix routine is copied here from ROM at boot
             @timers.reserve!(CLOCK_TIMER + 1) # reserve timer 0 only
@@ -512,15 +512,6 @@ module RubyGBA
             @emitter.emit(ASM.sub_imm(2, 2, 1))
             @emitter.emit(ASM.cmp_imm(2, 0))
             @emitter.emit_branch(:bcond, loop_lbl, cond: :ne)
-          end
-
-          # A bump allocator for EWRAM (256KB of general work RAM), word-aligned. The mixer's
-          # output buffers live here rather than in the smaller, busier IWRAM.
-          def ewram_alloc(bytes)
-            @next_ewram ||= EWRAM_START
-            base = @next_ewram
-            @next_ewram += (bytes + 3) & ~3
-            base
           end
 
           # The output rate to mix at: the rate most of the program's samples were recorded

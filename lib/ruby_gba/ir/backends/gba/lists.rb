@@ -49,7 +49,11 @@ module RubyGBA
           # +ring+ says the program SHIFTS this one, so its head moves and its slots have to be
           # rounded up to a power of two for the wrapping mask. Everything else is a plain
           # array of exactly the slots it asked for.
-          def register_list(name, capacity, ring: true, width: :word)
+          #
+          # +fast+ is what the author said about where it should live: false for "I know
+          # this is cold — give it room", true to insist on the quick memory, nil to let the
+          # framework decide (see #place_list).
+          def register_list(name, capacity, ring: true, width: :word, fast: nil)
             if (existing = @lists[name])
               return if existing[:capacity] == capacity && existing[:width] == width
 
@@ -62,11 +66,44 @@ module RubyGBA
             bytes = Build::ELEMENT_BYTES.fetch(width)
             # Rounded up to a whole word so the NEXT thing allocated stays word-aligned — a
             # narrow list is allowed to be an odd number of bytes long, but nothing after it is.
-            base = @memory.alloc(((slots * bytes) + 3) & ~3)
+            want = ((slots * bytes) + 3) & ~3
+            base, roomy = place_list(name, want, fast)
             @primitives.var_addr(head_var(name)) if ring # a plain array's head can never move
             @primitives.var_addr(length_var(name))
             @lists[name] = { capacity: capacity, ring: ring, mask: slots - 1, base: base,
-                             width: width, bytes: bytes }
+                             width: width, bytes: bytes, roomy: roomy }
+          end
+
+          # WHICH MEMORY THIS ONE GOES IN. The quick one unless the author said it does not
+          # need to be there, or there is no longer room — and then the roomy one, which is
+          # eight times the size and about six times the wait on a read.
+          #
+          # Nothing is moved to make space: the caller registers the collections a frame
+          # touches FIRST (see Roomy), so whatever is left when the quick memory fills is
+          # the coldest thing the program has. Running out of BOTH is a real ceiling, and
+          # the message says which one gave way.
+          def place_list(name, want, fast)
+            if fast == false || !@memory.room_for?(want)
+              addr = @memory.alloc_roomy(want)
+              return [addr, true] if addr
+
+              raise LoweringError, no_room_anywhere(name, want) if fast == false
+            end
+            [@memory.alloc(want), false]
+          end
+
+          def no_room_anywhere(name, want)
+            "list #{name.inspect} needs #{want} bytes and neither of the console's work memories has " \
+              "room left. It has 32K of quick memory (which also holds the code kept there) and 256K " \
+              "of roomy memory, and both are full. Use a smaller capacity, or narrower items " \
+              "(`width: :byte`)."
+          end
+
+          # The collections that ended up in the roomy memory, and how big each is — the
+          # one thing a build report has to say about a decision nobody wrote.
+          def roomy_lists
+            @lists.select { |_name, info| info[:roomy] }
+                  .to_h { |name, info| [name, info[:capacity] * info[:bytes]] }
           end
 
           # A list's layout, or a friendly error if the program never created it.

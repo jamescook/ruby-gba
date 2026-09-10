@@ -41,8 +41,10 @@ module RubyGBA
   # and what they would have cost the other way is gone.
   class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
                                   :palette_entries, :column_stretches, :compression,
-                                  :build_options, :findings, :emitted, :routines, :video_memory)
-    def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil, **rest)
+                                  :build_options, :findings, :emitted, :routines, :video_memory,
+                                  :roomy_memory)
+    def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
+                   roomy_memory: nil, **rest)
       super
     end
 
