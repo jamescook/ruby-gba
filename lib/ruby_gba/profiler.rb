@@ -2,6 +2,7 @@
 
 require "tmpdir"
 require "json"
+require "stringio" # the throwaway first build of a measured one says nothing
 
 module RubyGBA
   # WHERE A GAME'S FRAMES ACTUALLY WENT, measured by running it.
@@ -40,6 +41,11 @@ module RubyGBA
     Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys) do
       def dropping_frames? = fps < 59.5
 
+      # Instructions a frame — what the game actually does, where a share only says how that
+      # work was divided up. A game asleep most of every frame can still have one routine at
+      # 100 per cent of the little it runs.
+      def samples_per_frame = frames.zero? ? 0.0 : samples / frames.to_f
+
       def to_h
         { frames: frames, samples: samples, fps: fps, idle_share: idle_share,
           keys: keys.map(&:to_s), unattributed: unattributed,
@@ -53,20 +59,130 @@ module RubyGBA
     # Run +rom+ and report where its frames went. +keys+ are held for the settling and the
     # measured frames alike, because a game costs what the player makes it cost and a reading
     # with nothing held is a reading of a game standing still.
-    def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [])
+    def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [], enter: nil, scene: nil)
       routines = rom.built.routines
       held = Array(keys)
+      enter ||= scene_state(rom, scene)
 
       profile = in_temp_rom(rom) do |path|
         probe = Emulator.probe(path)
         begin
-          probe.profile(frames: frames, settle: settle, keys: held)
+          enter ? pinned_to(probe, enter, frames, held) : plain_run(probe, frames, settle, held)
         ensure
           probe.close
         end
       end
 
       build_result(profile, routines, held)
+    end
+
+    def self.plain_run(probe, frames, settle, held)
+      probe.profile(frames: frames, settle: settle, keys: held)
+    end
+
+    # Where a named scene's state lives and what value means it — so `scene: :playing` can hold
+    # the game there. A friendly error for a name the game does not have, since the alternative
+    # is silently measuring whatever screen it happened to boot to.
+    def self.scene_state(rom, scene)
+      return nil unless scene
+
+      dispatch = Analyzer.scenes(rom.built.source_program)
+      raise ArgumentError, "this game has no scenes, so there is no #{scene.inspect} to profile. " \
+                           "To profile it as it boots, leave `scene:` out." unless dispatch
+
+      value = dispatch[:scenes][scene.to_sym]
+      unless value
+        raise ArgumentError, "this game has no scene called #{scene.inspect}. Its scenes are: " \
+                             "#{dispatch[:scenes].keys.map(&:inspect).join(', ')}."
+      end
+
+      address = rom.built.var_addresses[dispatch[:selector]]
+      raise ArgumentError, "this game's scenes are not held in a variable this can reach." unless address
+
+      { address: address, value: value }
+    end
+
+    # HOLD THE GAME IN ONE SCENE AND MEASURE THAT, without playing it there.
+    #
+    # A profile of a title screen is a profile of the wrong thing, and holding a button will
+    # not get past one — a menu reads the press EDGE, so a held button is one press however
+    # long it is held. But which scene a game is in is just a variable, and the build knows
+    # where that variable lives. So it is written, and the next frame is the scene asked for.
+    #
+    # WRITING IT ONCE IS NOT ENOUGH, and finding that out is what this method is. A game left
+    # to itself LEAVES the scene almost at once: put snake into its playing scene with nobody
+    # holding a direction and the snake is dead within a few frames, so what gets measured is
+    # the game-over screen under the playing scene's name. Measured on examples/snake_buffered.rb,
+    # where every scene reported the same routines and the busiest one in the game — the
+    # repaint — never appeared at all.
+    #
+    # So it is written again before every frame, and the game is held there. What that measures
+    # is "the routines this scene runs", which is the question the placement is asking. It is
+    # not a game anybody could play — a snake that dies and is forced back is nonsense as a
+    # game — and it does not need to be.
+    def self.pinned_to(probe, enter, frames, held)
+      probe.step(BOOT_FRAMES, keys: held)
+      address = enter.fetch(:address)
+      value = enter.fetch(:value)
+      probe.write32(address, value)
+      probe.step(SETTLE, keys: held)
+
+      frames.times.map do
+        probe.write32(address, value)
+        probe.profile(frames: 1, keys: held)
+      end.reduce { |a, b| add_profiles(a, b) }
+    end
+
+    # Two runs' counts as one. Straight sums, since each is a count of the same things.
+    def self.add_profiles(a, b)
+      a.with(frames: a.frames + b.frames, samples: a.samples + b.samples,
+             halted: a.halted + b.halted, elsewhere: a.elsewhere + b.elsewhere,
+             finished: a.finished + b.finished,
+             pc: a.pc.merge(b.pc) { |_, x, y| x + y })
+    end
+
+    # Frames to run before setting the scene, so the game is past its own start-up and the
+    # variable exists to be written.
+    BOOT_FRAMES = 8
+
+    # MEASURE THE WHOLE GAME, one scene at a time, and answer what it spends its frames on.
+    #
+    # This is what lets the build measure rather than guess, with nobody having to play the
+    # game first. A game keeps which screen it is on in a variable; the build knows where that
+    # variable lives; so each scene is entered by writing it and then profiled.
+    #
+    # THE SHARES ARE COMBINED BY TAKING THE LARGEST, not by averaging. What is being decided
+    # is which routines are worth the console's quick memory, and a routine that is most of
+    # the frame in ONE scene has earned its place whatever it does in the others — a game is
+    # only ever in one scene at a time, and the one that matters is the one that is busiest.
+    # An average would rank a routine carrying a whole scene below one that idles in all of
+    # them.
+    #
+    # A game with no scenes at all is measured as it boots, which is the whole of it.
+    #
+    # Answers instructions-a-frame per routine, which is what {RoutineProfile} keeps.
+    def self.every_scene(rom, frames: FRAMES, keys: [])
+      dispatch = Analyzer.scenes(rom.built.source_program)
+      address = dispatch && rom.built.var_addresses[dispatch[:selector]]
+      return work_in(run(rom, frames: frames, keys: keys)) unless address
+
+      per_scene = dispatch[:scenes].map do |_name, value|
+        work_in(run(rom, frames: frames, keys: keys, enter: { address: address, value: value }))
+      end
+      per_scene.reduce(Hash.new(0)) do |busiest, scene|
+        scene.each { |name, work| busiest[name] = [busiest[name], work].max }
+        busiest
+      end
+    end
+
+    # How many instructions a frame each routine ran, counted rather than shared out. Straight
+    # off the sample counts, so a scene measured over a different number of frames than another
+    # still gives a number the two can be compared on.
+    def self.work_in(result)
+      return {} if result.frames.zero?
+
+      result.lines.reject { |line| OUTSIDE.key?(line.name) }
+            .to_h { |line| [line.name, (line.samples.to_f / result.frames).round] }
     end
 
     def self.build_result(profile, routines, held)

@@ -863,8 +863,16 @@ class TestCostPricing < CostModelTest
     # Two instructions — the read and the store — wherever the two variables landed. Counted
     # off the build rather than taken from :op_assign, which is the same claim for a program
     # that was never built.
-    near frame_boundary + instructions(2), costs.first
-    near frame_boundary + instructions(2), costs.last
+    #
+    # AT THE QUICK MEMORY'S SPEED, because that is where the build put the frame's own body.
+    # A game loop is inlined and so has no call sites, which means moving it costs only the
+    # room — and with the room free there is nothing to weigh it against. Say it here rather
+    # than let the number carry it silently: this reading depends on a placement, and the
+    # point of the test is the two builds agreeing with each other whatever that placement is.
+    both = frame_boundary + (instructions(2) / gain(:instruction))
+    near both, costs.first
+    near both, costs.last
+    assert_in_delta costs.first, costs.last, 1e-9, "a list nobody touches changes nothing"
   end
 
   # `set :out, <node>` once a frame. Built straight from the IR because the surface will not

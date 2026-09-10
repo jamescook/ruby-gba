@@ -100,12 +100,15 @@ module RubyGBA
                     desc: "Frames to run first, so the game is past its boot"
     option :keys, type: :array, banner: "BUTTON", default: [],
                   desc: "Hold these buttons for the whole run"
+    option :scene, banner: "NAME",
+                   desc: "Measure this scene, holding the game there (default: measure it as it boots)"
     def profile(game_file)
       format = { "human" => :human, "json" => :json }[options[:format]] or
         raise Thor::Error, "#{options[:format].inspect} is not a profile format. The formats are: human, json."
       game = load_game(game_file)
-      game.build_rom.profile(format: format, frames: options[:frames],
-                             settle: options[:settle], keys: held_buttons || [])
+      game.build_rom(profile: false).profile(format: format, frames: options[:frames],
+                                             settle: options[:settle], scene: options[:scene],
+                                             keys: held_buttons || [])
     rescue ArgumentError => e
       raise Thor::Error, e.message
     end

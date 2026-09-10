@@ -51,10 +51,23 @@ module RubyGBA
 
     # The finished ROM. The out:/err: streams are injectable so a test (or the CLI)
     # captures anything the build prints.
-    def build_rom(out: $stdout, err: $stderr, validate: true, progress: Progress.silent)
+    # THIS ONE MEASURES THE GAME, which {RubyGBA.build} does not do by default.
+    #
+    # The split is by who is asking. This is the method that makes a cartridge somebody is
+    # going to play — it is what `ruby game.rb` and the `ruby-gba` command call — so it is
+    # worth building twice to get the placement right: build, run, measure, build again
+    # knowing (see {RubyGBA.build_measured}). RubyGBA.build is the primitive the suite calls
+    # thousands of times to check pixels and guardrails, where none of that matters.
+    #
+    # Pass `profile: false` to skip it — a quicker build, and one that depends on nothing but
+    # the source. Pass a path or a {RoutineProfile} to use a measurement taken by hand, for a
+    # moment the automatic one cannot reach.
+    def build_rom(out: $stdout, err: $stderr, validate: true, progress: Progress.silent,
+                  profile: true)
       RubyGBA.build(@title, code: @code, maker: @maker, validate: validate,
                     frame_sync: @frame_sync, fast_cartridge: @fast_cartridge,
-                    fast_code: @fast_code, out: out, err: err, progress: progress, &@block)
+                    fast_code: @fast_code, out: out, err: err, progress: progress,
+                    profile: profile, &@block)
     end
 
     # A friendly output filename from the title: "BIRD" -> "bird.gba".

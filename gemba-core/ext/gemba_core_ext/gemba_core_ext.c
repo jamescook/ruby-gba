@@ -703,6 +703,25 @@ mgba_core_bus_read32(VALUE self, VALUE addr)
     return UINT2NUM(val);
 }
 
+/* Core#bus_write32(address, value)                          */
+/* Write four bytes (little-endian) to the GBA address bus.  */
+/*                                                           */
+/* This is how a running game is put into a state it would   */
+/* otherwise have to be PLAYED into. Set the variable that   */
+/* holds which scene is running and the next frame is that   */
+/* scene, with no rebuild and nobody pressing START — which  */
+/* is what lets the build measure the part of a game a       */
+/* player would have to reach.                               */
+/* --------------------------------------------------------- */
+
+static VALUE
+mgba_core_bus_write32(VALUE self, VALUE addr, VALUE value)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    mc->core->busWrite32(mc->core, (uint32_t)NUM2UINT(addr), (uint32_t)NUM2UINT(value));
+    return Qnil;
+}
+
 /* Core#save_state_to_file(path)                             */
 /* Save the complete emulator state to a file.               */
 /* Returns true on success, false on failure.                */
@@ -1793,6 +1812,7 @@ Init_gemba_core_ext(void)
     rb_define_method(cCore, "bus_read8",    mgba_core_bus_read8, 1);
     rb_define_method(cCore, "bus_read16",   mgba_core_bus_read16, 1);
     rb_define_method(cCore, "bus_read32",   mgba_core_bus_read32, 1);
+    rb_define_method(cCore, "bus_write32",  mgba_core_bus_write32, 2);
     rb_define_method(cCore, "step",          mgba_core_step, 0);
     rb_define_method(cCore, "global_cycles", mgba_core_global_cycles, 0);
     rb_define_method(cCore, "frame_cycles",  mgba_core_frame_cycles, 0);

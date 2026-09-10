@@ -242,7 +242,20 @@ module RubyGBA
           printer.puts format("    %s of 32K used, %s free",
                               kb(@placement.used_bytes), kb(@placement.free_bytes))
         end
+        printer.puts("    #{chosen_from_line}")
         passed_over_lines(program, printer)
+      end
+
+      # WHICH OF THE TWO ANSWERS PICKED THAT LIST, which an author cannot tell by reading it
+      # and which is the difference between a tuned game and an untuned one. With a measured
+      # profile the list is what the game really spends its frames on; without one it is the
+      # order the frame can reach things in, which gets the common case right and knows
+      # nothing about how much anything costs.
+      def chosen_from_line
+        return "chosen from a measurement of a real run" if @placement.chosen_from == :measurement
+
+        "chosen from the shape of the program — nothing has been measured. To choose from " \
+          "what this game really spends its frames on, run `rom.profile`, save it, and build again."
       end
 
       # How big each routine came to, in a column ahead of its name. Size is the whole of why

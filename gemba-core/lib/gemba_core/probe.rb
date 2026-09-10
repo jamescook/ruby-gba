@@ -110,6 +110,16 @@ module GembaCore
       @core.bus_read32(address)
     end
 
+    # Write a little-endian word to the address bus, into a game that is already running.
+    #
+    # It is how a game is put into a state somebody would otherwise have to PLAY it into:
+    # set the variable holding which scene is running and the next frame is that scene, with
+    # no rebuild and nobody pressing START.
+    def write32(address, value)
+      ensure_open!
+      @core.bus_write32(address, value)
+    end
+
     # A rough loudness of the audio drained during the last {#step}: the mean
     # square of the 16-bit samples (0 when silent). Use it to answer "did the
     # speaker do anything this step?" without decoding the waveform.

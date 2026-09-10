@@ -108,6 +108,77 @@ class TestProfiler < Minitest::Test
     assert_raises(ArgumentError) { lopsided_game.profile(format: :sideways, out: StringIO.new) }
   end
 
+  # --- holding a game in one scene ---
+
+  # A game boots to its title and a held button will not get past one, because a menu reads
+  # the press EDGE. So which screen gets measured has to be said rather than played to.
+  def scened_game
+    RubyGBA.build("PSCN", code: "PSCN", maker: "01") do
+      screen :bitmap
+      clear_screen :black
+      var :state, 0
+      var :x, 0
+
+      scene(:title) { add :x, 1 }
+      scene(:playing) { call :the_work }
+      func(:the_work) { repeat(2000) { add :x, 1 } }
+
+      game_loop do
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :playing
+        end
+      end
+    end
+  end
+
+  def test_naming_a_scene_measures_that_scene
+    rom = scened_game
+    booted = rom.profile(out: StringIO.new, frames: 10)
+    playing = rom.profile(out: StringIO.new, frames: 10, scene: :playing)
+
+    refute_includes booted.lines.map(&:name), :the_work,
+                    "left alone the game sits on its title screen"
+    assert_equal :the_work, playing.lines.first.name,
+                 "named, it is held in the playing scene and that is what gets measured"
+  end
+
+  # WRITING THE SCENE ONCE IS NOT ENOUGH — a game left alone leaves the scene almost at once
+  # (a snake with nobody steering dies in a few frames), and then the measuring is of the
+  # screen it fell into, under the name of the one that was asked for. So it is held there.
+  def test_a_scene_is_held_rather_than_merely_entered
+    rom = RubyGBA.build("PHLD2", code: "PHL2", maker: "01") do
+      screen :bitmap
+      clear_screen :black
+      var :state, 1
+      var :x, 0
+
+      scene(:busy) { call :the_work; set :state, 2 } # leaves immediately
+      scene(:idle) { add :x, 1 }
+      func(:the_work) { repeat(2000) { add :x, 1 } }
+
+      game_loop do
+        case_var(:state) do
+          when_val 1, :busy
+          when_val 2, :idle
+        end
+      end
+    end
+
+    held = rom.profile(out: StringIO.new, frames: 10, scene: :busy)
+    assert_equal :the_work, held.lines.first.name,
+                 "a scene that switches away on its first frame is still what gets measured"
+  end
+
+  def test_a_scene_the_game_does_not_have_says_which_it_does
+    error = assert_raises(ArgumentError) do
+      scened_game.profile(out: StringIO.new, scene: :nowhere)
+    end
+
+    assert_match(/no scene called/, error.message)
+    assert_match(/:title/, error.message)
+  end
+
   # A cartridge assembled straight from machine code has no record of where its routines
   # ended up, and they cannot be recovered from the bytes — a routine kept in the console's
   # quick memory was copied there at boot and runs nowhere near where it sits.
