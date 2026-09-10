@@ -175,10 +175,12 @@ module Wolf3D
     NOTHING_LEFT = Enemy::LEAVES.fetch(nil)
     CLIP_LEFT = Enemy::LEAVES.fetch(:clip)
     MACHINE_GUN_LEFT = Enemy::LEAVES.fetch(:machine_gun)
+    GOLD_KEY_LEFT = Enemy::LEAVES.fetch(:gold_key)
 
     # The pictures the things that can be left lying need, in that same order.
     def self.dropped_pictures
-      [Scenery.clip_picture, Scenery.clip_picture, Scenery.machine_gun_picture]
+      [Scenery.clip_picture, Scenery.clip_picture, Scenery.machine_gun_picture,
+       Scenery.gold_key_picture]
     end
 
     def dropped_pictures = self.class.dropped_pictures
@@ -262,7 +264,10 @@ module Wolf3D
         @player[:treasures]&.add(1)
         @took.set 1
       end
-      (@kind == KEY).then { @player[:keys].add @amount; @took.set 1 }
+      # A KEY SETS ITS OWN BIT rather than being added on, which is the original's own `|=` and
+      # matters the moment two of the same key can be had: a floor's key and the one a boss
+      # leaves are both gold, and adding the gold bit twice would read as the silver one.
+      (@kind == KEY).then { @player[:keys].set(@player[:keys] | @amount); @took.set 1 }
       (@kind == SCRAPS).then do
         (@player[:health] <= NEARLY_DEAD).then { give_health(@amount) }
       end
@@ -337,18 +342,28 @@ module Wolf3D
     # with no SS on any floor emits only the first arm and pays nothing for the second.
     def take_what_he_left(guard)
       @took.set 0
-      unless @weapons && leaves_a_gun?
+      unless (@weapons && leaves_a_gun?) || leaves_a_key?
         give_ammunition(DROPPED_ROUNDS)
         return (@took == 1).then { guard.dropped.set NOTHING_LEFT }
       end
 
       (guard.dropped == CLIP_LEFT).then { give_ammunition(DROPPED_ROUNDS) }
-      (guard.dropped == MACHINE_GUN_LEFT).then do
-        # A gun off the floor is always taken, rounds or no rounds — the same rule as one the
-        # level put there.
-        give_ammunition(WEAPON_ROUNDS)
-        @weapons.give(Weapons::MACHINE_GUN)
-        @took.set 1
+      if @weapons && leaves_a_gun?
+        (guard.dropped == MACHINE_GUN_LEFT).then do
+          # A gun off the floor is always taken, rounds or no rounds — the same rule as one the
+          # level put there.
+          give_ammunition(WEAPON_ROUNDS)
+          @weapons.give(Weapons::MACHINE_GUN)
+          @took.set 1
+        end
+      end
+      # THE GOLD KEY OFF A BOSS, which is always taken — a key is the one thing you can never be
+      # too full of, and it is the way out of the floor he was standing in.
+      if leaves_a_key?
+        (guard.dropped == GOLD_KEY_LEFT).then do
+          @player[:keys].set(@player[:keys] | FirstPerson::KEY_BITS.fetch(:gold))
+          @took.set 1
+        end
       end
       (@took == 1).then { guard.dropped.set NOTHING_LEFT }
     end
@@ -356,6 +371,12 @@ module Wolf3D
     # Does anything on this cartridge leave a gun behind at all?
     def leaves_a_gun?
       @floors.any? { |floor| floor.guards&.kinds&.any? { |name| Enemy[name].leaves == :machine_gun } }
+    end
+
+    # ...and does anything leave a key? Only a boss does, so a cartridge with no boss floor on it
+    # emits none of the arm above and pays nothing for it.
+    def leaves_a_key?
+      @floors.any? { |floor| floor.guards&.kinds&.any? { |name| Enemy[name].leaves == :gold_key } }
     end
 
     def scenery_of(floor) = @scenery_of.fetch(floor.index)
