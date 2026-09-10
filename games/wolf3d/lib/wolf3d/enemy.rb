@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 module Wolf3D
-  # WHAT ONE KIND OF ENEMY IS, and there are five: the guard, the officer, the SS, the dog and
-  # the mutant.
+  # WHAT ONE KIND OF ENEMY IS: the guard, the officer, the SS, the dog, the mutant, and the two
+  # bosses who fit the same shape.
   #
   # THEY DIFFER IN NUMBERS AND IN NOTHING ELSE, which is the whole design of this file and of
   # the original's. An enemy is a place, a facing, eight poses, a state table and a mind, and
-  # every one of the five is that same thing with different numbers in it: how much killing it
+  # every one of them is that same thing with different numbers in it: how much killing it
   # takes, how fast it moves, how many pictures it fires over, what it leaves when it falls. So
   # there is no dog class and no SS class and nothing to inherit — there is one row of numbers
   # per kind, and one mind that reads them.
@@ -14,8 +14,15 @@ module Wolf3D
   # THE STATE TABLE IS THE BEHAVIOUR rather than a description of it. Each row is a picture, how
   # long to stand in it, what to think about while there, and which row comes next. Read out of
   # the original (wl_act2.cpp): guessing these gives something that merely resembles Wolfenstein.
+  #
+  # +codes+ is how many plane-1 codes the kind's block holds and +blocks+ how many times that
+  # block repeats for a harder game. The five rank-and-file kinds are 8 and 3 — four facings
+  # standing, four patrolling, repeated for the ones a harder game adds. A boss is 1 and 1: he
+  # is one code, he stands on every setting, and he has no facing to pick because his pictures
+  # do not turn.
   class Enemy < Data.define(:name, :standing, :harder, :first_picture, :hit_points, :points,
-                            :patrol_speed, :chase_times, :leaves, :states, :stands)
+                            :patrol_speed, :chase_times, :leaves, :states, :stands,
+                            :codes, :blocks)
     # How many pictures of one thing there are, one for each way you can be standing from it.
     POSES = 8
 
@@ -100,6 +107,16 @@ module Wolf3D
     DOG_POSES = Poses.new(still: nil, walk: [0, 8, 16, 24], hurt: [],
                           fall: [32, 33, 34], dead: 35, attack: [36, 37, 38])
 
+    # A BOSS IS ELEVEN PICTURES AND NOT SEVENTY, because none of his turn: the original marks
+    # every one of his states "does not rotate", so he faces the player whichever way he is
+    # walking and there is one picture per state rather than eight. Four walking, three firing,
+    # the body, and three of falling over — in the file's own order, which puts the body BEFORE
+    # the falling rather than after it.
+    #
+    # He has no standing picture of his own either: he stands in the first of his walking ones.
+    BOSS_POSES = Poses.new(still: 0, walk: [0, 1, 2, 3], hurt: [],
+                           fall: [8, 9, 10], dead: 7, attack: [4, 5, 6])
+
     # --- what every kind does the same way ------------------------------------------------
 
     # THE BEAT AND THE CHASE, which every kind walks the same way: four pictures at twenty and
@@ -128,7 +145,18 @@ module Wolf3D
 
     # Standing lasts forever — a length of nought never runs down — and only looks. A dog is the
     # one kind with no such state.
-    def self.standing_still(poses) = [state(:stand, poses.still, 0, :look, :stand)]
+    def self.standing_still(poses, turns: true)
+      [state(:stand, poses.still, 0, :look, :stand, turns: turns)]
+    end
+
+    # THE CHASE WITHOUT THE BEAT, which is what a boss walks. He is put down where he is and
+    # stays there until he sees you, so the four patrolling states have nothing to run them and
+    # the original gives him none at all. The chase itself is the same six pictures at the same
+    # lengths every other kind chases at; only the turning differs, and his do not.
+    def self.chasing_only(poses)
+      walking(poses).reject { |s| s.name.to_s.start_with?("path") }
+                    .map { |s| State.new(**s.to_h, turns: false) }
+    end
 
     # Hurt but not finished: it flinches and comes straight back at you. Which of the two
     # pictures it wears is whether the hits it has left are an odd number, which is the
@@ -227,7 +255,32 @@ module Wolf3D
       *falling(DOG_POSES, 15)
     ].freeze
 
-    # --- the five of them -------------------------------------------------------------------
+    # A BOSS IS A GUARD WITH THE DIALS TURNED UP, and the whole of him is in this one table.
+    #
+    # He does not PATROL: he waits where the floor put him until he sees you. He does not
+    # FLINCH: a shot that does not kill him does not slow him down either, and against eight
+    # hundred and fifty hit points that is what makes standing and trading shots with him a way
+    # to die. He does not TURN: every picture faces you. And where a guard fires once over three
+    # pictures, he fires SIX TIMES over eight — a chaingun, which is why the room he is in has
+    # nowhere to stand.
+    #
+    # The first picture is thirty units long and every one after it is ten, so there is a beat
+    # between seeing the guns come up and being hit by them. That gap is the whole fight.
+    BOSS_STATES = [
+      *standing_still(BOSS_POSES, turns: false),
+      *chasing_only(BOSS_POSES),
+      state(:shoot1, BOSS_POSES.attack[0], 30, nil, :shoot2, turns: false),
+      state(:shoot2, BOSS_POSES.attack[1], 10, nil, :shoot3, turns: false, fires: :gun),
+      state(:shoot3, BOSS_POSES.attack[2], 10, nil, :shoot4, turns: false, fires: :gun),
+      state(:shoot4, BOSS_POSES.attack[1], 10, nil, :shoot5, turns: false, fires: :gun),
+      state(:shoot5, BOSS_POSES.attack[2], 10, nil, :shoot6, turns: false, fires: :gun),
+      state(:shoot6, BOSS_POSES.attack[1], 10, nil, :shoot7, turns: false, fires: :gun),
+      state(:shoot7, BOSS_POSES.attack[2], 10, nil, :shoot8, turns: false, fires: :gun),
+      state(:shoot8, BOSS_POSES.attack[0], 10, nil, :chase1, turns: false),
+      *falling(BOSS_POSES, 15)
+    ].freeze
+
+    # --- the seven of them ------------------------------------------------------------------
 
     # WHERE EACH KIND'S CODES AND PICTURES ARE.
     #
@@ -253,22 +306,47 @@ module Wolf3D
     HARDER_STEP = 36
     MUTANT_HARDER_STEP = 18
 
+    # A RANK-AND-FILE KIND IS EIGHT CODES REPEATED THREE TIMES — four facings standing and the
+    # same four patrolling, repeated for the ones a harder game adds. A boss is one code, once:
+    # he stands on every setting, and he has no facing to pick because none of his pictures
+    # turn. See +codes+ and +blocks+ on the class above.
+    RANKS = { codes: 8, blocks: 3 }.freeze
+    BOSS = { codes: 1, blocks: 1, harder: 0 }.freeze
+
+    # HOW MUCH KILLING A BOSS TAKES, one number per setting. The two share it, which the
+    # original's own table does too — Hans and Gretel are the same fight in different colours.
+    BOSS_HIT_POINTS = [850, 950, 1050, 1200].freeze
+    BOSS_POINTS = 5000
+
+    # WHERE THE BOSS PICTURES SIT. Checked against a real VSWAP rather than counted off the
+    # source, the same way the rank-and-file numbers were: the four Pac-Man ghosts sit between
+    # the officer and Hans, and between Hans and Gretel sit Schabbs, the syringes he throws,
+    # both Hitlers, Giftmacher, and the rockets — none of which this cartridge builds yet.
     ALL = [
       new(name: :guard, standing: 108, harder: HARDER_STEP, first_picture: 50,
           hit_points: [25] * 4, points: 100, patrol_speed: 512, chase_times: 3,
-          leaves: :clip, states: GUARD_STATES, stands: true),
+          leaves: :clip, states: GUARD_STATES, stands: true, **RANKS),
       new(name: :dog, standing: 134, harder: HARDER_STEP, first_picture: 99,
           hit_points: [1] * 4, points: 200, patrol_speed: 1500, chase_times: 2,
-          leaves: nil, states: DOG_STATES, stands: false),
+          leaves: nil, states: DOG_STATES, stands: false, **RANKS),
       new(name: :ss, standing: 126, harder: HARDER_STEP, first_picture: 138,
           hit_points: [100] * 4, points: 500, patrol_speed: 512, chase_times: 4,
-          leaves: :machine_gun, states: SS_STATES, stands: true),
+          leaves: :machine_gun, states: SS_STATES, stands: true, **RANKS),
       new(name: :mutant, standing: 216, harder: MUTANT_HARDER_STEP, first_picture: 187,
           hit_points: [45, 55, 55, 65], points: 700, patrol_speed: 512, chase_times: 3,
-          leaves: :clip, states: MUTANT_STATES, stands: true),
+          leaves: :clip, states: MUTANT_STATES, stands: true, **RANKS),
       new(name: :officer, standing: 116, harder: HARDER_STEP, first_picture: 238,
           hit_points: [50] * 4, points: 400, patrol_speed: 512, chase_times: 5,
-          leaves: :clip, states: OFFICER_STATES, stands: true)
+          leaves: :clip, states: OFFICER_STATES, stands: true, **RANKS),
+      # HANS GROSSE, who guards the way out of the first episode, and GRETEL, who guards the way
+      # out of the fifth. They walk at a guard's pace until they see you and then at three times
+      # it, which is the original's own pair of numbers for them.
+      new(name: :hans, standing: 214, first_picture: 296,
+          hit_points: BOSS_HIT_POINTS, points: BOSS_POINTS, patrol_speed: 512, chase_times: 3,
+          leaves: :gold_key, states: BOSS_STATES, stands: true, **BOSS),
+      new(name: :gretel, standing: 197, first_picture: 385,
+          hit_points: BOSS_HIT_POINTS, points: BOSS_POINTS, patrol_speed: 512, chase_times: 3,
+          leaves: :gold_key, states: BOSS_STATES, stands: true, **BOSS)
     ].freeze
 
     BY_NAME = ALL.to_h { |kind| [kind.name, kind] }.freeze
@@ -285,8 +363,9 @@ module Wolf3D
     ATTACKS = { nil => 0, gun: 1, teeth: 2 }.freeze
 
     # WHAT EACH ONE LEAVES WHERE IT FALLS, numbered so a table can say it. Nought is nothing,
-    # which is a dog: it carries no ammunition and drops none.
-    LEAVES = { nil => 0, clip: 1, machine_gun: 2 }.freeze
+    # which is a dog: it carries no ammunition and drops none. A boss leaves the GOLD KEY, and
+    # that is what killing him is for — the way out of the floor is behind a gold-locked door.
+    LEAVES = { nil => 0, clip: 1, machine_gun: 2, gold_key: 3 }.freeze
 
     # One who has noticed you keeps knowing it, through being hurt and into falling over. The one
     # thing it changes: one who has NOT noticed you takes double from a shot, which is the
@@ -298,7 +377,11 @@ module Wolf3D
     # --- one kind, asked about itself -------------------------------------------------------
 
     # The four patrolling codes come straight after the four standing ones.
-    def patrolling = standing + 4
+    def patrolling = standing + (codes / 2)
+
+    # Is this one of the two who guard the way out of an episode? Asked where the difference
+    # shows: a boss is one code rather than eight, and has no facing to be put down with.
+    def boss? = codes == 1
 
     # The pictures this kind needs: every one any of its states can wear. A state that turns
     # needs all eight of its own, because which one shows depends on where the player is standing

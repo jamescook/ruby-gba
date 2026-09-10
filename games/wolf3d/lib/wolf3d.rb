@@ -50,6 +50,8 @@ require_relative "wolf3d/weapons"
 require_relative "wolf3d/dying"
 # ...and after dying, which is the only thing that ever spends one.
 require_relative "wolf3d/lives"
+# ...and its sibling, the other way a game can stop. After lives, whose new game it begins.
+require_relative "wolf3d/victory"
 # ...and after the view, whose START_HEALTH and KEY_BITS say what a full player is and what a key
 # is worth, and after lives, which a one-up on the floor hands another of.
 require_relative "wolf3d/pickups"
@@ -139,6 +141,45 @@ module Wolf3D
     asked = ENV.fetch("WOLF3D_FLOORS", nil)
     asked ? floors.first(Integer(asked)) : floors
   end
+  # ...AND WHERE ON THE FIRST FLOOR YOU START, which is the same kind of dial and exists for the
+  # same reason: the moments worth looking at are the far ones, and every one of them is a long
+  # walk from where the map puts you.
+  #
+  #   WOLF3D_FROM=8 WOLF3D_FLOORS=1 WOLF3D_START=34,17 ruby wolf3d.rb
+  #
+  # puts you three cells from Hans Grosse on the boss floor of the first episode, facing him.
+  # Add `,north` (or east, south, west) to say which way you are looking; without it you face
+  # whichever way the map had you facing.
+  def self.where_to_start
+    asked = ENV.fetch("WOLF3D_START", nil).to_s.strip
+    return nil if asked.empty?
+
+    x, y, facing = asked.split(",").map(&:strip)
+    [Integer(x), Integer(y), facing&.downcase&.to_sym]
+  rescue ArgumentError, TypeError
+    raise ArgumentError,
+          "WOLF3D_START cannot read #{asked.inspect}. Give a cell as x,y — or x,y,facing, " \
+          "where facing is north, east, south or west."
+  end
+
+  # The floors this cartridge holds, with the first one's start moved if it was asked for.
+  def self.floors
+    floors = Floors.from(maps, vswap, which_floors)
+    where = where_to_start
+    return floors unless where
+
+    x, y, facing = where
+    moved = floors.first_floor.level.starting_at(x, y, **(facing ? { facing: facing } : {}))
+    Floors.from(SwappedFirstFloor.new(maps, moved, which_floors.first), vswap, which_floors)
+  end
+
+  # A GAMEMAPS with one floor read differently, so that moving the start needs no new path
+  # through the floor building — everything downstream asks the maps for a level and gets the
+  # moved one exactly where it would have got the original.
+  SwappedFirstFloor = Struct.new(:maps, :level, :which) do
+    def [](index) = index == which ? level : maps[index]
+  end
+
   # WHICH SCREEN THE CARTRIDGE BOOTS ON, which is a measuring tool rather than a way to play —
   # the same kind of dial as WOLF3D_FROM above. The attract loop takes a quarter of a minute to
   # come round, and the episode list only exists on a cartridge carrying more than one episode,
@@ -177,7 +218,7 @@ module Wolf3D
     screen :bitmap, tear_free: true
 
     if Wolf3D.maps
-      floors = Wolf3D::Floors.from(Wolf3D.maps, Wolf3D.vswap, Wolf3D.which_floors)
+      floors = Wolf3D.floors
       atlas = Wolf3D::WallAtlas.new(Wolf3D.vswap, Wolf3D.palette, floors.map(&:level),
                                     doors: floors.map(&:doors), lifts: floors.map(&:lifts))
       things = Wolf3D::ThingAtlas.new(Wolf3D.vswap, Wolf3D.palette,

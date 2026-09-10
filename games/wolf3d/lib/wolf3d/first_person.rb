@@ -134,20 +134,33 @@ module Wolf3D
     # framework's `list`), which the first two fit inside a byte:
     #
     #   dir      0..7      which way he faces
-    #   state    0..117    every kind's states end to end — a state number IS the kind
     #   ticks    -7..60    the longest state, less one think
-    #   hp       -64..100  an SS starts at 100 and a shot can take him past nothing
     #   turn     0..1      which half of the guards think on this frame
-    #   dropped  0..2      nothing, a clip, or a machine gun
+    #   dropped  0..3      nothing, a clip, a machine gun, or the gold key
     #   shown, awake, ambush   yes or no
     #
-    # `wait` is the one that does not fit: a reaction is up to 192 units and it is counted
+    # `wait` is the one that never fits: a reaction is up to 192 units and it is counted
     # down the same way, so it wants -7..192 and a byte stops at 127. It takes a half instead,
     # which is still half of what it took. And x, y and togo carry fractions, which need the
     # whole word — a fraction is mostly its own fractional part.
-    GUARD_WIDTHS = { dir: :byte, state: :byte, ticks: :byte, hp: :byte, turn: :byte,
-                     dropped: :byte, shown: :byte, awake: :byte, ambush: :byte,
-                     wait: :half }.freeze
+    #
+    # TWO OF THEM DEPEND ON WHAT THE CARTRIDGE HOLDS, so they are asked rather than written:
+    #
+    #   hp     an SS starts at 100 and a shot can take him past nothing, which is a byte. A
+    #          BOSS starts at up to 1200, which is not — see #hp_width.
+    #   state  every kind's states end to end, and a state number IS the kind. Five kinds is
+    #          117 of them and fits; all seven is 156 and does not.
+    #
+    # Both keep the byte on a cartridge that does not need more, which is the whole bargain
+    # these widths are: a game with no boss on any floor pays a boss nothing.
+    NARROW = { dir: :byte, ticks: :byte, turn: :byte, dropped: :byte,
+               shown: :byte, awake: :byte, ambush: :byte, wait: :half }.freeze
+
+    # How wide a slot has to be to hold every number that can go in it, given the range the
+    # cartridge really needs. Signed, because these are counted down past nothing.
+    def self.width_for(most)
+      most <= 127 ? :byte : :half
+    end
 
     TEX = WallAtlas::SIDE # a wall picture is this many columns across...
     PAIR = TEX * 2        # ...and each wall keeps two of them, lit then dark
@@ -240,6 +253,7 @@ module Wolf3D
     def begin_a_new_game(slot)
       @floor.set slot
       @lives.start_again
+      @victory&.start_again
       @b.call :start_the_floor
     end
 
@@ -297,8 +311,13 @@ module Wolf3D
       @b.call :the_lift_runs if lifts?
     end
 
-    # Is the game still the player's to play? Until something can kill you it always is.
-    def still_playing = @dying ? @dying.alive : (@health > 0)
+    # Is the game still the player's to play? Not once something has killed you, and not once
+    # you have walked out of the episode — winning stops the world exactly as dying does, so the
+    # last picture of the game is what the words sit over.
+    def still_playing
+      alive = @dying ? @dying.alive : (@health > 0)
+      @victory ? alive & (@victory.over == 0) : alive
+    end
 
     # EVERYTHING THAT MOVES, in one place so that where it is CALLED FROM is the only thing that
     # decides how the world is paced. See PACING.
@@ -389,13 +408,21 @@ module Wolf3D
     # already there, so anything painting over it would rub them out — and the whole of what the
     # fizzle costs is affordable precisely because none of this is being done underneath it.
     def draw
-      return draw_the_world unless @dying
+      return draw_it_all unless @dying
 
-      @dying.showing_the_world.then { draw_the_world }
+      @dying.showing_the_world.then { draw_it_all }
       @dying.draw
       # ...and, once that has finished, whether there is another go in you — and if there is not,
       # the words over the red it left.
       @lives.update
+    end
+
+    # The world, and over it the words of a won episode if there are any. They go here rather
+    # than beside the death's because a victory is drawn over the LAST PICTURE OF THE GAME
+    # rather than over a red screen, so it has to come after everything that paints one.
+    def draw_it_all
+      draw_the_world
+      @victory&.update
     end
 
     def draw_the_world
@@ -540,6 +567,7 @@ module Wolf3D
       # ...and the cell that means the secret lift on THIS floor, or minus one where it has none.
       # One comparison when a lever goes down, instead of an arm per floor there too.
       @secret_car = b.var :_secret_car, (@floors.first_floor.lifts&.secret_cars&.first || -1)
+      declare_the_way_out
 
       b.image :walls, width: @atlas.width, height: @atlas.height, data: @atlas.pixels
 
@@ -593,6 +621,9 @@ module Wolf3D
       # another go.
       declare_the_dying
       @lives = Lives.new(build: b, score: @score, dying: @dying)
+      # ...and the other way a game stops, which is winning it. Only on a cartridge holding a
+      # floor you can walk out of, which is a boss floor — see Level::EXIT.
+      @victory = Victory.new(build: b, lives: @lives) if any_floor_has_a_way_out?
       # Which way the eye points, worked out once a move. The shot needs it, every standing thing
       # needs it, and it is here rather than with the rest of the working room because a floor
       # with nothing standing in it never wants it.
@@ -843,6 +874,17 @@ module Wolf3D
     # emitted — a game with no doors anywhere pays nothing for doors.
     def no_floor_has?(kind) = @floors.most(kind).zero?
 
+    # Can any floor on this cartridge be walked out of? Only a boss floor can — see Level::EXIT
+    # — so nearly every cartridge builds none of the winning at all.
+    def any_floor_has_a_way_out? = @floors.any? { |floor| floor.level.exits.any? }
+
+    # HOW WIDE EACH SLOT OF A GUARD HAS TO BE, given what this cartridge can really put down.
+    # See NARROW for the ones that never change and why these two do.
+    def guard_widths
+      NARROW.merge(hp: self.class.width_for(@behaviour.hit_points.max),
+                   state: self.class.width_for(@behaviour.length))
+    end
+
     # HOW MANY A LOOP OVER THEM REALLY MAKES, for the estimate only — nothing about how the game
     # runs reads it. A loop counted by a variable has no number anywhere in the program, neither
     # how many passes it makes nor the most it could, so unsaid it would be charged nothing at
@@ -969,7 +1011,7 @@ module Wolf3D
                               hp: 0, shown: 0, awake: 0, turn: 0, dropped: 0, ambush: 0,
                               capacity: room_for(:guards),
                               estimate: { usually: guards_usually_standing },
-                              widths: GUARD_WIDTHS
+                              widths: guard_widths
       # THE FIRST FLOOR'S GUARDS AT BOOT, written out rather than read from the tables, because
       # at boot there is no floor to have started yet. Every floor after this one is filled by
       # #put_the_guards_back from the same tables the first floor's numbers came from.
@@ -1019,6 +1061,39 @@ module Wolf3D
       @rooms = Rooms.new(build: @b, floors: @floors, map_base: @map_base,
                          door_first: @door_first, door_count: @door_count, door_open: @open,
                          player: { x: @px, y: @py })
+    end
+
+    # WHERE THE WAY OUT OF EACH FLOOR IS, as the first and last cell of its run of exit tiles.
+    # Nothing at all on a cartridge holding no floor with one, which is nearly every cartridge:
+    # two floors of the whole game have a way out this way, and both are boss floors.
+    def declare_the_way_out
+      ways = @floors.map { |floor| the_way_out_of(floor.level) }
+      return if ways.all?(&:nil?)
+
+      @exit_first = @b.table :exit_first, ways.map { |way| way&.first || 1 }, width: :half
+      @exit_last = @b.table :exit_last, ways.map { |way| way&.last || 0 }, width: :half
+    end
+
+    # ONE FLOOR'S WAY OUT, as the range of cell numbers its exit tiles cover — or nothing where
+    # it has none. A floor with no way out is given an EMPTY range (first above last) rather
+    # than a cell nobody stands on, so the test costs the same two comparisons everywhere and
+    # can never be true by accident.
+    #
+    # THE CELLS MUST RUN WITHOUT A GAP, because two comparisons is the whole point of doing it
+    # this way. Both floors of the game that have a way out lay their tiles side by side in one
+    # row, so they do. A floor that did not would silently make a cell between them an exit, so
+    # it is refused rather than allowed to be nearly right.
+    def the_way_out_of(level)
+      cells = level.exits.map { |x, y| (y * level.width) + x }.sort
+      return nil if cells.empty?
+      unless cells.last - cells.first == cells.length - 1
+        raise ArgumentError,
+              "the way out of #{level.name.inspect} is #{cells.length} cells that do not lie " \
+              "side by side (#{cells.inspect}). Reading it as a range would make the cells " \
+              "between them a way out too."
+      end
+
+      cells.first..cells.last
     end
 
     # WHERE EVERY GUARD STARTED, so the floor can be started again. All of it is settled while
@@ -1268,8 +1343,22 @@ module Wolf3D
       end
 
       @pickups.update
+      reached_the_way_out
       move_the_doors
       move_the_walls
+    end
+
+    # HAVE YOU WALKED OUT OF THE EPISODE? See Level::EXIT for why this and not the boss's death
+    # is what ends one.
+    #
+    # TWO COMPARISONS, because a floor's exit cells lie side by side and so their cell numbers
+    # run without a gap — checked while the cartridge is built rather than assumed (see
+    # #the_way_out_of). A floor with no way out carries a range nothing can be inside.
+    def reached_the_way_out
+      return unless @victory
+
+      @here.set((@py.to_i * @level.width) + @px.to_i)
+      ((@here >= @exit_first[@floor]) & (@here <= @exit_last[@floor])).then { @victory.won }
     end
 
     # Can the player stand here? Open floor, or a doorway whose panel has slid far enough out

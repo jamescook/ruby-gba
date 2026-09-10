@@ -65,6 +65,15 @@ module Wolf3D
       @ended&.set 0
     end
 
+    # A GAME CAN ALSO END BY BEING WON, and when it does the flag this keeps is the one that has
+    # to say so: it is what the menus read to tell START-opens-the-menu from START-plays-again,
+    # and what #start_another_game watches. So Victory ends the game through here rather than
+    # keeping a second flag nothing else knows about.
+    #
+    # It does NOT queue the words above — a won episode has its own, and they are drawn over the
+    # last picture of the game rather than over the red a death leaves. See {Victory}.
+    def ended_by_winning = @ended&.set(1)
+
     # ANOTHER GO, which is what the one-up lying on the floor hands you. The original stops at
     # nine, and so does this: the bar keeps one figure for it.
     MOST = 9

@@ -43,11 +43,15 @@ class TestEnemies < Minitest::Test
     assert_equal standing.map(&:name), Guards.new(level).guards.map(&:kind)
   end
 
+  # THE RANK AND FILE, which is every kind but the two bosses: those are one code each rather
+  # than eight, so the three tests below are about the eight-code layout and not about them.
+  RANKS = Enemy::ALL.reject(&:boss?)
+
   def test_the_four_patrolling_codes_come_after_the_four_standing_ones
-    level = with_things(Enemy::ALL.each_with_index.to_h { |kind, n| [[8 + n, ROW], kind.patrolling] })
+    level = with_things(RANKS.each_with_index.to_h { |kind, n| [[8 + n, ROW], kind.patrolling] })
     read = Guards.new(level).guards
 
-    assert_equal Enemy::ALL.map(&:name), read.map(&:kind)
+    assert_equal RANKS.map(&:name), read.map(&:kind)
     assert(read.all?(&:patrolling), "every one of them should be walking a beat")
   end
 
@@ -56,7 +60,7 @@ class TestEnemies < Minitest::Test
   # apart would not fit in one. Reading a mutant 36 up finds nothing at all, which is the wrong
   # answer this is here to catch.
   def test_a_mutants_harder_blocks_are_eighteen_apart_and_everyone_elses_are_thirty_six
-    Enemy::ALL.each do |kind|
+    RANKS.each do |kind|
       codes = { [8, ROW] => kind.standing + kind.harder,
                 [9, ROW] => kind.standing + (kind.harder * 2) }
       codes = { [8, ROW] => kind.patrolling + kind.harder,
@@ -96,13 +100,44 @@ class TestEnemies < Minitest::Test
   # EACH KIND'S PICTURES ARE A RUN OF THEIR OWN, laid end to end in the file, so no two kinds
   # can be pointing at the same art. The guard starting at 50 is the anchor the rest hang off.
   def test_the_five_runs_of_pictures_follow_one_another_and_never_overlap
-    runs = Enemy::ALL.map(&:pictures)
+    runs = RANKS.map(&:pictures)
 
     assert_equal 50, runs.first.min, "the guard's art begins where the scenery's ends"
     runs.each_cons(2) do |before, after|
       assert_equal before.max + 1, after.min, "one kind's art begins where the last one's ended"
     end
     assert_equal runs.sum(&:length), runs.flatten.uniq.length, "and no picture is shared"
+  end
+
+  # ...AND THE BOSSES DO NOT FOLLOW ON, which is the whole reason their numbers had to be read
+  # off a real VSWAP rather than counted from the officer's. Two runs the cartridge does not
+  # build yet sit in the gaps: the four Pac-Man ghosts between the officer and Hans, and between
+  # Hans and Gretel every boss who throws something — Schabbs and his syringes, both Hitlers,
+  # Giftmacher, and the rockets they fire.
+  GHOSTS = 8
+
+  def test_the_ghosts_sit_between_the_officer_and_hans
+    assert_equal Enemy[:officer].pictures.max + 1 + GHOSTS, Enemy[:hans].pictures.min
+  end
+
+  def test_gretel_is_a_long_way_past_hans_because_four_bosses_stand_between_them
+    assert_operator Enemy[:gretel].pictures.min, :>, Enemy[:hans].pictures.max + 1,
+                    "the bosses this cartridge does not build yet take the room in between"
+  end
+
+  # A BOSS IS ELEVEN PICTURES AND A GUARD IS FORTY-NINE, and the reason is the whole of what
+  # makes a boss cheap: none of his states turn, so each wears ONE picture where a guard's
+  # standing and walking wear one for every way you can be standing from him.
+  def test_a_boss_is_eleven_pictures_where_a_guard_is_forty_nine
+    assert_equal 11, Enemy[:hans].pictures.length
+    assert_equal 11, Enemy[:gretel].pictures.length
+    assert_equal 49, Enemy[:guard].pictures.length
+    assert(Enemy[:hans].states.none?(&:turns), "not one of a boss's states turns")
+  end
+
+  def test_no_two_kinds_answer_to_the_same_code
+    assert_empty Guards.overlapping_codes,
+                 "two kinds claiming one code would make which one stands there a toss-up"
   end
 
   # ---------------------------------------------------------------- what they do differently
@@ -173,8 +208,10 @@ class TestEnemies < Minitest::Test
   # WHAT KILLING ONE IS WORTH, which is not the same for the five and is the original's own
   # scale: a dog is worth twice a guard and a mutant seven times.
   def test_killing_each_kind_is_worth_the_originals_own_score
-    assert_equal({ guard: 100, dog: 200, officer: 400, ss: 500, mutant: 700 },
-                 Enemy::ALL.to_h { |kind| [kind.name, kind.points] })
+    assert_equal({ guard: 100, dog: 200, officer: 400, ss: 500, mutant: 700,
+                   hans: 5000, gretel: 5000 },
+                 Enemy::ALL.to_h { |kind| [kind.name, kind.points] }
+                           .sort_by { |_, points| points }.to_h)
 
     assert_equal Enemy[:dog].points, a_dog_shot_once[:score],
                  "a dog is worth two hundred, read off the game rather than the table"

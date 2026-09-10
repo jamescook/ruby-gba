@@ -41,7 +41,6 @@ module Wolf3D
     # different directions round the circle, and the only way to know that is to look.
     FACINGS = %i[east north west south].freeze
     FACES = FACINGS.length
-    BLOCK = FACES * 2 # the two sets of four, standing then patrolling
 
     # THE FOUR SETTINGS, in the order the original numbers them — which is also the order the
     # screen asks them in, so the row you pick IS the number. Everything that compares one
@@ -146,6 +145,26 @@ module Wolf3D
               "there is no difficulty #{difficulty.inspect}; the four are #{SETTINGS.join(', ')}")
     end
 
+    # EVERY CODE ONE KIND ANSWERS TO, which is its block repeated for each harder game.
+    def self.codes_of(kind)
+      kind.blocks.times.flat_map { |step| (0...kind.codes).map { |n| kind.standing + (step * kind.harder) + n } }
+    end
+
+    # NO TWO KINDS MAY ANSWER TO THE SAME CODE, because #spawn_code takes the first kind whose
+    # block a code falls in and there would be no way to tell which was meant. The five
+    # rank-and-file blocks were laid out so they do not collide; the bosses' single codes sit in
+    # the gaps between them, which is close enough quarters to be worth holding rather than
+    # hoping. Asked by a test rather than on every build.
+    def self.overlapping_codes
+      seen = {}
+      Enemy::ALL.each_with_object([]) do |kind, clashes|
+        codes_of(kind).each do |code|
+          clashes << [code, seen[code], kind.name] if seen.key?(code)
+          seen[code] = kind.name
+        end
+      end
+    end
+
     def count = @guards.length
     def empty? = @guards.empty?
 
@@ -159,7 +178,11 @@ module Wolf3D
 
     # Which way one put down facing +facing+ is pointing, as the original numbers directions:
     # counter-clockwise from east, so the four square ones are every other number.
-    def self.direction_of(facing) = FACINGS.index(facing) * 2
+    # A BOSS FACES NOWHERE, which is the original's own `nodir` and is not a detail: the test
+    # for whether he can see you has one arm per direction and NO arm for nowhere, so a thing
+    # facing nowhere falls through it and sees you whichever side of him you are standing. That
+    # is what makes walking into a boss's room begin the fight, whichever door you came in by.
+    def self.direction_of(facing) = facing.nil? ? NOWHERE : FACINGS.index(facing) * 2
 
     # Which way a turning point sends a patrolling guard who reaches it, or nil where the cell
     # holds no turning point.
@@ -176,6 +199,11 @@ module Wolf3D
       kind, within, step = spawn_code(x, y)
       return nil if kind.nil?
 
+      # A BOSS IS PUT DOWN FACING NOWHERE, which is the original's own `nodir`: none of his
+      # pictures turn, so there is no facing to read off his one code, and he picks a direction
+      # the moment he starts after you. He never patrols either — he waits where he was put.
+      return boss_at(x, y, kind) if kind.boss?
+
       patrolling = within >= FACES
       # A KIND THAT NEVER STANDS reads its standing block as nothing at all, which is the dog:
       # the original has no arm for a standing one, and no floor of the game puts one down.
@@ -188,16 +216,24 @@ module Wolf3D
                 from: FROM.fetch(step))
     end
 
-    # Which kind stands here, which of its eight codes this is, and which block it came out of —
-    # or nothing where this cell holds no enemy at all. A harder game's codes come down to the
-    # same eight. The five kinds' fifteen blocks do not overlap, so the order they are tried in
-    # cannot change the answer.
+    # A BOSS LIES IN WAIT WHEREVER HE IS PUT, whatever the cell under him says. The original
+    # gives him FL_AMBUSH outright rather than reading it off the map, and it is what makes the
+    # fight begin when you walk in and see him rather than when he hears the shot before it.
+    def boss_at(x, y, kind)
+      Guard.new(x: x, y: y, kind: kind.name, facing: nil, patrolling: false,
+                ambush: true, from: FROM.first)
+    end
+
+    # Which kind stands here, which of its codes this is, and which block it came out of — or
+    # nothing where this cell holds no enemy at all. A harder game's codes come down to the same
+    # eight. No two blocks overlap, so the order the kinds are tried in cannot change the answer;
+    # #check_the_codes_do_not_overlap! holds that true as kinds are added.
     def spawn_code(x, y)
       code = @level.thing_code(x, y)
       Enemy::ALL.each do |kind|
-        FROM.each_index do |step|
+        kind.blocks.times do |step|
           within = code - (step * kind.harder) - kind.standing
-          return [kind, within, step] if within >= 0 && within < BLOCK
+          return [kind, within, step] if within >= 0 && within < kind.codes
         end
       end
       nil
