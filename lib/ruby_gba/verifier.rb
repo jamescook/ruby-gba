@@ -277,6 +277,27 @@ module RubyGBA
 
     private
 
+    # A directory of this Verifier's own for the cartridge's save memory, taken away when
+    # the Verifier is collected — the same lifetime the ROM's own temp file has.
+    #
+    # A GBA cartridge can carry a chip the game saves into, which the emulator keeps as a
+    # .sav file. Left alone it writes that file beside the ROM and creates it whether the
+    # game saves anything or not, so a suite that verifies thousands of ROMs leaves
+    # thousands of empty save files behind it. The finalizer takes the whole directory.
+    def own_save_dir
+      require "tmpdir"
+      require "fileutils" # a finalizer runs where `require` cannot, so load it here
+      dir = Dir.mktmpdir("verify-save")
+      ObjectSpace.define_finalizer(self, self.class.save_dir_remover(dir))
+      dir
+    end
+
+    # Built by a class method so the proc closes over the path alone. One that captured
+    # the Verifier would keep it alive for ever, and never run.
+    def self.save_dir_remover(dir)
+      proc { FileUtils.remove_entry(dir, true) }
+    end
+
     def ensure_rendered!
       return if @pixels
 
@@ -292,7 +313,7 @@ module RubyGBA
       @tempfile.binmode
       @rom.write(@tempfile.path)
       @tempfile.flush
-      @core = Emulator.open(@tempfile.path)
+      @core = Emulator.open(@tempfile.path, save_dir: own_save_dir)
       @audio = +"".b
       @audio_by_frame = []
       @frames.times do |frame|

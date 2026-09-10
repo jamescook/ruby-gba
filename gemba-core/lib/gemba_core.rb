@@ -17,9 +17,11 @@ module GembaCore
     # Boot +rom_path+ and return a {Probe} ready to {Probe#step}.
     #
     # @param rom_path [String] path to a .gba/.gb/.gbc ROM
+    # @param save_dir [String, nil] where the cartridge's save memory lives — see {Probe#initialize}
+    # @param bios_path [String, nil] a BIOS image to boot through
     # @return [Probe]
-    def open(rom_path)
-      Probe.new(rom_path)
+    def open(rom_path, save_dir: nil, bios_path: nil)
+      Probe.new(rom_path, save_dir: save_dir, bios_path: bios_path)
     end
   end
 end
