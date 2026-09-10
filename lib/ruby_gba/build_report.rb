@@ -200,6 +200,9 @@ module RubyGBA
       # Nothing in a tileset says which of its tiles are really the same picture, so this is
       # the one line that says how much of it was repeats.
       parts << "#{area.shared} were the same picture as another and stored once" if area.shared.positive?
+      # A gap left to line a layer up with a starting point of its own. Rare, invisible from
+      # the program, and the only part of this memory that is spent on nothing.
+      parts << "#{room(area.skipped)} skipped so a layer could count from a place of its own" if area.skipped.positive?
       parts.empty? ? "" : " (#{parts.join('; ')})"
     end
 

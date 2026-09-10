@@ -25,15 +25,30 @@ module RubyGBA
         # maps it had.
         #
         # WHAT LIMITS A TILESET, now that the fixed cap is gone, is how far a map can
-        # POINT. A map cell holds a tile number in ten bits, counted from the bottom in
-        # units of that layer's own tile size — so a layer whose tiles are stored small
-        # (32 bytes each) can name anything in the first 32K, and one stored the big way
-        # (64 bytes) anything in the first 64K. Both are far past what the old rule gave.
+        # POINT. A map cell holds a tile number in ten bits, counted in units of that
+        # layer's own tile size — so a layer whose tiles are stored small (32 bytes each)
+        # can name a run of 32K, and one stored the big way (64 bytes) a run of 64K. Both
+        # are far past what the old rule gave.
+        #
+        # AND EACH LAYER COUNTS FROM ITS OWN STARTING POINT. That ten-bit number is an
+        # offset from wherever the layer is told its pictures begin, and the console lets
+        # each layer be told separately — one of four places 16K apart. So the reach is
+        # per LAYER, not per game: one layer counting from the bottom can name the first
+        # 32K while another counting from halfway names the last 32K, and between them
+        # they use all of it. That is what lets a game with two big scrolling layers have
+        # more distinct tiles than either one of them could name alone.
+        #
+        # Nothing hands out those starting points here, because picking one needs to know
+        # how many tiles the layer is about to add and which of them are already stored —
+        # see #choose_char_base in gba.rb. This class knows the bytes.
         class TileVram
           SCREEN_BLOCKS = 32
           SCREEN_BLOCK_BYTES = 0x800
           CHAR_BLOCK_BYTES = 0x4000
           TOTAL_BYTES = SCREEN_BLOCKS * SCREEN_BLOCK_BYTES
+
+          # The four places a layer can be told its pictures begin, 16K apart.
+          CHAR_BLOCKS = TOTAL_BYTES / CHAR_BLOCK_BYTES
 
           # A map cell holds its tile number in ten bits.
           MOST_TILES = 1024
@@ -68,6 +83,14 @@ module RubyGBA
             start
           end
 
+          # Leave the tiles below +offset+ alone and grow from there instead. Used when a
+          # layer takes a starting point of its own above where the last one stopped; the
+          # bytes in between belong to nobody and are uploaded as zeroes.
+          def skip_to(offset)
+            @tile_bytes = offset if offset > @tile_bytes
+            check_they_still_fit!
+          end
+
           # Room for one map: +blocks+ consecutive screen blocks (one for a map of 32x32
           # cells, more for a larger one). Returns the first block's number.
           def take_map(blocks = 1)
@@ -77,10 +100,13 @@ module RubyGBA
           end
 
           # What a map has to hold to name the tile at +offset+, for a layer whose tiles
-          # are +unit+ bytes each. Nil when it is too far to point at.
-          def tile_number(offset, unit:)
-            number = offset / unit
-            number < MOST_TILES ? number : nil
+          # are +unit+ bytes each and which counts from +base+. Nil when it is out of that
+          # layer's reach — below where it starts counting, or too far above it.
+          def tile_number(offset, unit:, base: 0, most: MOST_TILES)
+            return nil if offset < base
+
+            number = (offset - base) / unit
+            number < most ? number : nil
           end
 
           # What is left, for a report: the bytes neither the tiles nor the maps have

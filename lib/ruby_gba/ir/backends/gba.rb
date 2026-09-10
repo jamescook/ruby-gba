@@ -186,8 +186,11 @@ module RubyGBA
         # half a byte a pixel, each naming its own bank of sixteen colors — worked out
         # from the colors in its art, never asked for. +size+ is the grid it scrolls over,
         # already shifted into place for the layer's own settings.
+        # +char_base+ is which of the four 16K places this layer counts its tile numbers
+        # from, so two layers can each name a full run of tiles out of different parts of
+        # the same memory.
         BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :size,
-                                          :priority, :affine, :small)
+                                          :priority, :affine, :small, :char_base)
 
         # Two more scratch registers, live only inside one arithmetic expression and
         # never across a statement. A 64-bit multiply needs both of them, because its
@@ -531,7 +534,8 @@ module RubyGBA
           used = @bg_shared[:char_units] * 2
           RubyGBA::VideoMemory::Area.new(used: used, capacity: used + @vram.free_bytes,
                                          small: @bg_shared[:small], big: @bg_shared[:big],
-                                         saved: @bg_shared[:saved], shared: @bg_shared[:shared])
+                                         saved: @bg_shared[:saved], shared: @bg_shared[:shared],
+                                         skipped: @bg_shared[:skipped])
         end
 
         # WHERE EACH ROUTINE ENDED UP, as the span of addresses it really occupies while the
@@ -1286,6 +1290,12 @@ module RubyGBA
         # A map entry's bits 12-15: which palette bank this cell's tile draws from. Per
         # TILE, not per layer — so one 4bpp background can span all sixteen banks.
         BG_BANK_SHIFT = 12
+
+        # BGxCNT bits 2-3: which 16K block this layer counts its tile numbers from. Every
+        # layer's pictures are still one run uploaded in one piece — this only says where
+        # in that run a given layer starts counting. See {TileVram} and #choose_char_base.
+        CHAR_BASE_SHIFT = 2
+
         BG_SHARED_PAL = :__bg_shared_pal   # the one palette every layer indexes into
         BG_SHARED_CHAR = :__bg_shared_char # every layer's tile pictures, uploaded as one piece
 
@@ -1332,6 +1342,7 @@ module RubyGBA
           @small_layers = []
           @tile_bytes_written = {} # the same picture, stored once — see #append_tiles
           @tiles_shared = 0
+          @tiles_skipped = 0 # bytes nothing draws from — see #choose_char_base
           # What a run-time tile change needs, and nothing else does: each background's
           # grid size, and what to write into a cell to show one of its tiles.
           @map_cells = {}
@@ -1432,7 +1443,7 @@ module RubyGBA
         def bank_tally(nodes, big)
           small = nodes.reject { |node| big.include?(node) }.sum { |node| node.tiles.size }
           { small: small, big: nodes.sum { |node| node.tiles.size } - small,
-            saved: small * SMALL_TILE_BYTES, shared: @tiles_shared }
+            saved: small * SMALL_TILE_BYTES, shared: @tiles_shared, skipped: @tiles_skipped }
         end
 
         # The tiles and the maps grow toward each other and met. Name the biggest tileset,
@@ -1455,12 +1466,14 @@ module RubyGBA
           validate_map_fits!(name, node.map)
           small = !big.include?(node)
           @small_layers << name if small
-          numbers = append_tiles(node, banks, char)
+          numbers, base, blank = append_tiles(node, banks, char)
 
           # The map: one 16-bit entry per cell, holding the tile to draw there and — for a
           # layer stored the small way — which bank of sixteen that tile reads from. Cells
-          # outside the authored map, and blank cells, stay 0: the blank tile in bank 0,
-          # see-through so a layer behind shows through.
+          # outside the authored map, and blank cells, get this layer's blank tile: every
+          # pixel see-through, so a layer behind shows through. Which number that is
+          # depends on where the layer counts from, and it is 0 for a layer counting from
+          # the bottom, which is nearly all of them.
           cols, rows = IR::TileMap.grid(node.map)
           cell_for = node.tiles.each_index.to_h do |index|
             bank = small ? banks.placement(tile_key(node, index)).bank : 0
@@ -1468,7 +1481,7 @@ module RubyGBA
           end
           @map_cells[name] = { cols: cols, rows: rows }
           @map_entries[name] = cell_for
-          entries = map_entries(node, cols, rows) { |index| cell_for.fetch(index) }
+          entries = map_entries(node, cols, rows, blank) { |index| cell_for.fetch(index) }
 
           map_blob = :"__bg_map_#{name}"
           @emit.data_blobs[map_blob] = entries.pack("v*")
@@ -1479,7 +1492,8 @@ module RubyGBA
             size: regular_map_size(cols, rows),
             priority: hardware_priority(name),
             affine: false,
-            small: small
+            small: small,
+            char_base: base / CHAR_BLOCK_BYTES
           )
         end
 
@@ -1503,8 +1517,8 @@ module RubyGBA
         # That is why this cannot simply walk the authored rows: a cell's place in the
         # blob depends on which quarter of the map it is in. The blocks are consecutive in
         # memory (TileVram hands out a run), so the whole thing still uploads as one copy.
-        def map_entries(node, cols, rows)
-          entries = Array.new(cols * rows, 0)
+        def map_entries(node, cols, rows, blank = 0)
+          entries = Array.new(cols * rows, blank)
           node.map.each_with_index do |row, r|
             next if r >= rows
 
@@ -1537,13 +1551,76 @@ module RubyGBA
         # what makes it right rather than nearly right: two tiles drawn from different
         # colors are different pictures, and two identical pictures in layers that ended
         # up with different color banks encode differently and must stay apart.
-        def append_tiles(node, banks, char)
+        def append_tiles(node, banks, char, most: TileVram::MOST_TILES)
           unit = tile_unit(node)
-          node.tiles.each_index.to_h do |index|
-            bytes = encode_tile(@bitmaps.fetch(node.tiles[index]), tile_place(node, index, banks))
-            [index, place_tile(node.name, bytes, char, unit)]
+          encoded = node.tiles.each_index.map do |index|
+            encode_tile(@bitmaps.fetch(node.tiles[index]), tile_place(node, index, banks))
           end
+          base = choose_char_base(encoded, unit, most)
+
+          # A layer counting from the bottom shares the blank tile seeded at 0. One
+          # counting from anywhere else cannot see that far back, so it gets a blank of
+          # its own — 32 bytes, placed before its own tiles so it is the first thing in
+          # reach — and its empty cells name that instead.
+          blank = base.zero? ? 0 : place_tile(node.name, ("\x00" * unit).b, char, unit, base, most)
+          numbers = encoded.each_with_index.to_h do |bytes, index|
+            [index, place_tile(node.name, bytes, char, unit, base, most)]
+          end
+          [numbers, base, blank]
         end
+
+        # WHERE THIS LAYER COUNTS ITS TILE NUMBERS FROM, which decides how far it can
+        # reach and is the whole reason a game can have more distinct tiles than one
+        # layer's ten bits can name.
+        #
+        # Three answers, tried in order, and the first one that fits wins:
+        #
+        #   FROM THE BOTTOM, which is what every layer did before this existed. Nothing
+        #   is skipped and the blank tile at 0 serves the empty cells. Nearly every game
+        #   stops here, and gets exactly the layout it always got.
+        #
+        #   FROM THE BLOCK IT ALREADY STARTS IN — the highest 16K mark at or below where
+        #   its tiles will land. Still nothing skipped, and the layer's reach moves up
+        #   with it, so a second layer stacked on a big first one can point past the
+        #   first layer's ceiling.
+        #
+        #   FROM THE NEXT BLOCK UP, which skips the few bytes in between. That is the
+        #   only one that wastes anything, so it is last: it buys the layer a full run to
+        #   itself, for at most 16K of memory nobody uses.
+        #
+        # Deduplication follows the same rule as the reach: a picture already stored
+        # BELOW where this layer counts from is out of its sight, so it stores its own
+        # copy rather than pointing at one it cannot name.
+        def choose_char_base(encoded, unit, most)
+          wanted = encoded.uniq
+          reach = most * unit
+          mark = align(@vram.tile_bytes, unit)
+
+          return 0 if mark + (fresh_bytes(wanted, 0, unit)) <= reach
+
+          floor = (mark / CHAR_BLOCK_BYTES) * CHAR_BLOCK_BYTES
+          return floor if mark + unit + fresh_bytes(wanted, floor, unit) <= floor + reach
+
+          ceiling = align(mark, CHAR_BLOCK_BYTES)
+          return floor if ceiling > TileVram::TOTAL_BYTES - CHAR_BLOCK_BYTES
+
+          @tiles_skipped += ceiling - @vram.tile_bytes
+          @vram.skip_to(ceiling)
+          ceiling
+        end
+
+        # How much room this layer's pictures need if it counts from +base+: the ones no
+        # copy of which is already stored somewhere it could name.
+        def fresh_bytes(wanted, base, unit)
+          wanted.count { |bytes| stored_at(bytes, base).nil? } * unit
+        end
+
+        # Where a picture already sits that a layer counting from +base+ could name. Two
+        # layers counting from different places can each need their own copy, so what is
+        # kept is every place a picture was stored, in the order they were stored.
+        def stored_at(bytes, base) = @tile_bytes_written.fetch(bytes, []).find { |at| at >= base }
+
+        def align(value, to) = ((value + to - 1) / to) * to
 
         # Where a tile's colors come from: its own bank if the layer is stored the small
         # way, else the whole table the layer shares.
@@ -1554,28 +1631,30 @@ module RubyGBA
 
         # One tile's bytes, at the number a map will name it by — the place it already has
         # if this exact tile has been stored, else a fresh place at the end.
-        def place_tile(name, bytes, char, unit)
-          at = @tile_bytes_written[bytes]
+        def place_tile(name, bytes, char, unit, base, most)
+          at = stored_at(bytes, base)
           if at
             @tiles_shared += 1
           else
             at = @vram.take_tile(unit)
             char << ("\x00" * (at - char.bytesize)).b if at > char.bytesize
             char << bytes
-            @tile_bytes_written[bytes] = at
+            (@tile_bytes_written[bytes] ||= []) << at
           end
-          @vram.tile_number(at, unit: unit) || (raise LoweringError, tile_too_far(name, at, unit))
+          @vram.tile_number(at, unit: unit, base: base, most: most) ||
+            (raise LoweringError, tile_too_far(name, at, unit, base, most))
         end
 
         # A map cell holds its tile number in ten bits, counted in the layer's own tile
-        # size — so a layer stored the small way can name anything in the first 32K and
-        # one stored the big way anything in the first 64K. Past that a tileset is not
-        # too big for the memory, it is too far for a map to point at, and saying which
-        # is the difference between a fixable message and a baffling one.
-        def tile_too_far(name, offset, unit)
-          "background :#{name} has tiles at #{offset} bytes into video memory, and a map cell can only " \
-            "name the first #{TileVram::MOST_TILES * unit}. Use fewer different tiles, or declare this " \
-            "background before the ones with the biggest tilesets."
+        # size from wherever the layer starts counting — so it can name a run of 32K
+        # stored the small way, 64K stored the big way, and each layer gets its own run.
+        # Past that a tileset is not too big for the memory, it is too far for one map to
+        # point across, and saying which is the difference between a fixable message and
+        # a baffling one.
+        def tile_too_far(name, offset, unit, base, most)
+          "background :#{name} counts its tiles from #{base} bytes into video memory and has one at " \
+            "#{offset}, which is past the #{most * unit} bytes a map cell can reach across. Use fewer " \
+            "different tiles, or declare this background before the ones with the biggest tilesets."
         end
 
         # How big one of this layer's tiles is: 32 bytes stored the small way, 64 the big
@@ -1629,21 +1708,21 @@ module RubyGBA
           # turning a sprite.
           @emit.data_blobs[OBJ_SINE_BLOB] ||= build_sine_table
 
-          numbers = append_tiles(node, banks, char)
-
-          if numbers.each_value.max >= AFFINE_MAX_TILES
+          begin
+            numbers, base, blank = append_tiles(node, banks, char, most: AFFINE_MAX_TILES)
+          rescue LoweringError
             raise LoweringError,
                   "background :#{name} is a rotozoom background (`screen :rotozoom`), so its map can only name " \
-                  "#{AFFINE_MAX_TILES} tiles — one byte per cell, no room for more. Its own tiles sit past " \
-                  "that, behind #{tiles.size} of its own and whatever earlier backgrounds put there. " \
-                  "Use fewer distinct tiles, or declare this background first."
+                  "#{AFFINE_MAX_TILES} tiles — one byte per cell, no room for more. It has #{tiles.size} of " \
+                  "its own, and they must all sit inside one #{CHAR_BLOCK_BYTES}-byte stretch of video " \
+                  "memory. Use fewer distinct tiles, or declare this background first."
           end
 
           # A rotate/scale layer's map is one BYTE per cell and is laid out as plain rows
           # of the whole grid — not as squares of 32x32 the way a regular layer's is. So a
           # bigger one of these needs no re-arranging, only more room.
           cols, rows = IR::TileMap.grid(node.map)
-          entries = Array.new(cols * rows, 0)
+          entries = Array.new(cols * rows, blank)
           node.map.each_with_index do |row, r|
             next if r >= rows
 
@@ -1664,7 +1743,8 @@ module RubyGBA
             size: affine_map_size(cols, rows, name),
             priority: hardware_priority(name),
             affine: true,
-            small: false
+            small: false,
+            char_base: base / CHAR_BLOCK_BYTES
           )
         end
 
