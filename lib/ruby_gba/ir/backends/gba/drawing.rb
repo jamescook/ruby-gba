@@ -708,16 +708,11 @@ module RubyGBA
 
             emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
             depth = bg.small ? 0 : BG_256_COLOR # a small layer's tiles each name their own bank
-            write_reg16(BG_CNT_REGS[bg.bg], bg.priority | depth | (bg.screen_block << 8))
+            write_reg16(BG_CNT_REGS[bg.bg], bg.priority | depth | (bg.screen_block << 8) | bg.size)
             write_reg16(BG_HOFS_REGS[bg.bg], 0) # start unscrolled
             write_reg16(BG_VOFS_REGS[bg.bg], 0)
           end
 
-          # BG2CNT's screen-size field means something different once a layer is affine:
-          # not a rectangle of regular tiles but a square affine map, 16x16/32x32/64x64/
-          # 128x128 tiles. This background always gets the 32x32 size (matching MAP_CELLS,
-          # the same square every regular layer's map already fits inside) — bits 14-15 = 01.
-          AFFINE_SIZE_32X32 = 0x4000
           # Bit 13: the map WRAPS at its edge instead of showing the backdrop past it — the
           # same torus every `screen :tiled` background already is.
           AFFINE_WRAP = 0x2000
@@ -765,7 +760,7 @@ module RubyGBA
           def emit_affine_background_hardware(bg)
             emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
             write_reg16(REG_BG2CNT,
-                        bg.priority | BG_256_COLOR | (bg.screen_block << 8) | AFFINE_WRAP | AFFINE_SIZE_32X32)
+                        bg.priority | BG_256_COLOR | (bg.screen_block << 8) | AFFINE_WRAP | bg.size)
           end
 
           # Scratch memory the affine background's matrix numbers pass through on their
