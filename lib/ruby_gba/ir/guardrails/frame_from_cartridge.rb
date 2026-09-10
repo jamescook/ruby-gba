@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "../cost_model"
 require_relative "../../plain_words"
 
 module RubyGBA
@@ -33,13 +32,13 @@ module RubyGBA
           NAME = :frame_from_cartridge
           PLAIN_NAME = "the game loop running from the cartridge"
 
-          def initialize(model)
-            @model = model
+          def initialize(placement)
+            @placement = placement
           end
 
           def detect(program)
             frame = Backends::GBA::Placement::FRAME_ROUTINE
-            over = @model.placement&.passed_over&.find { |o| o.name == frame } or return []
+            over = @placement&.passed_over&.find { |o| o.name == frame } or return []
             loop_node = program.children.find { |node| node.kind == :loop } or return []
 
             [Finding.new(check: NAME, severity: :warning, message: message(over), node: loop_node)]

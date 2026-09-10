@@ -280,17 +280,36 @@ module RubyGBA
     #
     # A game with no scenes at all is measured as it boots, which is the whole of it.
     #
-    # Answers instructions-a-frame per routine, which is what {RoutineProfile} keeps.
+    # Answers a {Survey}: instructions-a-frame per routine, which is what {RoutineProfile}
+    # keeps, and what each scene measured, which is what the build warns from.
     def self.every_scene(rom, frames: FRAMES, keys: [])
       dispatch = Analyzer.scenes(rom.built.source_program)
       address = dispatch && rom.built.var_addresses[dispatch[:selector]]
-      return work_in(run(rom, frames: frames, keys: keys, tearing: false)) unless address
-
-      per_scene = dispatch[:scenes].map do |_name, value|
-        work_in(run(rom, frames: frames, keys: keys, tearing: false,
-                    enter: { address: address, value: value }))
+      unless address
+        whole = run(rom, frames: frames, keys: keys, tearing: false)
+        return Survey.new(work: work_in(whole), scenes: { nil => whole })
       end
-      per_scene.reduce(Hash.new(0)) do |busiest, scene|
+
+      measured = dispatch[:scenes].to_h do |name, value|
+        [name, run(rom, frames: frames, keys: keys, tearing: false,
+                   enter: { address: address, value: value })]
+      end
+      Survey.new(work: busiest_of(measured.values), scenes: measured)
+    end
+
+    # WHAT A WHOLE GAME MEASURED, scene by scene. +work+ is what the placement is decided
+    # from; +scenes+ is each scene's own reading, kept because the build warns from it — a
+    # game that misses 60 frames a second is worth saying so at build time, and the build has
+    # just run it, so that costs nothing extra.
+    Survey = Data.define(:work, :scenes) do
+      # The scenes that did not keep up, slowest first. A game is only ever in one scene at a
+      # time, so one slow scene is a slow game whatever the others do.
+      def struggling = scenes.reject { |_, r| r.frames.zero? || !r.dropping_frames? }
+                             .sort_by { |_, r| r.fps }
+    end
+
+    def self.busiest_of(results)
+      results.map { |r| work_in(r) }.reduce(Hash.new(0)) do |busiest, scene|
         scene.each { |name, work| busiest[name] = [busiest[name], work].max }
         busiest
       end

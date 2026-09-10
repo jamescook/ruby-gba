@@ -179,42 +179,41 @@ class TestFastCodePlacement < Minitest::Test
   # console's own doing and takes the same time wherever our code lives, so it is the one
   # part of a frame the move cannot make cheaper.
   #
-  # A BAND RATHER THAN A FACTOR, because there is no longer one factor to assert. What the
-  # quick memory buys is a property of the op: it makes fetching an instruction cheap and does
-  # nothing for a load or a store, so a loop of arithmetic and a rectangle of pixels gain
-  # different amounts and this frame holds both (see CostModel::DEFAULT_GAINS). The band is the
-  # one physics allows — never slower, and never more than fetching itself gets cheaper.
-  def test_the_estimate_follows_the_code_into_quick_memory
-    program = looping_program(passes: 200)
-    boundary = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS[:frame_overhead]
-    cart = RubyGBA::IR::CostModel.new.steady_cost(program) - boundary
-    quick = RubyGBA::IR::CostModel.new(fast_frame: true, fast_routines: [:work]).steady_cost(program) -
-            boundary
+  # MEASURED, which is the only way this claim was ever worth anything. It used to be checked
+  # against an estimate that had been told which routines moved — so it asserted that the
+  # estimate applied its own discount, not that the console ran anything faster. The same
+  # program is now built both ways and RUN, and the two frames are counted.
+  def test_the_code_really_runs_faster_in_quick_memory
+    require_gemba_core!
+    # It has to keep running to be measured: the fixture normally stops after three passes,
+    # and a halted game finishes no frames at all.
+    program = looping_program(passes: 200, halt_after: nil)
+    cart = profile_of(rom_of(program, title: "SLOW", code: "PSLW", fast_code: false))
+    quick = profile_of(rom_of(program, title: "FAST", code: "PFST", fast_code: true))
 
-    assert_operator cart / quick, :>, 1.0, "moving the code has to make the estimate cheaper"
-    assert_operator cart / quick, :<, 4.5, "and no op gains more than fetching itself does"
+    # HOW MUCH OF EACH FRAME IS LEFT, not the instruction count. The two run the same
+    # instructions; what differs is how long each takes to fetch. Counting instructions a
+    # frame would read backwards, because a pass too slow for one frame spills into the next
+    # and so runs FEWER of them per frame.
+    assert_operator quick.idle_share, :>, cart.idle_share,
+                    "moving the code has to leave more of each frame: " \
+                    "#{quick.idle_share} against #{cart.idle_share}"
   end
 
   # ...and the half of that which is easy to lose: moving the frame's own body does NOT carry
   # the routine it calls along with it. A routine is emitted once and jumped to, so one left
-  # behind runs from the cartridge whoever called it.
+  # behind runs from the cartridge whoever called it. That is a placement fact, so the
+  # placement is what says it.
   def test_moving_the_frame_body_does_not_move_the_routine_it_calls
-    program = looping_program(passes: 200)
-    cart = RubyGBA::IR::CostModel.new.steady_cost(program)
-    loop_only = RubyGBA::IR::CostModel.new(fast_frame: true).steady_cost(program)
-    both = RubyGBA::IR::CostModel.new(fast_frame: true, fast_routines: [:work]).steady_cost(program)
+    placement = rom_of(looping_program(passes: 200), title: "SPLT", code: "PSPL",
+                       fast_code: false).placement
 
-    assert_operator loop_only, :>, both * 1.5,
-                    "the routine is still in the cartridge, so most of the frame is undiscounted"
-    assert_operator loop_only, :<, cart, "though the loop's own statements did move"
+    refute_includes placement.funcs, :work,
+                    "with the chooser off, nothing moves — including a routine the loop calls"
   end
 
-  # A routine that is NOT in the quick memory is priced as it always was — the discount is
-  # per routine, not a blanket one.
-  def test_a_routine_left_in_the_cartridge_is_priced_as_before
-    program = looping_program(passes: 200)
-    assert_in_delta RubyGBA::IR::CostModel.new.steady_cost(program),
-                    RubyGBA::IR::CostModel.new(fast_routines: [:something_else]).steady_cost(program), 0.001
+  def profile_of(rom)
+    RubyGBA::Profiler.run(rom, frames: 30, tearing: false)
   end
 
   # --- the routine the console interrupts into ---
@@ -345,27 +344,21 @@ class TestFastCodePlacement < Minitest::Test
     assert_backends_agree(program, frames: 3, name: "CBND")
   end
 
-  # --- and the price follows it ---
+  # --- and it really is faster there ---
 
-  # Moving it makes bending genuinely cheaper, so an estimate that ignored the move would
-  # read nearly twice over for every program that ripples.
-  def test_the_estimate_follows_the_interrupt_into_quick_memory
+  # Moving it makes bending genuinely cheaper, and it is measured rather than asserted about
+  # an estimate that had been TOLD the routine moved. Part of what an interrupt costs is the
+  # console's own — stopping the game, saving registers, handing control over — and that runs
+  # at the console's speed however fast ours is, so the gain is real but smaller than a plain
+  # routine's. What matters here is only that it is a gain.
+  def test_the_interrupt_really_runs_faster_in_quick_memory
+    require_gemba_core!
     program = bending_program
-    cart = RubyGBA::IR::CostModel.new.bend_verdict(program).feeding
-    quick = RubyGBA::IR::CostModel.new(fast_interrupts: true).bend_verdict(program).feeding
-    assert_operator quick, :<, cart
-  end
+    cart = profile_of(rom_of(program, title: "BSLW", code: "BSLW", fast_code: false))
+    quick = profile_of(rom_of(program, title: "BFST", code: "BFST", fast_code: true))
 
-  # It buys less than the general fast-memory factor, and that is not a rounding error:
-  # stopping the game, saving registers and handing control over is the console's own work
-  # and runs at the console's own speed however fast ours is. Measured, so the two cases are
-  # two weights rather than one weight and a discount.
-  def test_an_interrupt_gains_less_from_quick_memory_than_ordinary_code
-    weights = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
-    gain = weights[:bend_line] / weights[:bend_line_fast]
-    assert_operator gain, :>, 1.5, "moving it is still worth a lot"
-    assert_operator gain, :<, weights[:fast_code_speedup],
-                    "but less than ordinary code gains, because part of an interrupt is not ours"
+    assert_operator quick.idle_share, :>, cart.idle_share,
+                    "moving the routine the display interrupts into leaves more of each frame"
   end
 
   def test_the_report_names_the_routine_the_display_interrupts_into

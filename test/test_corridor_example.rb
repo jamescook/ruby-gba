@@ -4,18 +4,15 @@ require "test_helper"
 
 require_relative "../examples/corridor"
 
-# The corridor example (examples/corridor.rb): the corpus's witness NEAR THE BUDGET.
+# The corridor example (examples/corridor.rb): the corpus's witness NEAR THE LINE.
 #
-# Every other example is comfortable — before this one the heaviest used under half a frame —
-# so the part of the estimate that actually matters, the VERDICT it gives an author, had never
-# been asked about a game close to the edge. Corridor spends about four fifths of a frame, and
-# the tests below are the two halves of that: it is a real game that draws a real picture, and
-# it is heavy enough for the verdict to be worth something.
+# Every other example is comfortable — the heaviest of the rest uses under half a frame — so
+# nothing in the corpus was ever close enough to the edge for "does it fit" to be a real
+# question. Corridor spends most of a frame, and the tests below are the two halves of that:
+# it is a real game that draws a real picture, and it is heavy enough that a change which
+# pushed it over would be caught here.
 class TestCorridorExample < Minitest::Test
   include RubyGBA::Constants
-
-  # A frame's worth of scanlines. A game that goes past this tears or slows.
-  BUDGET = 228.0
 
   # RubyGBA.build runs the guardrails and the ROM-image validation, so a clean build IS
   # the check.
@@ -49,72 +46,37 @@ class TestCorridorExample < Minitest::Test
     end
   end
 
-  # WHAT THE EXAMPLE IS FOR. It has to stay near the budget to be worth having: too light and it
-  # is just another comfortable example, too heavy and it tears on the console it ships for. The
-  # band is wide because this is a guard against the example drifting out of its job, not a
-  # second copy of the corpus accuracy check (rake cost:check owns that).
-  def test_it_stays_near_the_budget_without_going_over
-    model = Corridor.build_rom.cost_model
-    program = Corridor.program
-    frame = model.steady_cost(program) + model.standing_costs(program)
-
-    assert_operator frame / BUDGET, :>, 0.5, "a witness near the budget has to be near it"
-    assert_operator frame / BUDGET, :<, 1.0, "...and an example that ships must still fit"
-  end
-
-  # ...and the same on the console, which is the reading that counts. The estimate above is what
-  # the model believes; this is what the hardware does.
-  def test_the_console_agrees_it_is_heavy_and_fits
+  # WHAT THE EXAMPLE IS FOR. It has to stay near the line to be worth having: too light and it
+  # is just another comfortable example, too heavy and it does not ship. Measured by running
+  # it — this used to ask an estimate the same question, and how close that estimate came was
+  # itself most of what this file tested.
+  def test_it_is_heavy_and_still_fits
     require_gemba_core!
-    measured, = console(Corridor::GAME)
+    spare = idle_share_of(Corridor::GAME)
 
-    assert_operator measured / BUDGET, :>, 0.6, "the console should find it heavy: #{measured}"
-    assert_operator measured, :<, BUDGET, "...and still inside a frame: #{measured}"
+    assert_operator spare, :<, 0.45, "a witness near the line has to be near it: #{spare}"
+    assert_operator spare, :>, 0.0, "...and an example that ships must still fit: #{spare}"
   end
 
-  # THE TEST THIS EXAMPLE EXISTS FOR. Everything above asks whether the NUMBER is close. This
-  # asks the only question an author acts on: does it fit? Before corridor nothing in the corpus
-  # came within half a frame of the line, so the model had never once been asked to say no —
-  # and a check nothing can fail is a check nothing has passed.
-  #
-  # The same game either side of it: sixty rays fits, eighty does not. The console is the judge
-  # and the estimate has to agree with it both times.
-  def test_the_estimate_calls_which_side_of_the_line_the_game_is_on
+  # THE TEST THIS EXAMPLE EXISTS FOR: the only question an author acts on is whether it fits,
+  # and this is the same game either side of the line. Sixty rays holds 60 frames a second;
+  # eighty does not. Both are run, so neither answer is anybody's opinion.
+  def test_which_side_of_the_line_the_game_is_on
     require_gemba_core!
     [[Corridor::NUM_COLS, Corridor::COL_W, true, "BCOR"],
      [80, 3, false, "BCO8"]].each do |cols, col_w, should_fit, code|
       game = Corridor.game(name: "COR#{cols}", code: code, cols: cols, col_w: col_w)
-      measured, = console(game)
-      estimate = estimate_of(game)
+      result = profile_of(game)
 
-      assert_equal should_fit, measured < BUDGET,
-                   "#{cols} rays: the console measured #{measured.round(1)} of #{BUDGET.to_i}"
-      assert_equal should_fit, estimate < BUDGET,
-                   "#{cols} rays: the estimate said #{estimate.round(1)}, the console #{measured.round(1)}"
+      assert_equal should_fit, !result.dropping_frames?,
+                   "#{cols} rays: the console produced #{result.fps} frames a second"
     end
   end
 
-  # PRICE THE PROGRAM THE BUILD ACTUALLY LOWERED, not the one the game block describes. The
-  # model charges a statement by what its lowering emitted and finds that by node identity, so
-  # handing it a freshly built tree loses every counted statement and reads several per cent
-  # light — enough, measured while writing this, to move a verdict.
-  def estimate_of(game)
-    rom = game.build_rom(out: StringIO.new, err: StringIO.new)
-    program = rom.source_program
-    model = rom.cost_model
-    (model.steady_cost(program) + model.standing_costs(program)).to_f
+  def profile_of(game)
+    rom = game.build_rom(out: StringIO.new, err: StringIO.new, profile: false)
+    RubyGBA::Profiler.run(rom, frames: 30, tearing: false)
   end
 
-  # What the console really spends on a pass. A frame it cannot hold reads as the whole frame
-  # and no more, so the reading saturates and how long the pass took is asked for separately —
-  # the same signal tools/cost_accuracy.rb scores the corpus by.
-  def console(game)
-    rom = game.build_rom(out: StringIO.new, err: StringIO.new)
-    reading = RubyGBA::Analyzer.profile(rom.source_program, options: rom.build_options)
-                               .values.max_by(&:scanlines)
-    refute_nil reading, "the emulator should give a reading"
-    return [reading.per_pass.to_f, true] if reading.saturated?
-
-    [(reading.typical || reading.scanlines).to_f, false]
-  end
+  def idle_share_of(game) = profile_of(game).idle_share
 end

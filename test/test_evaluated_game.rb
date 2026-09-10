@@ -85,7 +85,7 @@ class TestEvaluatedGame < Minitest::Test
 
     read = a_small_game
     Reference.new.run(read.program, frames: 4)
-    RubyGBA::IR::CostModel.new.render(read.program, out: StringIO.new, color: :never)
+    RubyGBA::IR::GlyphUsage.footprint(read.program)
 
     assert_equal fresh.buffer, read.build_rom(out: StringIO.new, err: StringIO.new).buffer
   end

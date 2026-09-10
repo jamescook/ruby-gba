@@ -6,11 +6,8 @@ require_relative "../examples/fonts"
 
 # The fonts example: the same number drawn in :default and :tiny. Asserts both
 # render, that the tiny one is genuinely smaller (fewer pixels, shorter box), and
-# that the cost model charges the tiny draw less — on the interpreter and gemba.
+# that the tiny draw emits less code — on the interpreter and gemba.
 class TestFontsExample < Minitest::Test
-
-  CostModel = RubyGBA::IR::CostModel
-
   GREEN = Color.resolve(:green)
 
   # Count green pixels in a horizontal band [y, y+h).
@@ -32,13 +29,17 @@ class TestFontsExample < Minitest::Test
     assert_equal 0, green_in_band(screen, 59, 3), "the tiny number should be 5px tall"
   end
 
-  def test_the_tiny_number_costs_less
-    model = CostModel.new
-    # Isolate each number as its own static program so the cost is just that draw.
-    default = build_number(font: :default)
-    tiny = build_number(font: :tiny)
-    assert_operator model.frame_cost(tiny), :<, model.frame_cost(default),
-                    "EXPLAIN should charge the tiny font less"
+  # A smaller glyph is less work, and the honest way to say so is what the build EMITTED for
+  # each — a fact, where the old assertion was against an estimate of how long it would take.
+  def test_the_tiny_number_emits_less_code
+    default = emitted_bytes(build_number(font: :default))
+    tiny = emitted_bytes(build_number(font: :tiny))
+
+    assert_operator tiny, :<, default, "the tiny font draws smaller glyphs, so it emits less"
+  end
+
+  def emitted_bytes(program)
+    RubyGBA::IR::Backends::GBA.new.lower(program).bytesize
   end
 
   def build_number(font:)

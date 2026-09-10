@@ -54,60 +54,46 @@ ruby -Itest test/test_thing.rb                                  # one file, no r
 
 `games/wolf3d/` has the same pair for its own suite, which this one does not run.
 
-## Is the estimate still close to the console? (`rake cost:check`)
+## Asserting what something COSTS
 
-Not part of the suite, and run on purpose. It builds every example, measures it on the
-emulator, and compares that against the estimate — about **10 seconds** for the whole corpus.
+There is no cost estimator. There was one — a frame priced in scanlines against a budget — and
+it is deleted, along with its weight table, its calibration tool and `rake cost:check`. So a
+test that wants to say "this is more work than that" has two honest instruments, and picking
+the wrong one is the mistake to avoid.
 
-```bash
-rake cost:check              # fail if any example drifted further from the console
-rake cost:check ONLY=lake    # one example, while working on it
-rake cost:record             # accept the new readings, then commit the JSON diff
+**What the build EMITTED**, for a claim about code that is a straight run of instructions:
+
+```ruby
+RubyGBA::IR::Backends::GBA.new.lower(program).bytesize
 ```
 
-**Run `cost:check` before committing when the change touches any of these**, because all of
-them move what a frame really costs:
+Right for "a tiny font emits less than the default one" or "resizing a sprite is more work
+than turning it". Wrong wherever machinery is SHARED — a palette, a glyph routine — because
+it lands wherever it is first needed, so the same `tint` reads as 172 bytes in one program and
+52 in another.
 
-- `lib/ruby_gba/ir/cost_model/**` or `cost_model.rb` — the model itself
-- `lib/ruby_gba/ir/measured_weights.rb` — a recalibration
-- `lib/ruby_gba/ir/backends/gba/**` — the lowering decides what the emitted code costs
-- an example's per-frame work, which moves that example's own reading
+**What the console really DID**, for anything about time:
 
-Nothing else needs it: a DSL verb that only builds a different tree, a doc, a test.
+```ruby
+result = RubyGBA::Profiler.run(rom, frames: 30, tearing: false)
+result.idle_share        # how much of each frame was left over — the usual one
+result.fps               # 60.0, or less when a pass does not fit in a frame
+result.samples_per_frame # instructions a frame
+```
 
-**You do not have to remember that list.** `.githooks/pre-commit` stops a commit that stages
-any of those files unless `cost:check` has passed against exactly that content — a passing run
-writes a digest of the watched files to `tools/.cost_stamp` (local, gitignored) and the hook
-compares it. Edit a watched file again and the stamp goes stale, so a single run cannot wave
-everything through afterwards. The hook is silent on commits that touch none of them, needs no
-emulator itself, and says how to get past it (`SKIP_COST_CHECK=1 git commit`) for a genuinely
-cosmetic edit or a machine with no emulator. `ONLY=` runs never stamp: scoring one example
-says nothing about the other twenty-six.
+It needs a ROM built through the DSL (or `rom_of`, which hands the build record over), because
+a profile has to know where each routine ended up and that cannot be read back out of bytes.
+`tearing: false` skips the tear reading, which costs a bus read per pixel.
 
-**Why it is a separate task and not a test.** It needs the emulator, which a pure-Ruby install
-does not have, and its failures are a judgement call rather than a bug — the same bargain
-`rake emitted:check` makes for code size. Accepting a move is `cost:record` plus a committed
-diff, and that diff is what a reviewer reads.
+**Pick `idle_share` over `samples_per_frame`** for "is this faster". A pass too slow for one
+frame spills into the next, so a slow build runs FEWER instructions per frame — counting those
+reads backwards. And a program heavy enough to never sleep idles at 0.0 either way, so for one
+of those compare `fps` instead.
 
-**What it is really for.** One game cannot tell you the estimate is right, only that it is not
-wrong there — which is how a weight gets fitted to whichever game somebody last looked at. The
-check was written after a corpus run showed the model landing within 12% of the console on the
-eight bitmap-drawing examples and nowhere near on the games that hand work to the console's own
-hardware. Doubling a single drawing weight then improved one example and broke eight, by name.
-That is the failure this catches and a single-game reading cannot.
-
-**What the estimate is now for, since it no longer reports to anybody.** `rom.explain` is gone:
-what a frame costs is measured, by `rom.profile`, on a real run. What is left of the estimate
-feeds the two guardrails that warn at build time when a frame is growing past what fits
-(`draw_budget`, `budget_threshold`) — and those are next to go (gba-z0y8), which is what
-`cost:check` is still scoring in the meantime. A uniform scale error is harmless. One op wrong
-relative to another matters, because a wrong order sends a reader to the wrong line.
-
-**Tearing is measured, not estimated.** Whether a game CAN tear is a fact about the screen it
-chose, and the build report says it. Whether one that can DOES is a race down the screen the
-drawing can win even after overrunning, so `rom.profile` reads what happened
-(`RubyGBA::Tearing`) — except on a screen with no framebuffer to read it off, where it says
-nothing rather than reporting no tear.
+**Tearing is measured too.** Whether a game CAN tear is a fact about the screen it chose, and
+`BuildReport` says it. Whether one that can DOES is a race down the screen the drawing can win
+even after overrunning, so a profile reads what happened (`RubyGBA::Tearing`) — except on a
+screen with no framebuffer to read it off, where it says nothing rather than reporting no tear.
 
 ## The two backends you assert against
 

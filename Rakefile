@@ -95,52 +95,6 @@ namespace :emitted do
   end
 end
 
-namespace :cost do
-  # The stamp is what the pre-commit hook reads, and only a WHOLE-corpus pass may write it:
-  # scoring one example with ONLY= says nothing about the other twenty-six.
-  def stamp_unless_narrowed(only)
-    require_relative "tools/cost_stamp"
-    CostStamp.write unless only
-  end
-
-  desc "Measure every example on the emulator and record how close the estimate is (ONLY=pong,lake)"
-  task :record do
-    require_relative "lib/ruby_gba"
-    require_relative "tools/cost_accuracy"
-    only = ENV.fetch("ONLY", nil)
-    abort "Nothing recorded." unless CostAccuracy::Baseline.record(only: only)
-    stamp_unless_narrowed(only)
-  end
-
-  desc "Fail if the estimate drifted further from the emulator on any example"
-  task :check do
-    require_relative "lib/ruby_gba"
-    require_relative "tools/cost_accuracy"
-    only = ENV.fetch("ONLY", nil)
-    abort unless CostAccuracy::Baseline.check(only: only)
-    stamp_unless_narrowed(only)
-  end
-
-  desc "Does the report point at the right line? Take each example's hottest lines away and measure (ONLY=snake)"
-  task :ranking do
-    require_relative "lib/ruby_gba"
-    require_relative "tools/cost_ranking"
-    # Every ablated line is a build and an emulator run, so this is several times cost:check
-    # — a report you run on purpose when the model or the corpus changes.
-    CostRanking.run(only: ENV.fetch("ONLY", nil))
-  end
-
-  desc "Which parts of the cost model does the corpus exercise, and which has nothing ever run through?"
-  task :regimes do
-    require_relative "lib/ruby_gba"
-    require_relative "tools/cost_regimes"
-    # No emulator: this is the estimate asked about itself, so it prices rather than measures.
-    # It builds every example and prices each once per weight, which is under a minute — a
-    # report you run when the corpus or the model changes, not something the suite waits for.
-    CostRegimes.report(CostRegimes.measure)
-  end
-end
-
 desc "Render examples/EXAMPLE.rb to a watchable HTML page (rake preview EXAMPLE=parallax KEYS=right FRAMES=64)"
 task :preview do
   example = ENV["EXAMPLE"] || abort("set EXAMPLE, e.g. rake preview EXAMPLE=parallax KEYS=right")

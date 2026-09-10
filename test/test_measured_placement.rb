@@ -88,7 +88,7 @@ class TestMeasuredPlacement < Minitest::Test
       path = File.join(dir, "game.profile.json")
       first = game_with_work_in_a_later_scene.build_rom(out: StringIO.new, err: StringIO.new,
                                                         profile: false)
-      RubyGBA::RoutineProfile.from_work(RubyGBA::Profiler.every_scene(first, frames: 10)).write(path)
+      RubyGBA::RoutineProfile.from_work(RubyGBA::Profiler.every_scene(first, frames: 10).work).write(path)
 
       placement = placement_for(path)
 

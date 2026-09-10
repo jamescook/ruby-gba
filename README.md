@@ -338,10 +338,11 @@ lib/ruby_gba/
     node.rb, build.rb        # the IR op-tree + constructors
     int32.rb, portability.rb # reference semantics; portable vs hardware-only tags
     guardrails/              # the check registry + individual footgun checks
-    cost_model.rb, cost_model/ # the retiring per-frame estimator (now only the budget guardrails)
     backends/gba*            # lower IR -> ARM7 ROM
     backends/reference*      # interpret IR -> framebuffer (headless oracle)
   asm.rb, rom.rb             # ARM encoding + cartridge assembly
+  build_report.rb            # what the build made: sizes, quick-memory placement, the stack
+  profiler.rb                # what it cost when it ran: per-routine, measured on the emulator
   verifier.rb                # read back real pixels from an emulator (via gemba-core, the libmgba binding)
 examples/                    # runnable games + demos (see the Examples section above)
 assets/                      # captured GIFs / screenshots

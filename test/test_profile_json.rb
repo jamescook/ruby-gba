@@ -80,13 +80,16 @@ class TestProfileJson < Minitest::Test
   # The guardrails' findings ride along, each with its check, severity and the author's line,
   # so a before-and-after can ask "did the warning go away" without reading it.
   def test_the_findings_ride_along_as_data
-    findings = json_of(heavy)["findings"]
+    warned = build("WARN", "ZWRN") do
+      screen :bitmap
+      game_loop { wait_vblank; fill_rect 0, 0, 8, 8, :green }
+    end
+    finding = json_of(warned)["findings"].first
 
-    over = findings.find { |f| f["check"] == "draw_budget" }
-    refute_nil over
-    assert_equal "warning", over["severity"]
-    assert_match(/\.rb:\d+/, over["at"])
-    assert_empty json_of(light)["findings"]
+    refute_nil finding, "a game_loop that waits again has something said about it"
+    assert_equal "warning", finding["severity"]
+    refute_empty finding["check"]
+    assert_empty json_of(light)["findings"], "...and a clean game has none"
   end
 
   # Where the frames went, per routine, and how the moment being measured was reached — a
