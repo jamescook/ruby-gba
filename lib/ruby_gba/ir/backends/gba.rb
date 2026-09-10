@@ -183,8 +183,10 @@ module RubyGBA
         # number, no flip bits), and it lives on the console's rotate/scale layer (BG2)
         # rather than a plain scrolling one. +small+ marks a layer whose tiles are stored
         # half a byte a pixel, each naming its own bank of sixteen colors — worked out
-        # from the colors in its art, never asked for.
-        BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :priority, :affine, :small)
+        # from the colors in its art, never asked for. +size+ is the grid it scrolls over,
+        # already shifted into place for the layer's own settings.
+        BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :size,
+                                          :priority, :affine, :small)
 
         # Two more scratch registers, live only inside one arithmetic expression and
         # never across a statement. A 64-bit multiply needs both of them, because its
@@ -1394,20 +1396,14 @@ module RubyGBA
           @small_layers << name if small
           numbers = append_tiles(node, banks, char)
 
-          # The map: one 16-bit entry per cell in a 32x32 grid, holding the tile to draw
-          # there and — for a layer stored the small way — which bank of sixteen that tile
-          # reads from. Cells outside the authored map, and blank cells, stay 0: the blank
-          # tile in bank 0, see-through so a layer behind shows through.
-          entries = Array.new(MAP_CELLS * MAP_CELLS, 0)
-          node.map.each_with_index do |row, r|
-            next if r >= MAP_CELLS
-
-            row.each_with_index do |index, c|
-              next if c >= MAP_CELLS || index.nil?
-
-              bank = small ? banks.placement(tile_key(node, index)).bank : 0
-              entries[(r * MAP_CELLS) + c] = numbers.fetch(index) | (bank << BG_BANK_SHIFT)
-            end
+          # The map: one 16-bit entry per cell, holding the tile to draw there and — for a
+          # layer stored the small way — which bank of sixteen that tile reads from. Cells
+          # outside the authored map, and blank cells, stay 0: the blank tile in bank 0,
+          # see-through so a layer behind shows through.
+          cols, rows = IR::TileMap.grid(node.map)
+          entries = map_entries(node, cols, rows) do |index|
+            bank = small ? banks.placement(tile_key(node, index)).bank : 0
+            numbers.fetch(index) | (bank << BG_BANK_SHIFT)
           end
 
           map_blob = :"__bg_map_#{name}"
@@ -1415,11 +1411,51 @@ module RubyGBA
           @backgrounds[name] = BackgroundPlacement.new(
             map: map_blob, map_units: entries.size,
             bg: layer,                           # hardware layer (BG0..BG3), in stack order
-            screen_block: @vram.take_map,
+            screen_block: @vram.take_map(entries.size / MAP_ENTRIES_A_BLOCK),
+            size: regular_map_size(cols, rows),
             priority: hardware_priority(name),
             affine: false,
             small: small
           )
+        end
+
+        # How many cells one screen block holds: a block is 2K and a regular map's cell is
+        # a halfword, so 32x32 of them is exactly one.
+        MAP_ENTRIES_A_BLOCK = MAP_CELLS * MAP_CELLS
+
+        # BGxCNT bits 14-15: which of the four grid sizes this layer scrolls over. The
+        # framework picks the smallest that holds what the author drew; nothing in the DSL
+        # names one.
+        REGULAR_MAP_SIZES = { [32, 32] => 0, [64, 32] => 1, [32, 64] => 2, [64, 64] => 3 }.freeze
+        MAP_SIZE_SHIFT = 14
+
+        def regular_map_size(cols, rows) = REGULAR_MAP_SIZES.fetch([cols, rows]) << MAP_SIZE_SHIFT
+
+        # A MAP WIDER OR TALLER THAN ONE BLOCK IS SEVERAL BLOCKS, and the console reads
+        # them in a fixed order: the left half first, then the right, and for a tall map
+        # the top pair before the bottom pair. So a 64x64 map is four 32x32 squares laid
+        # out top-left, top-right, bottom-left, bottom-right — not 64 rows of 64.
+        #
+        # That is why this cannot simply walk the authored rows: a cell's place in the
+        # blob depends on which quarter of the map it is in. The blocks are consecutive in
+        # memory (TileVram hands out a run), so the whole thing still uploads as one copy.
+        def map_entries(node, cols, rows)
+          entries = Array.new(cols * rows, 0)
+          node.map.each_with_index do |row, r|
+            next if r >= rows
+
+            row.each_with_index do |index, c|
+              next if c >= cols || index.nil?
+
+              entries[map_offset(c, r, cols)] = yield(index)
+            end
+          end
+          entries
+        end
+
+        def map_offset(col, row, cols)
+          quarter = ((row / MAP_CELLS) * (cols / MAP_CELLS)) + (col / MAP_CELLS)
+          (quarter * MAP_ENTRIES_A_BLOCK) + ((row % MAP_CELLS) * MAP_CELLS) + (col % MAP_CELLS)
         end
 
         # Put a layer's tiles into the tile area, rewriting each pixel as the number that
@@ -1538,27 +1574,50 @@ module RubyGBA
                   "Use fewer distinct tiles, or declare this background first."
           end
 
-          entries = Array.new(MAP_CELLS * MAP_CELLS, 0)
+          # A rotate/scale layer's map is one BYTE per cell and is laid out as plain rows
+          # of the whole grid — not as squares of 32x32 the way a regular layer's is. So a
+          # bigger one of these needs no re-arranging, only more room.
+          cols, rows = IR::TileMap.grid(node.map)
+          entries = Array.new(cols * rows, 0)
           node.map.each_with_index do |row, r|
-            next if r >= MAP_CELLS
+            next if r >= rows
 
             row.each_with_index do |index, c|
-              next if c >= MAP_CELLS || index.nil?
+              next if c >= cols || index.nil?
 
-              entries[(r * MAP_CELLS) + c] = numbers.fetch(index)
+              entries[(r * cols) + c] = numbers.fetch(index)
             end
           end
 
           map_blob = :"__bg_map_#{name}"
           @emit.data_blobs[map_blob] = entries.pack("C*")
+          blocks = ((entries.size + SCREENBLOCK_BYTES - 1) / SCREENBLOCK_BYTES)
           @backgrounds[name] = BackgroundPlacement.new(
             map: map_blob, map_units: entries.size / 2, # DMA copies halfwords, so a byte map is half as many
             bg: AFFINE_BG,
-            screen_block: @vram.take_map,
+            screen_block: @vram.take_map(blocks),
+            size: affine_map_size(cols, rows, name),
             priority: hardware_priority(name),
             affine: true,
             small: false
           )
+        end
+
+        # BG2CNT bits 14-15 on a rotate/scale layer mean a SQUARE grid — 16, 32, 64 or 128
+        # tiles a side — rather than the four rectangles a regular layer picks between. So
+        # this layer's map has to be square, which every other kind of background does not.
+        AFFINE_MAP_SIZES = { 16 => 0, 32 => 1, 64 => 2, 128 => 3 }.freeze
+
+        def affine_map_size(cols, rows, name)
+          side = [cols, rows].max
+          unless cols == rows
+            raise LoweringError,
+                  "background :#{name} is a rotozoom background (`screen :rotozoom`), and that kind of " \
+                  "background turns about its middle, so its map must be square. This one is " \
+                  "#{cols}x#{rows} tiles. Make it #{side}x#{side}."
+          end
+
+          AFFINE_MAP_SIZES.fetch(side) << MAP_SIZE_SHIFT
         end
 
         AFFINE_MAX_TILES = 256
@@ -1616,19 +1675,18 @@ module RubyGBA
         # added, because the very next thing the caller does is pack the index into a
         # byte — past 255 that is a raw range error from deep inside the packing, which
         # tells the developer nothing.
-        # A tiled background fits one screen block: up to 32x32 tiles (256x256 pixels,
-        # already larger than the screen, and it wraps). A bigger map would need the
-        # multi-block layouts, so for now it's a friendly build error rather than a
-        # silently cropped level. (This is what a "larger maps" slice lifts.)
+        # A tiled background scrolls over a grid that comes in fixed sizes, and the biggest
+        # is 64x64 tiles — 512x512 pixels, four screenfuls. Past that a level has to be
+        # split, and saying so is better than a silently cropped one.
         def validate_map_fits!(name, map)
-          cols = map.map(&:length).max || 0
-          rows = map.length
-          return if cols <= MAP_CELLS && rows <= MAP_CELLS
+          return if IR::TileMap.fits?(map)
 
+          cols = map.map(&:length).max || 0
+          most = IR::TileMap.most
           raise LoweringError,
-                "background :#{name} is #{cols}x#{rows} tiles, but a tiled background is at most " \
-                "#{MAP_CELLS}x#{MAP_CELLS} tiles for now (256x256 pixels, which already scrolls and wraps). " \
-                "Use a smaller map, or split the level."
+                "background :#{name} is #{cols}x#{map.length} tiles, and a tiled background is at most " \
+                "#{most}x#{most} tiles (#{most * TILE_PX}x#{most * TILE_PX} pixels, which is four " \
+                "screenfuls and scrolls and wraps). Use a smaller map, or split the level."
         end
 
         def validate_tile_sizes!(name, tiles)
