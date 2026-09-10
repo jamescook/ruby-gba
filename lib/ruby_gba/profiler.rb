@@ -66,10 +66,16 @@ module RubyGBA
     # frames answer it; sixty would only cost sixty times as much to say the same thing.
     TEAR_FRAMES = 6
 
+    # A finished tear-free game keeps two pictures, and lost drawing shows up as a pixel the
+    # two disagree about that neither frame comes back to fix — so the reading needs both
+    # pictures at one frame boundary and both again TWO boundaries later. See {Flicker} for
+    # why two and not one.
+    FLICKER_GAP = 2
+
     # A finished profile. +unattributed+ is the share that ran outside every routine the build
     # knows about.
     Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
-                         :reached, :tearing) do
+                         :reached, :tearing, :flicker) do
       def dropping_frames? = fps < 59.5
 
       # Instructions a frame — what the game actually does, where a share only says how that
@@ -81,6 +87,7 @@ module RubyGBA
         { frames: frames, samples: samples, fps: fps, idle_share: idle_share,
           keys: keys.map(&:to_s), unattributed: unattributed, reached: reached.to_h,
           tearing: tearing && { looked: tearing.looked, torn: tearing.torn, worst: tearing.worst },
+          flicker: flicker&.measured? ? { pixels: flicker.pixels, first: flicker.first } : nil,
           routines: lines.map do |line|
             { name: line.name.to_s, label: line.label, samples: line.samples,
               share: line.share, where: line.where.to_s }
@@ -91,11 +98,13 @@ module RubyGBA
     # Run +rom+ and report where its frames went. +keys+ are held for the settling and the
     # measured frames alike, because a game costs what the player makes it cost and a reading
     # with nothing held is a reading of a game standing still.
-    # +tearing+ is off for the run the BUILD makes of itself to choose what goes in the quick
-    # memory: that pass wants the routine counts and nothing else, and looking for a tear costs
-    # a bus read per pixel, per frame, which is the dearest thing here by a wide margin.
+    # +picture+ turns off the readings that look at the SCREEN rather than at where the time
+    # went — whether the game tore, and whether it is losing half its drawing. Exactly one of
+    # those two applies to any game (see {Flicker}), and both cost a bus read per pixel, which
+    # is the dearest thing here by a wide margin. The run the BUILD makes of itself to choose
+    # what goes in the quick memory wants the routine counts and nothing else, so it says no.
     def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [], enter: nil, scene: nil, from: nil,
-                 tearing: true)
+                 picture: true)
       routines = rom.built.routines
       held = Array(keys)
       raise ArgumentError, "give `scene:` or `from:`, not both. A saved moment already says " \
@@ -103,7 +112,7 @@ module RubyGBA
       enter ||= scene_state(rom, scene)
       reached = reached_by(scene, from)
 
-      profile, tearing = in_temp_rom(rom) do |path|
+      profile, tearing, flicker = in_temp_rom(rom) do |path|
         probe = Emulator.probe(path)
         begin
           measured =
@@ -116,13 +125,45 @@ module RubyGBA
             end
           # Looked at AFTER the profiling, from wherever it left the game — so the frames
           # judged are the same frames that were measured, doing the same work.
-          [measured, tearing && tearing_in(probe, rom.built.source_program, held)]
+          # A ternary rather than `picture && ...`: with the readings off these have to come
+          # back nil ("not looked at"), and `false && ...` is false, which reads as a reading.
+          program = rom.built.source_program
+          [measured,
+           picture ? tearing_in(probe, program, held) : nil,
+           picture ? flicker_in(probe, program, held) : nil]
         ensure
           probe.close
         end
       end
 
-      build_result(profile, routines, held, reached, tearing)
+      build_result(profile, routines, held, reached, tearing, flicker)
+    end
+
+    # IS HALF THE DRAWING BEING LOST — the tear-free screen's own version of the question
+    # above, and the one only a run can answer.
+    #
+    # The build can see that a game keeps two pictures. It cannot see whether the game puts
+    # the same drawing in both, because that depends on how many frames each drawing op runs
+    # on. Reading both pictures twice, two frame boundaries apart, settles it (see {Flicker}).
+    def self.flicker_in(probe, program, held)
+      return nil unless Flicker.measurable?(program)
+
+      before = both_pages(probe)
+      probe.step(FLICKER_GAP, keys: held)
+      Flicker.read(before, both_pages(probe))
+    end
+
+    # Both pictures of a tear-free screen, straight out of video memory. A pixel there is one
+    # byte — a number picking a color out of the shared table — so a word carries four of
+    # them, and reading by the word is four times cheaper than reading by the pixel.
+    def self.both_pages(probe)
+      [IR::Backends::GBA::PAGE0, IR::Backends::GBA::PAGE1].map do |base|
+        bytes = Tearing::WIDTH * Tearing::HEIGHT
+        (0...bytes).step(4).flat_map do |at|
+          word = probe.read32(base + at)
+          [word & 0xFF, (word >> 8) & 0xFF, (word >> 16) & 0xFF, (word >> 24) & 0xFF]
+        end
+      end
     end
 
     # DID THE PICTURE ACTUALLY TEAR — the question the build can only ask, not answer.
@@ -286,12 +327,12 @@ module RubyGBA
       dispatch = Analyzer.scenes(rom.built.source_program)
       address = dispatch && rom.built.var_addresses[dispatch[:selector]]
       unless address
-        whole = run(rom, frames: frames, keys: keys, tearing: false)
+        whole = run(rom, frames: frames, keys: keys, picture: false)
         return Survey.new(work: work_in(whole), scenes: { nil => whole })
       end
 
       measured = dispatch[:scenes].to_h do |name, value|
-        [name, run(rom, frames: frames, keys: keys, tearing: false,
+        [name, run(rom, frames: frames, keys: keys, picture: false,
                    enter: { address: address, value: value })]
       end
       Survey.new(work: busiest_of(measured.values), scenes: measured)
@@ -326,7 +367,7 @@ module RubyGBA
     end
 
     def self.build_result(profile, routines, held, reached = Reached.new(how: :boot, detail: nil),
-                          tearing = nil)
+                          tearing = nil, flicker = nil)
       tally, outside = attribute(profile.pc, routines)
       total = profile.samples
 
@@ -342,7 +383,7 @@ module RubyGBA
       Result.new(frames: profile.frames, samples: total, fps: profile.frames_per_second,
                  idle_share: profile.idle_share.round(4), lines: lines,
                  unattributed: share(outside.sum { |_, seen| seen }, total), keys: held,
-                 reached: reached, tearing: tearing)
+                 reached: reached, tearing: tearing, flicker: flicker)
     end
 
     # WHAT RAN THAT IS NOT A ROUTINE THE AUTHOR WROTE, named by where it ran rather than
@@ -409,6 +450,7 @@ module RubyGBA
       printer.puts("  #{result.fps} frames a second#{dropped_note(result)}")
       printer.puts("  #{(result.idle_share * 100).round(1)}% of each frame spare")
       tearing_line(result.tearing, printer)
+      flicker_line(result.flicker, printer)
       printer.puts("")
 
       result.lines.each { |line| printer.cost_line(label_for(line), "#{line.share}%") }
@@ -439,6 +481,30 @@ module RubyGBA
       else
         printer.puts("  the picture held together on all #{tear.looked} frames looked at")
       end
+    end
+
+    # Said only on the screen where drawing can be lost — the tear-free one. Every other
+    # screen says nothing, because "we did not look" must never read as "nothing was wrong".
+    #
+    # The wording is the author's, not the hardware's: they are told what the player SEES
+    # (pixels that change every frame and are never put right), where to look, and the two
+    # things that fix it. "Page" does not appear, because nobody has to know the word to
+    # understand that a screen holding two pictures needs the drawing put in both.
+    def self.flicker_line(flicker, printer)
+      return if flicker.nil? || !flicker.measured?
+
+      unless flicker.losing?
+        return printer.puts("  every drawing reached both of the screen's pictures")
+      end
+
+      at = flicker.first
+      printer.puts("  #{flicker.pixels} pixels flicker — they show one thing on one frame and " \
+                   "another on the next, starting at (#{at[0]}, #{at[1]})",
+                   severity: :bad)
+      printer.puts("  this screen keeps two pictures and shows them in turn, so drawing that " \
+                   "ADDS to what is already there reaches only one of them")
+      printer.puts("  to fix this, draw the whole picture every frame — or, for a part that " \
+                   "changes now and then, use `keep_showing`")
     end
 
     def self.held_note(keys) = keys.empty? ? "" : ", holding #{keys.map(&:to_s).join(' + ').upcase}"

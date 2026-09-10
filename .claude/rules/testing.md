@@ -75,7 +75,7 @@ it lands wherever it is first needed, so the same `tint` reads as 172 bytes in o
 **What the console really DID**, for anything about time:
 
 ```ruby
-result = RubyGBA::Profiler.run(rom, frames: 30, tearing: false)
+result = RubyGBA::Profiler.run(rom, frames: 30, picture: false)
 result.idle_share        # how much of each frame was left over — the usual one
 result.fps               # 60.0, or less when a pass does not fit in a frame
 result.samples_per_frame # instructions a frame
@@ -83,7 +83,9 @@ result.samples_per_frame # instructions a frame
 
 It needs a ROM built through the DSL (or `rom_of`, which hands the build record over), because
 a profile has to know where each routine ended up and that cannot be read back out of bytes.
-`tearing: false` skips the tear reading, which costs a bus read per pixel.
+`picture: false` skips the readings that look at the SCREEN rather than at where the time went
+— whether the game tore, and whether it is losing half its drawing (`Flicker`). Both cost a bus
+read per pixel; exactly one of them applies to any given game.
 
 **Pick `idle_share` over `samples_per_frame`** for "is this faster". A pass too slow for one
 frame spills into the next, so a slow build runs FEWER instructions per frame — counting those

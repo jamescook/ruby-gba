@@ -44,7 +44,7 @@ class TestSnakeBufferedExample < Minitest::Test
     require_gemba_core!
     rom = BufferedSnake.build_rom(err: StringIO.new, profile: false)
 
-    refute_predicate RubyGBA::Profiler.run(rom, frames: 30, tearing: false), :dropping_frames?
+    refute_predicate RubyGBA::Profiler.run(rom, frames: 30, picture: false), :dropping_frames?
   end
 
   # The title screen shows "SNAKE" in green — the simplest proof it isn't a black
