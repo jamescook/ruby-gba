@@ -1536,14 +1536,20 @@ module RubyGBA
 
           # An upright sprite: position and size straight into its slot.
           def emit_draw_object_upright(obj, base, mirror = nil)
-            # attr0 = (y & 0xFF) | shape + 256-color flag
+            return emit_draw_object_sized_poses(obj, base, mirror) unless obj[:alike]
+
+            # attr0 = (y & 0xFF) | shape + 256-color flag. The offset is where this pose
+            # sits inside the canvas it was drawn on — added back so trimming the blank
+            # away cannot move the picture (see GBA#object_pose_box).
             @lowering.value(obj[:y])
+            emit_add_const(ACC, ACC, obj[:offset_y], TMP) unless obj[:offset_y].zero?
             mask_into_acc(0xFF)
             orr_acc(obj[:attr0_base])
             store_halfword_acc(base)
             mirror_attr0(mirror)
             # attr1 = (x & 0x1FF) | size
             @lowering.value(obj[:x])
+            emit_add_const(ACC, ACC, obj[:offset_x], TMP) unless obj[:offset_x].zero?
             mask_into_acc(0x1FF)
             orr_acc(obj[:attr1_base])
             store_halfword_acc(base + 2)
@@ -1552,6 +1558,75 @@ module RubyGBA
             # (palette bank/priority left at 0). A fixed pose folds to a constant.
             emit_object_tile_number(obj, base + 4)
             store_halfword_acc(mirror + 4) if mirror
+          end
+
+          # A sprite whose poses came out DIFFERENT sizes. Four things then move with the
+          # pose — which tiles, what shape, what size, and how far along to draw it — so
+          # they are read together out of one word (see GBA#object_pose_table) instead of
+          # being worked out from a stride that no longer exists.
+          #
+          # Registers: r4 holds the word for the whole of this sprite's draw, because
+          # every one of the three attributes wants a piece of it.
+          POSE_WORD = 4
+
+          # Where this sprite's position is held while the pose word is in a register.
+          # WORKING OUT x AND y FIRST is not tidiness: evaluating an operand is free to use
+          # any scratch register, so the word could not survive being loaded before them.
+          # Held here, nothing between loading the word and the last store evaluates
+          # anything, and the register is safe for the whole of it.
+          POSE_DRAW_X = :__pose_draw_x
+          POSE_DRAW_Y = :__pose_draw_y
+
+          def emit_draw_object_sized_poses(obj, base, mirror = nil)
+            @lowering.value(obj[:y])
+            store_var(ACC, POSE_DRAW_Y)
+            @lowering.value(obj[:x])
+            store_var(ACC, POSE_DRAW_X)
+
+            emit_load_pose_word(obj)
+            # attr0 = (y + how far down) & 0xFF, then the shape out of bits 10..11.
+            load_var(ACC, POSE_DRAW_Y)
+            emit(ASM.lsr_imm(TMP, POSE_WORD, 22))
+            emit(ASM.add_reg(ACC, ACC, TMP))
+            mask_into_acc(0xFF)
+            emit(ASM.and_imm(TMP, POSE_WORD, 0x0C00))   # shape, still at bit 10
+            emit(ASM.orr_reg_lsl(ACC, ACC, TMP, 4))     # ...into bit 14
+            orr_acc(obj[:attr0_base]) unless obj[:attr0_base].zero?
+            store_halfword_acc(base)
+            mirror_attr0(mirror)
+            # attr1 = (x + how far right) & 0x1FF, then the size out of bits 12..13.
+            load_var(ACC, POSE_DRAW_X)
+            emit(ASM.lsr_imm(TMP, POSE_WORD, 14))
+            emit(ASM.and_imm(TMP, TMP, 0xFF))
+            emit(ASM.add_reg(ACC, ACC, TMP))
+            mask_into_acc(0x1FF)
+            emit(ASM.and_imm(TMP, POSE_WORD, 0x3000))   # size, still at bit 12
+            emit(ASM.orr_reg_lsl(ACC, ACC, TMP, 2))     # ...into bit 14
+            orr_acc(obj[:attr1_base]) unless obj[:attr1_base].zero?
+            store_halfword_acc(base + 2)
+            store_halfword_acc(mirror + 2) if mirror
+            # attr2 = the pose's own first tile, out of bits 0..9. Two shifts rather than a
+            # mask: a ten-bit mask is not one of the immediates this chip can carry.
+            emit(ASM.lsl_imm(ACC, POSE_WORD, 22))
+            emit(ASM.lsr_imm(ACC, ACC, 22))
+            orr_acc(obj[:attr2_base]) unless obj[:attr2_base].zero?
+            store_halfword_acc(base + 4)
+            store_halfword_acc(mirror + 4) if mirror
+          end
+
+          # r4 = the word describing the pose this sprite is showing. A fixed pose is one
+          # load of a number settled while building; a pose the game works out is a read
+          # from the table at that index.
+          def emit_load_pose_word(obj)
+            fixed = const_int(obj[:pose])
+            words = obj[:pose_words]
+            return emit(ASM.load_immediate(POSE_WORD, words[fixed] || words.first)) if fixed
+
+            @lowering.value(obj[:pose])
+            emit(ASM.lsl_imm(ACC, ACC, 2)) # a word each
+            emit_load_data_address(TMP, obj[:pose_table])
+            emit(ASM.add_reg(TMP, TMP, ACC))
+            emit(ASM.ldr(POSE_WORD, TMP))
           end
 
           # Drop the attr0 just written into the window twin's slot as well, with the bit
