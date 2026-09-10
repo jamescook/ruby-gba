@@ -24,7 +24,7 @@ module ConformanceFixture
   # Every binary operator the backends implement (arithmetic, comparison, and the
   # 0/1 logical composition `held(:a) & held(:b)` lowers to). Kept in sync with
   # each backend's binop dispatch by the coverage test.
-  OPERATORS = %i[+ - * / % == != < > <= >= and or].freeze
+  OPERATORS = %i[+ - * / % & | ^ << >> == != < > <= >= and or].freeze
 
   # Node kinds a portable backend may legitimately not implement — the kinds tagged
   # hardware-only, read from the portability classification rather than restated.
@@ -83,6 +83,20 @@ module ConformanceFixture
       # --- every value-operand kind and every operator ---
       *OPERATORS.map { |op| B.set(:acc, B.binop(op, B.var_ref(:x), B.int(2))) },
       B.set(:acc, B.neg(B.var_ref(:x))),      # neg
+      B.set(:acc, B.bit_not(B.var_ref(:x))),  # bit_not
+      # Bit operations, at the places the two backends could disagree. A mask too big
+      # to ride inside an instruction takes a different path from a small one; a shift
+      # count the game works out takes a different path from one written down; and a
+      # count past the end of a number empties it rather than doing what Ruby's own
+      # shift does with one (see IR::Int32).
+      B.set(:acc, B.binop(:&, B.var_ref(:x), B.int(0xFFFF))),  # a mask that needs a register
+      B.set(:acc, B.binop(:|, B.var_ref(:x), B.int(0x1234))),
+      B.set(:acc, B.binop(:^, B.var_ref(:x), B.int(-1))),      # every bit, the other way
+      B.set(:acc, B.binop(:<<, B.int(1), B.var_ref(:x))),      # a count worked out
+      B.set(:acc, B.binop(:>>, B.int(-256), B.var_ref(:x))),   # ...on a negative number
+      B.set(:acc, B.binop(:<<, B.int(1), B.int(40))),          # 0 — off the top end
+      B.set(:acc, B.binop(:>>, B.int(-1), B.int(40))),         # -1 — the sign fills in
+      B.set(:acc, B.binop(:>>, B.int(255), B.int(-1))),        # 0 — a negative count, likewise
       # Dividing and wrapping with a NEGATIVE numerator, which is where the two round
       # differently and where a backend taking a shortcut goes wrong. -7 / 4 truncates
       # toward zero to -1, while -7 % 4 takes the sign of the divisor and is 1. A

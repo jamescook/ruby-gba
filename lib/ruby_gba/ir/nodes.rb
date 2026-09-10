@@ -88,6 +88,16 @@ module RubyGBA
         operands op: :option, lhs: :value, rhs: :value
       end
 
+      # Every bit of a number turned the other way — a 1 where there was a 0 and a 0
+      # where there was a 1. Its own kind rather than an operator because it takes one
+      # operand, exactly as +neg+ does.
+      class BitNot
+        include Node
+        kind :bit_not
+        category :value
+        operands operand: :value
+      end
+
       class Bitmap
         include Node
         kind :bitmap

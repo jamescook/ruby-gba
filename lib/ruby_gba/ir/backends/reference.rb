@@ -1744,6 +1744,7 @@ module RubyGBA
           when :int then Int32.wrap(node.value)
           when :var_ref then @vars[node.name]
           when :neg then Int32.neg(eval_value(node.operand))
+          when :bit_not then Int32.bit_not(eval_value(node.operand))
           when :binop then eval_binop(node.op, eval_value(node.lhs), eval_value(node.rhs))
           when :mul_fix
             Int32.mul_fix(eval_value(node.lhs), eval_value(node.rhs), node.fraction_bits)
@@ -1823,6 +1824,13 @@ module RubyGBA
           when :* then Int32.mul(lhs, rhs)
           when :/ then Int32.div(lhs, rhs)
           when :% then Int32.mod(lhs, rhs)
+          # Bit by bit, on the 32 bits behind the number (see Int32's own note on
+          # what a shift count outside 0...32 does).
+          when :& then Int32.bit_and(lhs, rhs)
+          when :| then Int32.bit_or(lhs, rhs)
+          when :^ then Int32.bit_xor(lhs, rhs)
+          when :<< then Int32.shift_left(lhs, rhs)
+          when :>> then Int32.shift_right(lhs, rhs)
           when :> then bool(Int32.cmp(lhs, rhs) > 0)
           when :< then bool(Int32.cmp(lhs, rhs) < 0)
           when :>= then bool(Int32.cmp(lhs, rhs) >= 0)

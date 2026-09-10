@@ -26,6 +26,10 @@ module RubyGBA
       MIN  = -(2**31)      # -2_147_483_648
       MAX  = (2**31) - 1   #  2_147_483_647
 
+      # How many bits a whole number has here — and so how far a shift can go before
+      # there is nothing left to move.
+      BITS = 32
+
       module_function
 
       # Normalize any Ruby integer to a signed 32-bit value: keep the low 32
@@ -95,6 +99,50 @@ module RubyGBA
         quotient.clamp(MIN, MAX)
       end
 
+      # --- reading and writing the bits themselves ---
+      #
+      # A whole number here is 32 bits of two's complement, and these four work on
+      # those bits directly rather than on the number they spell. Each is Ruby's own
+      # answer brought back into range: Ruby already does bitwise arithmetic in two's
+      # complement and already sign-extends a negative forever, so -1 & 0xFF is 255 on
+      # both sides of the line and ~5 is -6 on both.
+
+      def bit_and(a, b)
+        wrap(wrap(a) & wrap(b))
+      end
+
+      def bit_or(a, b)
+        wrap(wrap(a) | wrap(b))
+      end
+
+      def bit_xor(a, b)
+        wrap(wrap(a) ^ wrap(b))
+      end
+
+      def bit_not(a)
+        wrap(~wrap(a))
+      end
+
+      # A SHIFT COUNT OUTSIDE 0...32 EMPTIES THE NUMBER, and that is a decision rather
+      # than something that fell out. Moving every bit of a 32-bit number 32 places
+      # puts all of them off the end, so what is left is nothing: zero going left, and
+      # going right whatever was filling in behind — 0 for a number that was positive
+      # and -1 for one that was negative.
+      #
+      # A NEGATIVE count does the same, rather than turning round and shifting the
+      # other way. Ruby does turn round (8 >> -2 is 32), and this is the one place the
+      # framework declines to follow it: a negative shift count in a game is a mistake,
+      # and quietly reversing direction hides the mistake instead of showing it. Going
+      # off the end is at least the answer the count asked for.
+      #
+      # Both backends pin this, so a count the game works out gives the same answer
+      # wherever the program runs.
+      def shift_left(a, count)
+        return 0 unless shifts_within_the_number?(count)
+
+        wrap(wrap(a) << count)
+      end
+
       # Divide by 2**bits, rounding DOWN — toward minus infinity, not toward zero.
       #
       # That last part is the whole reason this is not just `div(a, 2**bits)`. Ordinary
@@ -104,10 +152,20 @@ module RubyGBA
       # value converted to a whole number and a value multiplied by another both round
       # the same way, and the two agree at the boundary.
       #
-      # A machine spells this as a shift, which is why the name says shift. The meaning
-      # is the division above.
+      # A machine spells this as a shift, which is why the name says shift. It is also
+      # the same operation the program's own `>>` asks for — moving the bits down, with
+      # the sign filling in behind — so both arrive here, and an out-of-range count
+      # empties the number as described above.
       def shift_right(a, bits)
+        return wrap(a).negative? ? -1 : 0 unless shifts_within_the_number?(bits)
+
         wrap(wrap(a) >> bits) # Ruby's >> on a negative rounds down, which is the point
+      end
+
+      # Does this count move bits about inside the number, rather than pushing all of
+      # them off one end?
+      def shifts_within_the_number?(count)
+        count >= 0 && count < BITS
       end
 
       def neg(a)

@@ -100,6 +100,7 @@ module RubyGBA
           # combine. Using the stack for the intermediate keeps arbitrarily nested
           # expressions correct without a register allocator.
           def eval_binop(node)
+            node = number_on_the_right(node)
             return if emit_constant_binop(node)
 
             @lowering.value(node.lhs)
@@ -116,15 +117,50 @@ module RubyGBA
             # and/or gives the combined 0/1 the branch tests for.
             when :and then @emitter.emit(ASM.and_reg(ACC, TMP, ACC))
             when :or then @emitter.emit(ASM.orr_reg(ACC, TMP, ACC))
+            # The program's own bit operations. The chip does each in one
+            # instruction, which is why reading packed data costs what it reads.
+            when :& then @emitter.emit(ASM.and_reg(ACC, TMP, ACC))
+            when :| then @emitter.emit(ASM.orr_reg(ACC, TMP, ACC))
+            when :^ then @emitter.emit(ASM.eor_reg(ACC, TMP, ACC))
+            when :<< then emit_shift_by_value(:left)
+            when :>> then emit_shift_by_value(:right)
             when :/ then emit_division
             when :% then emit_modulo
             else emit_comparison(op)
             end
           end
 
-          # Dividing, multiplying or wrapping by a number written into the program — the
-          # cases the backend can settle at build time instead of leaving to the console.
-          # Returns true when it handled the node, false when the general path has to.
+          # Shift by a count the game works out. r1 holds the number, r0 the count.
+          #
+          # The chip shifts by a register directly, and its own rule for a big count is
+          # nearly the one the IR promises: it reads the LOW BYTE of the count, so 32 or
+          # more empties the number, and a negative count — whose low byte is a large
+          # number — empties it too. Nearly, because a count of exactly 256 has a low
+          # byte of zero and would shift by nothing at all.
+          #
+          # Comparing UNSIGNED settles both ends in one stroke. Every count outside
+          # 0...32, negative ones included, reads as huge that way and is pinned at 32,
+          # which is the count that empties the number. Two instructions, no branch.
+          def emit_shift_by_value(direction)
+            @emitter.emit(ASM.cmp_imm(ACC, Int32::BITS))
+            @emitter.emit(ASM.mov_imm_cond(:hs, ACC, Int32::BITS))
+            @emitter.emit(if direction == :left
+                            ASM.mov_reg_lsl_reg(ACC, TMP, ACC)
+                          else
+                            ASM.mov_reg_asr_reg(ACC, TMP, ACC) # down, keeping the sign
+                          end)
+          end
+
+          # Every bit of a number the other way round — one instruction, which is why
+          # this is its own node rather than an exclusive-or with all ones.
+          def eval_bit_not(node)
+            @lowering.value(node.operand)
+            @emitter.emit(ASM.mvn_reg(ACC, ACC))
+          end
+
+          # An operation against a number written into the program — the cases the
+          # backend can settle at build time instead of leaving to the console. Returns
+          # true when it handled the node, false when the general path has to.
           #
           # This is a lowering trick, not an IR one: the tree still says divide, and a
           # backend that would rather not do any of this is free to ignore it. Nothing
@@ -139,8 +175,78 @@ module RubyGBA
             when :/ then emit_constant_divide(node.lhs, value)
             when :* then emit_constant_multiply(node.lhs, value)
             when :% then emit_constant_modulo(node.lhs, value)
+            when :&, :|, :^ then emit_constant_bitwise(node.lhs, value, node.op)
+            when :<< then emit_constant_shift_left(node.lhs, value)
+            when :>> then emit_constant_shift_right(node.lhs, value)
             else false
             end
+          end
+
+          # `&`, `|` and `^` give the same answer whichever way round they are written,
+          # so a number written into the program is moved to the RIGHT, where the
+          # constant path below can see it. `0x0F & flags` is a shape people write —
+          # Ruby lets a number stand on the left of these three — and this is what makes
+          # it cost what `flags & 0x0F` costs instead of putting both sides through the
+          # stack. Nothing else here is turned round: dividing and shifting mean
+          # different things the other way about.
+          COMMUTES = %i[& | ^].freeze
+
+          def number_on_the_right(node)
+            return node unless COMMUTES.include?(node.op)
+            return node if @primitives.const_int(node.lhs).nil? || @primitives.const_int(node.rhs)
+
+            Build.binop(node.op, node.rhs, node.lhs)
+          end
+
+          # A mask, an or, or an exclusive-or against a number written into the program
+          # — which is nearly every one a game writes, since the shape of packed data is
+          # settled long before the game runs.
+          #
+          # The number rides inside the instruction when it is small enough and is
+          # loaded into a register first when it is not: one instruction or two, against
+          # the five the general path spends putting both sides through the stack.
+          def emit_constant_bitwise(lhs, value, op)
+            @lowering.value(lhs)
+            if (0..0xFF).cover?(value)
+              @emitter.emit(case op
+                            when :& then ASM.and_imm(ACC, ACC, value)
+                            when :| then ASM.orr_imm(ACC, ACC, value)
+                            else ASM.eor_imm(ACC, ACC, value)
+                            end)
+            else
+              @emitter.emit(ASM.load_immediate(TMP, value))
+              @emitter.emit(case op
+                            when :& then ASM.and_reg(ACC, ACC, TMP)
+                            when :| then ASM.orr_reg(ACC, ACC, TMP)
+                            else ASM.eor_reg(ACC, ACC, TMP)
+                            end)
+            end
+            true
+          end
+
+          # x << n for an n written into the program: ONE instruction, and none at all
+          # for a shift of nothing. A count that empties the number is settled here
+          # rather than emitted — going up there is nothing left, so nothing is what
+          # gets loaded.
+          def emit_constant_shift_left(lhs, count)
+            @lowering.value(lhs)
+            if Int32.shifts_within_the_number?(count)
+              @emitter.emit(ASM.lsl_imm(ACC, ACC, count)) if count.positive?
+            else
+              @emitter.emit(ASM.load_immediate(ACC, 0))
+            end
+            true
+          end
+
+          # x >> n, likewise one instruction. Going off the end downward leaves the sign
+          # filling the whole register, and a shift by 31 is exactly that — 0 for a
+          # number that was positive, -1 for one that was negative — so even the count
+          # nobody meant to write costs the same single instruction.
+          def emit_constant_shift_right(lhs, count)
+            @lowering.value(lhs)
+            places = Int32.shifts_within_the_number?(count) ? count : Int32::BITS - 1
+            @emitter.emit(ASM.asr_imm(ACC, ACC, places)) if places.positive?
+            true
           end
 
           # How many bits +value+ is a power of two of, or nil if it isn't one. Only

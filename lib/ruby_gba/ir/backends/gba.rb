@@ -362,6 +362,7 @@ module RubyGBA
           @lowering.values(
             int: @expressions.method(:eval_int), var_ref: @expressions.method(:eval_var_ref),
             neg: @expressions.method(:eval_neg), binop: @expressions.method(:eval_binop),
+            bit_not: @expressions.method(:eval_bit_not),
             mul_fix: @expressions.method(:eval_mul_fix), div_fix: @expressions.method(:eval_div_fix),
             shift_right: @expressions.method(:eval_shift_right), held: @expressions.method(:eval_held_node),
             pressed: @expressions.method(:eval_pressed_node), chance: @expressions.method(:eval_chance),
