@@ -171,7 +171,8 @@ module RubyGBA
     # your own thing when blocked, and the raw position ops (`move_to`, `x`/`y`) are
     # never checked — an escape hatch for teleports and scripted moves.
     def blocked_by(background)
-      @walls = background.solid_boxes
+      @solid_cells = background.solid_lookup
+      @walls = @solid_cells ? [] : background.solid_boxes
       self
     end
 
@@ -182,7 +183,9 @@ module RubyGBA
     #
     # Needs `blocked_by` to have named the walls first.
     def can_move?(direction, by: 1)
-      raise ArgumentError, "call blocked_by(background) before can_move? — it needs to know the walls" if @walls.nil?
+      if @walls.nil? && @solid_cells.nil?
+        raise ArgumentError, "call blocked_by(background) before can_move? — it needs to know the walls"
+      end
 
       step_x, step_y = Direction.unit(direction)
       clear_of_walls(x + (step_x * by), y + (step_y * by))
@@ -351,7 +354,7 @@ module RubyGBA
     # against).
     def step(axis, delta)
       var = axis == :x ? x : y
-      return var.add(delta) if @walls.nil? || @walls.empty?
+      return var.add(delta) if @solid_cells.nil? && (@walls.nil? || @walls.empty?)
 
       target_x = axis == :x ? x + delta : x
       target_y = axis == :y ? y + delta : y
@@ -363,6 +366,8 @@ module RubyGBA
     # ends at or before a wall begins, or begins at or after it ends — so a sprite can
     # rest flush against a wall (touching isn't overlapping) yet never cross into one.
     def clear_of_walls(target_x, target_y)
+      return clear_of_tiles(target_x, target_y) if @solid_cells
+
       left = target_x + @hit_x
       top = target_y + @hit_y
       right = left + @hit_w
@@ -370,6 +375,24 @@ module RubyGBA
       @walls.map do |wall|
         (right <= wall.x) | (wall.right <= left) | (bottom <= wall.y) | (wall.bottom <= top)
       end.reduce(:&)
+    end
+
+    # A {Condition} true when the sprite's box, placed at (target_x, target_y), is clear of
+    # the background's solid tiles — ASKED OF THE GRID rather than tested against every
+    # rectangle the solid cells merge into.
+    #
+    # WHY IT IS A ROUTINE AND NOT WRITTEN OUT HERE. The check is the same code wherever it
+    # is used: the only things that change between one mover and the next are where it is
+    # going, and those go in as arguments. Written out at each place that moves, a game
+    # with eight movers emitted it sixteen times (each moves on two axes) and the game
+    # loop stopped fitting in the console's quick memory — which slows down the WHOLE
+    # frame, not just the moving. Called, it is emitted once however many movers there are.
+    def clear_of_tiles(target_x, target_y)
+      routine = @builder.tile_collision_routine(@solid_cells, @hit_x, @hit_y, @hit_w, @hit_h)
+      @builder.set(routine[:x], Value.node_for(target_x))
+      @builder.set(routine[:y], Value.node_for(target_y))
+      @builder.call(routine[:name])
+      Value.new(@builder, Build.var_ref(routine[:clear]), name: routine[:clear]) == 1
     end
 
     def faceted?

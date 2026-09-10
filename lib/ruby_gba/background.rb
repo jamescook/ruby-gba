@@ -41,12 +41,15 @@ module RubyGBA
     #   order — what `show_map` names. One entry (the background's own name) for a
     #   background declared with a single map, which can never be handed another.
     def initialize(builder, name:, scroll_x:, scroll_y:, walls: [], affine: false,
-                   cells: [0, 0], tile_index: {}, bitmap: false, map_names: nil)
+                   cells: [0, 0], tile_index: {}, bitmap: false, map_names: nil,
+                   solid_cells: nil, tile_size: [8, 8])
       @builder = builder
       @name = name
       @scroll_x = scroll_x
       @scroll_y = scroll_y
       @walls = walls
+      @solid_cells = solid_cells
+      @tile_size = tile_size
       @affine = affine
       @cells = cells
       @tile_index = tile_index
@@ -148,6 +151,33 @@ module RubyGBA
       refuse_walls_of_a_changing_map!
       @solid_boxes ||= @walls.map { |x, y, w, h| @builder.box(x, y, w, h) }
     end
+
+    # WHERE THE WALLS ARE, as something a mover can ASK rather than something it has to
+    # test against piece by piece.
+    #
+    # A room's walls make some number of rectangles — a bordered room four, a maze of
+    # pillars a hundred — and testing a mover's box against each is work that grows with
+    # what the room is made of, and is emitted afresh at every place that moves. The same
+    # walls as a grid answer "is this cell a wall" in one read, for any room.
+    #
+    # The grid ships as a byte per cell of read-only data (a 30x20 room is 600 bytes) and
+    # is built once however many movers consult it. nil when the tileset marked nothing
+    # solid, which is the same thing #solid_boxes says with an empty list.
+    def solid_lookup
+      return nil if @solid_cells.nil?
+
+      refuse_walls_of_a_changing_map!
+      @solid_lookup ||= begin
+        flat = (0...rows).flat_map { |r| (0...cols).map { |c| @solid_cells[r][c] ? 1 : 0 } }
+        SolidCells.new(table: @builder.table(:"__solid_#{@name}", flat, width: :byte),
+                       cols: cols, rows: rows, tile_w: @tile_size[0], tile_h: @tile_size[1],
+                       name: @name)
+      end
+    end
+
+    # A background's walls as a grid: the table itself, how big the grid is, and how big a
+    # cell is. Everything a mover needs to turn a pixel position into "wall or not".
+    SolidCells = Data.define(:table, :cols, :rows, :tile_w, :tile_h, :name)
 
     # Slide the view by (+dx+, +dy+) pixels from where it is now — the usual way to
     # scroll as the player moves. dx/dy may be numbers or {Value} expressions.

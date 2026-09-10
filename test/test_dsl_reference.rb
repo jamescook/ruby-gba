@@ -28,8 +28,12 @@ class TestDslReference < Minitest::Test
   # screen_pages and keep_showing_pictures are introspection behind `keep_showing`:
   # how many pictures the chosen screen keeps, and the pictures declared so far. The
   # cheat-sheet documents the verb; a game reads neither of these to write one.
+  # tile_collision_routine is the same kind of hook: a HardwareSprite told `blocked_by`
+  # asks for the shared routine that consults the background's grid of solid cells. The
+  # cheat-sheet documents `blocked_by`; nobody writes this.
   SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable
-            record_row_bend make_background_affine screen_pages keep_showing_pictures].freeze
+            record_row_bend make_background_affine screen_pages keep_showing_pictures
+            tile_collision_routine].freeze
 
   # …plus the verbs the loaded effect packs contribute. A pack's verb is an ordinary
   # DSL verb at the call site, so it has to be looked up in the same place.
