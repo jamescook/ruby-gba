@@ -343,6 +343,55 @@ module GembaCore
                   cycles_per_frame: frame_cycles)
     end
 
+    # Save the whole console — registers, RAM, video memory, everything — to a file, so a
+    # moment can be come back to later without playing to it again.
+    #
+    # It is how a moment worth measuring gets captured: the boss with its health half gone,
+    # the floor with sixty guards, the frame where a dozen things explode at once. Those are
+    # the moments furthest from the title screen, and no held button reaches them.
+    #
+    # @param path [String] where to write the state
+    # @return [self]
+    def save_state(path)
+      ensure_open!
+      @core.save_state_to_file(path) or
+        raise RuntimeError, "could not save the emulator state to #{path}"
+      self
+    end
+
+    # Put the console back into a state saved earlier, then carry on from there.
+    #
+    # @param path [String] a state file written by {#save_state} or by any mGBA
+    # @return [self]
+    def load_state(path)
+      ensure_open!
+      raise ArgumentError, "there is no state file at #{path}" unless File.file?(path)
+
+      @core.load_state_from_file(path) or
+        raise RuntimeError, "could not load the emulator state in #{path}"
+      self
+    end
+
+    # Which cartridge a state file was taken from, WITHOUT loading it — +{rom_crc32:, title:}+,
+    # or nil when the file cannot be read as a state at all.
+    #
+    # A state is a snapshot of addresses, and every one of them belongs to the exact cartridge
+    # it was taken from. Load one into a cartridge built a moment later and those addresses
+    # point at whatever has since moved into them, which still reads as numbers — so it
+    # measures rubbish quietly. mGBA itself only refuses a state from a different GAME (a
+    # different title in the header) and accepts one from a different BUILD of the same game,
+    # which is the case that happens constantly while a game is being written. So a caller
+    # that cares has to compare this itself.
+    #
+    # @param path [String]
+    # @return [Hash, nil]
+    def state_identity(path)
+      ensure_open!
+      return nil unless File.file?(path)
+
+      @core.state_file_identity(path)
+    end
+
     # Number of pixels lit (non-black) on the current frame — a cheap
     # "is anything on screen?" measure.
     #

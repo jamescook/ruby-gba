@@ -2,6 +2,7 @@
 
 require "tmpdir"
 require "json"
+require "zlib" # a save state carries the checksum of the cartridge it was taken from
 require "stringio" # the throwaway first build of a measured one says nothing
 
 module RubyGBA
@@ -36,9 +37,25 @@ module RubyGBA
     # the console's quick memory than in the cartridge.
     Line = Data.define(:name, :label, :samples, :share, :where)
 
+    # How the measured moment was reached. A profile without this is not reproducible: the same
+    # cartridge measured on its title screen and measured in its boss fight are different
+    # numbers about different code, and nothing in the numbers themselves says which you have.
+    Reached = Data.define(:how, :detail) do
+      def to_s
+        case how
+        when :scene then "held in the #{detail.inspect} scene"
+        when :state then "from the saved moment in #{File.basename(detail)}"
+        else "as the game boots"
+        end
+      end
+
+      def to_h = detail ? { how: how.to_s, detail: detail.to_s } : { how: how.to_s }
+    end
+
     # A finished profile. +unattributed+ is the share that ran outside every routine the build
     # knows about.
-    Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys) do
+    Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
+                         :reached) do
       def dropping_frames? = fps < 59.5
 
       # Instructions a frame — what the game actually does, where a share only says how that
@@ -48,7 +65,7 @@ module RubyGBA
 
       def to_h
         { frames: frames, samples: samples, fps: fps, idle_share: idle_share,
-          keys: keys.map(&:to_s), unattributed: unattributed,
+          keys: keys.map(&:to_s), unattributed: unattributed, reached: reached.to_h,
           routines: lines.map do |line|
             { name: line.name.to_s, label: line.label, samples: line.samples,
               share: line.share, where: line.where.to_s }
@@ -59,21 +76,84 @@ module RubyGBA
     # Run +rom+ and report where its frames went. +keys+ are held for the settling and the
     # measured frames alike, because a game costs what the player makes it cost and a reading
     # with nothing held is a reading of a game standing still.
-    def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [], enter: nil, scene: nil)
+    def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [], enter: nil, scene: nil, from: nil)
       routines = rom.built.routines
       held = Array(keys)
+      raise ArgumentError, "give `scene:` or `from:`, not both. A saved moment already says " \
+                           "which scene the game was in." if from && scene
       enter ||= scene_state(rom, scene)
+      reached = reached_by(scene, from)
 
       profile = in_temp_rom(rom) do |path|
         probe = Emulator.probe(path)
         begin
-          enter ? pinned_to(probe, enter, frames, held) : plain_run(probe, frames, settle, held)
+          if from
+            resumed_from(probe, from, path, frames, held)
+          elsif enter
+            pinned_to(probe, enter, frames, held)
+          else
+            plain_run(probe, frames, settle, held)
+          end
         ensure
           probe.close
         end
       end
 
-      build_result(profile, routines, held)
+      build_result(profile, routines, held, reached)
+    end
+
+    def self.reached_by(scene, from)
+      return Reached.new(how: :scene, detail: scene.to_sym) if scene
+      return Reached.new(how: :state, detail: from) if from
+
+      Reached.new(how: :boot, detail: nil)
+    end
+
+    # MEASURE A MOMENT SOMEBODY PLAYED TO, which is the only fully general answer.
+    #
+    # Booting into a scene gives the routines that scene RUNS. It does not give the state that
+    # makes the scene expensive: the boss scene with nothing spawned is not the boss fight. A
+    # saved state carries both — the boss, its remaining health, and the twelve fireballs on
+    # screen — and it is captured by playing to the moment once, in any emulator.
+    #
+    # THE CATCH, AND IT IS HANDLED RATHER THAN HOPED ABOUT. A state is a snapshot of addresses,
+    # and every one belongs to the exact cartridge it came from. Rebuild the game — change one
+    # number — and everything has moved, so the state's addresses now point at whatever took
+    # their place. That still reads as numbers, so it measures rubbish quietly, which is worse
+    # than not running at all.
+    #
+    # The emulator will not catch this for us: it refuses a state from a different GAME (it
+    # compares the title in the cartridge header) and accepts one from a different BUILD of the
+    # same game, which is the case that happens every time somebody edits a line. So the
+    # cartridge's own checksum, which the state records, is compared here.
+    #
+    # A BUILD IS DETERMINISTIC, which is what keeps this from being a nuisance: building the
+    # same source twice gives the same bytes, so simply re-running a build never costs anybody
+    # their saved moments. Only a real change moves the addresses, and that is exactly when the
+    # state has stopped meaning anything.
+    def self.resumed_from(probe, state_path, rom_path, frames, held)
+      check_state_matches!(probe, state_path, rom_path)
+      probe.load_state(state_path)
+      probe.profile(frames: frames, keys: held)
+    end
+
+    def self.check_state_matches!(probe, state_path, rom_path)
+      raise ArgumentError, "there is no saved moment at #{state_path}." unless File.file?(state_path)
+
+      said = probe.state_identity(state_path)
+      raise ArgumentError, "#{File.basename(state_path)} is not a saved moment this can " \
+                           "read." unless said
+
+      ours = Zlib.crc32(File.binread(rom_path))
+      return if said[:rom_crc32] == ours
+
+      raise ArgumentError, <<~MSG.chomp
+        #{File.basename(state_path)} was saved from a different build of this game, so it cannot be measured.
+
+        A saved moment holds addresses, and this build put everything somewhere else. Reading it would give numbers about the wrong code.
+
+        Play to the moment again on this build and save it again.
+      MSG
     end
 
     def self.plain_run(probe, frames, settle, held)
@@ -185,7 +265,7 @@ module RubyGBA
             .to_h { |line| [line.name, (line.samples.to_f / result.frames).round] }
     end
 
-    def self.build_result(profile, routines, held)
+    def self.build_result(profile, routines, held, reached = Reached.new(how: :boot, detail: nil))
       tally, outside = attribute(profile.pc, routines)
       total = profile.samples
 
@@ -200,7 +280,8 @@ module RubyGBA
 
       Result.new(frames: profile.frames, samples: total, fps: profile.frames_per_second,
                  idle_share: profile.idle_share.round(4), lines: lines,
-                 unattributed: share(outside.sum { |_, seen| seen }, total), keys: held)
+                 unattributed: share(outside.sum { |_, seen| seen }, total), keys: held,
+                 reached: reached)
     end
 
     # WHAT RAN THAT IS NOT A ROUTINE THE AUTHOR WROTE, named by where it ran rather than
@@ -252,6 +333,9 @@ module RubyGBA
     def self.render(result, out: $stdout)
       printer = IR::Printer.for(out)
       printer.puts("where your frames went, measured over #{result.frames} frames#{held_note(result.keys)}")
+      # Which moment this is of, said out loud: the same cartridge measured on its title screen
+      # and measured in its boss fight are different numbers about different code.
+      printer.puts("  #{result.reached}")
       printer.puts("")
       printer.puts("  #{result.fps} frames a second#{dropped_note(result)}")
       printer.puts("  #{(result.idle_share * 100).round(1)}% of each frame spare")
