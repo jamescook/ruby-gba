@@ -80,7 +80,26 @@ module RubyGBA
       #
       # @example
       #   blit :friend, :ball_x, :ball_y
-      def blit(name, x, y)
+      #
+      # ONE OF A SET, picked by a number the game works out: give it the pictures and
+      # say what chooses between them.
+      #
+      #   blit [:calm, :hurt, :dying], 100, 4, showing: damage
+      #
+      # A face that watches you, a machine in four stages of wreckage, a dial drawn as a
+      # strip, a portrait picked by who is speaking. `showing:` is the same word a menu
+      # row and a two-colour label already use for "this value decides which". The
+      # pictures must all be the same size, and a number outside the set draws nothing —
+      # so a value still settling, or one that ran off the end, leaves the screen alone
+      # rather than drawing the wrong picture.
+      def blit(name, x, y, showing: nil)
+        return blit_one_of(name, x, y, showing) if name.is_a?(Array)
+
+        unless showing.nil?
+          raise ArgumentError,
+                "blit :#{name} was given showing:, but it draws one picture. showing: picks between " \
+                "several, so give it a list: blit [:#{name}, :other], #{x}, #{y}, showing: ..."
+        end
         record(Build.blit(name, Value.node_for(x), Value.node_for(y)))
         ensure_var(x)
         ensure_var(y)
@@ -104,6 +123,44 @@ module RubyGBA
       end
 
       private
+
+      # Draw whichever of +names+ the +showing+ value picks. Written the long way this is
+      # a test and a draw per picture, which is what it lowers to anyway — so this is the
+      # same work said once, and both backends already know how to do it.
+      def blit_one_of(names, x, y, showing)
+        if showing.nil?
+          raise ArgumentError,
+                "blit was given #{names.length} pictures and nothing to pick between them. Say which " \
+                "one to draw with showing:, like blit [:#{names.first}, ...], #{x}, #{y}, showing: state."
+        end
+        raise ArgumentError, "blit was given an empty list of pictures. Name at least one." if names.empty?
+
+        same_size_blit!(names)
+        record(Build.blit_pose(names, Value.node_for(showing), Value.node_for(x), Value.node_for(y)))
+        ensure_var(x)
+        ensure_var(y)
+        ensure_var(showing)
+      end
+
+      # Pictures picked between must all be the same size: one is drawn where the last
+      # one was, so a smaller one would leave the edges of a bigger one behind.
+      def same_size_blit!(names)
+        sizes = names.to_h do |picture|
+          size = @images[picture] or
+            raise ArgumentError,
+                  "blit names the picture :#{picture}, which is not defined. Define it first with " \
+                  "`image :#{picture}, ...`."
+          [picture, size]
+        end
+        return if sizes.values.uniq.length == 1
+
+        common = sizes.values.tally.max_by { |_size, count| count }.first
+        odd = sizes.find { |_picture, size| size != common }
+        raise ArgumentError,
+              "blit picks between pictures of different sizes. :#{odd.first} is " \
+              "#{odd.last[0]}x#{odd.last[1]} and the others are #{common[0]}x#{common[1]}. " \
+              "Pictures picked between must all be the same size."
+      end
 
       # Array form of #image: validate the dimensions and pack the pixel colors.
       # +transparent+ (an internal marker color, e.g. from an imported cutout) is
