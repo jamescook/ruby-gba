@@ -43,24 +43,13 @@ module RubyGBA
     end
 
     # The two routines a program has no name for: the frame's own body, and the one the
-    # console jumps into when the display or a timer announces something. The estimate has
-    # to be told about each separately for that reason.
+    # console jumps into when the display or a timer announces something.
     FRAME_ROUTINE = IR::Backends::GBA::Placement::FRAME_ROUTINE
     IRQ_ROUTINE = IR::Backends::GBA::Placement::IRQ_ROUTINE
 
-    # What the cost model needs to know about where this cartridge's code and variables
-    # live — both change what the same statement costs.
-    def for_cost_model
-      decided = { var_addresses: var_addresses, loop_shapes: loop_shapes,
-                  palette_entries: palette_entries, column_stretches: column_stretches,
-                  emitted: emitted }.compact
-      return decided unless placement
-
-      names = placement.funcs
-      { fast_routines: names - [FRAME_ROUTINE, IRQ_ROUTINE],
-        fast_frame: names.include?(FRAME_ROUTINE),
-        fast_interrupts: names.include?(IRQ_ROUTINE),
-        placement: placement }.merge(decided)
-    end
+    # Whether the frame's own body was kept in the console's quick memory. It is the single
+    # most valuable thing to keep there — where nearly all of a frame's time goes — so a
+    # guardrail asks, and so does anything reporting on the build.
+    def fast_frame? = placement ? placement.funcs.include?(FRAME_ROUTINE) : false
   end
 end

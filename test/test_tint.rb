@@ -525,61 +525,51 @@ class TestTint < Minitest::Test
   # A tint tells the display what to show and redraws nothing, so its price must not
   # depend on what is on screen — the same promise `fade` makes.
 
-  def cost_of(program)
-    RubyGBA::IR::CostModel.new.steady_cost(program)
+  # HOW MANY INSTRUCTIONS A FRAME REALLY RUNS, measured on the emulator.
+  #
+  # This claim is about TIME — a tint tells the display what to show and redraws nothing — and
+  # it used to be checked against an estimate of the frame, which is the thing this framework
+  # stopped shipping. Emitted code cannot stand in for it either: the palette machinery a tint
+  # needs is shared, so it lands wherever it is first required and the same tint reads as 172
+  # bytes in one program and 52 in another. So it is run and counted.
+  def cost_of(&body)
+    rom = RubyGBA.build("TINT", code: "TINT", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      game_loop { body.call(self) }
+    end
+    RubyGBA::Profiler.run(rom, frames: 20, tearing: false).samples_per_frame
   end
 
-  # What a tint adds to a frame must not depend on what else that frame draws. Measured
-  # as a difference twice over — the same tint added to an empty frame and to a busy one
-  # — so a price that quietly scaled with the drawing would show up here.
+  # What a tint adds to a frame must not depend on what else that frame draws. Measured as a
+  # difference twice over — the same tint added to an empty frame and to a busy one — so a
+  # tint that quietly scaled with the drawing would show up here.
   def test_a_tint_costs_the_same_however_much_is_on_screen
-    empty = cost_of(loop_body { |_g| nil })
-    empty_tinted = cost_of(loop_body { |g| g.tint :red, 50 })
-    busy = cost_of(loop_body { |g| draw_a_lot(g) })
-    busy_tinted = cost_of(loop_body { |g| draw_a_lot(g); g.tint :red, 50 })
+    empty = cost_of { |_g| nil }
+    empty_tinted = cost_of { |g| g.tint :red, 50 }
+    busy = cost_of { |g| draw_a_lot(g) }
+    busy_tinted = cost_of { |g| draw_a_lot(g); g.tint :red, 50 }
 
     assert_operator busy, :>, empty, "the drawing itself must still cost"
-    assert_in_delta empty_tinted - empty, busy_tinted - busy, 1e-9
+    # A real run, so the two differences agree to within a few instructions rather than
+    # exactly — what would fail here is a tint that scaled with the drawing at all.
+    assert_in_delta empty_tinted - empty, busy_tinted - busy, 0.15 * (busy - empty)
   end
 
-  def test_a_tint_is_priced_at_something
-    assert_operator cost_of(loop_body { |g| g.tint :red, 50 }),
-                    :>, cost_of(loop_body { |_g| nil })
+  def test_a_tint_costs_something
+    assert_operator cost_of { |g| g.tint :red, 50 }, :>, cost_of { |_g| nil }
   end
 
   def draw_a_lot(builder)
     40.times { |i| builder.fill_rect 0, i, 40, 1, :blue }
   end
 
-  # The builder is handed to the body rather than the body being instance_eval'd, because
-  # a block written here keeps this test as its `self` (see Builder#run_block).
-  def loop_body(&body)
-    b = RubyGBA::Builder.new
-    b.instance_eval { screen :bitmap }
-    b.game_loop { body.call(b) }
-    b.emit_pending_functions
-    b.program
-  end
-
   # An amount the game works out costs more than one written into the program: the
   # conversion happens as the program runs.
   def test_a_computed_amount_costs_more_than_a_written_one
-    written = RubyGBA::Builder.new
-    written.instance_eval do
-      screen :bitmap
-      game_loop { tint :red, 50 }
-    end
-    written.emit_pending_functions
+    written = cost_of { |g| g.tint :red, 50 }
+    computed = cost_of { |g| g.tint :red, g.var(:level, 50) }
 
-    computed = RubyGBA::Builder.new
-    computed.instance_eval do
-      screen :bitmap
-      level = var :level, 50
-      game_loop { tint :red, level }
-    end
-    computed.emit_pending_functions
-
-    assert_operator cost_of(computed.program), :>, cost_of(written.program)
+    assert_operator computed, :>, written
   end
 end
 

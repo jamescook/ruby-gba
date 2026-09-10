@@ -17,7 +17,7 @@ require_relative "ir/verifier"
 require_relative "ir/portability"
 require_relative "ir/backends"
 require_relative "ir/guardrails"
-require_relative "ir/cost_model"
+require_relative "ir/printer" # what a report is written through
 require_relative "ir/glyph_usage"
 require_relative "ir/palette"
 require_relative "ir/dump"

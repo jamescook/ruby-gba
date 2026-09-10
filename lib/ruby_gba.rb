@@ -164,13 +164,13 @@ module RubyGBA
     machine_code = backend.lower(program)
     record = backend.build_record(program)
 
-    # The guardrails that quote a number run here instead of above, priced with what the
-    # build actually decided. See Guardrails.build_checks for why they cannot run earlier.
-    # Their findings join the ones from the first pass and print together at the end.
+    # The guardrail that reads a decision the build made runs here instead of above, because
+    # the decision does not exist until the build has made it. Its findings join the ones from
+    # the first pass and print together at the end.
     unless evaluated.debug_halted?
       progress.step("the guardrails that need the build")
-      model = IR::CostModel.new(**record.for_cost_model)
-      priced = IR::Guardrails::Validator.new(checks: IR::Guardrails.build_checks(model), progress: progress)
+      checks = IR::Guardrails.build_checks(record.placement)
+      priced = IR::Guardrails::Validator.new(checks: checks, progress: progress)
                                         .run(program, autofix: false)
       findings = findings.with(findings: findings.findings + priced.findings)
     end
@@ -242,13 +242,42 @@ module RubyGBA
       raise
     end
 
-    measurement = RoutineProfile.from_work(Profiler.every_scene(first), game: title)
+    survey = Profiler.every_scene(first)
+    warn_of_slow_scenes(survey, err)
+    measurement = RoutineProfile.from_work(survey.work, game: title)
     build(title, code: code, maker: maker, profile: measurement,
           out: out, err: err, progress: progress, **options, &block)
   rescue LoadError
     # No emulator to run it on. Choose from the shape of the program instead.
     build(title, code: code, maker: maker, profile: false,
           out: out, err: err, progress: progress, **options, &block)
+  end
+
+  # A GAME THAT DOES NOT KEEP UP IS SAID SO AT BUILD TIME, from what the build just measured.
+  #
+  # This is what the framework used to guess at: a frame priced in scanlines against a budget,
+  # with a warning when the total came out over. That was a second statement of what the
+  # hardware costs and every mispricing was a bug. The build now RUNS the game to decide what
+  # goes in the quick memory, so the frame rate is already in its hands and costs nothing to
+  # report — and it is a fact rather than an arithmetic.
+  #
+  # WHAT IT LOOKS LIKE MATTERS, and it is not choppiness. A game moves what it moves once per
+  # pass of its loop, so fewer passes a second is less movement a second: the whole game runs
+  # in SLOW MOTION, smoothly. Saying "choppy" sends a reader looking for the wrong thing.
+  def self.warn_of_slow_scenes(survey, err)
+    slow = survey.struggling
+    return if slow.empty?
+
+    slow.each do |scene, reading|
+      where = scene ? "The #{scene.inspect} scene runs" : "This game runs"
+      err.puts <<~MSG
+
+        #{where} at about #{reading.fps.round} frames a second, not 60. It does more work each
+        frame than one frame has room for. Everything moves once a frame, so the whole game
+        moves that much more slowly — smoothly, not choppily. To see where the frames go, call
+        `rom.profile` on the built ROM.
+      MSG
+    end
   end
 
   # A PROFILE THAT HAS DRIFTED FROM ITS GAME still decides what goes in the quick memory, and

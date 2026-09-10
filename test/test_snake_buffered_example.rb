@@ -38,15 +38,13 @@ class TestSnakeBufferedExample < Minitest::Test
                  "priced with the build's own answers, a full board fits in a frame")
   end
 
-  # ...and that is the build's answer rather than a coincidence: priced with no build
-  # behind it the same game is charged half again as much and does warn.
-  def test_the_pessimistic_price_is_what_used_to_warn
-    program = BufferedSnake.build_rom(err: StringIO.new).send(:built!).source_program
-    bare = RubyGBA::IR::CostModel.new
+  # ...and it really keeps up, which is the question the note above says an estimate could
+  # not settle. Measured on the game as it opens.
+  def test_it_holds_sixty_frames_a_second
+    require_gemba_core!
+    rom = BufferedSnake.build_rom(err: StringIO.new, profile: false)
 
-    assert_operator bare.steady_cost(program), :>, BufferedSnake.build_rom(err: StringIO.new)
-                                                                .cost_model.steady_cost(program),
-                    "a model with no build behind it prices every default the dearer way"
+    refute_predicate RubyGBA::Profiler.run(rom, frames: 30, tearing: false), :dropping_frames?
   end
 
   # The title screen shows "SNAKE" in green — the simplest proof it isn't a black

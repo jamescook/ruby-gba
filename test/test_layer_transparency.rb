@@ -37,6 +37,19 @@ class TestLayerTransparency < Minitest::Test
     b.program
   end
 
+  # The build report reads a finished cartridge, so a program under test has to be lowered
+  # and carry the record the build made — where each routine ended up cannot be recovered
+  # from the bytes afterwards.
+  def report_of(prog)
+    backend = RubyGBA::IR::Backends::GBA.new
+    machine_code = backend.lower(prog)
+    rom = RubyGBA::ROM.assemble(machine_code, title: "LAYR", code: "LAYR", maker: "01",
+                                              built: backend.build_record(prog))
+    out = StringIO.new
+    RubyGBA::BuildReport.render(rom, out: out)
+    out.string
+  end
+
   # A red floor with a white pane over it, the pane's layer see-through by +amount+.
   def scenery_program(amount)
     tile = SOLID_TILE
@@ -227,19 +240,9 @@ class TestLayerTransparency < Minitest::Test
     assert_equal 1, clearing_program.walk.count { |n| n.kind == :see_through }
   end
 
-  def test_seeing_through_a_layer_by_a_worked_out_amount_is_not_free
-    fixed = RubyGBA::IR::CostModel.new.steady_cost(scenery_program(40))
-    worked_out = RubyGBA::IR::CostModel.new.steady_cost(clearing_program)
-
-    assert_operator worked_out, :>, fixed
-  end
-
-  def test_the_report_says_the_amount_is_worked_out
-    out = StringIO.new
-    RubyGBA::IR::CostModel.new.render(clearing_program, out: out, color: false)
-
-    assert_includes out.string, "as see-through as the game works out"
-  end
+  # An amount the game works out is not free, and the two tests above say exactly why: a
+  # fixed one puts nothing in the frame, a worked-out one puts one write there. That is the
+  # whole difference, and it is a fact about the tree rather than a claim about time.
 
   # The 100 warning cannot answer for a variable — passing through 100 for a frame is a
   # fog that cleared, not a layer nobody can see. Same silence `fade` and `tint` keep.
@@ -587,62 +590,21 @@ class TestLayerTransparency < Minitest::Test
   end
 
   def test_the_report_says_a_fade_takes_the_blend
-    out = StringIO.new
-    RubyGBA::IR::CostModel.new.render(flashing_program(:scenery), out: out, color: false)
-
-    assert_includes out.string, "while a fade runs"
+    assert_includes report_of(flashing_program(:scenery)), "while a fade runs"
   end
 
   def test_the_report_leaves_that_out_when_nothing_fades
-    out = StringIO.new
-    RubyGBA::IR::CostModel.new.render(scenery_program(40), out: out, color: false)
-
-    refute_includes out.string, "while a fade runs"
-  end
-
-  # --- what it costs ---
-
-  # Nothing. The display blends as it draws, so a see-through layer costs the same as the
-  # same layer drawn solid — which is the whole bargain of the tiled screen.
-  def test_seeing_through_a_layer_costs_nothing
-    solid = RubyGBA::IR::CostModel.new.steady_cost(scenery_program(0))
-    blended = RubyGBA::IR::CostModel.new.steady_cost(scenery_program(40))
-
-    assert_in_delta solid, blended, 0.0001
-  end
-
-  # ...unless the game also fades. Then the fade has one more thing to settle every frame
-  # — am I running, or handing the blend back? — and only when the level is one the game
-  # works out, which is what a fade walked over frames is.
-  def fading_program(amount)
-    tile = SOLID_TILE
-    program do
-      screen :tiled
-      image(:back, "#" => :red) { tile }
-      image(:front, "#" => :white) { tile }
-      tiles :backset, "#" => :back
-      tiles :frontset, "#" => :front
-      layers :deep, :glass
-      layer(:deep) { background :floor, tiles: :backset, map: Array.new(20) { "#" * 30 } }
-      layer(:glass, transparency: amount) do
-        background :pane, tiles: :frontset, map: Array.new(20) { "#" * 20 }
-      end
-      level = var :level, 0
-      game_loop { fade :black, level }
-    end
-  end
-
-  def test_a_fade_costs_a_little_more_where_a_layer_can_be_seen_through
-    solid = RubyGBA::IR::CostModel.new.steady_cost(fading_program(0))
-    blended = RubyGBA::IR::CostModel.new.steady_cost(fading_program(50))
-
-    assert_operator blended, :>, solid
+    refute_includes report_of(scenery_program(40)), "while a fade runs"
   end
 
   def test_the_report_says_which_layer_is_see_through
-    out = StringIO.new
-    RubyGBA::IR::CostModel.new.render(scenery_program(40), out: out, color: false)
+    assert_includes report_of(scenery_program(40)), ":glass is 40 see-through"
+  end
 
-    assert_includes out.string, ":glass is 40 see-through"
+  # ...and says that it costs nothing, which is the whole bargain of the tiled screen: the
+  # display blends as it draws, so a see-through layer costs the same as the same layer drawn
+  # solid, however much is on screen.
+  def test_the_report_says_seeing_through_a_layer_is_free
+    assert_includes report_of(scenery_program(40)), "the display blends it as it draws, for nothing"
   end
 end

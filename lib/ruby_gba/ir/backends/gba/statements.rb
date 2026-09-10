@@ -4,6 +4,27 @@ module RubyGBA
   module IR
     module Backends
       class GBA
+        # WHICH OF THE THREE SHAPES A LOOP GOT, which decides what a pass of it costs.
+        #
+        # +shape+ is :registers (the count stays in two registers the whole way), :spilled (it
+        # stays there, and the pair is saved around the few statements that would land in
+        # them), or :memory (the count lives in the console's quick memory and is fetched every
+        # pass). +spills+ is how many statements a spilled loop brackets. +blocked_by+ is what
+        # in the body made it more than the plain fast shape, in words a person can read.
+        #
+        # Whether the count is in registers is DERIVED: a spilled loop keeps it there too, and
+        # storing that separately is how the two answers drift apart.
+        #
+        # It lives here because this is where it is decided — which registers are free is a
+        # fact about a lowering, and nothing else can work it out afterwards. It rides on the
+        # build record so a finished cartridge can still say what shape each of its loops got.
+        LoopShape = Data.define(:shape, :blocked_by, :spills) do
+          def initialize(shape:, blocked_by: nil, spills: 0) = super
+
+          def held = shape != :memory
+          def spilled? = shape == :spilled
+        end
+
         # Statement lowering: variable ops and control flow.
         class Statements
           include Constants
@@ -181,9 +202,9 @@ module RubyGBA
           # for the code that will really run. The build decides; the estimate is told.
           def emit_shape(node, shape)
             @loop_shapes[node.index] =
-              CostModel::LoopShape.new(shape: shape,
-                                       blocked_by: shape == :registers ? nil : LoopForm.reason(node),
-                                       spills: shape == :spilled ? LoopForm.blocking_children(node).size : 0)
+              LoopShape.new(shape: shape,
+                            blocked_by: shape == :registers ? nil : LoopForm.reason(node),
+                            spills: shape == :spilled ? LoopForm.blocking_children(node).size : 0)
             yield
           end
 

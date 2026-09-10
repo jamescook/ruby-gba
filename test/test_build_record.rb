@@ -39,11 +39,9 @@ class TestBuildRecord < Minitest::Test
   def test_a_cartridge_that_cannot_report_on_itself_refuses_rather_than_guessing
     rom = RubyGBA::ROM.new(title: "RAW", code: "ZRAW", maker: "01")
 
-    %i[profile cost_model].each do |asking|
-      error = assert_raises(RubyGBA::ROMError) { rom.public_send(asking, out: StringIO.new) }
-      assert_match(/does not know how it was built/, error.message)
-      assert_match(/RubyGBA\.build/, error.message)
-    end
+    error = assert_raises(RubyGBA::ROMError) { rom.profile(out: StringIO.new) }
+    assert_match(/does not know how it was built/, error.message)
+    assert_match(/RubyGBA\.build/, error.message)
   end
 
   # A built one answers all of it, and there is no way to have some of it: the record is
@@ -83,16 +81,14 @@ class TestBuildRecord < Minitest::Test
     end
   end
 
-  # The estimate reads the record rather than six fields, and what it reads has to be the
-  # build's own answer: a routine kept in quick memory is charged less, and being wrong
-  # about that is the one mistake that moves the whole report.
-  def test_the_estimate_is_told_which_routines_the_build_kept_in_quick_memory
+  # The record carries the build's own answers about where things went, and a reader takes
+  # them from it rather than from six separate fields threaded through by hand.
+  def test_the_record_carries_where_the_build_put_things
     rom = a_built_rom
-    told = rom.built.for_cost_model
 
-    assert_equal rom.placement, told[:placement]
-    assert told[:fast_frame], "the game loop's own body moved, and the estimate is told so"
-    assert_equal rom.var_addresses, told[:var_addresses]
-    assert_equal rom.loop_shapes, told[:loop_shapes]
+    assert_predicate rom.built, :fast_frame?, "the game loop's own body moved to quick memory"
+    assert_equal rom.placement, rom.built.placement
+    assert_equal rom.var_addresses, rom.built.var_addresses
+    assert_equal rom.loop_shapes, rom.built.loop_shapes
   end
 end

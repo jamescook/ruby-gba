@@ -36,7 +36,7 @@ class TestFrameFromCartridgeGuardrail < Minitest::Test
   def test_a_loop_too_big_to_fit_is_told_so_and_told_the_fix
     rom, warnings = game(cold_in_a_func: false)
 
-    refute rom.built.for_cost_model[:fast_frame], "the premise: the loop's body was left in the cartridge"
+    refute rom.built.fast_frame?, "the premise: the loop's body was left in the cartridge"
     assert_match(/game loop's body did not fit/, warnings)
     assert_match(/runs from the cartridge/, warnings)
     assert_match(/mark it `fast: false`/, warnings, "the fix is one word, and it is said")
@@ -49,7 +49,7 @@ class TestFrameFromCartridgeGuardrail < Minitest::Test
   def test_with_the_cold_code_in_its_own_routine_the_loop_fits_and_nothing_is_said
     rom, warnings = game(cold_in_a_func: true)
 
-    assert rom.built.for_cost_model[:fast_frame], "the loop's body is kept in the quick memory"
+    assert rom.built.fast_frame?, "the loop's body is kept in the quick memory"
     refute_match(/did not fit/, warnings)
   end
 

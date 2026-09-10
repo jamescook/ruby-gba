@@ -169,25 +169,20 @@ module RubyGBA
 
         # The checks that cannot run until the program has been lowered, built with the
         # cost model that knows how the build turned out.
+        # WHAT NEEDS THE BUILD, rather than just the program. This one reads a decision the
+        # build made after the other guardrails ran — whether the game loop's body got the
+        # console's quick memory, where code runs about two and a third times faster.
         #
-        # Three of these put a NUMBER in front of the author — how many scanlines a frame
-        # draws, how many items a list can hold before the frame tears, which tick rate
-        # really fits. What each costs depends on decisions the build makes after the
-        # other guardrails have run: which routines are kept in the console's quick
-        # memory (code there runs about two and a half times faster), where the variables
-        # landed, what shape each loop got. Priced without those the number reads
-        # plausibly and is wrong by nearly that factor, which is why ROM#cost_model
-        # refuses to estimate a cartridge that has no record of its build. The fourth reads
-        # one of those decisions itself: whether the game loop's body got the quick memory.
-        #
-        # So they take the model instead of making one, and RubyGBA.build runs them after
-        # lowering. Their findings join the rest and print together at the end, so this
-        # changes nothing about when the author reads them.
-        def build_checks(model)
-          [Checks::DrawBudget.new(model),
-           Checks::BudgetThreshold.new(model),
-           Checks::TickRate.new(model),
-           Checks::FrameFromCartridge.new(model)]
+        # THREE OTHERS USED TO RUN HERE and are gone: how many scanlines a frame draws, how
+        # many items a list can hold before the frame stops fitting, and whether a timer's
+        # rate really fits its handler. Each put an invented number in front of an author.
+        # They were the last readers of a weight table that had to be kept in step with the
+        # backend by hand, so every mispricing was a bug. What replaced the first of them is
+        # a measurement: a build runs the game to decide what goes in the quick memory, so
+        # the real frame rate is already in its hands and it says so when a game misses 60
+        # (RubyGBA.warn_of_slow_scenes).
+        def build_checks(placement)
+          [Checks::FrameFromCartridge.new(placement)]
         end
 
         # Stop running a registered check — what unloading a pack does with the
@@ -283,9 +278,6 @@ require_relative "guardrails/vblank_sync"
 require_relative "guardrails/termination"
 require_relative "guardrails/off_screen_draw"
 require_relative "guardrails/orphaned_condition"
-require_relative "guardrails/draw_budget"
-require_relative "guardrails/budget_threshold"
-require_relative "guardrails/tick_rate"
 require_relative "guardrails/channel_conflict"
 require_relative "guardrails/redraw_everything"
 require_relative "guardrails/sprite_cleared_each_frame"

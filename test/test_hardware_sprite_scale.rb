@@ -166,32 +166,22 @@ class TestHardwareSpriteScale < Minitest::Test
 
   # --- what it costs ---
 
-  # A sprite that resizes is dearer to draw than one that only turns, which is dearer
-  # than one that only moves — because each does strictly more work, ending in a division
-  # the author never wrote. An estimate that priced them the same would let a screenful
-  # of resizing sprites read as free.
-  # The three programs differ in exactly one thing — what the sprite does — so the
-  # comparison is of the transform and nothing else.
-  def test_resizing_costs_more_than_turning_costs_more_than_moving
-    model = RubyGBA::IR::CostModel.new
-    moving = model.steady_cost(sized_program)
-    turning = model.steady_cost(sized_program(angle: 45))
-    resizing = model.steady_cost(sized_program(1.5, angle: 45))
+  # A sprite that resizes is dearer to draw than one that only turns, which is dearer than one
+  # that only moves — each does strictly more work, ending in a division the author never
+  # wrote. The three programs differ in exactly one thing, so the comparison is of the
+  # transform and nothing else, and what is compared is the code the build EMITTED for each.
+  # (This used to compare an ESTIMATE of the three. `rom.profile` measures the real thing.)
+  def test_resizing_emits_more_than_turning_emits_more_than_moving
+    moving = emitted_bytes(sized_program)
+    turning = emitted_bytes(sized_program(angle: 45))
+    resizing = emitted_bytes(sized_program(1.5, angle: 45))
 
-    assert_operator turning, :>, moving, "turning costs more than moving"
-    assert_operator resizing, :>, turning, "resizing costs more than turning"
+    assert_operator turning, :>, moving, "turning is more work than moving"
+    assert_operator resizing, :>, turning, "resizing is more work than turning"
   end
 
-  # The estimate says which sprites do the expensive thing, not just how many there are —
-  # otherwise one line of the report hides a threefold difference in what it stands for.
-  def test_the_report_names_the_sprites_that_resize
-    labels = tree_labels(RubyGBA::IR::CostModel.new.analyze(sized_program(1.5)))
-    assert labels.any? { |label| label.include?("resizing") },
-           "expected a sprite line naming the resize, got: #{labels.inspect}"
-  end
-
-  def tree_labels(nodes)
-    nodes.flat_map { |node| [node.label.to_s] + tree_labels(node.children) }
+  def emitted_bytes(program)
+    RubyGBA::IR::Backends::GBA.new.lower(program).bytesize
   end
 
   # --- the two backends build the matrix from one set of rules ---

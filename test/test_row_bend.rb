@@ -431,6 +431,33 @@ class TestRowBend < Minitest::Test
 
   def four_bends_program = many_bends_program(4)
 
+  # The same two fixtures as cartridges that can be RUN, for the measured comparison. Built
+  # through the DSL rather than assembled from a program, because a profile needs the record
+  # the build makes — where every routine ended up cannot be recovered from the bytes.
+  def bars_rom(&bend)
+    RubyGBA.build("BEND", code: "BEND", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :tiled
+      image(:bar, "." => :transparent, "#" => :red) { (["##......"] * 8).join("\n") }
+      tiles :stripes, "#" => :bar
+      water = background :water, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+      instance_exec(water, &bend) if bend
+      game_loop { }
+    end
+  end
+
+  def four_bends_rom
+    RubyGBA.build("BND4", code: "BND4", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :tiled
+      image(:bar, "." => :transparent, "#" => :red) { (["##......"] * 8).join("\n") }
+      tiles :stripes, "#" => :bar
+      4.times do |i|
+        bg = background :"layer#{i}", tiles: :stripes, map: Array.new(20) { "#" * 30 }
+        bg.scroll_each_row { |row| (row + i) % 8 }
+      end
+      game_loop { }
+    end
+  end
+
   # The same, playing a sample — which is fed from an engine of its own and keeps the pair
   # this framework holds back for sound.
   def sounding_program(bends:)
@@ -470,66 +497,36 @@ class TestRowBend < Minitest::Test
 
   # --- the cost is visible ---
 
-  # Bending is paid per ROW, not per statement, so it is nowhere in the op tree — a reader
-  # hunting for where a chunk of their frame went would find nothing. It is priced for the
-  # whole frame and named in the report, together with WHICH way it was lowered: the two
-  # prices are far enough apart that a reader comparing two games needs to know.
-  def test_the_report_names_what_bending_costs
+  # WHICH WAY A BEND WAS LOWERED is a decision the build makes, and the two are far enough
+  # apart in what they cost that it is worth being able to ask. One bend rides a copying
+  # engine, which feeds the display with the CPU untouched.
+  def test_one_bend_rides_a_copying_engine
     program = bars_program { |water| water.scroll_each_row { |row| row % 8 } }
-    verdict = RubyGBA::IR::CostModel.new.bend_verdict(program)
-    assert_equal [:water], verdict.layers
-    assert_equal :copier, verdict.lowering
 
-    io = StringIO.new
-    RubyGBA::IR::CostModel.new.report(program, out: io, color: false)
-    assert_match(/bending :water costs/, io.string)
-    assert_match(/copier hands each row its offset/, io.string)
+    assert BendForm.copier?(program), "one bend has an engine to spare"
   end
 
-  # ...and when it kept the interrupt it says so, and says why — the reader who has seen the
-  # other price in another game will otherwise think this one is wrong.
-  def test_the_report_says_when_the_interrupt_was_kept_and_why
-    verdict = RubyGBA::IR::CostModel.new.bend_verdict(four_bends_program)
-    assert_equal :interrupt, verdict.lowering
-    assert_operator verdict.feeding, :>, 20, "228 interruptions a frame is the bulk of the cost"
-
-    io = StringIO.new
-    RubyGBA::IR::CostModel.new.report(four_bends_program, out: io, color: false)
-    assert_match(/interrupted on all 228 of its lines/, io.string)
-    assert_match(/could not feed this one: there are 4 bending layers/, io.string)
+  # ...and a fourth is one more than there are engines, so the game is interrupted on every
+  # line of the display instead. The build says why, in words.
+  def test_a_fourth_bend_keeps_the_interrupt_and_says_why
+    refute BendForm.copier?(four_bends_program)
+    assert_match(/4 bending layers/, BendForm.kept_interrupt_reason(four_bends_program).to_s)
   end
 
   # THE WHOLE POINT, as a number: the same picture, worked out ahead of the frame, for a
-  # fraction of what being interrupted 228 times costs. Both are measured on the emulator,
-  # so this is a real saving and not an arrangement of weights.
+  # fraction of what being interrupted 228 times costs. MEASURED — the program is built and
+  # run, and the instructions it really executes each frame are counted. This used to compare
+  # two numbers the estimate made up, which is exactly the claim it was least able to make.
   def test_the_copier_costs_a_fraction_of_the_interrupt
-    pure = bars_program { |water| water.scroll_each_row { |row| row % 8 } }
-    copied = RubyGBA::IR::CostModel.new.bend_verdict(pure)
-    interrupted = RubyGBA::IR::CostModel.new.bend_verdict(four_bends_program)
+    copied = instructions_a_frame(bars_rom { |water| water.scroll_each_row { |row| row % 8 } })
+    interrupted = instructions_a_frame(four_bends_rom)
 
-    assert_operator copied.cost * 2, :<, interrupted.cost,
+    assert_operator copied * 2, :<, interrupted,
                     "expected the copier to be worth more than half, got " \
-                    "#{copied.cost.round(1)} against #{interrupted.cost.round(1)}"
+                    "#{copied.round} against #{interrupted.round} instructions a frame"
   end
 
-  # A program that does not bend pays nothing and says nothing.
-  def test_a_program_that_does_not_bend_has_no_bend_cost
-    program = bars_program
-    assert_nil RubyGBA::IR::CostModel.new.bend_verdict(program)
-
-    io = StringIO.new
-    RubyGBA::IR::CostModel.new.report(program, out: io, color: false)
-    refute_match(/bending/, io.string)
-  end
-
-  # What the block works out is charged too, per visible row — so a dear expression there
-  # reads as dear rather than hiding behind the fixed interrupt cost.
-  def test_the_blocks_own_work_is_charged_per_visible_row
-    cheap = bars_program { |water| water.scroll_each_row { |_row| 3 } }
-    dear = bars_program { |water| water.scroll_each_row { |row| (row * row) % 8 } }
-    assert_equal 0, RubyGBA::IR::CostModel.new.bend_verdict(cheap).offsets,
-                 "a number written in the program costs nothing to read"
-    assert_operator RubyGBA::IR::CostModel.new.bend_verdict(dear).offsets, :>, 0,
-                    "arithmetic in the block is paid on every row of every frame"
+  def instructions_a_frame(rom)
+    RubyGBA::Profiler.run(rom, frames: 20, tearing: false).samples_per_frame
   end
 end

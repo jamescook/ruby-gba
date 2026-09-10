@@ -175,21 +175,6 @@ module RubyGBA
       end
     end
 
-    # A cost model that knows how THIS ROM was built. The estimate has to know which
-    # routines the build kept in the console's quick memory, or it reads nearly three
-    # times over for every program whose loop moved there (see {IR::CostModel#initialize}).
-    # So a model asked about a built ROM comes from here rather than from CostModel.new.
-    # +overrides+ replaces named weights, for asking what a different price would mean.
-    #
-    # A cartridge with no record REFUSES rather than falling back on defaults. Every one of
-    # those defaults is the safe, dearer guess — a loop priced through memory, a variable
-    # priced as if it sat far out — so an estimate built on them reads plausibly and is
-    # wrong by nearly the factor the quick memory is worth, with nothing on the page to say
-    # so. A number nobody can tell is wrong is worse than no number.
-    def cost_model(**overrides)
-      IR::CostModel.new(**built!.for_cost_model, **overrides)
-    end
-
     # Write the ROM to a file.
     def write(path)
       File.binwrite(path, @buffer)

@@ -42,8 +42,8 @@ module RubyGBA
     # Where the picture lives on a direct-color bitmap screen, and how big it is. Each
     # pixel is one 16-bit color, rows top to bottom, and the display shows exactly this.
     FRAMEBUFFER = Constants::VRAM_START
-    WIDTH = IR::CostModel::SCREEN_W
-    HEIGHT = IR::CostModel::SCREEN_H
+    WIDTH = IR::Screen::WIDTH
+    HEIGHT = IR::Screen::HEIGHT
 
     # WHAT A RUN SAW. +rows+ is how many of the visible rows the display showed before the
     # game had finished them — 0 for a picture that held together. +first+ and +last+ are

@@ -282,37 +282,13 @@ class TestFadeUnderLayer < Minitest::Test
   end
 
   # --- what it costs ---
-
-  # The fade family is otherwise free — it tells the display what to show and redraws
-  # nothing — so the one member that is not gets a line of its own rather than joining
-  # the sprite tally beside it.
-  def test_explain_names_what_keeping_the_hud_costs
-    out = StringIO.new
-    RubyGBA::IR::CostModel.new.render(game(100, under: :ui).program, out: out, color: :never)
-
-    assert_match(/keeping 5 sprites out of the fade under :ui/, out.string)
-  end
-
-  def test_a_fade_that_keeps_every_sprite_costs_nothing_extra
-    out = StringIO.new
-    RubyGBA::IR::CostModel.new.render(game(100, under: :actors).program, out: out, color: :never)
-
-    refute_match(/keeping/, out.string, "no sprite needs holding out of it one at a time")
-  end
-
-  # ...and it is charged at a weight of its OWN, measured on the emulator beside the sprite
-  # write it used to borrow. A window is not a second sprite: where it stands, which pose it
-  # holds and how big it is are the sprite's own numbers, copied into its slot on the way
-  # past. Charged as a whole sprite each — which the model did until it was measured — a
-  # kept HUD reads a quarter too dear, in a report where every number beside it is measured.
-  def test_a_kept_sprite_is_charged_less_than_a_whole_sprite_write
-    weights = RubyGBA::IR::CostModel::DEFAULT_WEIGHTS
-    verdict = RubyGBA::IR::CostModel.new.kept_sprites_verdict(game(100, under: :ui).program)
-
-    assert_in_delta verdict.sprites * weights[:obj_window_write], verdict.cost, 1e-9
-    assert_operator weights[:obj_window_write], :<, weights[:obj_write],
-                    "a window rides its sprite's numbers, so it cannot cost a whole sprite write"
-  end
+  #
+  # A fade placed in the stack is the one member of the fade family that is not free: where
+  # the line falls between the sprites, each kept sprite needs a second, invisible sprite
+  # written over it every frame. That used to be asserted against an estimate of what those
+  # writes would take. It is a real cost and `rom.profile` measures it, but what makes it
+  # TRUE is the emitted code, and the tests above already pin that: the windows are in the
+  # tree, and every pixel agrees with the console.
 
   # --- the whole screen, both backends ---
 

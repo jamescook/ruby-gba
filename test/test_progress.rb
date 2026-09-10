@@ -119,10 +119,10 @@ class TestProgress < Minitest::Test
     out = a_terminal
     progress = Progress::Printed.new(out, clock: FakeClock.new)
     progress.step("the guardrails")
-    progress.of(27, 27, "DrawBudget")
+    progress.of(27, 27, "IwramBudget")
     progress.done
 
-    assert_match(/the guardrails.*27 of 27\s+DrawBudget/, out.string)
+    assert_match(/the guardrails.*27 of 27\s+IwramBudget/, out.string)
   end
 
   # --- A PHASE THAT REPORTS TENS OF THOUSANDS OF TIMES -----------------------------------------
@@ -358,7 +358,7 @@ class TestProgress < Minitest::Test
     out = StringIO.new
     progress = Progress.to(out)
     progress.step("the guardrails")
-    checks = [RubyGBA::IR::Guardrails::Checks::DrawBudget.new(RubyGBA::IR::CostModel.new),
+    checks = [RubyGBA::IR::Guardrails::Checks::Termination.new,
               RubyGBA::IR::Guardrails::Checks::IwramBudget.new]
     RubyGBA::IR::Guardrails::Validator.new(checks: checks, progress: progress)
                                       .run(RubyGBA::IR::Build.program, autofix: false)
