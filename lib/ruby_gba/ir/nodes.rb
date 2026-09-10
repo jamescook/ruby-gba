@@ -37,12 +37,27 @@ module RubyGBA
         operands counter: :name, frames: :int
       end
 
+      # A grid of tiles. +map+ is the grid showing when the program starts. +maps+ is every
+      # grid this background can be handed (the first of them being +map+), for a background
+      # declared with several — a room per map, a floor per map — and empty for one declared
+      # with a single map, which can never change. See ShowMap.
       class Background
         include Node
         kind :background
         category :draw
-        operands name: :name, tiles: :list, map: :list, tile_w: :int, tile_h: :int,
+        operands name: :name, tiles: :list, map: :list, maps: :list, tile_w: :int, tile_h: :int,
                  layer: :name, affine: :flag
+      end
+
+      # A background's cells all become one of its other maps — a whole room at once, where
+      # SetTile changes one cell. +which+ counts from 0 through the maps the background was
+      # declared with, and may be worked out as the program runs. The cells become the map
+      # exactly as it was declared, so anything SetTile had changed in them is gone.
+      class ShowMap
+        include Node
+        kind :show_map
+        category :draw
+        operands name: :name, which: :value
       end
 
       # The per-frame write that turns and resizes an affine background as a whole (see

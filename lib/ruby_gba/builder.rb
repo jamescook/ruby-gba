@@ -119,6 +119,8 @@ module RubyGBA
       @bg_affine_vars = {}       # name → [angle var, scale var] for every screen :rotozoom background ever turned/resized
       @affine_backgrounds = {}   # name → [angle var, scale var], the affine counterpart to @scrolled_backgrounds
       @inline_affine_nodes = []  # affine_background nodes recorded at their call site, moved to the frame boundary
+      @swapped_backgrounds = {}  # name → [said var, live var] for every background handed a whole different map
+      @inline_map_nodes = []     # show_map nodes recorded at their call site, dropped once a frame boundary exists
       @per_frame_routines = []   # func names `once_a_frame` declared, called at every frame boundary
       @each_frame_seq = 0        # counts once_a_frame bodies, to name each one's hidden routine
       @scene_gates = {}        # scene func name → [state_var, value] it's dispatched on (from case_var), for gating its presentation
@@ -414,6 +416,7 @@ module RubyGBA
 
       finalize_present_lists
       finalize_background_scrolls
+      finalize_background_maps
       finalize_background_affine
       finalize_layer_blend
       finalize_per_frame_routines
@@ -442,6 +445,15 @@ module RubyGBA
     def scroll_each_frame(name, x_var, y_var, node)
       @scrolled_backgrounds[name] = [x_var, y_var]
       @inline_scroll_nodes << node
+    end
+
+    # Remember that +name+ can be handed a whole different map, so the copy is made once a
+    # frame in the gap between frames rather than wherever the game happened to say which
+    # map it wants. +shown_var+ is what the game said; +live_var+ is what is really in the
+    # background's cells. A {Background} calls this from `show_map`.
+    def swap_maps_each_frame(name, shown_var, live_var, node)
+      @swapped_backgrounds[name] = [shown_var, live_var]
+      @inline_map_nodes << node
     end
 
     # The affine counterpart to {#scroll_each_frame}: remember that +name+ turns or
@@ -752,6 +764,41 @@ module RubyGBA
 
         @scrolled_backgrounds.reverse_each do |name, (x_var, y_var)|
           node = Build.scroll_background(name, x: Build.var_ref(x_var), y: Build.var_ref(y_var))
+          container.children.insert(at + 1, node)
+          node.parent = container
+        end
+      end
+    end
+
+    # COPY A WHOLE MAP INTO A BACKGROUND'S CELLS, in the gap between frames, and only on a
+    # frame where the answer changed.
+    #
+    # A cell of a map is one half-word, so `set_tile` can write it wherever the game
+    # happens to be: nothing can read a half-word half-written, and the worst that happens
+    # is one 8-pixel cell split across a single frame. A whole map is thousands of cells,
+    # and there the same write really would show half of the old room and half of the new.
+    # So the copy waits for the gap, which is the one moment the display is not reading.
+    #
+    # WHY TWO VARIABLES rather than a copy where `show_map` was called. `show_map` says
+    # which map is showing — a statement about the world, the same shape as a scroll
+    # position — so a game may say it every frame, from inside a branch, from a scene. What
+    # the console must not do is copy thousands of cells every frame. Holding what the game
+    # SAID apart from what is really IN the cells turns that into one comparison: they
+    # differ exactly on the frame the answer changed, which is the frame to copy on.
+    def finalize_background_maps
+      return if @swapped_backgrounds.empty? || @frame_boundaries.empty?
+
+      @inline_map_nodes.each { |node| node.parent&.children&.delete(node) }
+
+      @frame_boundaries.each do |wait_node|
+        container = wait_node.parent
+        at = container&.children&.index(wait_node)
+        next unless at
+
+        @swapped_backgrounds.reverse_each do |name, (shown_var, live_var)|
+          node = Build.if_(Build.binop(:!=, Build.var_ref(shown_var), Build.var_ref(live_var)),
+                           Build.show_map(name, which: Build.var_ref(shown_var)),
+                           Build.set(live_var, Build.var_ref(shown_var)))
           container.children.insert(at + 1, node)
           node.parent = container
         end

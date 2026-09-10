@@ -521,9 +521,20 @@ module RubyGBA
       # This says *what* the background is, not how a machine draws it: one backend
       # stamps the tiles pixel by pixel, another can hand the grid to tile hardware,
       # but the picture is the same.
-      def background(name, tiles:, map:, tile_w:, tile_h:, layer: nil, affine: false)
-        Nodes.build(:background, name: name, tiles: tiles, map: map,
+      # +maps+ is every grid this background can be handed, the first being +map+ (the one
+      # showing when the program starts). Left empty for a background declared with one map,
+      # whose cells only ever change one at a time (see #set_tile).
+      def background(name, tiles:, map:, tile_w:, tile_h:, maps: [], layer: nil, affine: false)
+        Nodes.build(:background, name: name, tiles: tiles, map: map, maps: maps,
                                  tile_w: tile_w, tile_h: tile_h, affine: affine, **in_layer(layer))
+      end
+
+      # The named background's cells all become the map numbered +which+ — a whole room
+      # handed over at once, where set_tile changes one cell. +which+ counts from 0 through
+      # the maps the background was declared with and is a value operand, so a game can work
+      # out which room it has walked into. The cells become that map exactly as declared.
+      def show_map(name, which:)
+        Nodes.build(:show_map, name: name, which: wrap(which))
       end
 
       # Turn and resize the named background as a whole, this frame — the affine

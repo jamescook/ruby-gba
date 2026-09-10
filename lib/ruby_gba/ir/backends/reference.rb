@@ -325,11 +325,12 @@ module RubyGBA
               # tree at all (even a branch never taken) is enough to know the scene needs
               # full repaints, the same over-approximation scroll_background makes.
               @repaints = true
-            when :set_tile
+            when :set_tile, :show_map
               # A background whose cells can change is a background that can look
               # different next frame, so the settled-scene shortcut no longer holds and
               # the picture is rebuilt from the map each frame — the same
-              # over-approximation, for the same reason.
+              # over-approximation, for the same reason. A whole map handed over at once
+              # is the same story on a larger scale.
               @repaints = true
             end
           end
@@ -569,6 +570,8 @@ module RubyGBA
             exec_present_objects(node)
           when :set_tile
             exec_set_tile(node)
+          when :show_map
+            exec_show_map(node)
           when :enable_sound
             @audio << [:enabled]
           when :define_sound, :song, :sample, :data, :bitmap, :backing_buffer, :object, :table
@@ -892,6 +895,20 @@ module RubyGBA
           # the map as it goes — so a changed cell has to be painted again for anything
           # to see it. Repainting the lot is the same over-approximation a scroll makes,
           # and this is an oracle: being obviously right matters more than being quick.
+          composite_scrolled_frame
+        end
+
+        # HAND A BACKGROUND A WHOLE DIFFERENT MAP. Its cells become that map exactly as it
+        # was declared — so a cell this run had changed with set_tile is back to how it was
+        # drawn, which is what the console does too (the whole map is copied in over
+        # whatever was there). A number naming no map leaves the cells alone, the same
+        # policy set_tile takes for a cell off the edge.
+        def exec_show_map(node)
+          maps = @bg_by_name.fetch(node.name).maps
+          which = eval_value(node.which)
+          return unless maps && which >= 0 && which < maps.length
+
+          @bg_maps[node.name] = maps[which].map(&:dup)
           composite_scrolled_frame
         end
 

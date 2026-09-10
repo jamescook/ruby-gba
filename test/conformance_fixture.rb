@@ -176,7 +176,13 @@ module ConformanceFixture
       B.blit_pose([:sprite, :pose_b], B.var_ref(:x), :x, :y), # one pose of a same-size set, by index
       B.background(:grid, tiles: [:tile_a, :tile_b],          # a tiled grid; nil = an empty cell
                           map: [[0, 1], [1, nil]], tile_w: 2, tile_h: 2,
+                          # ...and a second grid it can be handed whole, the way a game with
+                          # a lot of rooms walks into one
+                          maps: [[[0, 1], [1, nil]], [[1, 0], [nil, 0]]],
                           layer: :scenery),                   # ...at the back of the stack
+      # Hand it that other map, at a number worked out from a variable — a backend that
+      # copied the wrong map, or none, draws a different picture.
+      B.show_map(:grid, which: B.var_ref(:x)),
       B.scroll_background(:grid, x: B.var_ref(:x), y: B.var_ref(:y)), # move the window over it
       # ...and change one of its cells while the program runs, at a place worked out from
       # a variable — a door opening. A backend that wrote the wrong cell, or none, draws a

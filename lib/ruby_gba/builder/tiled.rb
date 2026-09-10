@@ -135,28 +135,46 @@ module RubyGBA
       #
       #     background :level, tiles: :world, from: "level.csv"
       #
+      # SEVERAL MAPS, one showing at a time: give `map:` (or `from:`) a HASH of them,
+      # name => map, and the background can be handed a whole different one while the
+      # game runs — a room per map, a floor per map, a level that reshapes.
+      #
+      #     rooms = background :rooms, tiles: :dungeon, map: { hall: HALL, cave: CAVE }
+      #     rooms.show_map :cave       # ...and the whole room is the cave now
+      #
+      # The first is the one showing when the program starts, and they must all be the
+      # same size, because they share one grid. See {Background#show_map}.
+      #
       # Returns a {Background} handle you can scroll (`world.scroll_by dx, dy`).
       #
       # @param name [Symbol] the background's name
       # @param tiles [Symbol] a tileset defined with {#tiles}
-      # @param map [String, Array<String>, nil] the grid of tile characters
-      # @param from [String, nil] path to a CSV tilemap (a grid of tile numbers)
-      # @return [Background] a handle: scroll_by / scroll_to
+      # @param map [String, Array<String>, Hash, nil] the grid of tile characters, or a
+      #   Hash of name => grid for a background with several maps
+      # @param from [String, Hash, nil] path to a CSV tilemap (a grid of tile numbers), or
+      #   a Hash of name => path for a background with several maps
+      # @return [Background] a handle: scroll_by / scroll_to / show_map
       def background(name, tiles:, map: nil, from: nil)
         set = @tilesets[tiles] || raise(ArgumentError,
                                         "background :#{name}: there is no tileset named :#{tiles}. " \
                                         "Define one first with `tiles :#{tiles}, ...`.")
 
-        img_rows, tile_names = background_image_grid(name, tiles, set, map: map, from: from)
+        map_names, drawn = background_maps(name, tiles, set, map: map, from: from)
+        # The tile list comes from the TILESET rather than from the map, so every one of a
+        # background's maps has the same one — which is what lets them share a numbering and
+        # take turns in one grid.
+        img_rows, tile_names = drawn.first
 
-        # Number the distinct tiles, then turn the grid of tile images into a grid of
+        # Number the distinct tiles, then turn each grid of tile images into a grid of
         # those numbers — nil where a cell is blank. The grid, not a pile of draw calls,
         # is what the background node carries, so a backend is free to stamp it pixel by
         # pixel or hand it to tile hardware.
         index_of = tile_names.each_with_index.to_h
-        grid = img_rows.map { |row| row.map { |img| img && index_of[img] } }
+        grids = drawn.map { |rows, _| rows.map { |row| row.map { |img| img && index_of[img] } } }
+        check_maps_are_one_size!(name, map_names, grids)
 
-        record(Build.background(name, tiles: tile_names, map: grid,
+        record(Build.background(name, tiles: tile_names, map: grids.first,
+                                      maps: map_names.size > 1 ? grids : [],
                                       tile_w: set[:tile_w], tile_h: set[:tile_h],
                                       affine: @screen_mode == :rotozoom))
 
@@ -165,12 +183,18 @@ module RubyGBA
         # scrolls simply leaves them at 0.
         scroll_x = :"__bg_#{name}_sx"
         scroll_y = :"__bg_#{name}_sy"
-        [scroll_x, scroll_y].each { |var| at_boot(Build.set(var, Build.int(0))); ensure_var(var) }
+        boot = [scroll_x, scroll_y]
+        # ...and, for a background with several maps, which one the game says is showing and
+        # which one is really in its cells. Both start at 0 — the first map, the one the
+        # build already stamped — so nothing is copied until the game asks for another.
+        boot += [:"__bg_#{name}_map", :"__bg_#{name}_live"] if map_names.size > 1
+        boot.each { |var| at_boot(Build.set(var, Build.int(0))); ensure_var(var) }
         Background.new(self, name: name, scroll_x: scroll_x, scroll_y: scroll_y,
                              walls: wall_rects(img_rows, set), affine: @screen_mode == :rotozoom,
-                             cells: [grid.map(&:length).max || 0, grid.length],
+                             cells: [grids.first.map(&:length).max || 0, grids.first.length],
                              tile_index: tile_lookup(set, index_of),
-                             bitmap: @screen_mode == :bitmap)
+                             bitmap: @screen_mode == :bitmap,
+                             map_names: map_names)
       end
 
       # Make a background able to turn and resize as a whole (see {Background#rotate} /
@@ -289,6 +313,43 @@ module RubyGBA
 
         @tilesets[name] = { chars: {}, by_number: by_number, tile_w: tile_w, tile_h: tile_h,
                             solid_images: solid_numbers.map { |n| by_number[n] }.uniq }
+      end
+
+      # EVERY MAP THIS BACKGROUND CAN SHOW, as [names, drawn] — the names in the order they
+      # were declared, and one [grid of tile-image names, tile list] per map.
+      #
+      # A background usually has one map and its name is the background's own. Give `map:`
+      # or `from:` a HASH instead and it has several, one showing at a time: name => map,
+      # in the order written, the first being the one showing at boot.
+      def background_maps(name, tiles, set, map:, from:)
+        chars = map.is_a?(Hash)
+        several = chars ? map : from
+        return [[name], [background_image_grid(name, tiles, set, map: map, from: from)]] unless several.is_a?(Hash)
+
+        raise ArgumentError, "background :#{name}: give it a map: or a from:, not both" if map && from
+        raise ArgumentError, "background :#{name} was given no maps at all" if several.empty?
+
+        drawn = several.map do |_, one|
+          background_image_grid(name, tiles, set, map: chars ? one : nil, from: chars ? nil : one)
+        end
+        [several.keys, drawn]
+      end
+
+      # ALL OF A BACKGROUND'S MAPS ARE THE SAME SIZE, and that is a rule rather than a
+      # convenience: they take turns in one grid of cells, so the grid is picked once and
+      # every one of them has to fill it. A map of another size would leave the cells it
+      # does not reach holding the last map's tiles.
+      def check_maps_are_one_size!(name, map_names, grids)
+        sizes = grids.map { |grid| [grid.map(&:length).max || 0, grid.length] }
+        return if sizes.uniq.size <= 1
+
+        first = sizes.first
+        odd = sizes.each_index.find { |i| sizes[i] != first }
+        raise ArgumentError,
+              "background :#{name}: all of its maps must be the same size, because they take turns " \
+              "in one grid of cells. Map #{map_names.first.inspect} is #{first[0]}x#{first[1]} cells " \
+              "and map #{map_names[odd].inspect} is #{sizes[odd][0]}x#{sizes[odd][1]}. " \
+              "Pad the smaller one out to the same size."
       end
 
       # The background's cells as a grid of tile-image names (nil = blank), plus the

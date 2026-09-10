@@ -826,9 +826,9 @@ module RubyGBA
             # One unsigned compare catches both ends: a negative coordinate reads as a
             # very large number, so anything outside 0...size fails the same test.
             emit(ASM.cmp_imm(TILE_COL, cell[:cols]))
-            emit_branch(:b, done, cond: ASM::COND_HS)
+            emit_branch(:bcond, done, cond: :hs)
             emit(ASM.cmp_imm(TILE_ROW, cell[:rows]))
-            emit_branch(:b, done, cond: ASM::COND_HS)
+            emit_branch(:bcond, done, cond: :hs)
 
             emit_cell_index(cell)
             emit(ASM.load_immediate(TMP, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES)))
@@ -862,6 +862,87 @@ module RubyGBA
             emit(ASM.lsl_imm(TMP, TMP, 10))
             emit(ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
           end
+
+          # HAND A BACKGROUND A WHOLE DIFFERENT MAP.
+          #
+          # A background's maps all live in the cartridge, laid end to end and all the same
+          # size, so the map numbered N starts N strides along from the first. Copying one
+          # into the layer's cells is then a single DMA — the same copy the boot upload
+          # already does, at an address worked out rather than known.
+          #
+          # WHY THIS CAN BE ARITHMETIC RATHER THAN A TEST PER MAP, which is what makes a
+          # game with hundreds of rooms affordable: the stride is settled while the program
+          # is built, so a room number becomes an address in two instructions however many
+          # rooms there are. A chain of comparisons would grow with the game.
+          #
+          # The stride is a power of two for a regular layer (a grid is 32 or 64 cells a
+          # side, two bytes a cell) so the multiply is a shift; a rotate/scale layer's byte
+          # map is a power of two too. Anything else multiplies, which is still one
+          # instruction on this chip.
+          #
+          # WHEN it happens is decided above this: the framework puts the copy in the gap
+          # between frames, on the frame the answer changed and no other (see
+          # Builder#finalize_background_maps). Thousands of cells cannot go in while the
+          # display is reading them, or the screen shows half of each map.
+          # A map number naming no map leaves the cells as they are — the same policy
+          # set_tile takes for a cell off the edge of the map, and for the same reason: a
+          # number the game worked out can be anything, and a game should not need a test
+          # around it to stay safe.
+          def emit_show_map(node)
+            bg = @layout.backgrounds[node.name]
+            return if bg.nil? || bg.map_count < 2 # no tiled layer, or nothing else to show
+
+            done = gensym
+            emit_map_source(bg, node.which, done)
+            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            emit(ASM.str(ACC, TMP)) # DMA source = that map in the cartridge
+            store_word_immediate(map_vram_address(bg), REG_DMA3DAD)
+            store_word_immediate(bg.map_units | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
+            place_label(done)
+          end
+
+          # ACC = where the map numbered +which+ starts, or a jump to +done+ if it names no
+          # map. A number settled while the program was written is worked out here, in Ruby;
+          # one the game works out is checked and multiplied by the stride at run time.
+          def emit_map_source(bg, which, done)
+            fixed = const_int(which)
+            return emit_fixed_map_source(bg, fixed, done) if fixed
+
+            @lowering.value(which)
+            # One unsigned compare catches both ends: a negative number reads as a very
+            # large one, so anything outside 0...count fails the same test.
+            emit(ASM.cmp_imm(ACC, bg.map_count))
+            emit_branch(:bcond, done, cond: :hs)
+            emit_map_stride(bg)
+            emit_load_data_address(ACC, bg.map)
+            emit(ASM.add_reg(ACC, ACC, TMP))
+          end
+
+          def emit_fixed_map_source(bg, fixed, done)
+            return emit_branch(:b, done) unless fixed >= 0 && fixed < bg.map_count
+
+            emit_load_data_address(ACC, bg.map)
+            return if fixed.zero?
+
+            emit(ASM.load_immediate(TMP, fixed * bg.map_bytes))
+            emit(ASM.add_reg(ACC, ACC, TMP))
+          end
+
+          # TMP = how far along the blob this map starts. The stride is a power of two for
+          # every grid the console offers, so this is a shift; the multiply is here for a
+          # stride that is not, and costs one instruction either way on this chip.
+          def emit_map_stride(bg)
+            shift = Math.log2(bg.map_bytes).to_i
+            if 2**shift == bg.map_bytes
+              emit(ASM.lsl_imm(TMP, ACC, shift))
+            else
+              emit(ASM.load_immediate(TMP, bg.map_bytes))
+              emit(ASM.mul(TMP, ACC, TMP))
+            end
+          end
+
+          # Where a background's cells live: its own screen block in video memory.
+          def map_vram_address(bg) = VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES)
 
           # Bit 13: the map WRAPS at its edge instead of showing the backdrop past it — the
           # same torus every `screen :tiled` background already is.
