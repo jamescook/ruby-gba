@@ -1150,7 +1150,36 @@ mgba_core_cpu_halted_p(VALUE self)
  * Both numbers are meaningful only for a per-frame workload that FITS in a
  * frame. A ROM that cannot finish its work in one frame has no single per-frame
  * cost — the numbers cap out near a full frame and wobble as work bleeds across
- * frames. That is the honest answer for an over-budget game. */
+ * frames. That is the honest answer for an over-budget game.
+ *
+ * TWO KNOWN LIMITS ON `busy`, measured rather than reasoned about, because both
+ * are easy to rediscover and neither is worth a heuristic to paper over.
+ *
+ * IT UNDERCOUNTS BY A LITTLE. mGBA drains due events before an instruction and
+ * ZEROES cpu->cycles when it does, so on such a step the delta below is negative
+ * and the guard throws that one instruction's cycles away. What went before it
+ * was already counted and the next step starts from zero again, so the loss is
+ * one instruction per drained step and no more. Measured over a frame: 14
+ * dropped steps of 3713 on a loop of arithmetic (0.4 per cent), 276 of 26601 on
+ * a screenful of small fills (1.0 per cent), 171 of 2691 on a full-screen DMA
+ * fill (6.4 per cent of a busy figure that is tiny to begin with). So the loss
+ * is largest where the CPU is doing LEAST — a frame of events and few
+ * instructions — which is the opposite of the shape to worry about. Recovering
+ * it exactly is not possible from outside: the drained total is folded into
+ * global time along with whatever the events themselves did, and on a DMA step
+ * that is the transfer, so adding it back would fold the stall into `busy` and
+ * destroy the very split these two numbers are for.
+ *
+ * AND IT CAN EXCEED `active`, which cannot be true of the real machine: 5899
+ * against 5142 on that same loop of arithmetic. The two are counted off
+ * different clocks — `busy` off the CPU's own accumulator, `active` off global
+ * time with the last halt clamped to the frame edge — so they disagree at the
+ * edges. Callers that need one number take the larger of the two rather than
+ * trusting either alone, and dma_cycles clamps the difference at zero.
+ *
+ * WHAT NONE OF THIS AFFECTS: RubyGBA's profiler, which counts instructions by
+ * sampling the program counter and reads its sleep off global time. Nothing
+ * that decides anything goes through here. */
 static void
 measure_frame_split(struct mgba_core *mc, int64_t *out_busy, int64_t *out_active)
 {
