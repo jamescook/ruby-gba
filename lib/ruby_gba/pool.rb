@@ -115,6 +115,27 @@ module RubyGBA
       Build.binop(:+, Build.binop(:*, facing, Build.int(@art.per_dir)), frame)
     end
 
+    # STOP EVERY INSTANCE OF THIS POOL FROM MOVING THROUGH +background+'s SOLID TILES —
+    # the same verb a `sprite` takes, said once for the whole pool.
+    #
+    # It belongs to the pool rather than to an instance because an instance handle lives
+    # only for the `each` iteration that yielded it, where the background is the same one
+    # every time round. After this, an instance's `move` is checked and `can_move?` answers
+    # — which is the whole point of the pool being able to have it at all: a game with many
+    # movers is exactly the case that wants tile collision and exactly the case that used
+    # to be unable to afford it.
+    def blocked_by(background)
+      @solid_cells = background.solid_lookup
+      self
+    end
+
+    # The background's grid of solid cells, or nil if this pool was never blocked by one.
+    attr_reader :solid_cells
+
+    # The builder this pool was declared on — an instance reaches it to place the shared
+    # tile-collision routine's call.
+    attr_reader :builder
+
     # Which row of the pictures a direction name means, for Instance#face.
     def facing_row(direction) = @art&.dirs&.[](direction)
     def facing_names = @art&.dirs&.keys || []
@@ -338,6 +359,40 @@ module RubyGBA
       def right = field(:x) + hit(0) + hit(2)
       def bottom = field(:y) + hit(1) + hit(3)
 
+      # Move this instance, stopping at the scenery's solid tiles if the pool was told
+      # `blocked_by` — the per-instance counterpart to {HardwareSprite#move}, spelled the
+      # same way. Each axis is checked on its own, so an instance slides along a wall it is
+      # pressed against instead of sticking to it.
+      #
+      #   guards.each { |g| g.move :left, by: 1 }
+      #
+      # A pool with `facing:` pictures turns the instance to face the way it moved, so one
+      # line leaves ten guards leaning ten ways.
+      def move(direction_or_dx, dy = nil, by: 1)
+        if direction_or_dx.is_a?(Symbol)
+          step_x, step_y = Direction.unit(direction_or_dx)
+          step(:x, step_x * by) unless step_x.zero?
+          step(:y, step_y * by) unless step_y.zero?
+          face(direction_or_dx) if @pool.facing_row(direction_or_dx)
+        else
+          step(:x, direction_or_dx) if direction_or_dx != 0
+          step(:y, dy) if dy && dy != 0
+        end
+        self
+      end
+
+      # Whether this instance could step +by+ pixels in +direction+ without meeting a solid
+      # tile — a {Condition} to branch on, for taking it into your own hands. Needs the pool
+      # to have been told `blocked_by`.
+      def can_move?(direction, by: 1)
+        cells = @pool.solid_cells or raise ArgumentError,
+                                          "pool :#{@pool.name} was not told `blocked_by` a background, so an " \
+                                          "instance has no solid tiles to test against."
+
+        step_x, step_y = Direction.unit(direction)
+        clear_of_tiles(cells, field(:x) + (step_x * by), field(:y) + (step_y * by))
+      end
+
       # Keep this instance fully on the screen, using the sprite's own size — the
       # per-instance counterpart to {Sprite#clamp_to_screen}. Clamps its x/y in place.
       def clamp_to_screen
@@ -348,6 +403,31 @@ module RubyGBA
       end
 
       private
+
+      # Move one axis: a plain nudge when nothing blocks this pool, else only if the
+      # instance's box at the destination is clear of the scenery's solid tiles.
+      def step(axis, delta)
+        var = field(axis)
+        cells = @pool.solid_cells
+        return var.add(delta) if cells.nil?
+
+        target_x = axis == :x ? field(:x) + delta : field(:x)
+        target_y = axis == :y ? field(:y) + delta : field(:y)
+        clear_of_tiles(cells, target_x, target_y).then { var.add(delta) }
+      end
+
+      # The same shared routine a `sprite` calls — see Builder::Collision. A pool of
+      # thirty-two instances and a hand-declared sprite of the same size consult one copy
+      # of it between them.
+      def clear_of_tiles(cells, target_x, target_y)
+        hit_x, hit_y, hit_w, hit_h = require_box!
+        builder = @pool.builder
+        routine = builder.tile_collision_routine(cells, hit_x, hit_y, hit_w, hit_h)
+        builder.set(routine[:x], Value.node_for(target_x))
+        builder.set(routine[:y], Value.node_for(target_y))
+        builder.call(routine[:name])
+        Value.new(builder, IR::Build.var_ref(routine[:clear]), name: routine[:clear]) == 1
+      end
 
       def field(name) = @pool.field_ref(name, @index)
 

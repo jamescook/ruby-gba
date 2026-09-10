@@ -21,6 +21,87 @@ module RubyGBA
       def box(x, y, w, h)
         Box.new(self, x, y, w, h)
       end
+
+      # TILE COLLISION: the routine that asks a background's grid whether a box is clear of
+      # its solid tiles, built once for each background-and-box-size that needs one. An
+      # internal hook a {HardwareSprite} calls when it is `blocked_by` a background — never
+      # written by an author, who says `blocked_by` and nothing else.
+      #
+      # This is tile collision and nothing else. Two things collide in this framework and
+      # they share no machinery: a mover against the scenery's solid tiles, which is this,
+      # and one thing against another (`overlaps?`, a {Box}, a sprite's own pixels), which
+      # is {Bounds}. They used to meet here — the scenery's solid cells were turned into
+      # Boxes so the general overlap test could be pointed at them — and that is what made
+      # this cost what the room was made of.
+      #
+      # It is a routine rather than code at each place that moves, and that is the whole
+      # point of it. A mover moves on two axes, so eight movers wrote this out sixteen
+      # times; emitted once, eight movers cost eight calls.
+      #
+      # WHICH CELLS IT LOOKS AT. A box covers a bounded number of cells whatever the room
+      # is made of — a 16x16 box on 8x8 tiles touches at most three columns and three rows
+      # — so the samples are its own edges plus every tile boundary in between, worked out
+      # here while the program is built. That is why the cost does not grow with the room:
+      # a bordered room and a maze of pillars are the same nine reads.
+      #
+      # Returns the names the caller needs: where to put the position it is asking about,
+      # what to call, and where the answer lands.
+      def tile_collision_routine(cells, hit_x, hit_y, hit_w, hit_h)
+        @tile_collisions ||= {}
+        key = [cells.name, hit_x, hit_y, hit_w, hit_h]
+        @tile_collisions[key] ||=
+          build_tile_collision(cells, hit_x, hit_y, hit_w, hit_h, @tile_collisions.size)
+      end
+
+      private
+
+      # The shared scratch a tile-collision check reads its question from and writes its
+      # answer to. One set for the whole program: a check runs to its end before anything
+      # else asks, so nothing can be part-way through another question.
+      TILE_COLLISION_X = :__tile_collision_x
+      TILE_COLLISION_Y = :__tile_collision_y
+      TILE_COLLISION_CLEAR = :__tile_collision_clear
+
+      def build_tile_collision(cells, hit_x, hit_y, hit_w, hit_h, index)
+        name = :"__tile_collision_#{index}"
+        [TILE_COLLISION_X, TILE_COLLISION_Y, TILE_COLLISION_CLEAR].each { |v| ensure_var(v) }
+
+        across = tile_collision_offsets(hit_w, cells.tile_w)
+        down = tile_collision_offsets(hit_h, cells.tile_h)
+        width = cells.cols * cells.tile_w
+        height = cells.rows * cells.tile_h
+
+        func(name) do
+          clear = Value.new(self, IR::Build.var_ref(TILE_COLLISION_CLEAR), name: TILE_COLLISION_CLEAR)
+          left = Value.new(self, IR::Build.var_ref(TILE_COLLISION_X), name: TILE_COLLISION_X) + hit_x
+          top = Value.new(self, IR::Build.var_ref(TILE_COLLISION_Y), name: TILE_COLLISION_Y) + hit_y
+          clear.set 1
+          down.each do |dy|
+            py = top + dy
+            across.each do |dx|
+              px = left + dx
+              # Outside the map is not solid, so a mover may walk off the edge exactly as it
+              # could when the scenery's solid cells were rectangles. Held on the PIXEL
+              # rather than the cell, because dividing truncates toward zero and would fold
+              # a pixel just left of the map onto column 0.
+              inside = (px >= 0) & (px < width) & (py >= 0) & (py < height)
+              solid = cells.table[((py / cells.tile_h) * cells.cols) + (px / cells.tile_w)]
+              (inside & (solid == 1)).then { clear.set 0 }
+            end
+          end
+        end
+
+        { name: name, x: TILE_COLLISION_X, y: TILE_COLLISION_Y, clear: TILE_COLLISION_CLEAR }
+      end
+
+      # Where along a box to ask, for a box +size+ pixels across on +tile+-pixel cells:
+      # its leading edge, every tile boundary it spans, and its far edge. Two samples for
+      # a box exactly one tile across, because it can still straddle two cells.
+      def tile_collision_offsets(size, tile)
+        offsets = (0...size).step(tile).to_a
+        offsets << size - 1 unless offsets.last == size - 1
+        offsets
+      end
     end
   end
 end

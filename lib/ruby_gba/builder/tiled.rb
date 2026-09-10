@@ -194,7 +194,9 @@ module RubyGBA
                              cells: [grids.first.map(&:length).max || 0, grids.first.length],
                              tile_index: tile_lookup(set, index_of),
                              bitmap: @screen_mode == :bitmap,
-                             map_names: map_names)
+                             map_names: map_names,
+                             solid_cells: solid_cell_grid(img_rows, set),
+                             tile_size: [set[:tile_w], set[:tile_h]])
       end
 
       # Make a background able to turn and resize as a whole (see {Background#rotate} /
@@ -446,13 +448,29 @@ module RubyGBA
       # — so the per-frame overlap tests stay cheap. +img_rows+ is the grid of tile-image
       # names (nil = blank cell) the background was built from.
       def wall_rects(img_rows, set)
-        solid = set[:solid_images]
-        return [] if solid.empty?
+        grid = solid_cell_grid(img_rows, set)
+        return [] if grid.nil?
 
-        grid = img_rows.map { |row| row.map { |img| !img.nil? && solid.include?(img) } }
         merge_solid_cells(grid).map do |col, row, w, h|
           [col * set[:tile_w], row * set[:tile_h], w * set[:tile_w], h * set[:tile_h]]
         end
+      end
+
+      # WHICH CELLS ARE WALLS, as the grid it already is rather than as rectangles.
+      #
+      # This is the same answer #wall_rects starts from, kept in its own shape because the
+      # two are wanted for different things. Rectangles are what a person reads and what a
+      # box test wants; the grid is what a MOVER wants, because asking "is the cell I am
+      # stepping into a wall" costs the same whatever the room looks like, where testing
+      # every rectangle costs what the room is made of. See Background#solid_lookup.
+      #
+      # nil, not [], when the tileset marks nothing solid — there is no grid to consult and
+      # a mover blocked by this background is not blocked by anything.
+      def solid_cell_grid(img_rows, set)
+        solid = set[:solid_images]
+        return nil if solid.empty?
+
+        img_rows.map { |row| row.map { |img| !img.nil? && solid.include?(img) } }
       end
 
       # Greedily cover the solid cells with rectangles: from each unclaimed solid cell,
