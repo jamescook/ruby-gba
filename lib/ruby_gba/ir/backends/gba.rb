@@ -189,8 +189,13 @@ module RubyGBA
         # +char_base+ is which of the four 16K places this layer counts its tile numbers
         # from, so two layers can each name a full run of tiles out of different parts of
         # the same memory.
+        # +map_count+ is how many maps this background can be handed and +map_bytes+ how far
+        # apart two of them sit in that blob: they are all the same size and laid end to
+        # end, so the map numbered N starts N of these along. A background declared with one
+        # map counts 1 and has nothing to step to.
         BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :size,
-                                          :priority, :affine, :small, :char_base)
+                                          :priority, :affine, :small, :char_base,
+                                          :map_count, :map_bytes)
 
         # Two more scratch registers, live only inside one arithmetic expression and
         # never across a statement. A 64-bit multiply needs both of them, because its
@@ -397,7 +402,7 @@ module RubyGBA
             affine_background: @drawing.method(:emit_affine_background),
             scroll_rows: Lowering::NOTHING, camera: @drawing.method(:emit_camera), fade: @drawing.method(:emit_fade),
             tint: @drawing.method(:emit_tint), see_through: @layer_blend.method(:emit_see_through),
-            set_tile: @drawing.method(:emit_set_tile),
+            set_tile: @drawing.method(:emit_set_tile), show_map: @drawing.method(:emit_show_map),
             present_objects: @drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
             define_sound: Lowering::NOTHING, song: Lowering::NOTHING, data: Lowering::NOTHING,
@@ -1482,10 +1487,13 @@ module RubyGBA
           end
           @map_cells[name] = { cols: cols, rows: rows }
           @map_entries[name] = cell_for
-          entries = map_entries(node, cols, rows, blank) { |index| cell_for.fetch(index) }
+          entries = map_entries(node.map, cols, rows, blank) { |index| cell_for.fetch(index) }
 
+          grids = every_map(node)
           map_blob = :"__bg_map_#{name}"
-          @emit.data_blobs[map_blob] = entries.pack("v*")
+          @emit.data_blobs[map_blob] =
+            grids.map { |map| map_entries(map, cols, rows, blank) { |i| cell_for.fetch(i) }.pack("v*") }.join
+          plain_blob!(map_blob) if grids.size > 1
           @backgrounds[name] = BackgroundPlacement.new(
             map: map_blob, map_units: entries.size,
             bg: layer,                           # hardware layer (BG0..BG3), in stack order
@@ -1494,9 +1502,21 @@ module RubyGBA
             priority: hardware_priority(name),
             affine: false,
             small: small,
-            char_base: base / CHAR_BLOCK_BYTES
+            char_base: base / CHAR_BLOCK_BYTES,
+            map_count: grids.size, map_bytes: entries.size * 2
           )
         end
+
+        # Every grid a background can be handed, the one it was declared showing first. A
+        # background declared with a single map has just that one.
+        def every_map(node) = node.maps&.any? ? node.maps : [node.map]
+
+        # KEEP A BLOB OUT OF THE PACKER. A background's maps are laid end to end so the map
+        # numbered N can be found by counting N strides along from the first — arithmetic
+        # the game does as it runs, and which packing the lot into one compressed stream
+        # would destroy. Registering the codec here is what stops the first upload packing
+        # it (see Drawing#pack_blob, which asks this table before doing anything).
+        def plain_blob!(name) = @blob_codecs[name] = :none
 
         # How many cells one screen block holds: a block is 2K and a regular map's cell is
         # a halfword, so 32x32 of them is exactly one.
@@ -1518,9 +1538,9 @@ module RubyGBA
         # That is why this cannot simply walk the authored rows: a cell's place in the
         # blob depends on which quarter of the map it is in. The blocks are consecutive in
         # memory (TileVram hands out a run), so the whole thing still uploads as one copy.
-        def map_entries(node, cols, rows, blank = 0)
+        def map_entries(map, cols, rows, blank = 0)
           entries = Array.new(cols * rows, blank)
-          node.map.each_with_index do |row, r|
+          map.each_with_index do |row, r|
             next if r >= rows
 
             row.each_with_index do |index, c|
@@ -1723,19 +1743,12 @@ module RubyGBA
           # of the whole grid — not as squares of 32x32 the way a regular layer's is. So a
           # bigger one of these needs no re-arranging, only more room.
           cols, rows = IR::TileMap.grid(node.map)
-          entries = Array.new(cols * rows, blank)
-          node.map.each_with_index do |row, r|
-            next if r >= rows
-
-            row.each_with_index do |index, c|
-              next if c >= cols || index.nil?
-
-              entries[(r * cols) + c] = numbers.fetch(index)
-            end
-          end
+          grids = every_map(node).map { |map| affine_map_entries(map, cols, rows, blank, numbers) }
+          entries = grids.first
 
           map_blob = :"__bg_map_#{name}"
-          @emit.data_blobs[map_blob] = entries.pack("C*")
+          @emit.data_blobs[map_blob] = grids.map { |one| one.pack("C*") }.join
+          plain_blob!(map_blob) if grids.size > 1
           blocks = ((entries.size + SCREENBLOCK_BYTES - 1) / SCREENBLOCK_BYTES)
           @backgrounds[name] = BackgroundPlacement.new(
             map: map_blob, map_units: entries.size / 2, # DMA copies halfwords, so a byte map is half as many
@@ -1745,8 +1758,24 @@ module RubyGBA
             priority: hardware_priority(name),
             affine: true,
             small: false,
-            char_base: base / CHAR_BLOCK_BYTES
+            char_base: base / CHAR_BLOCK_BYTES,
+            map_count: grids.size, map_bytes: entries.size
           )
+        end
+
+        # One rotate/scale map's cells, plain rows of the whole grid, one byte each.
+        def affine_map_entries(map, cols, rows, blank, numbers)
+          entries = Array.new(cols * rows, blank)
+          map.each_with_index do |row, r|
+            next if r >= rows
+
+            row.each_with_index do |index, c|
+              next if c >= cols || index.nil?
+
+              entries[(r * cols) + c] = numbers.fetch(index)
+            end
+          end
+          entries
         end
 
         # BG2CNT bits 14-15 on a rotate/scale layer mean a SQUARE grid — 16, 32, 64 or 128

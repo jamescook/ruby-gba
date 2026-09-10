@@ -58,7 +58,7 @@ class TestSetTile < Minitest::Test
 
   # The coordinates may be worked out as the game runs, which is the case a game writes: a
   # loop over the cells a bomb reached, a block being pushed.
-  def test_the_coordinates_may_be_worked_out
+  def worked_out_coordinates_program
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -73,10 +73,21 @@ class TestSetTile < Minitest::Test
       end
     end
     builder.emit_pending_functions
+    builder.program
+  end
 
-    screen = Reference.new.run(builder.program, frames: 6).screen
+  def test_the_coordinates_may_be_worked_out
+    screen = Reference.new.run(worked_out_coordinates_program, frames: 6).screen
     4.times { |c| assert_equal Color.resolve(:blue), pixel_at(c, 2, screen), "cell #{c} opened" }
     assert_equal Color.resolve(:red), pixel_at(4, 2, screen), "and the loop stopped where it said"
+  end
+
+  # The console has to write the same cells. A coordinate the game works out is bounds-checked
+  # on the way in, and the check has to SKIP the write only when the cell really is off the
+  # map — a check that always skipped would leave the console's picture untouched while the
+  # oracle's changed.
+  def test_both_backends_agree_on_coordinates_worked_out_at_run_time
+    assert_backends_agree(worked_out_coordinates_program, frames: 6)
   end
 
   # A coordinate the game worked out can be off the edge, and then nothing happens — rather

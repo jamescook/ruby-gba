@@ -73,6 +73,9 @@ module RubyGBA
         object: :portable, present_objects: :portable,
         # one cell of the scenery becomes a different tile — every backend has a map to change
         set_tile: :portable,
+        # ...and the whole of it becomes another map — likewise: every backend holds the maps
+        # a background was declared with, and can put a different one in its cells
+        show_map: :portable,
         # save/restore a screen patch — copying pixels to/from a buffer, any backend can
         save_region: :portable, restore_region: :portable,
 

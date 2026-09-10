@@ -37,8 +37,11 @@ module RubyGBA
     #   a number from an imported sheet) to the tile it means — what `set_tile` reads
     # @param bitmap [Boolean] declared under `screen :bitmap`, where a background is
     #   stamped into the one picture rather than drawn by tile hardware
+    # @param map_names [Array<Object>] the maps this background was declared with, in
+    #   order — what `show_map` names. One entry (the background's own name) for a
+    #   background declared with a single map, which can never be handed another.
     def initialize(builder, name:, scroll_x:, scroll_y:, walls: [], affine: false,
-                   cells: [0, 0], tile_index: {}, bitmap: false)
+                   cells: [0, 0], tile_index: {}, bitmap: false, map_names: nil)
       @builder = builder
       @name = name
       @scroll_x = scroll_x
@@ -48,6 +51,7 @@ module RubyGBA
       @cells = cells
       @tile_index = tile_index
       @bitmap = bitmap
+      @map_names = map_names || [name]
     end
 
     # PUT A DIFFERENT TILE IN ONE CELL, while the game runs.
@@ -68,13 +72,68 @@ module RubyGBA
     # A cell outside the map is left alone rather than writing over something else, so a
     # coordinate the game worked out can be off the edge without a test around it.
     def set_tile(col, row, tile)
-      refuse_on_a_bitmap_screen!
+      refuse_on_a_bitmap_screen!("set_tile", instead: "Draw over the spot with `blit`")
       index = @tile_index[tile]
       raise ArgumentError, unknown_tile_message(tile) if index.nil?
 
       record(Build.set_tile(@name, Value.node_for(col), Value.node_for(row), index))
       self
     end
+
+    # HAND THE BACKGROUND A WHOLE DIFFERENT MAP, while the game runs.
+    #
+    #   rooms = background :rooms, tiles: :dungeon, map: { hall: HALL, cave: CAVE }
+    #   rooms.show_map :cave       # the whole room is the cave now
+    #   rooms.show_map where       # ...or whichever map a number the game holds says
+    #
+    # This is what walking through a door is in a game with a lot of rooms: a room is a
+    # map, and going into one is naming it. Written with `set_tile` instead, the same
+    # thing is a cell at a time — hundreds of them, one frame, and a picture showing half
+    # of each room while they go in.
+    #
+    # +which+ is one of the names the background was declared with, or a number counting
+    # from 0 in that order — and the number may be something the game works out, which is
+    # what a game with hundreds of rooms wants (the room number IS the map number).
+    #
+    # It says which map is showing rather than doing a copy where you call it, so saying
+    # the one already showing costs nothing, and the copy itself happens between frames,
+    # when the display is not reading. The picture never shows half of each.
+    #
+    # THE MAP COMES BACK EXACTLY AS DECLARED. A cell you had changed with `set_tile` — a
+    # door you opened — is shut again when you come back to that map. A game that
+    # remembers such things opens them again on the way in, which is where it wants that
+    # decision anyway.
+    def show_map(which)
+      refuse_on_a_bitmap_screen!("show_map", instead: "Draw the new picture with `blit`")
+      refuse_with_one_map!
+      @builder.set(shown_map_var, Value.node_for(number_of_map(which)))
+      # Recorded here as well as remembered, the same way a scroll is: a program with no
+      # game loop has no gap between frames to hold the copy for, and then the copy simply
+      # happens where it was asked for. The builder drops these once it knows there is a
+      # frame boundary to move the work to (Builder#finalize_background_maps).
+      node = record(Build.show_map(@name, which: Build.var_ref(shown_map_var)))
+      @builder.swap_maps_each_frame(@name, shown_map_var, live_map_var, node)
+      self
+    end
+
+    # Which of this background's maps is showing, as a {Value} — 0 for the first declared.
+    # Compare it against {#map_number} to ask which room the game is in.
+    def showing
+      refuse_with_one_map!
+      Value.new(@builder, Build.var_ref(shown_map_var), name: shown_map_var)
+    end
+
+    # The number of a map named at declaration — what {#showing} reads back and what
+    # {#show_map} is given. A build-time Integer, so it can be compared and counted with.
+    def map_number(named)
+      at = @map_names.index(named)
+      raise ArgumentError, unknown_map_message(named) if at.nil?
+
+      at
+    end
+
+    # How many maps this background was declared with. 1 for the ordinary kind.
+    def map_count = @map_names.length
 
     # How many cells across and down this background's map is — what a game needs to
     # walk it, and what `set_tile` holds a coordinate against.
@@ -86,6 +145,7 @@ module RubyGBA
     # marked solid. A {HardwareSprite} reads these when it's told to be `blocked_by`
     # this background.
     def solid_boxes
+      refuse_walls_of_a_changing_map!
       @solid_boxes ||= @walls.map { |x, y, w, h| @builder.box(x, y, w, h) }
     end
 
@@ -205,13 +265,59 @@ module RubyGBA
     # declared and nothing draws it again, so there is no cell left to change — the
     # pixels are simply part of the picture now. Drawing over them is what a `blit`
     # already does, so that is what the message says.
-    def refuse_on_a_bitmap_screen!
+    def refuse_on_a_bitmap_screen!(verb, instead:)
       return unless @bitmap
 
       raise ArgumentError,
             "background :#{@name} was declared under `screen :bitmap`, where a background is " \
-            "painted into the picture once — so there is no cell left for set_tile to change. " \
-            "Draw over the spot with `blit`, or use `screen :tiled`."
+            "painted into the picture once — so there is no cell left for #{verb} to change. " \
+            "#{instead}, or use `screen :tiled`."
+    end
+
+    # A background handed a different map has different walls in it, and `blocked_by` reads
+    # the walls once, while the program is built. So it would hold the first map's walls
+    # for every map — a sprite walking through a wall in one room and into thin air in
+    # another. A friendly error rather than that.
+    def refuse_walls_of_a_changing_map!
+      return if @map_names.one?
+
+      raise ArgumentError,
+            "background :#{@name} has #{@map_names.length} maps, and each of them has its walls in " \
+            "different places. `blocked_by` reads the walls one time, while the program is built, " \
+            "so it can only follow a background with one map. Give each room a background of its " \
+            "own, or test the way ahead yourself."
+    end
+
+    # A background with one map is the ordinary kind and can never be handed another —
+    # there is only the one. Say what to write to get the other kind.
+    def refuse_with_one_map!
+      return unless @map_names.one?
+
+      raise ArgumentError,
+            "background :#{@name} was declared with one map, so there is no other map to show. " \
+            "Declare it with several — `background :#{@name}, tiles: ..., map: { hall: HALL, " \
+            "cave: CAVE }` — and then `#{@name}.show_map :cave` hands it one of them."
+    end
+
+    # Which map +which+ means: a name it was declared with, or a number counting from 0 in
+    # that order. A number the game works out is passed straight through — nothing at build
+    # time can say which map it will land on, and a value outside the range is held to it
+    # when the swap happens.
+    def number_of_map(which)
+      return which unless which.is_a?(Symbol) || which.is_a?(String)
+
+      map_number(which)
+    end
+
+    # Which map the game SAYS is showing (written by show_map), and which one is really in
+    # the background's cells (written by the copy at the frame boundary). Two rather than
+    # one because that is what makes the copy happen exactly when the answer changes.
+    def shown_map_var = :"__bg_#{@name}_map"
+    def live_map_var = :"__bg_#{@name}_live"
+
+    def unknown_map_message(named)
+      "background :#{@name} has no map #{named.inspect}. Its maps are " \
+        "#{@map_names.map(&:inspect).join(', ')}."
     end
 
     def unknown_tile_message(tile)

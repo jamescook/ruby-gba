@@ -85,9 +85,11 @@ module RubyGBA
         screen: :free,
         present_objects: :free,
         scroll_background: :free,
-        # ...and one cell of it becoming a different tile. It changes a background that
-        # already has a depth of its own, so it is not itself at one.
+        # ...and one cell of it becoming a different tile, or the whole of it becoming
+        # another map. Both change a background that already has a depth of its own, so
+        # neither is itself at one.
         set_tile: :free,
+        show_map: :free,
         affine_background: :free,
         scroll_rows: :free,
         blit_pose: :free,
