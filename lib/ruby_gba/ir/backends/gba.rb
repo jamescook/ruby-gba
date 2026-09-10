@@ -338,6 +338,9 @@ module RubyGBA
           # reason, until @drawing itself exists a few lines down — GBA forwards to it
           # once it does, so the call resolves fine the first time anything actually
           # emits (see the private forwarders).
+          # Where each timer's on_tick body landed inside the interrupt dispatcher, filled in
+          # as that routine is emitted (see #emit_irq_handler).
+          @timer_handlers = {}
           @functions = Functions.new(emitter: @emit, lowering: @lowering, placement: self,
                                      scene_preamble: method(:emit_scene_preamble),
                                      scene_art: method(:emit_scene_art_upload))
@@ -476,6 +479,7 @@ module RubyGBA
                                    compression: compression_report,
                                    emitted: @attribution.emitted,
                                    routines: routine_addresses,
+                                   timer_handlers: timer_handler_addresses,
                                    video_memory: video_memory_report,
                                    roomy_memory: roomy_memory_report,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
@@ -556,6 +560,19 @@ module RubyGBA
         # since it is the same answer a call to that routine had to be given.
         #
         # Either way the SIZE is its span in the emitted code, because the copy is a copy.
+        # WHERE EACH TIMER'S HANDLER STARTS, as a real runtime address, and the rate its
+        # program asked for. What reads it counts how many times that one instruction ran and
+        # holds it against the rate — see {TickRate}.
+        #
+        # The offsets were kept while the dispatcher was emitted (#emit_irq_handler); the base
+        # is that routine's own runtime address, which already accounts for the build having
+        # possibly copied it into the console's quick memory.
+        def timer_handler_addresses
+          irq = routine_addresses[Placement::IRQ_ROUTINE] or return {}
+
+          @timer_handlers.to_h { |name, info| [name, { hz: info[:hz], at: irq.begin + info[:at] }] }
+        end
+
         def routine_addresses
           written = @functions.func_ranges.to_h do |name, span|
             base = runtime_base(name, span)
@@ -1009,8 +1026,20 @@ module RubyGBA
             emit_frame_count
             emit_mixer_tick if @mixer.plays_samples?
           end if @uses_vblank
-          irq_timers.each do |_, info|
+          irq_timers.each do |name, info|
             emit_irq_source(timer_irq_bit(info[:rate])) do
+              # WHERE THIS HANDLER'S FIRST INSTRUCTION SITS, kept so a profile can count how
+              # many ticks really arrived. A handler's body is emitted inline here rather than
+              # as a routine of its own, so there is no name in the profile to count — but its
+              # first instruction runs exactly once per tick answered, and the source's own
+              # test above has already branched past it when this timer did not fire.
+              #
+              # It is kept as an offset INSIDE this routine, not as an address. This routine is
+              # one of the two the build may copy into the console's quick memory, where it runs
+              # nowhere near where it sits in the cartridge — and the offset is the same either
+              # way, because a copy is a copy. Whoever reads it adds the routine's own runtime
+              # base (see #routine_addresses).
+              @timer_handlers[name] = { hz: info[:hz], at: pos - start }
               info[:handler].children.each { |child| @lowering.statement(child) }
             end
           end

@@ -54,6 +54,7 @@ require_relative "ruby_gba/emulator"
 require_relative "ruby_gba/verifier"
 require_relative "ruby_gba/tearing"
 require_relative "ruby_gba/flicker"
+require_relative "ruby_gba/tick_rate"
 require_relative "ruby_gba/analyzer"
 require_relative "ruby_gba/build_report" # the exact half of a profile: what the build made
 require_relative "ruby_gba/profiler"

@@ -75,7 +75,7 @@ module RubyGBA
     # A finished profile. +unattributed+ is the share that ran outside every routine the build
     # knows about.
     Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
-                         :reached, :tearing, :flicker) do
+                         :reached, :tearing, :flicker, :tick_rates) do
       def dropping_frames? = fps < 59.5
 
       # Instructions a frame — what the game actually does, where a share only says how that
@@ -88,6 +88,9 @@ module RubyGBA
           keys: keys.map(&:to_s), unattributed: unattributed, reached: reached.to_h,
           tearing: tearing && { looked: tearing.looked, torn: tearing.torn, worst: tearing.worst },
           flicker: flicker&.measured? ? { pixels: flicker.pixels, first: flicker.first } : nil,
+          timers: tick_rates.select(&:measured?).map do |tick|
+            { name: tick.name.to_s, asked: tick.asked, got: tick.got }
+          end,
           routines: lines.map do |line|
             { name: line.name.to_s, label: line.label, samples: line.samples,
               share: line.share, where: line.where.to_s }
@@ -136,7 +139,27 @@ module RubyGBA
         end
       end
 
-      build_result(profile, routines, held, reached, tearing, flicker)
+      build_result(profile, routines, held, reached, tearing, flicker,
+                   tick_rates_in(profile, rom.built.timer_handlers))
+    end
+
+    # IS EACH TIMER DELIVERING THE RATE IT WAS ASKED FOR, counted off the same histogram the
+    # routine lines come from. A handler's first instruction runs exactly once per tick it
+    # answered, so the hits on that address are the ticks that arrived.
+    #
+    # THE ELAPSED TIME IS HARDWARE FRAMES OVER SIXTY, and that is the whole care of it. A
+    # timer ticks in real time whatever the game does, and interrupts preempt the main loop —
+    # so a game running at thirty with a handler that keeps up delivers its full rate.
+    # Measuring against passes of the game loop instead would report every frame-dropping
+    # game as broken.
+    def self.tick_rates_in(profile, handlers)
+      return [] if handlers.nil? || handlers.empty?
+
+      seconds = profile.frames / 60.0
+      handlers.map do |name, info|
+        TickRate.read(name: name, asked: info[:hz], ticks: profile.pc.fetch(info[:at], 0),
+                      seconds: seconds)
+      end
     end
 
     # IS HALF THE DRAWING BEING LOST — the tear-free screen's own version of the question
@@ -367,7 +390,7 @@ module RubyGBA
     end
 
     def self.build_result(profile, routines, held, reached = Reached.new(how: :boot, detail: nil),
-                          tearing = nil, flicker = nil)
+                          tearing = nil, flicker = nil, tick_rates = [])
       tally, outside = attribute(profile.pc, routines)
       total = profile.samples
 
@@ -383,7 +406,7 @@ module RubyGBA
       Result.new(frames: profile.frames, samples: total, fps: profile.frames_per_second,
                  idle_share: profile.idle_share.round(4), lines: lines,
                  unattributed: share(outside.sum { |_, seen| seen }, total), keys: held,
-                 reached: reached, tearing: tearing, flicker: flicker)
+                 reached: reached, tearing: tearing, flicker: flicker, tick_rates: tick_rates)
     end
 
     # WHAT RAN THAT IS NOT A ROUTINE THE AUTHOR WROTE, named by where it ran rather than
@@ -451,6 +474,7 @@ module RubyGBA
       printer.puts("  #{(result.idle_share * 100).round(1)}% of each frame spare")
       tearing_line(result.tearing, printer)
       flicker_line(result.flicker, printer)
+      tick_rate_lines(result.tick_rates, printer)
       printer.puts("")
 
       result.lines.each { |line| printer.cost_line(label_for(line), "#{line.share}%") }
@@ -480,6 +504,27 @@ module RubyGBA
                      severity: :bad)
       else
         printer.puts("  the picture held together on all #{tear.looked} frames looked at")
+      end
+    end
+
+    # Said about a timer whose rate did not all arrive. One keeping up says nothing, and
+    # neither does one too slow to judge over the window — a reading nobody could take must
+    # never read as a clean one.
+    #
+    # WHAT IT DOES NOT CLAIM, and why it is worded as a fact rather than a fault. The ticks
+    # are counted, so the shortfall is real. Its CAUSE is not decidable from this number: a
+    # handler too long to finish between two ticks drops them, and so does drawing, because a
+    # transfer stalls the console and holds interrupts off while it runs — measured, an
+    # ordinary full-screen clear costs about a fifth of a 4kHz timer's ticks all by itself.
+    # Naming the handler would send somebody to rewrite the wrong code. See {TickRate}.
+    def self.tick_rate_lines(ticks, printer)
+      Array(ticks).select(&:short?).each do |tick|
+        printer.puts("  the timer :#{tick.name} asked for #{tick.asked} ticks a second and is " \
+                     "getting #{tick.got} — a tick that arrives while the last one is still " \
+                     "being answered is dropped")
+        printer.puts("  either the `on_tick` body is too long to finish between two ticks, or " \
+                     "drawing is holding interrupts off — a transfer stalls the console while " \
+                     "it runs")
       end
     end
 

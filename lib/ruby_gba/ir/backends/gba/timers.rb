@@ -55,11 +55,14 @@ module RubyGBA
             handlers = {}
             program.walk.each { |n| handlers[n.timer] = n if n.kind == :on_timer } # last wins if repeated
             program.walk.select { |n| n.kind == :timer_start }.each do |node|
-              register_timer(node.name, counted.include?(node.name), handlers[node.name])
+              register_timer(node.name, counted.include?(node.name), handlers[node.name], node.hz)
             end
           end
 
-          def register_timer(name, counted, handler)
+          # +hz+ is the rate the program ASKED for, kept because a profile holds the ticks that
+          # really arrived against it. A timer restarted at a different rate keeps the first,
+          # the same way the registry keeps the first of everything else about it.
+          def register_timer(name, counted, handler, hz = nil)
             return if @timers.key?(name)
 
             rate = @next_hw_timer
@@ -71,7 +74,7 @@ module RubyGBA
                     "timer's ticks costs two timers: one to run it, and one to count its overflows. To fix " \
                     "this, use fewer timers."
             end
-            @timers[name] = { rate: rate, count: count, handler: handler }
+            @timers[name] = { rate: rate, count: count, handler: handler, hz: hz }
           end
 
           # The timers with an on_tick handler, each [name, info], in hardware-timer order —
