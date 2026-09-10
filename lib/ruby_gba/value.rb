@@ -158,6 +158,91 @@ module RubyGBA
       scaled(Build.binop(:%, @node, node_at_scale(other, Fraction.bits_of(other))), @fraction_bits)
     end
 
+    # --- the bits themselves ---
+    #
+    # Anything a game reads from a real console is several numbers packed into one: a
+    # map cell carries a tile number, two flip flags and a palette bank; a row of a
+    # collision shape is one bit per pixel; a save file is flags all the way down. The
+    # code that reads those is written in bit operations, not because somebody liked
+    # them but because that is what the bits are — and dividing cannot stand in, since
+    # a mask over two fields that are not next to each other has no arithmetic form at
+    # all.
+    #
+    # `&` keeps the bits both sides have, `|` keeps the bits either side has, `^` keeps
+    # the ones exactly one side has, and `~` turns every bit the other way (which is how
+    # a flag is cleared: `flags & ~DOOR_OPEN`). `<<` and `>>` slide the bits along.
+    #
+    # A number written into the program may stand on the LEFT of `&`, `|` and `^`, which
+    # Ruby arranges through #coerce. It may not on the left of a shift — Ruby insists on
+    # a plain number to the right of one — and #to_int is what says so in plain words
+    # when somebody writes `0x8000 >> col`.
+
+    def &(other)
+      bitwise(:&, other)
+    end
+
+    def |(other)
+      bitwise(:|, other)
+    end
+
+    def ^(other)
+      bitwise(:^, other)
+    end
+
+    # Slide the bits up, filling in with zeros. Going off the top end empties the
+    # number; see IR::Int32 for what a count past the end of a number does.
+    def <<(places)
+      shift_count!(:<<, places)
+      bitwise(:<<, places)
+    end
+
+    # Slide the bits down, filling in with the sign — so a negative number stays
+    # negative, which is what both the chip and Ruby do. Pair it with a mask to pull a
+    # field out of the middle of a packed number: `(cell >> 12) & 15`.
+    def >>(places)
+      shift_count!(:>>, places)
+      bitwise(:>>, places)
+    end
+
+    # Every bit the other way round.
+    def ~
+      whole_numbers_only!(:~, nil)
+      Value.new(@builder, Build.bit_not(@node))
+    end
+
+    # `.then` ON A NUMBER, which Ruby will happily answer and this DSL must not.
+    #
+    # Every Ruby object has `then` — it hands the object to the block and gives back
+    # whatever the block returned — so `(flags & DOOR).then { open_it }` runs the block
+    # while the program is being BUILT, and records `open_it` with no test around it.
+    # The door then opens every frame, and nothing said a word. That is the same slip
+    # the orphaned-Condition guardrail exists for, arriving by another route: a flag
+    # test in C is written `if (flags & MASK)`, so this is the first thing a person
+    # reaching for these operators writes.
+    def then(*)
+      raise ArgumentError,
+            "`.then` branches on a test, and this is a number. A number is not a yes " \
+            "or a no, so there is nothing here to branch on. Compare it first: " \
+            "`((flags & 4) != 0).then { ... }`.#{at_dsl_line}"
+    end
+
+    # RUBY ASKED FOR A PLAIN NUMBER, and this is one the game works out.
+    #
+    # Ruby calls this when it wants a real Integer and was handed something else.
+    # Without it the program stops with "no implicit conversion of RubyGBA::Value into
+    # Integer", which names a class the author never wrote and says nothing about what
+    # to do instead. The place it actually happens is a shift with the number on the
+    # left: Ruby routes `& | ^` through #coerce and pointedly does not route `<<` and
+    # `>>` that way, so the message names that case.
+    def to_int
+      raise ArgumentError,
+            "Ruby needs a plain whole number here, and this one is worked out as the " \
+            "game runs. This usually happens on the right of `<<` or `>>`, so " \
+            "`1 << bit` and `0x8000 >> bit` do not work. Put the value on the left " \
+            "instead — `(row >> bit) & 1` reads one bit, and `bit` can still be " \
+            "worked out as the game runs.#{at_dsl_line}"
+    end
+
     # Let a plain number stand on the LEFT of an operator: `160 / distance` is how a
     # person writes a wall height, and Ruby asks the value on the right how to make sense
     # of that. A number written here takes this value's own kind, so dividing by
@@ -294,6 +379,50 @@ module RubyGBA
 
     def compare(op, other)
       Condition.new(@builder, Build.binop(op, @node, align!(other, describe_op(op))))
+    end
+
+    # A bit operation. Both sides are plain whole numbers — no scale to line up, since
+    # the answer is about the bits and not about what they add up to.
+    def bitwise(op, other)
+      whole_numbers_only!(op, other)
+      Value.new(@builder, Build.binop(op, @node, node_of(other)))
+    end
+
+    # A COUNT WRITTEN INTO THE PROGRAM that moves every bit off the end. The number is
+    # right there to read, so this is a mistake the build can see, and it is always a
+    # mistake: the answer no longer depends on what was shifted, and somebody who
+    # wanted nothing would have written nothing.
+    #
+    # A count the GAME works out is left alone. That one comes out of data and can land
+    # anywhere, which is exactly why IR::Int32 pins what happens when it lands outside.
+    def shift_count!(op, places)
+      count = Value.fixed_number(places)
+      return if count.nil? || IR::Int32.shifts_within_the_number?(count)
+
+      advice =
+        if count.negative?
+          "A shift count cannot go below 0. To move the bits the other way, use " \
+            "`#{op == :<< ? '>>' : '<<'}`."
+        else
+          "Write a count from 0 to 31."
+        end
+      raise ArgumentError,
+            "`#{op} #{count}` moves every bit off the end of the number. A whole " \
+            "number here has 32 bits. So the answer is the same whatever the number " \
+            "holds. #{advice}#{at_dsl_line}"
+    end
+
+    # A number that HOLDS A FRACTION keeps that fraction in its own low bits, so a bit
+    # operation on one changes the fraction rather than the number the author can see —
+    # and nothing in the answer would say so. Refuse it and say which side is at fault.
+    def whole_numbers_only!(op, other)
+      return unless fraction? || Fraction.bits_of(other)
+
+      side = fraction? ? "this number" : "the number on the right"
+      raise ArgumentError,
+            "`#{op}` works on whole numbers, and #{side} holds a fraction. A fraction " \
+            "is kept in the low bits, so `#{op}` would change the fraction and not the " \
+            "number you can see. Use `.to_i` first to drop the fraction.#{at_dsl_line}"
     end
 
     # An operation whose two sides must be at the SAME scale — adding, subtracting,

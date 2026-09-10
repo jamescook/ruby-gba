@@ -835,6 +835,12 @@ module RubyGBA
         Nodes.build(:neg, operand: wrap(operand))
       end
 
+      # Every bit of +operand+ turned the other way. The complement, which is what
+      # clears a flag: keep everything except the bits named by a mask.
+      def bit_not(operand)
+        Nodes.build(:bit_not, operand: wrap(operand))
+      end
+
       # --- input reads (value operands, e.g. inside an `if_` condition) ---
 
       # 1 while +button+ is down, else 0.

@@ -113,6 +113,7 @@ module RubyGBA
 
         # expression values
         int: :portable, var_ref: :portable, binop: :portable, neg: :portable,
+        bit_not: :portable, # Int32.bit_not defines the answer — two's complement, any backend
         # a multiply whose product is formed at full width — the answer is defined by
         # Int32.mul_fix, which any backend can compute; only HOW differs
         mul_fix: :portable,

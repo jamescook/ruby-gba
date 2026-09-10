@@ -538,6 +538,22 @@ module RubyGBA
       [0xE1A00030 | (rd << 12) | (rs << 8) | rm].pack("V")
     end
 
+    # MOV rd, rm, ASR rs — the same, shifting DOWN and keeping the sign: the bits
+    # coming in at the top are copies of the top bit, so a negative number stays
+    # negative. A count of 32 or more fills the whole register with that bit, which
+    # is 0 for a positive number and -1 for a negative one.
+    def mov_reg_asr_reg(rd, rm, rs)
+      [0xE1A00050 | (rd << 12) | (rs << 8) | rm].pack("V")
+    end
+
+    # EOR rd, rn, #imm — exclusive OR with a number small enough to ride inside the
+    # instruction, so no register is spent holding it.
+    def eor_imm(rd, rn, imm)
+      imm12 = encode_rotated_immediate(imm) or
+        raise ArgumentError, "cannot encode #{imm} as an ARM rotated immediate"
+      [0xE2200000 | (rn << 16) | (rd << 12) | imm12].pack("V")
+    end
+
     # ORR rd, rn, rm, LSR #shift — OR in a register shifted down on the way, which is
     # how a single bit is moved from the top of one register to the bottom of another.
     def orr_reg_lsr(rd, rn, rm, shift)
