@@ -195,6 +195,11 @@ module RubyGBA
                    pool: @name, field: field, fraction_bits: field_bits(field))
     end
 
+    # What a field keeps, without building a handle to ask it (see FieldRef.scale).
+    def field_scale(field)
+      FieldRef.scale(pool: @name, field: field, bits: field_bits(field))
+    end
+
     # What a field holds, taken from the default it was declared with. Writing `vy: 0.0`
     # is how a pool says a field carries a fraction, exactly as writing `var :vy, 0.0` does
     # for a variable — so a game with sixty particles drifting at fractional speeds never
@@ -267,7 +272,7 @@ module RubyGBA
         given = values.fetch(field, default)
         # Checked against what the field holds, so spawning with a fraction into a whole
         # field — or the other way round — is the same friendly error as writing one later.
-        node = field_handle(field, slot).node_matching(given, "hold")
+        node = field_scale(field).node_matching(given, "hold")
         Build.list_set(field_list(field), slot, node)
       end
     end

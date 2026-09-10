@@ -22,6 +22,8 @@ require_relative "ruby_gba/builder"
 require_relative "ruby_gba/effects" # the verb/effect pack registry, and the packs that ship on by default
 require_relative "ruby_gba/evaluated_game" # the one place a game's block becomes a program
 require_relative "ruby_gba/game"
+require_relative "ruby_gba/author_source"
+require_relative "ruby_gba/scale"
 require_relative "ruby_gba/value"
 require_relative "ruby_gba/condition"
 require_relative "ruby_gba/branch"
@@ -144,6 +146,7 @@ module RubyGBA
       # All are just checks in the list, so the Validator treats them alike.
       checks = IR::Guardrails.default_checks +
                [IR::Guardrails::Checks::OrphanedCondition.new(evaluated.pending_conditions),
+                IR::Guardrails::Checks::OrphanedExpression.new(evaluated.expressions),
                 IR::Guardrails::Checks::DroppedFrameSync.new(evaluated.dropped_syncs),
                 IR::Guardrails::Checks::LayerHoldsNothing.new(evaluated.sprites),
                 IR::Guardrails::Checks::StackNotHonored.new(evaluated.sprites)]

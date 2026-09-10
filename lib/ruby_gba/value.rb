@@ -66,27 +66,46 @@ module RubyGBA
       @builder = builder
       @node = node
       @name = name
-      @fraction_bits = fraction_bits
-      @declaring = declaring
-      @mixing = mixing
+      @scale = Scale.new(bits: fraction_bits, declaring: declaring, mixing: mixing)
+      # Only an expression is tracked, and only an expression pays for the stack walk
+      # that pins the author's line — a handle can never be the orphan this is for.
+      return if handle? || !@builder.respond_to?(:track_expression)
+
+      @source = AuthorSource.author_source
+      @builder.track_expression(self)
     end
 
     # The IR value node behind this handle (a var_ref, an int, or a binop).
     attr_reader :node
 
+    # Where the author built this expression ("hero.rb:42"), for the diagnostic that
+    # reports one nobody kept. nil for a handle, which is never reported.
+    attr_reader :source
+
+    # WHETHER THIS STANDS FOR A PLACE THAT KEEPS A NUMBER, rather than being a working-out
+    # of one. A handle names somewhere — a variable here, a pool field in {FieldRef} — so
+    # writing one down and doing nothing else with it is ordinary: `hero.x` on its own
+    # line is pointless but harmless. An EXPRESSION is a number worked out and handed
+    # back, so building one and dropping it means the work was thrown away. That is the
+    # difference the orphaned-expression guardrail turns on.
+    def handle?
+      !@name.nil?
+    end
+
     # How many fraction bits this value carries, or nil if it is a plain whole number.
-    attr_reader :fraction_bits
+    def fraction_bits
+      @scale.bits
+    end
 
     # Whether this value carries a fraction rather than being a plain whole number.
     def fraction?
-      !@fraction_bits.nil?
+      @scale.fraction?
     end
 
     # The node for +other+ brought to this value's scale, or a friendly error saying why
-    # it cannot be. Public because a LIST carries a scale the same way but is not a Value,
-    # and one implementation of these rules is worth more than a convenient shape.
+    # it cannot be.
     def node_matching(other, verb)
-      align!(other, verb)
+      @scale.node_matching(other, verb)
     end
 
     # --- arithmetic: build a bigger expression Value ---
@@ -102,7 +121,7 @@ module RubyGBA
     # The same value the other way round: `-speed` is as far backwards as `speed` is
     # forwards. It keeps a fraction, since flipping a sign changes nothing about scale.
     def -@
-      scaled(Build.neg(@node), @fraction_bits)
+      scaled(Build.neg(@node), @scale.bits)
     end
 
     # Multiply. A fraction times a plain COUNT is ordinary multiplication and keeps the
@@ -116,7 +135,7 @@ module RubyGBA
         return scaled(Build.mul_fix(@node, node_at_scale(other, bits), bits), bits)
       end
 
-      scaled(Build.binop(:*, @node, node_at_scale(other, bits)), @fraction_bits || bits)
+      scaled(Build.binop(:*, @node, node_at_scale(other, bits)), @scale.bits || bits)
     end
 
     # Division, truncated toward zero (so -7 / 2 is -3).
@@ -137,7 +156,7 @@ module RubyGBA
       end
       return whole_over_fraction(other, bits) if bits
 
-      scaled(Build.binop(:/, @node, node_at_scale(other, bits)), @fraction_bits)
+      scaled(Build.binop(:/, @node, node_at_scale(other, bits)), @scale.bits)
     end
 
     # A plain whole number divided by one that holds a fraction. The answer holds a
@@ -155,7 +174,7 @@ module RubyGBA
     # right one. Wrapping onto a range that is a power of two (64, 256, 512) costs one
     # instruction; any other range is a real division.
     def %(other)
-      scaled(Build.binop(:%, @node, node_at_scale(other, Fraction.bits_of(other))), @fraction_bits)
+      scaled(Build.binop(:%, @node, node_at_scale(other, Fraction.bits_of(other))), @scale.bits)
     end
 
     # --- the bits themselves ---
@@ -248,7 +267,7 @@ module RubyGBA
     # of that. A number written here takes this value's own kind, so dividing by
     # something holding a fraction gives an answer holding one.
     def coerce(other)
-      bits = other.is_a?(Float) ? (@fraction_bits || Fraction::DEFAULT_BITS) : nil
+      bits = other.is_a?(Float) ? (@scale.bits || Fraction::DEFAULT_BITS) : nil
       literal = bits ? Fraction.scale(other, bits) : other
       [Value.new(@builder, Build.int(literal), fraction_bits: bits), self]
     end
@@ -262,7 +281,7 @@ module RubyGBA
     def to_i
       return self unless fraction?
 
-      Value.new(@builder, Build.shift_right(@node, @fraction_bits))
+      Value.new(@builder, Build.shift_right(@node, @scale.bits))
     end
 
     # This whole number as one that can hold a fraction, so it can be added to or
@@ -429,82 +448,25 @@ module RubyGBA
     # comparing. The result carries whatever scale they agreed on.
     def aligned(op, other)
       node = align!(other, describe_op(op))
-      scaled(Build.binop(op, @node, node), @fraction_bits || Fraction.bits_of(other))
+      scaled(Build.binop(op, @node, node), @scale.bits || Fraction.bits_of(other))
     end
 
-    # The IR node for +other+, checked against this value's scale and converted where
-    # that can be done for free. Raises a friendly build error when the two cannot be
-    # lined up.
-    #
-    # A whole number WRITTEN IN THE PROGRAM is converted, because `speed + 1` plainly
-    # means one faster. A number the game works out cannot be: there is no way to tell
-    # whether a counter holding 3 means three, or three sixty-fourths.
+    # The rules for lining two scales up live in {Scale}, which is what a list and a pool
+    # field ask directly.
     def align!(other, verb)
-      bits = Fraction.bits_of(other)
-      return node_at_scale(other, bits) if @fraction_bits == bits
-      return Build.int(Fraction.scale(other, @fraction_bits)) if fraction? && Fraction.literal?(other)
-
-      if !fraction? && other.is_a?(Float)
-        raise ArgumentError,
-              "this holds whole numbers, so it cannot #{verb} #{other}. To give it a " \
-              "fraction, #{declaring_advice(other)}.#{at_dsl_line}"
-      end
-      return node_of(other) if !fraction? && Fraction.literal?(other)
-
-      same_scale!(bits, verb) if fraction? && bits
-      raise ArgumentError, mixed_kinds_message(other, verb)
+      @scale.node_matching(other, verb)
     end
 
-    # Like #align!, but a number written in the program comes back as a plain Integer
-    # rather than a node — because the verbs behind these still want to look at it
-    # (`approach` refuses a step of zero or less, and cannot ask that of a node).
     def aligned_operand(other, verb)
-      return Fraction.scale(other, @fraction_bits) if fraction? && Fraction.literal?(other)
-      return other if !fraction? && other.is_a?(Integer)
-
-      align!(other, verb)
+      @scale.operand_matching(other, verb)
     end
 
-    # The IR node for +other+, with a Float written into the program turned into a whole
-    # number at +bits+ fraction bits. This is the one place a Float becomes a number.
     def node_at_scale(other, bits)
-      return Build.int(Fraction.scale(other, bits)) if other.is_a?(Float) && bits
-
-      node_of(other)
+      Scale.node_at(other, bits)
     end
 
-    # Two values that both hold a fraction, but not the same amount of it. Nothing can
-    # be done for free here, and doing nothing gives an answer wrong by a factor of
-    # thousands.
     def same_scale!(bits, verb)
-      return if bits == @fraction_bits
-
-      raise ArgumentError,
-            "you cannot #{verb} these two numbers. They both hold a fraction, but not " \
-            "the same amount of one: #{@fraction_bits} bits against #{bits}. Make " \
-            "them both the same, or turn one into a whole number with `.to_i` first." \
-            "#{at_dsl_line}"
-    end
-
-    # How to declare this kind of thing so that it holds a fraction. A variable says it
-    # with its starting value; anything else says so its own way.
-    def declaring_advice(other)
-      return @declaring.call(other) if @declaring
-
-      "declare it with one — `var :name, #{other}` rather than `var :name, #{other.to_i}`"
-    end
-
-    # One side holds a fraction and the other is a plain whole number the game works
-    # out. Which one is which decides what to tell the author to do.
-    def mixed_kinds_message(_other, verb)
-      return "#{@mixing.call(fraction?)}#{at_dsl_line}" if @mixing
-
-      fraction_side, whole_side = fraction? ? %w[left right] : %w[right left]
-      "you cannot #{verb} these two numbers. The #{fraction_side} one holds a " \
-        "fraction and the #{whole_side} one is a whole number the game works out, so " \
-        "there is no way to tell what the whole number counts. Use `.to_f` on the " \
-        "whole number to give it a fraction, or `.to_i` on the other one to drop its " \
-        "fraction.#{at_dsl_line}"
+      @scale.same_scale!(bits, verb)
     end
 
     # How the operator reads in a sentence, for an error message.

@@ -54,6 +54,10 @@ module RubyGBA
     # comparison was silently ignored.
     def pending_conditions = @builder.pending_conditions
 
+    # Every expression the block worked out. The ones whose node never joined the tree
+    # were built and thrown away — see the orphaned-expression guardrail.
+    def expressions = @builder.expressions
+
     # How many `wait_vblank` calls the game loop already covered.
     def dropped_syncs = @builder.dropped_syncs
 

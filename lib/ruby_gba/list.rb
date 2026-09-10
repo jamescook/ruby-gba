@@ -155,9 +155,16 @@ module RubyGBA
     end
 
     # A value on its way INTO the list, checked against what the list holds. The rules are
-    # the ones a variable follows, and they live in Value so there is one copy of them.
+    # the ones a variable follows, and they live in {Scale} so there is one copy of them.
     def item_node(value, verb)
-      item_value(Build.int(0)).node_matching(value, verb)
+      item_scale.node_matching(value, verb)
+    end
+
+    # What this list keeps, as something that can answer the alignment questions on its
+    # own. Asked directly rather than through a throwaway Value, so pushing onto a list
+    # does not look like an expression somebody built and dropped.
+    def item_scale
+      @item_scale ||= Scale.new(bits: @fraction_bits, declaring: declaring, mixing: mixing)
     end
   end
 end
