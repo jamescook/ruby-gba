@@ -22,11 +22,6 @@ module Wolf3D
     # White, out of the game's own 256, for words over whatever was last drawn.
     INK = 15
 
-    # A CHANGED PICTURE IS PAINTED TWICE, because the screen keeps two pages and shows them in
-    # turn. Painted once, half the frames would show the picture that was there before it. The
-    # same reason Lives paints its words twice, and the same number.
-    PAGES = 2
-
     WORDS = "EPISODE COMPLETE"
     AGAIN = "PRESS START"
 
@@ -53,7 +48,7 @@ module Wolf3D
     def won
       (@won == 0).then do
         @won.set 1
-        @todo.set PAGES
+        @words.changed
         # ...and the game has ended, which is the fact the menus and the restart both read.
         @lives.ended_by_winning
       end
@@ -62,11 +57,11 @@ module Wolf3D
     # A NEW GAME PUTS THIS BACK. Called wherever one begins, alongside Lives#start_again.
     def start_again
       @won.set 0
-      @todo.set 0
+      @words.cancel
     end
 
-    # ONE PASS. Nothing at all until an episode has been won, and then the words while either
-    # page still wants them.
+    # ONE PASS. Nothing at all until an episode has been won, and then the words for as long
+    # as the screen still wants them.
     #
     # A ROUTINE RATHER THAN CODE IN THE LOOP, for the reason Lives gives: the console's quick
     # memory holds 32K, the game loop's own body wants nearly all of it, and this is a few
@@ -77,17 +72,13 @@ module Wolf3D
 
     def declare
       @won = @b.var :episode_won, 0
-      @todo = @b.var :_won_todo, 0
 
-      @b.func(:after_a_victory, fast: false) { show_the_words }
-      @b.func(:draw_the_victory) { paint }
-    end
+      # The words, put up when the episode is won and then left there — the same arrangement
+      # Lives gives GAME OVER, with `keep_showing` deciding how many paints that takes on
+      # the screen this game draws on.
+      @words = @b.keep_showing(:victory) { paint }
 
-    def show_the_words
-      (@todo > 0).then do
-        @todo.sub 1
-        @b.call(:draw_the_victory)
-      end
+      @b.func(:after_a_victory, fast: false) { @words.draw }
     end
 
     def paint

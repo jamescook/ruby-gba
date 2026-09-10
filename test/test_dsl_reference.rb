@@ -25,8 +25,11 @@ class TestDslReference < Minitest::Test
   # (see #face_angle / #turn / #scale), which the cheat-sheet documents on the sprite
   # verb, not on their own lines. record_row_bend is the same: the hook behind
   # Background#scroll_each_row, documented on the background verb.
+  # screen_pages and keep_showing_pictures are introspection behind `keep_showing`:
+  # how many pictures the chosen screen keeps, and the pictures declared so far. The
+  # cheat-sheet documents the verb; a game reads neither of these to write one.
   SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable
-            record_row_bend make_background_affine].freeze
+            record_row_bend make_background_affine screen_pages keep_showing_pictures].freeze
 
   # …plus the verbs the loaded effect packs contribute. A pack's verb is an ordinary
   # DSL verb at the call site, so it has to be looked up in the same place.

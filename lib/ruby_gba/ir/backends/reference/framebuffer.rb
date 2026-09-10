@@ -33,6 +33,7 @@ module RubyGBA
             @height = height
             @fill = fill
             @pixels = Array.new(width * height, fill)
+            @shown_pixels = @pixels # one page until the screen asks for two — see #paged=
             @camera_x = 0
             @camera_y = 0
             @fade_toward = :black
@@ -44,6 +45,42 @@ module RubyGBA
             @through_steps = 0
             @blending = false
             @area = nil
+          end
+
+          # TWO PAGES, OR ONE. A tear-free screen is two pictures rather than one: the
+          # display shows one of them while the program draws into the other, and they
+          # trade places at the frame boundary. That is what stops a player ever seeing a
+          # half-drawn picture — nothing is drawn into the page being looked at.
+          #
+          # The price is that a frame's drawing lands on ONE of the two. A program that
+          # repaints everything every frame never notices, because both pages end up
+          # holding a complete picture. A program that ADDS to what is already there — a
+          # dissolve, a trail, a plot filling in — puts half its additions on each page,
+          # and the console then flickers between two half-drawn pictures.
+          #
+          # Drawing always lands on @pixels and the viewer always reads @shown_pixels.
+          # With one page those are the same array, so every draw and every read on a
+          # single-buffered screen touches one picture and none of this applies.
+          def paged=(wanted)
+            return if wanted == paged?
+
+            # Entering: the page drawn so far keeps being the one drawn into, and a fresh
+            # blank page goes in front of it — which is what the console does on the way
+            # in (it shows page 0 and hands the program page 1). So a program that draws
+            # and never reaches a frame boundary shows the blank one, exactly as a real
+            # cartridge does.
+            # Leaving: the two collapse onto the page holding the drawing.
+            @shown_pixels = wanted ? Array.new(@width * @height, @fill) : @pixels
+          end
+
+          def paged? = !@shown_pixels.equal?(@pixels)
+
+          # Show the page just drawn and hand the program the other one. Called at the
+          # frame boundary, which is the only moment it is safe on real hardware — and
+          # it is a swap of two references, never a copy, for the same reason it is a
+          # single register write there.
+          def flip_pages
+            @pixels, @shown_pixels = @shown_pixels, @pixels
           end
 
           # WHERE DRAWING IS ALLOWED TO LAND, or nil for the whole picture. Everything that
@@ -131,16 +168,27 @@ module RubyGBA
           def pixel(x, y)
             return nil unless in_bounds?(x, y)
 
-            faded(stored_pixel(x + @camera_x, y + @camera_y) || @fill)
+            faded(shown_pixel(x + @camera_x, y + @camera_y) || @fill)
           end
 
           # The color stored at (x, y), ignoring where the window sits. This is what the
           # drawing engine reads — saving the pixels under a sprite has to see what is
-          # really in the picture, not what happens to be on screen right now.
+          # really in the picture, not what happens to be on screen right now. On a
+          # two-page screen that means the page being DRAWN into, which is the one the
+          # engine is about to write over.
           def stored_pixel(x, y)
             return nil unless in_bounds?(x, y)
 
             @pixels[(y * @width) + x]
+          end
+
+          # The same cell on the page a viewer is looking at. On a one-page screen this
+          # is #stored_pixel; on a two-page one it is the other page — the finished
+          # picture, not the one being drawn.
+          def shown_pixel(x, y)
+            return nil unless in_bounds?(x, y)
+
+            @shown_pixels[(y * @width) + x]
           end
 
           # Paint one cell. Off-screen coordinates are dropped (see the class note
@@ -190,10 +238,12 @@ module RubyGBA
             fill_rect(@area[0], @area[1], @area[2] - @area[0], @area[3] - @area[1], color)
           end
 
-          # A flat, row-major copy of every cell as it is STORED — for counting how many
-          # cells hold a given color, or asserting what was drawn.
+          # A flat, row-major copy of every cell of the page being SHOWN, as it is stored —
+          # for counting how many cells hold a given color, or asserting what was drawn.
+          # "Stored" is about effects, not pages: no camera offset and no fade, but still
+          # the picture a viewer is looking at (see #shown, which blends this one).
           def to_a
-            @pixels.dup
+            @shown_pixels.dup
           end
 
           # The same screen as it is SHOWN: the window's offset applied, and whatever fade

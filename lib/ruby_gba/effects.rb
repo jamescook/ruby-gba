@@ -5,6 +5,7 @@ require_relative "effects/packs/screen_fade"
 require_relative "effects/packs/follow_camera"
 require_relative "effects/packs/pulse"
 require_relative "effects/packs/menu"
+require_relative "effects/packs/keep_showing"
 
 module RubyGBA
   # The effect registry: how a verb gets added to the DSL from outside the
@@ -219,6 +220,7 @@ module RubyGBA
       Packs::FollowCamera,  # camera_follows — built on a background's own scrolling
       Packs::Pulse,         # pulse — a sprite that breathes, built on `sprite.scale`
       Packs::Menus,         # menu — a list, a selector and what each row does, built on `draw_text`
+      Packs::KeepShowing,   # keep_showing — a picture drawn when it changes, on every page of the screen
     ].freeze
   end
 

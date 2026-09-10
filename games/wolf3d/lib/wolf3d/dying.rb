@@ -30,12 +30,16 @@ module Wolf3D
   # and the six values that overshoot the last pixel fall off the bottom of the view and are
   # clipped, so nothing has to test for them.
   #
-  # AND WHY EVERY DOT IS DRAWN TWICE. This game draws on a tear-free screen, which on this
-  # console is two pages shown in turn — so a frame's drawing lands on one of them and the next
+  # AND WHY EVERY DOT IS DRAWN TWICE. This game draws on a tear-free screen, which keeps two
+  # pictures and shows them in turn — so a frame's drawing lands on one of them and the next
   # frame's on the other. A program that repaints everything every frame never notices. This one
   # ADDS to what is already there, so drawn once, each page would get half the dots and the
-  # screen would flicker between two half-finished pictures. Measured, not guessed: ten bars
-  # added one a frame read ten on the interpreter and five on the console.
+  # screen would flicker between two half-finished pictures.
+  #
+  # `keep_showing` IS THE FRAMEWORK'S ANSWER TO THAT and does not fit here. It paints the same
+  # picture again on the next frame, which suits a figure that changed and is then left alone —
+  # the status bar, the GAME OVER words. A fizzle draws DIFFERENT dots every frame, so painting
+  # it again a frame later draws the next batch rather than this one twice.
   #
   # So there are two walkers stepping the same sequence, one a frame behind the other. Every dot
   # is drawn on two consecutive frames, which is one of each page, and neither walker has to

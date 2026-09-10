@@ -505,10 +505,11 @@ module RubyGBA
             advance_frame
           when :screen
             # Remember the chosen mode; the fake screen already models the bitmap the
-            # draw ops assume. Double buffering (node.buffered) needs no different
-            # handling here: it only changes *when* a drawn frame becomes visible on
-            # real hardware, and this oracle already reads the settled end-of-frame
-            # image — so a torn mid-frame never existed to begin with.
+            # draw ops assume. Double buffering (node.buffered) asks it for a second
+            # page: the display shows one picture while the program draws into the other,
+            # and they trade places at the frame boundary. A frame's drawing therefore
+            # lands on one of the two, so a program that adds to what is already there
+            # puts half its additions on each page. See Framebuffer#paged=.
             #
             # Crossing between the bitmap display (a linear framebuffer) and the tiled
             # display (a tilemap plus hardware sprites) is different: the two reuse the
@@ -522,6 +523,7 @@ module RubyGBA
             @screen.clear(0) if @screen_mode && tiled_mode?(node.mode) != tiled_mode?(@screen_mode)
             @screen_mode = node.mode
             @buffered = node.buffered || false
+            @screen.paged = @buffered
           when :clear_screen
             @screen.clear(resolve_color(node.color))
           when :pixel
@@ -615,6 +617,12 @@ module RubyGBA
         # be spotted), advance the frame counter, and pull the next frame's input
         # if a script is driving it.
         def advance_frame
+          # A frame boundary is the one safe moment to swap the pages of a tear-free
+          # screen, so it happens FIRST — before either stop below. The frame whose
+          # drawing just finished is the one being published, and a run that stops here
+          # has to stop with that frame on screen rather than with the one before it.
+          @screen.flip_pages if @buffered
+
           # This is a frame boundary: if we're past the budget, stop HERE — the frame just
           # drawn is complete, and the next one's clear/draws haven't started, so the screen
           # is settled. Reaching a vblank also marks the program as frame-based (see tick!).

@@ -19,11 +19,6 @@ module Wolf3D
     # White, out of the game's own 256, for words over a red screen.
     INK = 15
 
-    # A CHANGED PICTURE IS PAINTED TWICE, because the screen keeps two pages and shows them in
-    # turn. Painted once, half the frames would show the picture that was there before it — which
-    # here is a plain red screen, so the words would flicker rather than sit still.
-    PAGES = 2
-
     WORDS = "GAME OVER"
     AGAIN = "PRESS START"
 
@@ -118,15 +113,12 @@ module Wolf3D
         end
       end.else { start_another_game }
 
-      (@todo > 0).then do
-        @todo.sub 1
-        @b.call(:draw_the_game_over)
-      end
+      @words.draw
     end
 
     def end_the_game
       @ended.set 1
-      @todo.set PAGES
+      @words.changed
     end
 
     # A NEW GAME, which is the same machinery a new life is plus the two things a life does not
@@ -142,13 +134,16 @@ module Wolf3D
       @left = @b.var :lives, START
       return unless @dying
 
-      # Whether the game has ended, and how many pages still want the words. Both start at
-      # nothing: a game that has not been played cannot be over.
+      # Whether the game has ended. It starts at nothing: a game that has not been played
+      # cannot be over.
       @ended = @b.var :game_over, 0
-      @todo = @b.var :_over_todo, 0
+
+      # The words, put up when the game ends and then left there. `keep_showing` decides how
+      # many paints that takes: this game draws on a tear-free screen, where a picture painted
+      # a single time reaches only half the frames.
+      @words = @b.keep_showing(:game_over) { paint }
 
       @b.func(:after_a_death, fast: false) { count_a_death }
-      @b.func(:draw_the_game_over) { paint }
     end
 
     def paint
