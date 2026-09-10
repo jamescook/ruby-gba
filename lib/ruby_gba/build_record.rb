@@ -39,12 +39,16 @@ module RubyGBA
   # tiles took, and how much the framework's own choice of storage saved. Nothing in a running
   # cartridge can say the second half: the pictures are there at the size the build chose them,
   # and what they would have cost the other way is gone.
+  # +timer_handlers+ is where each timer's on_tick body starts and the rate its program asked
+  # for. A handler is emitted inline inside the one routine the console interrupts into, so it
+  # has no name of its own in +routines+ — but its first instruction runs exactly once per tick
+  # answered, which is what lets a profile count the ticks that really arrived.
   class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
                                   :palette_entries, :column_stretches, :compression,
                                   :build_options, :findings, :emitted, :routines, :video_memory,
-                                  :roomy_memory)
+                                  :roomy_memory, :timer_handlers)
     def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
-                   roomy_memory: nil, **rest)
+                   roomy_memory: nil, timer_handlers: {}, **rest)
       super
     end
 
