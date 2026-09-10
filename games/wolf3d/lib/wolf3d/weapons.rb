@@ -88,12 +88,16 @@ module Wolf3D
     # and then everything below still works and simply draws nothing. +sounds+ is the recorded
     # sounds, or nil where there are none. +ammo+ is what the guns spend, as the view keeps it.
     # +noise+ is the flag a guard listens on, or nil on a game with nobody to hear.
-    def initialize(build:, ammo:, atlas: nil, sounds: nil, noise: nil)
+    # +starting+ is what a new game puts in your hands, which is the pistol unless a cartridge
+    # was built to hand you something else — a measuring and demoing dial, not a way to play.
+    # See Wolf3D.armed_with.
+    def initialize(build:, ammo:, atlas: nil, sounds: nil, noise: nil, starting: STARTING)
       @b = build
       @ammo = ammo
       @atlas = atlas
       @sounds = sounds
       @noise = noise
+      @starting = starting
       declare
     end
 
@@ -145,9 +149,9 @@ module Wolf3D
     # puts the health and the ammunition back on both, so the weapon goes with them rather than
     # being the one thing that survives a lift.
     def start_again
-      @in_hand.set STARTING
-      @chosen.set STARTING
-      @best.set STARTING
+      @in_hand.set @starting
+      @chosen.set @starting
+      @best.set @starting
       @stage.set AT_REST
       @wait.set 0
     end
@@ -161,9 +165,9 @@ module Wolf3D
       # WHAT IS IN YOUR HANDS, WHAT YOU CHOSE, AND THE BEST YOU HAVE FOUND. Three numbers where
       # one looks like enough — see the note at the top of this file for why the middle one is
       # the one that matters.
-      @in_hand = b.var :weapon, STARTING
-      @chosen = b.var :weapon_chosen, STARTING
-      @best = b.var :weapon_best, STARTING
+      @in_hand = b.var :weapon, @starting
+      @chosen = b.var :weapon_chosen, @starting
+      @best = b.var :weapon_best, @starting
 
       # WHERE THE ATTACK HAS GOT TO, and how long this stage has left. At rest is a stage of
       # minus one rather than a flag of its own, so "am I attacking" is one comparison.
@@ -267,22 +271,21 @@ module Wolf3D
     # IT STEPS FROM WHAT IS IN YOUR HANDS rather than from what you chose, which are the same
     # number whenever this can be reached at all — the one thing that parts them is running out,
     # and running out is what the line above turns away.
+    # SELECT CYCLES THE WEAPONS, one button rather than two, because the shoulder buttons are
+    # what a pad wants for stepping sideways — see FirstPerson#step_sideways for why a boss
+    # fight needs those more than it needs a shortcut backwards through four weapons.
+    #
+    # It wraps at the end, so a cycle reaches everything you are carrying; there are four of
+    # them at most, and the knife is one, so nothing is ever more than three presses away.
     def change_the_weapon
       (@ammo > 0).then do
-        @b.pressed(:r).then { take_the_next_one }
-        @b.pressed(:l).then { take_the_one_before }
+        @b.pressed(:select).then { take_the_next_one }
       end
     end
 
     def take_the_next_one
       @chosen.set(@in_hand + 1)
       (@chosen > @best).then { @chosen.set KNIFE }
-      @in_hand.set @chosen
-    end
-
-    def take_the_one_before
-      @chosen.set(@in_hand - 1)
-      (@chosen < KNIFE).then { @chosen.set @best }
       @in_hand.set @chosen
     end
 

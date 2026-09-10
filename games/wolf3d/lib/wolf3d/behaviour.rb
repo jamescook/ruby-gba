@@ -64,14 +64,28 @@ module Wolf3D
       number_of(kind.name, kind.has?(:shoot1) ? :shoot1 : :jump1)
     end
 
-    # ...and what a wound that does not kill it does. A kind with no flinch comes straight back
-    # at you instead, which is what the original leaves a dog doing: its damage code has no arm
-    # for one, so all that happens is that it turns round and closes.
+    # ...and what a wound that does not kill it does.
+    #
+    # A KIND WITH NO FLINCH IS LEFT EXACTLY WHERE IT WAS, which is the original's own arrangement
+    # and is not the same as sending it back into the chase. Its damage code switches on the kind
+    # and has arms for the guard, the officer, the mutant and the SS — and none at all for a dog
+    # or for a boss. No arm means no new state: the thing carries on doing whatever it was doing,
+    # with the count it already had.
+    #
+    # THAT IS THE WHOLE OF WHY A BOSS IS FRIGHTENING. He fires six times to a burst, and a hit
+    # that landed mid-burst would cancel it if it moved him — so you could hold the trigger down
+    # and he would never get a shot away. Left alone, he finishes the burst whatever you do to
+    # him. A dog has one hit point, so no wound it takes is ever survived and this never shows.
     def flinch_from(number, second: false)
       kind = kind_at(number)
       wanted = second ? :hurt2 : :hurt1
-      kind.has?(wanted) ? number_of(kind.name, wanted) : chase_from(number)
+      kind.has?(wanted) ? number_of(kind.name, wanted) : number
     end
+
+    # Does the thing in this state flinch at all? What reads it is the wounding, which leaves one
+    # that does not entirely alone rather than writing the same state back over itself — writing
+    # it back would restart the count and rob it of the rest of the picture it was in.
+    def flinches_from(number) = kind_at(number).has?(:hurt1) ? 1 : 0
 
     # How far the thing in this state walks each think. Only the beat and the chase ever walk;
     # everything else is standing still, and reads whatever this says without using it.

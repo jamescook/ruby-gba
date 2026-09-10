@@ -211,7 +211,7 @@ module Wolf3D
     # +sound_on+ is the menu's own sound switch, or nil where there is no menu to turn it off.
     def initialize(build:, atlas:, level: nil, doors: nil, pushwalls: nil, guards: nil,
                    things: nil, scenery: nil, vswap: nil, lifts: nil, floors: nil, bar_art: nil,
-                   gun_art: nil, startable: false, sound_on: nil)
+                   gun_art: nil, startable: false, sound_on: nil, armed_with: nil, ammo: nil)
       @floors = floors || Floors.of(level: level, doors: doors, pushwalls: pushwalls,
                                     lifts: lifts, guards: guards, scenery: scenery)
       here = @floors.first_floor
@@ -220,6 +220,13 @@ module Wolf3D
       # THE FIRST FLOOR'S OWN PIECES, which is what the build-time questions with no floor in them
       # ask: how wide a map is, and what a wall code's picture is. Everything that differs from
       # one floor to the next goes through @floors instead.
+      # WHAT A NEW GAME PUTS IN YOUR HANDS, which is the original's pistol and eight rounds
+      # unless the cartridge was built to hand you something else. A measuring and demoing dial
+      # rather than a way to play: the moments worth looking at are the far ones, and reaching a
+      # boss with the gun you would really have by then means playing eight floors first. See
+      # Wolf3D.armed_with.
+      @armed_with = armed_with || Weapons::STARTING
+      @start_ammo = ammo || START_AMMO
       @level = here.level
       @doors = here.doors
       @pushwalls = here.pushwalls
@@ -577,7 +584,7 @@ module Wolf3D
 
       # What the player has: what the bar along the bottom shows, and what the game is played by.
       @health = b.var :health, START_HEALTH
-      @ammo = b.var :ammo, START_AMMO
+      @ammo = b.var :ammo, @start_ammo
       @score = b.var :score, 0
 
       # HOW TOUGH YOU SAID YOU WERE, and it lives with the world rather than with the screen
@@ -638,7 +645,7 @@ module Wolf3D
       # ...then the gun in your hands: after the sounds, because each of the three guns has one
       # of its own, and before the things lying on the floor, because two of those ARE guns.
       @weapons = Weapons.new(build: b, ammo: @ammo, atlas: @gun_art, sounds: @sounds,
-                             noise: @noise)
+                             noise: @noise, starting: @armed_with)
       # ...and before both of them, because a guard asks it whether to think and every piece of
       # scenery asks it whether to be looked at.
       declare_the_rooms
@@ -1163,7 +1170,7 @@ module Wolf3D
       # sliding it, so the doors never say they moved and nothing else here would notice.
       @rooms&.floor_started
       @health.set START_HEALTH
-      @ammo.set START_AMMO
+      @ammo.set @start_ammo
       @keys.set 0
       @weapons.start_again
       # ...and none of the floor has been found yet, which is what makes these a share of it.
@@ -1330,22 +1337,59 @@ module Wolf3D
       b.held(:down).then { @stepx.flip }
       b.held(:down).then { @stepy.flip }
 
-      (b.held(:up) | b.held(:down)).then do
-        # Each direction is tried on its own, so a player pressed against a wall slides along
-        # it instead of stopping dead — one of the two moves still lands.
-        @nx.set @px
-        @nx.add @stepx
-        free?(@nx.to_i, @py.to_i).then { @px.set @nx }
-
-        @ny.set @py
-        @ny.add @stepy
-        free?(@px.to_i, @ny.to_i).then { @py.set @ny }
-      end
+      (b.held(:up) | b.held(:down)).then { take_the_step }
+      step_sideways
 
       @pickups.update
       reached_the_way_out
       move_the_doors
       move_the_walls
+    end
+
+    # THE STEP ITSELF, wherever it came from. Each direction is tried on its own, so a player
+    # pressed against a wall slides along it instead of stopping dead — one of the two moves
+    # still lands. A sideways step goes through exactly this, or strafing into a wall would put
+    # you through it.
+    def take_the_step
+      @nx.set @px
+      @nx.add @stepx
+      free?(@nx.to_i, @py.to_i).then { @px.set @nx }
+
+      @ny.set @py
+      @ny.add @stepy
+      free?(@px.to_i, @ny.to_i).then { @py.set @ny }
+    end
+
+    # STEPPING SIDEWAYS, which the shoulder buttons do.
+    #
+    # The original had this on a MODIFIER — hold Alt and left/right sidestep instead of turning
+    # (wl_agent.cpp, ControlMovement) — so in 1992 you could not turn and strafe at once. On a
+    # pad they can be their own two buttons, and then you can: hold R and hold left and you
+    # orbit what you are shooting at, which is the whole of how a boss fight is fought. He has
+    # eight hundred and fifty hit points, no flinch, and a six-shot burst; turning alone leaves
+    # you nothing to do but back away in a straight line.
+    #
+    # A QUARTER TURN EITHER SIDE OF WHERE YOU ARE LOOKING, at the same speed you walk — which is
+    # the original's own arrangement: it thrusts at `angle ± ANGLES/4` with the same BASEMOVE the
+    # forward step uses.
+    #
+    # WHERE THE TWO VECTORS COME FROM. The forward step is (cos, sin) of where you are looking,
+    # which is what the two table reads above it are. A quarter turn off that is (-sin, cos) one
+    # way and (sin, -cos) the other — the SAME PAIR OF READS with the roles swapped, and then one
+    # of the two flipped. So a sidestep costs a sign, not a second angle.
+    #
+    # Reading it against facing east, where sin is 0 and cos is 1: the pair is (0, 1), which is
+    # south, because the angle table runs clockwise and y counts down the screen. Flipping y
+    # gives north, which is your left hand. Flipping x leaves south, which is your right.
+    def step_sideways
+      b = @b
+      (b.held(:l) | b.held(:r)).then do
+        @stepx.set(@sin[@view] * WALK)
+        @stepy.set(@sin[@view + QUARTER] * WALK)
+        b.held(:l).then { @stepy.flip }
+        b.held(:r).then { @stepx.flip }
+        take_the_step
+      end
     end
 
     # HAVE YOU WALKED OUT OF THE EPISODE? See Level::EXIT for why this and not the boss's death
