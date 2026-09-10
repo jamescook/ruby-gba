@@ -131,4 +131,35 @@ class TestSpritePoseSizes < Minitest::Test
     blank = [[0, 0, 0, 0], [24, 32, 8, 8]]
     assert_backends_agree(program(blank), frames: 12)
   end
+
+  # A SPRITE STORED THE BIG WAY POINTS AT THE RIGHT POSE. A picture drawn from more than
+  # fifteen colours keeps a whole byte a pixel, so one of its 8x8 tiles is 64 bytes —
+  # while a tile NUMBER counts in 32s whichever way the picture is stored. So the step
+  # from one pose to the next is two per tile there and one in every other sprite in the
+  # suite, and counting tiles instead of those units silently draws the wrong pose.
+  INKS = (0...20).map { |i| RubyGBA::Color.rgb(i + 5, 31 - i, 3) }
+
+  # An 8x8 block running through all twenty inks from +from+, on a 16x16 canvas.
+  def wide_pose(from)
+    (0...(16 * 16)).map do |i|
+      x = i % 16
+      next CLEAR unless x < 8 && (i / 16) < 8
+
+      INKS[(from + ((i / 16) * 8) + x) % INKS.length]
+    end
+  end
+
+  def test_a_sprite_stored_the_big_way_shows_the_pose_it_selected
+    b = RubyGBA::IR::Build
+    prog = b.program(
+      b.screen(:tiled),
+      b.bitmap(:p0, width: 16, height: 16, pixels: wide_pose(0).pack("v*"), transparent: CLEAR),
+      b.bitmap(:p1, width: 16, height: 16, pixels: wide_pose(7).pack("v*"), transparent: CLEAR),
+      b.object(:hero, poses: %i[p0 p1], pose: b.int(1),
+                      x: b.int(40), y: b.int(40), active: b.int(1)),
+      b.loop_(b.wait_vblank, b.present_objects([:hero]))
+    )
+
+    assert_backends_agree(prog, frames: 4)
+  end
 end

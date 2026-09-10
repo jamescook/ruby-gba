@@ -144,22 +144,31 @@ module Hero
     world = layer(:ground) { background :world, tiles: :terrain, map: MAP }
 
     # The hero: a little round face, its corners see-through so the grass shows around
-    # it, its eyes a second color. It's pinned to the center of the screen and never
-    # moves from there — the world moves instead.
-    image :guy, "." => :transparent, "#" => :red, "o" => :white do
+    # it, its eyes and nose a second color. It's pinned to the center of the screen and
+    # never moves from there — the world moves instead.
+    #
+    # It is drawn LOOKING RIGHT, and that is the only way it is drawn. The left-facing
+    # pose is `mirror(:guy_right)` — the same picture the other way round, which is how
+    # nearly every 2D game faces a character. The console reverses a sprite for nothing,
+    # so the left pose keeps no pixels of its own: half the sprite memory of a character
+    # that faces both ways, and half the art to draw.
+    image :guy_right, "." => :transparent, "#" => :red, "o" => :white do
       <<~ART
         ..####..
         .######.
-        ##o##o##
+        ###o##o#
         ########
-        ########
+        #######o
         ########
         .######.
         ..####..
       ART
     end
 
-    hero = layer(:actors) { sprite :guy, at: [0, 0] }
+    # `move :left` turns them as well as walking them, so nothing below says `face`.
+    hero = layer(:actors) do
+      sprite :guy, at: [0, 0], facing: { right: :guy_right, left: mirror(:guy_right) }
+    end
     hero.center_on_screen # the middle of the screen, worked out from the hero's own size
 
     # HOW THICK THE MIST IS, which the game works out as you walk: 0 in the south, 100 in
