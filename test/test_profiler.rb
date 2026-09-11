@@ -11,7 +11,7 @@ require "tmpdir"
 # another must never run at all, because those are the two answers a profile has to get right:
 # it has to point at the work, and it must not invent any.
 class TestProfiler < Minitest::Test
-  include GembaSupport
+  include EmulatorSupport
 
   # One routine doing nearly all the work, one doing almost none, and one nothing calls.
   def lopsided_game
@@ -33,7 +33,7 @@ class TestProfiler < Minitest::Test
   end
 
   def setup
-    require_gemba_core!
+    require_emulator!
   end
 
   def test_the_routine_doing_the_work_is_the_one_at_the_top

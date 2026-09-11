@@ -48,7 +48,7 @@ class TestHardwareSpritesMulti < Minitest::Test
   end
 
   def test_layering_and_shared_palette_on_the_console
-    v = assert_gemba_loads_rom(rom_for(overlapping_pair), frames: 3)
+    v = assert_emulator_loads_rom(rom_for(overlapping_pair), frames: 3)
     assert v.red?(41, 41),  "red renders, got 0x#{format('%04X', v.pixel_gba(41, 41))}"
     assert v.blue?(50, 50), "blue renders, got 0x#{format('%04X', v.pixel_gba(50, 50))}"
     assert v.blue?(46, 46), "the later sprite is in front, got 0x#{format('%04X', v.pixel_gba(46, 46))}"
@@ -98,10 +98,10 @@ class TestHardwareSpritesMulti < Minitest::Test
   end
 
   def test_hide_and_show_on_the_console
-    hidden = assert_gemba_loads_rom(rom_for(visibility_program(shown: true, frames: 4)), frames: 6)
+    hidden = assert_emulator_loads_rom(rom_for(visibility_program(shown: true, frames: 4)), frames: 6)
     assert hidden.white?(44, 44), "a hidden sprite shows the floor, got 0x#{format('%04X', hidden.pixel_gba(44, 44))}"
 
-    shown = assert_gemba_loads_rom(rom_for(visibility_program(shown: false, frames: 4)), frames: 6)
+    shown = assert_emulator_loads_rom(rom_for(visibility_program(shown: false, frames: 4)), frames: 6)
     assert shown.red?(44, 44), "a shown sprite appears, got 0x#{format('%04X', shown.pixel_gba(44, 44))}"
   end
 end

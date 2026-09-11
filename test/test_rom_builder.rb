@@ -19,7 +19,7 @@ class TestRomBuilder < Minitest::Test
       end
     end
 
-    v = assert_gemba_loads_rom(rom, frames: 5)
+    v = assert_emulator_loads_rom(rom, frames: 5)
     assert v.blue?(120, 80), "the pre-debug_halt draw rendered"
     refute v.red?(120, 80), "everything after debug_halt is dropped"
   end

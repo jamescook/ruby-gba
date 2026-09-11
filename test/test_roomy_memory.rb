@@ -167,7 +167,7 @@ class TestRoomyMemory < Minitest::Test
   # memory and the oracle keeps in a Ruby array.
   def test_the_console_reads_it_back_the_same
     rom = ROM.assemble(GBA.new.lower(counting_program), title: "FARLIST", code: "BFAR", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
 
     assert v.pixel_is?(23, 10, :green), "24 pixels of stripe, so the total came back as 24"
     assert v.pixel_is?(24, 10, :black), "...and no more than 24"

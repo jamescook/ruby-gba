@@ -6,7 +6,7 @@ require "test_helper"
 # from the cartridge's save memory at boot (or its default on a fresh cartridge) and
 # re-saved automatically whenever it changes. These tests prove the round-trip on
 # both backends: the reference interpreter models a power cycle with an injected save
-# store, and the console (gemba) writes real SRAM the test reads straight back.
+# store, and the console (the emulator) writes real SRAM the test reads straight back.
 class TestSave < Minitest::Test
 
   GBA  = RubyGBA::IR::Backends::GBA
@@ -69,11 +69,11 @@ class TestSave < Minitest::Test
     assert_match(/whole number/, err.message)
   end
 
-  # --- Console (gemba): the game writes real SRAM, read straight back ---
+  # --- Console (the emulator): the game writes real SRAM, read straight back ---
 
   def test_the_console_writes_the_high_score_into_battery_ram
     rom = RubyGBA::ROM.assemble(GBA.new.lower(build(&KEEPER)), title: "SAVE", code: "BSAV", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
 
     assert_equal SAVE_MAGIC, sram_word(v, SRAM), "the marker should be written to save memory"
     assert_equal 7, sram_word(v, SRAM + 4), "the high score should sit in its save slot"

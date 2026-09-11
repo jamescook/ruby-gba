@@ -4,8 +4,8 @@ require "test_helper"
 
 # The GBA backend: lower hand-built IR programs to a real ROM. The deterministic
 # tests check the two-pass jump resolution and that the ROM finalizes cleanly;
-# the gemba-backed tests actually run the ROM and read pixels off the screen (and
-# skip when gemba isn't installed).
+# the emulator-backed tests actually run the ROM and read pixels off the screen (and
+# skip when the emulator isn't installed).
 class TestIRBackendGBA < Minitest::Test
   include RubyGBA::IR::Build
 
@@ -93,25 +93,25 @@ class TestIRBackendGBA < Minitest::Test
     assert_operator rom.size, :>, 0xC0
   end
 
-  # ---- it actually runs and draws (gemba; skips when absent) ----
+  # ---- it actually runs and draws (the emulator; skips when absent) ----
 
   def test_clear_screen_fills_the_whole_screen
     rom = lower(program(screen(:bitmap), clear_screen(:blue), halt))
-    v = assert_gemba_loads_rom(rom, frames: 5)
+    v = assert_emulator_loads_rom(rom, frames: 5)
     assert v.blue?(0, 0)
     assert v.blue?(239, 159)
   end
 
   def test_a_constant_pixel_lands_at_its_coordinates
     rom = lower(program(screen(:bitmap), clear_screen(:black), pixel(10, 20, :red), halt))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(10, 20)
     assert v.black?(11, 20)
   end
 
   def test_fill_rect_paints_its_block
     rom = lower(program(screen(:bitmap), clear_screen(:black), fill_rect(5, 5, 4, 3, :green), halt))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.green?(5, 5)
     assert v.green?(8, 7)  # bottom-right corner (5+4-1, 5+3-1)
     assert v.black?(9, 5)  # just outside
@@ -128,7 +128,7 @@ class TestIRBackendGBA < Minitest::Test
       pixel(:x, 0, :red),
       halt,
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(10, 0)
     assert v.black?(9, 0)
   end
@@ -145,7 +145,7 @@ class TestIRBackendGBA < Minitest::Test
         if_(binop(:>=, var_ref(:x), int(5)), halt),
       ),
     ))
-    v = assert_gemba_loads_rom(rom, frames: 5)
+    v = assert_emulator_loads_rom(rom, frames: 5)
     assert v.red?(1, 0)
     assert v.red?(5, 0)
     assert v.black?(6, 0)
@@ -159,7 +159,7 @@ class TestIRBackendGBA < Minitest::Test
       if_(held(:a), pixel(10, 10, :red)),
       halt,
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.black?(10, 10)
   end
 
@@ -179,7 +179,7 @@ class TestIRBackendGBA < Minitest::Test
       clear_screen(:black),
       loop_(wait_vblank, if_(pressed(:start), pixel(10, 10, :red))),
     ))
-    v = assert_gemba_loads_rom(rom, frames: 5)
+    v = assert_emulator_loads_rom(rom, frames: 5)
     assert v.black?(10, 10)
   end
 
@@ -198,7 +198,7 @@ class TestIRBackendGBA < Minitest::Test
       ),
     ))
 
-    v = assert_gemba_loads_rom(rom, frames: 6, keys: KEY_START) # start held every frame
+    v = assert_emulator_loads_rom(rom, frames: 6, keys: KEY_START) # start held every frame
     assert v.red?(1, 0), "one down-edge => count == 1 => pixel at (1, 0)"
     assert v.black?(2, 0), "holding must not count as repeated presses"
   end
@@ -212,7 +212,7 @@ class TestIRBackendGBA < Minitest::Test
       blit(:quad, 10, 20),
       halt,
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(10, 20)
     assert v.green?(11, 20)
     assert v.blue?(10, 21)
@@ -230,7 +230,7 @@ class TestIRBackendGBA < Minitest::Test
       blit(:dot, 10, 10),
       halt,
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.blue?(10, 10), "transparent end -> background shows"
     assert v.red?(11, 10),  "lit pixel drawn"
     assert v.blue?(12, 10), "transparent end -> background shows"
@@ -244,7 +244,7 @@ class TestIRBackendGBA < Minitest::Test
       blit(:dot, var_ref(:px), var_ref(:py)),
       halt,
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(100, 50)
     assert v.black?(99, 50)
   end
@@ -289,7 +289,7 @@ class TestIRBackendGBA < Minitest::Test
       pixel(data_byte(:coords, 0), 0, :red),
       halt,
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(10, 0)
     assert v.black?(11, 0)
   end
@@ -303,7 +303,7 @@ class TestIRBackendGBA < Minitest::Test
       pixel(binop(:/, var_ref(:x), int(3)), 0, :red),
       halt,
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(6, 0)
     assert v.black?(7, 0)
   end
@@ -320,7 +320,7 @@ class TestIRBackendGBA < Minitest::Test
       if_(too_high, pixel(20, 20, :blue)),
       halt,
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(10, 10), "5 is >1 and <9, so the AND holds"
     assert v.black?(20, 20), "5 is not >9, so the AND fails"
   end
@@ -331,7 +331,7 @@ class TestIRBackendGBA < Minitest::Test
     taken.else = else_(pixel(20, 20, :blue))
 
     rom = lower(program(screen(:bitmap), clear_screen(:black), set(:x, 1), taken, halt))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.blue?(20, 20), "false condition runs the else-branch"
     assert v.black?(10, 10), "the then-branch must not run"
   end
@@ -346,7 +346,7 @@ class TestIRBackendGBA < Minitest::Test
       set(:v, 5), negate(:v), abs(:v),
       pixel(:v, 0, :red), halt,
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(5, 0)
     assert v.black?(4, 0)
   end
@@ -359,7 +359,7 @@ class TestIRBackendGBA < Minitest::Test
       set(:v, 6), negate(:v), negate_abs(:v), add(:v, 20),
       pixel(:v, 0, :red), halt,
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(14, 0)
     assert v.black?(26, 0)
   end
@@ -369,7 +369,7 @@ class TestIRBackendGBA < Minitest::Test
   def test_dma_fill_rect_paints_its_block
     rom = lower(program(screen(:bitmap), clear_screen(:black),
                         dma_fill_rect(4, 6, 4, 2, :red), halt))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(4, 6)
     assert v.red?(7, 7)   # bottom-right (4+4-1, 6+2-1)
     assert v.black?(8, 6) # just outside
@@ -383,7 +383,7 @@ class TestIRBackendGBA < Minitest::Test
       draw_rect_at(:x, :y, 4, 4, :green),
       halt,
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.green?(30, 40)
     assert v.green?(33, 43) # bottom-right corner
     assert v.black?(34, 40) # just outside
@@ -398,7 +398,7 @@ class TestIRBackendGBA < Minitest::Test
       draw_rect_at(:x, 50, 4, 4, :white),
       halt,
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.white?(20, 50)
     assert v.black?(19, 50)
   end
@@ -406,7 +406,7 @@ class TestIRBackendGBA < Minitest::Test
   def test_draw_text_renders_glyphs
     rom = lower(program(screen(:bitmap), clear_screen(:black),
                         draw_text("HI", 40, 30, :white), halt))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     # 'H' row 0 = 0x11: leftmost and rightmost columns lit, middle not.
     assert v.white?(40, 30)      # left post of 'H'
     assert v.white?(44, 30)      # right post of 'H'
@@ -427,25 +427,25 @@ class TestIRBackendGBA < Minitest::Test
 
   def test_a_lowered_beep_actually_plays_sound
     rom = lower(program(enable_sound, beep(:high), halt))
-    v = assert_gemba_loads_rom(rom, frames: 8)
+    v = assert_emulator_loads_rom(rom, frames: 8)
     assert v.sound?, "an enabled beep should produce audible PCM"
   end
 
   def test_a_lowered_noise_hit_actually_plays_sound
     rom = lower(program(enable_sound, noise(:explosion), halt))
-    v = assert_gemba_loads_rom(rom, frames: 8)
+    v = assert_emulator_loads_rom(rom, frames: 8)
     assert v.sound?, "an enabled noise hit should produce audible PCM on channel 4"
   end
 
   def test_a_lowered_wave_tone_actually_plays_sound
     rom = lower(program(enable_sound, wave(shape: :triangle, frequency: 262, volume: :full), halt))
-    v = assert_gemba_loads_rom(rom, frames: 8)
+    v = assert_emulator_loads_rom(rom, frames: 8)
     assert v.sound?, "an enabled wave tone should produce audible PCM on channel 3"
   end
 
   def test_enabling_sound_without_a_beep_stays_silent
     rom = lower(program(enable_sound, halt))
-    v = assert_gemba_loads_rom(rom, frames: 8)
+    v = assert_emulator_loads_rom(rom, frames: 8)
     assert v.silent?, "no beep means no sound"
   end
 
@@ -456,7 +456,7 @@ class TestIRBackendGBA < Minitest::Test
       song(:tune, events: [[1, 262], [2, 330], [3, 392]], total_frames: 8),
       loop_(wait_vblank, play_song(:tune)),
     ))
-    v = assert_gemba_loads_rom(rom, frames: 10)
+    v = assert_emulator_loads_rom(rom, frames: 10)
     assert v.sound?, "play_song should trigger notes on the music channel"
   end
 
@@ -470,7 +470,7 @@ class TestIRBackendGBA < Minitest::Test
       song(:downbeat, events: [[0, 262]], total_frames: 8),
       loop_(wait_vblank, play_song(:downbeat)),
     ))
-    v = assert_gemba_loads_rom(rom, frames: 10)
+    v = assert_emulator_loads_rom(rom, frames: 10)
     assert v.sound?, "the note on frame 0 should sound"
   end
 
@@ -486,7 +486,7 @@ class TestIRBackendGBA < Minitest::Test
       ]),
       loop_(wait_vblank, play_song(:duet)),
     ))
-    v = assert_gemba_loads_rom(rom, frames: 10)
+    v = assert_emulator_loads_rom(rom, frames: 10)
     assert v.sound?, "a two-part song should drive the music channels"
   end
 
@@ -507,7 +507,7 @@ class TestIRBackendGBA < Minitest::Test
       func(:title, pixel(10, 10, :red)),
       func(:playing, pixel(20, 20, :blue)),
     ))
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.blue?(20, 20), "state == 1 should run the :playing scene"
     assert v.black?(10, 10), "the :title scene must not run"
   end

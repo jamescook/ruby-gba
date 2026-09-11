@@ -5,7 +5,7 @@ require "test_helper"
 require "tmpdir"
 
 # The Analyzer measures a built ROM's real per-frame CPU cost on the emulator — the
-# measured counterpart to the static cost estimate. These run real ROMs through gemba
+# measured counterpart to the static cost estimate. These run real ROMs through the emulator
 # and read the busy scanlines a frame burns.
 class TestAnalyzer < Minitest::Test
 

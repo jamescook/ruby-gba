@@ -51,7 +51,7 @@ class TestCorridorExample < Minitest::Test
   # it — this used to ask an estimate the same question, and how close that estimate came was
   # itself most of what this file tested.
   def test_it_is_heavy_and_still_fits
-    require_gemba_core!
+    require_emulator!
     spare = idle_share_of(Corridor::GAME)
 
     assert_operator spare, :<, 0.45, "a witness near the line has to be near it: #{spare}"
@@ -62,7 +62,7 @@ class TestCorridorExample < Minitest::Test
   # and this is the same game either side of the line. Sixty rays holds 60 frames a second;
   # eighty does not. Both are run, so neither answer is anybody's opinion.
   def test_which_side_of_the_line_the_game_is_on
-    require_gemba_core!
+    require_emulator!
     [[Corridor::NUM_COLS, Corridor::COL_W, true, "BCOR"],
      [80, 3, false, "BCO8"]].each do |cols, col_w, should_fit, code|
       game = Corridor.game(name: "COR#{cols}", code: code, cols: cols, col_w: col_w)

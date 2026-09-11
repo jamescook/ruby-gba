@@ -3,9 +3,9 @@
 # Shard the test suite across processes for `rake test:parallel`, and report the
 # whole thing as if it were one serial run.
 #
-# Threads would be the cheaper option, and they aren't useless here — gemba-core
+# Threads would be the cheaper option, and they aren't useless here — the emulator
 # releases the GVL around run_frame (see rb_thread_call_without_gvl in
-# gemba_core_ext.c), so the emulator-backed test files genuinely overlap under a
+# ruby_gba_emulator_ext.c), so the emulator-backed test files genuinely overlap under a
 # thread pool. But the rest of the suite — IR lowering, the cost model, the
 # assembler — is pure Ruby and would still crawl one test at a time. So:
 # processes. They parallelize all of it, and hand each shard a clean slate, with

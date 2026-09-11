@@ -309,7 +309,7 @@ class TestRowBend < Minitest::Test
     assert BendForm.copier?(program), "one engine is left for the bend"
 
     rom = assemble_rom(program, name: "SNDB")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.sound?, "the sample still reaches the speaker"
     assert v.red?(0, 0), "...and row 0 sits where it was drawn, unbent"
     assert v.red?(4, 4), "...while row 4 has slid four across"

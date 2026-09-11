@@ -203,8 +203,8 @@ class TestCameraShake < Minitest::Test
     done = ROM.assemble(GBA.new.lower(shaking_game(frames: 20, intensity: 6, length: 3)),
                         title: "SHAKE", code: "BSHK", maker: "01")
 
-    during = assert_gemba_loads_rom(mid, frames: 6)
-    after = assert_gemba_loads_rom(done, frames: 24)
+    during = assert_emulator_loads_rom(mid, frames: 6)
+    after = assert_emulator_loads_rom(done, frames: 24)
 
     # The block was drawn across x 100..139. After the shake it is exactly there.
     assert after.red?(120, 80), "the block should be back where it was drawn, " \

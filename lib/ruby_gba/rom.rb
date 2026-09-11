@@ -148,7 +148,7 @@ module RubyGBA
     #
     # +format+ is :human to print it or :json for the same numbers as data.
     #
-    # Needs the emulator (gemba-core) and a cartridge that knows how it was built — the
+    # Needs the emulator and a cartridge that knows how it was built — the
     # addresses each routine runs at cannot be recovered from the bytes, because a routine kept
     # in the console's quick memory was copied there at boot.
     def profile(format: :human, out: $stdout, frames: Profiler::FRAMES,

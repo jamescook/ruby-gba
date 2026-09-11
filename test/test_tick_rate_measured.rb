@@ -7,10 +7,10 @@ require "test_helper"
 # The half that cannot be faked: finding each timer's handler inside the one routine
 # the console interrupts into, and counting the ticks that really arrived.
 class TestTickRateMeasured < Minitest::Test
-  include GembaSupport
+  include EmulatorSupport
 
   def setup
-    require_gemba_core!
+    require_emulator!
   end
 
   # +work+ is how many times the handler spins; +clears+ how many full-screen fills the

@@ -55,7 +55,7 @@ class TestScrollTearing < Minitest::Test
     WORK_LEVELS.each do |work|
       rom = ROM.assemble(GBA.new.lower(striped_scroller(work)),
                          title: "SCROLL", code: "BSCR", maker: "01")
-      v = assert_gemba_loads_rom(rom, frames: 8)
+      v = assert_emulator_loads_rom(rom, frames: 8)
 
       column = (0...160).map { |y| v.pixel_gba(4, y) }
       shear = (1...160).find { |y| column[y] != column[y - 1] }

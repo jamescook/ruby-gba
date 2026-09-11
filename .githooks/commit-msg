@@ -14,7 +14,14 @@ msg_file="$1"
 # The real message, minus git's comment/scissor lines.
 body=$(grep -vE '^[[:space:]]*#' "$msg_file")
 
-ids=$(printf '%s\n' "$body" | grep -Eo 'gba-[a-z0-9]{3,}' | sort -u | tr '\n' ' ')
+# THE PROJECT'S OWN NAMES CONTAIN "gba-" AND ARE NOT BEAD IDS. "ruby-gba-emulator" holds
+# "gba-emulator", which matches the id pattern exactly, so without this every commit message
+# that names the emulator gem is refused. Blank those names out before scanning rather than
+# trying to write a cleverer pattern: grep here has no lookbehind, and the list is short and
+# says plainly which names are exempt.
+scannable=$(printf '%s\n' "$body" | sed -e 's/ruby-gba-emulator//g' -e 's/ruby-gba//g')
+
+ids=$(printf '%s\n' "$scannable" | grep -Eo 'gba-[a-z0-9]{3,}' | sort -u | tr '\n' ' ')
 
 if [ -n "$ids" ]; then
   echo "commit-msg: this message names a bead id: ${ids}" >&2

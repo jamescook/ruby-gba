@@ -39,7 +39,7 @@ class TestRaycasterExample < Minitest::Test
   def test_walls_render_on_the_console
     # One game frame does a lot (a ray per column, a row per wall pixel), so it spans
     # several emulated frames before the first double-buffer flip — give it headroom.
-    v = assert_gemba_loads_rom(Raycaster.build_rom(out: StringIO.new, err: StringIO.new), frames: 24)
+    v = assert_emulator_loads_rom(Raycaster.build_rom(out: StringIO.new, err: StringIO.new), frames: 24)
     assert_operator wall_columns(->(x, y) { v.pixel_gba(x, y) }), :>=, 20,
                     "the surrounding walls should draw a strip in most columns on hardware"
   end

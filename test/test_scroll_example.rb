@@ -27,7 +27,7 @@ class TestScrollExample < Minitest::Test
   end
 
   def test_the_world_renders_on_the_console
-    v = assert_gemba_loads_rom(ROM.assemble(GBA.new.lower(Scroll.program), title: "SCROLL", code: "BSCR", maker: "01"),
+    v = assert_emulator_loads_rom(ROM.assemble(GBA.new.lower(Scroll.program), title: "SCROLL", code: "BSCR", maker: "01"),
                                frames: 3)
     assert blue_in_lake?(->(x, y) { v.blue?(x, y) }), "the lake renders on hardware"
   end

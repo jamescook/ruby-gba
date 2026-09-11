@@ -141,7 +141,7 @@ class TestTiledBackground < Minitest::Test
     end
     b.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(b.program), title: "TILES", code: "BTIL", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 2)
+    v = assert_emulator_loads_rom(rom, frames: 2)
     assert v.red?(1, 1),  "the red tile renders in cell (0,0)"
     assert v.blue?(5, 1), "the blue tile renders in cell (1,0)"
   end

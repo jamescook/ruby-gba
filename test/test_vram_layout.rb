@@ -181,7 +181,7 @@ class TestVramLayout < Minitest::Test
   def test_all_four_layers_render_without_corrupting_each_other
     rom = ROM.assemble(GBA.new.lower(four_layer_program),
                        title: "LAYOUT", code: "BLYT", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
 
     LANDMARKS.each_with_index do |(color, cell), layer|
       x = (cell * 8) + 4
@@ -201,7 +201,7 @@ class TestVramLayout < Minitest::Test
   def test_a_layer_with_its_own_starting_point_renders
     rom = ROM.assemble(GBA.new.lower(stacked_tilesets_program),
                        title: "CHARBASE", code: "BCHB", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
 
     assert v.pixel_is?((5 * 8) + 4, 4, :red),
            "the first layer's landmark, got 0x#{format('%04X', v.pixel_gba((5 * 8) + 4, 4))}"

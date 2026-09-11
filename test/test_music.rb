@@ -381,6 +381,6 @@ class TestMusic < Minitest::Test
       end
     end
 
-    assert_gemba_loads_rom(rom, frames: 120)
+    assert_emulator_loads_rom(rom, frames: 120)
   end
 end

@@ -58,7 +58,7 @@ class TestPerSceneMode < Minitest::Test
   # The direct-color title renders on the console (Mode 3, 15-bit color).
   def test_the_direct_color_title_renders_on_the_console
     rom = assemble_rom(mixed_program, name: "MIX")
-    v = assert_gemba_loads_rom(rom, frames: 4) # no input: the Mode 3 title
+    v = assert_emulator_loads_rom(rom, frames: 4) # no input: the Mode 3 title
     assert v.red?(0, 0), "the direct-color title should be red, got 0x#{format('%04X', v.pixel_gba(0, 0))}"
   end
 
@@ -66,7 +66,7 @@ class TestPerSceneMode < Minitest::Test
   # through the auto palette — proof the Mode 3 -> Mode 4 transition works.
   def test_the_buffered_scene_renders_after_the_switch
     rom = assemble_rom(mixed_program, name: "MIX")
-    v = assert_gemba_loads_rom(rom, frames: 8, keys: KEY_START)
+    v = assert_emulator_loads_rom(rom, frames: 8, keys: KEY_START)
     assert v.blue?(0, 0), "the buffered play field should be blue, got 0x#{format('%04X', v.pixel_gba(0, 0))}"
     assert v.green?(103, 79), "the buffered green cell should render, got 0x#{format('%04X', v.pixel_gba(103, 79))}"
   end
@@ -198,11 +198,11 @@ class TestPerSceneMode < Minitest::Test
 
     rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "AFMD", code: "BAFM", maker: "01")
 
-    v = assert_gemba_loads_rom(rom, frames: 10)
+    v = assert_emulator_loads_rom(rom, frames: 10)
     white_shows = (100..112).any? { |x| (20..27).any? { |y| v.pixel_is?(x, y, :white) } }
     assert white_shows, "the affine scene's text should show somewhere in its glyph area"
 
-    v2 = assert_gemba_loads_rom(rom, frames: 10, keys: KEY_START)
+    v2 = assert_emulator_loads_rom(rom, frames: 10, keys: KEY_START)
     assert v2.black?(0, 0), "the bitmap play scene must not be distorted by a leftover affine matrix"
   end
 
@@ -237,8 +237,8 @@ class TestPerSceneMode < Minitest::Test
     b.emit_pending_functions
     rom = RubyGBA::ROM.assemble(GBA.new.lower(b.program), title: "ZOOM", code: "BZOM", maker: "01")
 
-    early = assert_gemba_loads_rom(rom, frames: 3)
-    later = assert_gemba_loads_rom(rom, frames: 20)
+    early = assert_emulator_loads_rom(rom, frames: 3)
+    later = assert_emulator_loads_rom(rom, frames: 20)
     row_at = ->(v) { (0...240).map { |x| v.pixel_gba(x, 60) } }
 
     refute_equal row_at.call(early), row_at.call(later),

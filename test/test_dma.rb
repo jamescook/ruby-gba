@@ -109,7 +109,7 @@ class TestDMA < Minitest::Test
       halt
     end
 
-    verifier = assert_gemba_loads_rom(rom, frames: 5)
+    verifier = assert_emulator_loads_rom(rom, frames: 5)
     # Center pixel should be red
     assert verifier.red?(120, 80), "center should be red after clear_screen :red"
     # Corners too
@@ -125,7 +125,7 @@ class TestDMA < Minitest::Test
       halt
     end
 
-    verifier = assert_gemba_loads_rom(rom, frames: 5)
+    verifier = assert_emulator_loads_rom(rom, frames: 5)
     # Inside the rect should be green
     assert verifier.green?(120, 80), "center of rect should be green"
     # Outside should be black
@@ -141,7 +141,7 @@ class TestDMA < Minitest::Test
       end
     end
 
-    assert_gemba_loads_rom(rom, frames: 10)
+    assert_emulator_loads_rom(rom, frames: 10)
   end
 
   private

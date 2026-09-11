@@ -300,7 +300,7 @@ class TestLayers < Minitest::Test
   # ...and the console draws what the interpreter says.
   def test_the_console_shows_the_front_layer_too
     rom = assemble_rom(two_reversed_sprites(:bitmap), name: "STACK")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
 
     assert v.green?(OVERLAP[0] + 3, OVERLAP[1] + 3),
            "console showed #{format('0x%04x', v.pixel_gba(OVERLAP[0] + 3, OVERLAP[1] + 3))}"

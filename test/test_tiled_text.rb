@@ -176,8 +176,8 @@ class TestTiledText < Minitest::Test
   def test_a_blinking_prompt_blinks_on_the_console
     prog = blinking_prompt_program
     rom = ROM.assemble(GBA.new.lower(prog), title: "BLINK", code: "BBLI", maker: "01")
-    on = assert_gemba_loads_rom(rom, frames: 2)
-    off = assert_gemba_loads_rom(rom, frames: 3)
+    on = assert_emulator_loads_rom(rom, frames: 2)
+    off = assert_emulator_loads_rom(rom, frames: 3)
 
     assert lit_pixels(on, "A", 100, 20).all? { |x, y| on.white?(x, y) }, "the plain label shows"
     assert lit_pixels(on, "B", 140, 20).all? { |x, y| on.white?(x, y) }, "the prompt shows while blink is 1"
@@ -237,7 +237,7 @@ class TestTiledText < Minitest::Test
       draw_number :score, 100, 20, :white, digits: 2
     end
     rom = ROM.assemble(GBA.new.lower(prog), title: "HUD", code: "BHUD", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3)
+    v = assert_emulator_loads_rom(rom, frames: 3)
     cell = Fonts.get(:default).cell_w
     # A lit pixel of "4" and of "2" should be white on the real framebuffer.
     Fonts.get(:default).each_pixel("4") do |dx, dy|

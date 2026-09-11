@@ -63,7 +63,7 @@ class TestMixerKeepsTime < Minitest::Test
     backend = GBA.new
     program = late_game(burn)
     rom = ROM.assemble(backend.lower(program), title: "MIXTIME", code: "ZMXT", maker: "01")
-    console = assert_gemba_loads_rom(rom, frames: FRAMES, vars: backend.var_addresses)
+    console = assert_emulator_loads_rom(rom, frames: FRAMES, vars: backend.var_addresses)
     loud = console.audio_energy_by_frame.each_index.select do |n|
       console.audio_energy_by_frame[n] > AUDIBLE
     end
@@ -134,7 +134,7 @@ class TestMixerKeepsTime < Minitest::Test
       end
       b.emit_pending_functions
       rom = ROM.assemble(backend.lower(b.program), title: "MIXBOOT", code: "ZMXB", maker: "01")
-      console = assert_gemba_loads_rom(rom, frames: 30, vars: backend.var_addresses)
+      console = assert_emulator_loads_rom(rom, frames: 30, vars: backend.var_addresses)
 
       assert_operator console.var(:passes), :>, 20,
                       "at #{rate}Hz the game loop stopped turning — the first frame's interrupt " \

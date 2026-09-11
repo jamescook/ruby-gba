@@ -52,7 +52,7 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
     rom = ROM.assemble(GBA.new.lower(tiled_game_that_also_fills),
                        title: "GAP", code: "BGAP", maker: "01")
 
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.blue?(20, 20), "the background should show"
     assert v.blue?(120, 80),
            "the middle of the fill_rect should still be background blue — a tiled screen " \

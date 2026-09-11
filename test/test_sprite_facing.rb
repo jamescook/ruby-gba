@@ -6,7 +6,7 @@ require "test_helper"
 # and the sprite draws whichever pose it faces. face(:dir) turns it in place, and
 # move(:dir) turns it as it goes. Tested with distinctly COLOURED poses (green
 # right, red left) so "which pose is showing" is a pixel check — on the interpreter
-# and on gemba. (The poses are the same size so they share one save-under buffer.)
+# and on the emulator. (The poses are the same size so they share one save-under buffer.)
 class TestSpriteFacing < Minitest::Test
   include RubyGBA::Constants
 
@@ -96,10 +96,10 @@ class TestSpriteFacing < Minitest::Test
 
   # ---- hardware ----
 
-  def test_the_faced_pose_renders_on_gemba
+  def test_the_faced_pose_renders_on_the_console
     prog = faceted_program(frames: 6) { |guy| after(2) { guy.face :left } }
     rom = ROM.assemble(GBA.new.lower(prog), title: "FACING", code: "BFAC", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 7)
+    v = assert_emulator_loads_rom(rom, frames: 7)
     assert v.red?(50, 50), "the left (red) pose should show on hardware — got #{v.pixel_gba(50, 50).to_s(16)}"
     refute v.green?(50, 50), "the right pose should have been restored"
   end

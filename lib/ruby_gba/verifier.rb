@@ -6,8 +6,8 @@ module RubyGBA
   # This is the definitive answer to "did my ROM actually draw anything?"
   # Instead of squinting at an emulator window, assert exact pixel values.
   #
-  # Requires gemba-core to be available (loads GembaCore::Core) — the headless
-  # libmgba probe vendored under gemba-core/ in this repo.
+  # Requires ruby-gba-emulator to be available (loads RubyGBAEmulator::Core) — the headless
+  # libmgba probe, a gem of its own in this repository.
   #
   # @example Verify a pixel
   #   rom = RubyGBA.build("TEST", code: "BTST", maker: "01") do
@@ -150,7 +150,7 @@ module RubyGBA
 
     # --- memory ---
     #
-    # Read values back out of the running console, not just the screen. gemba reads
+    # Read values back out of the running console, not just the screen. The emulator reads
     # the GBA bus directly, so a hardware test can assert run-time STATE — a variable
     # a program computed, or a hardware register like VCOUNT — the same way it asserts
     # pixels. Reads happen at the final frame boundary (after the frames have run).
@@ -192,7 +192,7 @@ module RubyGBA
     # --- audio ---
     #
     # The counterpart to reading pixels: read the sound that actually came out.
-    # gemba mixes each frame to stereo PCM and we concatenate the whole run, so
+    # The emulator mixes each frame to stereo PCM and we concatenate the whole run, so
     # these ask "what did the speaker do?" rather than trusting the ROM's bytes.
 
     # Total absolute amplitude across every PCM sample captured — 0 is perfect

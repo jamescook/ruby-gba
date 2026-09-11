@@ -3,17 +3,17 @@
 require "tmpdir"
 require "fileutils"
 
-module GembaCore
+module RubyGBAEmulator
   # A headless, dev-only probe over a GBA ROM.
   #
   # Probe wraps a {Core} and hands back plain Ruby data — pixels as [r, g, b],
   # memory as integers, audio as an energy number, and a whole-frame +snapshot+
   # Hash — so a test or a REPL can see exactly what a frame contains with no UI
   # in the way. It exists to answer "what is this ROM actually doing, frame by
-  # frame?" without booting the full gemba emulator/SDL stack.
+  # frame?" without booting a full emulator/SDL stack.
   #
   # @example Step a red-screen ROM and read the middle pixel
-  #   probe = GembaCore::Probe.new("game.gba")
+  #   probe = RubyGBAEmulator::Probe.new("game.gba")
   #   probe.step(6)                 # advance 6 frames
   #   probe.pixel(120, 80)          # => [255, 0, 0]
   #   probe.snapshot                # => {frame: 6, width: 240, ...}
@@ -49,7 +49,7 @@ module GembaCore
     # @param save_dir [String, nil] directory for the .sav; nil for a private temporary one
     # @param bios_path [String, nil] a BIOS image to boot through, or nil for mGBA's own
     def initialize(rom_path, save_dir: nil, bios_path: nil)
-      @own_save_dir = save_dir.nil? ? Dir.mktmpdir("gemba-save") : nil
+      @own_save_dir = save_dir.nil? ? Dir.mktmpdir("ruby-gba-save") : nil
       @core = Core.new(rom_path, save_dir || @own_save_dir, bios_path)
       @width = @core.width
       @height = @core.height
@@ -419,7 +419,7 @@ module GembaCore
     #
     # @return [Integer]
     def lit_pixels
-      GembaCore.count_changed_pixels(pixels!)
+      RubyGBAEmulator.count_changed_pixels(pixels!)
     end
 
     # Number of pixels that changed between the previous frame and the current
@@ -429,7 +429,7 @@ module GembaCore
     def changed_pixels
       return 0 unless @pixels && @prev_pixels
 
-      GembaCore.count_changed_pixels(GembaCore.xor_delta(@pixels, @prev_pixels))
+      RubyGBAEmulator.count_changed_pixels(RubyGBAEmulator.xor_delta(@pixels, @prev_pixels))
     end
 
     # A plain-Hash summary of where the ROM is right now — the headline numbers

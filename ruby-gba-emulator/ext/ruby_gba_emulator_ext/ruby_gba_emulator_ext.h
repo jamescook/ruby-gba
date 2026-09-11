@@ -1,5 +1,5 @@
-#ifndef GEMBA_CORE_EXT_H
-#define GEMBA_CORE_EXT_H
+#ifndef RUBY_GBA_EMULATOR_EXT_H
+#define RUBY_GBA_EMULATOR_EXT_H
 
 #include <ruby.h>
 #include <mgba/core/core.h>
@@ -10,8 +10,8 @@
 #include <mgba/internal/gba/bios.h>
 #include <mgba/internal/gba/gba.h>
 
-extern VALUE mGembaCore;
+extern VALUE mRubyGBAEmulator;
 
-void Init_gemba_core_ext(void);
+void Init_ruby_gba_emulator_ext(void);
 
-#endif /* GEMBA_CORE_EXT_H */
+#endif /* RUBY_GBA_EMULATOR_EXT_H */

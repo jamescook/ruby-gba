@@ -280,7 +280,7 @@ class TestTextPlacement < Minitest::Test
     end
     b.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(b.program), title: "CENTER", code: "BCTR", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 2)
+    v = assert_emulator_loads_rom(rom, frames: 2)
     left = (SCREEN - IM_WIDE) / 2
 
     assert v.white?(left, Y), "the I sits where the font says the line starts"

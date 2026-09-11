@@ -9,7 +9,7 @@ require "test_helper"
 # branches, and does nothing. A ray that hits a third of the way through pays for the other two
 # thirds, and a first-person view casts one of these per strip across the screen.
 class TestRepeatStopWhen < Minitest::Test
-  include GembaSupport
+  include EmulatorSupport
 
   Build = RubyGBA::IR::Build
   LoopForm = RubyGBA::IR::Backends::GBA::LoopForm
@@ -67,7 +67,7 @@ class TestRepeatStopWhen < Minitest::Test
   def test_the_console_stops_where_the_interpreter_stops
     backend = GBA.new
     rom = ROM.assemble(backend.lower(marching), title: "STOP", code: "ASTP", maker: "01")
-    gba = assert_gemba_loads_rom(rom, frames: 4, vars: backend.var_addresses)
+    gba = assert_emulator_loads_rom(rom, frames: 4, vars: backend.var_addresses)
 
     assert_equal Reference.new.run(marching, frames: 2)[:steps], gba.var(:steps)
     assert_equal 5, gba.var(:steps)

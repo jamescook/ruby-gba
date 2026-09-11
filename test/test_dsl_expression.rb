@@ -11,7 +11,7 @@ require "test_helper"
 # it drew. So a comparison or branch is judged by what it makes the game show —
 # never by re-describing the IR it builds. (Opcode-level checks belong in the
 # IR-backend tests.) Guardrail tests assert a friendly error for misuse, and a
-# couple of gemba tests confirm the same programs on real hardware.
+# couple of the emulator tests confirm the same programs on real hardware.
 class TestDSLExpression < Minitest::Test
   include RubyGBA::IR::Build # constructors, for the guardrail trees
 
@@ -30,7 +30,7 @@ class TestDSLExpression < Minitest::Test
     ruby
   end
 
-  # Build a real ROM (for the gemba hardware-confirmation tests).
+  # Build a real ROM (for the emulator-backed hardware-confirmation tests).
   def build(&block)
     RubyGBA.build("EXPR", code: "BEXP", maker: "01", validate: false, &block)
   end
@@ -304,7 +304,7 @@ class TestDSLExpression < Minitest::Test
     assert_match(/variable/, err.message)
   end
 
-  # ---- the same programs, confirmed on real hardware (gemba) ----
+  # ---- the same programs, confirmed on real hardware (the emulator) ----
 
   def test_then_gates_a_draw_on_hardware
     rom = build do
@@ -315,7 +315,7 @@ class TestDSLExpression < Minitest::Test
       (x < 3).then { pixel 20, 20, :blue }
       halt
     end
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(10, 10)
     assert v.black?(20, 20)
   end
@@ -328,7 +328,7 @@ class TestDSLExpression < Minitest::Test
       ((x > 1) & (x < 9)).then { pixel 10, 10, :red }.else { pixel 20, 20, :blue }
       halt
     end
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(10, 10), "5 is in (1, 9), so the then-branch draws"
     assert v.black?(20, 20)
   end

@@ -12,7 +12,7 @@ require "differential"
 # is about pixels, on both backends, because the two agreeing is what makes the interpreter
 # usable for debugging the renderer.
 class TestDrawColumnAt < Minitest::Test
-  include GembaSupport
+  include EmulatorSupport
 
   # Four rows, each its own color, so a stretch is readable row by row.
   BARS = %i[red red green green blue blue white white].freeze
@@ -118,7 +118,7 @@ class TestDrawColumnAt < Minitest::Test
     assert_equal 8, drawn, "the interpreter should draw every column"
 
     rom = ROM.assemble(GBA.new.lower(prog), title: "LOOP", code: "ALUP", maker: "01")
-    gba = assert_gemba_loads_rom(rom, frames: 4)
+    gba = assert_emulator_loads_rom(rom, frames: 4)
     on_console = (0...8).count { |x| gba.pixel_gba(x, 0) == RubyGBA::Color.resolve(:red) }
 
     assert_equal 8, on_console, "the console should draw every column too"
@@ -174,7 +174,7 @@ class TestDrawColumnAt < Minitest::Test
 
     interp = Reference.new.run(prog, frames: 2)
     rom = ROM.assemble(GBA.new.lower(prog), title: "COLUMN", code: "ACOL", maker: "01")
-    gba = assert_gemba_loads_rom(rom, frames: 4)
+    gba = assert_emulator_loads_rom(rom, frames: 4)
 
     differ = (0...240).to_a.product((0...160).to_a).reject do |x, y|
       interp.screen.pixel(x, y) == gba.pixel_gba(x, y)
@@ -259,7 +259,7 @@ end
 # shave a row off an edge at that height and no other. So the same picture is drawn at every
 # height from squashed to many times the screen, and at tops above and below it.
 class TestDrawColumnAtSeeThrough < Minitest::Test
-  include GembaSupport
+  include EmulatorSupport
   include Differential
 
   # A ceiling light is the shape that matters: something at the top of the column, something at
@@ -346,7 +346,7 @@ end
 # of its own half and a write back, and WHICH HALF depends on the column being even or odd.
 # That is why the odd column has tests of its own here.
 class TestDrawColumnAtTearFree < Minitest::Test
-  include GembaSupport
+  include EmulatorSupport
   include Differential
 
   BARS = %i[red red green green blue blue white white].freeze
@@ -402,9 +402,9 @@ class TestDrawColumnAtTearFree < Minitest::Test
   # compared across the two screens, so an odd column spliced into the wrong half — the
   # mistake this screen invites — shows up as a column of wrong pixels.
   def test_the_two_screens_draw_the_same_column
-    tear_free = assert_gemba_loads_rom(assemble_rom(column_program(tear_free: true), name: "TFCOL"),
+    tear_free = assert_emulator_loads_rom(assemble_rom(column_program(tear_free: true), name: "TFCOL"),
                                        frames: 6).frame_gba
-    direct = assert_gemba_loads_rom(assemble_rom(column_program(tear_free: false), name: "DRCOL"),
+    direct = assert_emulator_loads_rom(assemble_rom(column_program(tear_free: false), name: "DRCOL"),
                                     frames: 6).frame_gba
 
     differ = mismatched_pixels(direct, tear_free)

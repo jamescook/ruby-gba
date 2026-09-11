@@ -6,7 +6,7 @@ require "test_helper"
 # reading through it faster (higher) or slower (lower) — so one recorded note covers a whole
 # keyboard. The pitch shifts from the sample's own `note:` (default :C4). This is the piece
 # the piano is built on. Pinned on the interpreter (a higher note plays out faster) and on
-# gemba (the voice's play position and its fixed-point step, read off the console).
+# the emulator (the voice's play position and its fixed-point step, read off the console).
 class TestPitchedVoices < Minitest::Test
 
   # Play sample :s (recorded at :C4) once at the given pitch, then loop `frames` frames.
@@ -73,7 +73,7 @@ class TestPitchedVoices < Minitest::Test
     end
     b.emit_pending_functions
     rom = ROM.assemble(gba.lower(b.program), title: "PIT0", code: "BPIT", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
 
     base_pos = v.mem32(gba.voice_base + GBA::Mixer::SLOT_POS)
     high_pos = v.mem32(gba.voice_base + GBA::Mixer::SLOT_BYTES + GBA::Mixer::SLOT_POS)

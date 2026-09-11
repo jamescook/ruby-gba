@@ -5,7 +5,7 @@ require "test_helper"
 # Direct Sound: `sample :name, pcm: […]` embeds a recorded 8-bit PCM clip and `s.play`
 # plays it back through the sampled-audio hardware (a DMA feeds the sound FIFO, a timer
 # clocks the rate, a second timer interrupts at the end to stop it). All hidden behind
-# sample/play/stop. Pinned on the interpreter (the audio log) and on gemba (real sound).
+# sample/play/stop. Pinned on the interpreter (the audio log) and on the emulator (real sound).
 class TestDirectSound < Minitest::Test
 
   LoweringError = RubyGBA::IR::Backends::GBA::LoweringError
@@ -86,7 +86,7 @@ class TestDirectSound < Minitest::Test
     end
     b.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(b.program), title: "PCM0", code: "BPCM", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.sound?, "Direct Sound should be audibly playing the sample (energy #{v.audio_energy})"
   end
 end

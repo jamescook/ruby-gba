@@ -169,7 +169,7 @@ class TestImageImport < Minitest::Test
       RubyGBA::IR::Backends::GBA.new.lower(photo_program(10, 20)),
       title: "PHOTO", code: "BPHT", maker: "01",
     )
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(10, 20),   "top-left red"
     assert v.green?(11, 20), "top-right green"
     assert v.blue?(10, 21),  "bottom-left blue"
@@ -209,7 +209,7 @@ class TestImageImport < Minitest::Test
       RubyGBA::IR::Backends::GBA.new.lower(cutout_program(10, 20)),
       title: "CUTOUT", code: "BCUT", maker: "01",
     )
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.red?(10, 20),   "opaque top-left"
     assert v.green?(11, 20), "opaque top-right"
     assert v.blue?(10, 21),  "transparent -> field shows"

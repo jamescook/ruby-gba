@@ -55,7 +55,7 @@ class TestTiledCollision < Minitest::Test
   end
 
   def test_blocked_by_stops_the_sprite_on_the_console
-    v = assert_gemba_loads_rom(rom_for(walk_into_wall), frames: 30, keys: KEY_RIGHT)
+    v = assert_emulator_loads_rom(rom_for(walk_into_wall), frames: 30, keys: KEY_RIGHT)
     assert v.red?(28, 20),  "the hero stops flush against the wall, got 0x#{format('%04X', v.pixel_gba(28, 20))}"
     assert v.blue?(36, 20), "the wall is at x32, got 0x#{format('%04X', v.pixel_gba(36, 20))}"
     refute v.red?(36, 20),  "the hero never crossed into the wall"

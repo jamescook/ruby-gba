@@ -53,7 +53,7 @@ class TestFadeUnderLayer < Minitest::Test
 
   def on_console(builder, frames: 8)
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "FADEUNDER", code: "BFUL", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: frames)
+    v = assert_emulator_loads_rom(rom, frames: frames)
     reading { |x, y| v.pixel_gba(x, y) }
   end
 
@@ -158,9 +158,9 @@ class TestFadeUnderLayer < Minitest::Test
     rom = ROM.assemble(GBA.new.lower(b.program), title: "BOTH", code: "BFUB", maker: "01")
     lit = ->(v) { (8...48).flat_map { |x| (8...16).map { |y| v.pixel_gba(x, y) } }.max }
 
-    assert_equal WHITE, lit.call(assert_gemba_loads_rom(rom, frames: 2)),
+    assert_equal WHITE, lit.call(assert_emulator_loads_rom(rom, frames: 2)),
                  "the first frame places the fade under the HUD, which stays lit"
-    assert_equal BLACK, lit.call(assert_gemba_loads_rom(rom, frames: 8)),
+    assert_equal BLACK, lit.call(assert_emulator_loads_rom(rom, frames: 8)),
                  "and from the second frame the whole-screen fade takes it too"
   end
 

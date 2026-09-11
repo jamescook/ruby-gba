@@ -111,7 +111,7 @@ class TestJukeboxExample < Minitest::Test
   # On real hardware: the ROM boots and the music channel is actually driven.
   def test_the_music_channel_is_driven_on_the_console
     rom = Jukebox.build_rom(out: StringIO.new, err: StringIO.new)
-    v = assert_gemba_loads_rom(rom, frames: 12)
+    v = assert_emulator_loads_rom(rom, frames: 12)
     assert v.sound?, "the highlighted tune should drive the music channel"
   end
 end

@@ -1,8 +1,8 @@
 # ruby-gba
 
 Ruby DSL for building Game Boy Advance ROM files. Pure Ruby, no C extensions — the
-framework itself never leaves Ruby. (The vendored emulator test harness, gemba-core, is
-a separate tool with its own C extension; see "Emulator & integration tests" below.)
+framework itself never leaves Ruby. (The emulator used to verify ROMs, ruby-gba-emulator, is
+a separate gem with its own C extension; see "Emulator & integration tests" below.)
 
 ## Design philosophy — the DX north star
 
@@ -87,16 +87,32 @@ unreadable, can't be allowlisted, and can't be denied granularly.
 
 ## Emulator & integration tests
 
-Integration tests run ROMs in an emulator via **gemba-core** — a lean, headless
-libmgba probe vendored in-repo under `gemba-core/` (not a published gem). It's reached
-through the one seam, `RubyGBA::Emulator` (`lib/ruby_gba/emulator.rb`), so nothing else
-names the backend directly.
+Integration tests run ROMs in an emulator via **ruby-gba-emulator** — a lean, headless libmgba
+probe. It is a **gem of its own**, living in this repository under `ruby-gba-emulator/`, and it
+is reached through the one seam, `RubyGBA::Emulator` (`lib/ruby_gba/emulator.rb`), so nothing
+else names the backend directly.
 
-gemba-core is **required, not optional**: its C extension must be built (every test task
-builds it first as a prerequisite; `rake test:mgba` builds and runs its own suite). If it
-can't build or load, the emulator-backed tests **fail loudly** rather than skipping —
-`require_gemba_core!` (in `GembaSupport`) raises. Building it needs a C compiler and a
-system libmgba (`brew install mgba` / `apt install libmgba-dev`).
+**Why a separate gem:** building a cartridge is pure Ruby and running one is not. It is
+deliberately NOT a dependency of ruby-gba's gemspec, so somebody who only builds cartridges
+needs no C compiler. A game that wants to verify or profile adds it to its own Gemfile:
+
+```ruby
+gem "ruby-gba-emulator", github: "jamescook/ruby-gba",
+    glob: "ruby-gba-emulator/ruby-gba-emulator.gemspec"
+```
+
+Taking it through bundler is what keeps the built extension tied to the Ruby that built it —
+bundler installs extensions per Ruby ABI, so changing Ruby rebuilds rather than leaving a
+library that will not load.
+
+**In THIS repository** it is used from the checkout beside `lib/`, kept built by
+`rake compile_emulator` (a prerequisite of every test task; `rake test:emulator` builds and
+runs its own suite). That path rebuilds when a SOURCE changes, which cannot see a Ruby version
+change — after switching Ruby, run `rake clean` in `ruby-gba-emulator/`.
+
+It is **required, not optional**: if it can't build or load, the emulator-backed tests **fail
+loudly** rather than skipping — `require_emulator!` (in `EmulatorSupport`) raises. Building it
+needs a C compiler and a system libmgba (`brew install mgba` / `apt install libmgba-dev`).
 
 ## Running Tests
 
@@ -136,11 +152,11 @@ Test each layer the way a player experiences it, not by restating the code.
     In-process, deterministic, no emulator. Assert a green pixel at (x, y), a
     marker whose position reveals a computed value, an edge that fires once, frame
     by frame. `test/test_dsl_expression.rb` is the worked example.
-  - **Hardware path: gemba** runs the real ROM and reads real pixels/audio
-    (`assert_gemba_loads_rom` → `Verifier`). Keep a couple per feature to confirm
-    the lowering; they skip when gemba is absent.
+  - **Hardware path: the emulator** runs the real ROM and reads real pixels/audio
+    (`assert_emulator_loads_rom` → `Verifier`). Keep a couple per feature to confirm
+    the lowering; they fail loudly when the emulator is absent.
   - Supply input through the interpreter's `hold(:btn)` / `input_each_frame { }`
-    and gemba's `keys:`, not by poking internal state.
+    and the emulator's `keys:`, not by poking internal state.
   - Guardrail tests are behavioral too: assert the *friendly error* a misuse
     raises (a dropped `.then`, an unknown button) — the class and a key phrase,
     not the wording verbatim.
@@ -175,8 +191,8 @@ Test each layer the way a player experiences it, not by restating the code.
 - `lib/ruby_gba/font.rb` — Bitmap font model (glyphs + metrics); built-in fonts registered in `fonts.rb`
 - `lib/ruby_gba/rom_validator.rb` — ROM validation (header, checksum, structural checks) — `ROMValidator`
 - `lib/ruby_gba/inspector.rb` — ROM disassembly and header reporting
-- `lib/ruby_gba/verifier.rb` — Pixel-level verification via libmgba (through the `RubyGBA::Emulator` seam → gemba-core)
-- `lib/ruby_gba/emulator.rb` — The one seam to the emulator backend (gemba-core); swap emulators here
+- `lib/ruby_gba/verifier.rb` — Pixel-level verification via libmgba (through the `RubyGBA::Emulator` seam → ruby-gba-emulator)
+- `lib/ruby_gba/emulator.rb` — The one seam to the emulator backend; swap emulators here
 - `lib/ruby_gba/test_patterns.rb` — Built-in test ROMs (solid fill, color bars, etc)
 
 ### How It Works

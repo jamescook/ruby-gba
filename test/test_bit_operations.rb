@@ -177,7 +177,7 @@ class TestBitOperations < Minitest::Test
 
     backend = GBA.new
     rom = ROM.assemble(backend.lower(program), title: "BITEDGE", code: "BBTE", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3, vars: backend.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 3, vars: backend.var_addresses)
     expected.each { |name, want| assert_equal want, Int32.wrap(v.var(name)), "the console's #{name}" }
   end
 
@@ -338,7 +338,7 @@ class TestBitOperations < Minitest::Test
     program = build_program(&block)
     backend = GBA.new
     rom = ROM.assemble(backend.lower(program), title: "BITOPS", code: "BBIT", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3, vars: backend.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 3, vars: backend.var_addresses)
     expected.each do |name, want|
       assert_equal want, Int32.wrap(v.var(name)), "the console's #{name}"
     end

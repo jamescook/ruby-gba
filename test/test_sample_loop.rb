@@ -77,7 +77,7 @@ class TestSampleLoop < Minitest::Test
     end
     b.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(b.program), title: "LOOP", code: "BLOP", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.sound?, "a looping sample should keep the speaker going (energy #{v.audio_energy})"
   end
 end

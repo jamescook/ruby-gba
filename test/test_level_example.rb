@@ -50,7 +50,7 @@ class TestLevelExample < Minitest::Test
 
   # The same, on real hardware.
   def test_the_csv_level_renders_on_the_console
-    v = assert_gemba_loads_rom(Level.build_rom(out: StringIO.new, err: StringIO.new), frames: 12)
+    v = assert_emulator_loads_rom(Level.build_rom(out: StringIO.new, err: StringIO.new), frames: 12)
 
     assert v.pixel_is?(*BRICK_AT, BRICK), "brick, got 0x#{format('%04X', v.pixel_gba(*BRICK_AT))}"
     assert v.pixel_is?(*FLOOR_AT, FLOOR), "floor, got 0x#{format('%04X', v.pixel_gba(*FLOOR_AT))}"

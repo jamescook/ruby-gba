@@ -11,8 +11,8 @@ require_relative "test_helper"
 # sampling really is per instruction AND the program counter has had the
 # processor's read-ahead taken back off it. Get either wrong and that number is
 # not near N.
-class TestGembaCoreProfile < Minitest::Test
-  include GembaCoreTestSupport
+class TestRubyGBAEmulatorProfile < Minitest::Test
+  include RubyGBAEmulatorTestSupport
 
   # A loop that does a known, countable amount of work each frame.
   def adding_rom(passes, name, code)

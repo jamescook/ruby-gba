@@ -62,17 +62,17 @@ class TestBackgroundLayers < Minitest::Test
     assert_equal Color.resolve(:red),   s.pixel(44, 44), "the near layer slid 40px (its landmark to x44) — twice as far"
   end
 
-  # --- Hardware (gemba): the layers really composite and parallax-scroll ---
+  # --- Hardware (the emulator): the layers really composite and parallax-scroll ---
 
   def test_layers_compose_on_the_console
-    v = assert_gemba_loads_rom(rom_for(two_layers(0, 0)), frames: 3)
+    v = assert_emulator_loads_rom(rom_for(two_layers(0, 0)), frames: 3)
     assert v.green?(44, 44), "far green shows through the empty near layer, got 0x#{format('%04X', v.pixel_gba(44, 44))}"
     assert v.red?(84, 44),   "near red sits in front, got 0x#{format('%04X', v.pixel_gba(84, 44))}"
     assert v.blue?(100, 100), "the near layer is see-through elsewhere, got 0x#{format('%04X', v.pixel_gba(100, 100))}"
   end
 
   def test_layers_parallax_on_the_console
-    v = assert_gemba_loads_rom(rom_for(two_layers(20, 40)), frames: 3)
+    v = assert_emulator_loads_rom(rom_for(two_layers(20, 40)), frames: 3)
     assert v.green?(24, 44), "far slid 20px, got 0x#{format('%04X', v.pixel_gba(24, 44))}"
     assert v.red?(44, 44),   "near slid 40px — twice as far (parallax), got 0x#{format('%04X', v.pixel_gba(44, 44))}"
   end

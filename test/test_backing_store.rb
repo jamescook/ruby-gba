@@ -6,7 +6,7 @@ require "test_helper"
 # over them, then paint them back — so a moving object leaves no trail. This is
 # the low-level op the `sprite` helper is built on, tested here on its own at the
 # IR level (no DSL sugar) against both backends: the interpreter, and the console
-# via gemba. The proof is "after cover-then-restore, every pixel is exactly what
+# via the emulator. The proof is "after cover-then-restore, every pixel is exactly what
 # it was before" — including a patch hanging off a screen edge.
 class TestBackingStore < Minitest::Test
   include RubyGBA::IR::Build
@@ -98,10 +98,10 @@ class TestBackingStore < Minitest::Test
 
   # ---- hardware: the same round-trip on the console ----
 
-  def test_restore_reinstates_the_patch_on_gemba
+  def test_restore_reinstates_the_patch_on_the_console
     rom = ROM.assemble(GBA.new.lower(cover_and_restore([10, 10], [10, 10])),
                        title: "BACKSTOR", code: "BBKS", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 2)
+    v = assert_emulator_loads_rom(rom, frames: 2)
     assert v.red?(12, 12), "the red patch wasn't restored on hardware — got #{v.pixel_gba(12, 12).to_s(16)}"
     assert v.blue?(10, 10), "the blue surround wasn't restored on hardware"
     refute v.pixel_is?(14, 14, :green), "green survived the restore on hardware"

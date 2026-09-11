@@ -5,7 +5,7 @@ require "test_helper"
 # A hardware timer: `timer :beat, per_second: N` starts a counter that ticks N times a
 # second; `beat.ticks` reads how many ticks have elapsed (a Value), `beat.stop` freezes
 # it. The rate is a prescaler + reload on the GBA, and a frame-clock model on the
-# interpreter — both agree on the elapsed-tick count. Pinned on the interpreter and gemba.
+# interpreter — both agree on the elapsed-tick count. Pinned on the interpreter and the emulator.
 class TestTimer < Minitest::Test
 
   # Run a program that samples `beat.ticks` into :snap every frame and halts at
@@ -147,7 +147,7 @@ class TestTimer < Minitest::Test
     b.emit_pending_functions
     backend = GBA.new
     rom = ROM.assemble(backend.lower(b.program), title: "TIMR", code: "BTMR", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 20, vars: backend.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 20, vars: backend.var_addresses)
     seen = v.var(:seen)
     # ~20 overflows after 20 frames at 60/sec (allowing for real ~59.7fps + startup);
     # the wide window still catches a timer that never ran (0) or counted raw ticks (huge).
@@ -169,7 +169,7 @@ class TestTimer < Minitest::Test
     b.emit_pending_functions
     backend = GBA.new
     rom = ROM.assemble(backend.lower(b.program), title: "TICK", code: "BTCK", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 20, vars: backend.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 20, vars: backend.var_addresses)
     hits = v.var(:hits)
     assert hits.between?(10, 30), "the on_tick handler should have run ~20 times over 20 frames, got #{hits}"
   end
@@ -190,7 +190,7 @@ class TestTimer < Minitest::Test
     b.emit_pending_functions
     backend = GBA.new(fast_code: fast_code)
     rom = ROM.assemble(backend.lower(b.program), title: "TICKF", code: "BTKF", maker: "01")
-    [assert_gemba_loads_rom(rom, frames: 12, vars: backend.var_addresses).var(:hits),
+    [assert_emulator_loads_rom(rom, frames: 12, vars: backend.var_addresses).var(:hits),
      backend.iwram_report.funcs]
   end
 

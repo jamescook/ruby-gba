@@ -59,11 +59,11 @@ class TestPacmanExample < Minitest::Test
     assert_operator r[:caught], :>=, 1, "the chasing ghost should catch a still Pac"
   end
 
-  # --- Hardware (gemba): it renders and steers on the console ---
+  # --- Hardware (the emulator): it renders and steers on the console ---
 
   def test_it_renders_and_steers_on_hardware
     rom = ROM.assemble(GBA.new.lower(Pacman.program), title: "PACMAN", code: "BPAC", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 10, keys: KEY_LEFT)
+    v = assert_emulator_loads_rom(rom, frames: 10, keys: KEY_LEFT)
     moved = (40...START_X).any? { |x| (START_Y...START_Y + Pacman::SIZE).any? { |y| v.pixel_is?(x, y, :yellow) } }
     assert moved, "Pac-Man should be found in yellow left of centre on hardware"
     gx, gy = Pacman::GHOST_START

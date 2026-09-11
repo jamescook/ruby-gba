@@ -84,7 +84,7 @@ class TestFade < Minitest::Test
   # ...and the console really does say so, for the same picture through the ROM.
   def test_the_console_shows_the_same_half_fade
     rom = assemble_rom(faded(:black, 50), name: "HALF")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
 
     assert_equal 15, v.pixel_gba(10, 10) >> 10, "blue, half faded to black"
   end
@@ -145,8 +145,8 @@ class TestFade < Minitest::Test
     lit = ROM.assemble(GBA.new.lower(tiled_fade(0)), title: "FADET", code: "BFDT", maker: "01")
     dark = ROM.assemble(GBA.new.lower(tiled_fade(100)), title: "FADET", code: "BFDT", maker: "01")
 
-    assert assert_gemba_loads_rom(lit, frames: 6).red?(60, 60), "the tiles are there to begin with"
-    assert assert_gemba_loads_rom(dark, frames: 6).black?(60, 60),
+    assert assert_emulator_loads_rom(lit, frames: 6).red?(60, 60), "the tiles are there to begin with"
+    assert assert_emulator_loads_rom(dark, frames: 6).black?(60, 60),
            "and the fade covers them — every layer, not just the bitmap one"
   end
 
@@ -221,11 +221,11 @@ class TestFade < Minitest::Test
   end
 
   def test_the_fade_really_fades_on_the_console
-    assert assert_gemba_loads_rom(rom_for(:black, 0), frames: 4).red?(120, 80),
+    assert assert_emulator_loads_rom(rom_for(:black, 0), frames: 4).red?(120, 80),
            "with no fade the console shows the picture as drawn"
-    assert assert_gemba_loads_rom(rom_for(:black, 100), frames: 4).black?(10, 10),
+    assert assert_emulator_loads_rom(rom_for(:black, 100), frames: 4).black?(10, 10),
            "a full fade to black covers the screen"
-    assert assert_gemba_loads_rom(rom_for(:white, 100), frames: 4).white?(10, 10),
+    assert assert_emulator_loads_rom(rom_for(:white, 100), frames: 4).white?(10, 10),
            "and a full fade to white does too"
   end
 
@@ -235,7 +235,7 @@ class TestFade < Minitest::Test
   # comes back as 127/255 where the console's own 5-bit blend gives 16/31). The
   # endpoints above are exact, and the blend itself is pinned on the interpreter.
   def test_a_half_fade_on_the_console_matches_the_interpreter_within_a_step
-    console = assert_gemba_loads_rom(rom_for(:black, 50), frames: 4).pixel_gba(10, 10)
+    console = assert_emulator_loads_rom(rom_for(:black, 50), frames: 4).pixel_gba(10, 10)
     interpreted = Reference.new.run(faded(:black, 50)).screen.pixel(10, 10)
 
     channels(console).zip(channels(interpreted)).each do |got, want|

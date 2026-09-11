@@ -71,7 +71,7 @@ class TestHardwareSpriteRotation < Minitest::Test
 
   # The same quarter turn on real hardware, through the console's sprite rotate/scale.
   def test_it_turns_on_the_console
-    v = assert_gemba_loads_rom(rom_for(turned_program(angle: 90)), frames: 3)
+    v = assert_emulator_loads_rom(rom_for(turned_program(angle: 90)), frames: 3)
     assert v.red?(CX, CY - 4),   "the red half is at the top on hardware, got 0x#{format('%04X', v.pixel_gba(CX, CY - 4))}"
     assert v.green?(CX, CY + 4), "the green half is at the bottom, got 0x#{format('%04X', v.pixel_gba(CX, CY + 4))}"
     assert v.blue?(8, 8),        "the floor still shows past the sprite, got 0x#{format('%04X', v.pixel_gba(8, 8))}"

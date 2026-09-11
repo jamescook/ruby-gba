@@ -4,26 +4,33 @@ require "rake/testtask"
 require "rbconfig"
 require_relative "tools/parallel_test"
 
-# gemba-core's built extension and the sources it comes from. The emulator-backed
-# tests run on gemba-core (the headless libmgba probe), which is required, not
-# optional — so a failed build stops the suite loudly rather than letting it pass
-# with its coverage gutted.
+# The emulator's built extension and the sources it comes from. The emulator-backed tests run
+# on ruby-gba-emulator (the headless libmgba probe, a gem of its own in this repository), which
+# is required, not optional — so a failed build stops the suite loudly rather than letting it
+# pass with its coverage gutted.
 #
-# The built binary is a cached artifact: as a Rake file task it's rebuilt only
-# when it's missing or a source is newer, so a plain `rake test` doesn't re-run
-# extconf + make every time (that compile takes longer than the suite itself).
-# It's gitignored, so it persists between runs locally and builds once on a fresh
-# checkout.
-GEMBA_CORE_EXT = "gemba-core/ext/gemba_core_ext"
-GEMBA_CORE_BINARY = "#{GEMBA_CORE_EXT}/gemba_core_ext.#{RbConfig::CONFIG['DLEXT']}"
-GEMBA_CORE_SOURCES = FileList["#{GEMBA_CORE_EXT}/*.{c,h}", "#{GEMBA_CORE_EXT}/extconf.rb"]
+# The built binary is a cached artifact: as a Rake file task it's rebuilt only when it's
+# missing or a source is newer, so a plain `rake test` doesn't re-run extconf + make every time
+# (that compile takes longer than the suite itself). It's gitignored, so it persists between
+# runs locally and builds once on a fresh checkout.
+#
+# WHAT THIS DOES NOT CATCH is a change of Ruby version: a compiled extension is tied to the
+# Ruby it was built against, and switching Ruby makes no source newer, so the binary stays
+# "up to date" and refuses to load. That is what `rake clean` in ruby-gba-emulator/ is for, and
+# the error you get says so. A CONSUMER of this library never meets it — they take the emulator
+# through bundler, which installs extensions per Ruby ABI.
+EMULATOR_DIR = "ruby-gba-emulator"
+EMULATOR_EXT = "#{EMULATOR_DIR}/ext/ruby_gba_emulator_ext"
+EMULATOR_BINARY =
+  "#{EMULATOR_DIR}/lib/ruby_gba_emulator/ruby_gba_emulator_ext.#{RbConfig::CONFIG['DLEXT']}"
+EMULATOR_SOURCES = FileList["#{EMULATOR_EXT}/*.{c,h}", "#{EMULATOR_EXT}/extconf.rb"]
 
-file GEMBA_CORE_BINARY => GEMBA_CORE_SOURCES do
-  Dir.chdir("gemba-core") { sh "rake", "compile" }
+file EMULATOR_BINARY => EMULATOR_SOURCES do
+  Dir.chdir(EMULATOR_DIR) { sh "rake", "compile" }
 end
 
-desc "Build gemba-core's C extension if its sources changed (required for the tests)"
-task compile_gemba_core: GEMBA_CORE_BINARY
+desc "Build the emulator's C extension if its sources changed (required for the tests)"
+task compile_emulator: EMULATOR_BINARY
 
 # SimpleCov merges every result it finds in coverage/.resultset.json that is younger
 # than its merge timeout, and each parallel shard files its slice under a name of its
@@ -35,7 +42,7 @@ task :clear_coverage do
   rm_f "coverage/.resultset.json" if ENV["COVERAGE"] == "1"
 end
 
-Rake::TestTask.new(test: %i[compile_gemba_core clear_coverage]) do |t|
+Rake::TestTask.new(test: %i[compile_emulator clear_coverage]) do |t|
   t.libs << "test" << "lib"
   t.test_files = FileList["test/**/test_*.rb"]
   # `test` on the load path is what lets every test file open with the one line
@@ -61,17 +68,16 @@ namespace :test do
   # something fails — and because the compile above has to finish before any
   # worker starts, which the dependency here guarantees.
   desc "Run the suite across processes (rake test:parallel JOBS=8)"
-  task parallel: %i[compile_gemba_core clear_coverage] do
+  task parallel: %i[compile_emulator clear_coverage] do
     ParallelTest.run(FileList["test/**/test_*.rb"].to_a)
     collate_coverage if ENV["COVERAGE"] == "1"
   end
 
-  # gemba-core has its OWN test suite (its C extension + probe, tested in
-  # isolation) — kept out of the main `test` glob above. Delegate to its
-  # Rakefile, which compiles the extension first.
-  desc "Compile and test gemba-core itself (the headless libmgba verification core)"
-  task :mgba do
-    Dir.chdir("gemba-core") { sh "rake", "test" }
+  # The emulator gem has its OWN test suite (its C extension + probe, tested in isolation) —
+  # kept out of the main `test` glob above. Delegate to its Rakefile, which compiles first.
+  desc "Compile and test the emulator itself (the headless libmgba verification core)"
+  task :emulator do
+    Dir.chdir(EMULATOR_DIR) { sh "rake", "test" }
   end
 end
 

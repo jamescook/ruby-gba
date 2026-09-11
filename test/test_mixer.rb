@@ -116,7 +116,7 @@ class TestMixer < Minitest::Test
     end
     b.emit_pending_functions
     rom = ROM.assemble(gba.lower(b.program), title: "MIX0", code: "BMIX", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
 
     mixed = (0...8).map { |i| signed8(v.mem8(gba.mix_buf0 + i)) }
     assert v.sound?, "the mix should be audible (energy #{v.audio_energy})"
@@ -140,7 +140,7 @@ class TestMixer < Minitest::Test
     end
     b.emit_pending_functions
     rom = ROM.assemble(gba.lower(b.program), title: "MIXH", code: "BMXH", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
 
     mixed = (0...8).map { |i| signed8(v.mem8(gba.mix_buf0 + i)) }
     assert mixed.all?(127), "200 should saturate to +127, but the buffer held #{mixed.inspect}"
@@ -161,7 +161,7 @@ class TestMixer < Minitest::Test
     end
     b.emit_pending_functions
     rom = ROM.assemble(gba.lower(b.program), title: "MIXL", code: "BMXL", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
 
     mixed = (0...8).map { |i| signed8(v.mem8(gba.mix_buf0 + i)) }
     assert mixed.all?(-128), "-200 should saturate to -128, but the buffer held #{mixed.inspect}"
@@ -201,7 +201,7 @@ class TestMixer < Minitest::Test
     end
     b.emit_pending_functions
     rom = ROM.assemble(gba.lower(b.program), title: "VOL0", code: "BVOL", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
 
     mixed = (0...8).map { |i| signed8(v.mem8(gba.mix_buf0 + i)) }
     assert mixed.all?(20), "a :half voice of 40 should mix to 20, but the buffer held #{mixed.inspect}"

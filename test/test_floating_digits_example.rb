@@ -8,7 +8,7 @@ require_relative "../examples/floating_digits"
 # walls, each in its own solid color, drawn as moving glyph images (blit) since a
 # number whose position moves can't use the fixed-origin draw_text/draw_number.
 # These assert BEHAVIOR — the digits render in their colors and actually move — on
-# the interpreter, with a gemba check that it renders on the console.
+# the interpreter, with an emulator check that it renders on the console.
 class TestFloatingDigitsExample < Minitest::Test
 
   SW = FloatingDigits::SCREEN_W
@@ -53,7 +53,7 @@ class TestFloatingDigitsExample < Minitest::Test
   # top-left path.
   def test_it_renders_on_hardware
     rom = ROM.assemble(GBA.new.lower(FloatingDigits.program), title: "FLOATNUM", code: "BFLN", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     red = (4..30).any? { |y| (8..60).any? { |x| v.pixel_is?(x, y, Color.rgb(31, 0, 0)) } }
     assert red, "expected the red digit 0 somewhere along its early top-left path"
   end

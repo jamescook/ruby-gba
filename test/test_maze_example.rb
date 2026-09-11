@@ -37,10 +37,10 @@ class TestMazeExample < Minitest::Test
     refute_equal HERO,  s.pixel(48, 20), "the hero never walked into the pillar"
   end
 
-  # --- Hardware (gemba): the walls really stop the hero ---
+  # --- Hardware (the emulator): the walls really stop the hero ---
 
   def test_the_hero_stops_at_a_wall_on_the_console
-    v = assert_gemba_loads_rom(Maze.build_rom(err: StringIO.new), frames: 40, keys: KEY_RIGHT)
+    v = assert_emulator_loads_rom(Maze.build_rom(err: StringIO.new), frames: 40, keys: KEY_RIGHT)
     assert v.pixel_is?(28, 20, HERO),
            "the hero stops flush against the pillar, got 0x#{format('%04X', v.pixel_gba(28, 20))}"
     assert v.pixel_is?(48, 20, BRICK),

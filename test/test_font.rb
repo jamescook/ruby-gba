@@ -116,6 +116,6 @@ class TestFont < Minitest::Test
       draw_text "PRESS START", 64, 100, :gray
       halt
     end
-    assert_gemba_loads_rom(rom, frames: 5)
+    assert_emulator_loads_rom(rom, frames: 5)
   end
 end

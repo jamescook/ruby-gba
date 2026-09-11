@@ -10,7 +10,7 @@ require_relative "../examples/piano"
 # hand vamps a two-note block chord on each downbeat, so a downbeat sounds three
 # notes at once — a real two-hand chord with no voice cutting out. One recorded
 # sample, re-pitched across the keys and summed by the software mixer. This pins
-# that behavior on the interpreter, and that it renders and sounds on gemba.
+# that behavior on the interpreter, and that it renders and sounds on the emulator.
 class TestExamplePiano < Minitest::Test
 
   YELLOW = Color.resolve(:yellow)
@@ -77,11 +77,11 @@ class TestExamplePiano < Minitest::Test
     assert sounded, "playing the tune should sound the piano instrument"
   end
 
-  # --- hardware: both hands render with the right colors and it's audible on gemba ---
+  # --- hardware: both hands render with the right colors and it's audible on the emulator ---
 
-  def test_it_renders_and_sounds_on_gemba
+  def test_it_renders_and_sounds_on_the_console
     rom = Piano.build_rom(out: StringIO.new, err: StringIO.new)
-    v = assert_gemba_loads_rom(rom, frames: 8)
+    v = assert_emulator_loads_rom(rom, frames: 8)
 
     # The see-through slot of the sprite palette must be exactly 0 — a byte-shifted
     # palette (the odd-length-sample DMA bug) would make this non-zero and tint

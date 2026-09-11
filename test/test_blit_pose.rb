@@ -5,7 +5,7 @@ require "test_helper"
 # blit_pose: draw one of a set of same-size images, chosen by a run-time index —
 # the primitive under a sprite that faces the way it moves (and, later, animation
 # frames). The proof is "the index selects the pose": a different index paints a
-# different image at the same spot. Asserted on the interpreter and on gemba, and
+# different image at the same spot. Asserted on the interpreter and on the emulator, and
 # the two backends must agree.
 class TestBlitPose < Minitest::Test
   include RubyGBA::IR::Build
@@ -42,13 +42,13 @@ class TestBlitPose < Minitest::Test
 
   # ---- hardware: the selected pose renders on the console ----
 
-  def test_the_selected_pose_renders_on_gemba
+  def test_the_selected_pose_renders_on_the_console
     rom0 = ROM.assemble(GBA.new.lower(pose_program(0)), title: "POSE0", code: "BPS0", maker: "01")
-    v0 = assert_gemba_loads_rom(rom0, frames: 2)
+    v0 = assert_emulator_loads_rom(rom0, frames: 2)
     assert v0.red?(10, 10), "pose 0 (red) didn't render on hardware — got #{v0.pixel_gba(10, 10).to_s(16)}"
 
     rom1 = ROM.assemble(GBA.new.lower(pose_program(1)), title: "POSE1", code: "BPS1", maker: "01")
-    v1 = assert_gemba_loads_rom(rom1, frames: 2)
+    v1 = assert_emulator_loads_rom(rom1, frames: 2)
     assert v1.green?(10, 10), "pose 1 (green) didn't render on hardware — got #{v1.pixel_gba(10, 10).to_s(16)}"
   end
 end

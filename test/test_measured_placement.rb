@@ -14,12 +14,12 @@ require "tmpdir"
 # reachable through a scene the game does not boot into, so a build that measures it and a
 # build that guesses cannot land in the same place.
 class TestMeasuredPlacement < Minitest::Test
-  include GembaSupport
+  include EmulatorSupport
 
   Placement = RubyGBA::IR::Backends::GBA::Placement
 
   def setup
-    require_gemba_core!
+    require_emulator!
   end
 
   # The work lives in the second scene. Nothing reaches it by holding a button — a scene is

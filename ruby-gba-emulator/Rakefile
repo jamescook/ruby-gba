@@ -1,0 +1,46 @@
+# frozen_string_literal: true
+
+require "rake/testtask"
+require "rbconfig"
+
+EXT_DIR = File.expand_path("ext/ruby_gba_emulator_ext", __dir__)
+DLEXT = RbConfig::CONFIG["DLEXT"]
+
+# Where extconf installs the built library: lib/ruby_gba_emulator/, so that
+# `require "ruby_gba_emulator/ruby_gba_emulator_ext"` finds it like any other gem's.
+INSTALL_DIR = File.expand_path("lib/ruby_gba_emulator", __dir__)
+EXT_BUNDLE = File.join(INSTALL_DIR, "ruby_gba_emulator_ext.#{DLEXT}")
+
+# INSTALL INTO THIS GEM'S OWN lib/, not into the Ruby installation.
+#
+# extconf run by hand assumes it is installing a library system-wide, so its RUBYARCHDIR points
+# at site_ruby. Overriding it is how a gem builds in place — it is what rake-compiler does, and
+# all it needs is the one variable. Without it `make install-so` drops the extension into the
+# Ruby itself, where it shadows the gem for every project on the machine.
+desc "Build the C extension (headless libmgba probe)"
+task :compile do
+  Dir.chdir(EXT_DIR) do
+    ruby "extconf.rb"
+    sh "make"
+    sh "make", "install-so", "RUBYARCHDIR=#{INSTALL_DIR}"
+  end
+end
+
+desc "Remove built extension artifacts"
+task :clean do
+  rm_f EXT_BUNDLE
+  Dir.chdir(EXT_DIR) do
+    sh "make", "clean" if File.exist?("Makefile")
+    rm_f Dir.glob("Makefile") + Dir.glob("*.#{DLEXT}") + Dir.glob("*.o") + Dir.glob("mkmf.log")
+  end
+end
+
+# The tests need the built extension, so compile first — the same prerequisite any extension
+# gem's test task has. `lib` alone on the load path, because that is where the build lands.
+Rake::TestTask.new(test: :compile) do |t|
+  t.libs << "test" << "lib"
+  t.test_files = FileList["test/**/test_*.rb"]
+  t.warning = false
+end
+
+task default: :test

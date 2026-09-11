@@ -13,7 +13,7 @@ require "stringio"
 # These are behaviour tests on real cartridges: a program that draws far too much tears, one
 # that draws little does not, and a screen with no framebuffer says so rather than answering.
 class TestTearing < Minitest::Test
-  include GembaSupport
+  include EmulatorSupport
 
   # A program that repaints a band the full width of the screen in a different colour every
   # frame. The band's HEIGHT is how much drawing there is to do, which is what decides
@@ -32,7 +32,7 @@ class TestTearing < Minitest::Test
   end
 
   def tearing_of(rom)
-    require_gemba_core!
+    require_emulator!
     readings = RubyGBA::Analyzer.profile(rom.source_program, options: rom.build_options)
     readings.values.first.tearing
   end

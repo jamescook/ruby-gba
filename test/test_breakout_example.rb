@@ -12,7 +12,7 @@ require_relative "../examples/breakout"
 #
 # We assert at two altitudes: the reference interpreter for the game's *behaviour*
 # (a brick actually breaks, the paddle actually steers), which is robust no matter
-# where the headless run is cut off; and gemba for the *picture* (the title, the
+# where the headless run is cut off; and the emulator for the *picture* (the title, the
 # brick wall, and the paddle really render), read from settled frames on hardware.
 class TestBreakoutExample < Minitest::Test
   include RubyGBA::Constants
@@ -67,12 +67,12 @@ class TestBreakoutExample < Minitest::Test
                  "held right, the paddle should end clamped at the right wall"
   end
 
-  # --- Hardware (gemba): the picture really renders ---
+  # --- Hardware (the emulator): the picture really renders ---
 
   # The title shows "BREAKOUT" in cyan — the simplest proof it isn't a black screen
   # and that text renders through the buffered (indexed) screen.
   def test_the_title_renders_on_the_console
-    v = assert_gemba_loads_rom(Breakout.build_rom(err: StringIO.new), frames: 4)
+    v = assert_emulator_loads_rom(Breakout.build_rom(err: StringIO.new), frames: 4)
     title_cyan = (50..57).any? { |y| (92..140).any? { |x| v.pixel_is?(x, y, :cyan) } }
     assert title_cyan, "the BREAKOUT title should render cyan in buffered mode"
   end
@@ -81,7 +81,7 @@ class TestBreakoutExample < Minitest::Test
   # A few frames in, the ball is still climbing toward the wall, so every brick is
   # up: the red top row and the white paddle must both render.
   def test_the_wall_and_paddle_render_on_the_console
-    v = assert_gemba_loads_rom(Breakout.build_rom(err: StringIO.new), frames: 8, keys: KEY_START)
+    v = assert_emulator_loads_rom(Breakout.build_rom(err: StringIO.new), frames: 8, keys: KEY_START)
 
     top_row_red = (18..27).any? { |y| (0..238).any? { |x| v.red?(x, y) } }
     assert top_row_red, "the red top row of bricks should render"

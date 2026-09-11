@@ -27,9 +27,9 @@ class TestSnakeExample < Minitest::Test
 
   # AC: the initial render. On boot the title screen shows "SNAKE" in green — the
   # simplest proof the ROM isn't a black screen. Scans the title band rather than
-  # pinning font pixels, so it survives font tweaks. Skips cleanly without gemba.
+  # pinning font pixels, so it survives font tweaks. Skips cleanly without the emulator.
   def test_the_title_screen_renders_on_the_console
-    v = assert_gemba_loads_rom(Snake.build_rom, frames: 4)
+    v = assert_emulator_loads_rom(Snake.build_rom, frames: 4)
     title_has_green = (56..62).any? { |y| (105..134).any? { |x| v.green?(x, y) } }
     assert title_has_green, "the SNAKE title should render in green — got a blank title screen"
   end
@@ -38,7 +38,7 @@ class TestSnakeExample < Minitest::Test
   # opening snake (green body, white head). Holding START enters play; a few frames
   # in, the snake is still near its start cells, so those positions are defined.
   def test_the_opening_board_renders_on_the_console
-    v = assert_gemba_loads_rom(Snake.build_rom, frames: 10, keys: KEY_START)
+    v = assert_emulator_loads_rom(Snake.build_rom, frames: 10, keys: KEY_START)
 
     # A body cell that stays green across the first step or two (cols 5..8, row 10).
     assert v.green?(7 * CELL + 3, 10 * CELL + 3), "the snake body should be drawn green"

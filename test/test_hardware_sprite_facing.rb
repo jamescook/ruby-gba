@@ -56,10 +56,10 @@ class TestHardwareSpriteFacing < Minitest::Test
   end
 
   def test_facing_swaps_the_pose_on_the_console
-    vl = assert_gemba_loads_rom(rom_for(facing_program), frames: 42, keys: KEY_LEFT)
+    vl = assert_emulator_loads_rom(rom_for(facing_program), frames: 42, keys: KEY_LEFT)
     assert vl.blue?(10, 43), "left-facing pose renders blue, got 0x#{format('%04X', vl.pixel_gba(10, 43))}"
 
-    vr = assert_gemba_loads_rom(rom_for(facing_program), frames: 42, keys: KEY_RIGHT)
+    vr = assert_emulator_loads_rom(rom_for(facing_program), frames: 42, keys: KEY_RIGHT)
     assert vr.red?(226, 43), "right-facing pose renders red, got 0x#{format('%04X', vr.pixel_gba(226, 43))}"
   end
 

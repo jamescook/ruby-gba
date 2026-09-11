@@ -7,8 +7,8 @@ require_relative "test_helper"
 # real emitted code. These assert the behavioral contract (positive, monotonic
 # with workload, bounded by a frame) rather than exact cycle counts, which are
 # emulator-specific.
-class TestGembaCoreTiming < Minitest::Test
-  include GembaCoreTestSupport
+class TestRubyGBAEmulatorTiming < Minitest::Test
+  include RubyGBAEmulatorTestSupport
 
   # A game loop that only waits for vblank each frame — the CPU is asleep almost
   # the whole frame, so it burns almost nothing.

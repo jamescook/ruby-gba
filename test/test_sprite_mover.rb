@@ -57,7 +57,7 @@ class TestSpriteMover < Minitest::Test
     machine_code = RubyGBA::IR::Backends::GBA.new.lower(sprite_program(frames: 4))
     rom = RubyGBA::ROM.assemble(machine_code, title: "SPRITEMV", code: "BSPM", maker: "01")
 
-    v = assert_gemba_loads_rom(rom, frames: 6, keys: KEY_RIGHT)
+    v = assert_emulator_loads_rom(rom, frames: 6, keys: KEY_RIGHT)
     assert v.red?(109, 60),   "the heart is drawn after moving right"
     assert v.white?(108, 60), "its transparent corner shows the white field"
   end
@@ -124,7 +124,7 @@ class TestSpriteMover < Minitest::Test
       RubyGBA::IR::Backends::GBA.new.lower(heart_at_left_edge(frames: 3)),
       title: "SPRITEMV", code: "BSPM", maker: "01",
     )
-    v = assert_gemba_loads_rom(rom, frames: 5, keys: KEY_LEFT)
+    v = assert_emulator_loads_rom(rom, frames: 5, keys: KEY_LEFT)
     EDGE_PIXELS.each do |x, y, color|
       assert v.pixel_is?(x, y, color || :white),
              "console: (#{x}, #{y}) should be #{color || 'background'}, got 0x#{format('%04X', v.pixel_gba(x, y))}"
