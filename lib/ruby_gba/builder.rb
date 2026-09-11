@@ -83,6 +83,8 @@ module RubyGBA
       @dropped_syncs = 0       # `wait_vblank` calls the game loop already covers
       @variables = {}          # name → { address:, initial: } — introspection metadata
       @fraction_vars = {}      # name → fraction bits, for variables that hold a fraction (see Fraction)
+      @name_vars = {}          # name → the NameSet, for variables that hold one of a set of names
+      @name_dispatches = []    # [dispatch node, NameSet] — filled in at finalize, once every name is known
       @next_var_addr = IWRAM_START
       @functions = {}          # name → deferred body block (evaluated at emit time)
       @func_fast = {}          # name → where the author insisted the routine live (func fast:)
@@ -423,6 +425,7 @@ module RubyGBA
       finalize_background_affine
       finalize_layer_blend
       finalize_per_frame_routines
+      finalize_name_dispatches
       verify_targets_defined!
       verify_stack_fits!
       initialize_rng_stream
@@ -903,6 +906,17 @@ module RubyGBA
         container.children.insert(at + 1, node)
         node.parent = container
       end
+    end
+
+    # Give every "call the routine this variable names" its list of routines: the names that
+    # variable can hold, in the order they were numbered.
+    #
+    # IT HAS TO BE NOW rather than where the call was written, and the reason is ordinary
+    # program order: a name is one of the set from the first time anything uses it, and a
+    # routine's body is built at finalize — so a state set only inside another routine was not
+    # known yet. By here every body has been built and the set cannot grow again.
+    def finalize_name_dispatches
+      @name_dispatches.each { |node, held| node.targets = held.names }
     end
 
     # Look up a variable's IWRAM address, raising if not declared.

@@ -62,11 +62,12 @@ module RubyGBA
     # given the number they wrote. A variable and a list say it differently, and the rules
     # for lining two scales up are otherwise the same — so the rules live here once and
     # only the advice changes.
-    def initialize(builder, node, name: nil, fraction_bits: nil, declaring: nil, mixing: nil)
+    def initialize(builder, node, name: nil, fraction_bits: nil, declaring: nil, mixing: nil,
+                   names: nil)
       @builder = builder
       @node = node
       @name = name
-      @scale = Scale.new(bits: fraction_bits, declaring: declaring, mixing: mixing)
+      @scale = Scale.new(bits: fraction_bits, declaring: declaring, mixing: mixing, names: names)
       # Only an expression is tracked, and only an expression pays for the stack walk
       # that pins the author's line — a handle can never be the orphan this is for.
       return if handle? || !@builder.respond_to?(:track_expression)
@@ -81,6 +82,10 @@ module RubyGBA
     # Where the author built this expression ("hero.rb:42"), for the diagnostic that
     # reports one nobody kept. nil for a handle, which is never reported.
     attr_reader :source
+
+    # The variable this handle names, or nil for an expression and for a place that has no
+    # name of its own (a pool field, a list slot). For a message that wants to say which.
+    attr_reader :name
 
     # WHETHER THIS STANDS FOR A PLACE THAT KEEPS A NUMBER, rather than being a working-out
     # of one. A handle names somewhere — a variable here, a pool field in {FieldRef} — so
@@ -101,6 +106,12 @@ module RubyGBA
     def fraction?
       @scale.fraction?
     end
+
+    # THE NAMES THIS VALUE HOLDS, or nil where it holds plain numbers. A variable declared
+    # with a name — `var :mode, :title` — keeps one of a set of them, and what is stored is
+    # the number each name was given (see {NameSet}). Read by `call`, which turns "the name
+    # this variable holds" into the routine of that name.
+    def names = @scale.names
 
     # The node for +other+ brought to this value's scale, or a friendly error saying why
     # it cannot be.

@@ -50,6 +50,17 @@ module RubyGBA
       @on_full = on_full
       @usually = usually
       @art = art
+      # A field declared with a NAME — `state: :idle` — holds one of a set of them, exactly as
+      # a variable declared with one does, and each instance keeps its own. The set belongs to
+      # the field rather than to an instance: thirty guards can each be in a different state,
+      # and there is one list of what those states are.
+      @field_names = fields.filter_map do |field, default|
+        next unless default.is_a?(Symbol)
+
+        held = NameSet.new("the #{field.inspect} field of `pool :#{name}`")
+        held.number_for(default) # the name it was declared with is the first of them
+        [field, held]
+      end.to_h
     end
 
     # The sprite image live instances draw (nil for a pure-data pool), and the collision
@@ -213,12 +224,13 @@ module RubyGBA
     # One field of one slot, with everything it needs to read, write and complain clearly.
     def field_handle(field, index_node)
       FieldRef.new(builder: @builder, list: field_list(field), index: index_node,
-                   pool: @name, field: field, fraction_bits: field_bits(field))
+                   pool: @name, field: field, fraction_bits: field_bits(field),
+                   names: @field_names[field])
     end
 
     # What a field keeps, without building a handle to ask it (see FieldRef.scale).
     def field_scale(field)
-      FieldRef.scale(pool: @name, field: field, bits: field_bits(field))
+      FieldRef.scale(pool: @name, field: field, bits: field_bits(field), names: @field_names[field])
     end
 
     # What a field holds, taken from the default it was declared with. Writing `vy: 0.0`
