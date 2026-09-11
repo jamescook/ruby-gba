@@ -41,7 +41,11 @@ module ConformanceFixture
 
       # --- definitions: registered up front, referenced by name below ---
       B.define_sound(:blip, frequency: 880),
-      B.song(:tune, events: [[0, 440], [4, 0]], total_frames: 8),
+      B.song(:tune, total_frames: 8, voices: [
+               { events: [[0, 440], [4, 0]], duty: :half, volume: 12 },
+               # ...and a part that plays a recording rather than the square wave
+               { events: [[0, 262], [4, 0]], duty: :half, volume: 12, instrument: :clip },
+             ]),
       B.data(:blob, "\x01\x02\x03\x04".b),
       B.bitmap(:sprite, width: 2, height: 2,
                         pixels: [0x001F, 0x03E0, 0x7C00, 0x8000].pack("v*"),

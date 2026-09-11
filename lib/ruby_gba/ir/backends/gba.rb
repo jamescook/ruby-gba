@@ -362,7 +362,7 @@ module RubyGBA
           @raster = Raster.new(emitter: @emit, primitives: @primitives, memory: @memory,
                                lowering: @lowering, backgrounds: @backgrounds, framebuffer: @framebuffer)
           @mixer = Mixer.new(emitter: @emit, memory: @memory, timers: @timers, primitives: @primitives)
-          @audio = Audio.new(emitter: @emit, primitives: @primitives, sounds: @defined_sounds, songs: @songs,
+          @audio = Audio.new(emitter: @emit, primitives: @primitives, mixer: @mixer, sounds: @defined_sounds, songs: @songs,
                              frames: @frames, expressions: @expressions, raster: @raster, drawing: self,
                              uses_pressed: -> { @uses_pressed }, any_buffered: -> { @any_buffered })
           @palette_tint = PaletteTint.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
@@ -686,9 +686,10 @@ module RubyGBA
           @layer_blend.picture = @picture # built here, not at construction — see LayerBlend's class comment
           adopt_frame_body(program) # the game loop's body counts as a routine once it moves
           @mixer.prepare_direct_sound(program) # embed the program's samples as ROM data
-          @audio.prepare_music(program) # ...and its tunes, numbered, as one score
+          @audio.prepare_music(program) # number its tunes, and keep the mixer voices they play on
           @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
           @mixer.prepare_mixer(program) # the software mixer's rate, buffers, voice slots, timer
+          @audio.build_score # every tune as one score — after the mixer's rate, which sets each note's step
           guard_mixer_needs_game_loop
           register_timers(program) # assign each named timer its hardware timer index(es)
           prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
@@ -1057,11 +1058,12 @@ module RubyGBA
           # second of sound is a fact about the display and not about how long the game took to
           # think; and it moves the tune on a frame, because a tempo is too. A game whose pass
           # spans two frames comes round here twice, and gets two slices and two frames of tune
-          # — see Mixer#emit_mixer_tick for what went wrong when it did not.
+          # — see Mixer#emit_mixer_tick for what went wrong when it did not. The tune goes first,
+          # so a note a recorded part starts this frame is in this frame's slice.
           emit_irq_source(IRQ_VBLANK, bios_ack: true) do
             emit_frame_count
-            emit_mixer_tick if @mixer.plays_samples?
             emit_music_tick if @audio.plays_music?
+            emit_mixer_tick if @mixer.plays_samples?
           end if @uses_vblank
           irq_timers.each do |name, info|
             emit_irq_source(timer_irq_bit(info[:rate])) do

@@ -36,6 +36,7 @@ module RubyGBA
             @label_seq = 0
             @data_blobs = {}       # name -> bytes (embedded data, appended after code)
             @data_positions = {}   # name -> byte offset of its blob within @code
+            @data_links = []       # words inside a blob that hold another blob's address
             # Everything that ends up in @code comes through here, and labels are placed
             # here too, so this is the one place that can watch a register's value survive
             # — or stop surviving — from one instruction to the next.
@@ -111,6 +112,17 @@ module RubyGBA
                 resolver ? resolver.call(fix) : resolve_branch(fix)
               end
             end
+            @data_links.each do |link|
+              @code[@data_positions.fetch(link[:blob]) + link[:offset], 4] = [data_address(link[:target])].pack("V")
+            end
+          end
+
+          # A word +offset+ bytes into blob +blob+ that holds blob +target+'s run-time address —
+          # a table saying where several things are, for code that picks one of them by number.
+          # Neither blob has a place until the data region is laid out, so the word is filled in
+          # with the other placeholders, in the second pass.
+          def link_data(blob, offset, target)
+            @data_links << { blob: blob, offset: offset, target: target }
           end
 
           # Rewrite a branch placeholder as a real branch. The word offset is
@@ -134,11 +146,15 @@ module RubyGBA
           # cartridge right after the header, so its address is the cartridge base
           # plus the header plus that position.
           def resolve_data_address(fix)
-            position = @data_positions.fetch(fix[:target]) do
-              raise LoweringError, "reference to undefined data #{fix[:target].inspect}"
+            @code[fix[:pos], 16] = ASM.load_immediate_fixed(fix[:reg], data_address(fix[:target]))
+          end
+
+          # Where blob +name+ is when the cartridge runs.
+          def data_address(name)
+            position = @data_positions.fetch(name) do
+              raise LoweringError, "reference to undefined data #{name.inspect}"
             end
-            address = ROM_START + RubyGBA::ROM::ENTRY_OFFSET + position
-            @code[fix[:pos], 16] = ASM.load_immediate_fixed(fix[:reg], address)
+            ROM_START + RubyGBA::ROM::ENTRY_OFFSET + position
           end
 
           # Patch a load with a *code label's* run-time address — the same cartridge

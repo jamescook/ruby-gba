@@ -22,10 +22,11 @@ module RubyGBA
           # Sound module, so the ROM and the interpreter play the same thing. A write
           # is just "put this 16-bit value at this register address."
 
-          def initialize(emitter:, primitives:, sounds:, songs:, frames:, expressions:, raster:,
+          def initialize(emitter:, primitives:, mixer:, sounds:, songs:, frames:, expressions:, raster:,
                           drawing:, uses_pressed:, any_buffered:)
             @emitter = emitter
             @primitives = primitives
+            @mixer = mixer # where a recorded part's notes are played
             @defined_sounds = sounds
             @songs = songs
             @frames = frames
@@ -35,6 +36,7 @@ module RubyGBA
             @uses_pressed = uses_pressed
             @any_buffered = any_buffered
             @song_numbers = {} # tune name -> the number the player knows it by (see #prepare_music)
+            @lanes = []        # the hardware the player drives (see Lane)
           end
 
           def emit_writes(writes)
@@ -76,9 +78,8 @@ module RubyGBA
             emit_writes(Sound::Registers.wave_stop)
           end
 
-          # Which hardware channel each of a song's parts plays on, in order: the
-          # two square-wave voices. The score names parts, not channels — this
-          # mapping is the console's business and lives here in the lowering.
+          # The two square-wave channels a tune's plain parts play on, in order. The score names
+          # parts, not channels — this mapping is the console's business and lives here.
           MUSIC_CHANNELS = [1, 2].freeze
 
           # THE MUSIC PLAYER'S STATE, in the console's quick memory. The game writes the first
@@ -88,34 +89,60 @@ module RubyGBA
           MUSIC_PLAYING = :__music_playing # the tune the player is on
           MUSIC_FRAME = :__music_frame     # how far into it, in frames
 
-          # Each part's next event, as a byte offset into the score.
-          def self.music_cursor(part) = :"__music_cursor_#{part}"
+          # Each lane's next event, as a byte offset into the score.
+          def self.music_cursor(lane) = :"__music_cursor_#{lane}"
 
-          # Every tune the game plays, in one piece of cartridge data: a directory first, then
-          # each part's events. See #score_blob.
+          # Every tune the game plays, in one piece of cartridge data. See #score_blob.
           MUSIC_SCORE = :__music_score
 
-          # One directory entry: the tune's length in frames, how many parts it has, and where
-          # each part's events start — rounded up to a power of two, so finding a tune's entry
-          # is a shift of its number rather than a multiply.
-          ENTRY_SHIFT = ((4 * (2 + RubyGBA::Music::MAX_PARTS)) - 1).bit_length
-          ENTRY_BYTES = 1 << ENTRY_SHIFT
+          # THE LANES A TUNE IS PLAYED ON: the hardware the player drives, fixed for the whole
+          # game. The two square-wave channels, then one voice of the mixer for each part that
+          # plays a recording — as many as the most any one tune has. A song's parts are handed
+          # to lanes when it is built, plain parts to the square channels in order and recorded
+          # parts to the mixer's lanes in order. So the code for a lane only ever does one kind of
+          # thing, and the player never has to ask, as it runs, what kind of part it is playing.
+          Lane = Data.define(:kind, :index) # :square and its channel, or :recorded and its mixer lane
 
-          # One event: [frame (u32), the note's two register values (u16 each)].
-          ROW_BYTES = 8
+          # One event on a square lane: [frame (u32), the note's two register values (u16 each)].
+          SQUARE_ROW = 8
+
+          # One event on a recorded lane: [frame (u32), step (u32 — how fast to read the
+          # recording, 0 for a rest), instrument (u16), loudness (u16)]. The instrument is a
+          # number into the score's own table of recordings, so a part can change instrument
+          # from one note to the next.
+          RECORDED_ROW = 12
+
+          # One entry in that table: where the recording is in the cartridge, and how long it is.
+          INSTRUMENT_SHIFT = 3
+          INSTRUMENT_BYTES = 1 << INSTRUMENT_SHIFT
 
           # A frame no tune ever reaches. Each part ends in a row that waits for it, so a part
           # that has run out stays quiet until the tune comes round again.
           NEVER = 0xFFFF_FFFF
 
-          # Number the tunes the program plays, and put them in the cartridge as one score. A
-          # tune that is written but never played costs nothing.
+          # Number the tunes the program plays, pick the lanes they need, and keep the mixer
+          # voices their recorded parts will use. A tune that is written but never played costs
+          # nothing. The score itself waits for #build_score, because a recorded note's step
+          # depends on the rate the mixer settles on.
           def prepare_music(program)
-            played = program.walk.filter_map { |node| node.name if node.kind == :play_song }.uniq
-            played.each do |name|
-              @songs.key?(name) || raise(LoweringError, "play_song for undefined song #{name.inspect}")
+            program.walk.each do |node|
+              next unless node.kind == :play_song
+
+              @songs.key?(node.name) || raise(LoweringError, "play_song for undefined song #{node.name.inspect}")
             end
-            @song_numbers = (@songs.keys & played).each.with_index(1).to_h
+            @song_numbers = IR::Tunes.played(program).map(&:name).each.with_index(1).to_h
+            recorded = IR::Tunes.mixer_voices(program)
+            @lanes = MUSIC_CHANNELS.map { |channel| Lane.new(:square, channel) } +
+                     Array.new(recorded) { |lane| Lane.new(:recorded, lane) }
+            # One directory entry: the tune's length in frames, which lanes it uses, and where
+            # each lane's events start — rounded up to a power of two, so finding a tune's entry
+            # is a shift of its number rather than a multiply.
+            @entry_shift = ((4 * (2 + @lanes.size)) - 1).bit_length
+            @mixer.reserve_music_voices(recorded)
+          end
+
+          # Put every tune the program plays in the cartridge, as one score.
+          def build_score
             @emitter.data_blobs[MUSIC_SCORE] = score_blob if plays_music?
           end
 
@@ -154,18 +181,22 @@ module RubyGBA
           # the parts of the old one and starts the new one from its first frame; no tune at all
           # just silences. The same tune changes nothing.
           #
-          # Then each part looks at the ONE event its cursor points at: due on this frame, its
-          # two register values are copied out and the cursor steps on; otherwise nothing. So a
-          # frame costs one check per part, and a long tune costs what a short one does. The
-          # frame moves on, and at the tune's length it goes back to 0 with every cursor back at
-          # its part's first event — the tune loops.
+          # Then each lane looks at the ONE event its cursor points at: due on this frame, the note
+          # is played and the cursor steps on; otherwise nothing. So a frame costs one check per
+          # lane, and a long tune costs what a short one does. A square lane's note is two
+          # register values copied out; a recorded lane's is a voice of the mixer filled in —
+          # which recording, how fast to read it, how loud. The frame moves on, and at the tune's
+          # length it goes back to 0 with every cursor back at its lane's first event — the tune
+          # loops.
           #
           # SAFE TO SHARE WITH THE GAME because the game only ever writes WANTED, with a single
-          # store, and this only ever reads it. Everything else here belongs to the player alone.
+          # store, and this only ever reads it. Everything else here belongs to the player alone,
+          # the mixer voices included (see Mixer#reserve_music_voices).
           #
           # Every register is free here — the console saves r0-r3 and r12 on the way in, and the
           # dispatcher r4-r11. r2 holds the score, r3 an entry or a row in it, r4 the tune asked
-          # for and then a cursor, r5 the frame, r6 the tune playing; r0/r1 carry each write.
+          # for and then a cursor, r5 the frame, r6 the tune playing, r7/r8 a mixer voice and its
+          # recording; r0/r1 carry each write.
           def emit_music_tick
             base, at, value, frame, playing = 2, 3, 4, 5, 6
             changed = @emitter.gensym
@@ -193,10 +224,10 @@ module RubyGBA
             @emitter.emit(ASM.cmp_imm(playing, 0))
             @emitter.emit_branch(:bcond, done, cond: :eq)
             @emitter.emit(ASM.load_immediate(frame, 0))
-            emit_rewind_parts(base, at, playing)
+            emit_rewind_lanes(base, at, playing)
 
             @emitter.place_label(play)
-            RubyGBA::Music::MAX_PARTS.times { |part| emit_play_part(part, base, at, value, frame) }
+            @lanes.each_with_index { |lane, number| emit_play_lane(lane, number, base, at, value, frame) }
 
             wrap = @emitter.gensym
             @emitter.emit(ASM.add_imm(frame, frame, 1))
@@ -205,7 +236,7 @@ module RubyGBA
             @emitter.emit(ASM.cmp_reg(frame, ACC))
             @emitter.emit_branch(:bcond, wrap, cond: :lt)   # not at the end yet
             @emitter.emit(ASM.load_immediate(frame, 0))     # round again from the top
-            emit_rewind_parts(base, at, playing)
+            emit_rewind_lanes(base, at, playing)
             @emitter.place_label(wrap)
             @primitives.store_var(frame, MUSIC_FRAME)
             @emitter.place_label(done)
@@ -257,46 +288,73 @@ module RubyGBA
 
           # +at+ = where tune number +playing+'s directory entry sits.
           def emit_entry_address(at, base, playing)
-            @emitter.emit(ASM.lsl_imm(at, playing, ENTRY_SHIFT))
+            @emitter.emit(ASM.lsl_imm(at, playing, @entry_shift))
             @emitter.emit(ASM.add_reg(at, base, at))
           end
 
-          # Point every part's cursor at its first event.
-          def emit_rewind_parts(base, at, playing)
+          # Point every lane's cursor at its first event.
+          def emit_rewind_lanes(base, at, playing)
             emit_entry_address(at, base, playing)
-            RubyGBA::Music::MAX_PARTS.times do |part|
-              @emitter.emit(ASM.ldr_offset(ACC, at, 8 + (4 * part)))
-              @primitives.store_var(ACC, self.class.music_cursor(part))
+            @lanes.each_index do |number|
+              @emitter.emit(ASM.ldr_offset(ACC, at, 8 + (4 * number)))
+              @primitives.store_var(ACC, self.class.music_cursor(number))
             end
           end
 
-          # Silence each part tune number +playing+ has — a rest on its channel — and nothing
-          # when no tune is playing. Only its OWN parts: the second music voice is also the one
-          # sound effects play on, and a one-part tune ending must not cut a beep off.
-          def emit_silence_tune(base, at, parts, playing)
+          # Silence every lane tune number +playing+ uses, and nothing when no tune is playing.
+          # Only its OWN lanes: the second square channel is also the one sound effects play on,
+          # and a one-part tune ending must not cut a beep off.
+          def emit_silence_tune(base, at, lanes_used, playing)
             quiet = @emitter.gensym
             @emitter.emit(ASM.cmp_imm(playing, 0))
             @emitter.emit_branch(:bcond, quiet, cond: :eq)
             emit_entry_address(at, base, playing)
-            @emitter.emit(ASM.ldr_offset(parts, at, 4))     # how many parts it has
-            MUSIC_CHANNELS.each_with_index do |channel, part|
-              @emitter.emit(ASM.cmp_imm(parts, part))
-              @emitter.emit_branch(:bcond, quiet, cond: :le) # no part this far along
-              emit_writes(Sound::Registers.channel_note(channel, frequency: 0, duty: :half, volume: 0))
+            @emitter.emit(ASM.ldr_offset(lanes_used, at, 4)) # one bit for each lane it uses
+            @lanes.each_with_index do |lane, number|
+              unused = @emitter.gensym
+              @emitter.emit(ASM.tst_imm(lanes_used, 1 << number))
+              @emitter.emit_branch(:bcond, unused, cond: :eq)
+              emit_silence_lane(lane)
+              @emitter.place_label(unused)
             end
             @emitter.place_label(quiet)
           end
 
-          # Play one part's next event, if it is due on this frame.
-          def emit_play_part(part, base, at, cursor, frame)
-            regs = music_voice_regs(MUSIC_CHANNELS.fetch(part))
+          # A square lane goes quiet with a rest on its channel; a recorded lane by switching its
+          # mixer voice off.
+          def emit_silence_lane(lane)
+            if lane.kind == :square
+              emit_writes(Sound::Registers.channel_note(lane.index, frequency: 0, duty: :half, volume: 0))
+            else
+              @emitter.emit(ASM.load_immediate(TMP, @mixer.music_slot(lane.index)))
+              @emitter.emit(ASM.load_immediate(ACC, 0))
+              @emitter.emit(ASM.str_offset(ACC, TMP, Mixer::SLOT_ACTIVE))
+            end
+          end
+
+          # Play one lane's next event, if it is due on this frame.
+          def emit_play_lane(lane, number, base, at, cursor, frame)
             skip = @emitter.gensym
-            @primitives.load_var(cursor, self.class.music_cursor(part))
+            @primitives.load_var(cursor, self.class.music_cursor(number))
             @emitter.emit(ASM.add_reg(at, base, cursor))      # the row it points at
             @emitter.emit(ASM.ldr(ACC, at))                   # the frame it is due
             @emitter.emit(ASM.cmp_reg(ACC, frame))
-            @emitter.emit_branch(:bcond, skip, cond: :ne)     # not yet — leave the voice alone
+            @emitter.emit_branch(:bcond, skip, cond: :ne)     # not yet — leave the lane alone
 
+            if lane.kind == :square
+              emit_square_note(lane.index, at)
+              @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
+            else
+              emit_recorded_note(lane.index, base, at)
+              @emitter.emit(ASM.add_imm(cursor, cursor, RECORDED_ROW))
+            end
+            @primitives.store_var(cursor, self.class.music_cursor(number))
+            @emitter.place_label(skip)
+          end
+
+          # Copy the row's two register values onto the square channel.
+          def emit_square_note(channel, at)
+            regs = music_voice_regs(channel)
             regs[:const].each do |addr, value|                # channel 1's sweep, written first
               @emitter.emit(ASM.load_immediate(ACC, value))
               @emitter.emit(ASM.load_immediate(TMP, addr))
@@ -307,46 +365,125 @@ module RubyGBA
               @emitter.emit(ASM.load_immediate(TMP, addr))
               @emitter.emit(ASM.store_halfword(ACC, TMP))
             end
-            @emitter.emit(ASM.add_imm(cursor, cursor, ROW_BYTES))
-            @primitives.store_var(cursor, self.class.music_cursor(part))
-            @emitter.place_label(skip)
           end
 
-          # Every tune the program plays, as one piece of data. First a directory with an entry
-          # per tune (entry 0 is the "no tune" number and is never read), then each part's
-          # events. Where a part starts is a byte offset into this same data, so nothing in it
-          # needs to know where the cartridge puts it. A part a tune does not have points at a
-          # row that is nothing but a wait for NEVER.
-          def score_blob
-            directory_size = (@song_numbers.size + 1) * ENTRY_BYTES
-            waiting = [NEVER, 0, 0].pack("Vvv")
-            directory = ("\0" * ENTRY_BYTES).b
-            events = waiting.dup
+          # Start the row's note on the lane's mixer voice — from the top of the recording the row
+          # names, at the row's step and loudness — or switch the voice off for a rest. The
+          # voice's SOUNDING flag goes last, the way the game's own `play` writes it.
+          def emit_recorded_note(lane, base, at)
+            voice, recording = 7, 8
+            rest = @emitter.gensym
+            sounded = @emitter.gensym
+            @emitter.emit(ASM.load_immediate(voice, @mixer.music_slot(lane)))
+            @emitter.emit(ASM.ldr_offset(ACC, at, 4))                         # how fast to read it
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, rest, cond: :eq)                     # 0 is a rest
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_STEP))
+            @emitter.emit(ASM.load_halfword_offset(ACC, at, 10))              # how loud
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_VOL))
+            @emitter.emit(ASM.load_halfword_offset(ACC, at, 8))               # which recording...
+            @emitter.emit(ASM.lsl_imm(ACC, ACC, INSTRUMENT_SHIFT))
+            @emitter.emit(ASM.add_reg(recording, base, ACC))
+            @primitives.emit_add_const(recording, recording, @instruments_at, ACC) # ...its table entry
+            @emitter.emit(ASM.ldr(ACC, recording))                            # where it is
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_SRC))
+            @emitter.emit(ASM.ldr_offset(ACC, recording, 4))                  # how long it is
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_LEN))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            [Mixer::SLOT_POS, Mixer::SLOT_FRAC, Mixer::SLOT_LOOP].each do |field|
+              @emitter.emit(ASM.str_offset(ACC, voice, field))                # from the top, once
+            end
+            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_ACTIVE))
+            @emitter.emit_branch(:b, sounded)
+            @emitter.place_label(rest)
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_ACTIVE))
+            @emitter.place_label(sounded)
+          end
 
+          # EVERY TUNE THE PROGRAM PLAYS, as one piece of data:
+          #
+          #   * a directory, one entry per tune (entry 0 is the "no tune" number and is never read):
+          #     its length in frames, one bit for each lane it uses, and where each lane's events
+          #     start;
+          #   * the table of recordings its notes can name: where each one is and how long;
+          #   * then the events themselves, lane by lane.
+          #
+          # Where things start is a byte offset into this same data, so nothing in it needs to know
+          # where the cartridge puts it — except the recordings, which are data of their own, and
+          # whose addresses are filled in once everything has a place (Emit#link_data). A lane a
+          # tune does not use points at a row that waits for NEVER.
+          def score_blob
+            entry_bytes = 1 << @entry_shift
+            instruments = @song_numbers.keys.flat_map do |name|
+              @songs.fetch(name).voices.filter_map { |part| part[:instrument] }
+            end.uniq
+            @instrument_numbers = instruments.each_with_index.to_h
+            @instruments_at = (@song_numbers.size + 1) * entry_bytes
+            events_at = @instruments_at + (instruments.size * INSTRUMENT_BYTES)
+
+            directory = ("\0" * entry_bytes).b
+            table = instruments.each_with_index.map do |name, number|
+              @emitter.link_data(MUSIC_SCORE, @instruments_at + (number * INSTRUMENT_BYTES), name)
+              [0, @mixer.sample_info(name).length].pack("VV") # where it is: filled in by the link
+            end.join
+            events = [NEVER, 0, 0, 0].pack("VVvv") # a row any lane can wait on
             @song_numbers.each_key do |name|
               song = @songs.fetch(name)
-              starts = Array.new(RubyGBA::Music::MAX_PARTS, directory_size)
-              song.voices.each_with_index do |voice, part|
-                starts[part] = directory_size + events.bytesize
-                events << part_rows(name, part, voice) << waiting
+              starts = Array.new(@lanes.size, events_at)
+              used = 0
+              lanes_for(name, song).each do |part, number|
+                starts[number] = events_at + events.bytesize
+                used |= 1 << number
+                events << lane_rows(@lanes[number], part)
               end
-              directory << [song.total_frames, song.voices.size, *starts].pack("V*").ljust(ENTRY_BYTES, "\0")
+              directory << [song.total_frames, used, *starts].pack("V*").ljust(entry_bytes, "\0")
             end
-            directory + events
+            directory + table + events
           end
 
-          # A part's events, each with the note's register values worked out here so the player
-          # only copies them.
-          def part_rows(name, part, voice)
-            channel = MUSIC_CHANNELS.fetch(part) do
-              raise LoweringError, "song #{name.inspect} has more parts than this console can play"
+          # Which lane each of a song's parts plays on: plain parts take the square channels in
+          # order, recorded parts the mixer's lanes in order.
+          def lanes_for(name, song)
+            squares = 0
+            recorded = 0
+            song.voices.map do |part|
+              if part[:instrument]
+                recorded += 1
+                [part, MUSIC_CHANNELS.size + recorded - 1]
+              else
+                if squares == MUSIC_CHANNELS.size
+                  raise LoweringError, "song #{name.inspect} has more parts than this console can play"
+                end
+
+                squares += 1
+                [part, squares - 1]
+              end
             end
-            regs = music_voice_regs(channel)
-            voice[:events].map do |frame, frequency|
-              writes = Sound::Registers.channel_note(channel, frequency: frequency, duty: voice[:duty],
-                                                              volume: voice[:volume])
-              [frame, note_reg_value(writes, regs[:reg_a]), note_reg_value(writes, regs[:reg_b])].pack("Vvv")
-            end.join
+          end
+
+          # A part's events on its lane, each worked out here so the player only copies it, and
+          # a row after the last that waits for NEVER.
+          def lane_rows(lane, part)
+            if lane.kind == :square
+              regs = music_voice_regs(lane.index)
+              rows = part[:events].map do |frame, frequency|
+                writes = Sound::Registers.channel_note(lane.index, frequency: frequency, duty: part[:duty],
+                                                                  volume: part[:volume])
+                [frame, note_reg_value(writes, regs[:reg_a]), note_reg_value(writes, regs[:reg_b])].pack("Vvv")
+              end
+              rows.join + [NEVER, 0, 0].pack("Vvv")
+            else
+              recording = @mixer.sample_info(part[:instrument])
+              number = @instrument_numbers.fetch(part[:instrument])
+              loudness = (part[:volume] * Mixer::MIX_LEVELS[:full] / 15.0).round # 0..15 -> the mix's 0..64
+              rows = part[:events].map do |frame, frequency|
+                step = frequency.zero? ? 0 : @mixer.step_at(recording, frequency)
+                [frame, step, number, loudness].pack("VVvv")
+              end
+              rows.join + [NEVER, 0, 0, 0].pack("VVvv")
+            end
           end
 
           # Which two sound registers carry a music note's varying values on a given

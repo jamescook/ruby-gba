@@ -14,6 +14,7 @@ require_relative "ir/parity"
 require_relative "ir/affine"
 require_relative "ir/modes"
 require_relative "ir/stacking" # the one rule turning declared layers into a drawing order
+require_relative "ir/tunes" # which tunes a program plays, and the mixer voices they keep
 require_relative "ir/verifier"
 require_relative "ir/portability"
 require_relative "ir/backends"

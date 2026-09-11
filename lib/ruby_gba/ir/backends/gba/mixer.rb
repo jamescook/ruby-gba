@@ -14,14 +14,12 @@ module RubyGBA
         # buffer. All of this is hidden behind `play`/`stop`.
         #
         # A "voice" is one sounding sample: where its data is in the cartridge, how far it
-        # has played, its length, and whether it loops. There are a fixed number of voice
-        # slots; `play` fills a free one, the mix drains and retires it (or loops it), and
-        # `stop` clears a sample's slots. The mix runs once per DISPLAYED FRAME, from the
-        # screen's own interrupt — so playing samples needs a game loop, which is what arms
-        # that interrupt.
-        #
-        # (For now every voice plays at the one mixer rate; a later feature steps each voice
-        # at its own pitch. That's why one recorded note can't yet become a whole keyboard.)
+        # has played, its length, whether it loops, and how fast it reads the recording (its
+        # pitch). There are a fixed number of voice slots; `play` fills a free one, the mix
+        # drains and retires it (or loops it), and `stop` clears a sample's slots. The mix runs
+        # once per DISPLAYED FRAME, from the screen's own interrupt — so playing samples needs a
+        # game loop, which is what arms that interrupt. A song part that plays a recording has
+        # slots of its own at the top (see #reserve_music_voices).
         #
         # Owns the whole sampled-audio picture: registering samples as ROM data (asset
         # preparation, so it lives here beside the mix that uses what it prepares) and
@@ -136,12 +134,39 @@ module RubyGBA
             @primitives = primitives
             @samples = {}          # name -> { rate:, length: } (a Direct Sound PCM sample)
             @plays_samples = false # does the program play any sample (uses Direct Sound)?
+            @music_voices = 0      # how many of the top slots the music player keeps
           end
+
+          # The output rate the mix runs at, settled by #prepare_mixer.
+          attr_reader :mixer_rate
 
           # Does the program play any sample (so the mixer needs bringing up)?
           def plays_samples?
             @plays_samples
           end
+
+          # What a declared sample is — its rate, length and recorded note — for the music
+          # player, which works out each note's step from them.
+          def sample_info(name)
+            @samples[name] ||
+              raise(LoweringError, "play_sample of undefined sample #{name.inspect} — declare it with `sample`")
+          end
+
+          # KEEP THE TOP +count+ SLOTS FOR THE MUSIC. A song part that plays a recording starts a
+          # voice on every note, from the screen's interrupt, and a slot it shared with the game
+          # would be a slot a sound effect could land in between two notes — for the next note to
+          # overwrite. So the music has slots of its own, the game's `play` and `stop` never look
+          # at them, and the game's sounds get the rest.
+          def reserve_music_voices(count)
+            @music_voices = count
+            @plays_samples ||= count.positive?
+          end
+
+          # How many slots the game's own sounds share.
+          def game_voices = MAX_VOICES - @music_voices
+
+          # Where the music's +lane+th slot is — above every slot the game uses.
+          def music_slot(lane) = @voice_base + ((game_voices + lane) * SLOT_BYTES)
 
           # Register the samples: embed each one's PCM data as a ROM blob and note the
           # program plays sound. #prepare_mixer reserves the timer and memory.
@@ -283,23 +308,29 @@ module RubyGBA
           # clip still sounds right) and the pitch shift (playing at a note other than the
           # sample's recorded one reads it faster or slower). At least 1, so it never stalls.
           def voice_step(node, sample)
-            ratio = 1.0
-            if node.pitch
-              notes = RubyGBA::Music::NOTE_FREQUENCIES
-              ratio = notes.fetch(node.pitch).to_f / notes.fetch(sample.note || :C4)
-            end
+            notes = RubyGBA::Music::NOTE_FREQUENCIES
+            step_at(sample, notes.fetch(node.pitch || sample.note || :C4))
+          end
+
+          # The 16.16 step that sounds +sample+ at +frequency+ Hz — the same sum for a note a game
+          # plays and a note a song plays, so the two are in tune with each other.
+          def step_at(sample, frequency)
+            ratio = frequency.to_f / RubyGBA::Music::NOTE_FREQUENCIES.fetch(sample.note || :C4)
             step = (sample.rate.to_f / @mixer_rate) * ratio
             [(step * STEP_ONE).round, 1].max
           end
 
           # stop_sample: silence a sample by clearing every voice slot playing it (or every
-          # slot, when no sample is named). Just flips each matching slot's "active" off.
+          # slot, when no sample is named). Just flips each matching slot's "active" off. The
+          # game's slots only: a note the music is playing is the music's to stop.
           def emit_stop_sample(node = nil)
+            return if game_voices.zero?
+
             name = node && node.name
             @emitter.emit_load_data_address(4, name) if name # r4 = the sample's address to match
 
             @emitter.emit(ASM.load_immediate(1, @voice_base))            # r1 = slot pointer
-            @emitter.emit(ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES))) # r2 = past the last slot
+            @emitter.emit(ASM.load_immediate(2, @voice_base + (game_voices * SLOT_BYTES))) # r2 = past the game's last slot
             @emitter.emit(ASM.load_immediate(3, 0))                      # r3 = the "off" value
             loop_lbl = @emitter.gensym
             skip = @emitter.gensym
@@ -334,8 +365,9 @@ module RubyGBA
           # dispatcher saves r4-r11 and lr while the BIOS saves r0-r3 and r12, so between them
           # every one is covered. The voice slots: `play` fills a slot and writes its SOUNDING
           # flag LAST, and `stop` clears that flag FIRST, so a slot half-written by the game is
-          # never a slot this will read. Nothing else touches them, and a slot the game sees as
-          # free stays free — this can retire a voice but never start one.
+          # never a slot this will read. A slot the game sees as free stays free — this can
+          # retire a voice but never start one. The music player, in the same interrupt, does
+          # start voices, but only in the slots kept for it, which the game never touches.
           def emit_mixer_tick
             @primitives.load_var(0, MIX_FRONT)      # r0 = the buffer now playing (front)
             @emitter.emit(ASM.cmp_imm(0, 0))
@@ -385,11 +417,6 @@ module RubyGBA
           def store_reg_ioreg(reg, address)
             @emitter.emit(ASM.load_immediate(TMP, address))
             @emitter.emit(ASM.str(reg, TMP))
-          end
-
-          def sample_info(name)
-            @samples[name] ||
-              raise(LoweringError, "play_sample of undefined sample #{name.inspect} — declare it with `sample`")
           end
 
           # Point channel A's DMA at +buffer+ and (re)start it. The DMA reloads its source
@@ -532,11 +559,14 @@ module RubyGBA
 
           private
 
-          # Leave r0 = the address of a free voice slot, or 0 if all MAX_VOICES are busy.
-          # Uses r0/r1/r2 only, so the caller's r4 (the sample address) survives.
+          # Leave r0 = the address of a free voice slot, or 0 if every one the game shares is
+          # busy (the music's own are never offered). Uses r0/r1/r2 only, so the caller's r4
+          # (the sample address) survives.
           def find_free_slot
+            return @emitter.emit(ASM.load_immediate(0, 0)) if game_voices.zero?
+
             @emitter.emit(ASM.load_immediate(1, @voice_base))
-            @emitter.emit(ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES)))
+            @emitter.emit(ASM.load_immediate(2, @voice_base + (game_voices * SLOT_BYTES)))
             scan = @emitter.gensym
             found = @emitter.gensym
             miss = @emitter.gensym
