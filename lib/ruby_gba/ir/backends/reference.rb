@@ -859,7 +859,7 @@ module RubyGBA
             @audio << [:stop_music] if @music_playing
             @music_playing = @music_wanted
             @music_frame = 0
-            @music_cursors = Array.new(Music::MAX_PARTS, 0)
+            @music_cursors = Array.new(@music_playing ? @songs[@music_playing].voices.size : 0, 0)
             @music_voices = []
           end
           return unless @music_playing
