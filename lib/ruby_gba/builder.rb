@@ -426,7 +426,9 @@ module RubyGBA
       finalize_layer_blend
       finalize_per_frame_routines
       finalize_name_dispatches
+      finalize_pool_walks
       verify_targets_defined!
+      verify_instance_routines!
       verify_stack_fits!
       initialize_rng_stream
       register_save_init
