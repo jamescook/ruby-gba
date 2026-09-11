@@ -24,45 +24,6 @@ they never *have* to. When adding a feature, this ranks above cleverness or byte
   asm-tier ops, explicit modes, raw data arrays) available for people who want them.
 - **Names read like game code**, not assembly — `flip`, `approach`, `blit :ship, x, y`.
 
-## Task tracking with beads (`bd`)
-
-Graph-based, agent-friendly tracker living with the project. This tracker's prefix is
-**`gba-`**. Epics and children both have **flat ids** (e.g. `gba-xhu`) linked by
-`parent-child` dependencies — we did *not* use hierarchical `--parent` ids.
-
-Commands you'll use most:
-
-```bash
-bd ready --exclude-type epic      # the actionable queue (epics are just containers)
-bd ready --json                   # structured — preferred when parsing
-bd show gba-xhu                   # details; epics list their children + % complete
-bd create "Title" -t task -p 1    # types: bug|feature|task|epic|chore|decision; -p 0(high)..4
-bd update gba-0pn --claim         # claim (assign + in_progress), then start the work
-bd update gba-0pn --acceptance '…' # set/replace AC after creation (no --acceptance-file; single-quote inline, no backticks/$)
-bd dep add <blocked> <blocker>    # <blocked> depends on <blocker>  (arg order is the #1 gotcha)
-bd dep tree gba-xhu               # visualize; run `bd dep cycles` after bulk wiring
-bd close gba-0pn --reason "..."   # close when done
-```
-
-Notes learned in practice:
-
-- Dependencies gate `bd ready` — a bead shows ready only once every bead it depends on
-  is closed. Wire them as you plan; that's what makes `bd ready` mean "actually
-  startable."
-- When you claim a child, also claim its parent epic (`bd update <epic> --claim`) so the
-  epic stops appearing in `bd ready`. Only close an epic once all its children are closed.
-- Create **one issue per command** — don't chain many `bd create`s in one shell line;
-  failures need to stay visible and recoverable.
-- **Shell-safety (learned the hard way):** never pass `--reason`/`--description` text
-  containing backticks, `$(...)`, or other shell metacharacters as an inline argument —
-  the shell will execute it (this once dumped a live secret into the db). Write such text
-  to a file and pass `--reason-file` / `--body-file` instead.
-- Claiming a bead means starting it — proceed straight into the work. Only pause for real
-  ambiguity (unclear requirements, a design call with no obvious answer) or a blocker.
-- Never use `bd decision` - it will effectively be lost. decisions should instead be code, or code
-  comments above relevant code.
-
-
 ## Shell commands — one operation per call
 
 Run **one logical command per Bash call.** Do not chain distinct operations with `&&`, `;`,
@@ -70,16 +31,15 @@ or newlines in a single invocation, and do not bundle a file-writing heredoc
 (`cat > f <<EOF …`) with the command that consumes it.
 
 Why this is non-negotiable here: the operator reads each command before allowing it, and the
-permission allow/denylist matches on recognizable prefixes (`git commit`, `rake test:parallel`,
-`bd close`). A blob like `cat > msg <<EOF … EOF; git add .; git commit -F msg; git show` is
-unreadable, can't be allowlisted, and can't be denied granularly.
+permission allow/denylist matches on recognizable prefixes (`git commit`, `rake test:parallel`).
+A blob like `cat > msg <<EOF … EOF; git add .; git commit -F msg; git show` is unreadable,
+can't be allowlisted, and can't be denied granularly.
 
 - `git add`, then `git commit`, then `git show` are **three separate Bash calls**, not one.
   Need several commands at once? Issue several Bash calls (they can run in parallel) — each
   stays individually matchable.
-- Write files — commit messages, scripts, bead bodies — with the **Write/Edit tools**, never
-  `cat >`/heredocs. Then a single command reads the file (`git commit -F <file>`,
-  `bd close --reason-file <file>`).
+- Write files — commit messages, scripts, long bodies of text — with the **Write/Edit tools**,
+  never `cat >`/heredocs. Then a single command reads the file (`git commit -F <file>`).
 - No `python3 -c '…'` / `ruby -e '…'` logic one-liners. Put logic in a file so it's
   inspectable and re-runnable.
 - Prefer one clear command over a clever pipeline, even for read-only inspection.
@@ -143,9 +103,9 @@ See `.claude/rules/testing.md`.
 The framework's largest consumer, a Wolfenstein 3D port, lives in its own repository at
 `~/open_source/ruby-wolf3d` and depends on this one as a gem. It has a suite of its own which
 this one does not run and must not learn about: a library that names the games built on it is
-coupled to them. Its whole purpose is to find gaps here — a bead it raises against the
-framework is filed in THIS tracker. To work on both at once, point its bundler at this
-checkout (`bundle config --local local.ruby-gba ../ruby-gba` from there).
+coupled to them. Its whole purpose is to find gaps here, and a gap it finds is tracked against
+this framework rather than worked around there. To work on both at once, point its bundler at
+this checkout (`bundle config set --local local.ruby-gba ../ruby-gba` from there).
 
 ## Testing strategy — assert behavior, at the right altitude
 
@@ -231,7 +191,7 @@ Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, n
 
 **Backends** consume the IR and live under `IR::Backends`, named for the platform they target (the ROM backend is `GBA`, not `Arm` — the target is the whole platform, not just the CPU). `Backends::Reference` runs the IR in Ruby (the headless test oracle — named for its role as the answer key, not for the language, since every backend here happens to be written in Ruby); `Backends::GBA` lowers it to a ROM; a `Backends::JS` could run it in a browser. All honor `IR::Int32`'s signed-32-bit semantics — that shared contract is what keeps them agreeing.
 
-**Cross-backend rule:** a hardware feature (sound, tiles, sprites, paged modes…) isn't *done* until it works on every backend that needs it — the GBA lowering **and** the Ruby interpreter. The moment a feature is on the radar, create a bead for each backend's slice — even before the details are known — so it can't be forgotten while you're heads-down on the feature elsewhere. Don't lean on this principle to remember; make the bead.
+**Cross-backend rule:** a hardware feature (sound, tiles, sprites, paged modes…) isn't *done* until it works on every backend that needs it — the GBA lowering **and** the Ruby interpreter. The moment a feature is on the radar, write down each backend's slice as its own piece of work — even before the details are known — so it can't be forgotten while you're heads-down on the feature elsewhere. Don't lean on this principle to remember; record it.
 
 **Conformance-fixture obligation:** a new IR feature (a `Node::CATEGORY` kind or a `binop` operator) isn't done until it's added to the kitchen-sink fixture in `test/conformance_fixture.rb`. That one program is run through every backend by `test/test_cross_backend_conformance.rb`; a backend missing a feature the fixture uses hits its "unsupported" branch and fails. The coverage test asserts the fixture touches every kind/operator, so a forgotten feature fails loudly — but only if you added it to the fixture. Hardware-only kinds (`raw` and `read_scanline` today) are exempt via `HARDWARE_ONLY_KINDS` and kept in an uncalled func. This guards *coverage*; the differential test (behavioral *agreement*) is separate.
 
@@ -252,20 +212,22 @@ Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, n
 - Be concise for ordinary code, but **explain the hardware generously**. The reader isn't
   assumed to know what VRAM, DMA, a page flip, or a palette is, so a few plain-language lines
   on *what the hardware is doing and why* are welcome — that teaching is the point.
-- Do not mention beads in code comments. beads is internal to this machine (for now).
+- Do not name the issue tracker, or an issue id, in a code comment.
 - **No measured decimals in a comment.** A scanline figure (`0.01928`, `0.0032`) or an
   accuracy ratio (`reads 1.12`) is specific to one emulator build and one moment, so it is
   stale as soon as anybody re-measures. Write what survives instead: **instruction counts and
   relationships**, which come from the emitted code, not from a timing run — "one instruction,
   not six", "clamping is twice wrapping", "a little over at an even column and a little under
-  at an odd one". Those explain the code AND stay true. A measured number belongs in a commit
-  message or a bead, which are dated by construction.
+  at an odd one". Those explain the code AND stay true. A measured number belongs somewhere
+  dated by construction — a commit message, or the issue it came from.
 
 ### Writing commit messages
 
 - Commit messages are for humans and should read as if a human wrote them.
 - Be concise.
-- Do not mention beads in git commit messages comments. beads is internal to this machine (for now).
+- Do not name the issue tracker, or an issue id, in a commit message. A `commit-msg` hook
+  rejects one as a backstop; don't lean on it instead of just not writing it.
+- Do not add a `Co-Authored-By` trailer. Do not say how many tests were added.
 - Avoid AI "fluff" that sounds pleased with itself - be direct and get to the point.
 
 ### Writing user-facing errors and warnings — use the `simple-english` skill
@@ -299,5 +261,5 @@ features land rather than spawning one-feature-per-example demos:
 - `examples/breakout.rb` — bitmap-mode flagship: collision, score, lives, scenes, sound, music
 - `examples/pacman.rb` — tiled-mode flagship: maze background, hardware sprites, collision, sound, scenes
 
-## Finishing a bead
-- Commit changes to git, but keep the message for humans. Do not add the 'Co-authored ...' trailer. Do not mention how many tests were added.
+## Finishing a piece of work
+- Commit it, and keep the message for humans — see "Writing commit messages" above.
