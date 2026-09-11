@@ -52,7 +52,8 @@ rake test TEST=test/test_thing.rb TESTOPTS="--name=/pattern/"   # one test; -n /
 ruby -Itest test/test_thing.rb                                  # one file, no rake
 ```
 
-`games/wolf3d/` has the same pair for its own suite, which this one does not run.
+The Wolfenstein port (`~/open_source/ruby-wolf3d`) has the same pair for its own suite, which
+this one does not run and does not know about.
 
 ## Asserting what something COSTS
 
