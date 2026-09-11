@@ -61,10 +61,15 @@ module RubyGBA
       dotted_eighth:   0.75,
     }.freeze
 
-    # The most parts a song can sound at once. The console has two square-wave
-    # voices free for a tune (a third opens up once the wave channel lands). This
-    # is a count of *parts*, not hardware channels — the writer never picks one.
-    MAX_VOICES = 2
+    # The most parts a song can sound at once. The console has two square-wave voices free
+    # for a tune (a third opens up once the wave channel lands). This is a count of *parts*,
+    # not hardware channels — the writer never picks one.
+    #
+    # NAMED FOR WHAT IT COUNTS, because it is not the mixer's {Sound::MIXER_VOICES} and the
+    # two were both called MAX_VOICES. A part is a line of music; a voice is a slot that
+    # makes a sound. One word for one meaning, so the number that limits tunes cannot be
+    # read as the number that limits sounds.
+    MAX_PARTS = 2
 
     # One part of a song: a single line of notes and rests, with its own tone
     # (duty) and loudness (volume). The clock (tempo) lives on the song and is
@@ -214,8 +219,8 @@ module RubyGBA
       end
 
       def ensure_voice_budget!
-        return if @voices.length <= MAX_VOICES
-        raise ArgumentError, "a song can play at most #{MAX_VOICES} parts at once " \
+        return if @voices.length <= MAX_PARTS
+        raise ArgumentError, "a song can play at most #{MAX_PARTS} parts at once " \
           "(this one has #{@voices.length}). Layer a melody and a bass — the console runs out of voices."
       end
 

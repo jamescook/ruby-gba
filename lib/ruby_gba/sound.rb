@@ -28,6 +28,17 @@ module RubyGBA
     # What a bare-frequency beep uses for the parts the caller didn't specify.
     DEFAULTS = { duty: :half, decay: :fast, volume: 15 }.freeze
 
+    # HOW MANY RECORDED SOUNDS PLAY AT ONCE, and it lives here because it is a promise the
+    # backends make to each other rather than a fact about either one. Past this a new play
+    # is dropped — safe and quiet — instead of cutting off one already sounding.
+    #
+    # It was written down twice, once in the lowering and once in the interpreter, each
+    # saying in its comment that it matched the other. They did match, by the care of
+    # whoever edited them last and nothing else: change one and the console would drop a
+    # sound the interpreter still played, which shows up only on the ninth sound at once and
+    # would be read as a mixing bug rather than as two numbers drifting apart.
+    MIXER_VOICES = 8
+
     # One resolved beep, purely musical — no hardware in sight. The four parts are fixed
     # here rather than named by a caller, so it is a value object and asking it for anything
     # else says so.

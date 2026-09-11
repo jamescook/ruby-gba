@@ -14,8 +14,10 @@ class TestMixer < Minitest::Test
     byte >= 128 ? byte - 256 : byte
   end
 
-  # Run a DSL block that sets up sounds, then loops for `frames` frames.
-  def run_frames(frames, &setup)
+  # A DSL block that sets up sounds, then loops for `frames` frames — as a program, so the
+  # interpreter and the console can be handed the very same one rather than two that look
+  # alike.
+  def frames_program(frames, &setup)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -27,7 +29,12 @@ class TestMixer < Minitest::Test
         (counter >= frames).then { halt }
       end
     end
-    Reference.new.run(b.program, max_steps: 200_000)
+    b.program
+  end
+
+  # ...and run it on the interpreter, which is what nearly every test here wants.
+  def run_frames(frames, &setup)
+    Reference.new.run(frames_program(frames, &setup), max_steps: 200_000)
   end
 
   def test_two_looping_samples_sound_at_the_same_time
@@ -88,12 +95,32 @@ class TestMixer < Minitest::Test
     assert_operator i.peak_voices, :>=, 3, "the same effect overlaps itself (#{i.peak_voices})"
   end
 
+  # OVER-SUBSCRIBE THE MIXER AND ASK BOTH BACKENDS WHAT HAPPENED. The assertion is against
+  # Sound::MIXER_VOICES — the promise the two backends make to each other — and not against
+  # either one's own constant. Asserting the interpreter's cap against the interpreter's
+  # behaviour is true whatever the number says and silent about the lowering, which is how
+  # the limit came to be written down twice with nothing holding the two together.
   def test_past_the_voice_limit_new_plays_are_dropped_not_crashed
     i = run_frames(5) do
       buzz = sample :buzz, pcm: [25, -25] * 2000, rate: 8000
-      20.times { buzz.play } # far more than MAX_VOICES
+      20.times { buzz.play } # far more than the mixer holds
     end
-    assert_equal Reference::MAX_VOICES, i.peak_voices, "the mix is capped at MAX_VOICES, extra plays dropped"
+    assert_equal RubyGBA::Sound::MIXER_VOICES, i.peak_voices,
+                 "the mix is capped at the shared limit, extra plays dropped"
+  end
+
+  # ...and the same over-subscribed program on the console. The interpreter can count voices;
+  # hardware cannot be asked how many are sounding, so what is checked here is the thing that
+  # would actually go wrong if the two disagreed about the cap — the mix falling silent or
+  # the run dying, rather than quietly dropping the extras and playing on.
+  def test_the_console_survives_the_same_over_subscription
+    rom = assemble_rom(frames_program(5) do
+      buzz = sample :buzz, pcm: [25, -25] * 2000, rate: 8000
+      20.times { buzz.play }
+    end)
+
+    v = assert_emulator_loads_rom(rom, frames: 6)
+    assert v.sound?, "twenty plays into an eight-voice mixer still makes a noise"
   end
 
   # --- hardware: the console really sums the voices ---

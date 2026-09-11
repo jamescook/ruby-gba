@@ -30,9 +30,9 @@ module RubyGBA
         class Mixer
           include Constants
 
-          # How many samples can sound at once. A new play past this is dropped (safe and
-          # quiet) rather than stealing one already sounding. Matches the interpreter.
-          MAX_VOICES = 8
+          # How many samples can sound at once — read from {Sound}, where the two backends
+          # keep the promises they make to each other, rather than written down again here.
+          MAX_VOICES = Sound::MIXER_VOICES
 
           # The mix routine's inner loop runs once per output sample per voice — thousands
           # of times a frame. From ROM it would stall on a wait state at every instruction
