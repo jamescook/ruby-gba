@@ -285,6 +285,7 @@ module RubyGBA
         def mix_buf0 = @mixer.mix_buf0
         def mix_buf1 = @mixer.mix_buf1
         def voice_base = @mixer.voice_base
+        def voice_table = @mixer.voice_table
 
         # +fast_cartridge+ picks the cartridge timing this ROM asks for at boot. True
         # (the default) is the quick timing every real cartridge handles; false leaves
@@ -490,6 +491,7 @@ module RubyGBA
                                    emitted: @attribution.emitted,
                                    routines: routine_addresses,
                                    timer_handlers: timer_handler_addresses,
+                                   voices: voice_table,
                                    video_memory: video_memory_report,
                                    roomy_memory: roomy_memory_report,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })

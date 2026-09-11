@@ -71,7 +71,6 @@ class TestInstrument < Minitest::Test
   # --- hardware: a chord is three distinct pitched voices ---
 
   def test_a_chord_plays_distinct_pitches_on_the_console
-    gba = GBA.new
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -81,12 +80,11 @@ class TestInstrument < Minitest::Test
       game_loop { wait_vblank }
     end
     b.emit_pending_functions
-    rom = ROM.assemble(gba.lower(b.program), title: "CHRD", code: "BCHR", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(assemble_rom(b.program, name: "CHRD"), frames: 6)
 
     chord = %i[C4 E4 G4]
-    steps = chord.each_index.map { |i| v.mem32(gba.voice_base + (i * GBA::Mixer::SLOT_BYTES) + GBA::Mixer::SLOT_STEP) }
-    expected = chord.map { |n| (NOTES[n].to_f / NOTES[:C4] * (1 << 16)).round }
+    steps = v.voices.map(&:step)
+    expected = chord.map { |n| (NOTES[n].to_f / NOTES[:C4] * GBA::Mixer::STEP_ONE).round }
 
     assert v.sound?, "the chord should be audible (energy #{v.audio_energy})"
     assert_equal 3, steps.uniq.size, "the chord is three distinct pitches, got steps #{steps.inspect}"

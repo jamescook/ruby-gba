@@ -61,7 +61,6 @@ class TestPitchedVoices < Minitest::Test
   # voice should have advanced through the sample about twice as far. We also read its
   # fixed-point step and check it's the octave ratio.
   def test_a_pitched_voice_steps_faster_on_the_console
-    gba = GBA.new
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -72,18 +71,14 @@ class TestPitchedVoices < Minitest::Test
       game_loop { wait_vblank }
     end
     b.emit_pending_functions
-    rom = ROM.assemble(gba.lower(b.program), title: "PIT0", code: "BPIT", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 6)
+    base, high = assert_emulator_loads_rom(assemble_rom(b.program, name: "PIT0"), frames: 6).voices
 
-    base_pos = v.mem32(gba.voice_base + GBA::Mixer::SLOT_POS)
-    high_pos = v.mem32(gba.voice_base + GBA::Mixer::SLOT_BYTES + GBA::Mixer::SLOT_POS)
-    assert_operator base_pos, :>, 0, "the base voice advanced through its sample"
-    ratio = high_pos.to_f / base_pos
-    assert_operator ratio, :>, 1.7, "the octave-up voice advanced ~2x as far (#{high_pos} vs #{base_pos})"
-    assert_operator ratio, :<, 2.3, "...and not more than ~2x (#{high_pos} vs #{base_pos})"
+    assert_operator base.position, :>, 0, "the base voice advanced through its sample"
+    ratio = high.position.to_f / base.position
+    assert_operator ratio, :>, 1.7, "the octave-up voice advanced ~2x as far (#{high.position} vs #{base.position})"
+    assert_operator ratio, :<, 2.3, "...and not more than ~2x (#{high.position} vs #{base.position})"
 
-    high_step = v.mem32(gba.voice_base + GBA::Mixer::SLOT_BYTES + GBA::Mixer::SLOT_STEP)
-    expected = (523.0 / 262 * (1 << 16)).round # C5/C4, 16.16 fixed
-    assert_in_delta expected, high_step, 2, "the octave step is the C5/C4 ratio in 16.16"
+    expected = (523.0 / 262 * GBA::Mixer::STEP_ONE).round # C5/C4, 16.16 fixed
+    assert_in_delta expected, high.step, 2, "the octave step is the C5/C4 ratio in 16.16"
   end
 end

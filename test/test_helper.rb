@@ -75,9 +75,15 @@ module EmulatorSupport
   # convenience over repeating ROM.assemble(GBA.new.lower(prog), title:, code:,
   # maker:) in every test. The header fields don't affect rendering, so they
   # default; pass +name+ just to label the ROM.
+  #
+  # The ROM carries its build record, so a test can ask the running cartridge about what the
+  # build decided — what it is playing (Verifier#voices), where its variables are — without
+  # holding on to the backend that lowered it.
   def assemble_rom(program, name: "TEST")
-    RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
-                          title: name, code: "TEST", maker: "01")
+    backend = RubyGBA::IR::Backends::GBA.new
+    code = backend.lower(program)
+    RubyGBA::ROM.assemble(code, title: name, code: "TEST", maker: "01",
+                                built: backend.build_record(program))
   end
 
   # Load +rom+ into the emulator and run it headless for +frames+ frames,

@@ -189,6 +189,24 @@ module RubyGBA
       mem32(address)
     end
 
+    # WHAT THE CONSOLE IS PLAYING, as values — one per sounding voice, in the order the
+    # mixer holds them (see IR::Backends::GBA::Mixer::Voice for what each carries). Read off
+    # the running console at the final frame boundary, so it is what the lowering really did
+    # rather than what anything says it should have.
+    #
+    # Needs the cartridge to know where its voices are kept, which it does when it was
+    # assembled with its build record. A program that plays no samples has no voices, and
+    # this is empty for it.
+    def voices
+      table = voice_table!
+      table ? table.read { |address| mem32(address) } : []
+    end
+
+    # Just the names of the samples sounding, in the mixer's order — directly comparable with
+    # the interpreter's Reference#active_samples, which is what lets a test check the two
+    # backends agree about sound with one equality.
+    def sounding = voices.map(&:sample)
+
     # --- audio ---
     #
     # The counterpart to reading pixels: read the sound that actually came out.
@@ -276,6 +294,18 @@ module RubyGBA
     end
 
     private
+
+    # The cartridge's record of where it keeps its voices, or nil for a program that plays no
+    # samples. A cartridge assembled without its build record cannot answer, and that is a
+    # setup mistake in the test rather than a fact about the sound — so it says how to fix it.
+    def voice_table!
+      unless @rom.built
+        raise ArgumentError,
+              "This ROM does not know where it keeps its voices. Assemble it with its build " \
+              "record, then read the voices: ROM.assemble(code, ..., built: backend.build_record(program))."
+      end
+      @rom.built.voices
+    end
 
     # Where the cartridge's save memory goes: one directory for the whole process, made on
     # first use and taken away when the process ends.

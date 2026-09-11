@@ -74,6 +74,46 @@ module RubyGBA
           STEP_SHIFT = 16
           STEP_ONE = 1 << STEP_SHIFT
 
+          # ONE SOUNDING VOICE, read back off a running console: which sample it is playing,
+          # how far through it (a whole sample index), how long that sample is, how fast it
+          # reads it (16.16 — STEP_ONE is the recorded pitch), whether it loops, and its level
+          # (0..64). Values rather than addresses, so a test asks what is playing and never
+          # learns where in memory it is kept.
+          Voice = Data.define(:sample, :position, :length, :step, :loop, :volume)
+
+          # WHERE THE CONSOLE KEEPS WHAT IT IS PLAYING, published by the build so the finished
+          # cartridge can be asked about its own sound (see BuildRecord#voices).
+          #
+          # Nothing about the voices is hardware. The mixer is software this backend emits,
+          # and it sums every voice into ONE sound channel before the hardware sees any of it,
+          # so the only place the voices exist separately is this table in the quick memory.
+          # Reading it is reading what the lowering really did.
+          #
+          # The decoding lives here, beside the code that writes the table, so the slot layout
+          # above is defined in one place and read in one place — a test that wants to know
+          # what is sounding says `verifier.voices` and never counts bytes into a slot.
+          #
+          # +sample_addresses+ maps each sample's name to where it landed in the cartridge,
+          # which is how a slot's source address becomes a name again. Two samples with
+          # identical bytes may share one address, and then a voice playing either reads back
+          # as whichever was declared first.
+          VoiceTable = Data.define(:base, :count, :sample_addresses) do
+            # The sounding voices, in slot order. The block reads one 32-bit word off the
+            # console at the address it is given — the reader is handed in rather than owned,
+            # so this can be tested against a plain Hash as easily as against an emulator.
+            def read
+              names = sample_addresses.invert
+              (0...count).filter_map do |slot|
+                at = base + (slot * SLOT_BYTES)
+                next if yield(at + SLOT_ACTIVE).zero?
+
+                Voice.new(sample: names[yield(at + SLOT_SRC)], position: yield(at + SLOT_POS),
+                          length: yield(at + SLOT_LEN), step: yield(at + SLOT_STEP),
+                          loop: !yield(at + SLOT_LOOP).zero?, volume: yield(at + SLOT_VOL))
+              end
+            end
+          end
+
           # Volume level names → a 0..64 gain the mix multiplies each sample by (then shifts
           # right by 6, i.e. divides by 64) — so :full leaves a sample unchanged and :half
           # halves it. The same words the other sound verbs use.
@@ -137,6 +177,20 @@ module RubyGBA
 
             size = @emitter.labels.fetch(:__mix_routine_end) - @emitter.labels.fetch(ROUTINE)
             { ROUTINE => @mix_routine_iwram...(@mix_routine_iwram + size) }
+          end
+
+          # Where the voices are kept and where each sample landed, for the build record to
+          # carry — or nil for a program that plays no samples and so has no voices at all.
+          # Valid after the program is laid out, when every sample's position is known. A
+          # sample's run-time address is the same cartridge arithmetic a data load is patched
+          # with: base, plus the header, plus where the blob sits.
+          def voice_table
+            return nil unless @voice_base
+
+            VoiceTable.new(base: @voice_base, count: MAX_VOICES,
+                           sample_addresses: @samples.keys.to_h do |name|
+                             [name, ROM_START + RubyGBA::ROM::ENTRY_OFFSET + @emitter.data_positions.fetch(name)]
+                           end)
           end
 
           def prepare_mixer(program)
