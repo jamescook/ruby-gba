@@ -37,6 +37,13 @@ module RubyGBA
   #     end
   #   end
   #
+  # @example An introduction that plays once, then a melody that repeats
+  #   song :title do
+  #     note :C4, :whole   # the fanfare
+  #     loop_from_here
+  #     note :E4, :half; note :G4, :half
+  #   end
+  #
   #   # Anywhere — once, or every frame; it is the song playing now either way:
   #   play_song :gameplay
   module Music
@@ -131,6 +138,12 @@ module RubyGBA
         @current_frame += duration_frames(duration)
       end
 
+      # Mark where the song loops back to. What comes before this plays once, as an
+      # introduction; what comes after it repeats for as long as the song plays.
+      def loop_from_here
+        @song.loop_from(@current_frame)
+      end
+
       # Total length of this part in frames.
       def total_frames
         @current_frame
@@ -194,6 +207,7 @@ module RubyGBA
         @voices = []          # [{ name:, voice: VoiceContext }], in play order
         @default_voice = nil  # the part made for notes written straight in the song
         @has_blocks = false   # whether any `voice` block was used
+        @loop_marks = []      # the frame each `loop_from_here` was written at
       end
 
       # Set the tempo in BPM, or read it. Shared by every part.
@@ -226,6 +240,31 @@ module RubyGBA
       def rest(duration) = default_voice.rest(duration)
       def duty(value = nil) = default_voice.duty(value)
       def volume(value = nil) = default_voice.volume(value)
+      def loop_from_here = default_voice.loop_from_here
+
+      # A part marked the loop at +frame+ (see VoiceContext#loop_from_here).
+      def loop_from(frame)
+        @loop_marks << frame
+      end
+
+      # The frame the song loops back to, or nil to loop from its start. One part can mark it,
+      # or every part — but when several do, they must mark the same moment, since the whole
+      # song goes back there together.
+      def loop_frame
+        marks = @loop_marks.uniq
+        return nil if marks.empty?
+
+        if marks.size > 1
+          at = marks.map { |frame| "#{(frame / Score::FRAME_RATE.to_f).round(2)} seconds" }.join(" and ")
+          raise ArgumentError, "The parts of this song mark different places to loop from: at #{at}. " \
+                               "The whole song loops from one place. Mark the same place in every part, " \
+                               "or mark it in one part only."
+        end
+        return marks.first if marks.first < total_frames
+
+        raise ArgumentError, "`loop_from_here` is at the end of the song, so no notes come after it. Put it " \
+                             "before the notes that repeat."
+      end
 
       # The parts as plain data for the IR, in play order.
       def voices

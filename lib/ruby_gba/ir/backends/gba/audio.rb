@@ -126,6 +126,12 @@ module RubyGBA
           # that has run out stays quiet until the tune comes round again.
           NEVER = 0xFFFF_FFFF
 
+          # Where things sit in a tune's directory entry: its length, which lanes it uses, where
+          # its loop table is (0 when it loops from its start), then each lane's first event.
+          ENTRY_LANES_USED = 4
+          ENTRY_LOOP = 8
+          ENTRY_STARTS = 12
+
           # Number the tunes the program plays, pick the lanes they need, and keep the mixer
           # voices their recorded parts will use. A tune that is written but never played costs
           # nothing. The score itself waits for #build_score, because a recorded note's step
@@ -138,13 +144,14 @@ module RubyGBA
             end
             number_the_songs(program)
             @counts_stops = program.walk.any? { |node| node.kind == :stop_music }
+            @loops = IR::Tunes.played(program).any? { |song| IR::Tunes.loop_frame(song).positive? }
             recorded = IR::Tunes.mixer_voices(program)
             @lanes = MUSIC_CHANNELS.map { |channel| Lane.new(:square, channel) } +
                      Array.new(recorded) { |lane| Lane.new(:recorded, lane) }
-            # One directory entry: the tune's length in frames, which lanes it uses, and where
-            # each lane's events start — rounded up to a power of two, so finding a tune's entry
-            # is a shift of its number rather than a multiply.
-            @entry_shift = ((4 * (2 + @lanes.size)) - 1).bit_length
+            # One directory entry: the tune's length in frames, which lanes it uses, where it
+            # loops from, and where each lane's events start — rounded up to a power of two, so
+            # finding a tune's entry is a shift of its number rather than a multiply.
+            @entry_shift = (ENTRY_STARTS + (4 * @lanes.size) - 1).bit_length
             @mixer.reserve_music_voices(recorded)
           end
 
@@ -224,7 +231,7 @@ module RubyGBA
           # register values copied out; a recorded lane's is a voice of the mixer filled in —
           # which recording, how fast to read it, how loud. The frame moves on, and at the tune's
           # length it goes back to 0 with every cursor back at its lane's first event — the tune
-          # loops.
+          # loops — or, for a tune with an introduction, back to its loop frame (#emit_loop_back).
           #
           # SAFE TO SHARE WITH THE GAME because the game only ever writes WANTED, with a single
           # store, and this only ever reads it. Everything else here belongs to the player alone,
@@ -276,15 +283,16 @@ module RubyGBA
             @emitter.place_label(play)
             @lanes.each_with_index { |lane, number| emit_play_lane(lane, number, base, at, value, frame) }
 
-            wrap = @emitter.gensym
+            onward = @emitter.gensym
             @emitter.emit(ASM.add_imm(frame, frame, 1))
             emit_entry_address(at, base, playing)
             @emitter.emit(ASM.ldr(ACC, at))                 # the tune's length
             @emitter.emit(ASM.cmp_reg(frame, ACC))
-            @emitter.emit_branch(:bcond, wrap, cond: :lt)   # not at the end yet
+            @emitter.emit_branch(:bcond, onward, cond: :lt) # not at the end yet
+            emit_loop_back(base, at, frame, onward) if @loops
             @emitter.emit(ASM.load_immediate(frame, 0))     # round again from the top
             emit_rewind_lanes(base, at, playing)
-            @emitter.place_label(wrap)
+            @emitter.place_label(onward)
             @primitives.store_var(frame, MUSIC_FRAME)
             @emitter.place_label(done)
           end
@@ -361,9 +369,29 @@ module RubyGBA
           def emit_rewind_lanes(base, at, playing)
             emit_entry_address(at, base, playing)
             @lanes.each_index do |number|
-              @emitter.emit(ASM.ldr_offset(ACC, at, 8 + (4 * number)))
+              @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_STARTS + (4 * number)))
               @primitives.store_var(ACC, self.class.music_cursor(number))
             end
+          end
+
+          # AT THE END OF A TUNE THAT LOOPS FROM A POINT: back to its loop frame, with each lane
+          # at the event it carries on from (see IR::Tunes#passes). Both come out of the tune's
+          # loop table, so the player does nothing here that it does not do going back to the top
+          # — and a tune that loops from its start has no table, and falls through to that.
+          # +at+ holds the tune's directory entry.
+          def emit_loop_back(base, at, frame, onward)
+            top = @emitter.gensym
+            @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_LOOP))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, top, cond: :eq)   # no table: it loops from its start
+            @emitter.emit(ASM.add_reg(at, base, ACC))
+            @emitter.emit(ASM.ldr(frame, at))              # the frame it goes back to
+            @lanes.each_index do |number|
+              @emitter.emit(ASM.ldr_offset(ACC, at, 4 + (4 * number)))
+              @primitives.store_var(ACC, self.class.music_cursor(number))
+            end
+            @emitter.emit_branch(:b, onward)
+            @emitter.place_label(top)
           end
 
           # Silence every lane tune number +playing+ uses, and nothing when no tune is playing.
@@ -374,7 +402,7 @@ module RubyGBA
             @emitter.emit(ASM.cmp_imm(playing, 0))
             @emitter.emit_branch(:bcond, quiet, cond: :eq)
             emit_entry_address(at, base, playing)
-            @emitter.emit(ASM.ldr_offset(lanes_used, at, 4)) # one bit for each lane it uses
+            @emitter.emit(ASM.ldr_offset(lanes_used, at, ENTRY_LANES_USED)) # one bit for each lane it uses
             @lanes.each_with_index do |lane, number|
               unused = @emitter.gensym
               @emitter.emit(ASM.tst_imm(lanes_used, 1 << number))
@@ -470,10 +498,14 @@ module RubyGBA
           # EVERY TUNE THE PROGRAM PLAYS, as one piece of data:
           #
           #   * a directory, one entry per tune (entry 0 is the "no tune" number and is never read):
-          #     its length in frames, one bit for each lane it uses, and where each lane's events
-          #     start;
+          #     its length in frames, one bit for each lane it uses, where its loop table is, and
+          #     where each lane's events start;
           #   * the table of recordings its notes can name: where each one is and how long;
-          #   * then the events themselves, lane by lane.
+          #   * then the events themselves, lane by lane — and, for a tune that loops from a point,
+          #     its loop table: the frame it goes back to, and where each lane carries on from.
+          #     That is nearly always part way into the lane's own events. A lane holding a note
+          #     across the loop point carries on from a copy of its later events instead, headed
+          #     by the held note (see IR::Tunes#passes), so only such a lane costs more room.
           #
           # Where things start is a byte offset into this same data, so nothing in it needs to know
           # where the cartridge puts it — except the recordings, which are data of their own, and
@@ -494,17 +526,33 @@ module RubyGBA
             events = [NEVER, 0, 0, 0].pack("VVvv") # a row any lane can wait on
             @song_numbers.each_key do |name|
               song = @songs.fetch(name)
+              passes = IR::Tunes.passes(song)
               starts = Array.new(@lanes.size, events_at)
+              again = starts.dup
               used = 0
-              lanes_for(name, song).each do |part, number|
+              lanes_for(name, song).each_with_index do |(part, number), index|
+                lane = @lanes[number]
+                pass = passes[index]
                 starts[number] = events_at + events.bytesize
                 used |= 1 << number
-                events << lane_rows(@lanes[number], part)
+                events << lane_rows(lane, part, pass.first)
+                again[number] = if pass.first.last(pass.again.size) == pass.again
+                                  starts[number] + ((pass.first.size - pass.again.size) * row_bytes(lane))
+                                else
+                                  (events_at + events.bytesize).tap { events << lane_rows(lane, part, pass.again) }
+                                end
               end
-              directory << [song.total_frames, used, *starts].pack("V*").ljust(entry_bytes, "\0")
+              loop_at = 0
+              if IR::Tunes.loop_frame(song).positive?
+                loop_at = events_at + events.bytesize
+                events << [IR::Tunes.loop_frame(song), *again].pack("V*")
+              end
+              directory << [song.total_frames, used, loop_at, *starts].pack("V*").ljust(entry_bytes, "\0")
             end
             directory + table + events
           end
+
+          def row_bytes(lane) = lane.kind == :square ? SQUARE_ROW : RECORDED_ROW
 
           # Which lane each of a song's parts plays on: plain parts take the square channels in
           # order, recorded parts the mixer's lanes in order.
@@ -529,17 +577,17 @@ module RubyGBA
           # A part's events on its lane, each worked out here so the player only copies it, and
           # a row after the last that waits for NEVER. An event may name its own instrument and
           # loudness; one that does not plays the part's.
-          def lane_rows(lane, part)
+          def lane_rows(lane, part, events)
             if lane.kind == :square
               regs = music_voice_regs(lane.index)
-              rows = part[:events].map do |frame, frequency, _instrument, volume|
+              rows = events.map do |frame, frequency, _instrument, volume|
                 writes = Sound::Registers.channel_note(lane.index, frequency: frequency, duty: part[:duty],
                                                                   volume: volume || part[:volume])
                 [frame, note_reg_value(writes, regs[:reg_a]), note_reg_value(writes, regs[:reg_b])].pack("Vvv")
               end
               rows.join + [NEVER, 0, 0].pack("Vvv")
             else
-              rows = part[:events].map do |frame, frequency, instrument, volume|
+              rows = events.map do |frame, frequency, instrument, volume|
                 name = instrument || part[:instrument]
                 step = frequency.zero? ? 0 : @mixer.step_at(@mixer.sample_info(name), frequency)
                 [frame, step, @instrument_numbers.fetch(name), loudness(volume || part[:volume])].pack("VVvv")

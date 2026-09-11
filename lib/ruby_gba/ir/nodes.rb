@@ -643,11 +643,13 @@ module RubyGBA
         operands operand: :value, bits: :int
       end
 
+      # A tune. At +total_frames+ it comes round again — to its first frame, or to
+      # +loop_frame+ when it has one, so an introduction plays once.
       class Song
         include Node
         kind :song
         category :sound
-        operands name: :name, voices: :list, total_frames: :int
+        operands name: :name, voices: :list, total_frames: :int, loop_frame: :int
       end
 
       # A named list of songs, in order — the game's music, picked by number (see
