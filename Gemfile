@@ -4,21 +4,29 @@ source "https://rubygems.org"
 
 gemspec
 
-# The emulator, ruby-gba-emulator, is deliberately NOT here.
+# THE EMULATOR, FOR DEVELOPING THIS LIBRARY — not for using it.
 #
-# Two reasons, and they point the same way. It is not in the gemspec because building and
-# shipping a cartridge is pure Ruby — putting it there would make everyone who installs
-# ruby-gba need a C compiler and libmgba whether or not they ever run a ROM. And it is not a
-# `path:` entry here either, because bundler does not compile extensions for a path source: it
-# treats one as a gem you are developing and expects the build to exist already, so the line
-# would look like it maintained the extension while doing nothing of the kind.
+# Here rather than in the gemspec on purpose. Building and shipping a cartridge is pure Ruby;
+# putting it in the gemspec would make everyone who installs ruby-gba need a C compiler and
+# libmgba whether or not they ever run a ROM. Working ON this library does need one, because
+# the suite reads real pixels off a real emulator.
 #
-# This repository uses the checkout in ruby-gba-emulator/, kept built by
-# `rake compile_emulator`. That rebuilds when a SOURCE changes, which cannot see a Ruby version
-# change — after switching Ruby, run `rake clean` in ruby-gba-emulator/.
+# WHAT THIS LINE DOES AND DOES NOT DO. It puts the emulator on the load path, so
+# `require "ruby_gba_emulator"` resolves and RubyGBA::Emulator takes the same route a consumer
+# takes rather than its sibling-checkout fallback — which is the point of declaring it, since a
+# fallback nobody else has is a fallback that hides whether the normal path works.
 #
-# A GAME depending on ruby-gba takes it through bundler instead, where extensions are installed
-# per Ruby ABI and none of this applies:
+# It does NOT build the C extension. Bundler compiles extensions for gem and git sources but
+# not for a `path:` source, which it treats as a gem you are developing and expects to be built
+# already. So `rake compile_emulator` builds it (every test task depends on that), and a bare
+# `bundle install` leaves you with a gem that resolves and will not load.
+#
+# The consequence worth knowing: that build is keyed on source files being newer, which cannot
+# see a change of RUBY VERSION — a compiled extension is tied to the Ruby that built it, and
+# switching Ruby makes nothing newer. After switching Ruby, run `rake clean` in
+# ruby-gba-emulator/. A GAME never meets this, because it takes the emulator from git, where
+# bundler installs extensions per Ruby ABI:
 #
 #   gem "ruby-gba-emulator", github: "jamescook/ruby-gba",
 #       glob: "ruby-gba-emulator/ruby-gba-emulator.gemspec"
+gem "ruby-gba-emulator", path: "ruby-gba-emulator"

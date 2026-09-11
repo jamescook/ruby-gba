@@ -43,22 +43,41 @@ module RubyGBA
       raise_missing!(e.message)
     end
 
-    # ONE MESSAGE, AND IT NAMES THE GEM RATHER THAN A RAKE TASK IN SOMEBODY ELSE'S REPOSITORY.
-    # The reader is usually building a game, where a rake task here means nothing and there is
-    # no directory to run it in.
+    # TWO FAILURES THAT LOOK THE SAME AND NEED OPPOSITE ADVICE.
+    #
+    # Either the gem is not in your bundle at all — the usual case, and the reader is building a
+    # game — or it IS there and its C extension was never compiled, which is what a `path:`
+    # entry gets you, because bundler builds extensions for gem and git sources and not for
+    # path ones. Telling somebody to add a line they already have is the worst of both, so ask
+    # which it is: a resolvable spec means the gem is present and the build is what is missing.
     def raise_missing!(detail)
-      raise LoadError,
-            "An emulator is required to run a ROM, and ruby-gba-emulator will not load.\n" \
-            "Add this to your Gemfile, then run bundle install:\n" \
-            "\n" \
-            "    gem \"ruby-gba-emulator\", github: \"jamescook/ruby-gba\", " \
-            "glob: \"ruby-gba-emulator/ruby-gba-emulator.gemspec\"\n" \
-            "\n" \
-            "It builds a C extension, so it needs a C compiler and libmgba " \
-            "(brew install mgba, or apt install libmgba-dev).\n" \
-            "Original error: #{detail}"
+      raise LoadError, "#{missing_advice}\nOriginal error: #{detail}"
     end
-    private_class_method :load_from_checkout!, :raise_missing!
+
+    def missing_advice
+      return <<~BUILD if Gem.loaded_specs.key?("ruby-gba-emulator")
+        An emulator is required to run a ROM. ruby-gba-emulator is in your bundle, but its C
+        extension is not built — bundler does not build one for a `path:` source.
+
+            rake compile_emulator
+
+        If you have just changed Ruby version, the build is stale rather than missing: a
+        compiled extension is tied to the Ruby that built it. Run `rake clean` in
+        ruby-gba-emulator/ first.
+      BUILD
+
+      <<~ADD
+        An emulator is required to run a ROM, and ruby-gba-emulator will not load.
+        Add this to your Gemfile, then run bundle install:
+
+            gem "ruby-gba-emulator", github: "jamescook/ruby-gba",
+                glob: "ruby-gba-emulator/ruby-gba-emulator.gemspec"
+
+        It builds a C extension, so it needs a C compiler and libmgba
+        (brew install mgba, or apt install libmgba-dev).
+      ADD
+    end
+    private_class_method :load_from_checkout!, :raise_missing!, :missing_advice
 
     # The emulator core class (loads the backend on first use).
     def core_class
