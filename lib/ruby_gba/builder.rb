@@ -87,7 +87,8 @@ module RubyGBA
       @functions = {}          # name → deferred body block (evaluated at emit time)
       @func_fast = {}          # name → where the author insisted the routine live (func fast:)
       @dump_requests = []      # function names to disassemble from the lowered ROM
-      @songs = {}              # name → Music::SongContext (for build-time validation)
+      @songs = {}              # name → Music::SongContext or Score (for build-time validation)
+      @song_lists = {}         # name → the songs a `songs` list holds, in order
       @sound_enabled = false
       @debug_halted = false
       @repeat_seq = 0          # counts repeat loops, to name each one's hidden index var

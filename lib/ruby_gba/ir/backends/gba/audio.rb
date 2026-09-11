@@ -22,10 +22,11 @@ module RubyGBA
           # Sound module, so the ROM and the interpreter play the same thing. A write
           # is just "put this 16-bit value at this register address."
 
-          def initialize(emitter:, primitives:, mixer:, sounds:, songs:, frames:, expressions:, raster:,
-                          drawing:, uses_pressed:, any_buffered:)
+          def initialize(emitter:, primitives:, lowering:, mixer:, sounds:, songs:, frames:, expressions:,
+                          raster:, drawing:, uses_pressed:, any_buffered:)
             @emitter = emitter
             @primitives = primitives
+            @lowering = lowering # works out a song's number when the game names it by one
             @mixer = mixer # where a recorded part's notes are played
             @defined_sounds = sounds
             @songs = songs
@@ -88,6 +89,11 @@ module RubyGBA
           MUSIC_WANTED = :__music_wanted   # the tune the game named, by number (0 = none)
           MUSIC_PLAYING = :__music_playing # the tune the player is on
           MUSIC_FRAME = :__music_frame     # how far into it, in frames
+          # How many times the game has said stop_music, and how many of those the player has
+          # acted on. Counted rather than only said, so a stop and a play in one frame still
+          # reach the player as a stop — which is how a tune starts over from its first note.
+          MUSIC_STOPS = :__music_stops
+          MUSIC_STOPS_SEEN = :__music_stops_seen
 
           # Each lane's next event, as a byte offset into the score.
           def self.music_cursor(lane) = :"__music_cursor_#{lane}"
@@ -130,7 +136,8 @@ module RubyGBA
 
               @songs.key?(node.name) || raise(LoweringError, "play_song for undefined song #{node.name.inspect}")
             end
-            @song_numbers = IR::Tunes.played(program).map(&:name).each.with_index(1).to_h
+            number_the_songs(program)
+            @counts_stops = program.walk.any? { |node| node.kind == :stop_music }
             recorded = IR::Tunes.mixer_voices(program)
             @lanes = MUSIC_CHANNELS.map { |channel| Lane.new(:square, channel) } +
                      Array.new(recorded) { |lane| Lane.new(:recorded, lane) }
@@ -160,13 +167,43 @@ module RubyGBA
             @primitives.store_var(ACC, MUSIC_WANTED)
           end
 
+          # NAME SONG +which+ OF A LIST as the tune playing now: the list's first number plus
+          # +which+, into the same one variable `play_song` writes. A number the game works out is
+          # checked first, and one naming no song in the list leaves the music as it is — the
+          # same as `show_map` given a number naming no map.
+          def emit_play_from_list(node)
+            base = @list_bases[node.name] or return # a list with no songs names none
+            count = @list_sizes.fetch(node.name)
+            fixed = @primitives.const_int(node.which)
+            if fixed
+              return unless fixed.between?(0, count - 1)
+
+              @emitter.emit(ASM.load_immediate(ACC, base + fixed))
+              return @primitives.store_var(ACC, MUSIC_WANTED)
+            end
+
+            none = @emitter.gensym
+            @lowering.value(node.which)                       # ACC = which
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, none, cond: :lt)
+            @emitter.emit(ASM.load_immediate(TMP, count))
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit_branch(:bcond, none, cond: :ge)     # past the last song
+            @primitives.emit_add_const(ACC, ACC, base, TMP)
+            @primitives.store_var(ACC, MUSIC_WANTED)
+            @emitter.place_label(none)
+          end
+
           # No tune — the player silences whatever it was playing. With no tune anywhere in the
           # program there is nothing to silence, and nothing to write.
           def emit_stop_music(_node = nil)
             return unless plays_music?
 
             @emitter.emit(ASM.load_immediate(ACC, 0))
-            @primitives.store_var(ACC, MUSIC_WANTED)
+            @primitives.store_var(ACC, MUSIC_WANTED) # first, so the player never sees a count
+            @primitives.load_var(ACC, MUSIC_STOPS)   # move on with the old tune still named
+            @emitter.emit(ASM.add_imm(ACC, ACC, 1))
+            @primitives.store_var(ACC, MUSIC_STOPS)
           end
 
           # ONE FRAME OF THE MUSIC PLAYER, emitted inside the screen's own interrupt.
@@ -207,6 +244,12 @@ module RubyGBA
             @primitives.load_var(playing, MUSIC_PLAYING)
             @emitter.emit(ASM.cmp_reg(value, playing))
             @emitter.emit_branch(:bcond, changed, cond: :ne)
+            if @counts_stops # ...or the same tune, stopped and named again since last frame
+              @primitives.load_var(ACC, MUSIC_STOPS)
+              @primitives.load_var(TMP, MUSIC_STOPS_SEEN)
+              @emitter.emit(ASM.cmp_reg(ACC, TMP))
+              @emitter.emit_branch(:bcond, changed, cond: :ne)
+            end
 
             # The same tune as last frame — or still none.
             @emitter.emit(ASM.cmp_imm(playing, 0))
@@ -215,8 +258,12 @@ module RubyGBA
             @primitives.load_var(frame, MUSIC_FRAME)
             @emitter.emit_branch(:b, play)
 
-            # A different tune, or none. Silence the one playing, then start the new one.
+            # A different tune, or none, or a stop. Silence the one playing, then start the new one.
             @emitter.place_label(changed)
+            if @counts_stops
+              @primitives.load_var(ACC, MUSIC_STOPS)
+              @primitives.store_var(ACC, MUSIC_STOPS_SEEN)
+            end
             @emitter.emit_load_data_address(base, MUSIC_SCORE)
             emit_silence_tune(base, at, frame, playing)
             @emitter.emit(ASM.mov_reg(playing, value))
@@ -285,6 +332,24 @@ module RubyGBA
           end
 
           private
+
+          # THE NUMBER EACH TUNE IS KNOWN BY — the songs named on their own first, then each list's
+          # songs together and in the list's order. Together is what makes picking from a list
+          # one addition: song +which+ of a list is the list's first number plus +which+.
+          def number_the_songs(program)
+            lists = IR::Tunes.lists_played(program).reject { |_, songs| songs.empty? }
+            listed = lists.values.flatten
+            if listed.uniq.size < listed.size
+              raise LoweringError, "a song is in more than one song list, and each song can be in one"
+            end
+            (listed - @songs.keys).each do |name|
+              raise LoweringError, "a song list names #{name.inspect}, which is not a song"
+            end
+            plain = IR::Tunes.played(program).map(&:name) - listed
+            @song_numbers = (plain + listed).each.with_index(1).to_h
+            @list_bases = lists.transform_values { |songs| @song_numbers.fetch(songs.first) }
+            @list_sizes = lists.transform_values(&:size)
+          end
 
           # +at+ = where tune number +playing+'s directory entry sits.
           def emit_entry_address(at, base, playing)
@@ -416,9 +481,7 @@ module RubyGBA
           # tune does not use points at a row that waits for NEVER.
           def score_blob
             entry_bytes = 1 << @entry_shift
-            instruments = @song_numbers.keys.flat_map do |name|
-              @songs.fetch(name).voices.filter_map { |part| part[:instrument] }
-            end.uniq
+            instruments = @song_numbers.keys.flat_map { |name| IR::Tunes.instruments(@songs.fetch(name)) }.uniq
             @instrument_numbers = instruments.each_with_index.to_h
             @instruments_at = (@song_numbers.size + 1) * entry_bytes
             events_at = @instruments_at + (instruments.size * INSTRUMENT_BYTES)
@@ -464,27 +527,29 @@ module RubyGBA
           end
 
           # A part's events on its lane, each worked out here so the player only copies it, and
-          # a row after the last that waits for NEVER.
+          # a row after the last that waits for NEVER. An event may name its own instrument and
+          # loudness; one that does not plays the part's.
           def lane_rows(lane, part)
             if lane.kind == :square
               regs = music_voice_regs(lane.index)
-              rows = part[:events].map do |frame, frequency|
+              rows = part[:events].map do |frame, frequency, _instrument, volume|
                 writes = Sound::Registers.channel_note(lane.index, frequency: frequency, duty: part[:duty],
-                                                                  volume: part[:volume])
+                                                                  volume: volume || part[:volume])
                 [frame, note_reg_value(writes, regs[:reg_a]), note_reg_value(writes, regs[:reg_b])].pack("Vvv")
               end
               rows.join + [NEVER, 0, 0].pack("Vvv")
             else
-              recording = @mixer.sample_info(part[:instrument])
-              number = @instrument_numbers.fetch(part[:instrument])
-              loudness = (part[:volume] * Mixer::MIX_LEVELS[:full] / 15.0).round # 0..15 -> the mix's 0..64
-              rows = part[:events].map do |frame, frequency|
-                step = frequency.zero? ? 0 : @mixer.step_at(recording, frequency)
-                [frame, step, number, loudness].pack("VVvv")
+              rows = part[:events].map do |frame, frequency, instrument, volume|
+                name = instrument || part[:instrument]
+                step = frequency.zero? ? 0 : @mixer.step_at(@mixer.sample_info(name), frequency)
+                [frame, step, @instrument_numbers.fetch(name), loudness(volume || part[:volume])].pack("VVvv")
               end
               rows.join + [NEVER, 0, 0, 0].pack("VVvv")
             end
           end
+
+          # A part's volume, 0..15 like the square voices', as the mix's 0..64.
+          def loudness(volume) = (volume * Mixer::MIX_LEVELS[:full] / 15.0).round
 
           # Which two sound registers carry a music note's varying values on a given
           # channel — the control (duty/volume) and the frequency/trigger. Channel 1

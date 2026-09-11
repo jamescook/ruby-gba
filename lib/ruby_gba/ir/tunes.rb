@@ -12,11 +12,27 @@ module RubyGBA
     module Tunes
       module_function
 
-      # The songs the program names with `play_song`, in the order they are declared. A song
-      # that is written and never played takes nothing.
+      # The songs the program can play, in the order they are declared: every song it names with
+      # `play_song`, and every song in a list it picks from by number. A song that is written and
+      # never played takes nothing.
       def played(program)
-        names = program.walk.filter_map { |node| node.name if node.kind == :play_song }.uniq
+        names = program.walk.filter_map { |node| node.name if node.kind == :play_song }
+        names += lists_played(program).values.flatten
         program.walk.select { |node| node.kind == :song && names.include?(node.name) }
+      end
+
+      # Each song list the program picks from by number, with its songs in order.
+      def lists_played(program)
+        picked = program.walk.filter_map { |node| node.name if node.kind == :play_from_list }.uniq
+        program.walk.select { |node| node.kind == :song_list && picked.include?(node.name) }
+               .to_h { |node| [node.name, node.songs] }
+      end
+
+      # Every instrument a song names — for its parts, and for any note that names its own.
+      def instruments(song)
+        song.voices.flat_map do |part|
+          [part[:instrument], *part[:events].map { |event| event[2] }]
+        end.compact.uniq
       end
 
       # How many of a song's parts play a recording rather than a square wave.

@@ -249,9 +249,20 @@ module RubyGBA
         Nodes.build(:play_song, name: name)
       end
 
-      # No tune is playing now.
+      # No tune is playing now. Said in the same frame as naming a tune, it starts that tune
+      # over from its first note.
       def stop_music
         Nodes.build(:stop_music)
+      end
+
+      # A named list of songs, in order, to be picked by number.
+      def song_list(name, songs)
+        Nodes.build(:song_list, name: name, songs: songs)
+      end
+
+      # The tune playing now is song number +which+ of list +name+ (counting from 0).
+      def play_from_list(name, which:)
+        Nodes.build(:play_from_list, name: name, which: wrap(which))
       end
 
       # --- sampled (PCM) audio ---

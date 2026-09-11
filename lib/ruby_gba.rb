@@ -7,6 +7,7 @@ require_relative "ruby_gba/whole"
 require_relative "ruby_gba/color"
 require_relative "ruby_gba/sound"
 require_relative "ruby_gba/music" # before the IR: the backends size their music player by it
+require_relative "ruby_gba/score" # music handed over as data, rather than written as a block
 require_relative "ruby_gba/asm"
 require_relative "ruby_gba/progress" # what a build says it is doing while it does it
 require_relative "ruby_gba/ir"
@@ -42,6 +43,7 @@ require_relative "ruby_gba/hardware_sprite"
 require_relative "ruby_gba/timer"
 require_relative "ruby_gba/sample"
 require_relative "ruby_gba/instrument"
+require_relative "ruby_gba/song_list"
 require_relative "ruby_gba/wav"
 require_relative "ruby_gba/background"
 require_relative "ruby_gba/image"

@@ -23,7 +23,7 @@ module RubyGBA
             "waits for the screen on each pass."
 
           def detect(program)
-            played = program.walk.find { |node| node.kind == :play_song }
+            played = program.walk.find { |node| %i[play_song play_from_list].include?(node.kind) }
             return [] unless played
             return [] if program.walk.any? { |node| node.kind == :wait_vblank }
 

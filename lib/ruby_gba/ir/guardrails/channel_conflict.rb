@@ -21,16 +21,10 @@ module RubyGBA
           def detect(program)
             return [] unless program.walk.any? { |node| node.kind == :beep }
 
-            songs = program.walk.select { |node| node.kind == :song }
-                            .each_with_object({}) { |node, by_name| by_name[node.name] = node }
+            layered = Tunes.played(program).select { |song| song.voices.count { |part| !part[:instrument] } >= 2 }
 
-            played = program.walk.select { |node| node.kind == :play_song }.map { |node| node.name }.uniq
-            layered = played.select do |name|
-              (song = songs[name]) && song.voices.count { |part| !part[:instrument] } >= 2
-            end
-
-            layered.map do |name|
-              Finding.new(check: NAME, severity: :warning, message: message(name), node: songs[name])
+            layered.map do |song|
+              Finding.new(check: NAME, severity: :warning, message: message(song.name), node: song)
             end
           end
 

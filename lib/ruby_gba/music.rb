@@ -69,10 +69,11 @@ module RubyGBA
       dotted_eighth:   0.75,
     }.freeze
 
-    # HOW MANY PARTS A SONG CAN HAVE, which is what the console really has for them. A plain
-    # part plays a square wave, and the console has two square-wave voices for music. A part
-    # that plays an instrument goes through the mixer instead, one of its voices each, so those
-    # are held to the mixer's count and not to the square waves at all.
+    # HOW MANY PARTS A SONG CAN HAVE. A plain part plays a square wave, and the console has two
+    # square-wave voices for music — that half is the hardware. A part that plays an instrument
+    # goes through the mixer instead, one of its voices each, and that half is the framework's:
+    # recordings are summed in software, and Sound::MIXER_VOICES is how many it sums today, not
+    # a number the console imposes.
     #
     # NAMED FOR WHAT IT COUNTS: a part is a line of music, and a voice is a slot that makes a
     # sound. One word for one meaning, so the number that limits tunes cannot be read as the

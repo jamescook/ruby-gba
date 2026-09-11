@@ -137,6 +137,9 @@ module RubyGBA
           @see_through = nil       # ...and which of them you can see through, and by how much
           @bg_shown = []           # the backgrounds painted onto the screen so far, in that order
           @tables = {}             # name -> { values:, signed: } (a read-only ROM table)
+          @song_lists = {}        # name -> the songs a song list holds, in order
+          @music_stops = 0        # how many times the program has said stop_music...
+          @music_stops_seen = 0   # ...and how many of those the player has acted on
           @music_wanted = nil     # the tune the program last named with play_song (nil = none)
           @music_playing = nil    # ...and the one the player is on, which catches up each frame
           @music_frame = 0        # how far into that tune, in frames
@@ -285,6 +288,8 @@ module RubyGBA
               }
             when :song
               @songs[n.name] = n
+            when :song_list
+              @song_lists[n.name] = n.songs
             when :sample
               @samples[n.name] = Assets::Sample.of(n)
             when :table
@@ -584,7 +589,7 @@ module RubyGBA
             exec_show_map(node)
           when :enable_sound
             @audio << [:enabled]
-          when :define_sound, :song, :sample, :data, :bitmap, :backing_buffer, :object, :table
+          when :define_sound, :song, :song_list, :sample, :data, :bitmap, :backing_buffer, :object, :table
             # Definitions: gathered up front, so reaching one inline does nothing
             # (just like a func body).
             nil
@@ -600,8 +605,16 @@ module RubyGBA
             # Names the tune; the player takes it up at the next frame (see #advance_music).
             @songs[node.name] || raise(ProgramError, "play_song for undefined song #{node.name.inspect}")
             @music_wanted = node.name
+          when :play_from_list
+            # A number naming no song in the list leaves the music as it is.
+            songs = @song_lists[node.name] || raise(ProgramError, "play_from_list of undefined list #{node.name.inspect}")
+            which = eval_value(node.which)
+            @music_wanted = songs[which] if which >= 0 && which < songs.length
           when :stop_music
+            # Counted as well as said, so a stop and a play in the same frame still reach the
+            # player as a stop — which is how a tune starts over.
             @music_wanted = nil
+            @music_stops += 1
           when :play_sample
             start_sample(node)
           when :stop_sample
@@ -855,7 +868,8 @@ module RubyGBA
         # The voice ages in the frame it starts, because the console mixes that frame's slice
         # right after the note is started, in the same interrupt.
         def advance_music
-          if @music_wanted != @music_playing
+          if @music_wanted != @music_playing || @music_stops != @music_stops_seen
+            @music_stops_seen = @music_stops
             @audio << [:stop_music] if @music_playing
             @music_playing = @music_wanted
             @music_frame = 0
@@ -868,11 +882,13 @@ module RubyGBA
           recorded = 0
           song.voices.each_with_index do |part, number|
             lane = part[:instrument] && (recorded += 1) - 1
-            offset, frequency = part[:events][@music_cursors[number]]
+            offset, frequency, instrument = part[:events][@music_cursors[number]]
             next unless offset == @music_frame
 
             @audio << [:note, @music_playing, frequency]
-            @music_voices[lane] = frequency.zero? ? nil : recorded_voice(part[:instrument], frequency) if lane
+            if lane
+              @music_voices[lane] = frequency.zero? ? nil : recorded_voice(instrument || part[:instrument], frequency)
+            end
             @music_cursors[number] += 1
           end
           @peak_voices = [@peak_voices, @voices.size + @music_voices.compact.size].max
