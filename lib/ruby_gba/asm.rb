@@ -233,6 +233,25 @@ module RubyGBA
       [0xE0800000 | (rn << 16) | (rd << 12) | (shift << 7) | 0x20 | rm].pack("V")
     end
 
+    # ADD rd, rn, rm, ASR #shift — add a register shifted down on the way, keeping its sign
+    # (the arithmetic shift copies the top bit in). Scaling a signed value down and adding it
+    # to a total is then one instruction, which is what the sound mixer does to every sample.
+    def add_reg_asr(rd, rn, rm, shift)
+      raise ArgumentError, "shift must be 1-32" unless (1..32).cover?(shift)
+
+      shift_val = shift == 32 ? 0 : shift # ARM encodes a 32-bit shift as 0
+      [0xE0800000 | (rn << 16) | (rd << 12) | (shift_val << 7) | 0x40 | rm].pack("V")
+    end
+
+    # SUBS rd, rn, #imm — subtract and SET THE FLAGS, so a count run down to zero needs no
+    # compare of its own: the branch after it reads the zero flag this leaves.
+    def subs_imm(rd, rn, imm)
+      encoding = encode_rotated_immediate(imm)
+      raise ArgumentError, "immediate #{imm} cannot be encoded as rotated 8-bit" unless encoding
+
+      [0xE2500000 | (rn << 16) | (rd << 12) | encoding].pack("V")
+    end
+
     # EOR rd, rn, rm — exclusive OR
     def eor_reg(rd, rn, rm)
       [0xE0200000 | (rn << 16) | (rd << 12) | rm].pack("V")
@@ -358,6 +377,21 @@ module RubyGBA
       [0xE5C00000 | (rn << 16) | (rd << 12) | (offset & 0xFFF)].pack("V")
     end
 
+    # STRB rd, [rn], #offset — store the byte, THEN move rn on by +offset+ (post-indexed). A
+    # run of bytes written one after another costs no separate add to step along it.
+    def strb_post(rd, rn, offset)
+      raise ArgumentError, "byte store offset #{offset} is outside 0..4095" unless (0..0xFFF).cover?(offset)
+
+      [0xE4C00000 | (rn << 16) | (rd << 12) | offset].pack("V")
+    end
+
+    # STR rd, [rn], #offset — the word store, post-indexed the same way.
+    def str_post(rd, rn, offset)
+      raise ArgumentError, "word store offset #{offset} is outside 0..4095" unless (0..0xFFF).cover?(offset)
+
+      [0xE4800000 | (rn << 16) | (rd << 12) | offset].pack("V")
+    end
+
     # LDRSB rd, [rn] — load a byte and sign-extend it (so 0x80..0xFF read as -128..-1)
     # into the whole register, versus the zero-extending LDRB. The general way to read a
     # signed 8-bit value. (Signed loads use the extra load/store encoding, hence the
@@ -416,6 +450,14 @@ module RubyGBA
       raise ArgumentError, "halfword store offset #{offset} is outside 0..255" unless (0..255).cover?(offset)
 
       [0xE1C000B0 | (addr_reg << 16) | (src << 12) | ((offset & 0xF0) << 4) | (offset & 0x0F)].pack("V")
+    end
+
+    # STRH src, [rn], #offset — store the halfword, THEN move rn on by +offset+ (post-indexed),
+    # the halfword counterpart of {strb_post}. Same split offset as {store_halfword_offset}.
+    def store_halfword_post(src, rn, offset)
+      raise ArgumentError, "halfword store offset #{offset} is outside 0..255" unless (0..255).cover?(offset)
+
+      [0xE0C000B0 | (rn << 16) | (src << 12) | ((offset & 0xF0) << 4) | (offset & 0x0F)].pack("V")
     end
 
     # --- Stack operations (PUSH/POP via STM/LDM) ---

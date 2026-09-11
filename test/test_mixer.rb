@@ -150,15 +150,15 @@ class TestMixer < Minitest::Test
     assert_match(/build record/, error.message)
   end
 
-  # TEN DIFFERENT SOUNDS INTO AN EIGHT-VOICE MIXER, AND BOTH BACKENDS MUST KEEP THE SAME
-  # EIGHT. The mixer drops a play it has no room for rather than cutting off one already
-  # sounding, so the first eight played are the ones that sound and the last two are lost.
+  # TWO MORE DIFFERENT SOUNDS THAN THE MIXER HAS VOICES, AND BOTH BACKENDS MUST KEEP THE SAME
+  # ONES. The mixer drops a play it has no room for rather than cutting off one already
+  # sounding, so the first ones played are the ones that sound and the last two are lost.
   #
-  # A count alone would not show that: two backends can each hold eight voices and disagree
+  # A count alone would not show that: two backends can each hold a full mixer and disagree
   # about which. So ask each one what it is playing, by name. The console answers from its
   # own voice table — reading what the lowering really did, not what the interpreter says
   # it should have — and the two lists have to match.
-  SOUNDS = (0...10).map { |i| :"s#{i}" }
+  SOUNDS = (0...(RubyGBA::Sound::MIXER_VOICES + 2)).map { |i| :"s#{i}" }
 
   def test_both_backends_keep_the_same_sounds_when_the_mixer_is_full
     # Each sample gets bytes of its own, so no two can ever share a place in the cartridge and
@@ -246,6 +246,48 @@ class TestMixer < Minitest::Test
 
     mixed = (0...8).map { |i| signed8(v.mem8(gba.mix_buf0 + i)) }
     assert mixed.all?(-128), "-200 should saturate to -128, but the buffer held #{mixed.inspect}"
+  end
+
+  # THE CLAMP IS ON THE FINISHED SUM, not on each voice as it is added, so a loud voice and a
+  # loud voice of the other sign cancel whatever order they arrive in: 100 + 100 - 100 is 100.
+  # Clamped as each voice went in, the first two would pin at 127 and the third take it to 27.
+  def test_the_mix_clamps_the_sum_not_each_voice
+    gba = GBA.new
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      [100, 100, -100].each_with_index { |level, n| sample(:"v#{n}", pcm: [level] * 400, rate: 8000).play(loop: true) }
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    rom = ROM.assemble(gba.lower(b.program), title: "MIXS", code: "BMXS", maker: "01")
+    v = assert_emulator_loads_rom(rom, frames: 6)
+
+    mixed = (0...8).map { |i| signed8(v.mem8(gba.mix_buf0 + i)) }
+    assert mixed.all?(100), "100 + 100 - 100 should mix to 100, but the buffer held #{mixed.inspect}"
+  end
+
+  # A frame with nothing sounding is written as silence — every byte of both buffers, however
+  # loud the last sound was — rather than left holding the last slice, which would buzz.
+  def test_once_every_sound_has_finished_both_buffers_are_silent
+    gba = GBA.new
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      sample(:bang, pcm: [90, -90] * 200, rate: 8000).play # a twentieth of a second, then done
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    rom = ROM.assemble(gba.lower(b.program), title: "MIXQ", code: "BMXQ", maker: "01")
+    v = assert_emulator_loads_rom(rom, frames: 20)
+    frame = (8000 + 59) / 60
+
+    [gba.mix_buf0, gba.mix_buf1].each do |buffer|
+      held = (0...frame).map { |i| v.mem8(buffer + i) }
+      assert held.all?(0), "a silent frame, but the buffer held #{held.uniq.inspect}"
+    end
   end
 
   # --- level control ---

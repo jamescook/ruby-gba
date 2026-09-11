@@ -35,9 +35,16 @@ module RubyGBA
     # It was written down twice, once in the lowering and once in the interpreter, each
     # saying in its comment that it matched the other. They did match, by the care of
     # whoever edited them last and nothing else: change one and the console would drop a
-    # sound the interpreter still played, which shows up only on the ninth sound at once and
+    # sound the interpreter still played, which shows up only on the one sound too many and
     # would be read as a mixing bug rather than as two numbers drifting apart.
-    MIXER_VOICES = 8
+    #
+    # SIXTEEN IS THE FRAMEWORK'S NUMBER, NOT THE CONSOLE'S. The console has no count of
+    # recordings at all: the CPU adds them together and the sound hardware plays the one
+    # stream. What a voice costs is the mixing, and only while it sounds — an idle slot is a
+    # check a frame — so the number is room, and sixteen is what the music being asked of the
+    # framework needs: songs of up to twelve recorded parts, with sounds of the game's own
+    # beside them.
+    MIXER_VOICES = 16
 
     # One resolved beep, purely musical — no hardware in sight. The four parts are fixed
     # here rather than named by a caller, so it is a value object and asking it for anything

@@ -6,35 +6,39 @@ require "stringio"
 
 # A SONG OF MANY PARTS. The console has two square-wave voices for music, and a song's other
 # parts play recorded instruments through the mixer — so a tune is not held to two parts, it is
-# held to what is really there: two square-wave parts and as many recorded ones as the mixer has
-# voices. The tunes that want this want seven or eight.
+# held to two square-wave parts and as many recorded ones as the mixer has voices. The music a
+# game being built on the framework reads out of a retail cartridge wants seven to nine, and
+# twelve at the most, with the game's own sounds beside them.
 class TestSongParts < Minitest::Test
   NOTES = RubyGBA::Music::NOTE_FREQUENCIES
   STEP_ONE = GBA::Mixer::STEP_ONE
+  VOICES = RubyGBA::Sound::MIXER_VOICES
 
-  # Eight recorded parts, one note each, all on the downbeat — a chord eight voices wide.
-  CHORD = %i[C4 D4 E4 F4 G4 A4 B4 C5].freeze
+  # Twelve recorded parts, one note each, all on the downbeat — a chord twelve voices wide.
+  CHORD = %i[C4 Cs4 D4 Ds4 E4 F4 Fs4 G4 Gs4 A4 As4 B4].freeze
 
-  # Ten parts: two square-wave parts and the eight above.
-  def ten_part_song
-    chord = CHORD
+  # A song of two square-wave parts and a recorded part for each of +chord+.
+  def song_of(chord)
     lambda do
       instrument :organ, pcm: [60, -60] * 4000, rate: 8000, note: :C4
       song :big do
         voice(:lead) { note :C5, :whole }
         voice(:bass) { note :C3, :whole }
-        chord.each { |pitch| voice(:"pad_#{pitch}", plays: :organ) { note pitch, :whole } }
+        chord.each_with_index { |pitch, n| voice(:"pad_#{n}", plays: :organ) { note pitch, :whole } }
       end
     end
   end
 
-  def ten_part_game
-    tune = ten_part_song
+  # The fourteen-part song, and a sound of the game's own sounding beside it the whole time.
+  def fourteen_part_game
+    tune = song_of(CHORD)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
       enable_sound
       instance_exec(&tune)
+      hum = sample :hum, pcm: [20, -20] * 4000, rate: 8000
+      hum.play(loop: true)
       play_song :big
       game_loop { wait_vblank }
     end
@@ -42,21 +46,22 @@ class TestSongParts < Minitest::Test
     b.program
   end
 
-  def test_every_part_sounds_on_the_downbeat
-    i = Reference.new.run(ten_part_game, frames: 3)
+  def test_every_part_sounds_on_the_downbeat_beside_the_games_own_sound
+    i = Reference.new.run(fourteen_part_game, frames: 3)
 
     downbeat = i.audio.select { |entry| entry[0] == :note }.map(&:last)
     assert_equal [NOTES[:C5], NOTES[:C3], *CHORD.map { |pitch| NOTES[pitch] }], downbeat
-    assert_equal [:organ] * 8, i.active_samples, "the eight recorded parts are eight voices at once"
+    assert_equal [:hum] + ([:organ] * 12), i.active_samples, "the game's sound, and twelve recorded parts at once"
   end
 
-  def test_the_console_sounds_all_eight_recorded_parts_at_their_pitches
-    console = assert_emulator_loads_rom(assemble_rom(ten_part_game, name: "SONGTEN"), frames: 6)
-    steps = console.voices.map(&:step).sort
+  def test_the_console_sounds_all_twelve_recorded_parts_at_their_pitches_beside_the_games_sound
+    console = assert_emulator_loads_rom(assemble_rom(fourteen_part_game, name: "SONG14"), frames: 6)
+    organ = console.voices.select { |voice| voice.sample == :organ }.map(&:step).sort
     expected = CHORD.map { |pitch| (NOTES[pitch].to_f / NOTES[:C4] * STEP_ONE).round }
 
-    assert_equal 8, steps.size, "eight voices sounding (#{console.voices.inspect})"
-    steps.zip(expected).each { |got, want| assert_in_delta want, got, 2 }
+    assert_equal 12, organ.size, "twelve recorded parts sounding (#{console.voices.inspect})"
+    organ.zip(expected).each { |got, want| assert_in_delta want, got, 2 }
+    assert_equal [:hum], console.voices.map(&:sample) - [:organ], "...and the game's own sound with them"
     assert console.sound?
   end
 
@@ -67,19 +72,20 @@ class TestSongParts < Minitest::Test
   # keeping every voice, which is about a song that fits.
   def test_more_recorded_parts_than_the_mixer_has_voices_is_said_once
     err = StringIO.new
+    too_many = VOICES + 1
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("SONGNINE", code: "ZSN9", maker: "01", out: StringIO.new, err: err) do
+      RubyGBA.build("SONGOVER", code: "ZSNO", maker: "01", out: StringIO.new, err: err) do
         screen :bitmap
         enable_sound
         instrument :organ, pcm: [60, -60] * 400, rate: 8000, note: :C4
-        song(:big) { 9.times { |n| voice(:"pad_#{n}", plays: :organ) { note :C4, :quarter } } }
+        song(:big) { too_many.times { |n| voice(:"pad_#{n}", plays: :organ) { note :C4, :quarter } } }
         zap = sample :zap, pcm: [60, -60] * 400, rate: 8000
         play_song :big
         game_loop { pressed(:a).then { zap.play } }
       end
     end
 
-    assert_match(/9 parts that play an instrument/, err.string)
+    assert_match(/#{too_many} parts that play an instrument/, err.string)
     refute_match(/never play/, err.string)
   end
 
@@ -87,7 +93,7 @@ class TestSongParts < Minitest::Test
   # sounds — for the whole game, since which voices the music keeps is settled when it is built.
   # Nothing would crash and the sounds would simply never play, so the build says so.
   def test_music_that_keeps_every_voice_warns_a_game_with_sounds_of_its_own
-    tune = ten_part_song
+    tune = song_of(Array.new(VOICES) { :C4 })
     err = StringIO.new
     RubyGBA.build("SONGALL", code: "ZSNA", maker: "01", out: StringIO.new, err: err) do
       screen :bitmap
@@ -120,7 +126,7 @@ class TestSongParts < Minitest::Test
   # --- what it costs is measured, by name ---
 
   def test_the_profile_shows_what_the_music_costs
-    tune = ten_part_song
+    tune = song_of(CHORD)
     rom = RubyGBA.build("SONGCOST", code: "ZSNC", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       enable_sound
