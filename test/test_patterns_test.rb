@@ -40,7 +40,7 @@ end
 class TestTestPatternsRendering < Minitest::Test
 
   def setup
-    require_gemba_core!
+    require_emulator!
   end
 
   def test_solid_fill_renders_red

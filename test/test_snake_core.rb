@@ -15,7 +15,7 @@ require "test_helper"
 #
 # The collision logic is checked on the reference interpreter (the oracle — the whole
 # point is that game logic is testable headlessly), and the same drawing stack is
-# checked on real hardware via gemba, so the core is proven on both backends.
+# checked on real hardware via the emulator, so the core is proven on both backends.
 class TestSnakeCore < Minitest::Test
 
   # Build a snake whose body starts at +start_cells+ (an array of [x, y]) and then
@@ -121,7 +121,7 @@ class TestSnakeCore < Minitest::Test
     # The list-driven draw loop (repeat over the body, draw each cell by index)
     # must render identically headless and on the console. Slide a 3-cell snake
     # right once, then draw it; assert the three cells are green and the vacated
-    # tail cell is background — on the interpreter AND in gemba.
+    # tail cell is background — on the interpreter AND in the emulator.
     grid = 4
     builder = Builder.new
     builder.instance_eval do
@@ -152,7 +152,7 @@ class TestSnakeCore < Minitest::Test
     end
 
     rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "SNAKE", code: "BSNK", maker: "01")
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     marks.each do |x, color|
       assert v.pixel_is?(x, 20, color),
              "console: (#{x}, 20) should be #{color}, got 0x#{format('%04X', v.pixel_gba(x, 20))}"

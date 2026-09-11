@@ -138,7 +138,7 @@ class TestHitbox < Minitest::Test
     end
     b.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(b.program), title: "HITBOX", code: "BHIT", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 8)
+    v = assert_emulator_loads_rom(rom, frames: 8)
     # It collided and snapped to (0,0), so its visible block (offset 2,2) is white there.
     assert v.white?(3, 3), "the sprite snapped to the corner on a visible-pixel hit, got 0x#{format('%04X', v.pixel_gba(3, 3))}"
   end

@@ -9,7 +9,7 @@ require "test_helper"
 #
 # These assert BEHAVIOR: build a tiny program through the DSL, run it on the
 # reference backend, and read the numbers it drew — never the tree it built. A
-# gemba test confirms the same draws land on real hardware, which (running the
+# the emulator test confirms the same draws land on real hardware, which (running the
 # same IR) also proves the two backends produce an identical sequence.
 class TestRandom < Minitest::Test
   include RubyGBA::Constants
@@ -261,7 +261,7 @@ class TestRandom < Minitest::Test
 
     rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
                                 title: "RANDOMIZE", code: "BRDZ", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 5, keys: KEY_START)
+    v = assert_emulator_loads_rom(rom, frames: 5, keys: KEY_START)
     assert v.red?(x, 80), "console drew the randomized marker at the same x=#{x}"
   end
 
@@ -323,7 +323,7 @@ class TestRandom < Minitest::Test
 
   # ---- hardware: the same draws land on the console ----
   #
-  # The interpreter and gemba run the *same* IR, so a marker drawn at a rolled
+  # The interpreter and the emulator run the *same* IR, so a marker drawn at a rolled
   # position must land in the same place on both — which confirms the draw works
   # on hardware and that the two backends churn the stream identically.
 
@@ -352,7 +352,7 @@ class TestRandom < Minitest::Test
 
     rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
                                 title: "RANDOM", code: "BRND", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
     assert v.red?(x, y), "console drew the marker at the same (#{x},#{y}) the interpreter did"
     assert v.white?(x + 10, y), "and only there — the field beside it is untouched"
   end

@@ -10,7 +10,7 @@ require "test_helper"
 #
 # These assert BEHAVIOR on the reference backend: build a small game loop, run it
 # a fixed number of frames, and check how often (and when) the block fired. A
-# gemba test confirms the schedule holds on real hardware.
+# the emulator test confirms the schedule holds on real hardware.
 class TestTimers < Minitest::Test
   include RubyGBA::Constants
 
@@ -267,7 +267,7 @@ class TestTimers < Minitest::Test
 
     rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
                                 title: "TIMERS", code: "BTMR", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.red?(103, 83), "console: the after(2) marker is drawn"
   end
 end

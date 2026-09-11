@@ -6,7 +6,7 @@ require_relative "../examples/fonts"
 
 # The fonts example: the same number drawn in :default and :tiny. Asserts both
 # render, that the tiny one is genuinely smaller (fewer pixels, shorter box), and
-# that the tiny draw emits less code — on the interpreter and gemba.
+# that the tiny draw emits less code — on the interpreter and the emulator.
 class TestFontsExample < Minitest::Test
   GREEN = Color.resolve(:green)
 
@@ -51,7 +51,7 @@ class TestFontsExample < Minitest::Test
 
   def test_it_renders_on_hardware
     rom = ROM.assemble(GBA.new.lower(FontsDemo.program), title: "FONTS", code: "BFON", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3)
+    v = assert_emulator_loads_rom(rom, frames: 3)
     # green appears in both the default band and the tiny band
     default_green = (8..40).any? { |x| (18..24).any? { |y| v.pixel_is?(x, y, :green) } }
     tiny_green = (8..40).any? { |x| (54..58).any? { |y| v.pixel_is?(x, y, :green) } }

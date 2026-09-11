@@ -50,29 +50,28 @@ module NodeTypes
   end
 end
 
-# Shared helpers for tests that exercise the emulator in-process. The emulator
-# backend (gemba-core, a headless libmgba probe) is reached through
-# RubyGBA::Emulator — the one seam — so nothing here names it directly.
+# Shared helpers for tests that exercise the emulator in-process. The emulator backend
+# (ruby-gba-emulator, a headless libmgba probe) is reached through RubyGBA::Emulator — the one
+# seam — so nothing here names it directly.
 #
 # Include this in a test class instead of copy-pasting begin/require/rescue
 # blocks or per-test availability guards.
-module GembaSupport
+module EmulatorSupport
   # Whether the in-process emulator core can be loaded — for the standalone
-  # debug scripts that degrade gracefully. Suite tests use #require_gemba_core!,
-  # which fails loud, since gemba-core is required, not optional.
+  # debug scripts that degrade gracefully. Suite tests use #require_emulator!,
+  # which fails loud, since the emulator is required, not optional.
   def self.gem_available?
     RubyGBA::Emulator.available?
   end
 
-  # Ensure the emulator (gemba-core) is available, failing loudly if it isn't.
-  # gemba-core is required to verify ROMs, so a missing build is a real error,
-  # not a reason to silently skip and pass with the coverage gutted. `rake test`
-  # builds it first; run `rake test:mgba` to build it by hand.
-  def require_gemba_core!
+  # Ensure the emulator is available, failing loudly if it isn't. It is required to verify
+  # ROMs, so a missing build is a real error, not a reason to silently skip and pass with the
+  # coverage gutted. `rake test` builds it first; run `rake test:emulator` to build it by hand.
+  def require_emulator!
     RubyGBA::Emulator.load!
   end
 
-  # Lower an IR program to a finished ROM, the way the gemba tests need it — a
+  # Lower an IR program to a finished ROM, the way the emulator tests need it — a
   # convenience over repeating ROM.assemble(GBA.new.lower(prog), title:, code:,
   # maker:) in every test. The header fields don't affect rendering, so they
   # default; pass +name+ just to label the ROM.
@@ -82,14 +81,14 @@ module GembaSupport
   end
 
   # Load +rom+ into the emulator and run it headless for +frames+ frames,
-  # asserting it loads and runs without raising. Fails loudly if gemba-core isn't
+  # asserting it loads and runs without raising. Fails loudly if the emulator isn't
   # built (it's required). Returns a RubyGBA::Verifier so callers can make pixel
   # assertions on the rendered frame:
   #
-  #   v = assert_gemba_loads_rom(rom, frames: 30)
+  #   v = assert_emulator_loads_rom(rom, frames: 30)
   #   assert v.red?(120, 80)
-  def assert_gemba_loads_rom(rom, frames: 10, **opts)
-    require_gemba_core!
+  def assert_emulator_loads_rom(rom, frames: 10, **opts)
+    require_emulator!
     verifier = RubyGBA::Verifier.new(rom, frames: frames, **opts)
     verifier.pixel(0, 0) # force the emulator to load the ROM and run the frames
     verifier
@@ -115,5 +114,5 @@ end
 # names appear only where they are used and cannot collide across the suite.
 class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
   include SharedConstants
-  include GembaSupport
+  include EmulatorSupport
 end

@@ -34,7 +34,7 @@ class TestDrawNumberBuffered < Minitest::Test
 
   def test_live_buffered_digits_match_the_fixed_ones_on_hardware
     rom = ROM.assemble(GBA.new.lower(two_ways_program), title: "BNUM", code: "BBNM", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
 
     # Compare the two 4-digit fields pixel for pixel: the live band (y=20) must equal
     # the fixed band (y=40) everywhere, lit glyphs and blue gaps alike.
@@ -50,7 +50,7 @@ class TestDrawNumberBuffered < Minitest::Test
   # fields): somewhere in the live "42" a white pixel lands on the blue background.
   def test_the_buffered_digits_actually_render
     rom = ROM.assemble(GBA.new.lower(two_ways_program), title: "BNUM", code: "BBNM", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
 
     drew = (0...(4 * W)).any? { |dx| (0...7).any? { |dy| v.white?(41 + dx, 20 + dy) } }
     assert drew, "the live buffered number should paint white digits on the blue field"

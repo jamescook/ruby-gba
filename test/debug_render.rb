@@ -123,7 +123,7 @@ puts
 # ============================================================
 # Run in the emulator (in-process)
 # ============================================================
-if GembaSupport.gem_available?
+if EmulatorSupport.gem_available?
   ["/tmp/debug_bigrect.gba", "/tmp/debug_blocks.gba"].each do |path|
     puts "Running #{path} in the emulator for 100 frames..."
     core = RubyGBA::Emulator.open(path)
@@ -133,5 +133,5 @@ if GembaSupport.gem_available?
     puts "-" * 40
   end
 else
-  puts "gemba-core not available — skipping run (build it with rake test:mgba)"
+  puts "the emulator is not available — skipping run (build it with rake test:emulator)"
 end

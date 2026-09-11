@@ -14,7 +14,7 @@ require "differential"
 # question at the one place a cell is painted, and the console works the same edges out again
 # inside every shape. So the two agreeing over the whole screen is the proof.
 class TestInside < Minitest::Test
-  include GembaSupport
+  include EmulatorSupport
 
   BARS = %i[red red green green blue blue white white].freeze
   AREA = [40, 20, 120, 80].freeze # x, y, w, h — off every edge of the screen
@@ -202,7 +202,7 @@ class TestInside < Minitest::Test
   def assert_backends_agree(prog, title, code)
     interp = Reference.new.run(prog, frames: 3)
     rom = ROM.assemble(GBA.new.lower(prog), title: title, code: code, maker: "01")
-    gba = assert_gemba_loads_rom(rom, frames: 6)
+    gba = assert_emulator_loads_rom(rom, frames: 6)
 
     differ = every_pixel.reject { |x, y| (interp.screen.pixel(x, y) || 0) == gba.pixel_gba(x, y) }
 

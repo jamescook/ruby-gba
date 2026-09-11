@@ -134,9 +134,9 @@ class TestPixelPerfectCollision < Minitest::Test
   end
 
   def test_the_console_sees_no_hit_by_default_but_a_hit_with_a_box
-    miss = assert_gemba_loads_rom(rom_for(nil), frames: 3)
+    miss = assert_emulator_loads_rom(rom_for(nil), frames: 3)
     refute miss.red?(5, 101), "per-pixel: the drawn pixels don't meet, so no marker"
-    hit = assert_gemba_loads_rom(rom_for(:full), frames: 3)
+    hit = assert_emulator_loads_rom(rom_for(:full), frames: 3)
     assert hit.red?(5, 101), "hitbox: :full: the boxes overlap, so the marker shows"
   end
 end

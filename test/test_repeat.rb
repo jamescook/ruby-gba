@@ -59,7 +59,7 @@ class TestRepeat < Minitest::Test
       RubyGBA::IR::Backends::GBA.new.lower(marching_program(4)),
       title: "REPEAT", code: "BRPT", maker: "01",
     )
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.green?(0, 40),  "first mark"
     assert v.green?(12, 40), "last mark (index 3)"
     assert v.black?(16, 40), "nothing past the last index"

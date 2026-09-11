@@ -137,7 +137,7 @@ class TestScenes < Minitest::Test
       halt
     end
 
-    v = assert_gemba_loads_rom(rom, frames: 5)
+    v = assert_emulator_loads_rom(rom, frames: 5)
     assert v.blue?(120, 80), "state == 1 should run the blue scene"
     refute v.green?(120, 80), "a stale comparison must not also run the green scene"
   end
@@ -179,7 +179,7 @@ class TestScenes < Minitest::Test
 
   def test_a_scene_that_hands_on_does_not_run_the_scene_it_hands_to_on_hardware
     rom = build { HANDING_ON.call(self) }
-    v = assert_gemba_loads_rom(rom, frames: 5, vars: rom.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 5, vars: rom.var_addresses)
 
     assert_equal [1, 0, 0], [v.var(:ran_first), v.var(:ran_second), v.var(:ran_third)],
                  "the console ran more than one scene in a pass — a transition fell through the table"
@@ -212,6 +212,6 @@ class TestScenes < Minitest::Test
       end
     end
 
-    assert_gemba_loads_rom(rom, frames: 30)
+    assert_emulator_loads_rom(rom, frames: 30)
   end
 end

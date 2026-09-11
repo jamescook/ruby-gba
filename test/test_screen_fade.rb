@@ -313,9 +313,9 @@ class TestScreenFade < Minitest::Test
     end
     rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "FADE", code: "BFAD", maker: "01")
 
-    assert assert_gemba_loads_rom(rom, frames: 12).black?(120, 80),
+    assert assert_emulator_loads_rom(rom, frames: 12).black?(120, 80),
            "the console really does black the picture out"
-    assert assert_gemba_loads_rom(rom, frames: 30).red?(120, 80),
+    assert assert_emulator_loads_rom(rom, frames: 30).red?(120, 80),
            "and really does put it back"
   end
 
@@ -335,9 +335,9 @@ class TestScreenFade < Minitest::Test
     end
     rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "FLASH", code: "BFLS", maker: "01")
 
-    assert assert_gemba_loads_rom(rom, frames: 4).red?(120, 80),
+    assert assert_emulator_loads_rom(rom, frames: 4).red?(120, 80),
            "the console really does sting the picture red"
-    assert assert_gemba_loads_rom(rom, frames: 30).green?(120, 80),
+    assert assert_emulator_loads_rom(rom, frames: 30).green?(120, 80),
            "and really does leave it as it was drawn"
   end
 end

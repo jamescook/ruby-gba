@@ -3,7 +3,7 @@
 require "test_helper"
 
 # The list feature on real hardware: lower a list program to a ROM, run it in
-# gemba, and read the pixels it draws. Each drawing test runs the SAME program on
+# the emulator, and read the pixels it draws. Each drawing test runs the SAME program on
 # the reference interpreter (the oracle) and on the console and asserts identical
 # pixels — the cross-backend agreement the list lowering has to hold. The list's
 # contents are made visible by drawing a marker at each stored x, so the ring
@@ -34,7 +34,7 @@ class TestListHardware < Minitest::Test
     end
 
     rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "LISTHW", code: "BLHW", maker: "01")
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     expectations.each do |x, color|
       assert v.pixel_is?(x, ROW, color || :black),
              "console: (#{x}, #{ROW}) should be #{color || 'background'}, " \
@@ -151,7 +151,7 @@ class TestListHardware < Minitest::Test
   # has no way to raise, so what it has to do instead is stay bounded, and that is what this
   # reads off the screen.
   def test_an_index_past_the_end_of_a_plain_list_lands_on_its_first_slot
-    require_gemba_core!
+    require_emulator!
 
     prog = program(
       screen(:bitmap), clear_screen(:black),
@@ -166,7 +166,7 @@ class TestListHardware < Minitest::Test
     )
 
     rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "LISTBD", code: "BLBD", maker: "01")
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.pixel_is?(110, ROW, :green), "both bad writes landed on the first slot"
     assert v.pixel_is?(30, ROW, :black), "so the first of them was overwritten by the second"
     assert v.pixel_is?(70, ROW, :red), "and the variable next to the list is untouched"
@@ -232,7 +232,7 @@ class TestListHardware < Minitest::Test
     # and never let length run past capacity. So this is a console-only check: push
     # four into a capacity-2 list and confirm exactly the first two (30, 90) are
     # drawn, with the overflowing 150/210 absent.
-    require_gemba_core!
+    require_emulator!
 
     prog = program(
       screen(:bitmap), clear_screen(:black),
@@ -246,7 +246,7 @@ class TestListHardware < Minitest::Test
     )
 
     rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "LISTOF", code: "BLOF", maker: "01")
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     assert v.pixel_is?(30, ROW, :green), "the first push survives"
     assert v.pixel_is?(90, ROW, :green), "the second push survives"
     assert v.pixel_is?(150, ROW, :black), "the overflowing third push is dropped"

@@ -51,7 +51,7 @@ class TestBlitClipping < Minitest::Test
     end
 
     rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "CLIPTEST", code: "BCLP", maker: "01")
-    v = assert_gemba_loads_rom(rom)
+    v = assert_emulator_loads_rom(rom)
     expectations.each do |x, y, color|
       assert v.pixel_is?(x, y, color || BG),
              "console: (#{x}, #{y}) should be #{color || 'background'}, got 0x#{format('%04X', v.pixel_gba(x, y))}"

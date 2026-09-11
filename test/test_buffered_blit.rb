@@ -66,7 +66,7 @@ class TestBufferedBlit < Minitest::Test
 
   def test_the_console_draws_the_same_picture
     rom = assemble_rom(blit_program(100, 40, buffered: true), name: "BBLIT")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     SIDE.times do |row|
       SIDE.times do |col|
         assert_equal art_pixel(col, row), v.pixel_gba(100 + col, 40 + row),
@@ -114,7 +114,7 @@ class TestBufferedBlit < Minitest::Test
     EDGES.each do |x, y, what|
       oracle = pixels_of(blit_program(x, y, buffered: true))
       rom = assemble_rom(blit_program(x, y, buffered: true), name: "BCLIP")
-      v = assert_gemba_loads_rom(rom, frames: 6)
+      v = assert_emulator_loads_rom(rom, frames: 6)
       # The row that shows, wherever it landed, plus the pixel just past each edge of it.
       (0...160).step(1) do |py|
         (0...240).step(1) do |px|
@@ -151,7 +151,7 @@ class TestBufferedBlit < Minitest::Test
 
   def test_the_console_shows_the_surviving_columns_too
     rom = assemble_rom(blit_program(-2, 40, buffered: true), name: "BLEFT")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     SIDE.times do |row|
       assert_equal art_pixel(2, row), v.pixel_gba(0, 40 + row), "console: column 2 belongs at the edge"
       assert_equal art_pixel(3, row), v.pixel_gba(1, 40 + row), "console: column 3 beside it"
@@ -194,7 +194,7 @@ class TestBufferedBlit < Minitest::Test
   def test_the_console_cuts_a_picture_at_an_area_the_same_way
     AREA_EDGES.each do |x, y, what|
       rom = assemble_rom(area_program(x, y, buffered: true), name: "BAREA")
-      v = assert_gemba_loads_rom(rom, frames: 6)
+      v = assert_emulator_loads_rom(rom, frames: 6)
       SIDE.times do |row|
         SIDE.times do |col|
           px = x + col

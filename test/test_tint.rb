@@ -93,7 +93,7 @@ class TestTint < Minitest::Test
     [0, 25, 50, 75, 100].each do |amount|
       program = tinted(:red, amount)
       rom = assemble_rom(program, name: "TINT")
-      console = assert_gemba_loads_rom(rom, frames: 6).pixel_gba(120, 80)
+      console = assert_emulator_loads_rom(rom, frames: 6).pixel_gba(120, 80)
 
       assert_equal shown(program), console,
                    "at #{amount}% the two backends disagree"
@@ -124,7 +124,7 @@ class TestTint < Minitest::Test
     program = b.program
 
     oracle = Reference.new.run(program, frames: 2).screen.pixel(120, 80)
-    console = assert_gemba_loads_rom(assemble_rom(program, name: "TINTV"), frames: 6).pixel_gba(120, 80)
+    console = assert_emulator_loads_rom(assemble_rom(program, name: "TINTV"), frames: 6).pixel_gba(120, 80)
 
     assert_equal 0x01EF, oracle
     assert_equal oracle, console
@@ -196,7 +196,7 @@ class TestTint < Minitest::Test
   def test_the_console_tints_the_tear_free_screen_the_same
     [0, 50, 100].each do |amount|
       program = buffered_tint(:red, amount)
-      console = assert_gemba_loads_rom(assemble_rom(program, name: "TINTB"), frames: 6).pixel_gba(120, 80)
+      console = assert_emulator_loads_rom(assemble_rom(program, name: "TINTB"), frames: 6).pixel_gba(120, 80)
 
       assert_equal shown(program), console, "at #{amount}% the two backends disagree"
     end
@@ -252,7 +252,7 @@ class TestTint < Minitest::Test
 
   def test_the_console_tints_a_tiled_screen_the_same
     TILED_AMOUNTS.each_with_index do |amount, i|
-      console = assert_gemba_loads_rom(assemble_rom(tiled_tint(amount), name: "TINTT"), frames: 6)
+      console = assert_emulator_loads_rom(assemble_rom(tiled_tint(amount), name: "TINTT"), frames: 6)
 
       assert_equal TILED_SCENERY[i], console.pixel_gba(*SCENERY_XY),
                    "at #{amount}% the scenery disagrees"
@@ -268,7 +268,7 @@ class TestTint < Minitest::Test
   # and after twenty frames it would be far past halfway.
   def test_the_same_tint_asked_for_every_frame_lands_in_the_same_place
     program = buffered_tint(:red, 50)
-    console = assert_gemba_loads_rom(assemble_rom(program, name: "TINTH"), frames: 20)
+    console = assert_emulator_loads_rom(assemble_rom(program, name: "TINTH"), frames: 20)
 
     assert_equal 0x01EF, console.pixel_gba(120, 80)
   end
@@ -287,7 +287,7 @@ class TestTint < Minitest::Test
     b.emit_pending_functions
     program = b.program
 
-    console = assert_gemba_loads_rom(assemble_rom(program, name: "TINTU"), frames: 8)
+    console = assert_emulator_loads_rom(assemble_rom(program, name: "TINTU"), frames: 8)
 
     assert_equal GREEN, console.pixel_gba(120, 80)
   end
@@ -309,7 +309,7 @@ class TestTint < Minitest::Test
     program = b.program
 
     oracle = Reference.new.run(program, frames: 2).screen.pixel(120, 80)
-    console = assert_gemba_loads_rom(assemble_rom(program, name: "TINTW"), frames: 6).pixel_gba(120, 80)
+    console = assert_emulator_loads_rom(assemble_rom(program, name: "TINTW"), frames: 6).pixel_gba(120, 80)
 
     assert_equal 0x01EF, oracle
     assert_equal oracle, console
@@ -332,7 +332,7 @@ class TestTint < Minitest::Test
     b.emit_pending_functions
     program = b.program
 
-    console = assert_gemba_loads_rom(assemble_rom(program, name: "TINTF"), frames: 8)
+    console = assert_emulator_loads_rom(assemble_rom(program, name: "TINTF"), frames: 8)
 
     assert_equal GREEN, shown(program)
     assert_equal GREEN, console.pixel_gba(120, 80)
@@ -377,7 +377,7 @@ class TestTint < Minitest::Test
 
   def test_a_tint_does_not_survive_a_trip_through_the_other_display
     program = crossing_program
-    console = assert_gemba_loads_rom(assemble_rom(program, name: "TINTX"), frames: 14)
+    console = assert_emulator_loads_rom(assemble_rom(program, name: "TINTX"), frames: 14)
 
     assert_equal GREEN, Reference.new.run(program, frames: 10).screen.pixel(120, 80)
     assert_equal GREEN, console.pixel_gba(120, 80)
@@ -440,13 +440,13 @@ class TestTint < Minitest::Test
 
   # How many of a frame's scanlines the CPU was busy for, read off the console.
   def frame_scanlines(program, name)
-    require_gemba_core!
+    require_emulator!
     rom = assemble_rom(program, name: name)
     Tempfile.create([name, ".gba"]) do |file|
       file.binmode
       rom.write(file.path)
       file.flush
-      probe = GembaCore.open(file.path)
+      probe = RubyGBAEmulator.open(file.path)
       reading = 3.times.map { probe.busy_scanlines(settle: 20) }.min
       probe.close
       return reading.to_f

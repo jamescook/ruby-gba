@@ -31,8 +31,8 @@ end
 # Only execute when run directly. Rake globs test/**/test_*.rb, so guard the
 # script body — otherwise it would run (and exit) during the test suite.
 if __FILE__ == $PROGRAM_NAME
-  unless GembaSupport.gem_available?
-    warn "gemba-core not available — skipping run (build it with rake test:mgba)"
+  unless EmulatorSupport.gem_available?
+    warn "the emulator is not available — skipping run (build it with rake test:emulator)"
     exit 0
   end
 

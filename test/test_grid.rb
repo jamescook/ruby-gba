@@ -140,8 +140,8 @@ class TestGrid < Minitest::Test
 
   # ---- hardware: the same cell paints on the console ----
 
-  def test_a_cell_renders_white_on_gemba
-    v = assert_gemba_loads_rom(grid_rom, frames: 2)
+  def test_a_cell_renders_white_on_the_console
+    v = assert_emulator_loads_rom(grid_rom, frames: 2)
     assert v.white?(28, 20), "cell (3,2) not white on hardware — got #{v.pixel_gba(28, 20).to_s(16)}"
     assert v.black?(4, 4), "an unpainted cell should stay the background"
   end

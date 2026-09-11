@@ -20,7 +20,7 @@ require "differential"
 # to agree, not the other way round — including which half of the bars survive.
 class TestBufferedPages < Minitest::Test
   include Differential
-  include GembaSupport
+  include EmulatorSupport
 
   BAR_ROW = 50
   BARS = 10
@@ -108,7 +108,7 @@ class TestBufferedPages < Minitest::Test
     assert_equal 0, i.screen.pixel(120, 80)
 
     rom = ROM.assemble(GBA.new.lower(prog), title: "NOFLIP", code: "NOFL", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     assert_equal 0, v.pixel_gba(10, 10), "and the console shows the same blank page"
     assert_equal 0, v.pixel_gba(120, 80)
   end

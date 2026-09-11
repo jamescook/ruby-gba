@@ -143,7 +143,7 @@ class TestDrawNumber < Minitest::Test
 
   def test_live_number_matches_the_literal_on_hardware
     rom = ROM.assemble(GBA.new.lower(hw_program), title: "DRAWNUM", code: "BDNM", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
 
     # The live digit extraction must land the same pixels as the folded literal.
     (0...(4 * W)).each do |dx|

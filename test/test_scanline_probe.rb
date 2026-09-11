@@ -6,7 +6,7 @@ require "test_helper"
 # console draws scanline by scanline; VCOUNT reports the current one; the vertical
 # blank (the safe window to draw) is scanlines 160..227. Sample the scanline right
 # after a frame's drawing and (scanline - 160) is how much of that window the
-# drawing used. This asserts the measurement is real on gemba — it starts at the top
+# drawing used. This asserts the measurement is real on the emulator — it starts at the top
 # of vblank and climbs as the frame does more drawing — and that the headless
 # interpreter refuses it (it has no real timing). It's built through the non-public
 # Builder::Debug mixin as a regular IR node, not raw assembly.
@@ -15,7 +15,7 @@ class TestScanlineProbe < Minitest::Test
   Build = RubyGBA::IR::Build
 
   # Wait for vblank, do +fills+ full-width fills (drawing work), then sample the
-  # scanline and halt. Returns the sampled scanline read back from IWRAM on gemba.
+  # scanline and halt. Returns the sampled scanline read back from IWRAM on the emulator.
   def scanline_after(fills)
     builder = Builder.new
     builder.extend(RubyGBA::Builder::Debug)
@@ -29,7 +29,7 @@ class TestScanlineProbe < Minitest::Test
     builder.emit_pending_functions
     backend = GBA.new
     rom = ROM.assemble(backend.lower(builder.program), title: "SCANL", code: "BSCN", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3, vars: backend.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 3, vars: backend.var_addresses)
     v.var(:sample)
   end
 

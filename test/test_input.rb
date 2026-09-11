@@ -152,7 +152,7 @@ class TestInput < Minitest::Test
       end
     end
 
-    assert_gemba_loads_rom(rom, frames: 10)
+    assert_emulator_loads_rom(rom, frames: 10)
   end
 
   private

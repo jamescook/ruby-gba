@@ -61,7 +61,7 @@ class TestFractionDivision < Minitest::Test
     program = sweep_program
     backend = GBA.new
     rom = ROM.assemble(backend.lower(program), title: "DIVFIX", code: "BDFX", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 4, vars: backend.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 4, vars: backend.var_addresses)
 
     CASES.each_with_index do |(a, b, bits), i|
       want = Int32.div_fix(a, b, bits)

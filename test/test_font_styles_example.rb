@@ -7,7 +7,7 @@ require_relative "../examples/font_styles"
 # The font-styles example: the same word in three fonts, two defined inline with
 # `font :name do glyph … end`. Asserts each renders in its own colour, that the two
 # custom fonts really are different (distinct glyph pixels), and that it renders on
-# gemba.
+# the emulator.
 class TestFontStylesExample < Minitest::Test
 
   # The lit pixels of the word band drawn at (8, y), height h — relative coords.
@@ -43,7 +43,7 @@ class TestFontStylesExample < Minitest::Test
 
   def test_it_renders_on_hardware
     rom = ROM.assemble(GBA.new.lower(FontStyles.program), title: "FONTSTY", code: "BFSY", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3)
+    v = assert_emulator_loads_rom(rom, frames: 3)
     assert (8..60).any? { |x| (12..18).any? { |y| v.white?(x, y) } }, "default HELLO missing on hardware"
     assert (8..60).any? { |x| (40..44).any? { |y| v.green?(x, y) } }, "lowercase hello missing on hardware"
     assert (8..60).any? { |x| (64..68).any? { |y| v.pixel_is?(x, y, :cyan) } }, "script hello missing on hardware"

@@ -11,7 +11,7 @@ require "differential"
 # game code has to be right on both, which is what these tests pin.
 class TestKeepShowing < Minitest::Test
   include Differential
-  include GembaSupport
+  include EmulatorSupport
 
   # A counter shown as a bar, repainted only when it changes. `bump` says when.
   # The bar is drawn over a field that is NOT repainted, which is what makes a

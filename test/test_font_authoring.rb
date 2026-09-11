@@ -3,7 +3,7 @@
 require "test_helper"
 
 # `font :name do glyph … end` defines a font from ASCII art, the sibling of `image`.
-# These assert a custom font registers, renders its own glyphs (interpreter + gemba),
+# These assert a custom font registers, renders its own glyphs (interpreter + the emulator),
 # and that malformed art is a friendly error.
 class TestFontAuthoring < Minitest::Test
 
@@ -189,7 +189,7 @@ class TestFontAuthoring < Minitest::Test
     end
     builder.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "FONTPIC", code: "BFPC", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 2)
+    v = assert_emulator_loads_rom(rom, frames: 2)
     assert v.red?(41, 40), "the plus's top arm"
     assert v.red?(40, 41), "the plus's left arm"
     assert v.black?(40, 40), "the plus's empty corner"
@@ -212,7 +212,7 @@ class TestFontAuthoring < Minitest::Test
     end
     builder.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "FONTDEF", code: "BFDF", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 2)
+    v = assert_emulator_loads_rom(rom, frames: 2)
     assert v.red?(41, 40), "the plus's top arm"   # (.#.) middle column, row 0
     assert v.red?(40, 41), "the plus's left arm"   # (###) row 1
     assert v.black?(40, 40), "the plus's empty corner"

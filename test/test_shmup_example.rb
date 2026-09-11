@@ -110,7 +110,7 @@ class TestShmupExample < Minitest::Test
 
   # The whole thing runs on the console: the ship and HUD while playing.
   def test_it_renders_on_the_console
-    v = assert_gemba_loads_rom(Shmup.build_rom(out: StringIO.new, err: StringIO.new), frames: 3)
+    v = assert_emulator_loads_rom(Shmup.build_rom(out: StringIO.new, err: StringIO.new), frames: 3)
     assert v.pixel_is?(119, 132, :cyan), "the ship, got 0x#{format('%04X', v.pixel_gba(119, 132))}"
     assert v.white?(9, 4), "the HUD text, got 0x#{format('%04X', v.pixel_gba(9, 4))}"
   end
@@ -119,7 +119,7 @@ class TestShmupExample < Minitest::Test
   # three ships, and the GAME OVER banner is on screen — scene-switched presentation, live
   # on hardware.
   def test_the_game_over_screen_renders_on_the_console
-    v = assert_gemba_loads_rom(Shmup.build_rom(out: StringIO.new, err: StringIO.new), frames: 380)
+    v = assert_emulator_loads_rom(Shmup.build_rom(out: StringIO.new, err: StringIO.new), frames: 380)
     assert v.pixel_is?(94, 68, :red), "the GAME OVER banner, got 0x#{format('%04X', v.pixel_gba(94, 68))}"
     refute v.pixel_is?(119, 132, :cyan), "the ship is gone on the game-over screen"
   end

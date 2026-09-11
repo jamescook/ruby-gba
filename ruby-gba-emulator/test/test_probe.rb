@@ -3,12 +3,12 @@
 require_relative "test_helper"
 require "tmpdir"
 
-# Tests for GembaCore::Probe — the dev-facing wrapper that returns plain data
+# Tests for RubyGBAEmulator::Probe — the dev-facing wrapper that returns plain data
 # (pixels as [r,g,b], memory as ints, audio as an energy number, a snapshot
 # Hash). Each test builds a ruby-gba ROM whose output is known, so a wrong
 # read shows up as a wrong number, not a skip.
-class TestGembaCoreProbe < Minitest::Test
-  include GembaCoreTestSupport
+class TestRubyGBAEmulatorProbe < Minitest::Test
+  include RubyGBAEmulatorTestSupport
 
   def test_reads_a_known_pixel_colour
     with_probe(red_rom) do |probe|
@@ -125,9 +125,9 @@ class TestGembaCoreProbe < Minitest::Test
     with_probe(red_rom) do |probe|
       assert_equal 0, probe.keys_mask(nil)
       assert_equal 0, probe.keys_mask([])
-      assert_equal GembaCore::KEY_RIGHT, probe.keys_mask(:right)
-      assert_equal GembaCore::KEY_A | GembaCore::KEY_B, probe.keys_mask(%i[a b])
-      assert_equal GembaCore::KEY_START, probe.keys_mask(GembaCore::KEY_START)
+      assert_equal RubyGBAEmulator::KEY_RIGHT, probe.keys_mask(:right)
+      assert_equal RubyGBAEmulator::KEY_A | RubyGBAEmulator::KEY_B, probe.keys_mask(%i[a b])
+      assert_equal RubyGBAEmulator::KEY_START, probe.keys_mask(RubyGBAEmulator::KEY_START)
     end
   end
 
@@ -149,7 +149,7 @@ class TestGembaCoreProbe < Minitest::Test
   end
 
   def test_close_is_idempotent_and_observable
-    probe = GembaCore.open(red_rom)
+    probe = RubyGBAEmulator.open(red_rom)
     probe.step(1)
     refute_predicate probe, :closed?
     probe.close
@@ -167,7 +167,7 @@ class TestGembaCoreProbe < Minitest::Test
 
   def test_a_probe_writes_nothing_beside_the_rom_it_opened
     in_a_directory_of_its_own do |dir, rom|
-      probe = GembaCore.open(rom)
+      probe = RubyGBAEmulator.open(rom)
       probe.step(6)
       assert_equal ["saver.gba"], Dir.children(dir).sort, "the probe left a file beside the ROM"
       probe.close
@@ -179,7 +179,7 @@ class TestGembaCoreProbe < Minitest::Test
     in_a_directory_of_its_own do |dir, rom|
       saves = File.join(dir, "saves")
       Dir.mkdir(saves)
-      probe = GembaCore.open(rom, save_dir: saves)
+      probe = RubyGBAEmulator.open(rom, save_dir: saves)
       probe.step(6)
       assert_equal ["saver.sav"], Dir.children(saves), "the save should be where it was told to go"
       probe.close
@@ -189,7 +189,7 @@ class TestGembaCoreProbe < Minitest::Test
 
   def test_the_temporary_save_directory_goes_away_with_the_probe
     in_a_directory_of_its_own do |_dir, rom|
-      probe = GembaCore.open(rom)
+      probe = RubyGBAEmulator.open(rom)
       probe.step(6)
       dir = probe.instance_variable_get(:@own_save_dir)
       assert Dir.exist?(dir), "the probe should have a save directory of its own while it runs"

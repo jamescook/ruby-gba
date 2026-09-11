@@ -30,7 +30,7 @@ end
 names and helpers with nothing to declare:
 
 - `Reference` (the oracle backend), `GBA` (the ROM lowering), `Builder`, `Color`, `ROM`
-- `GembaSupport` — `assert_gemba_loads_rom`, `assemble_rom`, `require_gemba_core!`
+- `EmulatorSupport` — `assert_emulator_loads_rom`, `assemble_rom`, `require_emulator!`
 
 It does that by reopening `Minitest::Test` and including them — the Minitest
 equivalent of RSpec's `config.include`. **Do not re-declare those constants in a
@@ -102,8 +102,8 @@ screen with no framebuffer to read it off, where it says nothing rather than rep
 
 - **Reference interpreter** `RubyGBA::IR::Backends::Reference` — headless oracle, no
   emulator, in-process, deterministic. This is the source of truth.
-- **Hardware** via `gemba` → `RubyGBA::Verifier` — runs the real ROM, reads real
-  pixels/audio. Skips cleanly when gemba is absent.
+- **Hardware** via `ruby-gba-emulator` → `RubyGBA::Verifier` — runs the real ROM, reads real
+  pixels/audio. Fails loudly when the emulator is absent; it is required, not optional.
 
 A feature isn't done until it's asserted on **both**. For anything with an
 observable screen result, run the *same* program on each and assert identical
@@ -132,7 +132,7 @@ each pass answered for, held between 1 and `IR::Frames::MOST` exactly as the con
 That drives `once_a_frame` (the body runs that many times), a beat in frames, and a one-shot's
 counter. It does **not** make the interpreter slow: timers still accrue a pass's worth, the
 input script is still called once a pass, and `frames:` still counts passes. Use it to pin what
-a program *means* when the console says it is late; use gemba to find out whether it really is.
+a program *means* when the console says it is late; use the emulator to find out whether it really is.
 
 `frames:` is the stop condition, and every frame asked for is played however much work each
 takes — so a test of a game that draws a whole view says `frames: 400` and gets 400. The step
@@ -147,27 +147,25 @@ Screen default fill is `0` (black). For clip/overwrite tests, `clear_screen` to 
 **distinct** background first so "clipped/absent" reads as that colour, and the
 two backends agree on it.
 
-## Hardware (gemba) API
+## Hardware (emulator) API
 
-**When gemba is installed, it does real pixel work** — `assert_gemba_loads_rom`
-boots the ROM in the emulator and reads the actual rendered framebuffer. So a
-gemba test runs (it does not skip), and a passing `v.pixel_is?(...)` /
-`v.green?(...)` is a genuine hardware assertion, not a no-op. Don't second-guess
-this: if a differential test (interpreter vs. gemba) is green with **0 skips**,
-the console really rendered those pixels. A fast wall-clock (gemba runs are
-quick) is not evidence it was stubbed. Treat 0-skip gemba runs as trustworthy
-cross-backend proof.
+**The emulator does real pixel work** — `assert_emulator_loads_rom` boots the ROM and reads the
+actual rendered framebuffer. So such a test really runs (it does not skip), and a passing
+`v.pixel_is?(...)` / `v.green?(...)` is a genuine hardware assertion, not a no-op. Don't
+second-guess this: if a differential test (interpreter vs. the console) is green with
+**0 skips**, the console really rendered those pixels. A fast wall-clock (these runs are quick)
+is not evidence it was stubbed. Treat 0-skip runs as trustworthy cross-backend proof.
 
 
 ```ruby
-include GembaSupport                       # from test/test_helper.rb
-require_gemba_core!                        # ensure the emulator (gemba-core); fails loud if it isn't built
+include EmulatorSupport                    # from test/test_helper.rb
+require_emulator!                          # ensure the emulator; fails loud if it isn't built
 
 # lower an IR program to a ROM:
 rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(prog),
                             title: "NAME", code: "BXYZ", maker: "01")
 
-v = assert_gemba_loads_rom(rom, frames: 6, keys: KEY_LEFT)  # returns a Verifier (gemba-core is required)
+v = assert_emulator_loads_rom(rom, frames: 6, keys: KEY_LEFT)  # returns a Verifier
 v.red?(x, y) / v.white? / v.blue? / v.green? / v.black?     # named-colour checks
 v.pixel_is?(x, y, :red)                    # colour by name or 15-bit value
 v.pixel_gba(x, y)                          # the raw 15-bit BGR555 (great in failure messages)
@@ -176,7 +174,7 @@ v.audio_energy / v.silent? / v.sound?      # "did the speaker do anything?"
 ```
 
 `keys:` is an active-high `KEY_*` bitmask (OR them together), or a callable
-`->(frame) { mask }` for input that changes over time. gemba runs `frames:`
+`->(frame) { mask }` for input that changes over time. The emulator runs `frames:`
 frames before you read pixels — give a static blit a couple, a moving sprite
 enough to reach its resting position.
 
@@ -239,5 +237,6 @@ exact wording (which is free to improve). See the guardrail tests for the shape.
 - Don't name a test helper `run` — it shadows `Minitest::Test#run`. The blit
   tests use `interpret`/`assert_same_pixels`/domain names instead.
 - `rake test:parallel` runs everything; a single file is `ruby -Itest test/the_file.rb`.
-- Integration tests **skip** (not fail) without gemba — a green run with skips is
-  not proof the hardware path works; check gemba is installed when it matters.
+- Integration tests **fail loudly** without the emulator rather than skipping — it is
+  required, not optional, so a missing build is a real error and not a quiet pass with the
+  coverage gutted.

@@ -92,7 +92,7 @@ class TestLayerTransparency < Minitest::Test
   end
 
   def console(program, x, y, name, frames: 6)
-    assert_gemba_loads_rom(assemble_rom(program, name: name), frames: frames).pixel_gba(x, y)
+    assert_emulator_loads_rom(assemble_rom(program, name: name), frames: frames).pixel_gba(x, y)
   end
 
   # --- the picture ---
@@ -150,7 +150,7 @@ class TestLayerTransparency < Minitest::Test
     program = sprite_program(50)
 
     assert_equal HALF_WHITE_OVER_RED,
-                 assert_gemba_loads_rom(assemble_rom(program, name: "SEEHLD"), frames: 40).pixel_gba(*SPRITE_XY)
+                 assert_emulator_loads_rom(assemble_rom(program, name: "SEEHLD"), frames: 40).pixel_gba(*SPRITE_XY)
   end
 
   # --- an amount the game works out (fog that thickens) ---
@@ -198,7 +198,7 @@ class TestLayerTransparency < Minitest::Test
   def test_the_console_walks_the_same_amounts
     rom = assemble_rom(clearing_program, name: "FOG")
     oracle = walked(clearing_program, 10)
-    seen = (1..10).map { |f| assert_gemba_loads_rom(rom, frames: f + CONSOLE_LAG).pixel_gba(*SCENERY_XY) }
+    seen = (1..10).map { |f| assert_emulator_loads_rom(rom, frames: f + CONSOLE_LAG).pixel_gba(*SCENERY_XY) }
 
     assert_equal oracle, seen
   end
@@ -214,7 +214,7 @@ class TestLayerTransparency < Minitest::Test
   def test_the_first_frame_shows_the_amount_the_game_starts_at
     rom = assemble_rom(clearing_program, name: "FOGBOO")
 
-    assert_equal RED, assert_gemba_loads_rom(rom, frames: CONSOLE_LAG).pixel_gba(*SCENERY_XY)
+    assert_equal RED, assert_emulator_loads_rom(rom, frames: CONSOLE_LAG).pixel_gba(*SCENERY_XY)
   end
 
   # An amount is a VALUE, not only a variable — so it can be worked out from the game's

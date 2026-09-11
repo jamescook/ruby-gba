@@ -134,15 +134,15 @@ class TestPongTitle < Minitest::Test
   # --- on the console ---
 
   def test_the_title_menu_composites_on_real_hardware
-    require_gemba_core!
+    require_emulator!
     rom = Pong.build_rom(out: StringIO.new, err: StringIO.new)
 
-    still = assert_gemba_loads_rom(rom, frames: 6)
+    still = assert_emulator_loads_rom(rom, frames: 6)
 
     assert still.white?(column - 11, ROW_START + 1),
            "the cursor sits beside START, drawn by the sprite hardware over the zooming backdrop"
 
-    moved = assert_gemba_loads_rom(rom, frames: 8, keys: RubyGBA::Constants::KEY_DOWN)
+    moved = assert_emulator_loads_rom(rom, frames: 8, keys: RubyGBA::Constants::KEY_DOWN)
 
     assert moved.white?(column - 11, ROW_MUSIC + 1), "and walks to the music row"
   end
@@ -163,10 +163,10 @@ class TestPongTitle < Minitest::Test
   end
 
   def test_the_console_shows_one_set_of_words_and_not_both
-    require_gemba_core!
+    require_emulator!
     rom = Pong.build_rom(out: StringIO.new, err: StringIO.new)
 
-    on = assert_gemba_loads_rom(rom, frames: 6)
+    on = assert_emulator_loads_rom(rom, frames: 6)
 
     refute lettered?(on, beyond_the_shorter_words),
            "MUSIC: ON is up, so no letter reaches the column only MUSIC: OFF fills"
@@ -178,7 +178,7 @@ class TestPongTitle < Minitest::Test
 
       RubyGBA::Constants::KEY_A
     end
-    off = assert_gemba_loads_rom(rom, frames: 12, keys: walk)
+    off = assert_emulator_loads_rom(rom, frames: 12, keys: walk)
 
     assert lettered?(off, beyond_the_shorter_words), "and MUSIC: OFF reaches it"
   end

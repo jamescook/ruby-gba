@@ -7,7 +7,7 @@ require "tempfile"
 # Importing a .wav file into a playable sample: `sample :name, from: "clip.wav"` reads a
 # RIFF/PCM WAV and converts it — 8- or 16-bit, mono or stereo — down to the 8-bit signed
 # mono PCM the sampled-audio hardware plays, keeping the file's own rate. The decoder is
-# unit-tested; the DSL path is pinned on the interpreter and gemba.
+# unit-tested; the DSL path is pinned on the interpreter and the emulator.
 class TestWavImport < Minitest::Test
 
   Wav = RubyGBA::Wav
@@ -102,7 +102,7 @@ class TestWavImport < Minitest::Test
       end
       b.emit_pending_functions
       rom = ROM.assemble(GBA.new.lower(b.program), title: "WAV0", code: "BWAV", maker: "01")
-      v = assert_gemba_loads_rom(rom, frames: 6)
+      v = assert_emulator_loads_rom(rom, frames: 6)
       assert v.sound?, "a WAV-loaded sample should play real audio (energy #{v.audio_energy})"
     end
   end

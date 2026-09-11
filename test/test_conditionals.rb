@@ -254,7 +254,7 @@ class TestConditionals < Minitest::Test
       end
     end
 
-    assert_gemba_loads_rom(rom, frames: 60)
+    assert_emulator_loads_rom(rom, frames: 60)
   end
 
   private

@@ -15,8 +15,8 @@ require "zlib"
 # build produces numbers about whatever code took those addresses over. mGBA will not catch
 # that for us — these tests pin down exactly what it does and does not catch, because the
 # caller's guard is built on the difference.
-class TestGembaCoreState < Minitest::Test
-  include GembaCoreTestSupport
+class TestRubyGBAEmulatorState < Minitest::Test
+  include RubyGBAEmulatorTestSupport
 
   def counting_rom(name, code, bump)
     build_rom(name, code: code) do

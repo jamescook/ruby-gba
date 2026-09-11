@@ -61,7 +61,7 @@ class TestRuntimeDivision < Minitest::Test
     program = sweep_program
     backend = GBA.new
     rom = ROM.assemble(backend.lower(program), title: "RUNDIV", code: "BRDV", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 4, vars: backend.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 4, vars: backend.var_addresses)
     interpreter = Reference.new.run(program)
 
     cases.each_with_index do |(op, n, d), i|
@@ -85,7 +85,7 @@ class TestRuntimeDivision < Minitest::Test
     )
     backend = GBA.new
     rom = ROM.assemble(backend.lower(program), title: "DIVZERO", code: "BDVZ", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3, vars: backend.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 3, vars: backend.var_addresses)
 
     assert_equal 1, Int32.wrap(v.var(:up))
     assert_equal(-1, Int32.wrap(v.var(:down)))
@@ -139,7 +139,7 @@ class TestRuntimeDivision < Minitest::Test
     end
     backend = GBA.new
     rom = ROM.assemble(backend.lower(program), title: "DIVONE", code: "BDV1", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3, vars: backend.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 3, vars: backend.var_addresses)
 
     assert_equal(-100, Int32.wrap(v.var(:out)))
   end
@@ -160,7 +160,7 @@ class TestRuntimeDivision < Minitest::Test
     end
     backend = GBA.new
     rom = ROM.assemble(backend.lower(program), title: "DIVFUNC", code: "BDVF", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3, vars: backend.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 3, vars: backend.var_addresses)
 
     assert_equal 14, Int32.wrap(v.var(:out))
     assert_equal 42, Int32.wrap(v.var(:after)), "the program did not come back from the call"

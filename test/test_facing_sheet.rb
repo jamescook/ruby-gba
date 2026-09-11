@@ -10,7 +10,7 @@ require "test_helper"
 #
 # The sheet is sliced through a fake image adapter (canned pixels, no ImageMagick), but
 # the slicing happens at BUILD time and bakes real images into the program — so the same
-# imported art is checked on the interpreter oracle AND on real hardware (gemba).
+# imported art is checked on the interpreter oracle AND on real hardware (the emulator).
 class TestFacingSheet < Minitest::Test
   include RubyGBA::Constants
 
@@ -127,7 +127,7 @@ class TestFacingSheet < Minitest::Test
   def test_on_console_the_imported_sheet_composites
     rom = ROM.assemble(GBA.new.lower(walker(mode: :tiled, face: :right, run: 3)),
                        title: "FACESHT", code: "BFSH", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3)
+    v = assert_emulator_loads_rom(rom, frames: 3)
     assert v.pixel_is?(44, 44, color(255, 255, 0)),
            "facing right, the console should composite the imported right-facing frame (yellow), got #{v.pixel_gba(44, 44).to_s(16)}"
   end

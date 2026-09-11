@@ -150,7 +150,7 @@ class TestGameLoop < Minitest::Test
     program = counting_loop(20)
     backend = GBA.new
     rom = RubyGBA::ROM.assemble(backend.lower(program), title: "FRAMES", code: "BFRM", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 30, vars: backend.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 30, vars: backend.var_addresses)
     assert_equal 20, v.var(:frames),
                  "VBlank interrupts advance the loop once per frame on hardware — no interrupt hang"
   end
@@ -163,7 +163,7 @@ class TestGameLoop < Minitest::Test
         add_var :counter, 1
       end
     end
-    assert_gemba_loads_rom(rom, frames: 10)
+    assert_emulator_loads_rom(rom, frames: 10)
   end
 
   private

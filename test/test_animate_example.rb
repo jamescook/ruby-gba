@@ -26,7 +26,7 @@ class TestAnimateExample < Minitest::Test
 
   def test_the_coin_renders_on_the_console
     rom = ROM.assemble(GBA.new.lower(Animate.program), title: "ANIMATE", code: "BANM", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3)
+    v = assert_emulator_loads_rom(rom, frames: 3)
     assert v.pixel_is?(*CENTRE, :yellow), "the coin renders on hardware, got 0x#{format('%04X', v.pixel_gba(*CENTRE))}"
   end
 end

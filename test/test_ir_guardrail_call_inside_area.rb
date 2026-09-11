@@ -46,7 +46,7 @@ class TestIRGuardrailCallInsideArea < Minitest::Test
                  "the interpreter clips the routine's fill to the area"
 
     rom = ROM.assemble(GBA.new.lower(prog), title: "CIAR", code: "BCIA", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3)
+    v = assert_emulator_loads_rom(rom, frames: 3)
     assert v.red?(200, 50),
            "the console draws the routine's fill everywhere — the bug this check exists for"
   end

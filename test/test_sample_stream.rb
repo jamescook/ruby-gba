@@ -5,7 +5,7 @@ require "test_helper"
 # Streaming a long clip: a PCM clip longer than the old 65536-sample hardware limit used to
 # be a hard error. Now any length just plays — the mixer reads one frame's worth of the clip
 # out of the cartridge each frame and advances its play position, so a minutes-long track
-# loops as background music with no special handling. Pinned on the interpreter and gemba.
+# loops as background music with no special handling. Pinned on the interpreter and the emulator.
 class TestSampleStream < Minitest::Test
 
   OLD_LIMIT = 65_536 # the sample count that used to be the hard ceiling
@@ -48,7 +48,7 @@ class TestSampleStream < Minitest::Test
     end
     b.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(b.program), title: "STRM", code: "BSTR", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.sound?, "a long streamed clip should play real audio (energy #{v.audio_energy})"
   end
 end

@@ -156,7 +156,7 @@ class TestPoolPoses < Minitest::Test
     end
 
     rom = ROM.assemble(GBA.new.lower(prog), title: "POOLFACE", code: "BPLF", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
     assert v.pixel_is?(22, 22, :red), "got 0x#{format('%04X', v.pixel_gba(22, 22))}"
     assert v.pixel_is?(62, 22, :green), "got 0x#{format('%04X', v.pixel_gba(62, 22))}"
   end

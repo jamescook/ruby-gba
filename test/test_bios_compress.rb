@@ -212,7 +212,7 @@ class TestBiosCompress < Minitest::Test
 
   def test_a_packed_board_renders_on_the_console
     rom = ROM.assemble(GBA.new.lower(solid_board), title: "PACKED", code: "BPAK", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3)
+    v = assert_emulator_loads_rom(rom, frames: 3)
     # Cell (0,0)=R, (1,0)=B, (0,1)=B — a checker, expanded from the packed tile block.
     assert v.red?(1, 1),  "cell (0,0) is red, got 0x#{format('%04X', v.pixel_gba(1, 1))}"
     assert v.blue?(9, 1), "cell (1,0) is blue, got 0x#{format('%04X', v.pixel_gba(9, 1))}"

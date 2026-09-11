@@ -122,12 +122,12 @@ class TestOverlaps < Minitest::Test
   end
 
   def test_overlap_lowers_to_hardware
-    v = assert_gemba_loads_rom(rom_for(A, [14, 14, 8, 8]), frames: 2)
+    v = assert_emulator_loads_rom(rom_for(A, [14, 14, 8, 8]), frames: 2)
     assert v.green?(101, 81), "overlapping boxes light the marker on hardware"
   end
 
   def test_no_overlap_draws_nothing_on_hardware
-    v = assert_gemba_loads_rom(rom_for(A, [40, 40, 8, 8]), frames: 2)
+    v = assert_emulator_loads_rom(rom_for(A, [40, 40, 8, 8]), frames: 2)
     assert v.black?(101, 81), "separated boxes leave the screen clear on hardware"
   end
 

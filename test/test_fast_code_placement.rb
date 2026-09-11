@@ -80,7 +80,7 @@ class TestFastCodePlacement < Minitest::Test
 
   def console_pixels(program, **opts)
     rom = RubyGBA::ROM.assemble(GBA.new(**opts).lower(program), title: "PLACE", code: "PLC1", maker: "01")
-    verifier = assert_gemba_loads_rom(rom, frames: 4)
+    verifier = assert_emulator_loads_rom(rom, frames: 4)
     height = RubyGBA::IR::Screen::HEIGHT
     width = RubyGBA::IR::Screen::WIDTH
     (0...height).flat_map { |y| (0...width).map { |x| verifier.pixel_gba(x, y) } }
@@ -104,12 +104,12 @@ class TestFastCodePlacement < Minitest::Test
 
   def frame_scanlines(program, **opts)
     rom = RubyGBA::ROM.assemble(GBA.new(**opts).lower(program), title: "SPEED", code: "SPD1", maker: "01")
-    require_gemba_core!
+    require_emulator!
     Tempfile.create(["place", ".gba"]) do |file|
       file.binmode
       rom.write(file.path)
       file.flush
-      probe = GembaCore.open(file.path)
+      probe = RubyGBAEmulator.open(file.path)
       reading = 3.times.map { probe.busy_scanlines(settle: 20) }.min
       probe.close
       return reading
@@ -184,7 +184,7 @@ class TestFastCodePlacement < Minitest::Test
   # estimate applied its own discount, not that the console ran anything faster. The same
   # program is now built both ways and RUN, and the two frames are counted.
   def test_the_code_really_runs_faster_in_quick_memory
-    require_gemba_core!
+    require_emulator!
     # It has to keep running to be measured: the fixture normally stops after three passes,
     # and a halted game finishes no frames at all.
     program = looping_program(passes: 200, halt_after: nil)
@@ -352,7 +352,7 @@ class TestFastCodePlacement < Minitest::Test
   # at the console's speed however fast ours is, so the gain is real but smaller than a plain
   # routine's. What matters here is only that it is a gain.
   def test_the_interrupt_really_runs_faster_in_quick_memory
-    require_gemba_core!
+    require_emulator!
     program = bending_program
     cart = profile_of(rom_of(program, title: "BSLW", code: "BSLW", fast_code: false))
     quick = profile_of(rom_of(program, title: "BFST", code: "BFST", fast_code: true))

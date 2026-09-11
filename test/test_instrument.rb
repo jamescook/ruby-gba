@@ -6,7 +6,7 @@ require "test_helper"
 # whole keyboard you play *notes* on — `piano.play(:E4)`, or `piano.play(:C4, :E4, :G4)` for
 # a chord that sounds all at once. It's a thin, note-named layer over pitched mixer voices
 # (no rates/voices/mixer detail exposed). Pinned on the interpreter (chords are several
-# voices; notes play live from input) and on gemba (a chord is three distinct pitched voices).
+# voices; notes play live from input) and on the emulator (a chord is three distinct pitched voices).
 class TestInstrument < Minitest::Test
 
   NOTES = RubyGBA::Music::NOTE_FREQUENCIES
@@ -82,7 +82,7 @@ class TestInstrument < Minitest::Test
     end
     b.emit_pending_functions
     rom = ROM.assemble(gba.lower(b.program), title: "CHRD", code: "BCHR", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
 
     chord = %i[C4 E4 G4]
     steps = chord.each_index.map { |i| v.mem32(gba.voice_base + (i * GBA::Mixer::SLOT_BYTES) + GBA::Mixer::SLOT_STEP) }

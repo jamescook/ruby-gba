@@ -18,7 +18,7 @@ class TestHeroExample < Minitest::Test
   CENTER = [120, 80].freeze # the middle of the screen, where the hero's body always sits
 
   # True if any pixel in the box reads blue, by whatever "is it blue here?" test the
-  # caller supplies (interpreter framebuffer or gemba). Scanning a box (not one pixel)
+  # caller supplies (interpreter framebuffer or the emulator). Scanning a box (not one pixel)
   # keeps the "did the pond move?" checks robust to a frame of hardware timing slack.
   def blue_in?(xs, ys)
     xs.any? { |x| ys.any? { |y| yield(x, y) } }
@@ -85,10 +85,10 @@ class TestHeroExample < Minitest::Test
                  "the mist never cleared on the walk back south"
   end
 
-  # --- Hardware (gemba): the follow-cam really renders and scrolls ---
+  # --- Hardware (the emulator): the follow-cam really renders and scrolls ---
 
   def test_the_follow_cam_renders_on_the_console
-    v = assert_gemba_loads_rom(Hero.build_rom(err: StringIO.new), frames: 6)
+    v = assert_emulator_loads_rom(Hero.build_rom(err: StringIO.new), frames: 6)
     assert v.red?(*CENTER),
            "the hero renders centered on hardware, got 0x#{format('%04X', v.pixel_gba(*CENTER))}"
     assert blue_in?(70..105, 72..92) { |x, y| v.blue?(x, y) },
@@ -98,8 +98,8 @@ class TestHeroExample < Minitest::Test
   # The console draws the mist over the hero too, and works the amount out as it goes.
   def test_the_mist_thickens_over_the_hero_on_the_console
     rom = Hero.build_rom(err: StringIO.new)
-    clear = assert_gemba_loads_rom(rom, frames: 30).pixel_gba(*CENTER)
-    misted = assert_gemba_loads_rom(rom, frames: 30, keys: KEY_UP).pixel_gba(*CENTER)
+    clear = assert_emulator_loads_rom(rom, frames: 30).pixel_gba(*CENTER)
+    misted = assert_emulator_loads_rom(rom, frames: 30, keys: KEY_UP).pixel_gba(*CENTER)
 
     assert_equal Color.resolve(:red), clear, "the air is clear until the hero walks north"
     assert_operator misted, :>, clear,
@@ -107,7 +107,7 @@ class TestHeroExample < Minitest::Test
   end
 
   def test_the_world_scrolls_under_the_hero_on_the_console
-    v = assert_gemba_loads_rom(Hero.build_rom(err: StringIO.new), frames: 45,
+    v = assert_emulator_loads_rom(Hero.build_rom(err: StringIO.new), frames: 45,
                                keys: ->(f) { f <= 30 ? KEY_RIGHT : 0 })
     assert v.red?(*CENTER),
            "the hero is still centered after walking, got 0x#{format('%04X', v.pixel_gba(*CENTER))}"

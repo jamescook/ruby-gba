@@ -2,7 +2,7 @@
 
 require "mkmf"
 
-# gemba-core links only libmgba (+ its own deps: zlib, libpng, libzip). No
+# This links only libmgba (+ its own deps: zlib, libpng, libzip). No
 # SDL2, no Tk — this is the headless core for dev/test verification. rcheevos
 # (RetroAchievements) is opt-in and compiled out by default; see the bottom.
 
@@ -90,18 +90,18 @@ end
 # --- rcheevos (RetroAchievements) — opt-in, off by default ----------------
 #
 # Reintroducing achievement evaluation is flip-a-flag, no code surgery: set
-# GEMBA_CORE_RCHEEVOS to the rcheevos checkout root (the one with
+# RUBY_GBA_EMULATOR_RCHEEVOS to the rcheevos checkout root (the one with
 # src/rcheevos/runtime.c). We then define the guard macro, add the include
 # paths, and append the rcheevos sources to the compile line. Left unset, the
-# ext is just gemba_core_ext.c against libmgba.
-$srcs = %w[gemba_core_ext.c]
+# ext is just ruby_gba_emulator_ext.c against libmgba.
+$srcs = %w[ruby_gba_emulator_ext.c]
 
-if (rcheevos_root = ENV["GEMBA_CORE_RCHEEVOS"])
+if (rcheevos_root = ENV["RUBY_GBA_EMULATOR_RCHEEVOS"])
   runtime_c = "#{rcheevos_root}/src/rcheevos/runtime.c"
-  abort "GEMBA_CORE_RCHEEVOS=#{rcheevos_root} but #{runtime_c} not found" \
+  abort "RUBY_GBA_EMULATOR_RCHEEVOS=#{rcheevos_root} but #{runtime_c} not found" \
     unless File.exist?(runtime_c)
 
-  $defs << "-DGEMBA_CORE_RCHEEVOS"
+  $defs << "-DRUBY_GBA_EMULATOR_RCHEEVOS"
   $INCFLAGS << " -I#{rcheevos_root}/include"
   $INCFLAGS << " -I#{rcheevos_root}/src/rcheevos"
   $INCFLAGS << " -I#{rcheevos_root}/src"
@@ -121,4 +121,16 @@ if (rcheevos_root = ENV["GEMBA_CORE_RCHEEVOS"])
   ]
 end
 
-create_makefile("gemba_core_ext")
+# BUILD INTO lib/ruby_gba_emulator/, which is what makes this an ordinary extension gem.
+#
+# The name given here is the require path AND where the built library is installed. It used to
+# name the extension alone, so the binary landed loose in this source directory — outside lib/,
+# where no ordinary `require` looks. Everything downstream was built to cope with that: the
+# gemspec listed this directory as a second require path, and the lib entry point pushed it onto
+# $LOAD_PATH by hand. The cost was not the ugliness. It was that a binary compiled here always
+# won over one RubyGems had built for the running Ruby, so installing the gem bought nothing and
+# a Ruby version change left a library that could not load.
+#
+# Naming it with the directory puts it at lib/ruby_gba_emulator/ruby_gba_emulator_ext.<dlext>,
+# where `require "ruby_gba_emulator/ruby_gba_emulator_ext"` finds it with no help from anybody.
+create_makefile("ruby_gba_emulator/ruby_gba_emulator_ext")

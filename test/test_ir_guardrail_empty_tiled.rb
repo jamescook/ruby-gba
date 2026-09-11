@@ -36,7 +36,7 @@ class TestIRGuardrailEmptyTiled < Minitest::Test
     prog = program(screen(:tiled), wait_vblank, halt)
     rom = ROM.assemble(GBA.new.lower(prog), title: "EMPTY", code: "BEMT", maker: "01")
 
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
     PROBES.each do |x, y|
       assert v.black?(x, y),
              "(#{x}, #{y}) should be black — a tiled screen with no tiles shows nothing, " \
@@ -61,7 +61,7 @@ class TestIRGuardrailEmptyTiled < Minitest::Test
     builder.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "DRAWN", code: "BDRW", maker: "01")
 
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
     assert v.black?(120, 80),
            "the square the game draws every frame never appears on a tiled screen, " \
            "got 0x#{format('%04X', v.pixel_gba(120, 80))}"
@@ -91,7 +91,7 @@ class TestIRGuardrailEmptyTiled < Minitest::Test
     builder.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "FILLED", code: "BFIL", maker: "01")
 
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
     PROBES.each do |x, y|
       assert v.red?(x, y),
              "(#{x}, #{y}) should be red — one background makes the same tiled screen paint, " \

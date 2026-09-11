@@ -5,7 +5,7 @@ require "test_helper"
 class TestVerifier < Minitest::Test
 
   def setup
-    require_gemba_core!
+    require_emulator!
   end
 
   def test_red_pixel_readback

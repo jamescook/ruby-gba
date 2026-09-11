@@ -50,12 +50,12 @@ class TestBufferedMode4 < Minitest::Test
     end
   end
 
-  # The hardware proof: gemba boots the ROM and renders Mode 4 for real — each
+  # The hardware proof: the emulator boots the ROM and renders Mode 4 for real — each
   # pixel's index looked up in the palette we uploaded, the drawn page presented
   # by the flip. The colors must come out as named.
-  def test_gemba_renders_the_buffered_frame_through_the_palette
+  def test_the_console_renders_the_buffered_frame_through_the_palette
     rom = assemble_rom(diagnostic_program, name: "BUF4")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     CHECKS.each do |x, y, color|
       assert v.pixel_is?(x, y, color),
              "console: (#{x}, #{y}) should be #{color}, got 0x#{format('%04X', v.pixel_gba(x, y))}"
@@ -72,7 +72,7 @@ class TestBufferedMode4 < Minitest::Test
   # the framework would never choose — reverse of first use, and with black nowhere in it, where
   # the derived path always reserves black at slot 0. A lowering that quietly built its own
   # table would put a different color in every square.
-  def test_gemba_renders_through_a_table_the_program_supplied
+  def test_the_console_renders_through_a_table_the_program_supplied
     given = %i[magenta cyan yellow green]
     rom = assemble_rom(
       program(
@@ -86,7 +86,7 @@ class TestBufferedMode4 < Minitest::Test
       ), name: "PAL4"
     )
 
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     [[20, 20, :yellow], [60, 20, :cyan], [100, 20, :magenta], [200, 100, :green]].each do |x, y, color|
       assert v.pixel_is?(x, y, color),
              "console: (#{x}, #{y}) should be #{color}, got 0x#{format('%04X', v.pixel_gba(x, y))}"
@@ -104,7 +104,7 @@ class TestBufferedMode4 < Minitest::Test
     )
 
     rom = assemble_rom(prog, name: "FLIP")
-    v = assert_gemba_loads_rom(rom, frames: 8)
+    v = assert_emulator_loads_rom(rom, frames: 8)
     # Whatever's shown, it's ONE solid color across the screen — no torn/mixed page.
     corner = v.pixel_gba(4, 4)
     assert_includes [Color.resolve(:red), Color.resolve(:green)], corner,
@@ -149,7 +149,7 @@ class TestBufferedMode4 < Minitest::Test
 
     # Hardware: the RMW writes the right byte and preserves its pair.
     rom = assemble_rom(prog, name: "DTX")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
     assert v.pixel_is?(10, 10, :red),    "even-column pixel, got 0x#{format('%04X', v.pixel_gba(10, 10))}"
     assert v.pixel_is?(11, 20, :green),  "odd-column pixel, got 0x#{format('%04X', v.pixel_gba(11, 20))}"
     assert v.pixel_is?(100, 100, :yellow), "runtime-coordinate pixel, got 0x#{format('%04X', v.pixel_gba(100, 100))}"
@@ -179,7 +179,7 @@ class TestBufferedMode4 < Minitest::Test
     prog = b.program
 
     rom = assemble_rom(prog, name: "SCORE")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
     drew_digits = (40..60).any? { |x| (40..46).any? { |y| v.pixel_is?(x, y, :white) } }
     assert drew_digits, "a numeric score should render in white in buffered mode"
   end
@@ -204,7 +204,7 @@ class TestBufferedMode4 < Minitest::Test
       halt,
     )
     rom = assemble_rom(prog, name: "ODDCOL")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
     assert v.pixel_is?(2, 0, :blue), "the pixel left of the rect keeps its color"
     assert v.pixel_is?(3, 0, :red), "the fill starts on the column it was given"
     assert v.pixel_is?(10, 0, :red), "the 8px fill spans 3..10"
@@ -222,7 +222,7 @@ class TestBufferedMode4 < Minitest::Test
       halt,
     )
     rom = assemble_rom(prog, name: "ODD2PX")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
     assert v.pixel_is?(4, 0, :blue)
     assert v.pixel_is?(5, 0, :red)
     assert v.pixel_is?(6, 0, :red)
@@ -242,7 +242,7 @@ class TestBufferedMode4 < Minitest::Test
       wait_vblank,
       halt,
     )
-    v = assert_gemba_loads_rom(assemble_rom(prog, name: "BAND"), frames: 4)
+    v = assert_emulator_loads_rom(assemble_rom(prog, name: "BAND"), frames: 4)
 
     assert v.pixel_is?(0, 39, :blue), "the row above the band is untouched"
     assert v.pixel_is?(239, 39, :blue), "...all the way across"
@@ -261,7 +261,7 @@ class TestBufferedMode4 < Minitest::Test
       wait_vblank,
       halt,
     )
-    v = assert_gemba_loads_rom(assemble_rom(prog, name: "BANDS"), frames: 4)
+    v = assert_emulator_loads_rom(assemble_rom(prog, name: "BANDS"), frames: 4)
 
     assert v.pixel_is?(239, 79, :blue), "the top band owns its last row"
     assert v.pixel_is?(0, 80, :red), "the bottom band starts on the next one"
@@ -289,7 +289,7 @@ class TestBufferedMode4 < Minitest::Test
       wait_vblank,
       halt,
     )
-    v = assert_gemba_loads_rom(assemble_rom(prog, name: "EVENPR"), frames: 4)
+    v = assert_emulator_loads_rom(assemble_rom(prog, name: "EVENPR"), frames: 4)
 
     assert v.pixel_is?(39, 0, :blue), "the pixel left of the rectangle keeps its color"
     assert v.pixel_is?(40, 0, :red), "the rectangle starts on the column the game worked out"
@@ -308,7 +308,7 @@ class TestBufferedMode4 < Minitest::Test
       wait_vblank,
       halt,
     )
-    v = assert_gemba_loads_rom(assemble_rom(prog, name: "ODDPR"), frames: 4)
+    v = assert_emulator_loads_rom(assemble_rom(prog, name: "ODDPR"), frames: 4)
 
     assert v.pixel_is?(40, 0, :blue), "the pixel sharing a pair with the rectangle's first survives"
     assert v.pixel_is?(41, 0, :red), "the rectangle starts on the odd column the game worked out"

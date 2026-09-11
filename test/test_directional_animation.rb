@@ -82,7 +82,7 @@ class TestDirectionalAnimation < Minitest::Test
   def test_on_console_the_faced_direction_composites
     rom = ROM.assemble(GBA.new.lower(walker(mode: :tiled, face: :down, run: 3)),
                        title: "DIRANIM", code: "BDIR", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3)
+    v = assert_emulator_loads_rom(rom, frames: 3)
     assert v.blue?(44, 44), "facing down, the console should composite a down-facing frame (blue), got #{v.pixel_gba(44, 44).to_s(16)}"
   end
 

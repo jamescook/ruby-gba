@@ -159,7 +159,7 @@ class TestAffineBackground < Minitest::Test
     end
     builder.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "AFFINE", code: "BAFF", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3)
+    v = assert_emulator_loads_rom(rom, frames: 3)
 
     runs = []
     (0...240).each do |x|

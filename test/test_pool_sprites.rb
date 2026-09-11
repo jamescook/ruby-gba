@@ -6,7 +6,7 @@ require "test_helper"
 # hardware sprite at its x/y (spawn shows one, remove hides it), and gains a collision
 # box — overlaps? / the screen-edge tests / clamp_to_screen work per instance. Behind
 # the scenes it's one hardware-sprite object per slot, bound to the field lists, drawn by
-# the console's sprite hardware. Pinned on the interpreter and on gemba.
+# the console's sprite hardware. Pinned on the interpreter and on the emulator.
 class TestPoolSprites < Minitest::Test
 
   GREEN = Color.resolve(:green)
@@ -203,7 +203,7 @@ class TestPoolSprites < Minitest::Test
       b.game_loop { b.wait_vblank }
     end
     rom = ROM.assemble(GBA.new.lower(prog), title: "PSPR", code: "BPSP", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.green?(33, 33), "a pooled sprite drew on the console, got 0x#{format('%04X', v.pixel_gba(33, 33))}"
     assert v.green?(83, 83), "and the second one too"
   end

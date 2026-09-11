@@ -269,7 +269,7 @@ class TestApproach < Minitest::Test
     machine_code = RubyGBA::IR::Backends::GBA.new.lower(marker_program(frames: 20))
     rom = RubyGBA::ROM.assemble(machine_code, title: "APPROACH", code: "BAPP", maker: "01")
 
-    v = assert_gemba_loads_rom(rom, frames: 22)
+    v = assert_emulator_loads_rom(rom, frames: 22)
     assert v.green?(100, 50), "the marker reached the target on hardware"
     assert v.black?(0, 50),   "and left the start column"
   end
@@ -322,8 +322,8 @@ class TestApproach < Minitest::Test
     early = rom_for(limited_marker_program(frames: 5))
     late = rom_for(limited_marker_program(frames: 20))
 
-    v_early = assert_gemba_loads_rom(early, frames: 7)
-    v_late = assert_gemba_loads_rom(late, frames: 22)
+    v_early = assert_emulator_loads_rom(early, frames: 7)
+    v_late = assert_emulator_loads_rom(late, frames: 22)
 
     assert v_early.green?(MID_JOURNEY, 50), "the console stepped by the same amount"
     assert v_early.black?(60, 50), "and had not reached the limit yet"

@@ -55,12 +55,12 @@ class TestPixelsOverlap < Minitest::Test
   end
 
   def test_the_console_agrees_on_a_hit
-    v = assert_gemba_loads_rom(rom_for(1), frames: 2) # b@1 overlaps
+    v = assert_emulator_loads_rom(rom_for(1), frames: 2) # b@1 overlaps
     assert v.red?(101, 101), "the console drew the hit marker, got 0x#{format('%04X', v.pixel_gba(101, 101))}"
   end
 
   def test_the_console_agrees_on_a_miss
-    v = assert_gemba_loads_rom(rom_for(3), frames: 2) # b@3: no solid overlap
+    v = assert_emulator_loads_rom(rom_for(3), frames: 2) # b@3: no solid overlap
     refute v.red?(101, 101), "no hit marker — the drawn pixels don't meet"
   end
 end

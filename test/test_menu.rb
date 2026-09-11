@@ -648,7 +648,7 @@ class TestMenu < Minitest::Test
   end
 
   def test_a_tiled_menu_moves_on_real_hardware
-    require_gemba_core!
+    require_emulator!
     rom = RubyGBA.build("TMENU", code: "BTMN", maker: "01", validate: false) do
       screen :tiled
       game_loop do
@@ -660,11 +660,11 @@ class TestMenu < Minitest::Test
 
     cursor_pixel = ->(row) { [X - CURSOR_W, Y + (row * SPACING) + 1] }
 
-    still = assert_gemba_loads_rom(rom, frames: 4)
+    still = assert_emulator_loads_rom(rom, frames: 4)
 
     assert still.white?(*cursor_pixel.call(0)), "the cursor rests beside the first row"
 
-    moved = assert_gemba_loads_rom(rom, frames: 6, keys: RubyGBA::Constants::KEY_DOWN)
+    moved = assert_emulator_loads_rom(rom, frames: 6, keys: RubyGBA::Constants::KEY_DOWN)
 
     assert moved.white?(*cursor_pixel.call(2)),
            "the console composites the cursor onto the row it walked to"
@@ -694,7 +694,7 @@ class TestMenu < Minitest::Test
   # ---- on the console ----
 
   def test_the_cursor_moves_on_real_hardware
-    require_gemba_core!
+    require_emulator!
     rom = RubyGBA.build("MENU", code: "BMNU", maker: "01", validate: false) do
       screen :bitmap
       game_loop do
@@ -708,12 +708,12 @@ class TestMenu < Minitest::Test
     # The cursor's ">" is a chevron: its second row is one pixel at the left edge.
     cursor_pixel = ->(row) { [X - CURSOR_W, Y + (row * SPACING) + 1] }
 
-    still = assert_gemba_loads_rom(rom, frames: 4)
+    still = assert_emulator_loads_rom(rom, frames: 4)
 
     assert still.white?(*cursor_pixel.call(0)), "the cursor rests beside the first row"
     assert still.black?(*cursor_pixel.call(2)), "and nowhere else"
 
-    moved = assert_gemba_loads_rom(rom, frames: 6, keys: RubyGBA::Constants::KEY_DOWN)
+    moved = assert_emulator_loads_rom(rom, frames: 6, keys: RubyGBA::Constants::KEY_DOWN)
 
     assert moved.white?(*cursor_pixel.call(2)),
            "holding down walks past the row that cannot be picked, to row 2"

@@ -8,7 +8,7 @@ require_relative "../examples/sprite_mover"
 # sprite that repaints itself, so the game loop no longer clears the screen or
 # blits every frame. These assert the conversion actually holds — the redraw-
 # everything pattern is gone from the loop — and that it still renders and steers,
-# on the interpreter and on gemba.
+# on the interpreter and on the emulator.
 class TestSpriteMoverExample < Minitest::Test
   include RubyGBA::Constants
 
@@ -80,7 +80,7 @@ class TestSpriteMoverExample < Minitest::Test
   # The same thing the console draws, since this is the bug's whole point.
   def test_the_stack_holds_on_hardware
     rom = ROM.assemble(GBA.new.lower(SpriteMover.program), title: "SPRITEMV", code: "BSPM", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: ON_A_POST + 2, keys: KEY_LEFT)
+    v = assert_emulator_loads_rom(rom, frames: ON_A_POST + 2, keys: KEY_LEFT)
 
     assert v.pixel_is?(SpriteMover::LEFT_POST_X + 1, POST_ROW, :red),
            "on hardware the heart did not cover the :backdrop post — got " \
@@ -89,7 +89,7 @@ class TestSpriteMoverExample < Minitest::Test
 
   def test_it_renders_and_steers_on_hardware
     rom = ROM.assemble(GBA.new.lower(SpriteMover.program), title: "SPRITEMV", code: "BSPM", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 10, keys: KEY_LEFT)
+    v = assert_emulator_loads_rom(rom, frames: 10, keys: KEY_LEFT)
     # after sliding left, the heart's start column is field-blue again (no trail)
     assert v.pixel_is?(START[0] + 2, START[1] + 2, FIELD),
            "the start cell wasn't restored on hardware — got #{v.pixel_gba(START[0] + 2, START[1] + 2).to_s(16)}"

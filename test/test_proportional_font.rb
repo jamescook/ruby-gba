@@ -106,7 +106,7 @@ class TestProportionalFont < Minitest::Test
     end
     builder.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "VARIFNT", code: "BVRF", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 2)
+    v = assert_emulator_loads_rom(rom, frames: 2)
 
     assert v.white?(X, Y),          "the I is drawn at the origin"
     assert v.black?(X + 1, Y),      "the 1px I leaves a gap at x+1"
@@ -135,7 +135,7 @@ class TestProportionalFont < Minitest::Test
   # a 5px "W". The data-driven digit path (a run-time score) must measure the digits'
   # own 3px, not the font's 5px max — read the 3-bit glyph rows as 5 bits and every
   # digit renders shifted and garbled. Only hardware exercises that loop (the
-  # interpreter always reads a glyph at its own width), so this is a gemba check:
+  # interpreter always reads a glyph at its own width), so this is an emulator check:
   # the run-time digit must match the same digit drawn as fixed text.
   def register_hud_font
     wide_w = [0b10001, 0b10001, 0b10101, 0b11011, 0b10001] # 5 wide, 5 tall
@@ -159,7 +159,7 @@ class TestProportionalFont < Minitest::Test
     end
     builder.emit_pending_functions
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "HUDNUM", code: "BHDN", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
 
     (0...3).each do |dx|
       (0...5).each do |dy|

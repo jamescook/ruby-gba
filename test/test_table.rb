@@ -5,7 +5,7 @@ require "test_helper"
 # The `table` verb: a build-time Ruby array shipped as read-only ROM data, read at
 # run time by a Value index. These assert the observable value a lookup returns on
 # the reference interpreter — the fast oracle — including signedness and the
-# out-of-range safety rule. The hardware lowering is checked with gemba separately.
+# out-of-range safety rule. The hardware lowering is checked with the emulator separately.
 class TestTable < Minitest::Test
 
   def interpret(&block)
@@ -129,7 +129,7 @@ class TestTable < Minitest::Test
     assert_equal :word, stored.width, "a whole number plus 16 bits of fraction needs a word"
   end
 
-  # --- Hardware (gemba): the lookup drives real pixels ---
+  # --- Hardware (the emulator): the lookup drives real pixels ---
 
   # A table of x-positions drives a rect's position on the console: the rect lands at
   # the value the lookup returned, proving the runtime read works on hardware.
@@ -141,7 +141,7 @@ class TestTable < Minitest::Test
       draw_rect_at xs[1], 40, 8, 8, :white         # a white 8x8 at x = xs[1] = 80
       halt
     end
-    v = assert_gemba_loads_rom(rom, frames: 2)
+    v = assert_emulator_loads_rom(rom, frames: 2)
     assert v.white?(83, 43), "the rect drew at the table's x (80), got 0x#{format('%04X', v.pixel_gba(83, 43))}"
     assert v.black?(20, 43), "elsewhere stays background"
   end
@@ -158,7 +158,7 @@ class TestTable < Minitest::Test
       draw_rect_at 100, :y, 8, 8, :white
       halt
     end
-    v = assert_gemba_loads_rom(rom, frames: 2)
+    v = assert_emulator_loads_rom(rom, frames: 2)
     assert v.white?(103, 59), "a signed -24 moved the rect to y=56, got 0x#{format('%04X', v.pixel_gba(103, 59))}"
     assert v.black?(103, 83), "the rect is not at the base y (80)"
   end

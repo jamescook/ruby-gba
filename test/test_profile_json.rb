@@ -15,10 +15,10 @@ require "stringio"
 # the estimate is gone. What is left is two kinds of fact — what the build made, and what the
 # run counted.
 class TestProfileJson < Minitest::Test
-  include GembaSupport
+  include EmulatorSupport
 
   def setup
-    require_gemba_core!
+    require_emulator!
   end
 
   def build(title, code, &block)

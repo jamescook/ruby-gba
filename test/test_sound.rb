@@ -261,7 +261,7 @@ class TestSound < Minitest::Test
       end
     end
 
-    assert_gemba_loads_rom(rom, frames: 30)
+    assert_emulator_loads_rom(rom, frames: 30)
   end
 
   # ========================================================================

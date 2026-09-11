@@ -48,7 +48,7 @@ class TestFractionMath < Minitest::Test
 
   def test_the_answer_lands_in_the_same_place_on_the_console
     rom = assemble_rom(marker_program, name: "FRACMUL")
-    v = assert_gemba_loads_rom(rom, frames: 4)
+    v = assert_emulator_loads_rom(rom, frames: 4)
 
     assert v.pixel_is?(45, MARKER_Y, :white), "the console must agree with the interpreter"
     assert v.pixel_is?(41, MARKER_Y, :black)

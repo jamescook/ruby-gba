@@ -191,18 +191,18 @@ class TestTextTwoColors < Minitest::Test
   end
 
   def test_the_colour_changes_on_real_hardware
-    require_gemba_core!
+    require_emulator!
     program = label(on: :tiled)
     rom = RubyGBA::ROM.assemble(GBA.new.lower(program), title: "TWOCOL", code: "BTWO", maker: "01")
 
     # A pixel the "H" lights: its left stem, two rows down.
     pixel = [X, Y + 2]
 
-    dull = assert_gemba_loads_rom(rom, frames: 4)
+    dull = assert_emulator_loads_rom(rom, frames: 4)
 
     assert dull.pixel_is?(*pixel, :gray), "the label starts in the first colour"
 
-    bright = assert_gemba_loads_rom(rom, frames: 6, keys: RubyGBA::Constants::KEY_A)
+    bright = assert_emulator_loads_rom(rom, frames: 6, keys: RubyGBA::Constants::KEY_A)
 
     assert bright.white?(*pixel), "and the console swaps it for the second when the test holds"
   end

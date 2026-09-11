@@ -153,7 +153,7 @@ module RubyGBA
         #
         # Pass `frames:` to play a game loop for exactly N frames and stop with the
         # Nth frame fully drawn (a settled screen, never a torn mid-frame) — the
-        # natural way to say "play this far in", and how the gemba tests express it
+        # natural way to say "play this far in", and how the emulator tests express it
         # too. It's the stop condition when given, and every one of those frames is
         # played however much work each takes: `max_steps` is then the budget for ONE
         # frame (it starts again at each vblank), guarding the runaway case of a frame

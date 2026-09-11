@@ -154,7 +154,7 @@ class TestPool < Minitest::Test
   end
 
   # Cross-backend: a pool is pure sugar over lists + repeat, so the same program lowers
-  # to a ROM and draws its live instances on the console (gemba).
+  # to a ROM and draws its live instances on the console (the emulator).
   def test_a_pool_lowers_and_draws_on_the_console
     b = Builder.new
     b.instance_eval do
@@ -171,7 +171,7 @@ class TestPool < Minitest::Test
     b.emit_pending_functions
 
     rom = ROM.assemble(GBA.new.lower(b.program), title: "POOL", code: "BPOL", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.green?(21, 21), "a pooled instance drew on the console, got 0x#{format('%04X', v.pixel_gba(21, 21))}"
     assert v.green?(61, 61), "and the second one too"
   end

@@ -110,7 +110,7 @@ class TestAseprite < Minitest::Test
   def test_on_console_a_played_animation_composites
     rom = ROM.assemble(GBA.new.lower(game(mode: :tiled, run: 3, play: :blink)),
                        title: "ASEPRIT", code: "BASE", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3)
+    v = assert_emulator_loads_rom(rom, frames: 3)
     assert v.pixel_is?(44, 44, c(0, 0, 255)),
            "blink's first frame (blue) should composite on the console, got #{v.pixel_gba(44, 44).to_s(16)}"
   end
@@ -152,7 +152,7 @@ class TestAseprite < Minitest::Test
   def test_on_console_a_native_aseprite_file_composites
     rom = ROM.assemble(GBA.new.lower(game(mode: :tiled, run: 3, file: BINARY, play: :idle)),
                        title: "ASEBIN", code: "BABN", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 3)
+    v = assert_emulator_loads_rom(rom, frames: 3)
     assert v.pixel_is?(44, 44, c(0, 0, 255)),
            "a native .aseprite file: play(:idle)'s blue should composite on the console, got #{v.pixel_gba(44, 44).to_s(16)}"
   end

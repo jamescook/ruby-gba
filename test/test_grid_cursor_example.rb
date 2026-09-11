@@ -8,7 +8,7 @@ require_relative "../examples/grid_cursor"
 # leaving no trail. It's the worked demonstration of `grid` — the game moves in
 # cell coordinates, and each tap erases the old cell and paints the new one. These
 # assert BEHAVIOR (the cursor lights the right cell and leaves nothing behind) on
-# the interpreter, plus a gemba check that it renders and steers on the console.
+# the interpreter, plus an emulator check that it renders and steers on the console.
 class TestGridCursorExample < Minitest::Test
   include RubyGBA::Constants
 
@@ -62,7 +62,7 @@ class TestGridCursorExample < Minitest::Test
   def test_it_renders_and_steers_on_hardware
     rom = ROM.assemble(GBA.new.lower(GridCursor.program), title: "GRIDCURS", code: "BGRC", maker: "01")
     # Hold left: one down-edge, so the cursor steps one cell left and lights it.
-    v = assert_gemba_loads_rom(rom, frames: 6, keys: KEY_LEFT)
+    v = assert_emulator_loads_rom(rom, frames: 6, keys: KEY_LEFT)
     left_px = START_PX - CELL
     assert v.pixel_is?(left_px + 2, START_PY + 2, :cyan),
            "cursor didn't light the cell left of center — got #{v.pixel_gba(left_px + 2, START_PY + 2).to_s(16)}"

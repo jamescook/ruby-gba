@@ -53,7 +53,7 @@ class TestFrameStep < Minitest::Test
 
   def test_a_game_that_fits_in_a_frame_answers_one_on_the_console
     rom = ROM.assemble(GBA.new.lower(program(0)), title: "STEP1", code: "AST1", maker: "01")
-    gba = assert_gemba_loads_rom(rom, frames: 8)
+    gba = assert_emulator_loads_rom(rom, frames: 8)
 
     assert_equal 1, reading(->(x, y) { gba.pixel_gba(x, y) })
   end
@@ -63,7 +63,7 @@ class TestFrameStep < Minitest::Test
   # times as much reads 7 — so it counts rather than merely noticing.
   def test_a_pass_that_overruns_a_frame_says_so_on_the_console
     rom = ROM.assemble(GBA.new.lower(program(30_000)), title: "STEP2", code: "AST2", maker: "01")
-    gba = assert_gemba_loads_rom(rom, frames: 40)
+    gba = assert_emulator_loads_rom(rom, frames: 40)
     counted = reading(->(x, y) { gba.pixel_gba(x, y) })
 
     assert_operator counted, :>=, 2, "a pass that cannot finish inside a frame counts more than one"
@@ -110,7 +110,7 @@ class TestFrameStep < Minitest::Test
 
   def test_a_once_a_frame_body_runs_again_for_each_frame_a_late_pass_took
     rom = ROM.assemble(GBA.new.lower(counting_program(30_000)), title: "OAF", code: "AOAF", maker: "01")
-    gba = assert_gemba_loads_rom(rom, frames: 40)
+    gba = assert_emulator_loads_rom(rom, frames: 40)
     pixel = ->(x, y) { gba.pixel_gba(x, y) }
 
     assert_operator reading(pixel), :>=, 2, "the pass should have taken more than one frame"
@@ -205,7 +205,7 @@ class TestFrameStep < Minitest::Test
   # than assumed, since how late a pass runs is the console's business.
   def test_a_beat_in_frames_keeps_time_when_the_game_does_not
     rom = ROM.assemble(GBA.new.lower(beating_program(90_000, 4)), title: "BEAT", code: "ABEA", maker: "01")
-    gba = assert_gemba_loads_rom(rom, frames: 40)
+    gba = assert_emulator_loads_rom(rom, frames: 40)
     pixel = ->(x, y) { gba.pixel_gba(x, y) }
     late = reading(pixel)
     beats = reading(pixel, row: 16)
@@ -239,7 +239,7 @@ class TestFrameStep < Minitest::Test
 
   def test_a_one_shot_fires_even_when_a_pass_steps_over_its_frame
     rom = ROM.assemble(GBA.new.lower(one_shot_program(90_000, 5)), title: "ONCE", code: "AONC", maker: "01")
-    gba = assert_gemba_loads_rom(rom, frames: 40)
+    gba = assert_emulator_loads_rom(rom, frames: 40)
 
     assert_equal 1, reading(->(x, y) { gba.pixel_gba(x, y) }, row: 16),
                  "a pass worth several frames jumps the counter past five, and it must still fire"
@@ -249,7 +249,7 @@ class TestFrameStep < Minitest::Test
   # to do half a second of catching up inside one already-late pass.
   def test_a_very_long_pass_is_held_at_the_cap
     rom = ROM.assemble(GBA.new.lower(program(400_000)), title: "STEP3", code: "AST3", maker: "01")
-    gba = assert_gemba_loads_rom(rom, frames: 70)
+    gba = assert_emulator_loads_rom(rom, frames: 70)
 
     assert_equal Frames::MOST, reading(->(x, y) { gba.pixel_gba(x, y) }),
                  "a pass this long should be held at the cap, not counted whole"

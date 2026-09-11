@@ -88,11 +88,11 @@ class TestScenePresentation < Minitest::Test
   def test_it_renders_each_scene_on_the_console
     rom = assemble_rom(two_scene_program, name: "SCN")
 
-    title = assert_gemba_loads_rom(rom, frames: 4) # no input: :playing
+    title = assert_emulator_loads_rom(rom, frames: 4) # no input: :playing
     assert title.pixel_is?(43, 43, :red), "playing block, got 0x#{format('%04X', title.pixel_gba(43, 43))}"
     refute title.pixel_is?(103, 103, :blue), "over block should be hidden on :playing"
 
-    switched = assert_gemba_loads_rom(rom, frames: 6, keys: KEY_START)
+    switched = assert_emulator_loads_rom(rom, frames: 6, keys: KEY_START)
     assert switched.pixel_is?(103, 103, :blue), "over block, got 0x#{format('%04X', switched.pixel_gba(103, 103))}"
   end
 end

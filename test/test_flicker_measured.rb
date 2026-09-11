@@ -9,10 +9,10 @@ require "test_helper"
 # pictures out of the console's video memory, and getting the same answer the
 # player would get by looking at the screen.
 class TestFlickerMeasured < Minitest::Test
-  include GembaSupport
+  include EmulatorSupport
 
   def setup
-    require_gemba_core!
+    require_emulator!
   end
 
   # How many marks the trail lays down before it stops, and how far apart.

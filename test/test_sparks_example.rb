@@ -35,7 +35,7 @@ class TestSparksExample < Minitest::Test
 
   def test_the_console_draws_the_shower_too
     rom = Sparks.build_rom(out: StringIO.new, err: StringIO.new)
-    v = assert_gemba_loads_rom(rom, frames: 30)
+    v = assert_emulator_loads_rom(rom, frames: 30)
 
     assert v.frame_gba.include?(YELLOW), "a spark is on the console's screen"
   end

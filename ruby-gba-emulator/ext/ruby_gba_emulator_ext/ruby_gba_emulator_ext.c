@@ -1,5 +1,5 @@
-#include "gemba_core_ext.h"
-#ifdef GEMBA_CORE_RCHEEVOS
+#include "ruby_gba_emulator_ext.h"
+#ifdef RUBY_GBA_EMULATOR_RCHEEVOS
 #include "rc_runtime.h"
 #endif
 #include <mgba/core/config.h>
@@ -13,14 +13,13 @@
 #include <fcntl.h>
 
 /*
- * gemba-core — a headless libmgba binding for dev/test verification.
+ * ruby-gba-emulator — a headless libmgba binding for dev/test verification.
  *
- * This is a lean copy of gemba's native core: it steps a ROM one frame at a
- * time and hands back the video/audio buffers and bus memory, with no SDL2 or
- * Tk anywhere (those live only in gemba's pure-Ruby frontend). The
- * RetroAchievements (rcheevos) evaluator is present but compiled out by
- * default — build with GEMBA_CORE_RCHEEVOS defined (and the rcheevos sources on
- * the compile line) to bring it back without touching this file.
+ * It steps a ROM one frame at a time and hands back the video/audio buffers and
+ * bus memory, with no SDL2 or Tk anywhere. The RetroAchievements (rcheevos)
+ * evaluator is present but compiled out by default — build with
+ * RUBY_GBA_EMULATOR_RCHEEVOS defined (and the rcheevos sources on the compile
+ * line) to bring it back without touching this file.
  */
 
 /*
@@ -33,9 +32,9 @@ int blip_samples_avail(const struct blip_t *);
 int blip_read_samples(struct blip_t *, short out[], int count, int stereo);
 void blip_set_rates(struct blip_t *, double clock_rate, double sample_rate);
 
-VALUE mGembaCore;
+VALUE mRubyGBAEmulator;
 static VALUE cCore;
-#ifdef GEMBA_CORE_RCHEEVOS
+#ifdef RUBY_GBA_EMULATOR_RCHEEVOS
 static VALUE ra_empty_array; /* frozen [] returned by do_frame when nothing triggered */
 #endif
 
@@ -225,7 +224,7 @@ mgba_core_memsize(const void *ptr)
 }
 
 static const rb_data_type_t mgba_core_type = {
-    .wrap_struct_name = "GembaCore::Core",
+    .wrap_struct_name = "RubyGBAEmulator::Core",
     .function = {
         .dmark = NULL,
         .dfree = mgba_core_dfree,
@@ -994,7 +993,7 @@ mgba_core_destroyed_p(VALUE self)
 /* --------------------------------------------------------- */
 
 /*
- * GembaCore.xor_delta(current, previous) → String
+ * RubyGBAEmulator.xor_delta(current, previous) → String
  *
  * XOR two equal-length binary strings byte-by-byte. Pair with
  * count_changed_pixels to measure how much a frame changed — the core of
@@ -1023,7 +1022,7 @@ mgba_xor_delta(VALUE mod, VALUE a, VALUE b)
 }
 
 /*
- * GembaCore.count_changed_pixels(delta) → Integer
+ * RubyGBAEmulator.count_changed_pixels(delta) → Integer
  *
  * Count the number of non-zero 4-byte pixels in a delta string.
  * Used alongside xor_delta to measure per-frame change rates.
@@ -1557,12 +1556,12 @@ mgba_core_profile(VALUE self, VALUE rb_frames, VALUE rb_keys)
     return out;
 }
 
-#ifdef GEMBA_CORE_RCHEEVOS
+#ifdef RUBY_GBA_EMULATOR_RCHEEVOS
 /* --------------------------------------------------------- */
-/* GembaCore::RARuntime — thin wrapper around rc_runtime_t   */
+/* RubyGBAEmulator::RARuntime — thin wrapper around rc_runtime_t   */
 /*                    (RetroAchievements/rcheevos)           */
 /*                                                           */
-/* Compiled in only when GEMBA_CORE_RCHEEVOS is defined and  */
+/* Compiled in only when RUBY_GBA_EMULATOR_RCHEEVOS is defined and  */
 /* the rcheevos sources are on the compile line. Off by      */
 /* default so a plain dev build needs nothing but libmgba.   */
 /* --------------------------------------------------------- */
@@ -1644,7 +1643,7 @@ ra_wrapper_free(void *ptr)
 static VALUE cRARuntime;
 
 static const rb_data_type_t ra_runtime_type = {
-    .wrap_struct_name = "GembaCore::RARuntime",
+    .wrap_struct_name = "RubyGBAEmulator::RARuntime",
     .function = {
         .dmark = NULL,
         .dfree = ra_wrapper_free,
@@ -1807,7 +1806,7 @@ ra_runtime_rb_get_richpresence(VALUE self, VALUE rb_core)
         return Qnil;
     return rb_str_new(buf, len);
 }
-#endif /* GEMBA_CORE_RCHEEVOS */
+#endif /* RUBY_GBA_EMULATOR_RCHEEVOS */
 
 /* --------------------------------------------------------- */
 /* Core#load_bios(path)                                      */
@@ -1836,7 +1835,7 @@ mgba_core_load_bios(VALUE self, VALUE rb_path)
 }
 
 /* --------------------------------------------------------- */
-/* GembaCore.gba_bios_checksum(bytes)                        */
+/* RubyGBAEmulator.gba_bios_checksum(bytes)                  */
 /* Compute GBA BIOS checksum (mGBA algorithm) on raw bytes.  */
 /* --------------------------------------------------------- */
 
@@ -1850,16 +1849,16 @@ mgba_gba_bios_checksum(VALUE self, VALUE rb_bytes)
 }
 
 void
-Init_gemba_core_ext(void)
+Init_ruby_gba_emulator_ext(void)
 {
     /* Install no-op logger before any mGBA calls */
     mLogSetDefaultLogger(&s_null_logger);
 
-    /* GembaCore module */
-    mGembaCore = rb_define_module("GembaCore");
+    /* RubyGBAEmulator module */
+    mRubyGBAEmulator = rb_define_module("RubyGBAEmulator");
 
-    /* GembaCore::Core class */
-    cCore = rb_define_class_under(mGembaCore, "Core", rb_cObject);
+    /* RubyGBAEmulator::Core class */
+    cCore = rb_define_class_under(mRubyGBAEmulator, "Core", rb_cObject);
     rb_define_alloc_func(cCore, mgba_core_alloc);
 
     rb_define_method(cCore, "initialize",  mgba_core_initialize, -1);
@@ -1906,21 +1905,21 @@ Init_gemba_core_ext(void)
     rb_define_method(cCore, "profile",       mgba_core_profile, 2);
 
     /* BIOS checksum utility */
-    rb_define_module_function(mGembaCore, "gba_bios_checksum", mgba_gba_bios_checksum, 1);
-    rb_define_const(mGembaCore, "GBA_BIOS_CHECKSUM",    UINT2NUM(GBA_BIOS_CHECKSUM));
-    rb_define_const(mGembaCore, "GBA_DS_BIOS_CHECKSUM", UINT2NUM(GBA_DS_BIOS_CHECKSUM));
+    rb_define_module_function(mRubyGBAEmulator, "gba_bios_checksum", mgba_gba_bios_checksum, 1);
+    rb_define_const(mRubyGBAEmulator, "GBA_BIOS_CHECKSUM",    UINT2NUM(GBA_BIOS_CHECKSUM));
+    rb_define_const(mRubyGBAEmulator, "GBA_DS_BIOS_CHECKSUM", UINT2NUM(GBA_DS_BIOS_CHECKSUM));
 
     /* GBA key constants (bitmask values for set_keys) */
-    rb_define_const(mGembaCore, "KEY_A",      INT2NUM(1 << GEMBA_KEY_A));
-    rb_define_const(mGembaCore, "KEY_B",      INT2NUM(1 << GEMBA_KEY_B));
-    rb_define_const(mGembaCore, "KEY_SELECT", INT2NUM(1 << GEMBA_KEY_SELECT));
-    rb_define_const(mGembaCore, "KEY_START",  INT2NUM(1 << GEMBA_KEY_START));
-    rb_define_const(mGembaCore, "KEY_RIGHT",  INT2NUM(1 << GEMBA_KEY_RIGHT));
-    rb_define_const(mGembaCore, "KEY_LEFT",   INT2NUM(1 << GEMBA_KEY_LEFT));
-    rb_define_const(mGembaCore, "KEY_UP",     INT2NUM(1 << GEMBA_KEY_UP));
-    rb_define_const(mGembaCore, "KEY_DOWN",   INT2NUM(1 << GEMBA_KEY_DOWN));
-    rb_define_const(mGembaCore, "KEY_R",      INT2NUM(1 << GEMBA_KEY_R));
-    rb_define_const(mGembaCore, "KEY_L",      INT2NUM(1 << GEMBA_KEY_L));
+    rb_define_const(mRubyGBAEmulator, "KEY_A",      INT2NUM(1 << GEMBA_KEY_A));
+    rb_define_const(mRubyGBAEmulator, "KEY_B",      INT2NUM(1 << GEMBA_KEY_B));
+    rb_define_const(mRubyGBAEmulator, "KEY_SELECT", INT2NUM(1 << GEMBA_KEY_SELECT));
+    rb_define_const(mRubyGBAEmulator, "KEY_START",  INT2NUM(1 << GEMBA_KEY_START));
+    rb_define_const(mRubyGBAEmulator, "KEY_RIGHT",  INT2NUM(1 << GEMBA_KEY_RIGHT));
+    rb_define_const(mRubyGBAEmulator, "KEY_LEFT",   INT2NUM(1 << GEMBA_KEY_LEFT));
+    rb_define_const(mRubyGBAEmulator, "KEY_UP",     INT2NUM(1 << GEMBA_KEY_UP));
+    rb_define_const(mRubyGBAEmulator, "KEY_DOWN",   INT2NUM(1 << GEMBA_KEY_DOWN));
+    rb_define_const(mRubyGBAEmulator, "KEY_R",      INT2NUM(1 << GEMBA_KEY_R));
+    rb_define_const(mRubyGBAEmulator, "KEY_L",      INT2NUM(1 << GEMBA_KEY_L));
 
     /* GBA button name → bitmask hash */
     VALUE btn_bits = rb_hash_new();
@@ -1935,19 +1934,19 @@ Init_gemba_core_ext(void)
     rb_hash_aset(btn_bits, ID2SYM(rb_intern("start")),  INT2NUM(1 << GEMBA_KEY_START));
     rb_hash_aset(btn_bits, ID2SYM(rb_intern("select")), INT2NUM(1 << GEMBA_KEY_SELECT));
     OBJ_FREEZE(btn_bits);
-    rb_define_const(mGembaCore, "GBA_BTN_BITS", btn_bits);
+    rb_define_const(mRubyGBAEmulator, "GBA_BTN_BITS", btn_bits);
 
     /* XOR delta for frame-diff analysis */
-    rb_define_module_function(mGembaCore, "xor_delta", mgba_xor_delta, 2);
-    rb_define_module_function(mGembaCore, "count_changed_pixels", mgba_count_changed_pixels, 1);
+    rb_define_module_function(mRubyGBAEmulator, "xor_delta", mgba_xor_delta, 2);
+    rb_define_module_function(mRubyGBAEmulator, "count_changed_pixels", mgba_count_changed_pixels, 1);
 
-#ifdef GEMBA_CORE_RCHEEVOS
+#ifdef RUBY_GBA_EMULATOR_RCHEEVOS
     /* Frozen empty array returned by RARuntime#do_frame when nothing triggered */
     ra_empty_array = rb_ary_freeze(rb_ary_new_capa(0));
     rb_gc_register_mark_object(ra_empty_array);
 
-    /* GembaCore::RARuntime — RA condition evaluator */
-    cRARuntime = rb_define_class_under(mGembaCore, "RARuntime", rb_cObject);
+    /* RubyGBAEmulator::RARuntime — RA condition evaluator */
+    cRARuntime = rb_define_class_under(mRubyGBAEmulator, "RARuntime", rb_cObject);
     rb_define_alloc_func(cRARuntime, ra_runtime_alloc);
     rb_define_method(cRARuntime, "activate",              ra_runtime_rb_activate,              2);
     rb_define_method(cRARuntime, "deactivate",            ra_runtime_rb_deactivate,            1);
@@ -1957,5 +1956,5 @@ Init_gemba_core_ext(void)
     rb_define_method(cRARuntime, "count",                 ra_runtime_rb_count,                 0);
     rb_define_method(cRARuntime, "activate_richpresence", ra_runtime_rb_activate_richpresence, 1);
     rb_define_method(cRARuntime, "get_richpresence",      ra_runtime_rb_get_richpresence,      1);
-#endif /* GEMBA_CORE_RCHEEVOS */
+#endif /* RUBY_GBA_EMULATOR_RCHEEVOS */
 }

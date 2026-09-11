@@ -10,7 +10,7 @@ require "test_helper"
 # needs sixty particles drifting at fractional speeds it has to pick a scale and carry it by
 # hand, which is the exact bookkeeping the fraction support exists to remove.
 class TestFractionCollections < Minitest::Test
-  include GembaSupport
+  include EmulatorSupport
 
   ONE = 1 << RubyGBA::Fraction::DEFAULT_BITS
 
@@ -202,7 +202,7 @@ class TestFractionCollections < Minitest::Test
     end.program
 
     interp = Reference.new.run(prog, frames: 3)
-    gba = assert_gemba_loads_rom(assemble_rom(prog, name: "FRACH"), frames: 5)
+    gba = assert_emulator_loads_rom(assemble_rom(prog, name: "FRACH"), frames: 5)
 
     differ = (0...240).to_a.product((0...160).to_a).reject do |x, y|
       interp.screen.pixel(x, y) == gba.pixel_gba(x, y)

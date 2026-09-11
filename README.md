@@ -77,7 +77,7 @@ Build it and run it in any GBA emulator:
 ```bash
 ruby examples/snake.rb             # => writes snake.gba
 ruby-gba build examples/snake.rb   # the same, via the CLI (adds -o / --profile / --stats)
-rake test:parallel                 # unit + emulator integration tests (builds gemba-core first)
+rake test:parallel                 # unit + emulator integration tests (builds the emulator first)
 ```
 
 ---
@@ -343,7 +343,7 @@ lib/ruby_gba/
   asm.rb, rom.rb             # ARM encoding + cartridge assembly
   build_report.rb            # what the build made: sizes, quick-memory placement, the stack
   profiler.rb                # what it cost when it ran: per-routine, measured on the emulator
-  verifier.rb                # read back real pixels from an emulator (via gemba-core, the libmgba binding)
+  verifier.rb                # read back real pixels from an emulator (via ruby-gba-emulator, the libmgba binding)
 examples/                    # runnable games + demos (see the Examples section above)
 assets/                      # captured GIFs / screenshots
 ```
@@ -352,6 +352,13 @@ assets/                      # captured GIFs / screenshots
 
 Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites (rotated and scaled), scrolling and bending backgrounds, a named layer stack, screen effects, four-channel and sampled sound, and the asset pipeline are all in (see `examples/`). Affine backgrounds and the alternate backends are still planned. The current proving ground is a Wolfenstein 3D port ([ruby-wolf3d](https://github.com/jamescook/ruby-wolf3d)) — a real game in its own repository that depends on this one as a gem, which is what's surfacing most of the framework gaps that still need closing.
 
-Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. Anything that reads what a ROM *actually did* runs it in an emulator through **`gemba-core`**, a small in-repo C extension binding libmgba, which needs a C compiler and libmgba to build. Two things use it: the pixel read-back the tests assert on, and `rom.profile` — which is also what a build runs to decide what to keep in the quick memory. (How you install libmgba varies by platform, and most dev setups have a C compiler already.)
+Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. Anything that reads what a ROM *actually did* runs it in an emulator through **`ruby-gba-emulator`**, a separate gem (in this repository, under `ruby-gba-emulator/`) binding libmgba, which needs a C compiler and libmgba to build. It is deliberately not a dependency of this gem, so somebody who only builds cartridges installs no compiler; add it to your Gemfile when you want to verify or profile one:
+
+```ruby
+gem "ruby-gba-emulator", github: "jamescook/ruby-gba",
+    glob: "ruby-gba-emulator/ruby-gba-emulator.gemspec"
+```
+
+Two things use it: the pixel read-back the tests assert on, and `rom.profile` — which is also what a build runs to decide what to keep in the quick memory. (How you install libmgba varies by platform, and most dev setups have a C compiler already.)
 
 A build with no emulator still works: it falls back to choosing from the shape of the program, and the report says which of the two happened rather than leaving you to guess.

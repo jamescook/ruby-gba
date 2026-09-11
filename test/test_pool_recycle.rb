@@ -7,7 +7,7 @@ require "test_helper"
 # instance so a new one always appears — the usual choice for particles and effects.
 # Behind the scenes the pool stamps each spawn with its order and, when full, reuses the
 # slot with the oldest stamp — true age, not slot position, so it stays correct even
-# after removes shuffle the free slots. Pinned on the interpreter and on gemba.
+# after removes shuffle the free slots. Pinned on the interpreter and on the emulator.
 class TestPoolRecycle < Minitest::Test
 
   GREEN = Color.resolve(:green)
@@ -89,7 +89,7 @@ class TestPoolRecycle < Minitest::Test
     assert_match(/recycle_oldest/, err.message)
   end
 
-  # --- cross-backend: a spriteful recycle pool, on the interpreter and on gemba ---
+  # --- cross-backend: a spriteful recycle pool, on the interpreter and on the emulator ---
 
   # A capacity-1 recycling sprite pool: spawn at one spot, then (full) spawn at another —
   # the single instance moves to the new spot and the old one is vacated. A clean pixel
@@ -116,7 +116,7 @@ class TestPoolRecycle < Minitest::Test
 
   def test_recycle_sprite_draws_on_the_console
     rom = ROM.assemble(GBA.new.lower(recycle_sprite_program), title: "RCYC", code: "BRCY", maker: "01")
-    v = assert_gemba_loads_rom(rom, frames: 6)
+    v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.green?(63, 63), "the recycled sprite drew at the new spawn, got 0x#{format('%04X', v.pixel_gba(63, 63))}"
     assert v.black?(23, 23), "and the old position is clear, got 0x#{format('%04X', v.pixel_gba(23, 23))}"
   end

@@ -3,13 +3,13 @@
 require "minitest/autorun"
 require "tempfile"
 
-# gemba-core's tests build real GBA ROMs with ruby-gba (which lives one level
-# up in this repo) and run them through the headless core. That doubles as an
+# These tests build real GBA ROMs with ruby-gba (which lives one level up in
+# this repo) and run them through the headless core. That doubles as an
 # end-to-end smoke test of the whole stack: DSL → ROM → libmgba → probe.
 require_relative "../../lib/ruby_gba"
-require_relative "../lib/gemba_core"
+require_relative "../lib/ruby_gba_emulator"
 
-module GembaCoreTestSupport
+module RubyGBAEmulatorTestSupport
   # Tempfiles are held for the life of the process so the ROM on disk outlives
   # the Probe that loads it (and never gets GC'd out from under a running test).
   ROM_TEMPFILES = []
@@ -17,7 +17,7 @@ module GembaCoreTestSupport
   # Build a ROM from a ruby-gba DSL block and return the path to it on disk.
   #
   #   path = build_rom("RED") { screen :bitmap; clear_screen :red; game_loop { wait_vblank } }
-  #   probe = GembaCore.open(path)
+  #   probe = RubyGBAEmulator.open(path)
   def build_rom(name = "TEST", code: "TEST", maker: "01", &block)
     rom = RubyGBA.build(name, code: code, maker: maker, &block)
     tf = Tempfile.new([name.downcase, ".gba"])
@@ -40,7 +40,7 @@ module GembaCoreTestSupport
   # Open a probe on a fresh fixture ROM and hand it to the block, closing it
   # afterward. Returns the block's value.
   def with_probe(path)
-    probe = GembaCore.open(path)
+    probe = RubyGBAEmulator.open(path)
     yield probe
   ensure
     probe&.close

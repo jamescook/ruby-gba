@@ -59,10 +59,10 @@ class TestBackgroundScroll < Minitest::Test
   end
 
   def test_scrolling_on_the_console
-    still = assert_gemba_loads_rom(rom_for(world_scrolled_to(0, 0)), frames: 3)
+    still = assert_emulator_loads_rom(rom_for(world_scrolled_to(0, 0)), frames: 3)
     assert still.red?(84, 84), "at rest the landmark is at (80,80), got 0x#{format('%04X', still.pixel_gba(84, 84))}"
 
-    moved = assert_gemba_loads_rom(rom_for(world_scrolled_to(40, 0)), frames: 3)
+    moved = assert_emulator_loads_rom(rom_for(world_scrolled_to(40, 0)), frames: 3)
     assert moved.red?(44, 84), "scrolled right, the landmark slid left, got 0x#{format('%04X', moved.pixel_gba(44, 84))}"
   end
 
@@ -102,7 +102,7 @@ class TestBackgroundScroll < Minitest::Test
   end
 
   def test_scrolling_with_a_sprite_on_the_console
-    v = assert_gemba_loads_rom(rom_for(scroll_with_hero), frames: 25)
+    v = assert_emulator_loads_rom(rom_for(scroll_with_hero), frames: 25)
     assert v.green?(104, 64),
            "the hero renders over the scrolling world on hardware, got 0x#{format('%04X', v.pixel_gba(104, 64))}"
     assert v.red?(44, 84),

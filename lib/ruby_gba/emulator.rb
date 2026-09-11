@@ -7,30 +7,63 @@ module RubyGBA
   # debug/run scripts, the emulator-backed tests — goes through here, so the
   # backing emulator can be swapped in one place.
   #
-  # The backend is gemba-core: a lean, headless libmgba probe vendored in-repo
-  # under gemba-core/ (not a published gem). It has a C extension that must be
-  # built — `rake test:mgba`, or the compile step `rake test` runs first. It is
-  # required, not optional: {load!} raises loudly when it can't be loaded, so a
-  # missing build fails rather than silently skipping verification.
+  # The backend is the ruby-gba-emulator gem: a lean, headless libmgba probe. It is a gem of
+  # its own rather than part of this one, because building a cartridge is pure Ruby and running
+  # one is not — that half needs a C compiler and a system libmgba, and only somebody verifying
+  # or profiling a ROM needs it at all. So it is not a dependency of this gem; {load!} raises
+  # loudly when it is absent, rather than silently skipping verification.
   module Emulator
     module_function
 
-    # Load the emulator backend, putting gemba-core's in-repo lib on the load
-    # path first. Raises a clear, actionable error when it isn't built.
+    # Load the emulator backend. Raises a clear, actionable error when it isn't there.
+    #
+    # THE GEM FIRST, THE CHECKOUT SECOND, and the order is the whole point. The gem declares
+    # its C extension, so a Gemfile line builds it — per Ruby ABI, which means changing Ruby
+    # rebuilds it rather than leaving a binary compiled for another one.
+    #
+    # The fallback is this repository's own checkout, which keeps its copy of the emulator in a
+    # sibling directory. Convenient, and it is the arrangement that hid the problem for years —
+    # a vendored path always resolves, so nobody found out that nothing was ever building this
+    # for anyone else.
     def load!
-      lib = File.expand_path("../../gemba-core/lib", __dir__)
-      $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
-      require "gemba_core"
-    rescue LoadError => e
-      raise LoadError, "gemba-core is required to run ROMs in an emulator, but it isn't " \
-                       "loadable — build its C extension with `rake test:mgba`. " \
-                       "Original error: #{e.message}"
+      require "ruby_gba_emulator"
+    rescue LoadError
+      load_from_checkout!
     end
+
+    # The sibling checkout, for a clone with no bundle. Raises with what to do about it.
+    def load_from_checkout!
+      lib = File.expand_path("../../ruby-gba-emulator/lib", __dir__)
+      raise_missing!("it is not installed and there is no ruby-gba-emulator/ beside this one") unless
+        File.directory?(lib)
+
+      $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
+      require "ruby_gba_emulator"
+    rescue LoadError => e
+      raise_missing!(e.message)
+    end
+
+    # ONE MESSAGE, AND IT NAMES THE GEM RATHER THAN A RAKE TASK IN SOMEBODY ELSE'S REPOSITORY.
+    # The reader is usually building a game, where a rake task here means nothing and there is
+    # no directory to run it in.
+    def raise_missing!(detail)
+      raise LoadError,
+            "An emulator is required to run a ROM, and ruby-gba-emulator will not load.\n" \
+            "Add this to your Gemfile, then run bundle install:\n" \
+            "\n" \
+            "    gem \"ruby-gba-emulator\", github: \"jamescook/ruby-gba\", " \
+            "glob: \"ruby-gba-emulator/ruby-gba-emulator.gemspec\"\n" \
+            "\n" \
+            "It builds a C extension, so it needs a C compiler and libmgba " \
+            "(brew install mgba, or apt install libmgba-dev).\n" \
+            "Original error: #{detail}"
+    end
+    private_class_method :load_from_checkout!, :raise_missing!
 
     # The emulator core class (loads the backend on first use).
     def core_class
       load!
-      GembaCore::Core
+      RubyGBAEmulator::Core
     end
 
     # Open an emulator core on a ROM file path.
@@ -51,12 +84,12 @@ module RubyGBA
     # would quietly make them different games.
     def probe(rom_path, save_dir: nil, bios_path: nil)
       load!
-      GembaCore.open(rom_path, save_dir: save_dir, bios_path: bios_path)
+      RubyGBAEmulator.open(rom_path, save_dir: save_dir, bios_path: bios_path)
     end
 
     # Whether the backend can be loaded. For the rare caller that legitimately
     # degrades rather than fails — the standalone debug scripts. Emulator-backed
-    # tests must NOT use this to skip: gemba-core is required, so a load failure
+    # tests must NOT use this to skip: the emulator is required, so a load failure
     # there is a real error (see the module note).
     def available?
       load!

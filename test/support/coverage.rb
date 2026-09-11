@@ -8,7 +8,7 @@
 module Coverage
   FILTERS = proc do
     add_filter "/test/"
-    add_filter "/gemba-core/" # a separate vendored project with its own test suite
+    add_filter "/ruby-gba-emulator/" # a separate gem in this repo, with its own test suite
     add_filter "/tools/"      # dev tooling, not part of the shipped library
   end
 end

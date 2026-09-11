@@ -29,7 +29,7 @@ class TestTilesExample < Minitest::Test
   # Tile mode draws the whole layer from data uploaded once at boot, so a couple of
   # frames is plenty — there's no per-tile stamping to wait on.
   def test_the_room_renders_on_the_console
-    v = assert_gemba_loads_rom(Tiles.build_rom(err: StringIO.new), frames: 3)
+    v = assert_emulator_loads_rom(Tiles.build_rom(err: StringIO.new), frames: 3)
     assert v.pixel_is?(*WALL, :gray), "wall renders on hardware, got 0x#{format('%04X', v.pixel_gba(*WALL))}"
     assert v.blue?(*WATER),  "water renders on hardware, got 0x#{format('%04X', v.pixel_gba(*WATER))}"
     assert v.green?(*GRASS), "grass renders on hardware, got 0x#{format('%04X', v.pixel_gba(*GRASS))}"
@@ -42,7 +42,7 @@ class TestTilesExample < Minitest::Test
 
   def test_walking_into_the_next_room_hands_the_background_that_whole_map
     tap_right = ->(frame) { frame > 3 && frame < 6 ? RIGHT : 0 }
-    v = assert_gemba_loads_rom(Tiles.build_rom(err: StringIO.new), frames: 12, keys: tap_right)
+    v = assert_emulator_loads_rom(Tiles.build_rom(err: StringIO.new), frames: 12, keys: tap_right)
 
     assert v.blue?(*GRASS),
            "the cavern's water stands where the hall's grass did, got 0x#{format('%04X', v.pixel_gba(*GRASS))}"
