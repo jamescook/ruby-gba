@@ -221,7 +221,7 @@ class TestBuilderIR < Minitest::Test
     audio = Reference.new.run(got).audio
     assert_equal [:enabled], audio[0]
     assert_equal 880, audio[1][1].frequency # :high resolves to 880 Hz
-    assert_equal [:stop_music], audio.last
+    assert_equal 2, audio.length, "no tune is playing, so stopping the music makes no sound"
   end
 
   # ---- everything together: draws + sound + control + funcs in one tree ----

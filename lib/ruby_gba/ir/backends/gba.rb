@@ -686,6 +686,7 @@ module RubyGBA
           @layer_blend.picture = @picture # built here, not at construction — see LayerBlend's class comment
           adopt_frame_body(program) # the game loop's body counts as a routine once it moves
           @mixer.prepare_direct_sound(program) # embed the program's samples as ROM data
+          @audio.prepare_music(program) # ...and its tunes, numbered, as one score
           @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
           @mixer.prepare_mixer(program) # the software mixer's rate, buffers, voice slots, timer
           guard_mixer_needs_game_loop
@@ -926,6 +927,9 @@ module RubyGBA
         def emit_mixer_tick = @mixer.emit_mixer_tick
         def emit_mix_routine = @mixer.emit_mix_routine
 
+        # Forwards to @audio (see {Audio}) — the music player the screen's interrupt runs.
+        def emit_music_tick = @audio.emit_music_tick
+
         # Forwards to @palette_tint (see {PaletteTint}).
         def palette_tint? = @palette_tint.palette_tint?
         def emit_tint_state_init = @palette_tint.emit_tint_state_init
@@ -1046,16 +1050,18 @@ module RubyGBA
           emit_irq_source(IRQ_HBLANK) { emit_row_bend_handler } if interrupts_rows?
           # VBlank must ack in TWO places — the hardware flag (REG_IF) and the BIOS's own
           # copy (REG_IFBIOS) that VBlankIntrWait polls — or the CPU would never wake.
-          # ...and the screen's own frame, whose handler used to be nothing but the ack. Two
-          # things ride on it now, and both for the same reason: THE SCREEN KEEPS TIME WHATEVER
-          # THE GAME IS DOING. It counts frames, which is what lets a pass of the game loop know
-          # how many of them it took; and it builds the next slice of sound, because a sixtieth
-          # of a second of sound is a fact about the display and not about how long the game
-          # took to think. A game whose pass spans two frames comes round here twice, and gets
-          # two slices — see Mixer#emit_mixer_tick for what went wrong when it did not.
+          # ...and the screen's own frame, whose handler used to be nothing but the ack. Three
+          # things ride on it now, all for the same reason: THE SCREEN KEEPS TIME WHATEVER THE
+          # GAME IS DOING. It counts frames, which is what lets a pass of the game loop know how
+          # many of them it took; it builds the next slice of sound, because a sixtieth of a
+          # second of sound is a fact about the display and not about how long the game took to
+          # think; and it moves the tune on a frame, because a tempo is too. A game whose pass
+          # spans two frames comes round here twice, and gets two slices and two frames of tune
+          # — see Mixer#emit_mixer_tick for what went wrong when it did not.
           emit_irq_source(IRQ_VBLANK, bios_ack: true) do
             emit_frame_count
             emit_mixer_tick if @mixer.plays_samples?
+            emit_music_tick if @audio.plays_music?
           end if @uses_vblank
           irq_timers.each do |name, info|
             emit_irq_source(timer_irq_bit(info[:rate])) do

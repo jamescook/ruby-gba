@@ -203,7 +203,8 @@ Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, n
 - Conditionals emit inverse-condition branches to skip over blocks
 - `case_var` reloads the variable before each comparison (scene calls clobber r10)
 - Sound: channel 2 for beep/SFX, channel 1 for music (no conflicts)
-- Music uses unrolled frame comparisons (each note = if_eq on a frame counter)
+- Music is played from the VBlank interrupt, not where `play_song` is written: the game only
+  names the tune, and the player walks each part's event table in ROM once per real frame
 - `debug_halt` truncates the ROM for bisecting issues
 
 ### Writing code comments

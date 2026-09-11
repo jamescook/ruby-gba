@@ -220,15 +220,6 @@ module RubyGBA
         [[REG_SOUND2CNT_L, control], [REG_SOUND2CNT_H, trigger]]
       end
 
-      # Silence the music — both square-wave voices, so a layered tune stops
-      # cleanly (and any note left ringing on channel 2 stops too).
-      def stop_music
-        [
-          [REG_SOUND1CNT_H, 0x0000], [REG_SOUND1CNT_X, 0x8000],
-          [REG_SOUND2CNT_L, 0x0000], [REG_SOUND2CNT_H, 0x8000],
-        ]
-      end
-
       # A percussion / explosion hit on channel 4 (the noise voice). Channel 4
       # makes pseudo-random noise rather than a pitched tone: a control word sets
       # the starting volume and how fast it fades (the envelope, same layout as the

@@ -241,12 +241,13 @@ module RubyGBA
         Nodes.build(:song, name: name, voices: voices, total_frames: total_frames)
       end
 
-      # Advance the named tune by one frame — call once per frame in the loop.
+      # Name the tune playing now. Every backend moves it on once per frame by itself, and
+      # starts it from its beginning when the name changes; naming it again changes nothing.
       def play_song(name)
         Nodes.build(:play_song, name: name)
       end
 
-      # Silence the music.
+      # No tune is playing now.
       def stop_music
         Nodes.build(:stop_music)
       end
