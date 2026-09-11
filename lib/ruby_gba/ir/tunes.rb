@@ -103,6 +103,15 @@ module RubyGBA
         Pass.new(events, [[from, *held.drop(1)]] + after)
       end
 
+      # Does anything sound once the song has come round? A part does if a note in its later
+      # passes does — which counts a note held across the loop frame and sounded again there —
+      # or if the song ends on a note, which then carries on into the repeat.
+      def repeat_sounds?(song)
+        song.voices.zip(passes(song)).any? do |part, pass|
+          sounding?(part[:events].last) || pass.again.any? { |event| sounding?(event) }
+        end
+      end
+
       def sounding?(event) = !event.nil? && event[1].positive?
     end
   end
