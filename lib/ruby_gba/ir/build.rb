@@ -238,9 +238,13 @@ module RubyGBA
       #
       # For a one-part tune, pass +events:+ (plus optional +duty:+/+volume:+)
       # directly instead of a +voices:+ list — it's taken as the single part.
-      def song(name, total_frames:, voices: nil, events: nil, duty: :half, volume: 12)
+      #
+      # +loop_frame:+ is where the song goes back to at its end, so what comes before it
+      # plays once — an introduction. Left out, the song loops from its start.
+      def song(name, total_frames:, voices: nil, events: nil, duty: :half, volume: 12, loop_frame: nil)
         voices ||= [{ events: events, duty: duty, volume: volume }]
-        Nodes.build(:song, name: name, voices: voices, total_frames: total_frames)
+        looping = loop_frame ? { loop_frame: loop_frame } : {}
+        Nodes.build(:song, name: name, voices: voices, total_frames: total_frames, **looping)
       end
 
       # Name the tune playing now. Every backend moves it on once per frame by itself, and

@@ -143,6 +143,8 @@ module RubyGBA
           @music_wanted = nil     # the tune the program last named with play_song (nil = none)
           @music_playing = nil    # ...and the one the player is on, which catches up each frame
           @music_frame = 0        # how far into that tune, in frames
+          @music_passes = {}      # tune name -> each part's events, first time round and after (IR::Tunes#passes)
+          @music_lists = []       # the events each of its parts is walking now, one of those two
           @music_cursors = []     # each of its parts' next event
           @music_voices = []      # the mixer voice each of its recorded parts is sounding, or nil
           @music_mixer_voices = 0 # how many mixer voices the music keeps (see IR::Tunes)
@@ -860,8 +862,10 @@ module RubyGBA
         # lets `play_song` be written every frame.
         #
         # Then each part plays its next note if that note is due on this frame (frequency 0 is
-        # a rest), and the frame moves on, wrapping at the song's length so the tune loops. Every
-        # part reads the one frame counter, so the parts stay in step.
+        # a rest), and the frame moves on, wrapping at the song's length so the tune loops —
+        # back to its loop frame, where every part carries on from its list for the passes
+        # after the first (IR::Tunes#passes). Every part reads the one frame counter, so the
+        # parts stay in step.
         #
         # A part that plays a recording sounds it on a mixer voice of its own — the recorded
         # parts in order, one voice each — which a note starts from the top and a rest stops.
@@ -873,7 +877,8 @@ module RubyGBA
             @audio << [:stop_music] if @music_playing
             @music_playing = @music_wanted
             @music_frame = 0
-            @music_cursors = Array.new(@music_playing ? @songs[@music_playing].voices.size : 0, 0)
+            @music_lists = @music_playing ? music_passes(@music_playing).map(&:first) : []
+            @music_cursors = Array.new(@music_lists.size, 0)
             @music_voices = []
           end
           return unless @music_playing
@@ -882,7 +887,7 @@ module RubyGBA
           recorded = 0
           song.voices.each_with_index do |part, number|
             lane = part[:instrument] && (recorded += 1) - 1
-            offset, frequency, instrument = part[:events][@music_cursors[number]]
+            offset, frequency, instrument = @music_lists[number][@music_cursors[number]]
             next unless offset == @music_frame
 
             @audio << [:note, @music_playing, frequency]
@@ -896,9 +901,12 @@ module RubyGBA
           @music_frame += 1
           return if @music_frame < song.total_frames
 
-          @music_frame = 0
+          @music_frame = IR::Tunes.loop_frame(song)
+          @music_lists = music_passes(@music_playing).map(&:again)
           @music_cursors.fill(0)
         end
+
+        def music_passes(name) = @music_passes[name] ||= IR::Tunes.passes(@songs[name])
 
         # A recorded part's note: its instrument, and how many frames the recording lasts read at
         # the note's pitch — a higher note reads it faster, so it runs out sooner.

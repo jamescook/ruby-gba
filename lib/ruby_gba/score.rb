@@ -26,7 +26,11 @@ module RubyGBA
   # key at all, which is a rest. It can also name its own +instrument+ and +volume+, for music
   # that changes instrument or loudness from one note to the next. What a part cannot do is
   # change from a square wave to a recording halfway through: it plays one or the other.
-  Score = Data.define(:parts, :tempo, :ticks_per_beat, :length)
+  #
+  # A SONG WITH AN INTRODUCTION says where its loop starts: `loop_from: 384` plays the first 384
+  # ticks once, then everything from there to the end over and over. Without it, the whole song
+  # repeats.
+  Score = Data.define(:parts, :tempo, :ticks_per_beat, :length, :loop_from)
 
   class Score
     # FRAMES A SECOND, the rate the music is played at — the same round figure a song block's
@@ -35,19 +39,26 @@ module RubyGBA
 
     # +length+ is where the song comes round again, in ticks. Left out, it is where the last
     # note ends — and a note with no length of its own counts as a beat long for that, since
-    # it lasts until the next note and the last one has none after it.
-    def initialize(parts:, tempo: 120, ticks_per_beat: 24, length: nil)
+    # it lasts until the next note and the last one has none after it. +loop_from+ is the tick
+    # it comes round TO; left out, that is its start.
+    def initialize(parts:, tempo: 120, ticks_per_beat: 24, length: nil, loop_from: nil)
       super
     end
 
     # The score as the plain data every backend replays: each part's events as [frame,
     # frequency in Hz, instrument, volume] — a frequency of 0 a rest, and a nil instrument or
-    # volume meaning the part's own — and the song's length in frames.
+    # volume meaning the part's own — the song's length in frames, and the frame it loops from
+    # when it has an introduction.
     def to_song
       Checks.score!(self)
       frames = Timing.new(self)
-      total = [frames.at(length || last_tick), 1].max
-      { voices: parts.map { |part| part.to_voice(frames, total) }, total_frames: total }
+      ticks = length || last_tick
+      total = [frames.at(ticks), 1].max
+      song = { voices: parts.map { |part| part.to_voice(frames, total) }, total_frames: total }
+      return song unless loop_from
+
+      Checks.loop_from!(loop_from, ticks) { frames.at(loop_from) < total }
+      song.merge(loop_frame: frames.at(loop_from))
     end
 
     private def last_tick
@@ -161,6 +172,20 @@ module RubyGBA
         end
         tempo!(score.tempo)
         score.parts.each_with_index { |part, number| part!(part, number) }
+      end
+
+      # The loop starts somewhere inside the song: at a tick from 0 up to its last one — and
+      # far enough before the end that it lands on an earlier frame than the end does, which the
+      # block is asked once the tick is known to be a number.
+      def loop_from!(loop_from, ticks)
+        unless loop_from.is_a?(Integer) && loop_from >= 0
+          raise ArgumentError, "loop_from: is the tick where the loop starts, a whole number 0 or more. " \
+                               "You gave #{loop_from.inspect}."
+        end
+        return if loop_from < ticks && yield
+
+        raise ArgumentError, "The Score loops from tick #{loop_from}, and it is #{ticks} ticks long. The " \
+                             "loop must start before the end. Give a tick less than #{ticks}."
       end
 
       def tempo!(tempo)

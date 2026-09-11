@@ -33,9 +33,9 @@ module RubyGBA
         @songs[name] = ctx
 
         # In the IR a song carries its already-resolved score — one or more parts
-        # (each a list of frame/frequency pairs, with its own tone and volume) and
-        # the song's length — so every backend replays the same tune.
-        record(Build.song(name, voices: ctx.voices, total_frames: ctx.total_frames))
+        # (each a list of frame/frequency pairs, with its own tone and volume), the
+        # song's length, and where it loops from — so every backend replays the same tune.
+        record(Build.song(name, voices: ctx.voices, total_frames: ctx.total_frames, loop_frame: ctx.loop_frame))
       end
 
       # Say which song is playing now. It plays from its start, loops, and keeps the
@@ -93,7 +93,8 @@ module RubyGBA
           member = :"#{name}.#{key}"
           song = score.to_song
           @songs[member] = score
-          record(Build.song(member, voices: song[:voices], total_frames: song[:total_frames]))
+          record(Build.song(member, voices: song[:voices], total_frames: song[:total_frames],
+                                    loop_frame: song[:loop_frame]))
           member
         end
         @song_lists[name] = members
