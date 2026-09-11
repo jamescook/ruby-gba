@@ -699,9 +699,11 @@ module RubyGBA
           composite_scrolled_frame unless @row_bends.empty?
         end
 
-        # The most samples the mixer sounds at once. A new play past this is dropped rather
-        # than stealing one already sounding (safe and quiet — a game rarely needs more).
-        MAX_VOICES = 8
+        # The most samples the mixer sounds at once — read from {Sound}, where the two
+        # backends keep the promises they make to each other, rather than written down again
+        # here. A new play past this is dropped rather than stealing one already sounding
+        # (safe and quiet — a game rarely needs more).
+        MAX_VOICES = Sound::MIXER_VOICES
 
         # Start a sample sounding: add a voice to the mix (samples play together, they do
         # not cut each other off), remembering how many frames it runs for (from its length
