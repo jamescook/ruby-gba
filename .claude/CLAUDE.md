@@ -105,10 +105,13 @@ Taking it through bundler is what keeps the built extension tied to the Ruby tha
 bundler installs extensions per Ruby ABI, so changing Ruby rebuilds rather than leaving a
 library that will not load.
 
-**In THIS repository** it is used from the checkout beside `lib/`, kept built by
-`rake compile_emulator` (a prerequisite of every test task; `rake test:emulator` builds and
-runs its own suite). That path rebuilds when a SOURCE changes, which cannot see a Ruby version
-change — after switching Ruby, run `rake clean` in `ruby-gba-emulator/`.
+**In THIS repository** it is a `path:` entry in the Gemfile, so `require "ruby_gba_emulator"`
+resolves and the seam takes the same route a consumer takes rather than a fallback nobody else
+has. Bundler does NOT build its extension though — it builds them for gem and git sources, not
+for a path one — so `rake compile_emulator` does that (a prerequisite of every test task;
+`rake test:emulator` builds and runs its own suite). That build is keyed on source files being
+newer, which cannot see a Ruby version change — after switching Ruby, run `rake clean` in
+`ruby-gba-emulator/`. The load error tells you which of the two you are looking at.
 
 It is **required, not optional**: if it can't build or load, the emulator-backed tests **fail
 loudly** rather than skipping — `require_emulator!` (in `EmulatorSupport`) raises. Building it
