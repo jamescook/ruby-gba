@@ -16,7 +16,8 @@ module RubyGBA
 
       # Field names that would shadow a Pool/Instance method, so a component can't
       # declare one (it would clash with spawn/remove/each/count/…).
-      POOL_RESERVED_FIELDS = %i[active free count slot spawn remove each full index name capacity].freeze
+      POOL_RESERVED_FIELDS = %i[active free count slot spawn remove each full index name capacity
+                                func current].freeze
 
       # What spawn does when the pool is full: :drop ignores it (a safe no-op),
       # :recycle_oldest reuses the longest-lived instance so a new one always appears.
@@ -99,7 +100,104 @@ module RubyGBA
         handle
       end
 
+      # --- the seam between a pool and the build (see Pool#func) ---
+      #
+      # A pool declares its routines through here and says where its walks are; what those two
+      # facts mean is settled at the end of the build, when every routine's body exists.
+
+      # Declare +name+ as a routine of +pool+, working on one instance at a time. Its body is
+      # built at the end like any routine's, and is handed the instance the pool is walking
+      # when it runs — a routine is emitted once, so that is the only instance it can mean.
+      def declare_instance_routine(pool, name, &block)
+        pool.instance_routines << name
+        instance_routines[name] = pool
+        declare_func(name, wrote: "#{pool.name}.func :#{name}") { block.call(pool.current_instance) }
+      end
+
+      # A walk of +pool+ wrote down which instance it is on. Kept so the writes can be taken
+      # out again if no routine of that pool ever reads them, and so the calls inside the walk
+      # can be told from the calls outside it.
+      def note_pool_walk(pool, *nodes)
+        (@pool_walks ||= []) << [pool, nodes]
+      end
+
+      # A fresh variable for one walk to keep the instance the walk around it was on.
+      def pool_walk_scratch_var
+        @pool_walk_seq = @pool_walk_seq.to_i + 1
+        :"__pool_walk_#{@pool_walk_seq}"
+      end
+
       private
+
+      # Which pool each instance routine belongs to.
+      def instance_routines = @instance_routines ||= {}
+
+      # A WALK THAT NOBODY ASKED TO BE TOLD ABOUT COSTS NOTHING. Writing down which instance a
+      # walk is on is only worth anything to a routine that reads it, so a pool with no routine
+      # of its own has those writes taken out again here — a pool of sixty bullets drawn inline
+      # is left exactly as it was before any of this.
+      def finalize_pool_walks
+        (@pool_walks || []).each do |pool, nodes|
+          if pool.instance_routines.empty?
+            nodes.each { |node| node.parent&.children&.delete(node) }
+          else
+            nodes.each { |node| ensure_var(node.var) }
+          end
+        end
+      end
+
+      # A routine that works on one instance runs on the instance its pool is walking. Called
+      # from anywhere else there is no such instance, and it would quietly run on whichever one
+      # was walked last — so that is refused here, where the whole program can be seen.
+      #
+      # The rule is the one that can be read off the page: call it from inside a walk of its
+      # pool, or from another routine of that pool. A plain routine in between is refused too,
+      # and the advice is to make that one a routine of the pool as well, which is what it is.
+      def verify_instance_routines!
+        return if instance_routines.empty?
+
+        walks = walk_containers
+        @program.walk do |node|
+          node.callees.each do |target|
+            pool = instance_routines[target] or next
+            next if inside_walk?(node, walks[pool.name]) || instance_routines[enclosing_func(node)] == pool
+
+            raise ArgumentError, outside_walk_message(target, pool)
+          end
+        end
+      end
+
+      # Where each pool's walks are in the tree: the statement that holds one walk's body. A
+      # call under one of those is inside that walk.
+      def walk_containers
+        containers = Hash.new { |all, name| all[name] = [] }
+        (@pool_walks || []).each do |pool, nodes|
+          nodes.each { |node| containers[pool.name] << node.parent if node.parent }
+        end
+        containers
+      end
+
+      def inside_walk?(node, containers)
+        return false if containers.nil? || containers.empty?
+
+        up = node
+        up = up.parent while up && !containers.include?(up)
+        !up.nil?
+      end
+
+      # The routine a statement sits in, or nil for one in the program's own body.
+      def enclosing_func(node)
+        up = node.parent
+        up = up.parent while up && up.kind != :func
+        up&.name
+      end
+
+      def outside_walk_message(target, pool)
+        "`call :#{target}` is outside a walk of `pool :#{pool.name}`. The routine :#{target} " \
+          "works on one instance, and a walk is what says which instance that is. To fix this, " \
+          "call it inside `#{pool.name}s.each { |#{pool.name}| ... }`. Or call it from another " \
+          "routine of `pool :#{pool.name}`."
+      end
 
       # WHAT A POOL'S INSTANCES LOOK LIKE, worked out once for the whole pool: the
       # pictures they can show, how a slot's own number picks one of them, and the

@@ -84,6 +84,7 @@ module RubyGBA
     # game reaches an instance's data through `each`/`spawn`/`field_ref`, never these.
 
     def field_list(field) = :"__pool_#{@name}_#{field}"
+    def current_var = :"__pool_#{@name}_current"
     def active_list = :"__pool_#{@name}_active"
     def free_list = :"__pool_#{@name}_free"
     def count_var = :"__pool_#{@name}_count"
@@ -188,18 +189,47 @@ module RubyGBA
     def each(&block)
       pool = self
       active = List.new(@builder, active_list)
-      @builder.repeat(@capacity) do |i|
-        # Recorded through the builder rather than with `.then` so the guard can carry what
-        # the cost estimate needs — the walk is over every slot, the body is only for a live
-        # one — without that hint becoming something an author can write on any `.then`.
-        live = active[i] == 1
-        @builder.consume_condition(live)
-        @builder.record_conditional(live.node, over: @name, usually: @usually, of: @capacity) do
-          block.call(Instance.new(pool, i))
+      walking do
+        @builder.repeat(@capacity) do |i|
+          # Recorded through the builder rather than with `.then` so the guard can carry what
+          # the cost estimate needs — the walk is over every slot, the body is only for a live
+          # one — without that hint becoming something an author can write on any `.then`.
+          live = active[i] == 1
+          @builder.consume_condition(live)
+          @builder.record_conditional(live.node, over: @name, usually: @usually, of: @capacity) do
+            remember_current(i)
+            block.call(Instance.new(pool, i))
+          end
         end
       end
       self
     end
+
+    # A ROUTINE THAT WORKS ON ONE INSTANCE — the body of `each` moved into a routine of its
+    # own, which is where a game of any size puts it:
+    #
+    #   guards.func(:chase) { |g| g.x.approach hero.x, 1 }
+    #   guards.each { |g| call g.state }
+    #
+    # A routine is built ONCE, wherever it is called from, so it cannot close over the
+    # instance the way the block above does — which is why a plain `func` has no way to say
+    # which guard is chasing. This pool hands the routine the instance being walked right
+    # now, and the walk itself is what says which that is (see #remember_current).
+    #
+    # Called from anywhere else, such a routine would run on whichever instance was walked
+    # last, so it is refused at build time instead (Builder#verify_instance_routines!).
+    def func(name, &block)
+      raise ArgumentError, "`pool :#{@name}` needs a block to make a routine out of." unless block
+
+      @builder.declare_instance_routine(self, name, &block)
+      self
+    end
+
+    # The routines this pool declared for one instance at a time, in declaration order.
+    def instance_routines = @instance_routines ||= []
+
+    # One instance of this pool, as a routine of its own sees it: the one the walk is on.
+    def current_instance = Instance.new(self, Value.new(@builder, Build.var_ref(current_var)))
 
     # How many instances are live right now, as a {Value}.
     def count = Value.new(@builder, Build.var_ref(count_var))
@@ -319,6 +349,35 @@ module RubyGBA
     end
 
     def record(node) = @builder.record_statement(node)
+
+    # WHICH INSTANCE A ROUTINE OF THIS POOL IS RUNNING FOR, written at the top of every live
+    # pass of a walk. A routine is built once and called from wherever, so the one thing it
+    # cannot be handed in its own code is which instance — this variable is how the walk tells
+    # it, and `current_instance` is how the routine reads it.
+    #
+    # It costs a store per live instance per pass, and only a pool with such a routine pays it:
+    # the write is recorded here and taken out again at the end of the build when nothing
+    # wanted it (Builder#finalize_pool_walks).
+    def remember_current(index)
+      node = Build.set(current_var, index.node)
+      record(node)
+      @builder.note_pool_walk(self, node)
+    end
+
+    # ...and a walk PUTS IT BACK as it leaves, because the walks nest. Two walks over one pool
+    # — a pairwise test, or a routine that walks the pool it was called from — would otherwise
+    # leave the outer one running on whatever instance the inner one finished at, for the rest
+    # of that pass. A save and a restore per walk, not per instance, settles it whichever way
+    # the nesting came about, including through a call this cannot see.
+    def walking
+      held = @builder.pool_walk_scratch_var
+      saved = Build.set(held, Build.var_ref(current_var))
+      record(saved)
+      yield
+      restored = Build.set(current_var, Build.var_ref(held))
+      record(restored)
+      @builder.note_pool_walk(self, saved, restored)
+    end
 
     # One live instance, as the block sees it: a row handle over a pool slot. Its fields
     # are reached by name (`b.x`, `b.hp`) — each a mutable {FieldRef} at this slot —
