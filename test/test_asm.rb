@@ -603,6 +603,7 @@ class TestASM < Minitest::Test
     assert_equal 0x9, unpack(A.add_imm_cond(:ls, 3, 3, 16)) >> 28
     assert_equal 0x2, unpack(A.sub_reg_cond(:hs, 1, 1, 0)) >> 28
     assert_equal 0xB, unpack(A.rsb_imm_cond(:lt, 0, 0, 0)) >> 28
+    assert_equal 0x3, unpack(A.mov_reg_cond(:lo, 10, 7)) >> 28 # unsigned lower
   end
 
   def test_mov_reg_lsl_cond_shifts_on_the_way

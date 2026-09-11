@@ -145,14 +145,18 @@ module RubyGBA
             number_the_songs(program)
             @counts_stops = program.walk.any? { |node| node.kind == :stop_music }
             @loops = IR::Tunes.played(program).any? { |song| IR::Tunes.loop_frame(song).positive? }
-            recorded = IR::Tunes.mixer_voices(program)
+            recorded = IR::Tunes.most_recorded_parts(program)
+            if recorded > Sound::MIXER_VOICES # refused before this by Guardrails::Checks::SongTooManyParts
+              raise LoweringError, "a song has #{recorded} recorded parts, and the mixer has #{Sound::MIXER_VOICES} voices"
+            end
+
             @lanes = MUSIC_CHANNELS.map { |channel| Lane.new(:square, channel) } +
                      Array.new(recorded) { |lane| Lane.new(:recorded, lane) }
             # One directory entry: the tune's length in frames, which lanes it uses, where it
             # loops from, and where each lane's events start — rounded up to a power of two, so
             # finding a tune's entry is a shift of its number rather than a multiply.
             @entry_shift = (ENTRY_STARTS + (4 * @lanes.size) - 1).bit_length
-            @mixer.reserve_music_voices(recorded)
+            @mixer.music_takes_voices! if recorded.positive?
           end
 
           # Put every tune the program plays in the cartridge, as one score.
@@ -234,13 +238,14 @@ module RubyGBA
           # loops — or, for a tune with an introduction, back to its loop frame (#emit_loop_back).
           #
           # SAFE TO SHARE WITH THE GAME because the game only ever writes WANTED, with a single
-          # store, and this only ever reads it. Everything else here belongs to the player alone,
-          # the mixer voices included (see Mixer#reserve_music_voices).
+          # store, and this only ever reads it. Everything else here belongs to the player alone
+          # — except the mixer's voices, which the game's sounds share, and which the game only
+          # touches with interrupts held off (see Mixer#emit_music_voice_routine).
           #
           # Every register is free here — the console saves r0-r3 and r12 on the way in, and the
           # dispatcher r4-r11. r2 holds the score, r3 an entry or a row in it, r4 the tune asked
-          # for and then a cursor, r5 the frame, r6 the tune playing, r7/r8 a mixer voice and its
-          # recording; r0/r1 carry each write.
+          # for and then a cursor, r5 the frame, r6 the tune playing, r7-r9 a mixer voice, its
+          # part's mark and its recording; r0/r1 carry each write.
           def emit_music_tick
             base, at, value, frame, playing = 2, 3, 4, 5, 6
             changed = @emitter.gensym
@@ -413,15 +418,14 @@ module RubyGBA
             @emitter.place_label(quiet)
           end
 
-          # A square lane goes quiet with a rest on its channel; a recorded lane by switching its
-          # mixer voice off.
+          # A square lane goes quiet with a rest on its channel; a recorded lane by switching off
+          # the mixer voice carrying its mark, if it still has one.
           def emit_silence_lane(lane)
             if lane.kind == :square
               emit_writes(Sound::Registers.channel_note(lane.index, frequency: 0, duty: :half, volume: 0))
             else
-              @emitter.emit(ASM.load_immediate(TMP, @mixer.music_slot(lane.index)))
-              @emitter.emit(ASM.load_immediate(ACC, 0))
-              @emitter.emit(ASM.str_offset(ACC, TMP, Mixer::SLOT_ACTIVE))
+              @emitter.emit(ASM.load_immediate(8, Mixer.music_owner(lane.index)))
+              @mixer.emit_music_voice_off
             end
           end
 
@@ -460,17 +464,20 @@ module RubyGBA
             end
           end
 
-          # Start the row's note on the lane's mixer voice — from the top of the recording the row
-          # names, at the row's step and loudness — or switch the voice off for a rest. The
-          # voice's SOUNDING flag goes last, the way the game's own `play` writes it.
+          # Start the row's note on a mixer voice — from the top of the recording the row names, at
+          # the row's step and loudness — or switch the part's voice off for a rest. Which voice is
+          # the mixer's to say (Mixer#emit_music_voice_routine): the part's own, a free one, or
+          # one of the game's. The voice's SOUNDING word goes last, and it is the part's mark.
           def emit_recorded_note(lane, base, at)
-            voice, recording = 7, 8
+            voice, mark, recording = 7, 8, 9
             rest = @emitter.gensym
             sounded = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(voice, @mixer.music_slot(lane)))
+            @emitter.emit(ASM.load_immediate(mark, Mixer.music_owner(lane)))
             @emitter.emit(ASM.ldr_offset(ACC, at, 4))                         # how fast to read it
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, rest, cond: :eq)                     # 0 is a rest
+            @mixer.emit_take_music_voice                                      # r7 = the voice it gets
+            @emitter.emit(ASM.ldr_offset(ACC, at, 4))
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_STEP))
             @emitter.emit(ASM.load_halfword_offset(ACC, at, 10))              # how loud
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_VOL))
@@ -486,12 +493,10 @@ module RubyGBA
             [Mixer::SLOT_POS, Mixer::SLOT_FRAC, Mixer::SLOT_LOOP].each do |field|
               @emitter.emit(ASM.str_offset(ACC, voice, field))                # from the top, once
             end
-            @emitter.emit(ASM.load_immediate(ACC, 1))
-            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_ACTIVE))
+            @emitter.emit(ASM.str_offset(mark, voice, Mixer::SLOT_ACTIVE))      # the part's now
             @emitter.emit_branch(:b, sounded)
             @emitter.place_label(rest)
-            @emitter.emit(ASM.load_immediate(ACC, 0))
-            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_ACTIVE))
+            @mixer.emit_music_voice_off
             @emitter.place_label(sounded)
           end
 

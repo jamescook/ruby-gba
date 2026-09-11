@@ -16,6 +16,7 @@ module RubyGBA
     COND_EQ = 0x0  # equal (Z=1)
     COND_NE = 0x1  # not equal (Z=0)
     COND_HS = 0x2  # unsigned higher or same (C=1)
+    COND_LO = 0x3  # unsigned lower (C=0)
     COND_LS = 0x9  # unsigned lower or same (C=0 or Z=1)
     COND_GE = 0xA  # signed greater or equal (N=V)
     COND_LT = 0xB  # signed less than (N!=V)
@@ -25,7 +26,7 @@ module RubyGBA
 
     COND_BY_NAME = {
       eq: COND_EQ, ne: COND_NE,
-      hs: COND_HS, ls: COND_LS,
+      hs: COND_HS, lo: COND_LO, ls: COND_LS,
       ge: COND_GE, lt: COND_LT,
       gt: COND_GT, le: COND_LE,
       al: COND_AL,
