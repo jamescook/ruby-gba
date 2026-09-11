@@ -4,7 +4,7 @@ module RubyGBA
   module IR
     module Backends
       class GBA
-        # WHAT THE ADDRESS REGISTER IS KNOWN TO STILL BE HOLDING, as instructions go past.
+        # WHAT AN ADDRESS REGISTER IS KNOWN TO STILL BE HOLDING, as instructions go past.
         #
         # Reaching a variable takes two instructions: put the base of the console's quick
         # memory into a register, then load from that register plus the variable's distance
@@ -13,6 +13,14 @@ module RubyGBA
         # and in a program that does much arithmetic it is a quarter of the code. Measured
         # on one step of a first-person game's ray walk: eighty-three instructions, of which
         # twenty-one were that one constant being made again.
+        #
+        # THERE ARE TWO OF THESE, one per register (see {GBA}'s register conventions): the
+        # variables' base in r12, and a collection's own base in r9. The second is the same
+        # idea applied to a list, whose base is just as fixed and was being rebuilt at every
+        # touch. They are separate registers because a pool walk touches a collection and a
+        # variable one after the other all the way down, so a single shared register would
+        # spend the whole loop being evicted and rebuilt by each in turn — measured, that
+        # arrangement gave back 74 instructions of Wolfenstein where two registers gave 2618.
         #
         # So: remember what was put there, and let the next access skip its half of the
         # pair when the value is still sitting in the register. Which is why this is a
@@ -32,8 +40,9 @@ module RubyGBA
         #     pass, so it is {Emit} that says so rather than anything read out of the bytes.
         #
         # An interrupt can arrive between any two instructions and its handler does touch
-        # this register — but the console's own dispatcher saves and restores it around
-        # the handler, so the interrupted code never sees the difference.
+        # both registers — but they are saved and restored around it, r12 by the console's
+        # own dispatcher and r9 by the handler this backend emits (see IRQ_SAVED_REGS), so
+        # the interrupted code never sees the difference.
         #
         # The one shape this rule does not see through is a jump computed at run time,
         # which lands somewhere with no label on it. There is one in the whole backend, in
@@ -44,6 +53,11 @@ module RubyGBA
             @reg = reg
             @value = nil
           end
+
+          # What the register holds, or nil when that is not known. Read by whoever is
+          # about to want a DIFFERENT address in it: getting from one address to another
+          # can be cheaper than naming the second one outright (see Primitives#emit_base).
+          attr_reader :value
 
           # Is this what the register holds right now?
           def holds?(value) = @value == value

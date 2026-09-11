@@ -19,7 +19,8 @@ module RubyGBA
         class Emit
           include Constants
 
-          attr_reader :code, :labels, :fixups, :data_blobs, :data_positions, :address_register
+          attr_reader :code, :labels, :fixups, :data_blobs, :data_positions, :address_register,
+                      :list_register
 
           # How many jumps have been emitted so far. Counted here because this is where a
           # jump is made, and read by {Attribution}, which needs to know whether the code a
@@ -39,10 +40,12 @@ module RubyGBA
             # here too, so this is the one place that can watch a register's value survive
             # — or stop surviving — from one instruction to the next.
             @address_register = AddressRegister.new(reg: ADDR)
+            @list_register = AddressRegister.new(reg: LIST_ADDR)
           end
 
           def emit(bytes)
             @address_register.saw(bytes)
+            @list_register.saw(bytes)
             @code << bytes
           end
 
@@ -55,6 +58,7 @@ module RubyGBA
           # the way here holds on the way in.
           def place_label(name)
             @address_register.forget
+            @list_register.forget
             @labels[name] = pos
           end
 
@@ -69,7 +73,10 @@ module RubyGBA
             # A call reaches a routine that uses the registers for its own work. What is
             # emitted here is a placeholder that only becomes a call in the second pass,
             # so nothing reading the bytes back could tell — this has to say so.
-            @address_register.forget if kind == :bl
+            if kind == :bl
+              @address_register.forget
+              @list_register.forget
+            end
             @fixups << { pos: pos, kind: kind, cond: cond, target: target }
             @branches += 1
             emit(ASM.nop)

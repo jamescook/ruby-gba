@@ -16,6 +16,7 @@ class TestAddressRegister < Minitest::Test
   A = RubyGBA::ASM
   AddressRegister = RubyGBA::IR::Backends::GBA::AddressRegister
   ADDR = RubyGBA::IR::Backends::GBA::ADDR
+  LIST_ADDR = RubyGBA::IR::Backends::GBA::LIST_ADDR
   BASE = RubyGBA::Constants::IWRAM_START
   # The one instruction this whole change is about: the base put in the address register.
   BASE_LOAD = A.load_immediate(ADDR, BASE)
@@ -197,5 +198,141 @@ class TestAddressRegister < Minitest::Test
     run = Reference.new.run(program)
     assert_equal 53, run[:c], "(5 + 7) * 5 - 7"
     assert_equal 60, run[:d]
+  end
+
+  # ---- and the same story for a collection, which waits in a register of its own ----
+  #
+  # A collection's base is an address that has not changed since the cartridge was built,
+  # and it used to be rebuilt at every single touch. It now waits in a register the same
+  # way the variables' base does — a SECOND register, because one shared between them
+  # would be pushed out by whichever was touched last, and a pool walk touches both
+  # constantly. See {LIST_ADDR} and {Primitives#emit_base}.
+
+  # BOTH REGISTERS ARE WATCHED, not just the first one. Nothing the DSL can express writes
+  # the list register between two touches of a list today — the routines that use it for
+  # their own work are all reached by a call or a label, and both of those forget anyway.
+  # So this is the seam itself under test rather than a program that would go wrong, which
+  # is the point: the day something does write it inline, being wrong here does not fail,
+  # it sends a load to whatever address happens to be there.
+  def test_the_emitter_watches_the_list_register_too
+    emitter = RubyGBA::IR::Backends::GBA::Emit.new
+    emitter.list_register.now_holds(BASE)
+    emitter.emit(A.add_reg(0, 1, 0))
+    assert emitter.list_register.holds?(BASE), "arithmetic elsewhere leaves it be"
+
+    emitter.emit(A.mov_reg(LIST_ADDR, 0))
+    refute emitter.list_register.holds?(BASE), "a write to that register ends it"
+  end
+
+  # Is this an instruction that PUTS AN ADDRESS in the list register? That is a
+  # data-processing instruction whose second operand is a plain number and whose answer
+  # lands in that register — the MOV and ORRs an address is built from, and the ADD or SUB
+  # that steps from one address to the next, and nothing else the backend emits.
+  #
+  # Deliberately narrower than ASM.disturbs?, which also says yes to every return and every
+  # call. Those really do end what is known about the register, and counting them here
+  # would drown the thing being counted.
+  def writes_list_base?(word)
+    ((word >> 26) & 0b11).zero? && !(word & 0x02000000).zero? && ((word >> 12) & 0xF) == LIST_ADDR
+  end
+
+  # The length of each RUN of consecutive such instructions inside +func+: how many runs
+  # there are says how often the base had to be named at all, and how long each one is says
+  # whether it was built from nothing or stepped from the address already there.
+  def list_base_runs_in(func, &block)
+    gba = GBA.new
+    gba.lower(dsl_program(&block))
+    words = gba.code[gba.func_ranges.fetch(func)].unpack("V*")
+    words.chunk { |w| writes_list_base?(w) }.select(&:first).map { |_, run| run.length }
+  end
+
+  def test_a_run_of_touches_on_one_collection_names_its_base_once
+    runs = list_base_runs_in(:body) do
+      screen :bitmap
+      xs = list :xs, capacity: 8
+      func(:body) { xs[0] = xs[1] + xs[2] }
+      game_loop { call :body }
+    end
+    assert_equal 1, runs.length,
+                 "four touches of one list, and its base is named once for the lot"
+  end
+
+  # The whole reason for a second register. Reading a variable puts the VARIABLES' base in
+  # the address register — so with one register between them, every list touch and every
+  # variable touch would take turns evicting each other.
+  def test_a_collection_and_a_variable_do_not_push_each_other_out
+    program = lambda { |b|
+      b.instance_eval do
+        screen :bitmap
+        xs = list :xs, capacity: 8
+        a = var :a, 1
+        func(:body) { a.set(xs[0] + a); xs[1] = a }
+        game_loop { call :body }
+      end
+    }
+    runs = list_base_runs_in(:body) { program.call(self) }
+    assert_equal 1, runs.length, "the list's base survives the variable work between the two touches"
+
+    gba = GBA.new
+    gba.lower(dsl_program { program.call(self) })
+    bases = gba.code[gba.func_ranges.fetch(:body)].scan(BASE_LOAD).length
+    assert_equal 1, bases, "and the variables' base survives the list work between ITS two touches"
+  end
+
+  # Two collections next to each other in memory — which is what a pool's fields are, one
+  # list per field — are a step apart the chip can name outright, so walking from one to
+  # the next is a single instruction rather than an address built from nothing.
+  def test_walking_from_one_collection_to_its_neighbour_is_one_instruction
+    runs = list_base_runs_in(:body) do
+      screen :bitmap
+      xs = list :xs, capacity: 8
+      ys = list :ys, capacity: 8
+      func(:body) { xs[0] = ys[0] }
+      game_loop { call :body }
+    end
+    assert_equal 2, runs.length, "two lists, so the base is named twice"
+    assert_equal [1], runs.drop(1), "but the second is a step from the first, not a fresh address"
+    assert_operator runs.first, :>, 1, "where naming one from nothing takes more than one"
+  end
+
+  def test_a_branch_makes_a_collection_name_its_base_again
+    runs = list_base_runs_in(:body) do
+      screen :bitmap
+      xs = list :xs, capacity: 8
+      a = var :a, 1
+      func(:body) { xs[0] = 1; (a > 0).then { xs[1] = 2 }.else { xs[2] = 3 } }
+      game_loop { call :body }
+    end
+    assert_equal 3, runs.length,
+                 "an arm is jumped to, so it cannot lean on what the code before the branch left"
+  end
+
+  def test_a_call_makes_a_collection_name_its_base_again
+    runs = list_base_runs_in(:body) do
+      screen :bitmap
+      xs = list :xs, capacity: 8
+      func(:bump) { xs[3] = 9 }
+      func(:body) { xs[0] = 1; call :bump; xs[1] = 2 }
+      game_loop { call :body }
+    end
+    assert_equal 2, runs.length, "a routine between them is free to use the register for its own work"
+  end
+
+  # ---- and the answers still come out right ----
+
+  def test_collections_and_variables_interleaved_still_work_out
+    program = dsl_program do
+      screen :bitmap
+      xs = list :xs, capacity: 8
+      ys = list :ys, capacity: 8
+      total = var :total, 0
+      func(:sums) do
+        4.times { |k| xs << k + 1 }
+        4.times { |k| ys << xs[k] * 2 }
+        4.times { |k| total.set(total + xs[k] + ys[k]) }
+      end
+      game_loop { call :sums; halt }
+    end
+    assert_equal 30, Reference.new.run(program)[:total], "(1+2+3+4) * 3"
   end
 end

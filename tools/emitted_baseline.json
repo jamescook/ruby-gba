@@ -2,119 +2,119 @@
   "version": 1,
   "examples": {
     "animate": {
-      "code": 49460,
+      "code": 49436,
       "data": 0
     },
     "bird": {
-      "code": 7608,
+      "code": 7552,
       "data": 0
     },
     "breakout": {
-      "code": 82856,
+      "code": 82816,
       "data": 0
     },
     "buffered_bounce": {
-      "code": 5550,
+      "code": 5538,
       "data": 0
     },
     "corridor": {
-      "code": 9042,
+      "code": 8986,
       "data": 0
     },
     "floating_digits": {
-      "code": 13056,
+      "code": 13048,
       "data": 0
     },
     "font_styles": {
-      "code": 2864,
+      "code": 2848,
       "data": 0
     },
     "fonts": {
-      "code": 4520,
+      "code": 4504,
       "data": 0
     },
     "grid_cursor": {
-      "code": 8336,
+      "code": 8328,
       "data": 0
     },
     "hero": {
-      "code": 3064,
+      "code": 3036,
       "data": 0
     },
     "jukebox": {
-      "code": 47512,
+      "code": 47500,
       "data": 0
     },
     "lake": {
-      "code": 4096,
+      "code": 4068,
       "data": 0
     },
     "level": {
-      "code": 6336,
+      "code": 6312,
       "data": 0
     },
     "maze": {
-      "code": 4928,
+      "code": 4904,
       "data": 0
     },
     "pacman": {
-      "code": 16036,
+      "code": 16012,
       "data": 0
     },
     "parallax": {
-      "code": 2128,
+      "code": 2116,
       "data": 0
     },
     "piano": {
-      "code": 21504,
+      "code": 21112,
       "data": 0
     },
     "pixels": {
-      "code": 96444,
+      "code": 96268,
       "data": 0
     },
     "pong": {
-      "code": 37186,
+      "code": 37102,
       "data": 0
     },
     "raycaster": {
-      "code": 7056,
+      "code": 7036,
       "data": 0
     },
     "rotozoom_bg": {
-      "code": 3716,
+      "code": 3700,
       "data": 0
     },
     "scroll": {
-      "code": 2396,
+      "code": 2388,
       "data": 0
     },
     "sheet": {
-      "code": 6336,
+      "code": 6312,
       "data": 0
     },
     "shmup": {
-      "code": 19972,
+      "code": 19444,
       "data": 0
     },
     "snake": {
-      "code": 51384,
+      "code": 50948,
       "data": 0
     },
     "snake_buffered": {
-      "code": 40774,
+      "code": 40466,
       "data": 0
     },
     "sparks": {
-      "code": 2896,
+      "code": 2752,
       "data": 0
     },
     "sprite_mover": {
-      "code": 14340,
+      "code": 14332,
       "data": 0
     },
     "tiles": {
-      "code": 7920,
+      "code": 7900,
       "data": 0
     }
   }

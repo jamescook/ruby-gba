@@ -68,8 +68,17 @@ module RubyGBA
       #   * r0  — the value / expression accumulator
       #   * r1  — a temporary, and the address register for I/O writes
       #   * r2, r3 — scratch for computing a pixel's VRAM address at run time
-      #   * r12 — address scratch when loading/storing a variable
+      #   * r12 — where the VARIABLES' base waits between two variable accesses
+      #   * r9  — where a COLLECTION's base waits between two touches of it
       #   * the CPU stack holds intermediate values inside a nested expression
+      #
+      # The last two are the exception to "registers are all scratch": each holds an
+      # address across the statements between two accesses, for as long as nothing could
+      # have written it. What may be believed about them is decided in one place, by
+      # {AddressRegister}; being wrong does not fail, it sends a load somewhere else.
+      # They are two registers rather than one because a collection and a variable are
+      # touched alternately all through a pool walk, and sharing one would leave each
+      # evicting the other every time.
       class GBA
         include RubyGBA::Constants
         include Placement
@@ -153,6 +162,7 @@ module RubyGBA
         ACC = 0   # accumulator register
         TMP = 1   # temporary / I/O address register
         ADDR = 12 # variable address scratch
+        LIST_ADDR = 9 # where a collection's own base waits between two touches of it
         STACK = 13 # the stack pointer, for the rare value with nowhere else to wait
 
         # WHAT THIS BACKEND DECIDED ABOUT AN ASSET, as against what the asset IS (that is
