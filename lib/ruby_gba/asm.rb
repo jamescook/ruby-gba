@@ -106,27 +106,25 @@ module RubyGBA
       # To place a byte at bit position i*8, we need:
       #   rot4 = (16 - i*4) & 0xF
       # because imm8 ROR (32 - i*8) = imm8 << (i*8).
-      first = true
+      #
+      # A byte that is nought contributes nothing and is skipped — INCLUDING the low one,
+      # which used to be written anyway because it was the byte the MOV happened to start
+      # from. That cost an instruction on every address ending in a round number, which a
+      # program that lays its memory out in blocks is full of: 0x03006F00 was three
+      # instructions and is two. Whichever byte turns out to be the first with anything in
+      # it is the MOV; the rest are ORRs.
       4.times do |i|
         byte = (value >> (i * 8)) & 0xFF
-        next if byte == 0 && !first
+        next if byte.zero?
 
         rotation = (16 - i * 4) & 0xF
         imm12 = (rotation << 8) | byte
 
-        if first
-          # MOV reg, #(byte rotated)
-          instructions << (0xE3A00000 | (reg << 12) | imm12)
-          first = false
-        else
-          # ORR reg, reg, #(byte rotated)
-          instructions << (0xE3800000 | (reg << 16) | (reg << 12) | imm12)
-        end
-      end
-
-      # Edge case: value is 0
-      if instructions.empty?
-        instructions << (0xE3A00000 | (reg << 12))  # MOV reg, #0
+        instructions << if instructions.empty?
+                          0xE3A00000 | (reg << 12) | imm12               # MOV reg, #(byte rotated)
+                        else
+                          0xE3800000 | (reg << 16) | (reg << 12) | imm12 # ORR reg, reg, #(byte rotated)
+                        end
       end
 
       instructions.pack("V*")

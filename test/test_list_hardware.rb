@@ -252,4 +252,28 @@ class TestListHardware < Minitest::Test
     assert v.pixel_is?(150, ROW, :black), "the overflowing third push is dropped"
     assert v.pixel_is?(210, ROW, :black), "the overflowing fourth push is dropped"
   end
+
+  # TWO LISTS AND A VARIABLE IN ONE EXPRESSION, which is what a pool walk is made of and
+  # what settles whether a collection's base can be left in a register between touches. A
+  # base left there that should have been named again does not fail — it reads the wrong
+  # list, or the right list at the wrong distance along — so each marker lands somewhere
+  # else and the console and the oracle stop agreeing. Every column is checked, not the
+  # three that are lit, so a marker that moved is caught wherever it went.
+  def test_two_lists_and_a_variable_read_together_agree_with_the_oracle
+    prog = program(
+      screen(:bitmap), clear_screen(:black),
+      set(:shift, 10),
+      list_new(:xs, 8), list_push(:xs, 20), list_push(:xs, 60), list_push(:xs, 100),
+      list_new(:ds, 8), list_push(:ds, 0), list_push(:ds, 4), list_push(:ds, 8),
+      repeat(list_len(:xs), :i,
+             draw_rect_at(binop(:+,
+                                binop(:+, list_get(:xs, var_ref(:i)), list_get(:ds, var_ref(:i))),
+                                var_ref(:shift)),
+                          ROW, 4, 4, :green)),
+      halt,
+    )
+
+    lit = [30, 74, 118].flat_map { |left| (left...left + 4).to_a }.to_set
+    assert_same_markers(prog, (0...240).map { |x| [x, lit.include?(x) ? :green : nil] })
+  end
 end

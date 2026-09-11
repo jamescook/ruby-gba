@@ -167,6 +167,40 @@ module RubyGBA
             end
           end
 
+          # PUT AN ADDRESS IN AN ADDRESS REGISTER, as cheaply as what is already in there
+          # allows. Three prices, and the caller writes the same line for all three:
+          #
+          #   * Nothing at all, when the register already holds it. This is the case that
+          #     matters — a run of accesses to the same thing names its address once.
+          #   * ONE instruction, when the register holds another address near enough that
+          #     the step between them is a number this chip can name outright. Two lists
+          #     side by side in memory — which is what a pool's fields are — are a step
+          #     apart of exactly one list's length, so walking from one field to the next
+          #     is an add rather than an address built from scratch.
+          #   * The address built a byte at a time, which is what it always cost.
+          #
+          # Being WRONG here writes to the wrong place rather than failing, so what may be
+          # believed about the register is decided in one place ({AddressRegister}) and
+          # this only spends it. Note the order: the instruction is emitted first and the
+          # new value recorded after, because emitting it is itself what makes the old
+          # value untrue.
+          def emit_base(address, reg = ADDR, held = @emitter.address_register)
+            return if held.holds?(address)
+
+            step = held.value && address - held.value
+            if step && ASM.encode_rotated_immediate(step.abs)
+              @emitter.emit(step.negative? ? ASM.sub_imm(reg, reg, -step) : ASM.add_imm(reg, reg, step))
+            else
+              @emitter.emit(ASM.load_immediate(reg, address))
+            end
+            held.now_holds(address)
+          end
+
+          # The same, for a collection's own base — which waits in a register of its own so
+          # that the variables and the collections are not forever pushing each other out of
+          # one. See {LIST_ADDR}.
+          def emit_list_base(address) = emit_base(address, LIST_ADDR, @emitter.list_register)
+
           # rd = rn & imm — the ring-wrap mask. A mask that fits an 8-bit rotated
           # immediate (capacity up to 256) rides directly in the AND; a wider one is
           # loaded into +scratch+ first, since ARM can't fold it into the instruction.
@@ -184,17 +218,9 @@ module RubyGBA
           # Put what the load will be read from into the address register: the base of the
           # variable memory when the variable is near enough to it, and the variable's own
           # address when it is not. Answers whether the distance still has to be named.
-          #
-          # A variable too far from the base leaves its own address behind rather than the
-          # base, so nothing after it can lean on the register — and it is not worth
-          # remembering either, since the next variable would want a different address.
           def emit_var_base(offset)
             near = offset.between?(0, FURTHEST_FROM_BASE)
-            held = @emitter.address_register
-            return near if near && held.holds?(IWRAM_START)
-
-            @emitter.emit(ASM.load_immediate(ADDR, near ? IWRAM_START : IWRAM_START + offset))
-            held.now_holds(IWRAM_START) if near
+            emit_base(near ? IWRAM_START : IWRAM_START + offset)
             near
           end
         end

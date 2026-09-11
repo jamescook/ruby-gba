@@ -172,8 +172,8 @@ module RubyGBA
             skip = @emitter.gensym
             @emitter.emit_branch(:bcond, skip, cond: :ge)         # full => drop the push
 
-            emit_slot_address(info, node.name)         # r12 = &slot[(head+length)&mask]
-            @emitter.emit(ASM.push(ADDR))                         # hold the address across the value eval
+            emit_slot_address(info, node.name)         # r1 = &slot[(head+length)&mask]
+            @emitter.emit(ASM.push(TMP))                          # hold the address across the value eval
             @lowering.value(node.value)                     # r0 = value
             @emitter.emit(ASM.pop(TMP))                           # r1 = address
             emit_store_element(info, ACC, TMP)                    # slot = value
@@ -217,8 +217,8 @@ module RubyGBA
             info = list_info(node.name)
 
             @lowering.value(node.index)                     # r0 = index
-            emit_slot_address(info, node.name)         # r12 = &slot[(head+index)&mask]
-            @emitter.emit(ASM.push(ADDR))
+            emit_slot_address(info, node.name)         # r1 = &slot[(head+index)&mask]
+            @emitter.emit(ASM.push(TMP))
             @lowering.value(node.value)                     # r0 = value
             @emitter.emit(ASM.pop(TMP))                           # r1 = address
             emit_store_element(info, ACC, TMP)                    # slot = value
@@ -228,8 +228,8 @@ module RubyGBA
           def eval_list_get(node)
             info = list_info(node.name)
             @lowering.value(node.index)                     # r0 = index
-            emit_slot_address(info, node.name)         # r12 = &slot[(head+index)&mask]
-            emit_load_element(info, ACC, ADDR)                    # r0 = slot
+            emit_slot_address(info, node.name)         # r1 = &slot[(head+index)&mask]
+            emit_load_element(info, ACC, TMP)                     # r0 = slot
           end
 
           # list_len: read the length variable into the accumulator (a value).
@@ -241,12 +241,20 @@ module RubyGBA
           private
 
           # Turn an offset (already in r0 — an index, or length for a push) into the physical
-          # slot address in r12. Clobbers r0/r1; leaves the address in ADDR (r12), ready for
-          # ldr/str.
+          # slot address. Clobbers r0/r1 and the list's address register; leaves the address
+          # in TMP (r1), ready for ldr/str.
           #
           # A ring adds its head and wraps with the mask. A plain array's head can never move,
           # so the offset IS the slot — which saves a variable read and an add on every access,
           # and costs a compare instead of the mask to keep a bad index inside the block.
+          #
+          # THE LIST'S OWN BASE IS LEFT WHERE IT WAS PUT and the slot address built somewhere
+          # else, which is the whole reason a second touch of the same list is cheaper than
+          # the first: the base outlives the access instead of being written over by its
+          # answer. A variable has always worked this way — a register holds where the
+          # variables start and each one rides a distance from it — and a list did not, so a
+          # list rebuilt an address that had not changed since the cartridge was built, three
+          # instructions at a time, in the hottest loop a game has.
           def emit_slot_address(info, name)
             if info[:ring]
               @primitives.load_var(TMP, head_var(name))            # r1 = head
@@ -257,8 +265,8 @@ module RubyGBA
             end
             shift = Math.log2(info[:bytes]).to_i                   # 4 bytes -> 2, 2 -> 1, 1 -> 0
             @emitter.emit(ASM.lsl_imm(ACC, ACC, shift)) if shift.positive? # r0 = slot * elem size
-            @emitter.emit(ASM.load_immediate(TMP, info[:base]))   # r1 = base address
-            @emitter.emit(ASM.add_reg(ADDR, TMP, ACC))            # r12 = base + slot*size
+            @primitives.emit_list_base(info[:base])               # r9 = base address, often already there
+            @emitter.emit(ASM.add_reg(TMP, LIST_ADDR, ACC))       # r1 = base + slot*size
           end
 
           # LOAD AND STORE ONE ELEMENT at the address in +addr+, at the list's own width. A

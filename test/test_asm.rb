@@ -90,6 +90,28 @@ class TestASM < Minitest::Test
     assert_equal 0x100, decode_load_immediate(A.load_immediate(0, 0x100))
   end
 
+  # A BYTE THAT IS NOUGHT CONTRIBUTES NOTHING, and that goes for the LOW byte too — which
+  # it did not, because the sequence used to start from byte nought whatever was in it.
+  # Every address ending in a round number paid an instruction for that, and a program that
+  # lays its memory out in blocks is full of them.
+  def test_a_value_whose_low_bytes_are_nought_skips_them
+    assert_equal 2, A.load_immediate(0, 0x03006F00).bytesize / 4,
+                 "0x03006F00 is the 0x6F00 and the 0x03000000, and nothing else"
+    assert_equal 2, A.load_immediate(0, 0x03FF0000).bytesize / 4
+    assert_equal 3, A.load_immediate(0, 0x03006F80).bytesize / 4,
+                 "the same address one slot along really does need its low byte"
+  end
+
+  # Whatever the shape, the sequence still has to come out at the value asked for — the
+  # low-byte case above most of all, since it is the one whose first instruction moved.
+  def test_every_shape_of_value_still_loads_that_value
+    [0, 1, 0xFF, 0x100, 0x6F00, 0x03000000, 0x03006F00, 0x03006F80, 0x0203F000,
+     0xFF00FF00, 0xDEADBEEF, 0xFFFFFFFF].each do |value|
+      assert_equal value, decode_load_immediate(A.load_immediate(0, value)),
+                   "0x#{value.to_s(16)}"
+    end
+  end
+
   def test_load_immediate_uses_different_registers
     rd_val = rd(unpack(A.load_immediate(0, 42)))
     assert_equal 0, rd_val
