@@ -109,18 +109,72 @@ class TestMixer < Minitest::Test
                  "the mix is capped at the shared limit, extra plays dropped"
   end
 
-  # ...and the same over-subscribed program on the console. The interpreter can count voices;
-  # hardware cannot be asked how many are sounding, so what is checked here is the thing that
-  # would actually go wrong if the two disagreed about the cap — the mix falling silent or
-  # the run dying, rather than quietly dropping the extras and playing on.
-  def test_the_console_survives_the_same_over_subscription
-    rom = assemble_rom(frames_program(5) do
-      buzz = sample :buzz, pcm: [25, -25] * 2000, rate: 8000
-      20.times { buzz.play }
-    end)
+  # THE VOICE TABLE DECODES WHATEVER MEMORY IT IS HANDED. The reader is passed in rather than
+  # owned, so the decoding — which slot is sounding, which sample it is, whether it loops — is
+  # checked here against a plain Hash, with no emulator anywhere. This is the one test that
+  # knows the slot layout, which is right: it is the mixer's own.
+  def test_the_voice_table_reads_the_sounding_slots_out_of_any_memory
+    base = 0x0300_0000
+    table = GBA::Mixer::VoiceTable.new(base: base, count: 3,
+                                       sample_addresses: { zap: 0x0800_1000, hum: 0x0800_2000 })
+    at = ->(slot, field) { base + (slot * GBA::Mixer::SLOT_BYTES) + field }
+    memory = Hash.new(0)
+    memory[at[0, GBA::Mixer::SLOT_ACTIVE]] = 1 # slot 0 sounds :zap ...
+    memory[at[0, GBA::Mixer::SLOT_SRC]] = 0x0800_1000
+    memory[at[0, GBA::Mixer::SLOT_POS]] = 40
+    memory[at[2, GBA::Mixer::SLOT_ACTIVE]] = 1 # ...slot 1 is idle, slot 2 loops :hum
+    memory[at[2, GBA::Mixer::SLOT_SRC]] = 0x0800_2000
+    memory[at[2, GBA::Mixer::SLOT_LOOP]] = 1
 
-    v = assert_emulator_loads_rom(rom, frames: 6)
-    assert v.sound?, "twenty plays into an eight-voice mixer still makes a noise"
+    voices = table.read { |address| memory[address] }
+
+    assert_equal %i[zap hum], voices.map(&:sample), "the idle slot between them is skipped"
+    assert_equal 40, voices.first.position
+    assert voices.last.loop, "the looping flag reads back as true"
+    refute voices.first.loop
+  end
+
+  def test_a_program_that_plays_no_samples_has_no_voices
+    silent = frames_program(2) { sample :unused, pcm: [10, -10] * 100, rate: 8000 }
+    assert_empty assert_emulator_loads_rom(assemble_rom(silent), frames: 3).voices
+  end
+
+  # A cartridge assembled without its build record cannot say where its voices are. That is a
+  # mistake in how the test was set up, not a fact about the sound, so it says how to fix it
+  # rather than failing on a nil somewhere inside.
+  def test_a_rom_without_its_build_record_says_how_to_attach_one
+    program = frames_program(2) { sample(:zap, pcm: [10, -10] * 100, rate: 8000).play }
+    bare = ROM.assemble(GBA.new.lower(program), title: "BARE", code: "BBAR", maker: "01")
+
+    error = assert_raises(ArgumentError) { RubyGBA::Verifier.new(bare, frames: 1).voices }
+    assert_match(/build record/, error.message)
+  end
+
+  # TEN DIFFERENT SOUNDS INTO AN EIGHT-VOICE MIXER, AND BOTH BACKENDS MUST KEEP THE SAME
+  # EIGHT. The mixer drops a play it has no room for rather than cutting off one already
+  # sounding, so the first eight played are the ones that sound and the last two are lost.
+  #
+  # A count alone would not show that: two backends can each hold eight voices and disagree
+  # about which. So ask each one what it is playing, by name. The console answers from its
+  # own voice table — reading what the lowering really did, not what the interpreter says
+  # it should have — and the two lists have to match.
+  SOUNDS = (0...10).map { |i| :"s#{i}" }
+
+  def test_both_backends_keep_the_same_sounds_when_the_mixer_is_full
+    # Each sample gets bytes of its own, so no two can ever share a place in the cartridge and
+    # read back under each other's name — this test is about the mixer, not about whether the
+    # build happens to store identical sounds once.
+    program = frames_program(5) do
+      SOUNDS.each_with_index.map { |name, i| sample name, pcm: [25 + i, -25 - i] * 2000, rate: 8000 }
+            .each(&:play)
+    end
+    kept = SOUNDS.first(RubyGBA::Sound::MIXER_VOICES)
+
+    interpreted = Reference.new.run(program, max_steps: 200_000).active_samples
+    assert_equal kept, interpreted, "the interpreter keeps the first #{kept.size} and drops the rest"
+
+    console = assert_emulator_loads_rom(assemble_rom(program), frames: 6).sounding
+    assert_equal interpreted, console, "the console keeps the same ones the interpreter does"
   end
 
   # --- hardware: the console really sums the voices ---
