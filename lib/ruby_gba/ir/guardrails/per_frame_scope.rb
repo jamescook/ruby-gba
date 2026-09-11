@@ -67,18 +67,12 @@ module RubyGBA
             end
           end
 
-          # The funcs a node UNCONDITIONALLY calls or dispatches to: the call/case
-          # targets among its DIRECT statement children only. A call nested inside a
-          # conditional isn't included — it doesn't run every time its container does.
-          # (A case is case_var dispatch, which does run each frame, so its scene
-          # targets count.)
+          # The funcs a node UNCONDITIONALLY calls or dispatches to: the routines its
+          # DIRECT statement children can call. A call nested inside a conditional isn't
+          # included — it doesn't run every time its container does. (A case_var, and a
+          # call picked by number, run one of theirs each time, so all of them count.)
           def direct_call_targets(node)
-            targets = []
-            node.children.each do |child|
-              targets << child.target if child.kind == :call
-              child.clauses.each { |_value, target| targets << target } if child.kind == :case
-            end
-            targets
+            node.children.flat_map(&:callees)
           end
         end
       end

@@ -9,7 +9,7 @@ module RubyGBA
       # guardrails care about the same question — "what does this game loop actually
       # run *every* frame?" — so the traversal lives here once instead of in each.
       #
-      # The steady path follows call/case dispatch into funcs (a scene called every
+      # The steady path follows every call into funcs (a scene called every
       # frame is steady work), but deliberately does NOT descend into a body guarded
       # by a `pressed` edge: that fires on a press, once in a while (a new round
       # starting, a menu choice), not steadily — so a board painted once on START and
@@ -27,16 +27,13 @@ module RubyGBA
           program.each.select { |node| node.kind == :func }.to_h { |func| [func.name, func] }
         end
 
-        # Every statement reachable each frame from +node+, following call/case into
+        # Every statement reachable each frame from +node+, following every call into
         # funcs but stopping at a `pressed`-guarded (transition) body.
         def steady_statements(node, funcs, seen = Set.new, acc = [])
           return acc if transition?(node)
 
           acc << node
-          case node.kind
-          when :call then follow(node.target, funcs, seen, acc)
-          when :case then node.clauses.each { |(_value, target)| follow(target, funcs, seen, acc) }
-          end
+          node.callees.each { |target| follow(target, funcs, seen, acc) }
           node.children.each { |child| steady_statements(child, funcs, seen, acc) }
           acc
         end

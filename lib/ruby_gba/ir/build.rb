@@ -425,6 +425,13 @@ module RubyGBA
         Nodes.build(:call, target: name)
       end
 
+      # Call one of +targets+ (func names, in order), picked by +which+ — a number counting
+      # from 0, which may be worked out as the program runs. A number naming no routine in
+      # the list calls nothing.
+      def call_one_of(targets, which:)
+        Nodes.build(:call_one_of, targets: targets.to_a, which: wrap(which))
+      end
+
       # Multi-way dispatch on a variable: run the scene/func whose value matches.
       # A scene is just a func, so the targets are func names. +clauses+ maps each
       # value to a target name, e.g. case_(:state, 0 => :title, 1 => :playing).

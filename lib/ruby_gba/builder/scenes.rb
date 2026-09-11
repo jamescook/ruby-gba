@@ -32,8 +32,28 @@ module RubyGBA
       # Call a named subroutine. The target is resolved by name when the tree is
       # lowered, so it may be defined before or after this call.
       #
-      # @param name [Symbol] function name
-      def call(name)
+      # ONE OF SEVERAL, picked by a number the game works out: give it the routines, in
+      # order, and the number that says which, counting from 0.
+      #
+      #   HANDLERS = %i[op_end op_wait op_walk op_say]
+      #   scripts.each { |s| call HANDLERS, number: s.opcode }
+      #
+      # A script's instructions, a character's current state, the move an enemy picked:
+      # anything where a number already says what happens next. It goes straight to the
+      # routine that number names, so a list of a hundred and more costs what a list of two
+      # does — where testing the number against each one in turn costs a test per routine. A
+      # number below 0 or past the end of the list calls nothing.
+      #
+      # @param name [Symbol, Array<Symbol>] function name, or a list of them to pick from
+      # @param number [Integer, Symbol, Value, nil] which of the list to call
+      def call(name, number: nil)
+        return call_one_of(name, number) if name.is_a?(Array)
+
+        unless number.nil?
+          raise ArgumentError,
+                "`call :#{name}` was given `number:`, but it calls one routine. `number:` picks one " \
+                "routine from a list. To pick one, give a list: `call [:#{name}, :other], number: ...`."
+        end
         record(Build.call(name))
       end
 
@@ -99,6 +119,49 @@ module RubyGBA
 
       private
 
+      # Call whichever of +names+ the +number+ picks. A number written into the program
+      # picks while building, so it is a plain call; one the game works out picks as it runs.
+      def call_one_of(names, number)
+        routines_to_pick_from!(names, number)
+        fixed = Value.fixed_number(number)
+        if fixed
+          number_in_list!(names, fixed)
+          return record(Build.call(names.fetch(fixed)))
+        end
+
+        record(Build.call_one_of(names, which: Value.node_for(number)))
+        ensure_var(number)
+      end
+
+      def routines_to_pick_from!(names, number)
+        raise ArgumentError, "`call` was given an empty list of routines. Name at least one routine." if names.empty?
+
+        if number.nil?
+          raise ArgumentError,
+                "`call` was given a list of #{names.length} routines and no number to pick one. To fix " \
+                "this, add `number:`, like `call [:#{names.first}, ...], number: which`."
+        end
+        stray = names.index { |name| !name.is_a?(Symbol) }
+        if stray
+          raise ArgumentError,
+                "`call` was given #{names[stray].inspect} in its list of routines. Each item in the list " \
+                "must be the name of a routine, like `:#{names.grep(Symbol).first || 'op_walk'}`."
+        end
+        return unless Fraction.bits_of(number)
+
+        raise ArgumentError,
+              "`call` picks a routine by a whole number, and the number given to `number:` holds a " \
+              "fraction. To fix this, use `.to_i` to drop the fraction."
+      end
+
+      def number_in_list!(names, fixed)
+        return if fixed.between?(0, names.length - 1)
+
+        raise ArgumentError,
+              "`call` was given `number: #{fixed}`, but the list has #{names.length} routines, numbered " \
+              "0 to #{names.length - 1}. To fix this, give a number from 0 to #{names.length - 1}."
+      end
+
       # Register a routine's body. Every routine goes through here — an author's `func`,
       # an author's `once_a_frame`, and the ones the framework declares for itself (an
       # effect's per-frame body, a hidden helper).
@@ -120,18 +183,11 @@ module RubyGBA
         @routine_layer[name] = [@current_layer, wrote] if @current_layer && wrote
       end
 
-      # Every call and case target must name a defined function. Check that here, so
+      # Every routine a call can reach must be a defined function. Check that here, so
       # a missing target surfaces as a clear error at build time. Walking the whole
       # tree (not just statement children) reaches targets nested in else-branches.
       def verify_targets_defined!
-        @program.walk do |node|
-          case node.kind
-          when :call
-            check_target_defined!(node.target)
-          when :case
-            node.clauses.each { |_value, target| check_target_defined!(target) }
-          end
-        end
+        @program.walk { |node| node.callees.each { |target| check_target_defined!(target) } }
       end
 
       def check_target_defined!(name)

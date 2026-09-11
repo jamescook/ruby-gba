@@ -198,6 +198,17 @@ module RubyGBA
         return ["MUL   #{reg(rd)}, #{reg(rm)}, #{reg(rs)}", regs]
       end
 
+      # LDR/STR with the offset in a register, shifted on the way in (bit 25 set, bit 4 clear)
+      if (inst & 0x0E000010) == 0x06000000
+        rd = (inst >> 12) & 0xF
+        rn = (inst >> 16) & 0xF
+        rm = inst & 0xF
+        shift = (inst >> 7) & 0x1F
+        shift_str = shift.positive? ? ", #{%w[LSL LSR ASR ROR][(inst >> 5) & 3]} ##{shift}" : ""
+        op = (inst >> 20) & 1 == 1 ? "LDR" : "STR"
+        return ["#{op}   #{reg(rd)}, [#{reg(rn)}, #{reg(rm)}#{shift_str}]", regs]
+      end
+
       # LDR/STR (immediate offset)
       if (inst & 0x0C000000) == 0x04000000
         rd = (inst >> 12) & 0xF

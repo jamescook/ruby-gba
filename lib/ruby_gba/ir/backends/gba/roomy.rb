@@ -92,22 +92,16 @@ module RubyGBA
           # names of every collection it touches. +seen+ stops a routine that calls itself
           # from going round forever.
           #
-          # BOTH WAYS OF REACHING ONE MATTER, and missing the second reads a whole game as
-          # cold. A `call` names its routine outright. A game's SCENES are reached by a
-          # multi-way dispatch instead — one clause per state, each naming the routine that
-          # draws it — and a game of any size puts all its per-frame work there. Following
-          # only calls, a raycaster with twenty-six collections came back with none of them
-          # touched by a frame.
+          # EVERY WAY OF REACHING ONE MATTERS, and missing one reads a whole game as cold. A
+          # `call` names its routine outright. A game's SCENES are reached by a multi-way
+          # dispatch instead — one clause per state, each naming the routine that draws it —
+          # and a game of any size puts all its per-frame work there. Following only calls, a
+          # raycaster with twenty-six collections came back with none of them touched by a
+          # frame. So this follows whatever a node says it can call (IR::Node#callees).
           def self.gather(node, bodies, seen, found)
             node.walk do |n|
-              case n.kind
-              when :list_get, :list_set, :list_push, :list_drop, :list_len, :list_new
-                found << n.name
-              when :call
-                reach(n.target, bodies, seen, found)
-              when :case
-                n.clauses.each { |_value, target| reach(target, bodies, seen, found) }
-              end
+              found << n.name if %i[list_get list_set list_push list_drop list_len list_new].include?(n.kind)
+              n.callees.each { |target| reach(target, bodies, seen, found) }
             end
           end
 

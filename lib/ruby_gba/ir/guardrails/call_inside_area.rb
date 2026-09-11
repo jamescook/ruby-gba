@@ -30,33 +30,39 @@ module RubyGBA
           CLIPPED_DRAWS = %i[pixel fill_rect dma_fill_rect draw_rect_at draw_column_at
                               blit blit_pose clear_screen draw_text draw_digit].freeze
 
+          # The two ways of calling a routine: by its name, and picked by number from a list.
+          CALLS = %i[call call_one_of].freeze
+
           def detect(program)
             funcs = program.each.select { |node| node.kind == :func }.to_h { |func| [func.name, func] }
 
             program.each.select { |node| node.kind == :inside }.flat_map do |area|
-              calls_that_draw(area, funcs).map do |call_node, drawn_by|
+              calls_that_draw(area, funcs).map do |call_node, target, drawn_by|
                 Finding.new(check: NAME, severity: :error,
-                            message: message(call_node.target, drawn_by), node: call_node)
+                            message: message(call_node, target, drawn_by), node: call_node)
               end
             end
           end
 
           private
 
-          # Every `:call` inside +area+'s block whose target routine draws — paired
-          # with the kind of draw that convicts it.
+          # Every call inside +area+'s block that can reach a routine that draws — with the
+          # first such routine and the kind of draw that convicts it.
           def calls_that_draw(area, funcs)
             area.children.flat_map { |child| find_calls(child) }.filter_map do |call_node|
-              drawn_by = routine_draws?(call_node.target, funcs)
-              [call_node, drawn_by] if drawn_by
+              hits = call_node.callees.filter_map do |target|
+                drawn_by = routine_draws?(target, funcs)
+                [target, drawn_by] if drawn_by
+              end
+              [call_node, *hits.first] unless hits.empty?
             end
           end
 
-          # Every `:call` in a subtree — descends into `:if`/`:loop`/`:repeat`
+          # Every call in a subtree — descends into `:if`/`:loop`/`:repeat`
           # bodies (real children of the `inside` block), never into a `:func`
           # definition (there isn't one inside a block; funcs are top-level).
           def find_calls(node)
-            calls = node.kind == :call ? [node] : []
+            calls = CALLS.include?(node.kind) ? [node] : []
             calls + node.children.flat_map { |child| find_calls(child) }
           end
 
@@ -80,7 +86,9 @@ module RubyGBA
           def unclipped_draw_in(node, funcs, seen)
             return nil if node.kind == :inside
             return node.kind if CLIPPED_DRAWS.include?(node.kind)
-            return routine_draws?(node.target, funcs, seen) if node.kind == :call
+            if CALLS.include?(node.kind)
+              return node.callees.lazy.filter_map { |target| routine_draws?(target, funcs, seen) }.first
+            end
 
             node.children.each do |child|
               hit = unclipped_draw_in(child, funcs, seen)
@@ -89,9 +97,14 @@ module RubyGBA
             nil
           end
 
-          def message(target, drawn_by)
+          def message(call_node, target, drawn_by)
             verb = TiledDisplay.verb_for(drawn_by)
-            "`inside` clips what it draws, but `call :#{target}` calls a routine built once, " \
+            calls = if call_node.kind == :call
+                      "`call :#{target}` calls a routine built once"
+                    else
+                      "this `call` can pick `:#{target}`, a routine built once"
+                    end
+            "`inside` clips what it draws, but #{calls}, " \
               "outside any area. `:#{target}` draws with `#{verb}`, directly or through " \
               "another routine it calls, so that drawing will not stay inside this area on " \
               "the console. The interpreter clips it here; the console does not.\n\n" \

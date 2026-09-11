@@ -91,6 +91,7 @@ module RubyGBA
         # control flow
         if: :portable, else: :portable, loop: :portable, repeat: :portable, inside: :portable,
         func: :portable, call: :portable, case: :portable, wait_vblank: :portable, halt: :portable,
+        call_one_of: :portable, # a routine picked by number — every backend holds the list
         every: :portable, after: :portable, # timed triggers: plain counter logic any backend can run
         # hardware timers: the node carries a rate in Hz (portable intent) — a backend
         # realizes it however it likes (GBA timer registers, or a frame-clock model).

@@ -93,7 +93,43 @@ module RubyGBA
             end
           end
 
+          # A CALL PICKED BY NUMBER, which costs the same for a list of two as for a list of
+          # two hundred. The dispatch above asks each clause in turn — a compare, a branch and a
+          # load of the copy for every one, all of them asked every time — so a long list is a
+          # long run of questions. This asks none: the number is how far along a table of
+          # addresses to read (see Placement#routine_table), and the word it finds is where the
+          # routine starts.
+          #
+          # ONE TEST GUARDS BOTH ENDS. Compared as a number that cannot be negative, -1 reads as
+          # the biggest number there is, so "is it at least the length?" catches a number below 0
+          # as well as one past the end — and either way nothing is called, where reading the
+          # table there would jump to whatever the next word happened to hold.
+          #
+          # The console cannot call an address held in a register in one instruction, so the
+          # return address is set by hand (Emit#emit_call_through), exactly as a call that
+          # crosses into the quick memory does. The label after it is where both roads meet.
+          def emit_call_one_of(node)
+            table = @placement.routine_table(node.targets)
+            none = @emitter.gensym
+            @lowering.value(node.which)                                # r0 = which routine
+            emit_compare_acc(node.targets.length)
+            @emitter.emit_branch(:bcond, none, cond: :hs)              # past the end, or below 0
+            @emitter.emit_load_data_address(ADDR, table)               # r12 = the table
+            @emitter.emit(ASM.ldr_reg_lsl(ADDR, ADDR, ACC, 2))         # r12 = where that routine starts
+            @emitter.emit_call_through(ADDR)
+            @emitter.place_label(none)
+          end
+
           private
+
+          # Compare r0 with +count+: in the instruction when it fits there, or through r1 when
+          # it is too big to.
+          def emit_compare_acc(count)
+            return @emitter.emit(ASM.cmp_imm(ACC, count)) if ASM.encode_rotated_immediate(count)
+
+            @emitter.emit(ASM.load_immediate(TMP, count))
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+          end
 
           # Whether the display is switched centrally on a scene's entry — true once
           # any scene double-buffers or the program crosses the bitmap/tiled boundary.

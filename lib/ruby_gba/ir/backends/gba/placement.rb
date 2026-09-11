@@ -347,6 +347,48 @@ module RubyGBA
             @emit.patch16(fix[:pos], ASM.load_immediate_fixed(fix[:reg], @hot_base + offset))
           end
 
+          # A TABLE OF WHERE ROUTINES START, one word each in the order given, for a call that
+          # picks one by number (see Functions#emit_call_one_of). It is kept in the cartridge
+          # with the pictures and the tunes rather than in the code, because a routine moved to
+          # the quick memory takes its code with it — and a table of a hundred and more words
+          # would take that much of the 32K along for one load a call.
+          #
+          # EACH WORD IS WHERE ITS ROUTINE RUNS: the quick memory for a routine moved there, the
+          # cartridge for one left behind. Neither is known until every routine has its place, so
+          # the words are filled in with the other placeholders, in the second pass. A call
+          # through the table jumps through a register either way, so it is the same few
+          # instructions wherever the routines landed, and it never grows when one of them moves.
+          #
+          # Two calls picking from the same list share one table.
+          def routine_table(names)
+            @routine_tables ||= {}
+            @routine_tables[names] ||= begin
+              blob = :"__routines#{@routine_tables.size}"
+              @emit.data_blobs[blob] = "\x00".b * (4 * names.length)
+              names.each_with_index do |name, i|
+                @emit.fixups << { kind: :routine_word, blob: blob, offset: 4 * i,
+                                  target: @functions.func_label(name) }
+              end
+              blob
+            end
+          end
+
+          # Also a custom fixup kind, handed to Emit's resolver map the same way.
+          def resolve_routine_word(fix)
+            @emit.patch_word(fix[:blob], fix[:offset], runtime_address(fix[:target]))
+          end
+
+          # Where code label +label+ is when the program runs: inside the moved block it is
+          # wherever boot copied the block to, and anywhere else it is where it sits in the
+          # cartridge.
+          def runtime_address(label)
+            at = @emit.labels.fetch(label)
+            start = @emit.labels[HOT_START]
+            return @emit.label_address(label) unless start && at >= start && at < @emit.labels.fetch(HOT_END)
+
+            @hot_base + (at - start)
+          end
+
           private
 
           # The quick memory is 32KB and everything shares it. Growing past what is left
@@ -391,6 +433,10 @@ module RubyGBA
           # Functions#emit_case). That is a game's whole scene table — and it lands on the
           # game loop's own body, which is the routine that can least afford to be
           # mismeasured, because it is the first one the chooser takes.
+          #
+          # A CALL PICKED BY NUMBER is not among them, because it never grows: it jumps
+          # through an address read out of a table, whichever memory the routine it lands in
+          # was given (see #routine_table).
           CROSSING_CALL_KINDS = %i[call draw_digit].freeze
 
           # ...and a dispatch, whose calls are one per clause rather than one per node.
@@ -616,18 +662,12 @@ module RubyGBA
             found
           end
 
-          # The routines one body reaches: the ones it calls outright, and the scenes a
-          # dispatch can land on. A scene IS a routine and a `case_var` IS how a game reaches
-          # the one it is playing, so leaving those out would miss the most important routine
-          # in most games — the playing scene.
+          # The routines one body reaches: the ones it calls outright, the scenes a dispatch
+          # can land on, and every routine a call picked by number can. A scene IS a routine
+          # and a `case_var` IS how a game reaches the one it is playing, so leaving those out
+          # would miss the most important routine in most games — the playing scene.
           def called_by(node)
-            node.walk.flat_map do |child|
-              case child.kind
-              when :call then [child.target]
-              when :case then child.clauses.map(&:last)
-              else []
-              end
-            end
+            node.walk.flat_map(&:callees)
           end
 
           def frame_body(program) = program.walk.find { |node| node.kind == :loop }
