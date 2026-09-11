@@ -139,11 +139,9 @@ module Jukebox
         SONGS.each { |s| m.item s[:label], picked: s[:color] }
       end
 
-      # Silence the channel on a move, so the new tune starts cleanly instead of
-      # bleeding a note from the old one.
-      songs.moved.then { stop_music }
-
-      # The picked row also tints the bobbing blocks and is the tune that plays.
+      # The picked row also tints the bobbing blocks and is the tune that plays. Naming it
+      # every frame is fine — it is the tune playing now — and naming a different one
+      # silences the old tune and starts the new one from its first note.
       SONGS.each_with_index do |s, i|
         (songs.picked == i).then do
           BARS.each_with_index { |(bx, _y0, _spd), j| draw_rect_at bx, :"bar_y#{j}", 8, 8, s[:color] }

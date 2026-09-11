@@ -147,11 +147,10 @@ class TestIRBackendReferenceHardware < Minitest::Test
   # ---- audio (an observable record of what would play) ----
 
   def test_sound_ops_are_recorded_in_the_audio_log
-    i = run_ir(program(enable_sound, beep(:high), stop_music))
+    i = run_ir(program(enable_sound, beep(:high)))
     assert_equal [:enabled], i.audio[0]
     assert_equal :beep, i.audio[1][0]
     assert_equal 880, i.audio[1][1].frequency # :high resolves to 880 Hz
-    assert_equal [:stop_music], i.audio[2]
   end
 
   def test_a_noise_hit_is_recorded_with_its_resolved_values
@@ -201,7 +200,8 @@ class TestIRBackendReferenceHardware < Minitest::Test
   end
 
   # A layered song's parts play against one shared frame counter, so notes on the
-  # same frame in different parts sound together.
+  # same frame in different parts sound together. Four passes: the tune is named on the
+  # first, and the player takes it up at the frame after, so the fourth reaches its frame 2.
   def test_play_song_plays_layered_parts_together
     i = run_ir(program(
       enable_sound,
@@ -214,7 +214,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
         wait_vblank,
         play_song(:duet),
         add(:n, 1),
-        if_(binop(:>=, var_ref(:n), int(3)), halt),
+        if_(binop(:>=, var_ref(:n), int(4)), halt),
       ),
     ))
     notes = i.audio.select { |e| e[0] == :note }

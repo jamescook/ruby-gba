@@ -11,7 +11,7 @@ module RubyGBA
         # frame. Three things go wrong at once: the picture tears or flickers
         # (drawing lands mid-scanout), the loop spins for nothing (the screen only
         # refreshes 60x/sec regardless), and any frame-based logic — edge-detected
-        # input, the music sequencer — races at absurd speed. The classic report
+        # input, a beat counted in passes — races at absurd speed. The classic report
         # is "my game runs way too fast / it flickers."
         #
         # This is a SOFT, advisory warning, not an error: there are legitimate

@@ -136,7 +136,10 @@ module RubyGBA
           @see_through = nil       # ...and which of them you can see through, and by how much
           @bg_shown = []           # the backgrounds painted onto the screen so far, in that order
           @tables = {}             # name -> { values:, signed: } (a read-only ROM table)
-          @music_frames = Hash.new(0) # per-song frame counter for play_song
+          @music_wanted = nil     # the tune the program last named with play_song (nil = none)
+          @music_playing = nil    # ...and the one the player is on, which catches up each frame
+          @music_frame = 0        # how far into that tune, in frames
+          @music_cursors = []     # each of its parts' next event
           @samples = {}           # name -> { rate:, length: } (a defined PCM sample)
           @voices = []            # the samples sounding right now, mixed together: [{ name:, loop:, frames_left:, frames_total: }, ...]
           @peak_voices = 0        # the most that ever sounded at once (how much polyphony the run used)
@@ -250,10 +253,11 @@ module RubyGBA
         #
         # WHAT IT MOVES, and it is only this: how many frames the pass just ended answers
         # for. A `once_a_frame` body runs that many times, a beat in frames counts that
-        # many, a one-shot's counter jumps that far. It does NOT make the interpreter slow —
-        # a timer still accrues a pass's worth, the input script is still called once a
-        # pass, and `frames:` still counts passes. Nothing here pretends to be a clock; it
-        # pins what a program MEANS when the console tells it the truth. Returns self.
+        # many, a one-shot's counter jumps that far, and a song moves on that many frames.
+        # It does NOT make the interpreter slow — a timer still accrues a pass's worth, the
+        # input script is still called once a pass, and `frames:` still counts passes.
+        # Nothing here pretends to be a clock; it pins what a program MEANS when the console
+        # tells it the truth. Returns self.
         def frames_each_pass(&block)
           @frames_script = block
           self
@@ -589,9 +593,11 @@ module RubyGBA
           when :stop_wave
             @audio << [:stop_wave]
           when :play_song
-            exec_play_song(node.name)
+            # Names the tune; the player takes it up at the next frame (see #advance_music).
+            @songs[node.name] || raise(ProgramError, "play_song for undefined song #{node.name.inspect}")
+            @music_wanted = node.name
           when :stop_music
-            @audio << [:stop_music]
+            @music_wanted = nil
           when :play_sample
             start_sample(node)
           when :stop_sample
@@ -644,15 +650,19 @@ module RubyGBA
           @uses_frames = true
           @prev_held = @held
           @frame += 1
+          took = frames_this_pass
           # A running timer overflows hz times a second, so it accrues hz/FRAME_RATE
           # overflows this frame — that's what timer_ticks reads back, and each whole
           # overflow crossed this frame runs its on_tick handler once.
           @timers.each { |name, t| accrue_timer(name, t) if t[:running] }
           advance_voices
+          # The tune moves on once for every frame that really passed, not once for the pass:
+          # the console plays it from the screen's own interrupt, which keeps real time.
+          took.times { advance_music }
           @held = to_button_set(Array(@input_script.call(@frame))) if @input_script
           @log << [:vblank, @frame]
           @on_vblank&.call(@frame)
-          count_the_frame
+          count_the_frame(took)
           repaint_bent_backgrounds
         end
 
@@ -682,8 +692,7 @@ module RubyGBA
           @frames_script.call(@frame).to_i.clamp(1, IR::Frames::MOST)
         end
 
-        def count_the_frame
-          took = frames_this_pass
+        def count_the_frame(took)
           @vars[IR::Frames::COUNT] += took
           @vars[IR::Frames::SEEN] = @vars[IR::Frames::COUNT]
           @vars[IR::Frames::STEP] = took
@@ -824,23 +833,39 @@ module RubyGBA
                                              volume: node.volume, metallic: node.metallic)
         end
 
-        # Record any note that lands on the song's CURRENT frame (frequency 0 is a
-        # rest), across every part of the song, then advance the shared frame counter,
-        # wrapping at the song's length so it loops. The counter starts at 0 and the
-        # notes are played *before* advancing, so a note at frame 0 — the downbeat
-        # every tune begins on — sounds. A layered song records each part's note on a
-        # frame, all against the one counter, so the parts stay in lock-step. This
-        # matches how the ROM sequences the same song.
-        def exec_play_song(name)
-          song = @songs[name] || raise(ProgramError, "play_song for undefined song #{name.inspect}")
-          frame = @music_frames[name]
-          song.voices.each do |voice|
-            voice[:events].each do |offset, frequency|
-              @audio << [:note, name, frequency] if offset == frame
-            end
+        # One frame of the music player — the same steps, in the same order, as the console's
+        # (GBA::Audio#emit_music_tick), so the two agree on every note.
+        #
+        # First it catches up with what the program asked for. A different tune than the one
+        # playing silences the old one and starts the new one from its first frame; no tune at
+        # all just silences. Asking for the tune already playing changes nothing, which is what
+        # lets `play_song` be written every frame.
+        #
+        # Then each part plays its next note if that note is due on this frame (frequency 0 is
+        # a rest), and the frame moves on, wrapping at the song's length so the tune loops. Every
+        # part reads the one frame counter, so the parts stay in step.
+        def advance_music
+          if @music_wanted != @music_playing
+            @audio << [:stop_music] if @music_playing
+            @music_playing = @music_wanted
+            @music_frame = 0
+            @music_cursors = Array.new(Music::MAX_PARTS, 0)
           end
-          total = song.total_frames
-          @music_frames[name] = total.zero? ? 0 : (frame + 1) % total
+          return unless @music_playing
+
+          song = @songs[@music_playing]
+          song.voices.each_with_index do |voice, part|
+            offset, frequency = voice[:events][@music_cursors[part]]
+            next unless offset == @music_frame
+
+            @audio << [:note, @music_playing, frequency]
+            @music_cursors[part] += 1
+          end
+          @music_frame += 1
+          return if @music_frame < song.total_frames
+
+          @music_frame = 0
+          @music_cursors.fill(0)
         end
 
         # Multi-way dispatch: call the scene/func for the clause whose value equals

@@ -29,7 +29,7 @@ module RubyGBA
   #     end
   #   end
   #
-  #   # In a scene or game loop:
+  #   # Anywhere — once, or every frame; it is the song playing now either way:
   #   play_song :gameplay
   module Music
     # Standard tuning note frequencies (A4 = 440 Hz). Covers C2 through C6 — a

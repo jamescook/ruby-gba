@@ -138,10 +138,9 @@ module RubyGBA
           # setting it jumps the cursor.
           attr_reader :picked
 
-          # True on the frame the pick moved — for a sound, a preview that reloads, a
-          # tune that starts over.
+          # True on the frame the pick moved — for a sound, or a preview that reloads.
           #
-          #   menu.moved.then { stop_music }
+          #   menu.moved.then { beep :blip }
           def moved
             @moved == 1
           end

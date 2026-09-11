@@ -6,6 +6,7 @@ require_relative "ruby_gba/plain_words" # what a person calls this — the Engli
 require_relative "ruby_gba/whole"
 require_relative "ruby_gba/color"
 require_relative "ruby_gba/sound"
+require_relative "ruby_gba/music" # before the IR: the backends size their music player by it
 require_relative "ruby_gba/asm"
 require_relative "ruby_gba/progress" # what a build says it is doing while it does it
 require_relative "ruby_gba/ir"
@@ -16,7 +17,6 @@ require_relative "ruby_gba/build_record" # what the build worked out, for the ca
 require_relative "ruby_gba/rom"
 require_relative "ruby_gba/font"
 require_relative "ruby_gba/fonts"
-require_relative "ruby_gba/music"
 require_relative "ruby_gba/fraction"
 require_relative "ruby_gba/builder"
 require_relative "ruby_gba/effects" # the verb/effect pack registry, and the packs that ship on by default

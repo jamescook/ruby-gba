@@ -2,10 +2,9 @@
 
 module RubyGBA
   class Builder
-    # The music verbs: define a tune with the note/rest DSL, advance it a frame at
-    # a time, and silence it. Songs play on channel 1 (with sweep) so they don't
-    # clash with beep/SFX on channel 2; they share the @sound_enabled flag with
-    # {Sound}.
+    # The music verbs: define a tune with the note/rest DSL, name the one playing,
+    # and silence it. Songs play on channel 1 (with sweep) so they don't clash with
+    # beep/SFX on channel 2; they share the @sound_enabled flag with {Sound}.
     #
     # A concern of {Builder}, mixed in so song/play_song/stop_music are flat DSL
     # verbs. Note this is Builder::Music (the verbs) — distinct from RubyGBA::Music
@@ -39,9 +38,14 @@ module RubyGBA
         record(Build.song(name, voices: ctx.voices, total_frames: ctx.total_frames))
       end
 
-      # Advance a previously defined song by one frame. Call once per frame inside
-      # the game loop. Uses channel 1 (square wave with sweep) so it doesn't
-      # conflict with channel 2 beep/SFX sounds.
+      # Say which song is playing now. It plays from its start, loops, and keeps the
+      # tempo it was written at whatever the game is doing — the framework moves it on
+      # once for every frame the screen shows, so a game too heavy for a frame still
+      # hears it at the right speed.
+      #
+      # Saying the song already playing changes nothing, so this can be written once
+      # or every frame, from a branch or a scene. Naming a different song starts that
+      # one from its beginning, and `stop_music` silences it.
       #
       # @param name [Symbol] song name (defined with `song`)
       #
@@ -56,8 +60,8 @@ module RubyGBA
         record(Build.play_song(name))
       end
 
-      # Silence the music channel (channel 1).
-      # Call this when transitioning to a scene that shouldn't have music.
+      # No song is playing now. Like `play_song`, it can be said every frame: the
+      # song goes quiet once, and saying it again while nothing plays does nothing.
       def stop_music
         record(Build.stop_music)
       end

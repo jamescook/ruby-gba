@@ -283,6 +283,7 @@ require_relative "guardrails/off_screen_draw"
 require_relative "guardrails/orphaned_condition"
 require_relative "guardrails/orphaned_expression"
 require_relative "guardrails/channel_conflict"
+require_relative "guardrails/song_needs_frames"
 require_relative "guardrails/redraw_everything"
 require_relative "guardrails/sprite_cleared_each_frame"
 require_relative "guardrails/manual_sprite_blit"
@@ -314,6 +315,7 @@ module RubyGBA
         Checks::Termination.new,
         Checks::OffScreenDraw.new,
         Checks::ChannelConflict.new,
+        Checks::SongNeedsFrames.new,
         Checks::RedrawEverything.new,
         Checks::SpriteClearedEachFrame.new,
         Checks::ManualSpriteBlit.new,
