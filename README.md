@@ -355,9 +355,13 @@ Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites
 Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. Anything that reads what a ROM *actually did* runs it in an emulator through **`ruby-gba-emulator`**, a separate gem (in this repository, under `ruby-gba-emulator/`) binding libmgba, which needs a C compiler and libmgba to build. It is deliberately not a dependency of this gem, so somebody who only builds cartridges installs no compiler; add it to your Gemfile when you want to verify or profile one:
 
 ```ruby
-gem "ruby-gba-emulator", github: "jamescook/ruby-gba",
-    glob: "ruby-gba-emulator/ruby-gba-emulator.gemspec"
+git "https://github.com/jamescook/ruby-gba.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
+  gem "ruby-gba"
+  gem "ruby-gba-emulator"
+end
 ```
+
+**One block for both**, because both gems live in that one repository. Writing them as two separate `gem ... github:` lines looks equivalent and is not: bundler counts `glob:` as part of a git source's identity, so that is two sources — but the directory it clones into is named from the URL alone, so they race into one directory and the clone fails outright on a cold cache. One block is one source, one clone, and the two gems can never land on different commits.
 
 Two things use it: the pixel read-back the tests assert on, and `rom.profile` — which is also what a build runs to decide what to keep in the quick memory. (How you install libmgba varies by platform, and most dev setups have a C compiler already.)
 

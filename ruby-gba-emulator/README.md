@@ -38,12 +38,20 @@ Add it beside ruby-gba. It carries a C extension, so bundler builds it — per R
 means changing Ruby version rebuilds rather than leaving a library that will not load:
 
 ```ruby
-gem "ruby-gba", github: "jamescook/ruby-gba"
-gem "ruby-gba-emulator", github: "jamescook/ruby-gba",
-    glob: "ruby-gba-emulator/ruby-gba-emulator.gemspec"
+git "https://github.com/jamescook/ruby-gba.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
+  gem "ruby-gba"
+  gem "ruby-gba-emulator"
+end
 ```
 
-`glob:` is how bundler finds a gemspec that is not at the root of the repository.
+`glob:` is how bundler finds a gemspec that is not at the root of the repository — here it has
+to match two, the framework's at the root and this one a directory down.
+
+**One block for both, not a `gem ... github:` line each.** Bundler counts `glob:` as part of a
+git source's identity, so two lines with different globs are two sources; but the directory it
+clones into is named from the URL alone. Two sources into one directory race on a cold cache
+and the clone fails. One block is one source, one clone, and the two gems can never land on
+different commits of the same repository.
 
 ## Building & testing
 
