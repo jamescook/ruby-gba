@@ -22,7 +22,7 @@ module RubyGBA
         # state declares its lists and pools early, those claim the first few thousand
         # bytes, and the variables land past the line — so the games with the most going
         # on are exactly the ones that pay for every variable, which is the wrong way
-        # round. Measured on games/wolf3d: 248 of its 288 variables sat past the line,
+        # round. Measured on the Wolfenstein port: 248 of its 288 variables sat past the line,
         # and a fifth of the instructions in its per-frame routines were the address
         # arithmetic that costs.
         #

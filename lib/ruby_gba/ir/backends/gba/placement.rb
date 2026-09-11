@@ -98,7 +98,7 @@ module RubyGBA
           # ones the lowering invents for run-time digits. With that fixed the size a
           # routine is charged is a true upper bound, so a kilobyte held back is a
           # kilobyte of pure loss — and it was landing on exactly the routine that could
-          # least afford it. Measured on games/wolf3d, whose game loop wanted 21.6K of a
+          # least afford it. Measured on the Wolfenstein port, whose game loop wanted 21.6K of a
           # 21.6K space and was offered 20.6K: it missed by the width of the margin, and
           # the whole frame ran from the cartridge at about a third of the speed.
           #
@@ -122,7 +122,7 @@ module RubyGBA
           # are each a little under, takes one routine more than there is room for, and
           # the build stops with advice about a routine the author would have to guess at.
           # Twelve was under by eight a call, which was worth 224 bytes on one routine of
-          # games/wolf3d alone.
+          # the Wolfenstein port alone.
           CROSS_CALL_GROWTH = 20
 
           # Saving the return address on the way in and returning at the end. The game

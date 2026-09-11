@@ -350,7 +350,7 @@ assets/                      # captured GIFs / screenshots
 
 ## Status
 
-Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites (rotated and scaled), scrolling and bending backgrounds, a named layer stack, screen effects, four-channel and sampled sound, and the asset pipeline are all in (see `examples/`). Affine backgrounds and the alternate backends are still planned. The current proving ground is a Wolfenstein 3D port (`games/wolf3d/`, built against the framework rather than shipped inside it) — it's what's surfacing most of the framework gaps that still need closing.
+Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites (rotated and scaled), scrolling and bending backgrounds, a named layer stack, screen effects, four-channel and sampled sound, and the asset pipeline are all in (see `examples/`). Affine backgrounds and the alternate backends are still planned. The current proving ground is a Wolfenstein 3D port ([ruby-wolf3d](https://github.com/jamescook/ruby-wolf3d)) — a real game in its own repository that depends on this one as a gem, which is what's surfacing most of the framework gaps that still need closing.
 
 Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. Anything that reads what a ROM *actually did* runs it in an emulator through **`gemba-core`**, a small in-repo C extension binding libmgba, which needs a C compiler and libmgba to build. Two things use it: the pixel read-back the tests assert on, and `rom.profile` — which is also what a build runs to decide what to keep in the quick memory. (How you install libmgba varies by platform, and most dev setups have a C compiler already.)
 

@@ -14,7 +14,7 @@ module RubyGBA
         # build can show.
         #
         # WHY THIS ONE NEEDS SAYING OUT LOUD: everything about it points the wrong way. It
-        # happened on games/wolf3d: ten guards were given a few dozen statements of thinking
+        # happened on the Wolfenstein port: ten guards were given a few dozen statements of thinking
         # each frame, and a 468-scanline frame went to 1140. None of it was the work — taking
         # the thinking out put the frame straight back, taking any one part of it out changed
         # nothing. The statements made the loop's body too big to fit, so the loop was left in

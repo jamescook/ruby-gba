@@ -110,8 +110,14 @@ rake test TEST=test/test_thing.rb                               # one file
 rake test TEST=test/test_thing.rb TESTOPTS="--name=/pattern/"   # one test
 ```
 
-The same pair exists in `games/wolf3d/` for that game's own suite (`cd games/wolf3d`), which the
-framework's suite does not run. See `.claude/rules/testing.md`.
+See `.claude/rules/testing.md`.
+
+The framework's largest consumer, a Wolfenstein 3D port, lives in its own repository at
+`~/open_source/ruby-wolf3d` and depends on this one as a gem. It has a suite of its own which
+this one does not run and must not learn about: a library that names the games built on it is
+coupled to them. Its whole purpose is to find gaps here — a bead it raises against the
+framework is filed in THIS tracker. To work on both at once, point its bundler at this
+checkout (`bundle config --local local.ruby-gba ../ruby-gba` from there).
 
 ## Testing strategy — assert behavior, at the right altitude
 

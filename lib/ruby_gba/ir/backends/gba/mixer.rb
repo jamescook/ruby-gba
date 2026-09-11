@@ -47,7 +47,7 @@ module RubyGBA
           # rather than running over whatever is next — see #guard_mix_routine_fits!.
           #
           # It was 1024, which is four times what the routine has ever needed, and a real game
-          # paid for it: on games/wolf3d the difference was exactly enough to push the routine
+          # paid for it: on the Wolfenstein port the difference was exactly enough to push the routine
           # that draws every guard and every lamp out of the quick memory.
           MIX_ROUTINE_IWRAM_MAX = 384
 
@@ -128,7 +128,7 @@ module RubyGBA
           # and is one of the busiest things in a game that plays sampled sound.
           #
           # That is exactly why a measured profile has to be able to name it: on
-          # games/wolf3d, which plays sampled audio, it is about a fifth of the frame, and
+          # the Wolfenstein port, which plays sampled audio, it is about a fifth of the frame, and
           # without this it reads as code nothing can account for.
           ROUTINE = :__mix_routine
 
