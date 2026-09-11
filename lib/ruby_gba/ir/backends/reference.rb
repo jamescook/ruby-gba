@@ -83,16 +83,17 @@ module RubyGBA
 
         # The names of the samples sounding right now — one entry per voice, so the same
         # sample played twice shows up twice. Lets a test see that several sounds really
-        # overlap in the mix instead of cutting each other off. The game's own sounds come
-        # first and the music's recorded parts after, in the order the console keeps them.
+        # overlap in the mix instead of cutting each other off. In the order of the mixer's
+        # voices, which is the order the console keeps them in: the game's sounds and the
+        # music's notes share the voices, so they come in whatever order they took them.
         def active_samples
-          @voices.map { |v| v[:name] } + @music_voices.compact.map { |v| v[:name] }
+          @slots.compact.map { |v| v[:name] }
         end
 
         # The level a currently-sounding sample is playing at (its first voice), or nil if
         # it isn't playing — so a test can see `play(volume:)` took effect.
         def volume_of(name)
-          @voices.find { |v| v[:name] == name }&.fetch(:volume)
+          @slots.compact.find { |v| v[:owner] == :game && v[:name] == name }&.fetch(:volume)
         end
 
         # +save+ is the cartridge's save memory — an external store that outlives the
@@ -146,10 +147,13 @@ module RubyGBA
           @music_passes = {}      # tune name -> each part's events, first time round and after (IR::Tunes#passes)
           @music_lists = []       # the events each of its parts is walking now, one of those two
           @music_cursors = []     # each of its parts' next event
-          @music_voices = []      # the mixer voice each of its recorded parts is sounding, or nil
-          @music_mixer_voices = 0 # how many mixer voices the music keeps (see IR::Tunes)
           @samples = {}           # name -> { rate:, length: } (a defined PCM sample)
-          @voices = []            # the samples sounding right now, mixed together: [{ name:, loop:, frames_left:, frames_total: }, ...]
+          # The mixer's voices, as the console keeps them: nil for a free one, or what it is
+          # sounding — { name:, owner: (:game, or a song's recorded part by number), frames_left:,
+          # frames_total:, loop:, volume:, pitch:, ticket: }. The game's sounds and the music's
+          # notes share them (see #take_music_voice).
+          @slots = Array.new(MAX_VOICES)
+          @tickets = 0            # how many sounds the game has started, for the next ticket
           @peak_voices = 0        # the most that ever sounded at once (how much polyphony the run used)
           @timers = {}            # name -> { hz:, running:, overflows: } (a hardware timer)
           @timer_handlers = {}    # name -> on_timer node whose body runs on each overflow
@@ -193,7 +197,6 @@ module RubyGBA
           @over_budget = false
           @uses_frames = false # set once the program reaches its first vblank (advance_frame)
           collect_definitions(node)
-          @music_mixer_voices = IR::Tunes.mixer_voices(node)
           # How the picture stacks: what scenery and objects there are, in what order,
           # and how deep each sits. Scenery in FRONT of an object means the save-under
           # trick cannot hold — what was saved from under an object is no longer what
@@ -736,22 +739,27 @@ module RubyGBA
         # Start a sample sounding: add a voice to the mix (samples play together, they do
         # not cut each other off), remembering how many frames it runs for (from its length
         # and rate) so a looping voice can re-trigger itself at the end. A one-shot voice
-        # simply falls silent there. Past the voices the game has — MAX_VOICES, less the ones
-        # the music keeps — the new one is dropped.
+        # simply falls silent there. It takes the first free voice, as the console does; with
+        # none free, the new one is dropped.
+        #
+        # Its ticket says which play started it, so the one playing longest is known when a
+        # song's note needs a voice — a loop after every one-shot, since it never ends by itself.
         def start_sample(node)
           info = @samples[node.name] ||
                  raise(ProgramError, "play_sample of undefined sample #{node.name.inspect}")
           @audio << [:sample, node.name]
-          return if @voices.size >= MAX_VOICES - @music_mixer_voices
+          free = @slots.index(nil) or return
 
           # A pitched voice reads its sample faster (higher notes) or slower (lower), so it
           # plays out in proportionally fewer or more frames.
           ratio = pitch_ratio(node.pitch, info.note)
           frames = [(info.length.to_f / (info.rate * ratio) * FRAME_RATE).ceil, 1].max
-          @voices << { name: node.name, loop: node.loop, volume: node.volume, pitch: node.pitch,
-                       frames_left: frames, frames_total: frames }
-          @peak_voices = [@peak_voices, @voices.size].max
+          @slots[free] = { name: node.name, owner: :game, loop: node.loop, volume: node.volume, pitch: node.pitch,
+                           frames_left: frames, frames_total: frames, ticket: [node.loop ? 1 : 0, @tickets += 1] }
+          count_the_voices
         end
+
+        def count_the_voices = @peak_voices = [@peak_voices, @slots.count(&:itself)].max
 
         # How much faster (>1) or slower (<1) a voice reads its sample when played at +pitch+
         # instead of the sample's recorded note +base+ — the frequency ratio. nil pitch plays
@@ -763,17 +771,20 @@ module RubyGBA
           notes.fetch(pitch).to_f / notes.fetch(base || :C4)
         end
 
-        # Stop a sample: drop its voices from the mix (or every voice, if no name is given).
+        # Stop a sample: drop its voices from the mix (or every voice of the game's, if no name
+        # is given). A note the music is playing is the music's to stop.
         def stop_sample(node)
-          @voices.reject! { |v| node.name.nil? || v[:name] == node.name }
+          @slots.map! { |v| v if v.nil? || v[:owner] != :game || (node.name && v[:name] != node.name) }
           @audio << [:stop_sample]
         end
 
-        # Age every sounding voice by one frame. When a voice plays out, a looping one
+        # Age every sound of the game's by one frame. When one plays out, a looping one
         # starts over — logged again, so the loop shows up in the audio log — and a one-shot
         # leaves the mix.
         def advance_voices
-          @voices.each do |voice|
+          @slots.each_with_index do |voice, slot|
+            next unless voice && voice[:owner] == :game
+
             voice[:frames_left] -= 1
             next if voice[:frames_left].positive?
 
@@ -781,10 +792,9 @@ module RubyGBA
               voice[:frames_left] = voice[:frames_total]
               @audio << [:sample, voice[:name]]
             else
-              voice[:done] = true
+              @slots[slot] = nil
             end
           end
-          @voices.reject! { |voice| voice[:done] }
         end
 
         def exec_call(name)
@@ -867,19 +877,19 @@ module RubyGBA
         # after the first (IR::Tunes#passes). Every part reads the one frame counter, so the
         # parts stay in step.
         #
-        # A part that plays a recording sounds it on a mixer voice of its own — the recorded
-        # parts in order, one voice each — which a note starts from the top and a rest stops.
-        # The voice ages in the frame it starts, because the console mixes that frame's slice
-        # right after the note is started, in the same interrupt.
+        # A part that plays a recording sounds each note on a voice of the mixer, which a note
+        # starts from the top and a rest stops — the voice the console would give it (see
+        # #take_music_voice). The voice ages in the frame it starts, because the console mixes
+        # that frame's slice right after the note is started, in the same interrupt.
         def advance_music
           if @music_wanted != @music_playing || @music_stops != @music_stops_seen
             @music_stops_seen = @music_stops
             @audio << [:stop_music] if @music_playing
+            @slots.map! { |voice| voice if voice.nil? || voice[:owner] == :game }
             @music_playing = @music_wanted
             @music_frame = 0
             @music_lists = @music_playing ? music_passes(@music_playing).map(&:first) : []
             @music_cursors = Array.new(@music_lists.size, 0)
-            @music_voices = []
           end
           return unless @music_playing
 
@@ -892,11 +902,11 @@ module RubyGBA
 
             @audio << [:note, @music_playing, frequency]
             if lane
-              @music_voices[lane] = frequency.zero? ? nil : recorded_voice(instrument || part[:instrument], frequency)
+              frequency.zero? ? music_voice_off(lane) : take_music_voice(lane, recorded_voice(instrument || part[:instrument], frequency))
             end
             @music_cursors[number] += 1
           end
-          @peak_voices = [@peak_voices, @voices.size + @music_voices.compact.size].max
+          count_the_voices
           age_music_voices
           @music_frame += 1
           return if @music_frame < song.total_frames
@@ -916,10 +926,26 @@ module RubyGBA
           { name: name, frames_left: [(info.length.to_f / (info.rate * ratio) * FRAME_RATE).ceil, 1].max }
         end
 
+        # WHICH VOICE A SONG'S NOTE GETS, by the rule the console's player keeps
+        # (GBA::Mixer#emit_music_voice_routine): the part's own voice if it is still sounding, or
+        # the first free one, or — with none free — the voice of the game's sound that has been
+        # playing longest, a one-shot before a loop. That sound is cut short.
+        def take_music_voice(lane, voice)
+          slot = @slots.index { |v| v && v[:owner] == lane } || @slots.index(nil) ||
+                 @slots.each_index.select { |i| @slots[i][:owner] == :game }.min_by { |i| @slots[i][:ticket] }
+          @slots[slot] = voice.merge(owner: lane)
+        end
+
+        # A part rests: its voice, if it still has one, goes quiet and is free for anybody.
+        def music_voice_off(lane)
+          slot = @slots.index { |v| v && v[:owner] == lane }
+          @slots[slot] = nil if slot
+        end
+
         # A frame of the recorded parts' voices: a recording that has played out stops.
         def age_music_voices
-          @music_voices.map! do |voice|
-            next unless voice
+          @slots.map! do |voice|
+            next voice unless voice && voice[:owner] != :game
 
             voice[:frames_left] -= 1
             voice if voice[:frames_left].positive?

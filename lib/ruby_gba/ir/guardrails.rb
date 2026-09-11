@@ -289,7 +289,6 @@ require_relative "guardrails/song_instrument_unknown"
 require_relative "guardrails/song_too_many_parts"
 require_relative "guardrails/square_note_too_low"
 require_relative "guardrails/note_never_plays"
-require_relative "guardrails/music_keeps_every_voice"
 require_relative "guardrails/redraw_everything"
 require_relative "guardrails/sprite_cleared_each_frame"
 require_relative "guardrails/manual_sprite_blit"
@@ -326,7 +325,6 @@ module RubyGBA
         Checks::SongTooManyParts.new,
         Checks::SquareNoteTooLow.new,
         Checks::NoteNeverPlays.new,
-        Checks::MusicKeepsEveryVoice.new,
         Checks::RedrawEverything.new,
         Checks::SpriteClearedEachFrame.new,
         Checks::ManualSpriteBlit.new,

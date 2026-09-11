@@ -18,8 +18,12 @@ module RubyGBA
         # pitch). There are a fixed number of voice slots; `play` fills a free one, the mix
         # drains and retires it (or loops it), and `stop` clears a sample's slots. The mix runs
         # once per DISPLAYED FRAME, from the screen's own interrupt — so playing samples needs a
-        # game loop, which is what arms that interrupt. A song part that plays a recording has
-        # slots of its own at the top (see #reserve_music_voices).
+        # game loop, which is what arms that interrupt.
+        #
+        # THE SLOTS ARE SHARED between the game's sounds and the music's notes, each taking one
+        # only while it sounds (see #emit_music_voice_routine for who gives way when they run
+        # out). A slot's SOUNDING word says whose it is: 0 nobody's, OWNER_GAME the game's, and
+        # a song's recorded part its own mark (Mixer.music_owner).
         #
         # Owns the whole sampled-audio picture: registering samples as ROM data (asset
         # preparation, so it lives here beside the mix that uses what it prepares) and
@@ -60,6 +64,10 @@ module RubyGBA
           # octave up) plus a FRAC accumulator carrying the leftover fraction between frames,
           # kept in its TOP 16 bits so that adding to it overflows exactly when a whole
           # sample is due (see #emit_mix_routine).
+          # A game sound's slot also keeps its TICKET — which play started it, counting up — so
+          # the one playing longest can be told apart when a song's note needs its voice. A
+          # sound that loops has the top bit set, which makes it later than every sound that
+          # plays once, so it is the last to go.
           SLOT_SRC = 0
           SLOT_POS = 4
           SLOT_LEN = 8
@@ -68,7 +76,15 @@ module RubyGBA
           SLOT_VOL = 20
           SLOT_STEP = 24
           SLOT_FRAC = 28
-          SLOT_BYTES = 32
+          SLOT_TICKET = 32
+          SLOT_BYTES = 36
+
+          # Whose a sounding slot is, in its SOUNDING word: the game's, or a song's recorded part.
+          OWNER_GAME = 1
+          def self.music_owner(lane) = OWNER_GAME + 1 + lane
+
+          TICKETS = :__mix_tickets # how many sounds the game has started, for the next ticket
+          LOOPS_LAST = 0x8000_0000
 
           # The fixed-point shift for STEP/FRAC: 16 fractional bits, so 1.0 == 1 << 16.
           STEP_SHIFT = 16
@@ -136,7 +152,7 @@ module RubyGBA
             @primitives = primitives
             @samples = {}          # name -> { rate:, length: } (a Direct Sound PCM sample)
             @plays_samples = false # does the program play any sample (uses Direct Sound)?
-            @music_voices = 0      # how many of the top slots the music player keeps
+            @music_takes_voices = false # does a song's recorded part start notes in the slots?
           end
 
           # The output rate the mix runs at, settled by #prepare_mixer.
@@ -154,21 +170,18 @@ module RubyGBA
               raise(LoweringError, "play_sample of undefined sample #{name.inspect} — declare it with `sample`")
           end
 
-          # KEEP THE TOP +count+ SLOTS FOR THE MUSIC. A song part that plays a recording starts a
-          # voice on every note, from the screen's interrupt, and a slot it shared with the game
-          # would be a slot a sound effect could land in between two notes — for the next note to
-          # overwrite. So the music has slots of its own, the game's `play` and `stop` never look
-          # at them, and the game's sounds get the rest.
-          def reserve_music_voices(count)
-            @music_voices = count
-            @plays_samples ||= count.positive?
+          # A song's recorded parts start notes in the slots, so the mixer is brought up — and
+          # the routine that finds a note its voice goes in the screen's interrupt.
+          def music_takes_voices!
+            @music_takes_voices = true
+            @plays_samples = true
           end
 
-          # How many slots the game's own sounds share.
-          def game_voices = MAX_VOICES - @music_voices
+          def music_takes_voices? = @music_takes_voices
 
-          # Where the music's +lane+th slot is — above every slot the game uses.
-          def music_slot(lane) = @voice_base + ((game_voices + lane) * SLOT_BYTES)
+          # The routines that find a song's note a voice, and stop it (#emit_music_voice_routines).
+          MUSIC_VOICE = :__music_voice
+          MUSIC_VOICE_OFF = :__music_voice_off
 
           # Register the samples: embed each one's PCM data as a ROM blob and note the
           # program plays sound. #prepare_mixer reserves the timer and memory.
@@ -284,33 +297,40 @@ module RubyGBA
           end
 
           # play_sample: start a sample sounding by filling a free voice slot with it — its
-          # ROM address, a fresh play position, its length, and whether it loops. If every
-          # slot is busy the play is dropped. Playing is main-thread, like the mix, so the
-          # slots are never touched from two places at once.
+          # ROM address, a fresh play position, its length, whether it loops, and its ticket.
+          # If every slot is busy the play is dropped, rather than cutting off a sound already
+          # playing.
           def emit_play_sample(node)
             sample = sample_info(node.name)
-            @emitter.emit_load_data_address(4, node.name) # r4 = the sample's address in ROM
-            find_free_slot                          # r0 = a free slot's address, or none -> skip
-            done = @emitter.gensym
-            @emitter.emit(ASM.cmp_imm(0, 0))        # find_free_slot leaves r0 = 0 when full
-            @emitter.emit_branch(:bcond, done, cond: :eq)
+            holding_off_interrupts do
+              @emitter.emit_load_data_address(4, node.name) # r4 = the sample's address in ROM
+              find_free_slot                          # r0 = a free slot's address, or none -> skip
+              done = @emitter.gensym
+              @emitter.emit(ASM.cmp_imm(0, 0))        # find_free_slot leaves r0 = 0 when full
+              @emitter.emit_branch(:bcond, done, cond: :eq)
 
-            @emitter.emit(ASM.str(4, 0))                             # slot.src = address (SLOT_SRC = 0)
-            @emitter.emit(ASM.load_immediate(TMP, 0))
-            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_POS))          # slot.pos = 0
-            @emitter.emit(ASM.load_immediate(TMP, sample.length))
-            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LEN))          # slot.len = length
-            @emitter.emit(ASM.load_immediate(TMP, node.loop ? 1 : 0))
-            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # slot.loop
-            @emitter.emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node.volume, MIX_LEVELS[:full])))
-            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..64 gain)
-            @emitter.emit(ASM.load_immediate(TMP, voice_step(node, sample)))
-            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_STEP))         # slot.step (pitch + rate, 16.16)
-            @emitter.emit(ASM.load_immediate(TMP, 0))
-            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_FRAC))         # slot.frac = 0 (fresh)
-            @emitter.emit(ASM.load_immediate(TMP, 1))
-            @emitter.emit(ASM.str_offset(TMP, 0, SLOT_ACTIVE))       # slot.active = 1 (now it sounds)
-            @emitter.place_label(done)
+              @emitter.emit(ASM.str(4, 0))                             # slot.src = address (SLOT_SRC = 0)
+              @emitter.emit(ASM.load_immediate(TMP, 0))
+              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_POS))          # slot.pos = 0
+              @emitter.emit(ASM.load_immediate(TMP, sample.length))
+              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LEN))          # slot.len = length
+              @emitter.emit(ASM.load_immediate(TMP, node.loop ? 1 : 0))
+              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # slot.loop
+              @emitter.emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node.volume, MIX_LEVELS[:full])))
+              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..64 gain)
+              @emitter.emit(ASM.load_immediate(TMP, voice_step(node, sample)))
+              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_STEP))         # slot.step (pitch + rate, 16.16)
+              @emitter.emit(ASM.load_immediate(TMP, 0))
+              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_FRAC))         # slot.frac = 0 (fresh)
+              @primitives.load_var(2, TICKETS)
+              @emitter.emit(ASM.add_imm(2, 2, 1))
+              @primitives.store_var(2, TICKETS)                        # the next ticket...
+              @emitter.emit(ASM.orr_imm(2, 2, LOOPS_LAST)) if node.loop # ...after every one-shot, if it loops
+              @emitter.emit(ASM.str_offset(2, 0, SLOT_TICKET))
+              @emitter.emit(ASM.load_immediate(TMP, OWNER_GAME))
+              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_ACTIVE))       # slot.active: the game's (now it sounds)
+              @emitter.place_label(done)
+            end
           end
 
           # The 16.16 step for a voice: how many source samples to advance per output sample.
@@ -332,29 +352,151 @@ module RubyGBA
 
           # stop_sample: silence a sample by clearing every voice slot playing it (or every
           # slot, when no sample is named). Just flips each matching slot's "active" off. The
-          # game's slots only: a note the music is playing is the music's to stop.
+          # game's own sounds only: a note the music is playing is the music's to stop.
           def emit_stop_sample(node = nil)
-            return if game_voices.zero?
-
             name = node && node.name
-            @emitter.emit_load_data_address(4, name) if name # r4 = the sample's address to match
-
-            @emitter.emit(ASM.load_immediate(1, @voice_base))            # r1 = slot pointer
-            @emitter.emit(ASM.load_immediate(2, @voice_base + (game_voices * SLOT_BYTES))) # r2 = past the game's last slot
-            @emitter.emit(ASM.load_immediate(3, 0))                      # r3 = the "off" value
-            loop_lbl = @emitter.gensym
-            skip = @emitter.gensym
-            @emitter.place_label(loop_lbl)
-            if name
-              @emitter.emit(ASM.ldr(0, 1))                               # r0 = slot.src
-              @emitter.emit(ASM.cmp_reg(0, 4))                           # slot plays this sample?
-              @emitter.emit_branch(:bcond, skip, cond: :ne)              # no -> leave it
+            holding_off_interrupts do
+              @emitter.emit_load_data_address(4, name) if name # r4 = the sample's address to match
+              @emitter.emit(ASM.load_immediate(1, @voice_base))                            # r1 = slot pointer
+              @emitter.emit(ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES))) # r2 = past the last
+              loop_lbl = @emitter.gensym
+              skip = @emitter.gensym
+              @emitter.place_label(loop_lbl)
+              @emitter.emit(ASM.ldr_offset(0, 1, SLOT_ACTIVE))
+              @emitter.emit(ASM.cmp_imm(0, OWNER_GAME))
+              @emitter.emit_branch(:bcond, skip, cond: :ne)              # not a sound of the game's
+              if name
+                @emitter.emit(ASM.ldr(0, 1))                             # r0 = slot.src
+                @emitter.emit(ASM.cmp_reg(0, 4))                         # slot plays this sample?
+                @emitter.emit_branch(:bcond, skip, cond: :ne)            # no -> leave it
+              end
+              @emitter.emit(ASM.load_immediate(0, 0))
+              @emitter.emit(ASM.str_offset(0, 1, SLOT_ACTIVE))           # active = 0
+              @emitter.place_label(skip)
+              @emitter.emit(ASM.add_imm(1, 1, SLOT_BYTES))               # next slot
+              @emitter.emit(ASM.cmp_reg(1, 2))
+              @emitter.emit_branch(:bcond, loop_lbl, cond: :lt)
             end
-            @emitter.emit(ASM.str_offset(3, 1, SLOT_ACTIVE))             # active = 0
-            @emitter.place_label(skip)
-            @emitter.emit(ASM.add_imm(1, 1, SLOT_BYTES))                 # next slot
-            @emitter.emit(ASM.cmp_reg(1, 2))
-            @emitter.emit_branch(:bcond, loop_lbl, cond: :lt)
+          end
+
+          # THE GAME TOUCHES THE VOICE TABLE WITH INTERRUPTS HELD OFF. The screen's interrupt can
+          # take a voice for a song's note between any two instructions, so a slot `play` has
+          # just seen free, or one `stop` has just seen is the game's, could be the song's by the
+          # time the game writes to it — and the game would start its sound over a note, or cut
+          # the note off. With interrupts held off for the few dozen instructions the game
+          # spends in the table, the interrupt waits and then sees it whole. r3 keeps what the
+          # master switch was, so it is put back as it was found.
+          def holding_off_interrupts
+            @emitter.emit(ASM.load_immediate(TMP, REG_IME))
+            @emitter.emit(ASM.load_halfword(3, TMP))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(ASM.store_halfword(ACC, TMP))
+            yield
+            @emitter.emit(ASM.load_immediate(TMP, REG_IME))
+            @emitter.emit(ASM.store_halfword(3, TMP))
+          end
+
+          # A NOTE OF A SONG'S RECORDED PART NEEDS A VOICE — the call the music player makes, from
+          # the screen's interrupt, with the part's mark in r8. Leaves the voice in r7.
+          def emit_take_music_voice
+            @emitter.emit_branch(:bl, MUSIC_VOICE)
+          end
+
+          # ...and a part rests, or its tune stops: whichever voice has the part's mark (r8) goes
+          # quiet.
+          def emit_music_voice_off
+            @emitter.emit_branch(:bl, MUSIC_VOICE_OFF)
+          end
+
+          # The two routines those call, emitted once inside the screen's interrupt.
+          def emit_music_voice_routines
+            emit_music_voice_routine
+            emit_music_voice_off_routine
+          end
+
+          # Stop the voice with the part's mark (r8) — or nothing, when the part has none: its last
+          # note ran out, and the mix retired it. A part never has two, since a note of its own
+          # takes over the voice it already has. Uses r0, r1, r7.
+          def emit_music_voice_off_routine
+            e = @emitter
+            scan = e.gensym
+            onward = e.gensym
+            done = e.gensym
+            e.place_label(MUSIC_VOICE_OFF)
+            e.emit(ASM.load_immediate(7, @voice_base))
+            e.emit(ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
+            e.place_label(scan)
+            e.emit(ASM.ldr_offset(0, 7, SLOT_ACTIVE))
+            e.emit(ASM.cmp_reg(0, 8))
+            e.emit_branch(:bcond, onward, cond: :ne)
+            e.emit(ASM.load_immediate(0, 0))
+            e.emit(ASM.str_offset(0, 7, SLOT_ACTIVE))
+            e.emit_branch(:b, done)
+            e.place_label(onward)
+            e.emit(ASM.add_imm(7, 7, SLOT_BYTES))
+            e.emit(ASM.cmp_reg(7, 1))
+            e.emit_branch(:bcond, scan, cond: :lt)
+            e.place_label(done)
+            e.emit(ASM.return)
+          end
+
+          # WHICH VOICE A SONG'S NOTE GETS — one routine, placed inside the screen's interrupt
+          # (so it moves with it into the quick memory) and called by every recorded part.
+          #
+          # In one walk over the slots it looks for, in order of preference:
+          #
+          #   1. the part's own voice, still sounding its last note — the new note takes it over;
+          #   2. the first voice nobody is using;
+          #   3. with none free, the voice of the game's sound that has been playing longest —
+          #      one that plays once before one that loops, since a loop never ends by itself.
+          #      That is the rule for who gives way: a song keeps playing right, and a sound the
+          #      game started a while ago is cut short.
+          #
+          # There is always a 3 when there is no 1 or 2: a part holds one voice at most, and a
+          # song has fewer recorded parts than there are voices, so a table full with no voice of
+          # this part's has a game sound in it. It runs in the interrupt, where the game cannot
+          # be in the table — `play` and `stop` hold interrupts off while they are.
+          #
+          # In: r8 = the part's mark. Out: r7 = the voice. Uses r0, r1, r9-r11, and returns
+          # through lr, which the interrupt saved.
+          def emit_music_voice_routine
+            e = @emitter
+            done = e.gensym
+            scan = e.gensym
+            busy = e.gensym
+            onward = e.gensym
+            e.place_label(MUSIC_VOICE)
+            e.emit(ASM.load_immediate(7, @voice_base))
+            e.emit(ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
+            e.emit(ASM.load_immediate(9, 0))                    # the first free voice, none yet
+            e.emit(ASM.mvn_imm(11, 0))                          # the oldest ticket so far: none, the largest there is
+            e.emit(ASM.load_immediate(10, 0))                   # ...and its voice
+            e.place_label(scan)
+            e.emit(ASM.ldr_offset(0, 7, SLOT_ACTIVE))
+            e.emit(ASM.cmp_reg(0, 8))
+            e.emit_branch(:bcond, done, cond: :eq)              # 1. the part's own
+            e.emit(ASM.cmp_imm(0, 0))
+            e.emit_branch(:bcond, busy, cond: :ne)
+            e.emit(ASM.cmp_imm(9, 0))
+            e.emit(ASM.mov_reg_cond(:eq, 9, 7))                 # 2. the first free one
+            e.emit_branch(:b, onward)
+            e.place_label(busy)
+            e.emit(ASM.cmp_imm(0, OWNER_GAME))
+            e.emit_branch(:bcond, onward, cond: :ne)            # another part's: never taken
+            e.emit(ASM.ldr_offset(0, 7, SLOT_TICKET))
+            e.emit(ASM.cmp_reg(0, 11))
+            e.emit(ASM.mov_reg_cond(:lo, 11, 0))                # 3. the game sound playing longest
+            e.emit(ASM.mov_reg_cond(:lo, 10, 7))
+            e.place_label(onward)
+            e.emit(ASM.add_imm(7, 7, SLOT_BYTES))
+            e.emit(ASM.cmp_reg(7, 1))
+            e.emit_branch(:bcond, scan, cond: :lt)
+            e.emit(ASM.mov_reg(7, 9))
+            e.emit(ASM.cmp_imm(7, 0))
+            e.emit_branch(:bcond, done, cond: :ne)
+            e.emit(ASM.mov_reg(7, 10))
+            e.place_label(done)
+            e.emit(ASM.return)
           end
 
           # The per-frame refill: fill the buffer that is NOT playing with the next slice of
@@ -373,11 +515,10 @@ module RubyGBA
           # SAFE TO RUN FROM AN INTERRUPT, and both halves of that are worth writing down
           # because neither is obvious. The registers: the mix routine works in r0-r12, and the
           # dispatcher saves r4-r11 and lr while the BIOS saves r0-r3 and r12, so between them
-          # every one is covered. The voice slots: `play` fills a slot and writes its SOUNDING
-          # flag LAST, and `stop` clears that flag FIRST, so a slot half-written by the game is
-          # never a slot this will read. A slot the game sees as free stays free — this can
-          # retire a voice but never start one. The music player, in the same interrupt, does
-          # start voices, but only in the slots kept for it, which the game never touches.
+          # every one is covered. The voice slots: `play` and `stop` hold interrupts off while
+          # they are in the table (#holding_off_interrupts), so this never sees one half-written.
+          # This can retire a voice but never start one; the music player, earlier in the same
+          # interrupt, starts voices, and can take one of the game's (#emit_music_voice_routine).
           def emit_mixer_tick
             @primitives.load_var(0, MIX_FRONT)      # r0 = the buffer now playing (front)
             @emitter.emit(ASM.cmp_imm(0, 0))
@@ -599,14 +740,11 @@ module RubyGBA
 
           private
 
-          # Leave r0 = the address of a free voice slot, or 0 if every one the game shares is
-          # busy (the music's own are never offered). Uses r0/r1/r2 only, so the caller's r4
-          # (the sample address) survives.
+          # Leave r0 = the address of a free voice slot, or 0 if every one is busy. Uses r0/r1/r2
+          # only, so the caller's r3 and r4 survive.
           def find_free_slot
-            return @emitter.emit(ASM.load_immediate(0, 0)) if game_voices.zero?
-
             @emitter.emit(ASM.load_immediate(1, @voice_base))
-            @emitter.emit(ASM.load_immediate(2, @voice_base + (game_voices * SLOT_BYTES)))
+            @emitter.emit(ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES)))
             scan = @emitter.gensym
             found = @emitter.gensym
             miss = @emitter.gensym

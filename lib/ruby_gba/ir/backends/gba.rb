@@ -1086,6 +1086,10 @@ module RubyGBA
           end
           emit(ASM.pop(*IRQ_SAVED_REGS))
           emit(ASM.return) # BX LR back to the BIOS dispatcher
+          # The routines the music player calls to find its notes a voice, past the return and
+          # inside this routine's span — so they move with it if it is copied to the quick
+          # memory, and a call to them is always near enough.
+          @mixer.emit_music_voice_routines if @mixer.music_takes_voices?
           # Its byte span, so the build can weigh keeping it in the quick memory against
           # everything else that wants the room (see Placement#IRQ_ROUTINE).
           @functions.func_ranges[Placement::IRQ_ROUTINE] = (start...pos)

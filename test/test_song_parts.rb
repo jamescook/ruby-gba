@@ -89,10 +89,10 @@ class TestSongParts < Minitest::Test
     refute_match(/never play/, err.string)
   end
 
-  # A song whose recorded parts take every voice of the mixer leaves none for the game's own
-  # sounds — for the whole game, since which voices the music keeps is settled when it is built.
-  # Nothing would crash and the sounds would simply never play, so the build says so.
-  def test_music_that_keeps_every_voice_warns_a_game_with_sounds_of_its_own
+  # A song with as many recorded parts as there are voices builds without a word: the voices are
+  # shared, so its notes take them only while they sound, and a sound of the game's own gets one
+  # whenever a part rests.
+  def test_a_song_as_wide_as_the_mixer_is_no_trouble_to_a_game_with_sounds_of_its_own
     tune = song_of(Array.new(VOICES) { :C4 })
     err = StringIO.new
     RubyGBA.build("SONGALL", code: "ZSNA", maker: "01", out: StringIO.new, err: err) do
@@ -104,23 +104,7 @@ class TestSongParts < Minitest::Test
       game_loop { pressed(:a).then { zap.play } }
     end
 
-    assert_match(/:big/, err.string)
-    assert_match(/never play/, err.string)
-  end
-
-  def test_music_that_leaves_voices_over_says_nothing
-    err = StringIO.new
-    RubyGBA.build("SONGSOME", code: "ZSNS", maker: "01", out: StringIO.new, err: err) do
-      screen :bitmap
-      enable_sound
-      instrument :organ, pcm: [60, -60] * 4000, rate: 8000, note: :C4
-      song(:small) { voice(:pad, plays: :organ) { note :C4, :whole } }
-      zap = sample :zap, pcm: [60, -60] * 400, rate: 8000
-      play_song :small
-      game_loop { pressed(:a).then { zap.play } }
-    end
-
-    refute_match(/never play/, err.string)
+    assert_empty err.string
   end
 
   # --- what it costs is measured, by name ---
