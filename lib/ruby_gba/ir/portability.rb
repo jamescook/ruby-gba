@@ -83,6 +83,8 @@ module RubyGBA
         enable_sound: :portable, define_sound: :portable, beep: :portable, noise: :portable,
         wave: :portable, stop_wave: :portable,
         song: :portable, play_song: :portable, stop_music: :portable,
+        # ...and songs picked by a number from a list — every backend holds the list
+        song_list: :portable, play_from_list: :portable,
         # sampled PCM audio — recorded sound any backend with a mixer can play back
         play_sample: :portable, stop_sample: :portable,
 

@@ -650,6 +650,25 @@ module RubyGBA
         operands name: :name, voices: :list, total_frames: :int
       end
 
+      # A named list of songs, in order — the game's music, picked by number (see
+      # PlayFromList). A definition, like Song: it names what can be played and sounds nothing.
+      class SongList
+        include Node
+        kind :song_list
+        category :sound
+        operands name: :name, songs: :list
+      end
+
+      # The tune playing now is song number +which+ of a SongList, counting from 0 — a number
+      # that may be worked out as the program runs. Like PlaySong, naming the tune already
+      # playing changes nothing; a number naming no song in the list leaves the music as it is.
+      class PlayFromList
+        include Node
+        kind :play_from_list
+        category :sound
+        operands name: :name, which: :value
+      end
+
       class StopMusic
         include Node
         kind :stop_music

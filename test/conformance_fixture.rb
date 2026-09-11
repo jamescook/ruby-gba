@@ -46,6 +46,8 @@ module ConformanceFixture
                # ...and a part that plays a recording rather than the square wave
                { events: [[0, 262], [4, 0]], duty: :half, volume: 12, instrument: :clip },
              ]),
+      B.song(:theme, events: [[0, 330]], total_frames: 4), # a song only a list names
+      B.song_list(:tracks, [:theme]),                      # ...the list, picked from by number below
       B.data(:blob, "\x01\x02\x03\x04".b),
       B.bitmap(:sprite, width: 2, height: 2,
                         pixels: [0x001F, 0x03E0, 0x7C00, 0x8000].pack("v*"),
@@ -239,6 +241,7 @@ module ConformanceFixture
       B.wave(shape: :sine, frequency: 440, volume: :full),
       B.stop_wave,
       B.play_song(:tune),
+      B.play_from_list(:tracks, which: B.var_ref(:x)), # a number worked out as the program runs
       B.stop_music,
       B.play_sample(:clip), # a recorded sound through Direct Sound
       B.stop_sample,

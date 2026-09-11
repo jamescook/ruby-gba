@@ -62,8 +62,67 @@ module RubyGBA
 
       # No song is playing now. Like `play_song`, it can be said every frame: the
       # song goes quiet once, and saying it again while nothing plays does nothing.
+      # Said in the same frame as naming a song, it starts that song over from its
+      # first note — `stop_music; play_song :title` is how a tune restarts.
       def stop_music
         record(Build.stop_music)
+      end
+
+      # HAND OVER MUSIC AS DATA, and play it by number.
+      #
+      #   music = songs :music, [title_theme, file_select, forest]   # RubyGBA::Score each
+      #   music.play 2            # the forest
+      #   music.play track        # ...or whichever one a number the game holds says
+      #
+      # For a game whose music already exists as numbers — decoded from another cartridge,
+      # read from a file — rather than written as `song` blocks. A Hash names them instead:
+      # `songs :music, { title: TITLE, forest: FOREST }`, then `music.play :forest`. Returns a
+      # {RubyGBA::SongList}.
+      def songs(name, scores)
+        if @songs.key?(name) || @song_lists.key?(name)
+          raise ArgumentError, "There is already a song named :#{name}. Use a different name."
+        end
+
+        entries = score_entries(name, scores)
+        members = entries.map do |key, score|
+          unless score.is_a?(RubyGBA::Score)
+            raise ArgumentError, "Song #{key.inspect} of :#{name} is #{score.inspect}, which is not a " \
+                                 "RubyGBA::Score. Give `songs` a list of Scores, or a Hash of them by name."
+          end
+
+          member = :"#{name}.#{key}"
+          song = score.to_song
+          @songs[member] = score
+          record(Build.song(member, voices: song[:voices], total_frames: song[:total_frames]))
+          member
+        end
+        @song_lists[name] = members
+        record(Build.song_list(name, members))
+        RubyGBA::SongList.new(self, name, entries.map(&:first))
+      end
+
+      # The hook behind SongList#play: record that the tune playing now is number +which+ of
+      # the list — a number already checked against the list when it was written, or a Value.
+      def play_from_list(name, which)
+        raise ArgumentError, "Sound is off. Call enable_sound before playing :#{name}." unless @sound_enabled
+
+        record(Build.play_from_list(name, which: Value.node_for(which)))
+      end
+
+      private
+
+      def score_entries(name, scores)
+        entries =
+          case scores
+          when Hash then scores.to_a
+          when Array then scores.each_with_index.map { |score, number| [number, score] }
+          else
+            raise ArgumentError, "songs :#{name} takes a list of Scores, or a Hash of them by name. " \
+                                 "You gave #{scores.class}."
+          end
+        raise ArgumentError, "songs :#{name} needs at least one Score." if entries.empty?
+
+        entries
       end
     end
   end

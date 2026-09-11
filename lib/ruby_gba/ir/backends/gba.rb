@@ -362,7 +362,8 @@ module RubyGBA
           @raster = Raster.new(emitter: @emit, primitives: @primitives, memory: @memory,
                                lowering: @lowering, backgrounds: @backgrounds, framebuffer: @framebuffer)
           @mixer = Mixer.new(emitter: @emit, memory: @memory, timers: @timers, primitives: @primitives)
-          @audio = Audio.new(emitter: @emit, primitives: @primitives, mixer: @mixer, sounds: @defined_sounds, songs: @songs,
+          @audio = Audio.new(emitter: @emit, primitives: @primitives, lowering: @lowering, mixer: @mixer,
+                             sounds: @defined_sounds, songs: @songs,
                              frames: @frames, expressions: @expressions, raster: @raster, drawing: self,
                              uses_pressed: -> { @uses_pressed }, any_buffered: -> { @any_buffered })
           @palette_tint = PaletteTint.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
@@ -391,7 +392,7 @@ module RubyGBA
             read_scanline: @expressions.method(:eval_read_scanline), timer_ticks: method(:eval_timer_ticks),
           )
           # Every statement kind's handler, registered once in one place — see {Lowering}.
-          # The 12 definition kinds are collected during the definitions pass, earlier in
+          # The definition kinds are collected during the definitions pass, earlier in
           # #lower, and emit nothing here — Lowering::NOTHING says so explicitly.
           @lowering.statements(
             func: Lowering::NOTHING, set: @statements.method(:emit_set), add: @statements.method(:emit_add),
@@ -425,6 +426,7 @@ module RubyGBA
             noise: @audio.method(:emit_noise), wave: @audio.method(:emit_wave),
             stop_wave: @audio.method(:emit_stop_wave),
             play_song: @audio.method(:emit_play_song), stop_music: @audio.method(:emit_stop_music),
+            song_list: Lowering::NOTHING, play_from_list: @audio.method(:emit_play_from_list),
             timer_start: method(:emit_timer_start), timer_stop: method(:emit_timer_stop),
             on_timer: Lowering::NOTHING, sample: Lowering::NOTHING, play_sample: @mixer.method(:emit_play_sample),
             stop_sample: @mixer.method(:emit_stop_sample),
