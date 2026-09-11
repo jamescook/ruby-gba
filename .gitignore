@@ -27,6 +27,10 @@ coverage/
 # Personal Claude Code settings (permissions, local overrides) — not shared config.
 .claude/settings.local.json
 
+# Local agent notes, holding everything about the issue tracker. That tracker is internal to
+# one machine, so a checked-in file must not name it; this is where it goes instead.
+CLAUDE.local.md
+
 # "rake cost:check passed against exactly this code", read by the pre-commit hook. Local
 # by nature: it says what THIS machine has verified, so committing it would tell a fresh
 # clone the corpus had been scored when nobody had run anything.
