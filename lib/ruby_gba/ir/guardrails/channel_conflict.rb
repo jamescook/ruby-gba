@@ -24,17 +24,17 @@ module RubyGBA
             layered = Tunes.played(program).select { |song| song.voices.count { |part| !part[:instrument] } >= 2 }
 
             layered.map do |song|
-              Finding.new(check: NAME, severity: :warning, message: message(song.name), node: song)
+              Finding.new(check: NAME, severity: :warning, message: message(program, song), node: song)
             end
           end
 
           private
 
-          def message(name)
-            "The song :#{name} plays in two parts. Its second part uses the same sound voice as your beeps. " \
-              "The console has only a few voices. While :#{name} plays, a beep and the song's lower part " \
-              "interrupt each other. To use beeps and this music together, make :#{name} a one-part song, " \
-              "just the melody. Or play the beeps only while :#{name} does not play."
+          def message(program, song)
+            "#{SongWords.song_capitalized(program, song)} plays in two parts. Its second part uses the same " \
+              "sound voice as your beeps. The console has only a few voices. While the song plays, a beep and " \
+              "its lower part interrupt each other. To use beeps and this music together, make it a one-part " \
+              "song, just the melody. Or play the beeps only while the song does not play."
           end
         end
       end

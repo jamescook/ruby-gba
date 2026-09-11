@@ -1,0 +1,97 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+require "stringio"
+
+# A song needs a voice for every one of its parts at once: one of the console's two square-wave
+# voices for each plain part, and one of the mixer's for each part that plays an instrument. Past
+# either number some part would never be heard, so the build stops and says which song and what
+# to do — for a song block and for a Score alike, since both reach the same program.
+class TestSongTooManyPartsGuardrail < Minitest::Test
+  include RubyGBA::IR::Build
+
+  Check = RubyGBA::IR::Guardrails::Checks::SongTooManyParts
+  Part = RubyGBA::Score::Part
+  Note = RubyGBA::Score::Note
+
+  def part(instrument = nil)
+    voice = { events: [[0, 262]], duty: :half, volume: 12 }
+    instrument ? voice.merge(instrument: instrument) : voice
+  end
+
+  def detect(voices) = Check.new.detect(program(song(:big, total_frames: 4, voices: voices)))
+
+  def test_a_third_square_wave_part_stops_the_build
+    findings = detect([part, part, part])
+
+    assert_equal 1, findings.length
+    assert findings.first.error?
+    assert_match(/3 parts that play the square wave/, findings.first.message)
+    assert_match(/plays:/, findings.first.message, "says how to have more parts")
+  end
+
+  def test_a_ninth_recorded_part_stops_the_build
+    findings = detect([part, part] + Array.new(9) { part(:organ) })
+
+    assert_equal 1, findings.length
+    assert_match(/9 parts that play an instrument/, findings.first.message)
+    refute_match(/remove the instrument/, findings.first.message,
+                 "both square-wave voices are taken, so that is no way out")
+  end
+
+  def test_a_song_with_square_wave_voices_to_spare_is_told_it_can_use_them
+    message = detect(Array.new(9) { part(:organ) }).first.message
+
+    assert_match(/remove the instrument from one or two of these parts/, message)
+  end
+
+  def test_every_voice_used_and_no_more_is_quiet
+    assert_empty detect([part, part] + Array.new(RubyGBA::Sound::MIXER_VOICES) { part(:organ) })
+  end
+
+  # --- through the build, however the song was made ---
+
+  def build(&program)
+    err = StringIO.new
+    assert_raises(RubyGBA::ROMError) do
+      RubyGBA.build("PARTS", code: "ZPRT", maker: "01", out: StringIO.new, err: err) do
+        screen :bitmap
+        enable_sound
+        instrument :organ, pcm: [60, -60] * 400, rate: 8000, note: :C4
+        instance_exec(&program)
+        game_loop { wait_vblank }
+      end
+    end
+    err.string
+  end
+
+  def test_a_song_block_meets_the_limit
+    said = build do
+      song :trio do
+        voice(:a) { note :C4, :quarter }
+        voice(:b) { note :E4, :quarter }
+        voice(:c) { note :G4, :quarter }
+      end
+      play_song :trio
+    end
+
+    assert_match(/The song :trio has 3 parts that play the square wave/, said)
+    assert_match(/voice :strings, plays: :strings/, said, "the fix is written the way a song block writes it")
+  end
+
+  def test_a_score_meets_the_same_limit
+    chord = Array.new(9) { |n| Part.new(plays: :organ, notes: [Note.new(at: 0, key: 60 + n)]) }
+    said = build { songs(:music, [RubyGBA::Score.new(parts: chord)]).play 0 }
+
+    assert_match(/Song 0 of :music has 9 parts that play an instrument/, said,
+                 "a song from a list is named by its place in the list")
+  end
+
+  def test_a_score_is_shown_the_fix_the_way_a_score_writes_it
+    trio = Array.new(3) { |n| Part.new(notes: [Note.new(at: 0, key: 60 + n)]) }
+    said = build { songs(:music, [RubyGBA::Score.new(parts: trio)]).play 0 }
+
+    assert_match(/Score::Part\.new\(plays: :strings/, said)
+  end
+end

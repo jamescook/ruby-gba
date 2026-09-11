@@ -145,7 +145,9 @@ module RubyGBA
 
     # WHAT A SCORE HAS TO BE, said plainly and early — a game hands these over from its own
     # decoder, and a mistake in one names the note it is in, rather than coming out as a wrong
-    # sound or a crash somewhere deep in the build.
+    # sound or a crash somewhere deep in the build. What a SONG has to be — how many parts, how
+    # low a square-wave note — is the same for a Score and a song block, so it is checked on the
+    # finished program instead (IR::Guardrails).
     module Checks
       module_function
 
@@ -159,24 +161,6 @@ module RubyGBA
         end
         tempo!(score.tempo)
         score.parts.each_with_index { |part, number| part!(part, number) }
-        parts_fit!(score.parts)
-      end
-
-      # The same two limits a song block has, for the same reasons.
-      def parts_fit!(parts)
-        recorded = parts.count(&:plays)
-        squares = parts.length - recorded
-        if squares > Music::MAX_SQUARE_PARTS
-          raise ArgumentError, "A Score can have at most #{Music::MAX_SQUARE_PARTS} square-wave parts, and " \
-                               "this one has #{squares}. The console has #{Music::MAX_SQUARE_PARTS} " \
-                               "square-wave voices for music. To add more parts, give each extra part an " \
-                               "instrument with `plays:`."
-        end
-        return if recorded <= Sound::MIXER_VOICES
-
-        raise ArgumentError, "A Score can have at most #{Sound::MIXER_VOICES} parts that play an " \
-                             "instrument, and this one has #{recorded}. The mixer plays at most " \
-                             "#{Sound::MIXER_VOICES} recordings at once."
       end
 
       def tempo!(tempo)

@@ -282,9 +282,13 @@ require_relative "guardrails/termination"
 require_relative "guardrails/off_screen_draw"
 require_relative "guardrails/orphaned_condition"
 require_relative "guardrails/orphaned_expression"
+require_relative "guardrails/song_words" # shared by the music checks below
 require_relative "guardrails/channel_conflict"
 require_relative "guardrails/song_needs_frames"
 require_relative "guardrails/song_instrument_unknown"
+require_relative "guardrails/song_too_many_parts"
+require_relative "guardrails/square_note_too_low"
+require_relative "guardrails/note_never_plays"
 require_relative "guardrails/music_keeps_every_voice"
 require_relative "guardrails/redraw_everything"
 require_relative "guardrails/sprite_cleared_each_frame"
@@ -319,6 +323,9 @@ module RubyGBA
         Checks::ChannelConflict.new,
         Checks::SongNeedsFrames.new,
         Checks::SongInstrumentUnknown.new,
+        Checks::SongTooManyParts.new,
+        Checks::SquareNoteTooLow.new,
+        Checks::NoteNeverPlays.new,
         Checks::MusicKeepsEveryVoice.new,
         Checks::RedrawEverything.new,
         Checks::SpriteClearedEachFrame.new,
