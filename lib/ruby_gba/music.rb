@@ -69,15 +69,16 @@ module RubyGBA
       dotted_eighth:   0.75,
     }.freeze
 
-    # The most parts a song can sound at once. The console has two square-wave voices free
-    # for a tune (a third opens up once the wave channel lands). This is a count of *parts*,
-    # not hardware channels — the writer never picks one.
+    # HOW MANY PARTS A SONG CAN HAVE, which is what the console really has for them. A plain
+    # part plays a square wave, and the console has two square-wave voices for music. A part
+    # that plays an instrument goes through the mixer instead, one of its voices each, so those
+    # are held to the mixer's count and not to the square waves at all.
     #
-    # NAMED FOR WHAT IT COUNTS, because it is not the mixer's {Sound::MIXER_VOICES} and the
-    # two were both called MAX_VOICES. A part is a line of music; a voice is a slot that
-    # makes a sound. One word for one meaning, so the number that limits tunes cannot be
-    # read as the number that limits sounds.
-    MAX_PARTS = 2
+    # NAMED FOR WHAT IT COUNTS: a part is a line of music, and a voice is a slot that makes a
+    # sound. One word for one meaning, so the number that limits tunes cannot be read as the
+    # number that limits sounds.
+    MAX_SQUARE_PARTS = 2
+    MAX_PARTS = MAX_SQUARE_PARTS + Sound::MIXER_VOICES
 
     # One part of a song: a single line of notes and rests, with its own tone
     # (duty) and loudness (volume). The clock (tempo) lives on the song and is
@@ -88,7 +89,7 @@ module RubyGBA
     #
     # Each event is [frame_offset, freq_hz] where freq_hz = 0 is a rest.
     class VoiceContext
-      attr_reader :events
+      attr_reader :events, :instrument
 
       def initialize(song, plays: nil)
         @song = song       # the shared tempo is read back through this
@@ -248,9 +249,20 @@ module RubyGBA
       end
 
       def ensure_voice_budget!
-        return if @voices.length <= MAX_PARTS
-        raise ArgumentError, "a song can play at most #{MAX_PARTS} parts at once " \
-          "(this one has #{@voices.length}). Layer a melody and a bass — the console runs out of voices."
+        recorded = @voices.count { |entry| entry[:voice].instrument }
+        squares = @voices.length - recorded
+        if squares > MAX_SQUARE_PARTS
+          raise ArgumentError,
+                "A song can have at most #{MAX_SQUARE_PARTS} square-wave parts, and this song has " \
+                "#{squares}. The console has #{MAX_SQUARE_PARTS} square-wave voices for music. To add " \
+                "more parts, give each extra part an instrument: `voice :strings, plays: :strings do ... end`."
+        end
+        return if recorded <= Sound::MIXER_VOICES
+
+        raise ArgumentError,
+              "A song can have at most #{Sound::MIXER_VOICES} parts that play an instrument, and this " \
+              "song has #{recorded}. The mixer plays at most #{Sound::MIXER_VOICES} recordings at once. " \
+              "To fix this, use fewer parts that play an instrument."
       end
 
       def mixed_message

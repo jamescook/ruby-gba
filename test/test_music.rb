@@ -164,7 +164,9 @@ class TestMusic < Minitest::Test
     assert_equal({ duty: :half, volume: 6 }, ctx.voices[1].slice(:duty, :volume))
   end
 
-  def test_too_many_parts_is_a_friendly_error
+  # Two square-wave voices are all the console has for music, so a third square-wave part is
+  # refused — and the error says how to have more parts: give them an instrument.
+  def test_a_third_square_wave_part_is_a_friendly_error
     ctx = RubyGBA::Music::SongContext.new
     err = assert_raises(ArgumentError) do
       ctx.instance_eval do
@@ -173,7 +175,8 @@ class TestMusic < Minitest::Test
         voice(:c) { note :G4, :quarter }
       end
     end
-    assert_match(/at most 2 parts/, err.message)
+    assert_match(/at most 2 square-wave parts/, err.message)
+    assert_match(/plays:/, err.message)
   end
 
   def test_mixing_loose_notes_and_voice_blocks_is_a_friendly_error

@@ -25,9 +25,20 @@ module RubyGBA
       end
 
       # How many of the mixer's voices the music keeps: as many as the most any one played tune
-      # has recorded parts, since one tune plays at a time.
+      # has recorded parts, since one tune plays at a time. More than the mixer has cannot be
+      # kept by any backend, so none of them is asked to.
       def mixer_voices(program)
-        played(program).map { |song| recorded_parts(song) }.max || 0
+        wanted = played(program).map { |song| recorded_parts(song) }.max || 0
+        return wanted if wanted <= Sound::MIXER_VOICES
+
+        raise ArgumentError, "a song has #{wanted} parts that play a recording, and the mixer has " \
+                             "#{Sound::MIXER_VOICES} voices"
+      end
+
+      # The played song with the most recorded parts — the one that decides how many voices the
+      # music keeps — or nil when no played song has any.
+      def keeps_the_most(program)
+        played(program).select { |song| recorded_parts(song).positive? }.max_by { |song| recorded_parts(song) }
       end
     end
   end
