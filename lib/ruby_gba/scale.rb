@@ -1,8 +1,12 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  # WHAT A PLACE KEEPS — plain whole numbers, or numbers carrying a fraction — and the
-  # rules for bringing another number onto the same footing before the two meet.
+  # WHAT A PLACE KEEPS — plain whole numbers, numbers carrying a fraction, or one of a set of
+  # names — and the rules for bringing another value onto the same footing before the two meet.
+  #
+  # The names are the odd one out and belong here for the same reason: a place that keeps one
+  # of them still keeps a number, so a name written against it has to become that number on its
+  # way in, wherever it was written (see {NameSet}).
   #
   # Four things in this framework keep numbers: a variable, a list, a pool field, and an
   # expression built out of those. They agree on the rules and disagree only on how to
@@ -26,13 +30,19 @@ module RubyGBA
     #   declare THIS kind of place with a fraction
     # @param mixing [Proc, nil] given whether this place holds a fraction, how to say
     #   that it and the other number are two different kinds
-    def initialize(bits: nil, declaring: nil, mixing: nil)
+    # @param names [NameSet, nil] the names this place holds, for a place that keeps one of
+    #   a set of them (a game state) rather than a count
+    def initialize(bits: nil, declaring: nil, mixing: nil, names: nil)
       @bits = bits
       @declaring = declaring
       @mixing = mixing
+      @names = names
     end
 
-    attr_reader :bits
+    attr_reader :bits, :names
+
+    # Whether this place keeps one of a set of names rather than a count.
+    def names? = !@names.nil?
 
     # Whether this place carries a fraction rather than plain whole numbers.
     def fraction?
@@ -46,6 +56,8 @@ module RubyGBA
     # means one faster. A number the game works out cannot be: there is no way to tell
     # whether a counter holding 3 means three, or three sixty-fourths.
     def node_matching(other, verb)
+      return Build.int(@names.number_for(other)) if names? && other.is_a?(Symbol)
+
       other_bits = Fraction.bits_of(other)
       return self.class.node_at(other, other_bits) if @bits == other_bits
       return Build.int(Fraction.scale(other, @bits)) if fraction? && Fraction.literal?(other)
@@ -65,6 +77,7 @@ module RubyGBA
     # Integer rather than a node — because the verbs behind these still want to look at
     # it (`approach` refuses a step of zero or less, and cannot ask that of a node).
     def operand_matching(other, verb)
+      return @names.number_for(other) if names? && other.is_a?(Symbol)
       return Fraction.scale(other, @bits) if fraction? && Fraction.literal?(other)
       return other if !fraction? && other.is_a?(Integer)
 

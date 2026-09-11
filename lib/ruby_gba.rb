@@ -19,6 +19,7 @@ require_relative "ruby_gba/rom"
 require_relative "ruby_gba/font"
 require_relative "ruby_gba/fonts"
 require_relative "ruby_gba/fraction"
+require_relative "ruby_gba/name_set" # the names a variable or a pool field can hold
 require_relative "ruby_gba/builder"
 require_relative "ruby_gba/effects" # the verb/effect pack registry, and the packs that ship on by default
 require_relative "ruby_gba/evaluated_game" # the one place a game's block becomes a program

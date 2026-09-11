@@ -17,7 +17,8 @@ module RubyGBA
     # @param field [Symbol] the field's own name, likewise
     # @param fraction_bits [Integer, nil] what the field holds, from its declared default —
     #   a pool field written `vy: 0.0` carries a fraction the way a variable does
-    def initialize(builder:, list:, index:, pool:, field:, fraction_bits: nil)
+    # @param names [NameSet, nil] the names the field holds, for a field declared with one
+    def initialize(builder:, list:, index:, pool:, field:, fraction_bits: nil, names: nil)
       @list_name = list
       @index_node = index
       @pool = pool
@@ -25,7 +26,7 @@ module RubyGBA
       # As a Value, this handle IS a read of the slot — so it composes in expressions
       # (b.x + 5, b.y > 100) exactly like a variable read. It carries no variable name,
       # so the mutators below override Value's (which write to a named variable).
-      super(builder, read, name: nil, fraction_bits: fraction_bits,
+      super(builder, read, name: nil, fraction_bits: fraction_bits, names: names,
                            declaring: self.class.declaring(pool, field),
                            mixing: self.class.mixing(pool, field))
     end
@@ -38,8 +39,9 @@ module RubyGBA
     # a `spawn` was given against the fields they are going into, and it has no instance
     # to hold a handle for — nor any need of one. On the class so that a field's own two
     # sentences are written once and both callers say the same thing.
-    def self.scale(pool:, field:, bits:)
-      Scale.new(bits: bits, declaring: declaring(pool, field), mixing: mixing(pool, field))
+    def self.scale(pool:, field:, bits:, names: nil)
+      Scale.new(bits: bits, declaring: declaring(pool, field), mixing: mixing(pool, field),
+                names: names)
     end
 
     # How to make THIS field hold a fraction: say so in the default it is declared with,

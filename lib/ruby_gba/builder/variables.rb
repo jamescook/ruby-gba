@@ -19,7 +19,7 @@ module RubyGBA
       # @param value [Integer] value to store
       # @return [Value] a handle to the variable
       def set(name, value)
-        record(Build.set(name, fraction_node_for(name, value)))
+        record(Build.set(name, stored_node(name, value)))
         ensure_var(name)
         mirror_save(name)
         handle_for(name)
@@ -32,12 +32,19 @@ module RubyGBA
       # lets a game object declare its own state (a score, a flag) in its setup even when
       # that setup lives inside a scene. Returns a {Value} handle for the variable.
       #
+      # A STARTING VALUE THAT IS A NAME — `var :mode, :title` — declares a variable that holds
+      # one of a set of names rather than a count: the states a game can be in, the moves an
+      # enemy can make. The framework gives each name a number, in the order it first appears,
+      # and nothing in the game ever writes one (see {NameSet}). `mode.set :playing` and
+      # `(mode == :playing)` read as they look, and `call mode` runs the routine of that name.
+      #
       # @param name [Symbol] variable name
-      # @param value [Integer, Symbol, Value] the starting value
+      # @param value [Integer, Symbol, Value] the starting value, or the first of its names
       # @return [Value] a handle to the variable
       def var(name, value)
         ensure_var(name)
-        at_boot(Build.set(name, fraction_node_for(name, value)))
+        @name_vars[name] ||= NameSet.new("the variable :#{name}") if value.is_a?(Symbol)
+        at_boot(Build.set(name, stored_node(name, value)))
         handle_for(name)
       end
 
@@ -216,7 +223,18 @@ module RubyGBA
       # route to a variable goes through here, so `var :px, 3.5` and a later
       # `set :px, ...` hand back handles that agree about what the variable is.
       def handle_for(name)
-        Value.new(self, Build.var_ref(name), name: name, fraction_bits: @fraction_vars[name])
+        Value.new(self, Build.var_ref(name), name: name, fraction_bits: @fraction_vars[name],
+                                             names: @name_vars[name])
+      end
+
+      # The node to store in +name+. A variable that holds NAMES turns the one it was given
+      # into that name's number; everything else keeps the meaning it has everywhere — a bare
+      # symbol is another variable, and a Float says the variable holds a fraction.
+      def stored_node(name, value)
+        held = @name_vars[name]
+        return Build.int(held.number_for(value)) if held && value.is_a?(Symbol)
+
+        fraction_node_for(name, value)
       end
 
       # The node to store in +name+, remembering whether that variable holds a

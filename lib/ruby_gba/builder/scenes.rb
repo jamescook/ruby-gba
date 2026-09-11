@@ -44,9 +44,22 @@ module RubyGBA
       # does — where testing the number against each one in turn costs a test per routine. A
       # number below 0 or past the end of the list calls nothing.
       #
-      # @param name [Symbol, Array<Symbol>] function name, or a list of them to pick from
+      # THE ROUTINE A VARIABLE NAMES, which is the same thing with no number in sight:
+      #
+      #   mode = var :mode, :title        # a variable that holds one of a set of names
+      #   game_loop { call mode }         # runs :title, :playing or :over
+      #   pressed(:start).then { mode.set :playing }
+      #
+      # The routines are the names that variable can hold, and the framework numbers them for
+      # you — so this is the line above with the numbering taken off your hands. Which names
+      # those are is known only once the whole program is built, so the list is gathered at the
+      # end rather than where this was written.
+      #
+      # @param name [Symbol, Array<Symbol>, Value] function name, a list of them to pick from,
+      #   or a value holding the name of one
       # @param number [Integer, Symbol, Value, nil] which of the list to call
       def call(name, number: nil)
+        return call_by_name(name, number) if name.is_a?(Value)
         return call_one_of(name, number) if name.is_a?(Array)
 
         unless number.nil?
@@ -118,6 +131,32 @@ module RubyGBA
       end
 
       private
+
+      # Call the routine whose name +value+ holds. The routines are that value's own names, and
+      # the last of them is not known yet — a name first used further down the program is one
+      # of them too — so the dispatch is recorded now and its list filled in at finalize.
+      def call_by_name(value, number)
+        unless number.nil?
+          raise ArgumentError,
+                "`call` was given a value and `number:`. The value already says which routine " \
+                "to call. To fix this, remove `number:`."
+        end
+        held = value.names or raise ArgumentError, holds_no_names(value)
+
+        node = Build.call_one_of([], which: value.node)
+        @name_dispatches << [node, held]
+        record(node)
+      end
+
+      # A value that holds plain numbers cannot name a routine. Say what to write instead,
+      # which is the list form — the number is then a place in a list you give.
+      def holds_no_names(value)
+        wrote = value.name ? "the variable :#{value.name}" : "a value"
+        "`call` was given #{wrote}, which holds numbers, not names. A value names a routine " \
+          "only when it was declared with a name, like `var :mode, :title`. To call one of " \
+          "several routines by a number instead, give the list: `call [:first, :second], " \
+          "number: ...`."
+      end
 
       # Call whichever of +names+ the +number+ picks. A number written into the program
       # picks while building, so it is a plain call; one the game works out picks as it runs.
