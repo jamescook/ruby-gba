@@ -352,6 +352,16 @@ module RubyGBA
       end
     end
 
+    # LDR rd, [rn, rm, LSL #shift] — load the word +rm+ places along from +rn+, with the
+    # index scaled on the way in. A word is four bytes, so a shift of 2 turns "the third
+    # one" into "twelve bytes along" and reading a table by number is one instruction.
+    # (The I bit, 25, is what makes the offset a register rather than a written number.)
+    def ldr_reg_lsl(rd, rn, rm, shift)
+      raise ArgumentError, "shift must be 0-31" unless (0..31).cover?(shift)
+
+      [0xE7900000 | (rn << 16) | (rd << 12) | (shift << 7) | rm].pack("V")
+    end
+
     # LDRB rd, [rn, #offset] — load an unsigned byte (0..255) with immediate
     # offset. The B (bit 22) is what makes it a byte load instead of a word.
     def ldrb_offset(rd, rn, offset)

@@ -140,6 +140,25 @@ module RubyGBA
         kind :call
         category :control
         operands target: :name
+
+        def callees = [target]
+      end
+
+      # Call ONE of +targets+, picked by +which+ — a number counting from 0 through the list,
+      # which may be worked out as the program runs. A number naming no routine in the list,
+      # below 0 or past its end, calls nothing.
+      #
+      # Case's sibling, and the difference is what each costs. A case asks its values one at a
+      # time, so a long one is a long run of questions; this goes straight to the routine the
+      # number names, however many there are. That is what stepping a script wants: one of a
+      # hundred and more handlers, picked by an instruction's number, several times a frame.
+      class CallOneOf
+        include Node
+        kind :call_one_of
+        category :control
+        operands targets: :list, which: :value
+
+        def callees = targets
       end
 
       class Camera
@@ -154,6 +173,8 @@ module RubyGBA
         kind :case
         category :control
         operands var: :name, clauses: :list
+
+        def callees = clauses.map(&:last)
       end
 
       class Chance

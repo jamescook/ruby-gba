@@ -162,11 +162,15 @@ module RubyGBA
           # the label table. Used to hand the interrupt vector the address of a routine
           # that lives in the code, not in the data region.
           def resolve_label_address(fix)
-            position = @labels.fetch(fix[:target]) do
-              raise LoweringError, "reference to undefined label #{fix[:target].inspect}"
+            @code[fix[:pos], 16] = ASM.load_immediate_fixed(fix[:reg], label_address(fix[:target]))
+          end
+
+          # Where code label +name+ is in the cartridge when it runs.
+          def label_address(name)
+            position = @labels.fetch(name) do
+              raise LoweringError, "reference to undefined label #{name.inspect}"
             end
-            address = ROM_START + RubyGBA::ROM::ENTRY_OFFSET + position
-            @code[fix[:pos], 16] = ASM.load_immediate_fixed(fix[:reg], address)
+            ROM_START + RubyGBA::ROM::ENTRY_OFFSET + position
           end
 
           # Load the run-time address of a named code label into +reg+ (a fixed-size
@@ -219,6 +223,12 @@ module RubyGBA
           # resolver (Placement's :fast_addr/:hot_size included) writes back with.
           def patch16(pos, bytes)
             @code[pos, 16] = bytes
+          end
+
+          # Write one word of an embedded blob, +offset+ bytes into it — for a blob that is a
+          # table of addresses only known in the second pass.
+          def patch_word(blob, offset, value)
+            @code[@data_positions.fetch(blob) + offset, 4] = [value].pack("V")
           end
         end
       end

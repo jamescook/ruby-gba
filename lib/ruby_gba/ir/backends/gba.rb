@@ -406,6 +406,7 @@ module RubyGBA
             list_new: @lists.method(:emit_list_new), list_push: @lists.method(:emit_list_push),
             list_drop: @lists.method(:emit_list_drop), list_set: @lists.method(:emit_list_set),
             call: @statements.method(:emit_call), case: @functions.method(:emit_case),
+            call_one_of: @functions.method(:emit_call_one_of),
             raw: @statements.method(:emit_raw), halt: @statements.method(:emit_halt),
             wait_vblank: @audio.method(:emit_wait_vblank), screen: @drawing.method(:emit_screen),
             pixel: @drawing.method(:emit_pixel), fill_rect: @drawing.method(:emit_fill_rect),
@@ -790,10 +791,11 @@ module RubyGBA
           # Only now does every variable have a home, so only now is it known where the
           # quick memory's spare room begins — which is where the moved block goes.
           place_hot_code
-          # :fast_addr/:hot_size are Placement's own fixup kinds — Emit doesn't know
-          # what "the quick memory" or "a DMA transfer's size" mean, so Placement
+          # :fast_addr/:hot_size/:routine_word are Placement's own fixup kinds — Emit doesn't
+          # know what "the quick memory" or "a DMA transfer's size" mean, so Placement
           # hands its own resolvers in rather than Emit reaching for them by name.
-          @emit.resolve_fixups(fast_addr: method(:resolve_fast_address), hot_size: method(:resolve_hot_size))
+          @emit.resolve_fixups(fast_addr: method(:resolve_fast_address), hot_size: method(:resolve_hot_size),
+                               routine_word: method(:resolve_routine_word))
           @emit.code
         end
 

@@ -39,7 +39,7 @@ module RubyGBA
           # A statement kind that can reach code this loop does not control, and so can land
           # anywhere in the registers. `raw` is in the list because it is the escape hatch:
           # instructions the author wrote themselves, which may use any register they like.
-          REACHES_OTHER_CODE = %i[call case repeat on_timer raw].freeze
+          REACHES_OTHER_CODE = %i[call call_one_of case repeat on_timer raw].freeze
 
           # ...and the lowerings that use the high registers for their own working: a
           # blitted image clips each row against the screen edges in them, the mixer sums
@@ -151,6 +151,7 @@ module RubyGBA
           def phrase_for(node, index)
             case node.kind
             when :call then "the body calls :#{node.target}"
+            when :call_one_of then "the body calls a routine picked by number"
             when :case then "the body picks a scene"
             when :repeat then "a loop inside it"
             when :on_timer then "a timer's handler inside it"

@@ -194,25 +194,19 @@ module RubyGBA
         targets
       end
 
-      # Every func called directly (by name) from somewhere in the main body — this
-      # catches `once_a_frame`'s hidden routine and any other bare per-frame helper,
-      # alongside a case_var's own targets (a scene can itself be reached by a plain
-      # `call` too, e.g. a game with no case_var at all).
+      # Every func called from somewhere in the main body other than by a case_var — this
+      # catches `once_a_frame`'s hidden routine and any other bare per-frame helper, and a
+      # routine picked by number, alongside a case_var's own targets (a scene can itself be
+      # reached by a plain `call` too, e.g. a game with no case_var at all).
       def main_body_call_targets
         targets = []
-        main_body.each { |node| node.walk { |n| targets << n.target if n.kind == :call } }
+        main_body.each { |node| node.walk { |n| targets.concat(n.callees) unless n.kind == :case } }
         targets
       end
 
-      # Every func a node (and its whole subtree, including else-branches) calls or
-      # dispatches to.
+      # Every func a node (and its whole subtree, including else-branches) can call.
       def call_targets(node)
-        targets = []
-        node.walk do |n|
-          targets << n.target if n.kind == :call
-          n.clauses.each { |_value, target| targets << target } if n.kind == :case
-        end
-        targets
+        node.walk.flat_map(&:callees)
       end
     end
   end

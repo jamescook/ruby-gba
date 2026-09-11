@@ -379,6 +379,16 @@ class TestASM < Minitest::Test
     assert_equal 0, (inst >> 23) & 1  # U bit = 0 (subtract offset)
   end
 
+  def test_ldr_reg_lsl_scales_its_index_on_the_way_in
+    assert_equal 0xE79CC100, unpack(A.ldr_reg_lsl(12, 12, 0, 2)) # ldr r12, [r12, r0, lsl #2]
+  end
+
+  # It writes the register it loads, and says so, so a known address is never trusted past it.
+  def test_ldr_reg_lsl_disturbs_the_register_it_loads
+    assert A.disturbs?(unpack(A.ldr_reg_lsl(12, 12, 0, 2)), 12)
+    refute A.disturbs?(unpack(A.ldr_reg_lsl(1, 12, 0, 2)), 12), "the address is only read"
+  end
+
   def test_str
     inst = unpack(A.str(2, 4))
     assert_equal 2, rd(inst)

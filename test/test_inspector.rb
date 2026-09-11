@@ -290,6 +290,13 @@ class TestInspector < Minitest::Test
     assert_includes result, "0x8"
   end
 
+  # The offset held in a register and scaled on the way in, which is how a table of words is
+  # read by number. Read as an immediate offset it would print a number that is not there.
+  def test_ldr_with_a_scaled_register_offset
+    word = RubyGBA::ASM.ldr_reg_lsl(12, 12, 0, 2).unpack1("V")
+    assert_equal "LDR   r12, [r12, r0, LSL #2]", disasm(word).strip
+  end
+
   def test_str_offset
     word = RubyGBA::ASM.str_offset(0, 1, 4).unpack1("V")
     result = disasm(word)

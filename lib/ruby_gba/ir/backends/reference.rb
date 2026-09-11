@@ -514,6 +514,8 @@ module RubyGBA
             exec_restore_region(node)
           when :call
             exec_call(node.target)
+          when :call_one_of
+            exec_call_one_of(node)
           when :case
             exec_case(node)
           when :halt
@@ -964,6 +966,13 @@ module RubyGBA
           node.clauses.each do |clause_value, target|
             exec_call(target) if value == clause_value
           end
+        end
+
+        # The routine at position +which+ of the list. A number below 0 or past the end names
+        # none, and nothing is called.
+        def exec_call_one_of(node)
+          which = eval_value(node.which)
+          exec_call(node.targets[which]) if which.between?(0, node.targets.length - 1)
         end
 
         # Copy a defined bitmap onto the fake screen at (x, y).

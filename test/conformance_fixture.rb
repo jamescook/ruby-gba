@@ -278,6 +278,10 @@ module ConformanceFixture
       B.call(:helper),
       B.set(:sel, 0),
       B.case_(:sel, { 0 => :scene_a, 1 => :scene_b }),
+      # ...and a routine picked by a number worked out as the program runs — :sel + 1, so
+      # the second of the two. A backend that picked the first, or none, leaves :picked at
+      # what the case above set.
+      B.call_one_of(%i[scene_a scene_b], which: B.binop(:+, B.var_ref(:sel), B.int(1))),
       B.repeat(3, :ri, B.set(:acc, B.var_ref(:ri))), # counted loop, index 0..2
 
       # --- timed triggers: a repeating and a one-shot timer (counters cleared

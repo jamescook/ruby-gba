@@ -51,18 +51,13 @@ module RubyGBA
             program.each.select { |node| node.kind == :func }.to_h { |func| [func.name, func] }
           end
 
-          # Whether a frame sync is reachable from +node+, following `call` and
-          # `case` dispatch into the funcs they target. A reachable `raw` block
-          # counts as "synced": it's opaque, so it may hand-roll a sync we can't
-          # see, and staying quiet beats crying wolf. +seen+ guards a call cycle.
+          # Whether a frame sync is reachable from +node+, following every call into
+          # the funcs it can reach. A reachable `raw` block counts as "synced": it's
+          # opaque, so it may hand-roll a sync we can't see, and staying quiet beats
+          # crying wolf. +seen+ guards a call cycle.
           def reaches_sync?(node, funcs, seen)
             node.walk.any? do |n|
-              case n.kind
-              when :wait_vblank, :raw then true
-              when :call then follow?(n.target, funcs, seen)
-              when :case then n.clauses.any? { |(_value, target)| follow?(target, funcs, seen) }
-              else false
-              end
+              %i[wait_vblank raw].include?(n.kind) || n.callees.any? { |target| follow?(target, funcs, seen) }
             end
           end
 

@@ -132,6 +132,12 @@ module RubyGBA
       # A test with a branch to take when it fails.
       def branching? = self.class.tags.key?(:else)
 
+      # The routines this node can hand control to, by name — none, for nearly every kind. A
+      # kind that calls says which (see Nodes::Call and its siblings), so code following the
+      # calls through a program asks this, and a new way of reaching a routine is followed
+      # everywhere as soon as its kind answers it.
+      def callees = []
+
       # Attach a nested statement, wiring its parent back-reference so the tree
       # is navigable in both directions.
       # @return [Node] the child (so calls can chain)
