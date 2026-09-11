@@ -73,13 +73,13 @@ module RubyGBA
     # square-wave voices for music — that half is the hardware. A part that plays an instrument
     # goes through the mixer instead, one of its voices each, and that half is the framework's:
     # recordings are summed in software, and Sound::MIXER_VOICES is how many it sums today, not
-    # a number the console imposes.
+    # a number the console imposes. Both are checked on the finished program
+    # (IR::Guardrails::Checks::SongTooManyParts), so a Score meets them the same as a block.
     #
     # NAMED FOR WHAT IT COUNTS: a part is a line of music, and a voice is a slot that makes a
     # sound. One word for one meaning, so the number that limits tunes cannot be read as the
     # number that limits sounds.
     MAX_SQUARE_PARTS = 2
-    MAX_PARTS = MAX_SQUARE_PARTS + Sound::MIXER_VOICES
 
     # One part of a song: a single line of notes and rests, with its own tone
     # (duty) and loudness (volume). The clock (tempo) lives on the song and is
@@ -92,8 +92,9 @@ module RubyGBA
     class VoiceContext
       attr_reader :events, :instrument
 
-      def initialize(song, plays: nil)
+      def initialize(song, plays: nil, name: nil)
         @song = song       # the shared tempo is read back through this
+        @name = name       # what the song calls this part, for a message about it
         @instrument = instrument_name(plays)
         @duty = :half
         @volume = 12
@@ -136,10 +137,11 @@ module RubyGBA
       end
 
       # The part as plain data for the IR: its score, tone, and loudness — and the
-      # instrument it plays, when it plays one.
+      # instrument it plays, when it plays one, and its name, when it has one.
       def to_voice
         part = { events: @events, duty: @duty, volume: @volume }
         part[:instrument] = @instrument if @instrument
+        part[:name] = @name if @name
         part
       end
 
@@ -212,11 +214,10 @@ module RubyGBA
       # wave: each note is the instrument's recording at that note's pitch.
       def voice(name = nil, plays: nil, &block)
         raise ArgumentError, mixed_message if @default_voice
-        vc = VoiceContext.new(self, plays: plays)
+        vc = VoiceContext.new(self, plays: plays, name: name)
         vc.instance_eval(&block)
         @voices << { name: name, voice: vc }
         @has_blocks = true
-        ensure_voice_budget!
         vc
       end
 
@@ -247,23 +248,6 @@ module RubyGBA
           @voices << { name: nil, voice: vc }
           vc
         end
-      end
-
-      def ensure_voice_budget!
-        recorded = @voices.count { |entry| entry[:voice].instrument }
-        squares = @voices.length - recorded
-        if squares > MAX_SQUARE_PARTS
-          raise ArgumentError,
-                "A song can have at most #{MAX_SQUARE_PARTS} square-wave parts, and this song has " \
-                "#{squares}. The console has #{MAX_SQUARE_PARTS} square-wave voices for music. To add " \
-                "more parts, give each extra part an instrument: `voice :strings, plays: :strings do ... end`."
-        end
-        return if recorded <= Sound::MIXER_VOICES
-
-        raise ArgumentError,
-              "A song can have at most #{Sound::MIXER_VOICES} parts that play an instrument, and this " \
-              "song has #{recorded}. The mixer plays at most #{Sound::MIXER_VOICES} recordings at once. " \
-              "To fix this, use fewer parts that play an instrument."
       end
 
       def mixed_message

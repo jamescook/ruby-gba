@@ -62,14 +62,25 @@ class TestSongParts < Minitest::Test
 
   # --- what cannot be had, said plainly ---
 
-  def test_more_recorded_parts_than_the_mixer_has_voices_is_a_friendly_error
-    ctx = RubyGBA::Music::SongContext.new
-    err = assert_raises(ArgumentError) do
-      ctx.instance_eval do
-        9.times { |n| voice(:"pad_#{n}", plays: :organ) { note :C4, :quarter } }
+  # More recorded parts than the mixer has voices stops the build (the check itself is
+  # test_ir_guardrail_song_too_many_parts.rb) — and only that is said, not also the warning about
+  # keeping every voice, which is about a song that fits.
+  def test_more_recorded_parts_than_the_mixer_has_voices_is_said_once
+    err = StringIO.new
+    assert_raises(RubyGBA::ROMError) do
+      RubyGBA.build("SONGNINE", code: "ZSN9", maker: "01", out: StringIO.new, err: err) do
+        screen :bitmap
+        enable_sound
+        instrument :organ, pcm: [60, -60] * 400, rate: 8000, note: :C4
+        song(:big) { 9.times { |n| voice(:"pad_#{n}", plays: :organ) { note :C4, :quarter } } }
+        zap = sample :zap, pcm: [60, -60] * 400, rate: 8000
+        play_song :big
+        game_loop { pressed(:a).then { zap.play } }
       end
     end
-    assert_match(/at most 8/, err.message)
+
+    assert_match(/9 parts that play an instrument/, err.string)
+    refute_match(/never play/, err.string)
   end
 
   # A song whose recorded parts take every voice of the mixer leaves none for the game's own

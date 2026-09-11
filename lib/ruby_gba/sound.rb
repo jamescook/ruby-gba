@@ -145,6 +145,11 @@ module RubyGBA
       # lower, rumblier noise and a smaller one a higher hiss.
       NOISE_SHIFTS = { high: 2, mid: 5, low: 8 }.freeze
 
+      # THE LOWEST PITCH A SQUARE-WAVE CHANNEL HAS: its period value at 0, the bottom of the
+      # range below, is 131072 / 2048 = 64 Hz. A lower note cannot be asked for — the value is
+      # held at 0 — so it sounds at 64 Hz instead, which is a different note.
+      SQUARE_LOWEST_HZ = 131_072 / 2048
+
       # The console tunes a channel by a period value, not a frequency:
       # freq_hz = 131072 / (2048 - value). Invert that and keep it in range.
       def frequency_value(freq_hz)

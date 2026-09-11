@@ -40,11 +40,17 @@ module RubyGBA
         song.voices.count { |part| part[:instrument] }
       end
 
+      # The most recorded parts any one played tune has.
+      def most_recorded_parts(program)
+        played(program).map { |song| recorded_parts(song) }.max || 0
+      end
+
       # How many of the mixer's voices the music keeps: as many as the most any one played tune
       # has recorded parts, since one tune plays at a time. More than the mixer has cannot be
-      # kept by any backend, so none of them is asked to.
+      # kept by any backend, so none of them is asked to — the build refuses such a song first
+      # (Guardrails::Checks::SongTooManyParts), and this is only the backstop behind that.
       def mixer_voices(program)
-        wanted = played(program).map { |song| recorded_parts(song) }.max || 0
+        wanted = most_recorded_parts(program)
         return wanted if wanted <= Sound::MIXER_VOICES
 
         raise ArgumentError, "a song has #{wanted} parts that play a recording, and the mixer has " \

@@ -20,15 +20,15 @@ module RubyGBA
             program.walk.select { |node| node.kind == :song }.flat_map do |song|
               missing = Tunes.instruments(song) - declared
               missing.map do |name|
-                Finding.new(check: NAME, severity: :error, message: message(song.name, name), node: song)
+                Finding.new(check: NAME, severity: :error, message: message(program, song, name), node: song)
               end
             end
           end
 
           private
 
-          def message(song, instrument)
-            "The song :#{song} has a part that plays :#{instrument}. This game has no instrument " \
+          def message(program, song, instrument)
+            "#{SongWords.song_capitalized(program, song)} has a part that plays :#{instrument}. This game has no instrument " \
               "with that name. To fix this, declare it: `instrument :#{instrument}, from: " \
               "\"#{instrument}.wav\"`. Or give the part the name of an instrument that the game has."
           end
