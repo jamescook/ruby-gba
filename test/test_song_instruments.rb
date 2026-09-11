@@ -55,6 +55,11 @@ class TestSongInstruments < Minitest::Test
     assert_equal [:piano], seen[25], "the next note plays it again"
   end
 
+  # Two more of the game's own sounds than the mixer has voices, and what the game gets of them:
+  # every voice but the one the song's recorded part keeps.
+  CLIPS = RubyGBA::Sound::MIXER_VOICES + 2
+  GAME_GETS = (0...(RubyGBA::Sound::MIXER_VOICES - 1)).map { |n| :"s#{n}" }
+
   def test_a_song_with_an_instrument_keeps_a_voice_for_it
     sfx = Builder.new
     sfx.instance_eval do
@@ -62,7 +67,7 @@ class TestSongInstruments < Minitest::Test
       enable_sound
       instrument :piano, pcm: [60, -60] * 4000, rate: 8000, note: :C4
       song(:tune) { voice(:melody, plays: :piano) { note :C4, :whole } }
-      clips = (0...10).map { |n| sample :"s#{n}", pcm: [25 + n, -25 - n] * 2000, rate: 8000 }
+      clips = (0...CLIPS).map { |n| sample :"s#{n}", pcm: [25 + n, -25 - n] * 2000, rate: 8000 }
       play_song :tune
       clips.each(&:play)
       game_loop { wait_vblank }
@@ -70,8 +75,8 @@ class TestSongInstruments < Minitest::Test
     sfx.emit_pending_functions
     i = Reference.new.run(sfx.program, frames: 3)
 
-    assert_equal %i[s0 s1 s2 s3 s4 s5 s6 piano], i.active_samples,
-                 "the song's part keeps its own voice, so the game's own sounds get the other seven"
+    assert_equal GAME_GETS + [:piano], i.active_samples,
+                 "the song's part keeps its own voice, so the game's own sounds get the others"
   end
 
   def test_changing_tunes_silences_the_instrument
@@ -124,7 +129,7 @@ class TestSongInstruments < Minitest::Test
       enable_sound
       instrument :piano, pcm: [60, -60] * 4000, rate: 8000, note: :C4
       song(:tune) { voice(:melody, plays: :piano) { note :C4, :whole } }
-      clips = (0...10).map { |n| sample :"s#{n}", pcm: [25 + n, -25 - n] * 2000, rate: 8000 }
+      clips = (0...CLIPS).map { |n| sample :"s#{n}", pcm: [25 + n, -25 - n] * 2000, rate: 8000 }
       play_song :tune
       clips.each(&:play)
       game_loop { wait_vblank }
@@ -139,7 +144,7 @@ class TestSongInstruments < Minitest::Test
   end
 
   # While a recorded part rests, its voice sits idle — and it is still the music's. A burst of
-  # the game's own sounds in the rest gets seven voices, not eight, on both backends; a sound
+  # the game's own sounds in the rest gets every voice but that one, on both backends; a sound
   # that took the music's voice would be cut off by the part's next note.
   def test_a_resting_part_keeps_its_voice_from_the_game
     b = Builder.new
@@ -148,7 +153,7 @@ class TestSongInstruments < Minitest::Test
       enable_sound
       instrument :piano, pcm: [60, -60] * 4000, rate: 8000, note: :C4
       song(:tune) { voice(:melody, plays: :piano) { note :C4, :quarter; rest :whole } }
-      clips = (0...10).map { |n| sample :"s#{n}", pcm: [25 + n, -25 - n] * 8000, rate: 8000 }
+      clips = (0...CLIPS).map { |n| sample :"s#{n}", pcm: [25 + n, -25 - n] * 8000, rate: 8000 }
       pass = var :pass, 0
       play_song :tune
       game_loop do
@@ -162,7 +167,7 @@ class TestSongInstruments < Minitest::Test
     interpreted = Reference.new.run(program, frames: 50).active_samples
     console = assert_emulator_loads_rom(assemble_rom(program, name: "SONGREST"), frames: 52).sounding
 
-    assert_equal %i[s0 s1 s2 s3 s4 s5 s6], interpreted
+    assert_equal GAME_GETS, interpreted
     assert_equal interpreted, console
   end
 

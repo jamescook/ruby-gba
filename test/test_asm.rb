@@ -563,6 +563,30 @@ class TestASM < Minitest::Test
     assert_equal 0x5, (inst >> 21) & 0xF # ADC opcode
   end
 
+  # The four the sound mixer's inner loop is built from, each checked against the word an
+  # ARM assembler writes for it.
+  def test_add_reg_asr_scales_and_adds_in_one
+    assert_equal 0xE0800341, unpack(A.add_reg_asr(0, 0, 1, 6)) # add r0, r0, r1, asr #6
+  end
+
+  def test_subs_imm_sets_the_flags
+    assert_equal 0xE2522001, unpack(A.subs_imm(2, 2, 1)) # subs r2, r2, #1
+  end
+
+  def test_the_post_indexed_stores_step_their_address_on
+    assert_equal 0xE4C60001, unpack(A.strb_post(0, 6, 1))          # strb r0, [r6], #1
+    assert_equal 0xE4865004, unpack(A.str_post(5, 6, 4))           # str r5, [r6], #4
+    assert_equal 0xE0C170B2, unpack(A.store_halfword_post(7, 1, 2)) # strh r7, [r1], #2
+  end
+
+  # A post-indexed store writes its address register back, so a register held across it
+  # cannot be assumed to still hold what it did.
+  def test_a_post_indexed_store_disturbs_its_address_register
+    assert A.disturbs?(unpack(A.store_halfword_post(7, 1, 2)), 1)
+    assert A.disturbs?(unpack(A.strb_post(0, 6, 1)), 6)
+    refute A.disturbs?(unpack(A.strb_post(0, 6, 1)), 0), "the value stored is only read"
+  end
+
   # Comparing against a register shifted down asks "is this at most a sixteenth of
   # that?" in one instruction, which is how the step count is found without looping.
   def test_cmp_reg_lsr

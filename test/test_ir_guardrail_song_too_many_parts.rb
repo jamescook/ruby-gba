@@ -15,6 +15,9 @@ class TestSongTooManyPartsGuardrail < Minitest::Test
   Part = RubyGBA::Score::Part
   Note = RubyGBA::Score::Note
 
+  # One more part that plays an instrument than the mixer has voices.
+  TOO_MANY = RubyGBA::Sound::MIXER_VOICES + 1
+
   def part(instrument = nil)
     voice = { events: [[0, 262]], duty: :half, volume: 12 }
     instrument ? voice.merge(instrument: instrument) : voice
@@ -31,17 +34,17 @@ class TestSongTooManyPartsGuardrail < Minitest::Test
     assert_match(/plays:/, findings.first.message, "says how to have more parts")
   end
 
-  def test_a_ninth_recorded_part_stops_the_build
-    findings = detect([part, part] + Array.new(9) { part(:organ) })
+  def test_one_recorded_part_too_many_stops_the_build
+    findings = detect([part, part] + Array.new(TOO_MANY) { part(:organ) })
 
     assert_equal 1, findings.length
-    assert_match(/9 parts that play an instrument/, findings.first.message)
+    assert_match(/#{TOO_MANY} parts that play an instrument/, findings.first.message)
     refute_match(/remove the instrument/, findings.first.message,
                  "both square-wave voices are taken, so that is no way out")
   end
 
   def test_a_song_with_square_wave_voices_to_spare_is_told_it_can_use_them
-    message = detect(Array.new(9) { part(:organ) }).first.message
+    message = detect(Array.new(TOO_MANY) { part(:organ) }).first.message
 
     assert_match(/remove the instrument from one or two of these parts/, message)
   end
@@ -81,10 +84,10 @@ class TestSongTooManyPartsGuardrail < Minitest::Test
   end
 
   def test_a_score_meets_the_same_limit
-    chord = Array.new(9) { |n| Part.new(plays: :organ, notes: [Note.new(at: 0, key: 60 + n)]) }
+    chord = Array.new(TOO_MANY) { |n| Part.new(plays: :organ, notes: [Note.new(at: 0, key: 48 + n)]) }
     said = build { songs(:music, [RubyGBA::Score.new(parts: chord)]).play 0 }
 
-    assert_match(/Song 0 of :music has 9 parts that play an instrument/, said,
+    assert_match(/Song 0 of :music has #{TOO_MANY} parts that play an instrument/, said,
                  "a song from a list is named by its place in the list")
   end
 

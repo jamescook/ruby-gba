@@ -39,10 +39,10 @@ module RubyGBA
           # fails if the emitted routine ever outgrows it.
           # KEPT SNUG, because every byte of it is a byte the routines a frame spends its time in
           # do not get — this reservation and the game's own hot code come out of the same 32K.
-          # The routine emits at 256 or 264 bytes (two of its immediates are the samples-per-frame
-          # count, which takes one instruction or two depending on the number), so this is about
-          # half as much again for room to grow into. Outgrow it and the build says so by name
-          # rather than running over whatever is next — see #guard_mix_routine_fits!.
+          # The routine emits at 288 to 300 bytes (three of its immediates are the samples-per-frame
+          # count or that count in words, each one instruction or two depending on the number), so
+          # this is about a quarter as much again for room to grow into. Outgrow it and the build
+          # says so by name rather than running over whatever is next.
           #
           # It was 1024, which is four times what the routine has ever needed, and a real game
           # paid for it: on the Wolfenstein port the difference was exactly enough to push the routine
@@ -53,11 +53,13 @@ module RubyGBA
           # FIFO). It's the only hardware timer the mixer needs.
           CLOCK_TIMER = 0
 
-          # A voice slot in IWRAM: the sample's address in ROM, how far it has played (a whole
+          # A voice slot, in EWRAM: the sample's address in ROM, how far it has played (a whole
           # sample index), its length, whether it loops, whether it's sounding, its level
           # (0..64), and — for pitch — a 16.16 fixed-point STEP (how many source samples to
           # advance per output sample: 1.0 = 0x10000 plays at the recorded pitch, 2.0 an
-          # octave up) plus a FRAC accumulator carrying the leftover fraction between samples.
+          # octave up) plus a FRAC accumulator carrying the leftover fraction between frames,
+          # kept in its TOP 16 bits so that adding to it overflows exactly when a whole
+          # sample is due (see #emit_mix_routine).
           SLOT_SRC = 0
           SLOT_POS = 4
           SLOT_LEN = 8
@@ -84,7 +86,7 @@ module RubyGBA
           #
           # Nothing about the voices is hardware. The mixer is software this backend emits,
           # and it sums every voice into ONE sound channel before the hardware sees any of it,
-          # so the only place the voices exist separately is this table in the quick memory.
+          # so the only place the voices exist separately is this table in memory.
           # Reading it is reading what the lowering really did.
           #
           # The decoding lives here, beside the code that writes the table, so the slot layout
@@ -183,7 +185,7 @@ module RubyGBA
           end
 
           # Decide the mixer's output rate and per-frame buffer size, and reserve its memory:
-          # two output buffers in EWRAM and the voice slots in IWRAM. The rate follows the
+          # two output buffers and the voice slots in EWRAM, the running totals in IWRAM. The rate follows the
           # samples, so a single-rate game plays at its recorded pitch. Reserves only timer 0
           # (the sample clock) — the refill rides on the screen's own interrupt, not on a
           # second timer and not on the game loop.
@@ -225,7 +227,14 @@ module RubyGBA
             @mixer_spf = [(@mixer_rate + MIXER_FPS - 1) / MIXER_FPS, 1].max # samples per frame (ceil)
             @mix_buf0 = @memory.alloc_roomy(@mixer_spf)
             @mix_buf1 = @memory.alloc_roomy(@mixer_spf)
-            @voice_base = @memory.alloc(MAX_VOICES * SLOT_BYTES)
+            # WHAT GOES IN THE QUICK MEMORY is decided by how often the mix touches it. The
+            # running total of every voice — a halfword per output sample, read and written
+            # again for every voice at every sample — goes there. The voice slots do not: the
+            # mix reads a sounding voice's slot once a frame and writes it back once, so they
+            # cost the same in the roomy memory, and the room they would have taken is the room
+            # the totals need.
+            @mix_totals = @memory.alloc(@mixer_spf * 2)
+            @voice_base = @memory.alloc_roomy(MAX_VOICES * SLOT_BYTES)
             @mix_routine_iwram = @memory.alloc(MIX_ROUTINE_IWRAM_MAX) # the mix routine is copied here from ROM at boot
             @timers.reserve!(CLOCK_TIMER + 1) # reserve timer 0 only
           end
@@ -235,6 +244,7 @@ module RubyGBA
           # mixer rate. From here the DMA plays silence until a voice is added.
           def emit_mixer_boot
             emit_zero_region(@voice_base, MAX_VOICES * SLOT_BYTES) # all voices idle
+            emit_zero_region(@mix_totals, @mixer_spf * 2)          # the totals start at nothing
             emit_zero_region(@mix_buf0, @mixer_spf)                # buffers start silent...
             emit_zero_region(@mix_buf1, @mixer_spf)
             @emitter.emit(ASM.load_immediate(ACC, 0))
@@ -431,123 +441,153 @@ module RubyGBA
           # The mix routine, emitted once and copied into IWRAM at boot (see
           # #emit_copy_mix_routine_to_iwram). It fills the destination buffer — one frame of
           # bytes, passed in r0 — with the sum of every sounding voice, clamped to the 8-bit
-          # range so loud moments don't wrap. Clears to silence, then for each active voice
-          # adds its next run of samples, scaled by the voice's volume and stepped through the
-          # clip by the voice's fixed-point STEP so a pitched voice reads faster or slower,
-          # advancing it and looping or retiring it at its end.
+          # range so loud moments don't wrap.
+          #
+          # IN TWO PASSES, and that is most of what it costs. First each sounding voice adds
+          # its next run of samples — scaled by its volume, stepped through the clip by its
+          # fixed-point STEP so a pitched voice reads faster or slower — into a halfword
+          # running total per output sample, kept in the quick memory; the voice is advanced,
+          # and looped or retired at its end. Then one pass turns each total into the byte the
+          # sound hardware plays, clamping it there, and clears the total for next frame.
+          #
+          # Summing into bytes instead — reading the output back, adding, clamping, writing it
+          # out again for every voice — was twice the instructions per voice per sample, most
+          # of them going to and from the slower memory the output lives in. A halfword holds
+          # any sum there can be (every voice at full level is under 128 each), so clamping
+          # once at the end loses nothing, and it is the better mix besides: a loud voice and
+          # a loud voice of the other sign cancel, whatever order they were added in.
+          #
+          # STEPPING takes two instructions, the fraction kept in the top half of a register
+          # so that adding the step's fraction overflows exactly when a whole sample is due —
+          # the carry out of that add is the extra sample, and the add that moves the read
+          # pointer takes it in. Where a voice is is its read pointer, compared against where
+          # its recording ends; the whole-sample position the slot keeps is worked back out
+          # when the voice is put away.
           #
           # The routine is self-contained and position-independent (relative branches, no
           # PC-relative literal loads), so it runs the same from IWRAM as from ROM. The one
-          # input, the destination buffer, arrives in r0 and is stashed on the stack so each
-          # voice can reset its write pointer to it. It returns with BX LR.
+          # input, the destination buffer, arrives in r0 and is stashed on the stack for the
+          # last pass. It returns with BX LR.
           #
-          # Registers held across voices: r3 = clamp floor (-128), r4 = slot pointer,
-          # r5 = voices left. Per voice: r2 = output samples left, r6 = read pointer,
-          # r7 = write pointer, r8 = play position (whole samples), r9 = length, r10 = step,
-          # r11 = fraction accumulator, r12 = volume; r0/r1 scratch (127 is the clamp ceiling).
+          # Registers held across voices: r3 = the running totals, r4 = slot pointer, r5 =
+          # voices left. Per voice: r2 = output samples left, r6 = read pointer, r7 = the total
+          # being added to, r8 = whole samples a step, r9 = where the recording ends, r10 = the
+          # step's fraction (top half), r11 = the fraction carried (top half), r12 = volume;
+          # r0/r1 scratch. The last pass: r6 = the byte being written, r7 = its total, r4 =
+          # -128 (the clamp floor; 127, the ceiling, rides in the instruction), r5 = 0.
           def emit_mix_routine
             return unless @plays_samples
 
-            @emitter.emit(ASM.loop_forever) # fall-through guard: the routine is only entered via the call
-            @emitter.place_label(:__mix_routine)
-            start = @emitter.pos
-            @emitter.emit(ASM.push(0))                            # push {r0}: stash the destination buffer at [sp]
+            e = @emitter
+            e.emit(ASM.loop_forever) # fall-through guard: the routine is only entered via the call
+            e.place_label(:__mix_routine)
+            start = e.pos
+            e.emit(ASM.push(0))                               # push {r0}: stash the destination buffer at [sp]
+            e.emit(ASM.load_immediate(3, @mix_totals))        # the running totals
+            e.emit(ASM.mov_reg(7, 3))                         # (still here after the voices = nothing sounded)
+            e.emit(ASM.load_immediate(4, @voice_base))        # first slot
+            e.emit(ASM.load_immediate(5, MAX_VOICES))         # voices to visit
 
-            # start from silence: zero the destination (r0 reloaded from the stashed pointer)
-            @emitter.emit(ASM.ldr(0, 13))                         # r0 = dest (from [sp])
-            @emitter.emit(ASM.load_immediate(1, 0))               # fill byte
-            @emitter.emit(ASM.load_immediate(2, @mixer_spf))      # bytes to clear
-            zero = @emitter.gensym
-            @emitter.place_label(zero)
-            @emitter.emit(ASM.strb(1, 0))
-            @emitter.emit(ASM.add_imm(0, 0, 1))
-            @emitter.emit(ASM.sub_imm(2, 2, 1))
-            @emitter.emit(ASM.cmp_imm(2, 0))
-            @emitter.emit_branch(:bcond, zero, cond: :ne)
+            voice = e.gensym
+            next_voice = e.gensym
+            e.place_label(voice)
+            e.emit(ASM.ldr_offset(0, 4, SLOT_ACTIVE))
+            e.emit(ASM.cmp_imm(0, 0))
+            e.emit_branch(:bcond, next_voice, cond: :eq)      # idle slot -> skip
+            e.emit(ASM.ldr_offset(6, 4, SLOT_SRC))            # r6 = where the recording starts
+            e.emit(ASM.ldr_offset(9, 4, SLOT_LEN))
+            e.emit(ASM.add_reg(9, 6, 9))                      # r9 = where it ends
+            e.emit(ASM.ldr_offset(0, 4, SLOT_POS))
+            e.emit(ASM.add_reg(6, 6, 0))                      # r6 = read pointer = start + position
+            e.emit(ASM.ldr_offset(10, 4, SLOT_STEP))          # the step, 16.16...
+            e.emit(ASM.lsr_imm(8, 10, STEP_SHIFT))            # ...r8 = its whole samples
+            e.emit(ASM.lsl_imm(10, 10, STEP_SHIFT))           # ...r10 = its fraction, in the top half
+            e.emit(ASM.ldr_offset(11, 4, SLOT_FRAC))          # r11 = the fraction carried in (top half)
+            e.emit(ASM.ldr_offset(12, 4, SLOT_VOL))           # r12 = volume gain (0..64)
+            e.emit(ASM.mov_reg(7, 3))                         # r7 = the first total
+            e.emit(ASM.load_immediate(2, @mixer_spf))         # r2 = output samples to fill
 
-            @emitter.emit(ASM.mvn_imm(3, 127))                    # clamp floor = -128
-            @emitter.emit(ASM.load_immediate(4, @voice_base))     # first slot
-            @emitter.emit(ASM.load_immediate(5, MAX_VOICES))      # voices to visit
+            sample = e.gensym
+            advance = e.gensym
+            wrapped = e.gensym
+            retire = e.gensym
+            end_voice = e.gensym
+            e.place_label(sample)
+            e.emit(ASM.ldrsb(0, 6))                           # r0 = the voice's raw sample (signed)
+            e.emit(ASM.mul(1, 0, 12))                         # r1 = sample × volume
+            e.emit(ASM.ldrsh(0, 7))                           # r0 = the total so far
+            e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT))       # ...plus sample × volume ÷ 64 (:full is unchanged)
+            e.emit(ASM.store_halfword_post(0, 7, 2))          # put it back, and on to the next total
+            e.emit(ASM.adds_reg(11, 11, 10))                  # fraction += the step's; a carry is one more sample
+            e.emit(ASM.adc_reg(6, 6, 8))                      # read pointer += whole samples + that carry
+            e.emit(ASM.cmp_reg(6, 9))
+            e.emit_branch(:bcond, wrapped, cond: :ge)         # reached (or passed) the end
+            e.place_label(advance)
+            e.emit(ASM.subs_imm(2, 2, 1))
+            e.emit_branch(:bcond, sample, cond: :ne)          # more of the frame to fill
+            e.emit_branch(:b, end_voice)
 
-            voice = @emitter.gensym
-            next_voice = @emitter.gensym
-            @emitter.place_label(voice)
-            @emitter.emit(ASM.ldr_offset(0, 4, SLOT_ACTIVE))
-            @emitter.emit(ASM.cmp_imm(0, 0))
-            @emitter.emit_branch(:bcond, next_voice, cond: :eq)   # idle slot -> skip
-            @emitter.emit(ASM.ldr_offset(6, 4, SLOT_SRC))         # r6 = src
-            @emitter.emit(ASM.ldr_offset(8, 4, SLOT_POS))         # r8 = play position (whole samples)
-            @emitter.emit(ASM.add_reg(6, 6, 8))                   # r6 = read pointer = src + pos
-            @emitter.emit(ASM.ldr_offset(9, 4, SLOT_LEN))         # r9 = len
-            @emitter.emit(ASM.ldr_offset(10, 4, SLOT_STEP))       # r10 = step (16.16)
-            @emitter.emit(ASM.ldr_offset(11, 4, SLOT_FRAC))       # r11 = fraction carried in
-            @emitter.emit(ASM.ldr_offset(12, 4, SLOT_VOL))        # r12 = volume gain (0..64)
-            @emitter.emit(ASM.ldr(7, 13))                         # r7 = write pointer = dest (from [sp])
-            @emitter.emit(ASM.load_immediate(2, @mixer_spf))      # r2 = output samples to fill
+            e.place_label(wrapped)
+            e.emit(ASM.ldr_offset(0, 4, SLOT_LOOP))           # loop?
+            e.emit(ASM.cmp_imm(0, 0))
+            e.emit_branch(:bcond, retire, cond: :eq)
+            e.emit(ASM.ldr_offset(0, 4, SLOT_LEN))
+            e.emit(ASM.sub_reg(6, 6, 0))                      # loop: back by the recording's length
+            e.emit_branch(:b, advance)
 
-            sample = @emitter.gensym
-            advance = @emitter.gensym
-            wrapped = @emitter.gensym
-            retire = @emitter.gensym
-            end_voice = @emitter.gensym
-            @emitter.place_label(sample)
-            @emitter.emit(ASM.ldrsb(0, 6))                        # r0 = the voice's raw sample (signed)
-            @emitter.emit(ASM.mul(1, 0, 12))                      # r1 = sample × volume...
-            @emitter.emit(ASM.asr_imm(1, 1, VOL_SHIFT))           # ...÷ 64 (so :full is unchanged)
-            @emitter.emit(ASM.ldrsb(0, 7))                        # r0 = what's already in the buffer
-            @emitter.emit(ASM.add_reg(1, 1, 0))                   # add the scaled sample
-            # Saturate r1 into [-128, 127] with no branch: ARM predication does the
-            # clamp in the compare's shadow — movgt/movlt only fire when out of range —
-            # so the hot per-sample path takes no pipeline flush. r3 holds -128.
-            @emitter.emit(ASM.cmp_imm(1, 127))
-            @emitter.emit(ASM.mov_imm_cond(:gt, 1, 127))          # r1 > 127  -> 127
-            @emitter.emit(ASM.cmp_reg(1, 3))
-            @emitter.emit(ASM.mov_reg_cond(:lt, 1, 3))            # r1 < -128 -> -128
-            @emitter.emit(ASM.strb(1, 7))                         # write the mixed byte
-            @emitter.emit(ASM.add_imm(7, 7, 1))                   # write pointer++
+            e.place_label(retire)                             # one-shot done: mark idle, stop adding
+            e.emit(ASM.load_immediate(0, 0))
+            e.emit(ASM.str_offset(0, 4, SLOT_ACTIVE))
 
-            # advance the play position by STEP: frac += step, move whole samples by the
-            # carry (frac >> 16), keep the leftover fraction (frac & 0xFFFF).
-            @emitter.emit(ASM.add_reg(11, 11, 10))                # frac += step
-            @emitter.emit(ASM.lsr_imm(0, 11, STEP_SHIFT))         # r0 = whole samples to advance
-            @emitter.emit(ASM.add_reg(8, 8, 0))                   # pos += that
-            @emitter.emit(ASM.add_reg(6, 6, 0))                   # read pointer += that
-            @emitter.emit(ASM.lsl_imm(11, 11, STEP_SHIFT))        # drop the whole part...
-            @emitter.emit(ASM.lsr_imm(11, 11, STEP_SHIFT))        # ...leaving frac in [0, 0xFFFF]
-            @emitter.emit(ASM.cmp_reg(8, 9))                      # pos vs len
-            @emitter.emit_branch(:bcond, wrapped, cond: :ge)      # reached (or passed) the end
-            @emitter.place_label(advance)
-            @emitter.emit(ASM.sub_imm(2, 2, 1))
-            @emitter.emit(ASM.cmp_imm(2, 0))
-            @emitter.emit_branch(:bcond, sample, cond: :ne)       # more of the buffer to fill
-            @emitter.emit_branch(:b, end_voice)
+            e.place_label(end_voice)
+            e.emit(ASM.ldr_offset(0, 4, SLOT_SRC))
+            e.emit(ASM.sub_reg(0, 6, 0))
+            e.emit(ASM.str_offset(0, 4, SLOT_POS))            # remember how far this voice has played
+            e.emit(ASM.str_offset(11, 4, SLOT_FRAC))          # ...and the leftover fraction
 
-            @emitter.place_label(wrapped)
-            @emitter.emit(ASM.ldr_offset(0, 4, SLOT_LOOP))        # loop?
-            @emitter.emit(ASM.cmp_imm(0, 0))
-            @emitter.emit_branch(:bcond, retire, cond: :eq)
-            @emitter.emit(ASM.sub_reg(8, 8, 9))                   # loop: wrap the position back (pos -= len)
-            @emitter.emit(ASM.ldr_offset(0, 4, SLOT_SRC))         # ...and re-point the read pointer at src + pos
-            @emitter.emit(ASM.add_reg(6, 0, 8))
-            @emitter.emit_branch(:b, advance)
+            e.place_label(next_voice)
+            e.emit(ASM.add_imm(4, 4, SLOT_BYTES))             # next slot
+            e.emit(ASM.subs_imm(5, 5, 1))
+            e.emit_branch(:bcond, voice, cond: :ne)
 
-            @emitter.place_label(retire)                          # one-shot done: mark idle, stop adding
-            @emitter.emit(ASM.load_immediate(0, 0))
-            @emitter.emit(ASM.str_offset(0, 4, SLOT_ACTIVE))
+            # NOTHING SOUNDED: every total is still 0, so the frame is silence — written a word
+            # at a time, which is a quarter of the stores the totals pass would make. A game is
+            # silent more often than not, so this is the frame it has most. (The buffer is
+            # whole words long, so rounding up to one writes nothing that is not its own.)
+            silent = e.gensym
+            e.emit(ASM.pop(6))                                # r6 = the destination (and the stack balanced)
+            e.emit(ASM.load_immediate(5, 0))
+            e.emit(ASM.cmp_reg(7, 3))
+            e.emit_branch(:bcond, silent, cond: :eq)
 
-            @emitter.place_label(end_voice)
-            @emitter.emit(ASM.str_offset(8, 4, SLOT_POS))         # remember how far this voice has played
-            @emitter.emit(ASM.str_offset(11, 4, SLOT_FRAC))       # ...and the leftover fraction
+            # Every voice is in the totals. Turn each into the byte the hardware plays, clamped
+            # into [-128, 127] with no branch — movgt/movlt only fire when out of range — and
+            # leave the total at 0 for next frame.
+            e.emit(ASM.mov_reg(7, 3))
+            e.emit(ASM.load_immediate(2, @mixer_spf))
+            e.emit(ASM.mvn_imm(4, 127))                       # clamp floor = -128
+            byte = e.gensym
+            e.place_label(byte)
+            e.emit(ASM.ldrsh(0, 7))
+            e.emit(ASM.cmp_imm(0, 127))
+            e.emit(ASM.mov_imm_cond(:gt, 0, 127))             # over 127  -> 127
+            e.emit(ASM.cmp_reg(0, 4))
+            e.emit(ASM.mov_reg_cond(:lt, 0, 4))               # under -128 -> -128
+            e.emit(ASM.strb_post(0, 6, 1))
+            e.emit(ASM.store_halfword_post(5, 7, 2))          # the total starts again at nothing
+            e.emit(ASM.subs_imm(2, 2, 1))
+            e.emit_branch(:bcond, byte, cond: :ne)
+            e.emit(ASM.return)                                # bx lr -> back to the caller
 
-            @emitter.place_label(next_voice)
-            @emitter.emit(ASM.add_imm(4, 4, SLOT_BYTES))          # next slot
-            @emitter.emit(ASM.sub_imm(5, 5, 1))
-            @emitter.emit(ASM.cmp_imm(5, 0))
-            @emitter.emit_branch(:bcond, voice, cond: :ne)
-
-            @emitter.emit(ASM.add_imm(13, 13, 4))                 # pop the stashed dest (balance the stack)
-            @emitter.emit(ASM.return)                             # bx lr -> back to the caller
-            @emitter.place_label(:__mix_routine_end)
+            e.place_label(silent)
+            e.emit(ASM.load_immediate(2, (@mixer_spf + 3) / 4))
+            quiet = e.gensym
+            e.place_label(quiet)
+            e.emit(ASM.str_post(5, 6, 4))
+            e.emit(ASM.subs_imm(2, 2, 1))
+            e.emit_branch(:bcond, quiet, cond: :ne)
+            e.emit(ASM.return)
+            e.place_label(:__mix_routine_end)
 
             size = @emitter.pos - start
             return unless size > MIX_ROUTINE_IWRAM_MAX
