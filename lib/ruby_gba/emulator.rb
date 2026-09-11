@@ -68,10 +68,17 @@ module RubyGBA
 
       <<~ADD
         An emulator is required to run a ROM, and ruby-gba-emulator will not load.
-        Add this to your Gemfile, then run bundle install:
+        Put this in your Gemfile, then run bundle install:
 
-            gem "ruby-gba-emulator", github: "jamescook/ruby-gba",
-                glob: "ruby-gba-emulator/ruby-gba-emulator.gemspec"
+            git "https://github.com/jamescook/ruby-gba.git",
+                glob: "{,ruby-gba-emulator/}*.gemspec" do
+              gem "ruby-gba"
+              gem "ruby-gba-emulator"
+            end
+
+        One block for both, because both gems live in that one repository. Two separate
+        `gem ... github:` lines make bundler clone it twice into one directory, and the
+        clone fails.
 
         It builds a C extension, so it needs a C compiler and libmgba
         (brew install mgba, or apt install libmgba-dev).

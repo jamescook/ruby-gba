@@ -25,8 +25,13 @@ gemspec
 # see a change of RUBY VERSION — a compiled extension is tied to the Ruby that built it, and
 # switching Ruby makes nothing newer. After switching Ruby, run `rake clean` in
 # ruby-gba-emulator/. A GAME never meets this, because it takes the emulator from git, where
-# bundler installs extensions per Ruby ABI:
+# bundler installs extensions per Ruby ABI. One block for both gems, since both live in this
+# one repository — two `gem ... github:` lines are two sources cloning into one directory,
+# which races and fails:
 #
-#   gem "ruby-gba-emulator", github: "jamescook/ruby-gba",
-#       glob: "ruby-gba-emulator/ruby-gba-emulator.gemspec"
+#   git "https://github.com/jamescook/ruby-gba.git",
+#       glob: "{,ruby-gba-emulator/}*.gemspec" do
+#     gem "ruby-gba"
+#     gem "ruby-gba-emulator"
+#   end
 gem "ruby-gba-emulator", path: "ruby-gba-emulator"

@@ -97,9 +97,18 @@ deliberately NOT a dependency of ruby-gba's gemspec, so somebody who only builds
 needs no C compiler. A game that wants to verify or profile adds it to its own Gemfile:
 
 ```ruby
-gem "ruby-gba-emulator", github: "jamescook/ruby-gba",
-    glob: "ruby-gba-emulator/ruby-gba-emulator.gemspec"
+git "https://github.com/jamescook/ruby-gba.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
+  gem "ruby-gba"
+  gem "ruby-gba-emulator"
+end
 ```
+
+**One block for both gems, not two `gem ... github:` lines.** The two-line form looks
+equivalent and is not: bundler counts `glob:` as part of a git source's identity, so two lines
+with different globs are TWO sources — while the directory it clones into is named from the URL
+alone. Two sources into one directory races on a cold cache and the clone dies outright
+(`cannot copy ... info/exclude: File exists`, or `shallow file has changed since we read it`).
+One block is one source, one clone, and the two gems can never land on different commits.
 
 Taking it through bundler is what keeps the built extension tied to the Ruby that built it —
 bundler installs extensions per Ruby ABI, so changing Ruby rebuilds rather than leaving a
