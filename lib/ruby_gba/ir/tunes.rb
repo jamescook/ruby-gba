@@ -1,0 +1,34 @@
+# frozen_string_literal: true
+
+module RubyGBA
+  module IR
+    # WHICH TUNES A PROGRAM PLAYS, and what they take from the mixer — worked out here, once,
+    # for every backend.
+    #
+    # It lives in one place because the answer is a promise the backends make to each other. A
+    # song part that plays a recording keeps a voice of the mixer for itself, and the game's own
+    # sounds get the voices that are left. Counted two ways, the interpreter would keep a sound
+    # the console drops, and only in the one busy moment that fills the mixer.
+    module Tunes
+      module_function
+
+      # The songs the program names with `play_song`, in the order they are declared. A song
+      # that is written and never played takes nothing.
+      def played(program)
+        names = program.walk.filter_map { |node| node.name if node.kind == :play_song }.uniq
+        program.walk.select { |node| node.kind == :song && names.include?(node.name) }
+      end
+
+      # How many of a song's parts play a recording rather than a square wave.
+      def recorded_parts(song)
+        song.voices.count { |part| part[:instrument] }
+      end
+
+      # How many of the mixer's voices the music keeps: as many as the most any one played tune
+      # has recorded parts, since one tune plays at a time.
+      def mixer_voices(program)
+        played(program).map { |song| recorded_parts(song) }.max || 0
+      end
+    end
+  end
+end

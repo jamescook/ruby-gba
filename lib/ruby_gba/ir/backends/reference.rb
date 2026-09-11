@@ -83,9 +83,10 @@ module RubyGBA
 
         # The names of the samples sounding right now — one entry per voice, so the same
         # sample played twice shows up twice. Lets a test see that several sounds really
-        # overlap in the mix instead of cutting each other off.
+        # overlap in the mix instead of cutting each other off. The game's own sounds come
+        # first and the music's recorded parts after, in the order the console keeps them.
         def active_samples
-          @voices.map { |v| v[:name] }
+          @voices.map { |v| v[:name] } + @music_voices.compact.map { |v| v[:name] }
         end
 
         # The level a currently-sounding sample is playing at (its first voice), or nil if
@@ -140,6 +141,8 @@ module RubyGBA
           @music_playing = nil    # ...and the one the player is on, which catches up each frame
           @music_frame = 0        # how far into that tune, in frames
           @music_cursors = []     # each of its parts' next event
+          @music_voices = []      # the mixer voice each of its recorded parts is sounding, or nil
+          @music_mixer_voices = 0 # how many mixer voices the music keeps (see IR::Tunes)
           @samples = {}           # name -> { rate:, length: } (a defined PCM sample)
           @voices = []            # the samples sounding right now, mixed together: [{ name:, loop:, frames_left:, frames_total: }, ...]
           @peak_voices = 0        # the most that ever sounded at once (how much polyphony the run used)
@@ -185,6 +188,7 @@ module RubyGBA
           @over_budget = false
           @uses_frames = false # set once the program reaches its first vblank (advance_frame)
           collect_definitions(node)
+          @music_mixer_voices = IR::Tunes.mixer_voices(node)
           # How the picture stacks: what scenery and objects there are, in what order,
           # and how deep each sits. Scenery in FRONT of an object means the save-under
           # trick cannot hold — what was saved from under an object is no longer what
@@ -717,12 +721,13 @@ module RubyGBA
         # Start a sample sounding: add a voice to the mix (samples play together, they do
         # not cut each other off), remembering how many frames it runs for (from its length
         # and rate) so a looping voice can re-trigger itself at the end. A one-shot voice
-        # simply falls silent there. Past MAX_VOICES the new one is dropped.
+        # simply falls silent there. Past the voices the game has — MAX_VOICES, less the ones
+        # the music keeps — the new one is dropped.
         def start_sample(node)
           info = @samples[node.name] ||
                  raise(ProgramError, "play_sample of undefined sample #{node.name.inspect}")
           @audio << [:sample, node.name]
-          return if @voices.size >= MAX_VOICES
+          return if @voices.size >= MAX_VOICES - @music_mixer_voices
 
           # A pitched voice reads its sample faster (higher notes) or slower (lower), so it
           # plays out in proportionally fewer or more frames.
@@ -844,28 +849,57 @@ module RubyGBA
         # Then each part plays its next note if that note is due on this frame (frequency 0 is
         # a rest), and the frame moves on, wrapping at the song's length so the tune loops. Every
         # part reads the one frame counter, so the parts stay in step.
+        #
+        # A part that plays a recording sounds it on a mixer voice of its own — the recorded
+        # parts in order, one voice each — which a note starts from the top and a rest stops.
+        # The voice ages in the frame it starts, because the console mixes that frame's slice
+        # right after the note is started, in the same interrupt.
         def advance_music
           if @music_wanted != @music_playing
             @audio << [:stop_music] if @music_playing
             @music_playing = @music_wanted
             @music_frame = 0
             @music_cursors = Array.new(Music::MAX_PARTS, 0)
+            @music_voices = []
           end
           return unless @music_playing
 
           song = @songs[@music_playing]
-          song.voices.each_with_index do |voice, part|
-            offset, frequency = voice[:events][@music_cursors[part]]
+          recorded = 0
+          song.voices.each_with_index do |part, number|
+            lane = part[:instrument] && (recorded += 1) - 1
+            offset, frequency = part[:events][@music_cursors[number]]
             next unless offset == @music_frame
 
             @audio << [:note, @music_playing, frequency]
-            @music_cursors[part] += 1
+            @music_voices[lane] = frequency.zero? ? nil : recorded_voice(part[:instrument], frequency) if lane
+            @music_cursors[number] += 1
           end
+          @peak_voices = [@peak_voices, @voices.size + @music_voices.compact.size].max
+          age_music_voices
           @music_frame += 1
           return if @music_frame < song.total_frames
 
           @music_frame = 0
           @music_cursors.fill(0)
+        end
+
+        # A recorded part's note: its instrument, and how many frames the recording lasts read at
+        # the note's pitch — a higher note reads it faster, so it runs out sooner.
+        def recorded_voice(name, frequency)
+          info = @samples[name] || raise(ProgramError, "a song part plays #{name.inspect}, which is not declared")
+          ratio = frequency.to_f / Music::NOTE_FREQUENCIES.fetch(info.note || :C4)
+          { name: name, frames_left: [(info.length.to_f / (info.rate * ratio) * FRAME_RATE).ceil, 1].max }
+        end
+
+        # A frame of the recorded parts' voices: a recording that has played out stops.
+        def age_music_voices
+          @music_voices.map! do |voice|
+            next unless voice
+
+            voice[:frames_left] -= 1
+            voice if voice[:frames_left].positive?
+          end
         end
 
         # Multi-way dispatch: call the scene/func for the clause whose value equals

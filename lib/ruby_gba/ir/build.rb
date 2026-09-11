@@ -233,6 +233,8 @@ module RubyGBA
       # there; the frame timing is worked out once when the song is written, so
       # every backend replays the same score. The parts play in order on the
       # console's voices — which one is the backend's business, not the score's.
+      # A part with an +instrument:+ (a declared sample's name) plays that recording
+      # at each note's pitch instead of a square wave.
       #
       # For a one-part tune, pass +events:+ (plus optional +duty:+/+volume:+)
       # directly instead of a +voices:+ list — it's taken as the single part.

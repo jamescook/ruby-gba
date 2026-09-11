@@ -29,6 +29,14 @@ module RubyGBA
   #     end
   #   end
   #
+  # @example A part that plays a recorded instrument instead of the square wave
+  #   instrument :piano, from: "piano_c4.wav", note: :C4
+  #   song :waltz do
+  #     voice :melody, plays: :piano do
+  #       note :E4, :quarter; note :G4, :quarter
+  #     end
+  #   end
+  #
   #   # Anywhere — once, or every frame; it is the song playing now either way:
   #   play_song :gameplay
   module Music
@@ -75,12 +83,16 @@ module RubyGBA
     # (duty) and loudness (volume). The clock (tempo) lives on the song and is
     # shared, so every part advances together, note for note.
     #
+    # A part plays the square-wave voice unless it names an instrument to play
+    # instead (`plays:`) — then each note is that recording, at the note's pitch.
+    #
     # Each event is [frame_offset, freq_hz] where freq_hz = 0 is a rest.
     class VoiceContext
       attr_reader :events
 
-      def initialize(song)
+      def initialize(song, plays: nil)
         @song = song       # the shared tempo is read back through this
+        @instrument = instrument_name(plays)
         @duty = :half
         @volume = 12
         @events = []       # [[frame_offset, freq_hz], ...]
@@ -121,12 +133,27 @@ module RubyGBA
         @current_frame
       end
 
-      # The part as plain data for the IR: its score, tone, and loudness.
+      # The part as plain data for the IR: its score, tone, and loudness — and the
+      # instrument it plays, when it plays one.
       def to_voice
-        { events: @events, duty: @duty, volume: @volume }
+        part = { events: @events, duty: @duty, volume: @volume }
+        part[:instrument] = @instrument if @instrument
+        part
       end
 
       private
+
+      # An instrument is named by the Symbol it was declared with, or by the handle
+      # `instrument` gave back — either one reads as the same name.
+      def instrument_name(plays)
+        case plays
+        when nil, Symbol then plays
+        else
+          return plays.name if plays.respond_to?(:name)
+
+          raise ArgumentError, "plays: names an instrument, like :piano. You gave #{plays.inspect}."
+        end
+      end
 
       def resolve_pitch(pitch)
         case pitch
@@ -179,9 +206,11 @@ module RubyGBA
 
       # Add a part, played alongside the others. Name it for readability; the
       # framework decides which channel it sounds on — you never name a channel.
-      def voice(name = nil, &block)
+      # `plays: :piano` makes the part play an instrument instead of the square
+      # wave: each note is the instrument's recording at that note's pitch.
+      def voice(name = nil, plays: nil, &block)
         raise ArgumentError, mixed_message if @default_voice
-        vc = VoiceContext.new(self)
+        vc = VoiceContext.new(self, plays: plays)
         vc.instance_eval(&block)
         @voices << { name: name, voice: vc }
         @has_blocks = true
