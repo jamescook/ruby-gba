@@ -7,7 +7,7 @@
 # --- Scope: framework + examples, not the test suite ---
 
 test/
-gemba-core/
+ruby-gba-emulator/
 
 # --- Build artifacts (gitignored) ---
 
@@ -15,6 +15,17 @@ gemba-core/
 Gemfile.lock
 .DS_Store
 .claude/
+
+# Issue-tracker database, logs and sockets — not code, and it changes every command.
+.beads/
+
+# This tool's own output. Without this it analyses its own knowledge graph (17k lines) and
+# fingerprint baseline (5k) as if they were project config.
+.ua/
+
+# Wolfenstein moved to its own repository (~/open_source/ruby-wolf3d). What is left here is
+# built cartridges and a stray config pointer, no source.
+games/
 
 # --- Binary assets (art, audio, sprite sheets) — nothing to read ---
 
