@@ -75,7 +75,7 @@ module RubyGBA
     # A finished profile. +unattributed+ is the share that ran outside every routine the build
     # knows about.
     Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
-                         :reached, :tearing, :flicker, :tick_rates) do
+                         :reached, :tearing, :flicker, :tick_rates, :sound_drops) do
       def dropping_frames? = fps < 59.5
 
       # Instructions a frame — what the game actually does, where a share only says how that
@@ -91,6 +91,9 @@ module RubyGBA
           timers: tick_rates.select(&:measured?).map do |tick|
             { name: tick.name.to_s, asked: tick.asked, got: tick.got }
           end,
+          sound_drops: sound_drops&.measured? ? { dropped: sound_drops.dropped,
+                                                  music_held: sound_drops.music_held,
+                                                  voices: sound_drops.voices } : nil,
           routines: lines.map do |line|
             { name: line.name.to_s, label: line.label, samples: line.samples,
               share: line.share, where: line.where.to_s }
@@ -115,32 +118,60 @@ module RubyGBA
       enter ||= scene_state(rom, scene)
       reached = reached_by(scene, from)
 
-      profile, tearing, flicker = in_temp_rom(rom) do |path|
+      drops = rom.built.sound_drops
+      profile, tearing, flicker, lost = in_temp_rom(rom) do |path|
         probe = Emulator.probe(path)
         begin
           measured =
             if from
-              resumed_from(probe, from, path, frames, held)
+              resumed_from(probe, from, path, frames, held, drops)
             elsif enter
-              pinned_to(probe, enter, frames, held)
+              pinned_to(probe, enter, frames, held, drops)
             else
-              plain_run(probe, frames, settle, held)
+              plain_run(probe, frames, settle, held, drops)
             end
           # Looked at AFTER the profiling, from wherever it left the game — so the frames
           # judged are the same frames that were measured, doing the same work.
           # A ternary rather than `picture && ...`: with the readings off these have to come
           # back nil ("not looked at"), and `false && ...` is false, which reads as a reading.
           program = rom.built.source_program
+          # READ BEFORE the picture is looked at, because looking at it steps the game on a
+          # few more frames — and those frames are not the frames that were measured.
+          lost_sounds = drops_in(probe, drops)
           [measured,
            picture ? tearing_in(probe, program, held) : nil,
-           picture ? flicker_in(probe, program, held) : nil]
+           picture ? flicker_in(probe, program, held) : nil,
+           lost_sounds]
         ensure
           probe.close
         end
       end
 
       build_result(profile, routines, held, reached, tearing, flicker,
-                   tick_rates_in(profile, rom.built.timer_handlers))
+                   tick_rates_in(profile, rom.built.timer_handlers), lost)
+    end
+
+    # WHAT THE MEASURED FRAMES LOST, counted off the console.
+    #
+    # The counters run from the moment the game boots, and the frames before the measuring
+    # starts are not the frames being reported on — a game settles, and a saved moment brings
+    # its own history along with it. So they are put back to nothing at the top of the window
+    # (#clear_drops) and read here at the bottom, which makes this number about the same frames
+    # every other number in the report is about.
+    #
+    # A program that plays no samples has no counters and comes back unmeasured, so "nothing
+    # was lost" and "there was nothing to lose" stay different answers.
+    def self.drops_in(probe, drops)
+      return SoundDrops::Reading.unmeasured if drops.nil?
+
+      drops.read { |address| probe.read32(address) }
+    end
+
+    def self.clear_drops(probe, drops)
+      return if drops.nil?
+
+      probe.write32(drops.drops_at, 0)
+      probe.write32(drops.music_at, 0)
     end
 
     # IS EACH TIMER DELIVERING THE RATE IT WAS ASKED FOR, counted off the same histogram the
@@ -235,9 +266,10 @@ module RubyGBA
     # same source twice gives the same bytes, so simply re-running a build never costs anybody
     # their saved moments. Only a real change moves the addresses, and that is exactly when the
     # state has stopped meaning anything.
-    def self.resumed_from(probe, state_path, rom_path, frames, held)
+    def self.resumed_from(probe, state_path, rom_path, frames, held, drops = nil)
       check_state_matches!(probe, state_path, rom_path)
       probe.load_state(state_path)
+      clear_drops(probe, drops) # the state brought the moment's own history with it
       probe.profile(frames: frames, keys: held)
     end
 
@@ -260,8 +292,12 @@ module RubyGBA
       MSG
     end
 
-    def self.plain_run(probe, frames, settle, held)
-      probe.profile(frames: frames, settle: settle, keys: held)
+    # The settling is stepped here rather than handed to the probe, so there is a moment
+    # between it and the measuring for the counters to be put back to nothing.
+    def self.plain_run(probe, frames, settle, held, drops = nil)
+      probe.step(settle, keys: held) if settle.positive?
+      clear_drops(probe, drops)
+      probe.profile(frames: frames, keys: held)
     end
 
     # Where a named scene's state lives and what value means it — so `scene: :playing` can hold
@@ -304,12 +340,13 @@ module RubyGBA
     # is "the routines this scene runs", which is the question the placement is asking. It is
     # not a game anybody could play — a snake that dies and is forced back is nonsense as a
     # game — and it does not need to be.
-    def self.pinned_to(probe, enter, frames, held)
+    def self.pinned_to(probe, enter, frames, held, drops = nil)
       probe.step(BOOT_FRAMES, keys: held)
       address = enter.fetch(:address)
       value = enter.fetch(:value)
       probe.write32(address, value)
       probe.step(SETTLE, keys: held)
+      clear_drops(probe, drops) # the scene starts here; what it lost before it does not count
 
       frames.times.map do
         probe.write32(address, value)
@@ -390,7 +427,8 @@ module RubyGBA
     end
 
     def self.build_result(profile, routines, held, reached = Reached.new(how: :boot, detail: nil),
-                          tearing = nil, flicker = nil, tick_rates = [])
+                          tearing = nil, flicker = nil, tick_rates = [],
+                          sound_drops = SoundDrops::Reading.unmeasured)
       tally, outside = attribute(profile.pc, routines)
       total = profile.samples
 
@@ -406,7 +444,8 @@ module RubyGBA
       Result.new(frames: profile.frames, samples: total, fps: profile.frames_per_second,
                  idle_share: profile.idle_share.round(4), lines: lines,
                  unattributed: share(outside.sum { |_, seen| seen }, total), keys: held,
-                 reached: reached, tearing: tearing, flicker: flicker, tick_rates: tick_rates)
+                 reached: reached, tearing: tearing, flicker: flicker, tick_rates: tick_rates,
+                 sound_drops: sound_drops)
     end
 
     # WHAT RAN THAT IS NOT A ROUTINE THE AUTHOR WROTE, named by where it ran rather than
@@ -475,6 +514,7 @@ module RubyGBA
       tearing_line(result.tearing, printer)
       flicker_line(result.flicker, printer)
       tick_rate_lines(result.tick_rates, printer)
+      sound_drop_lines(result.sound_drops, printer)
       printer.puts("")
 
       result.lines.each { |line| printer.cost_line(label_for(line), "#{line.share}%") }
@@ -526,6 +566,30 @@ module RubyGBA
                      "drawing is holding interrupts off — a transfer stalls the console while " \
                      "it runs")
       end
+    end
+
+    # Said about sounds the game asked for and did not get. A run that lost none says nothing,
+    # and neither does a game that plays no samples — "we could not tell" must never read as
+    # "nothing was wrong".
+    #
+    # THE SPLIT IS THE SECOND LINE because it is the only part the author can act on. How many
+    # voices were sounding is not worth printing: a drop means all of them were, every time.
+    # Who had them is what varies, and a song holding most of them is a decision somebody made
+    # and can revisit — see {SoundDrops} for why this reports and does not warn.
+    #
+    # Said only where a song really held some. With no song playing the split is "the game had
+    # all of them", which the first line has already said, and "a song held 0" is a sentence
+    # about nothing.
+    def self.sound_drop_lines(drops, printer)
+      return if drops.nil? || !drops.any?
+
+      printer.puts("  #{drops.dropped} sounds did not play — every one of the " \
+                   "#{drops.voices} mixer voices was busy", severity: :bad)
+      return if drops.music_held.zero?
+
+      printer.puts("  a song held #{drops.music_held} of them at the worst moment, and the " \
+                   "game's own sounds held #{drops.game_held} — a song's recorded part keeps " \
+                   "a voice while its note sounds")
     end
 
     # Said only on the screen where drawing can be lost — the tear-free one. Every other

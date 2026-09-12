@@ -207,6 +207,16 @@ module RubyGBA
     # backends agree about sound with one equality.
     def sounding = voices.map(&:sample)
 
+    # WHAT THE CONSOLE COULD NOT PLAY: how many plays found every voice busy and were dropped,
+    # and how the voices were being split at the worst of them. Counted since the cartridge
+    # booted, so a test reads it at the end of a run. Directly comparable with the
+    # interpreter's Reference#sound_drops — the same shape, so the two backends' answers meet
+    # in one equality. Unmeasured for a program that plays no samples, which can lose none.
+    def sound_drops
+      table = drop_table!
+      table ? table.read { |address| mem32(address) } : SoundDrops::Reading.unmeasured
+    end
+
     # --- audio ---
     #
     # The counterpart to reading pixels: read the sound that actually came out.
@@ -305,6 +315,17 @@ module RubyGBA
               "record, then read the voices: ROM.assemble(code, ..., built: backend.build_record(program))."
       end
       @rom.built.voices
+    end
+
+    # ...and where it counts what it could not play. Same rule: only the build knows, because
+    # the counters are hidden variables.
+    def drop_table!
+      unless @rom.built
+        raise ArgumentError,
+              "This ROM does not know where it counts the sounds it dropped. Assemble it with " \
+              "its build record: ROM.assemble(code, ..., built: backend.build_record(program))."
+      end
+      @rom.built.sound_drops
     end
 
     # Where the cartridge's save memory goes: one directory for the whole process, made on

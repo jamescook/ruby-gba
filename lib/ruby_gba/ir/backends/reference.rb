@@ -90,6 +90,15 @@ module RubyGBA
           @slots.compact.map { |v| v[:name] }
         end
 
+        # WHAT THIS RUN COULD NOT PLAY: how many plays found every voice busy and were dropped,
+        # and how the song and the game were splitting the voices at the worst of them. The
+        # same shape the console's own count is read back in (Verifier#sound_drops), so the two
+        # backends' answers meet in one equality.
+        def sound_drops
+          SoundDrops::Reading.new(dropped: @drops, music_held: @drops_music,
+                                  voices: Sound::MIXER_VOICES)
+        end
+
         # The level a currently-sounding sample is playing at (its first voice), or nil if
         # it isn't playing — so a test can see `play(volume:)` took effect.
         def volume_of(name)
@@ -155,6 +164,8 @@ module RubyGBA
           @slots = Array.new(MAX_VOICES)
           @tickets = 0            # how many sounds the game has started, for the next ticket
           @peak_voices = 0        # the most that ever sounded at once (how much polyphony the run used)
+          @drops = 0              # plays that found every voice busy and were dropped
+          @drops_music = 0        # ...and the most voices a song held at one of those moments
           @timers = {}            # name -> { hz:, running:, overflows: } (a hardware timer)
           @timer_handlers = {}    # name -> on_timer node whose body runs on each overflow
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
@@ -750,7 +761,7 @@ module RubyGBA
           info = @samples[node.name] ||
                  raise(ProgramError, "play_sample of undefined sample #{node.name.inspect}")
           @audio << [:sample, node.name]
-          free = @slots.index(nil) or return
+          free = @slots.index(nil) or return note_drop
 
           # A pitched voice reads its sample faster (higher notes) or slower (lower), so it
           # plays out in proportionally fewer or more frames.
@@ -762,6 +773,17 @@ module RubyGBA
         end
 
         def count_the_voices = @peak_voices = [@peak_voices, @slots.count(&:itself)].max
+
+        # A SOUND WAS JUST LOST — every voice was busy, so this play is dropped rather than
+        # cutting one off. Counted here so a test can hold the interpreter's answer against the
+        # console's, which is measured the same way (see {SoundDrops}, and Mixer#emit_note_drop
+        # for the console's half). A drop means every voice was sounding, so the only thing
+        # worth writing down is how the song and the game were splitting them.
+        def note_drop
+          @drops += 1
+          @drops_music = [@drops_music, @slots.compact.count { |v| v[:owner] != :game }].max
+          nil
+        end
 
         # How much faster (>1) or slower (<1) a voice reads its sample when played at +pitch+
         # instead of the sample's recorded note +base+ — the frequency ratio. nil pitch plays
