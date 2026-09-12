@@ -92,6 +92,21 @@ class TestIRDump < Minitest::Test
     assert_equal "RubyGBA::IR::Nodes.build(:halt)", Dump.source(halt)
   end
 
+  # A SONG'S PART IS A RECORD, and a record inspects as `#<data ...>` — which describes one
+  # rather than rebuilding it. So a part is written back as the call that makes it, saying only
+  # what the author actually said: a plain part is its notes, and nothing else. (The round-trip
+  # tests above prove the source rebuilds the tree; this is the half they cannot see, since a
+  # part that spelled out all nine fields would round-trip just as well and read far worse.)
+  def test_a_part_is_written_back_as_the_call_that_makes_one_saying_only_what_it_said
+    plain = RubyGBA::Music::Part.new(events: [[0, 262]])
+    drums = RubyGBA::Music::Part.new(events: [[0, 262]], noise: true, decay: :slow)
+
+    assert_includes Dump.source(song(:tune, total_frames: 4, voices: [plain])),
+                    "RubyGBA::Music::Part.new(events: [[0, 262]])"
+    assert_includes Dump.source(song(:beat, total_frames: 4, voices: [drums])),
+                    "RubyGBA::Music::Part.new(events: [[0, 262]], noise: true, decay: :slow)"
+  end
+
   def test_a_kind_with_operands_and_children_orders_declared_operands_before_children
     node = func(:helper, set(:h, 1), wait_vblank)
     call = parse_call(Dump.source(node))

@@ -75,19 +75,12 @@ module RubyGBA
         super
       end
 
-      # What this part plays, as the keys a part hash carries — an instrument's name, a wave
-      # shape, or the hiss. Worked out by the same reader a `song` block's parts use, so the two
-      # ways a song reaches the IR cannot disagree about it (see Music.resolve_plays).
-      def played = Music.resolve_plays(plays)
-
-      # The instrument this part plays, by name, or nil when it plays one of the console's own
-      # voices.
-      def instrument = played[:instrument]
-
+      # This part as the resolved data the IR carries. Which of the console's voices it plays on
+      # is worked out by the same reader a `song` block's parts use, so the two ways a song
+      # reaches the IR cannot disagree about it (see Music::Part.playing).
       def to_voice(frames, total)
-        voice = { events: Events.of(self, frames, total), duty: duty, volume: volume }.merge(played)
-        voice.merge!(decay: decay, metallic: metallic) if voice[:noise]
-        voice
+        Music::Part.playing(plays, events: Events.of(self, frames, total), duty: duty,
+                                   volume: volume, decay: decay, metallic: metallic)
       end
     end
 

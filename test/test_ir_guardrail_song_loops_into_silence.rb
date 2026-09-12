@@ -16,7 +16,7 @@ class TestSongLoopsIntoSilenceGuardrail < Minitest::Test
   # A second long, looping from frame 24 — 0.4 seconds in.
   def tune(*parts, loop_frame: 24)
     song(:tune, total_frames: 60, loop_frame: loop_frame,
-                voices: parts.map { |events| { events: events, duty: :half, volume: 12 } })
+                voices: parts.map { |events| RubyGBA::Music::Part.new(events: events) })
   end
 
   def detect(*parts, **opts) = Check.new.detect(program(tune(*parts, **opts)))

@@ -21,8 +21,7 @@ class TestSongTooManyPartsGuardrail < Minitest::Test
   # A part on whichever voice: an instrument by name, or `wave:`/`noise:` for the two the
   # console plays itself. Naming none of them is a square-wave part.
   def part(instrument = nil, **plays)
-    voice = { events: [[0, 262]], duty: :half, volume: 12 }.merge(plays)
-    instrument ? voice.merge(instrument: instrument) : voice
+    RubyGBA::Music::Part.new(events: [[0, 262]], instrument: instrument, **plays)
   end
 
   def detect(voices) = Check.new.detect(program(song(:big, total_frames: 4, voices: voices)))

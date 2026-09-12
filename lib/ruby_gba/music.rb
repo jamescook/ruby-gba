@@ -106,8 +106,10 @@ module RubyGBA
     DEFAULT_WAVE_SHAPE = :triangle
 
     # WHAT A PART PLAYS, as plain data, worked out in one place for both ways a song reaches the
-    # IR — a `song` block and a `Score` handed over as data. Answers the keys the part hash
-    # carries, so a part's kind is read off it the same way everywhere (see IR::Tunes.part_kind).
+    # IR — a `song` block and a `Score` handed over as data. Answers the fields a Part carries,
+    # so a part's kind is read off it the same way everywhere (see IR::Tunes.part_kind). The
+    # Hash it hands back is a slice of keyword arguments with one place to go — straight into
+    # Part.playing — rather than a record that travels.
     #
     # A bare Symbol is an instrument's name unless it is one of the console's own voices, and
     # nothing here looks an instrument up: a name that is neither is caught later, by the
@@ -139,8 +141,46 @@ module RubyGBA
       "from this part. For the wave voice, which is rounder and goes lower, write " \
       "`plays: :wave`."
 
-    # One part of a song: a single line of notes and rests, with its own tone
-    # (duty) and loudness (volume). The clock (tempo) lives on the song and is
+    # ONE PART OF A SONG, resolved — the thing a `song` node's `voices:` list is made of, and
+    # what every backend and every check about a tune reads.
+    #
+    # It is the one description of a part, built at each of the two ways a song reaches the IR
+    # (VoiceContext#to_voice for a block, Score::Part#to_voice for data) and read by name
+    # everywhere after. Named fields rather than a Hash, because the fields a part can leave out
+    # are most of them: a misspelt one raises here, where a missing Hash key read as nil and
+    # came out layers away as a part playing the wrong voice.
+    #
+    # WHAT IT HOLDS. +events+ is the part's score, one [frame, frequency in Hz, instrument,
+    # volume] each with a frequency of 0 for a rest; +duty+ is the square wave's shape and
+    # +volume+ its loudness. Then, at most one of: +instrument+ (a recording the part plays at
+    # each note's pitch), +wave+ (a timbre for the console's wave voice), +noise+ (the hiss).
+    # Naming none of those is the square wave.
+    #
+    # THE DEFAULTS ARE HERE, not at the places that read them. +decay+ and +metallic+ say how a
+    # hit fades and whether it rattles, and only a part on the noise voice is ever asked — so
+    # every other part carries the answer a drum would have given and nobody looks. That is the
+    # trade an optional field makes: one harmless value on every part, against a `|| :fast`
+    # written at each reader and a key that might not be there.
+    Part = Data.define(:events, :duty, :volume, :instrument, :wave, :noise, :decay, :metallic, :name)
+
+    class Part
+      # WHAT A PART CARRIES WHEN IT SAYS NOTHING — every optional field's answer, in one place,
+      # so the declaration and anything asking whether a part actually SAID so (the IR dumper,
+      # writing a part back as the call that builds it) cannot drift apart. +events+ is not
+      # here: a part with no notes in it is a part nobody wrote.
+      DEFAULTS = { duty: :half, volume: 12, instrument: nil, wave: nil,
+                   noise: false, decay: :fast, metallic: false, name: nil }.freeze
+
+      def initialize(events:, **said) = super(events: events, **DEFAULTS.merge(said))
+
+      # A part built from what its author said it PLAYS — an instrument's name, a wave shape,
+      # :noise, or nothing for the square wave. One reader for that word (Music.resolve_plays),
+      # so the two ways a song reaches the IR cannot disagree about which voice a part is on.
+      def self.playing(plays, **rest) = new(**rest, **Music.resolve_plays(plays))
+    end
+
+    # One part of a song as it is WRITTEN, in a `song` block: a single line of notes and rests,
+    # with its own tone (duty) and loudness (volume). The clock (tempo) lives on the song and is
     # shared, so every part advances together, note for note.
     #
     # A part plays the square-wave voice unless it names an instrument to play
@@ -148,13 +188,12 @@ module RubyGBA
     #
     # Each event is [frame_offset, freq_hz] where freq_hz = 0 is a rest.
     class VoiceContext
-      attr_reader :events, :instrument
+      attr_reader :events
 
       def initialize(song, plays: nil, name: nil)
         @song = song       # the shared tempo is read back through this
         @name = name       # what the song calls this part, for a message about it
         @plays = Music.resolve_plays(plays)
-        @instrument = @plays[:instrument]
         @duty = :half
         @volume = 12
         @decay = :fast     # a drum hit, for a part on the noise voice
@@ -218,13 +257,11 @@ module RubyGBA
         @current_frame
       end
 
-      # The part as plain data for the IR: its score, tone, and loudness — and the
-      # instrument it plays, when it plays one, and its name, when it has one.
+      # The part as the resolved data the IR carries: its score, tone, and loudness — and the
+      # voice it plays on, and its name, when it has one.
       def to_voice
-        part = { events: @events, duty: @duty, volume: @volume }.merge(@plays)
-        part.merge!(decay: @decay, metallic: @metallic) if @plays[:noise]
-        part[:name] = @name if @name
-        part
+        Part.new(events: @events, duty: @duty, volume: @volume, decay: @decay,
+                 metallic: @metallic, name: @name, **@plays)
       end
 
       private

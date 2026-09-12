@@ -30,7 +30,7 @@ module RubyGBA
       # Every instrument a song names — for its parts, and for any note that names its own.
       def instruments(song)
         song.voices.flat_map do |part|
-          [part[:instrument], *part[:events].map { |event| event[2] }]
+          [part.instrument, *part.events.map { |event| event[2] }]
         end.compact.uniq
       end
 
@@ -42,9 +42,9 @@ module RubyGBA
       # the hiss. Naming none of those is the square wave, which is what a part was before any
       # of the others existed and is still what most parts are.
       def part_kind(part)
-        return :recorded if part[:instrument]
-        return :wave if part[:wave]
-        return :noise if part[:noise]
+        return :recorded if part.instrument
+        return :wave if part.wave
+        return :noise if part.noise
 
         :square
       end
@@ -99,7 +99,7 @@ module RubyGBA
           raise ArgumentError, "song #{song.name.inspect} loops from frame #{from}, and is #{song.total_frames} frames long"
         end
 
-        song.voices.map { |part| pass(part[:events], from) }
+        song.voices.map { |part| pass(part.events, from) }
       end
 
       def pass(events, from)
@@ -126,7 +126,7 @@ module RubyGBA
       # or if the song ends on a note, which then carries on into the repeat.
       def repeat_sounds?(song)
         song.voices.zip(passes(song)).any? do |part, pass|
-          sounding?(part[:events].last) || pass.again.any? { |event| sounding?(event) }
+          sounding?(part.events.last) || pass.again.any? { |event| sounding?(event) }
         end
       end
 

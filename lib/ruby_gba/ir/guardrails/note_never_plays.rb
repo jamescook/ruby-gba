@@ -23,7 +23,7 @@ module RubyGBA
           def detect(program)
             program.walk.select { |node| node.kind == :song }.flat_map do |song|
               song.voices.each_with_index.filter_map do |part, index|
-                problem = first_problem(part[:events], song.total_frames)
+                problem = first_problem(part.events, song.total_frames)
                 next unless problem
 
                 message = "#{SongWords.part(program, song, index).sub(/\A./, &:upcase)} of " \

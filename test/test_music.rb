@@ -24,7 +24,7 @@ class TestMusic < Minitest::Test
       rest :eighth
     end
 
-    events = ctx.voices.first[:events]
+    events = ctx.voices.first.events
     assert_equal 3, events.size
     # At 120 BPM, quarter = 30 frames, eighth = 15 frames
     assert_equal [0, 262], events[0]     # C4 at frame 0
@@ -51,7 +51,7 @@ class TestMusic < Minitest::Test
       note :D4, :dotted_eighth   # 0.75 * 30 = 22.5 → 23 (rounded)
     end
 
-    events = ctx.voices.first[:events]
+    events = ctx.voices.first.events
     assert_equal [0, 262], events[0]
     assert_equal [45, 294], events[1]
   end
@@ -88,7 +88,7 @@ class TestMusic < Minitest::Test
       note 440, :quarter  # A4 by frequency
     end
 
-    events = ctx.voices.first[:events]
+    events = ctx.voices.first.events
     assert_equal 1, events.size
     assert_equal [0, 440], events[0]
   end
@@ -140,8 +140,8 @@ class TestMusic < Minitest::Test
 
     voices = ctx.voices
     assert_equal 2, voices.size
-    assert_equal [[0, 523], [30, 659]], voices[0][:events]
-    assert_equal [[0, 131]], voices[1][:events]
+    assert_equal [[0, 523], [30, 659]], voices[0].events
+    assert_equal [[0, 131]], voices[1].events
     # The song loops at the length of its longest part.
     assert_equal 60, ctx.total_frames
   end
@@ -160,8 +160,8 @@ class TestMusic < Minitest::Test
       end
     end
 
-    assert_equal({ duty: :quarter, volume: 12 }, ctx.voices[0].slice(:duty, :volume))
-    assert_equal({ duty: :half, volume: 6 }, ctx.voices[1].slice(:duty, :volume))
+    assert_equal({ duty: :quarter, volume: 12 }, ctx.voices[0].to_h.slice(:duty, :volume))
+    assert_equal({ duty: :half, volume: 6 }, ctx.voices[1].to_h.slice(:duty, :volume))
   end
 
   def test_mixing_loose_notes_and_voice_blocks_is_a_friendly_error

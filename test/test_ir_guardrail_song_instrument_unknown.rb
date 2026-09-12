@@ -11,7 +11,8 @@ class TestSongInstrumentUnknownGuardrail < Minitest::Test
   Check = RubyGBA::IR::Guardrails::Checks::SongInstrumentUnknown
 
   def tune(instrument)
-    song(:tune, total_frames: 4, voices: [{ events: [[0, 262]], duty: :half, volume: 12, instrument: instrument }])
+    song(:tune, total_frames: 4,
+                voices: [RubyGBA::Music::Part.new(events: [[0, 262]], instrument: instrument)])
   end
 
   def clip = sample(:piano, [0, 60, 0, -60].pack("c*"), 8000)

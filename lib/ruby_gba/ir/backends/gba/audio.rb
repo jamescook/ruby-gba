@@ -153,6 +153,11 @@ module RubyGBA
           WAVE_HALFWORDS = 8
           WAVE_BYTES = WAVE_HALFWORDS * 2
 
+          # A PART WITH NOTHING IN IT, for a lane being silenced when a tune changes. Silence is
+          # a rest, and a rest names no pitch — so a part's tone, its fade and its rattle are all
+          # unread, and a part that says nothing answers every one of them.
+          SILENCE = Music::Part.new(events: [])
+
           # Number the tunes the program plays, pick the lanes they need, and keep the mixer
           # voices their recorded parts will use. A tune that is written but never played costs
           # nothing. The score itself waits for #build_score, because a recorded note's step
@@ -499,7 +504,7 @@ module RubyGBA
               @emitter.emit(ASM.load_immediate(8, Mixer.music_owner(lane.index)))
               @mixer.emit_music_voice_off
             else
-              emit_writes(console_note(lane, { duty: :half, metallic: false }, 0, 0))
+              emit_writes(console_note(lane, SILENCE, 0, 0))
             end
           end
 
@@ -642,7 +647,7 @@ module RubyGBA
 
           # The waveform a song's parts on the wave voice play. There is one wave voice, so
           # there is at most one — Checks::SongTooManyParts refuses a song with two such parts.
-          def wave_shapes(song) = song.voices.filter_map { |part| part[:wave] }.uniq
+          def wave_shapes(song) = song.voices.filter_map { |part| part.wave }.uniq
 
           def row_bytes(lane) = lane.kind == :recorded ? RECORDED_ROW : SQUARE_ROW
 
@@ -670,15 +675,15 @@ module RubyGBA
           def lane_rows(lane, part, events)
             if lane.kind == :recorded
               rows = events.map do |frame, frequency, instrument, volume|
-                name = instrument || part[:instrument]
+                name = instrument || part.instrument
                 step = frequency.zero? ? 0 : @mixer.step_at(@mixer.sample_info(name), frequency)
-                [frame, step, @instrument_numbers.fetch(name), loudness(volume || part[:volume])].pack("VVvv")
+                [frame, step, @instrument_numbers.fetch(name), loudness(volume || part.volume)].pack("VVvv")
               end
               rows.join + [NEVER, 0, 0, 0].pack("VVvv")
             else
               regs = music_voice_regs(lane)
               rows = events.map do |frame, frequency, _instrument, volume|
-                writes = console_note(lane, part, frequency, volume || part[:volume])
+                writes = console_note(lane, part, frequency, volume || part.volume)
                 [frame, note_reg_value(writes, regs[:reg_a]), note_reg_value(writes, regs[:reg_b])].pack("Vvv")
               end
               rows.join + [NEVER, 0, 0].pack("Vvv")
@@ -692,12 +697,12 @@ module RubyGBA
           def console_note(lane, part, frequency, volume)
             case lane.kind
             when :square
-              Sound::Registers.channel_note(lane.index, frequency: frequency, duty: part[:duty], volume: volume)
+              Sound::Registers.channel_note(lane.index, frequency: frequency, duty: part.duty, volume: volume)
             when :wave
               Sound::Registers.wave_note(frequency: frequency, volume: volume)
             else
               Sound::Registers.noise_note(frequency: frequency, volume: volume,
-                                          decay: part[:decay] || :fast, metallic: part[:metallic])
+                                          decay: part.decay, metallic: part.metallic)
             end
           end
 

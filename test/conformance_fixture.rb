@@ -42,9 +42,9 @@ module ConformanceFixture
       # --- definitions: registered up front, referenced by name below ---
       B.define_sound(:blip, frequency: 880),
       B.song(:tune, total_frames: 8, voices: [
-               { events: [[0, 440], [4, 0]], duty: :half, volume: 12 },
+               RubyGBA::Music::Part.new(events: [[0, 440], [4, 0]]),
                # ...and a part that plays a recording rather than the square wave
-               { events: [[0, 262], [4, 0]], duty: :half, volume: 12, instrument: :clip },
+               RubyGBA::Music::Part.new(events: [[0, 262], [4, 0]], instrument: :clip),
              ]),
       # a song only a list names, which loops from frame 1 with a note held across it
       B.song(:theme, events: [[0, 330], [2, 392]], total_frames: 4, loop_frame: 1),

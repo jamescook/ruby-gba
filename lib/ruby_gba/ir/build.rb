@@ -227,8 +227,8 @@ module RubyGBA
       end
 
       # Define a named tune. A song is one or more parts (voices) played together.
-      # Each part is { events:, duty:, volume: } where +events+ is the resolved
-      # score — a list of [frame_offset, frequency_hz] pairs, a rest being
+      # Each part is a Music::Part, whose +events+ is the resolved score — a list of
+      # [frame_offset, frequency_hz] pairs, a rest being
       # frequency 0. +total_frames+ is the song's length, so it loops by wrapping
       # there; the frame timing is worked out once when the song is written, so
       # every backend replays the same score. The parts play in order on the
@@ -242,7 +242,7 @@ module RubyGBA
       # +loop_frame:+ is where the song goes back to at its end, so what comes before it
       # plays once — an introduction. Left out, the song loops from its start.
       def song(name, total_frames:, voices: nil, events: nil, duty: :half, volume: 12, loop_frame: nil)
-        voices ||= [{ events: events, duty: duty, volume: volume }]
+        voices ||= [Music::Part.new(events: events, duty: duty, volume: volume)]
         looping = loop_frame ? { loop_frame: loop_frame } : {}
         Nodes.build(:song, name: name, voices: voices, total_frames: total_frames, **looping)
       end

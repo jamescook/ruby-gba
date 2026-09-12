@@ -37,7 +37,7 @@ module RubyGBA
         def part(program, node, index)
           return "part #{index}" if score?(program, node)
 
-          name = node.voices[index][:name]
+          name = node.voices[index].name
           return "the part :#{name}" if name
 
           ORDINALS[index] ? "the #{ORDINALS[index]} part" : "part #{index + 1}"
