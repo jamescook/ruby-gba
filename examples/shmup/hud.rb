@@ -38,6 +38,11 @@ module Shmup
       @score.add 10
     end
 
+    # A boss going down is worth a good deal more than an enemy.
+    def bonus(points)
+      @score.add points
+    end
+
     def hit
       @lives.sub 1
       @lives.clamp 0, 9 # keep the display sane if two enemies land on the same frame

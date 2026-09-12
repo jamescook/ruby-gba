@@ -11,18 +11,23 @@
 #
 #   examples/shmup/player.rb   — the ship and its shot (move, fire)
 #   examples/shmup/enemies.rb  — a fixed few enemies that dive and respawn
+#   examples/shmup/boss.rb     — a 96x48 cruiser: one sprite, bigger than the console draws
 #   examples/shmup/hud.rb      — the score / ships display
 #
 # The game is two scenes: PLAYING and a GAME OVER screen. A scene owns what it draws — the
-# ship, enemies, and HUD are declared inside the playing scene, so they're on screen while
-# you play and gone on the game-over screen, with nothing to hide by hand. Losing the last
-# ship switches scenes; START on the game-over screen starts a fresh game. Run it to build
+# ship, enemies, boss and HUD are declared inside the playing scene, so they're on screen
+# while you play and gone on the game-over screen, with nothing to hide by hand. Losing the
+# last ship switches scenes; START on the game-over screen starts a fresh game.
+#
+# A wave of enemies in, the boss turns up: a cruiser wider than any picture the console can
+# draw in one go, written as one `sprite` at the size it was drawn. Run it to build
 # examples/shmup.gba:
 #   ruby examples/shmup.rb
 
 require_relative "../lib/ruby_gba"
 require_relative "shmup/player"
 require_relative "shmup/enemies"
+require_relative "shmup/boss"
 require_relative "shmup/hud"
 
 module Shmup
@@ -46,18 +51,24 @@ module Shmup
       enemies = layer(:enemies) { Enemies.new(self) }
       player  = layer(:ship)    { Player.new(self) }
       hud     = layer(:ui)      { Hud.new(self) }
+      # The boss goes in the same layer as the enemies, so the ship flies in front of it.
+      # It takes the ship and the HUD up front because it shoots at one and scores on the
+      # other, and its behaviour is `func`s declared once rather than a per-frame block.
+      boss = layer(:enemies) { Boss.new(self, player, hud) }
 
       # Start a fresh game when the game-over screen asked for one: everything back to
       # its opening position, then clear the request.
       (new_game == 1).then do
         player.reset
         enemies.reset
+        boss.reset
         hud.reset
         set :new_game, 0
       end
 
       player.update
       enemies.update(player, hud)
+      boss.update
 
       # Out of ships: dim the field away, and hand over only once it is properly dark.
       #
