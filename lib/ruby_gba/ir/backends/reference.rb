@@ -920,11 +920,17 @@ module RubyGBA
           song = @songs[@music_playing]
           recorded = 0
           song.voices.each_with_index do |part, number|
-            lane = part[:instrument] && (recorded += 1) - 1
+            kind = IR::Tunes.part_kind(part)
+            lane = kind == :recorded ? (recorded += 1) - 1 : nil
             offset, frequency, instrument = @music_lists[number][@music_cursors[number]]
             next unless offset == @music_frame
 
             @audio << [:note, @music_playing, frequency]
+            # A part on the WAVE or NOISE voice: the console makes the sound itself, so no mixer
+            # voice is taken — the whole point of putting a part there. Logged the way the
+            # `wave` and `noise` verbs log theirs, so a test reads a song's drums and a game's
+            # own hits out of one place.
+            play_console_voice(kind, part, frequency) if %i[wave noise].include?(kind)
             if lane
               frequency.zero? ? music_voice_off(lane) : take_music_voice(lane, recorded_voice(instrument || part[:instrument], frequency))
             end
@@ -941,6 +947,26 @@ module RubyGBA
         end
 
         def music_passes(name) = @music_passes[name] ||= IR::Tunes.passes(@songs[name])
+
+        # A SONG'S NOTE ON THE WAVE OR NOISE VOICE. The console makes both sounds itself, so
+        # there is nothing to mix and nothing to keep — the note is simply what the voice is
+        # doing now, which is why a part here costs no mixer voice.
+        #
+        # Logged in the same shape the `wave` and `noise` VERBS log a sound effect, because they
+        # really are the same voice: a game that plays a hit while its drum part is playing one
+        # gets whichever came last, and a test that reads the log sees exactly that.
+        def play_console_voice(kind, part, frequency)
+          if kind == :wave
+            return @audio << [:stop_wave] if frequency.zero?
+
+            @audio << [:wave, { shape: part[:wave], frequency: frequency, volume: part[:volume] }]
+          else
+            return @audio << [:noise, nil] if frequency.zero?
+
+            @audio << [:noise, { pitch: frequency, decay: part[:decay] || :fast,
+                                 volume: part[:volume], metallic: !!part[:metallic] }]
+          end
+        end
 
         # A recorded part's note: its instrument, and how many frames the recording lasts read at
         # the note's pitch — a higher note reads it faster, so it runs out sooner.

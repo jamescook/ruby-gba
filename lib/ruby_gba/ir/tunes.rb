@@ -34,10 +34,28 @@ module RubyGBA
         end.compact.uniq
       end
 
-      # How many of a song's parts play a recording rather than a square wave.
-      def recorded_parts(song)
-        song.voices.count { |part| part[:instrument] }
+      # WHICH OF THE CONSOLE'S VOICES A PART PLAYS ON, read off the part itself. One reader, so
+      # no backend and no check can decide it differently — that is the same reason this whole
+      # module exists.
+      #
+      # A part names its voice by what it SOUNDS LIKE: an instrument it plays, a waveform, or
+      # the hiss. Naming none of those is the square wave, which is what a part was before any
+      # of the others existed and is still what most parts are.
+      def part_kind(part)
+        return :recorded if part[:instrument]
+        return :wave if part[:wave]
+        return :noise if part[:noise]
+
+        :square
       end
+
+      # How many of a song's parts play on each of the console's voices.
+      def parts_on(song, kind)
+        song.voices.count { |part| part_kind(part) == kind }
+      end
+
+      # How many of a song's parts play a recording rather than one of the console's own voices.
+      def recorded_parts(song) = parts_on(song, :recorded)
 
       # The most recorded parts any one played tune has — how many parts the player has to be
       # ready to find a voice for at once, since one tune plays at a time.
