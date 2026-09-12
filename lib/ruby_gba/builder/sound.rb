@@ -78,16 +78,22 @@ module RubyGBA
       # a richer, non-square sound than a beep. The tone holds until you call it
       # again or `stop_wave`; the wave voice has no fade.
       #
-      # @param shape [Symbol] the timbre: :sine, :triangle, :sawtooth, :square
+      # @param shape [Symbol, Array] the timbre — :sine, :triangle, :sawtooth, :square — or a
+      #   waveform of your own, as 32 steps of 0 to 15
       # @param pitch [Symbol, Integer] a note name (:C4, :Fs4) or frequency in Hz
       # @param volume [Symbol] :full, :three_quarter, :half, :quarter, :mute
       #
       # @example
       #   wave :triangle, :C4
       #   wave :sine, 440, volume: :half
+      #   PULSE_50 = [15] * 16 + [0] * 16
+      #   wave PULSE_50, :C4
       def wave(shape, pitch, volume: :full)
         raise ArgumentError, "Sound is off. Call enable_sound before wave." unless @sound_enabled
 
+        # ...checked here so a bad waveform is said at the line that wrote it. Spelled out
+        # because a bare `Sound` inside this concern is the concern itself.
+        RubyGBA::Sound.wave_steps!(shape) if shape.is_a?(Array)
         record(Build.wave(shape: shape, frequency: note_frequency(pitch), volume: volume))
       end
 

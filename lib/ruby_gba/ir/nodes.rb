@@ -777,7 +777,7 @@ module RubyGBA
         include Node
         kind :wave
         category :sound
-        operands shape: :option, frequency: :int, volume: :option
+        operands shape: :waveform, frequency: :int, volume: :option
       end
 
       # Every kind, by its name. Derived from the classes above rather than kept alongside

@@ -120,6 +120,8 @@ module RubyGBA
       when :noise then { noise: true }
       when :wave then { wave: DEFAULT_WAVE_SHAPE }
       when *WAVE_SHAPES then { wave: plays }
+      # A waveform of the part's own, rather than one of the names — the wave voice either way.
+      when Array then { wave: Sound.wave_steps!(plays) }
       when :square then raise ArgumentError, SQUARE_PLAYS_MESSAGE
       when Symbol then { instrument: plays }
       else
@@ -127,8 +129,9 @@ module RubyGBA
 
         raise ArgumentError, "plays: names an instrument, like :piano. It can also name one of " \
                              "the console's own voices: :wave (or a shape, " \
-                             "#{WAVE_SHAPES.map(&:inspect).join(', ')}) or :noise. " \
-                             "You gave #{plays.inspect}."
+                             "#{WAVE_SHAPES.map(&:inspect).join(', ')}) or :noise. For a waveform " \
+                             "of your own, give #{Sound::WAVE_SAMPLES} steps of 0 to " \
+                             "#{Sound::WAVE_STEP_MAX}. You gave #{plays.inspect}."
       end
     end
 

@@ -269,6 +269,84 @@ class TestSongConsoleVoices < Minitest::Test
     b.program
   end
 
+  # --- a waveform of the game's own, rather than one of the names ---
+
+  # THE NAMED SHAPES ARE A CONVENIENCE, NOT THE TRUTH. The console's wave voice is 32 steps of
+  # four bits that a game writes, so a game whose music came from somewhere else — decoded out
+  # of another cartridge — arrives holding those 32 numbers, and no name would be the waveform
+  # it actually has. A 50% pulse is the common case and is none of :sine, :triangle, :sawtooth
+  # or :square: played as a triangle it is a different instrument.
+  PULSE_50 = ([15] * 16 + [0] * 16).freeze
+
+  # One part on the wave voice, playing whatever it is given.
+  def pad_song(plays)
+    b = Builder.new
+    shape = plays
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      enable_sound
+      song(:tune) { voice(:pad, plays: shape) { note :C4, :whole } }
+      play_song :tune
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  # Wave RAM as the console really holds it — the eight halfwords of the bank the CPU is shown.
+  def wave_ram_of(program, name)
+    backend = GBA.new
+    rom = ROM.assemble(backend.lower(program), title: name, code: "BWAV", maker: "01",
+                                               built: backend.build_record(program))
+    v = assert_emulator_loads_rom(rom, frames: 6)
+    (0...Registers.wavetable_halfwords(:sine).length).map { |i| v.mem16(REG_WAVE_RAM + (i * 2)) }
+  end
+
+  # THE POINT IS THE DIFFERENCE, so it is asserted rather than assumed: the steps the game gave
+  # reach the console, and what reaches it is NOT what the same part would have played as a
+  # triangle. A waveform that merely arrived somewhere would prove nothing.
+  def test_a_waveform_of_the_games_own_reaches_the_console_and_is_not_a_triangle
+    pulse = wave_ram_of(pad_song(PULSE_50), "PULSE")
+
+    assert_equal Registers.wavetable_halfwords(PULSE_50), pulse, "the game's own steps, packed"
+    refute_equal wave_ram_of(pad_song(:triangle), "TRI"), pulse,
+                 "a pulse must not come out as the triangle it would have been named"
+  end
+
+  # The bare `wave` verb takes one too, not just a song part.
+  def test_the_wave_verb_takes_a_waveform_of_its_own
+    b = Builder.new
+    steps = PULSE_50
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      enable_sound
+      wave steps, :C4
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+
+    assert_equal Registers.wavetable_halfwords(PULSE_50), wave_ram_of(b.program, "WVERB")
+  end
+
+  # The interpreter carries it too, so both backends are told the same waveform.
+  def test_the_interpreter_plays_the_waveform_it_was_given
+    played = logged(pad_song(PULSE_50)).select { |entry| entry.first == :wave }.map(&:last).compact
+
+    refute_empty played
+    assert_equal PULSE_50, played.first[:shape]
+  end
+
+  # A waveform that cannot be one is refused at the line that wrote it, not at the cartridge.
+  def test_a_waveform_the_console_cannot_hold_is_a_friendly_error
+    short = assert_raises(ArgumentError) { pad_song([15] * 8) }
+    assert_match(/32 steps/, short.message)
+
+    loud = assert_raises(ArgumentError) { pad_song(([15] * 31) + [99]) }
+    assert_match(/0 to 15/, loud.message)
+  end
+
   # --- a Score says it the same way ---
 
   def test_a_score_part_names_the_console_voices_too
