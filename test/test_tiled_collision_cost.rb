@@ -105,11 +105,16 @@ class TestTiledCollisionCost < Minitest::Test
     builder.program
   end
 
-  # Run until every guard has walked into the far wall and stopped. AT REST is what is
-  # compared, on purpose: a moving pool is a frame out of step between the two backends
-  # for reasons that have nothing to do with collision (a pool moving with no collision
-  # at all disagrees the same way — filed separately), and stopped guards cannot be a
-  # frame out. What this pins is the thing collision decides: WHERE they stop.
+  # WHILE THEY ARE STILL MOVING, frame for frame — which is what pins the path they took
+  # and not only where they ended up. Every frame of the walk is compared, so a guard that
+  # slid along a wall one frame early on one backend shows here.
+  def test_a_pool_blocked_by_a_background_walks_the_same_way_on_both_backends
+    program = pooled_game(6)
+    (1..12).each { |f| assert_backends_agree(program, frames: f) }
+  end
+
+  # ...and run on until every guard has walked into the far wall and stopped, which is the
+  # thing collision decides: WHERE they stop.
   def test_a_pool_blocked_by_a_background_stops_in_the_same_place_on_both_backends
     assert_backends_agree(pooled_game(6), frames: 200)
   end

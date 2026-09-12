@@ -200,6 +200,20 @@ console run is longer by `Differential::BOOT_FRAMES` (bitmap 2, tiled 1). Those
 are measured numbers, re-measured by a test, not guesses. A program that switches
 display mode has no single offset and raises unless you pass `console_frames:`.
 
+**The two are lined up on PASSES of the game loop, not on frames**, and the offset is
+only there to give the console enough frames to make them. That matters because
+`BOOT_FRAMES` was measured on a program with almost nothing to set up: a real tiled game
+has a map to upload and a cast to declare, spills into a second frame, and is then one
+pass behind for the whole run however fast the game itself is. A still picture can't show
+that; a moving one shows it as a frame of drift, which reads exactly like a lowering bug.
+So a program whose picture is a **finished** pass is compared at the passes the console
+finished. That's a tiled or rotozoom screen (no framebuffer the game paints into — the
+sprite table and scroll registers are written in one go right after the vblank) and a
+tear-free bitmap one (two pages, the shown one finished). A single-buffered bitmap screen
+can be caught half-drawn, so it keeps `BOOT_SLACK`'s one-pass tolerance and the
+`OverBudget` refusal. Nothing here relaxes the comparison — it's still every pixel exact;
+it only picks which moment is compared.
+
 A failure prints the differing count, the first few coordinates with color names,
 and a 40x20 map of *where* on screen they differ — enough to tell "the sprite is a
 pixel off" from "everything below the map".
