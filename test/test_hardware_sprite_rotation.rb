@@ -123,6 +123,56 @@ class TestHardwareSpriteRotation < Minitest::Test
     assert_match(/screen :tiled/, err.message)
   end
 
+  # --- two sprites turning at once each keep their own angle ---
+
+  # TWO SPRITES TURNING TO DIFFERENT ANGLES, which is the thing that proves each gets a
+  # rotation group of ITS OWN. The console holds a turning sprite's angle in one of 32
+  # parameter groups and each sprite's entry names which group to read; give two sprites the
+  # same group and the picture does not fail, it goes SUBTLY wrong — the group holds whichever
+  # angle was written last, so both sprites draw at it and the game looks like it has one
+  # rotation. Nothing but a second turning sprite can catch that, which is why this test
+  # exists: with one sprite on screen, every group number works equally well.
+  #
+  # A quarter turn puts the red half on top; a half turn puts it on the right. So if the two
+  # shared a group, one of these two would read the other's angle.
+  def test_two_sprites_turning_at_once_each_keep_their_own_angle
+    v = assert_emulator_loads_rom(rom_for(two_turned_program), frames: 3)
+
+    assert v.red?(CX, CY - 4),    "the quarter-turned sprite has its red half on top, " \
+                                  "got 0x#{format('%04X', v.pixel_gba(CX, CY - 4))}"
+    assert v.green?(CX, CY + 4),  "...and its green half below"
+    assert v.red?(FAR_CX + 4, CY), "the half-turned sprite has its red half on the RIGHT, " \
+                                   "got 0x#{format('%04X', v.pixel_gba(FAR_CX + 4, CY))}"
+    assert v.green?(FAR_CX - 4, CY), "...and its green half on the left"
+  end
+
+  # The second disc's center, far enough along that the two never touch.
+  FAR_CX = 108
+
+  # The same disc twice: one turned a quarter, one turned a half.
+  def two_turned_program
+    floor_map = Array.new(20, "#" * 30)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image(:floor, "#" => :blue) { (["########"] * 8).join("\n") }
+      image(:quarter, "R" => :red, "G" => :green) { DISC_ART }
+      image(:half, "R" => :red, "G" => :green) { DISC_ART }
+      tiles :ground, "#" => :floor
+      background :field, tiles: :ground, map: floor_map
+      sprite(:quarter, at: [40, 40]).face_angle(90)
+      sprite(:half, at: [100, 40]).face_angle(180)
+      f = var :f, 0
+      game_loop do
+        wait_vblank
+        f.add 1
+        (f >= 2).then { halt }
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
   # The console has 32 rotation groups, so at most 32 sprites can turn at once. The
   # 33rd is a friendly build error, not a silently-wrong sprite.
   def test_more_than_32_turning_sprites_is_a_friendly_error
