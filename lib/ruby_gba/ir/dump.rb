@@ -55,17 +55,30 @@ module RubyGBA
 
       # An operand's value: a nested node (recurse), a list (an Array — recurse over
       # its elements, which may themselves be nodes, numbers, or further nested
-      # arrays — a table's numbers, a case's [value, target] pairs), or an author-time
-      # literal. Ruby's own #inspect already writes an Integer/Symbol/String/bool back
-      # as valid source for anything else — that is the whole reason the operand
-      # tags in {Verifier::TYPES} are plain Ruby types and not a bespoke format.
+      # arrays — a table's numbers, a case's [value, target] pairs), a song's part, or
+      # an author-time literal. Ruby's own #inspect already writes an
+      # Integer/Symbol/String/bool back as valid source for anything else — that is the
+      # whole reason the operand tags in {Verifier::TYPES} are plain Ruby types and not
+      # a bespoke format.
       def value_source(value, level)
         case value
         when Node then source(value, level: level)
         when Array then "[#{value.map { |element| value_source(element, level) }.join(', ')}]"
         when String then string_source(value)
+        when Music::Part then part_source(value)
         else value.inspect
         end
+      end
+
+      # A SONG'S PART, written back as the call that builds one. A record inspects as
+      # `#<data ...>`, which describes it rather than rebuilding it — so the fields are
+      # written out as keyword arguments instead. Only the ones that differ from the
+      # defaults, since most parts leave most of them alone and a part that says nothing
+      # but its notes should read that way in the dump too.
+      def part_source(part)
+        said = part.to_h.reject { |field, value| Music::Part::DEFAULTS[field] == value }
+        args = said.map { |field, value| "#{field}: #{value_source(value, 0)}" }
+        "RubyGBA::Music::Part.new(#{args.join(', ')})"
       end
 
       # #inspect alone loses a binary string's encoding — re-read as ordinary source,

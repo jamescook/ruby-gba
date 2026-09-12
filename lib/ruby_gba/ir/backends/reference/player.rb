@@ -137,7 +137,7 @@ module RubyGBA
           def sound_recording(lane, part, instrument, frequency)
             return @mixer.release_music(lane) if frequency.zero?
 
-            @mixer.take_for_music(lane, instrument || part[:instrument], frequency)
+            @mixer.take_for_music(lane, instrument || part.instrument, frequency)
           end
 
           # A SONG'S NOTE ON THE WAVE OR NOISE VOICE. The console makes both sounds itself, so
@@ -152,12 +152,12 @@ module RubyGBA
             if kind == :wave
               return @log << [:stop_wave] if frequency.zero?
 
-              @log << [:wave, { shape: part[:wave], frequency: frequency, volume: part[:volume] }]
+              @log << [:wave, { shape: part.wave, frequency: frequency, volume: part.volume }]
             else
               return @log << [:noise, nil] if frequency.zero?
 
-              @log << [:noise, { pitch: frequency, decay: part[:decay] || :fast,
-                                 volume: part[:volume], metallic: !!part[:metallic] }]
+              @log << [:noise, { pitch: frequency, decay: part.decay,
+                                 volume: part.volume, metallic: part.metallic }]
             end
           end
 

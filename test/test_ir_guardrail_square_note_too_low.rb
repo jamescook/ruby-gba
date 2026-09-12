@@ -17,8 +17,7 @@ class TestSquareNoteTooLowGuardrail < Minitest::Test
   Note = RubyGBA::Score::Note
 
   def detect(hz, instrument: nil)
-    voice = { events: [[0, hz], [4, 0]], duty: :half, volume: 12 }
-    voice[:instrument] = instrument if instrument
+    voice = RubyGBA::Music::Part.new(events: [[0, hz], [4, 0]], instrument: instrument)
     Check.new.detect(program(song(:low, total_frames: 8, voices: [voice])))
   end
 

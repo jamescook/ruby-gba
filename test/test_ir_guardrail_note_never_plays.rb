@@ -14,7 +14,7 @@ class TestNoteNeverPlaysGuardrail < Minitest::Test
   Check = RubyGBA::IR::Guardrails::Checks::NoteNeverPlays
 
   def tune(events, total_frames: 60)
-    song(:tune, total_frames: total_frames, voices: [{ events: events, duty: :half, volume: 12 }])
+    song(:tune, total_frames: total_frames, voices: [RubyGBA::Music::Part.new(events: events)])
   end
 
   def detect(events, **opts) = Check.new.detect(program(tune(events, **opts)))

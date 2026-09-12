@@ -670,7 +670,7 @@ module RubyGBA
         include Node
         kind :song
         category :sound
-        operands name: :name, voices: :list, total_frames: :int, loop_frame: :int
+        operands name: :name, voices: :score, total_frames: :int, loop_frame: :int
       end
 
       # A named list of songs, in order — the game's music, picked by number (see

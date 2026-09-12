@@ -481,8 +481,8 @@ class TestIRBackendGBA < Minitest::Test
       screen(:bitmap),
       enable_sound,
       song(:duet, total_frames: 4, voices: [
-        { events: [[0, 523], [2, 587]], duty: :half, volume: 12 },
-        { events: [[0, 131]], duty: :half, volume: 8 },
+        RubyGBA::Music::Part.new(events: [[0, 523], [2, 587]]),
+        RubyGBA::Music::Part.new(events: [[0, 131]], volume: 8),
       ]),
       loop_(wait_vblank, play_song(:duet)),
     ))

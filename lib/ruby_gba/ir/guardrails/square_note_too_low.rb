@@ -31,7 +31,7 @@ module RubyGBA
                 # the wave voice tunes by a sample rate, so it reaches an octave further down.
                 next unless Tunes.part_kind(part) == :square
 
-                low = part[:events].map { |event| event[1] }.select { |hz| hz.positive? && hz < LOWEST }
+                low = part.events.map { |event| event[1] }.select { |hz| hz.positive? && hz < LOWEST }
                 next if low.empty?
 
                 Finding.new(check: NAME, severity: :warning, message: message(program, song, index, low), node: song)

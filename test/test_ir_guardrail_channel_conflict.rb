@@ -13,8 +13,8 @@ class TestChannelConflictGuardrail < Minitest::Test
 
   def duet
     song(:duet, total_frames: 4, voices: [
-      { events: [[0, 262]], duty: :half, volume: 12 },
-      { events: [[0, 131]], duty: :half, volume: 8 },
+      RubyGBA::Music::Part.new(events: [[0, 262]]),
+      RubyGBA::Music::Part.new(events: [[0, 131]], volume: 8),
     ])
   end
 
@@ -58,13 +58,11 @@ class TestChannelConflictGuardrail < Minitest::Test
   # part. Same warning, same reason, and the build still produces a ROM.
 
   def pad
-    song(:pad, total_frames: 4, voices: [{ events: [[0, 262]], duty: :half, volume: 12, wave: :triangle }])
+    song(:pad, total_frames: 4, voices: [RubyGBA::Music::Part.new(events: [[0, 262]], wave: :triangle)])
   end
 
   def drums
-    song(:drums, total_frames: 4,
-                 voices: [{ events: [[0, 262]], duty: :half, volume: 12, noise: true,
-                            decay: :fast, metallic: false }])
+    song(:drums, total_frames: 4, voices: [RubyGBA::Music::Part.new(events: [[0, 262]], noise: true)])
   end
 
   def test_a_wave_part_with_a_wave_sound_effect_warns

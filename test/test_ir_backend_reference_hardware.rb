@@ -206,8 +206,8 @@ class TestIRBackendReferenceHardware < Minitest::Test
     i = run_ir(program(
       enable_sound,
       song(:duet, total_frames: 4, voices: [
-        { events: [[0, 523], [2, 587]], duty: :half, volume: 12 }, # melody: C5 then D5
-        { events: [[0, 131]], duty: :half, volume: 8 },            # bass: C3, held
+        RubyGBA::Music::Part.new(events: [[0, 523], [2, 587]]),        # melody: C5 then D5
+        RubyGBA::Music::Part.new(events: [[0, 131]], volume: 8),       # bass: C3, held
       ]),
       set(:n, 0),
       loop_(

@@ -114,6 +114,17 @@ class TestIRVerifier < Minitest::Test
     assert_match(/every\.period must be an author-time int/, err.message)
   end
 
+  # A SONG'S PARTS ARE RECORDS, and the slot says so. A part used to be a plain Hash, which
+  # nothing could check past "it is an Array" — so a misspelt key sat there unread and came out
+  # layers away as a part playing the wrong voice. A shape-compatible Hash is now refused here,
+  # which is what stops one being written again by hand.
+  def test_a_song_part_that_is_not_a_record_is_caught
+    bad = program(Nodes::Song.new(name: :tune, total_frames: 4,
+                                  voices: [{ events: [[0, 262]], duty: :half, volume: 12 }]))
+    err = assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
+    assert_match(/song\.voices must be an author-time score/, err.message)
+  end
+
   # ---- optional structural fields may be nil ----
 
   def test_optional_structural_fields_may_be_nil

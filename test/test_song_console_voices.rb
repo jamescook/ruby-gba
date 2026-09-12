@@ -200,10 +200,10 @@ class TestSongConsoleVoices < Minitest::Test
   end
 
   def test_plays_names_a_voice_by_what_it_sounds_like
-    assert_equal :triangle, part_for(:wave)[:wave], "bare :wave is the middle timbre"
-    assert_equal :sine, part_for(:sine)[:wave]
-    assert part_for(:noise)[:noise]
-    assert_equal :piano, part_for(:piano)[:instrument]
+    assert_equal :triangle, part_for(:wave).wave, "bare :wave is the middle timbre"
+    assert_equal :sine, part_for(:sine).wave
+    assert part_for(:noise).noise
+    assert_equal :piano, part_for(:piano).instrument
     assert_equal :square, RubyGBA::IR::Tunes.part_kind(part_for(nil))
   end
 
@@ -232,17 +232,41 @@ class TestSongConsoleVoices < Minitest::Test
     part.metallic true
     part.note :C3, :quarter
 
-    assert_equal :slow, part.to_voice[:decay]
-    assert part.to_voice[:metallic]
+    assert_equal :slow, part.to_voice.decay
+    assert part.to_voice.metallic
   end
 
-  # Every other kind of part holds its note until the next one, so it has nothing to say about
-  # fading and the keys are not there to be misread.
-  def test_only_a_noise_part_carries_them
-    plain = RubyGBA::Music::VoiceContext.new(RubyGBA::Music::SongContext.new).to_voice
+  # EVERY PART CARRIES THEM, and only a noise part is ever asked. They are fields with defaults
+  # rather than keys that might not be there, so a square part answers what a drum would and
+  # nothing reads it — which is worth pinning, because the risk a default introduces is that it
+  # LEAKS. A part that holds its note until the next one has no fade to apply, so saying one on
+  # a square part must change nothing it plays.
+  def test_a_fade_said_on_a_part_that_is_not_a_drum_changes_nothing_it_plays
+    assert_equal GBA.new.lower(square_song), GBA.new.lower(square_song(fade: true)),
+                 "a square part's notes are its pitch and its tone — a fade cannot reach them"
+  end
 
-    refute plain.key?(:decay)
-    refute plain.key?(:metallic)
+  # The same tune twice: one square-wave part, optionally told how a drum hit would fade.
+  def square_song(fade: false)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      enable_sound
+      song :tune do
+        voice :lead do |v|
+          if fade
+            v.decay :slow
+            v.metallic true
+          end
+          v.note :C4, :quarter
+        end
+      end
+      play_song :tune
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    b.program
   end
 
   # --- a Score says it the same way ---
@@ -253,9 +277,9 @@ class TestSongConsoleVoices < Minitest::Test
     drums = RubyGBA::Score::Part.new(plays: :noise, notes: notes, decay: :slow, metallic: true)
     song = RubyGBA::Score.new(parts: [pad, drums]).to_song
 
-    assert_equal :triangle, song[:voices].first[:wave]
-    assert song[:voices].last[:noise]
-    assert_equal :slow, song[:voices].last[:decay]
-    assert_nil pad.instrument, "a part on the console's own voice plays no recording"
+    assert_equal :triangle, song[:voices].first.wave
+    assert song[:voices].last.noise
+    assert_equal :slow, song[:voices].last.decay
+    assert_nil song[:voices].first.instrument, "a part on the console's own voice plays no recording"
   end
 end
