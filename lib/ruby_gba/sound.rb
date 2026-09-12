@@ -174,11 +174,19 @@ module RubyGBA
       # (0xFF..) rather than just the first two means a music voice on channel 2 or
       # a noise hit on channel 4 is actually heard; a channel stays silent until it
       # is triggered, so routing an unused one costs nothing.
-      def enable
+      # +direct_sound+ is the SOUNDCNT_H routing that must SURVIVE being switched on — the bits
+      # that send recorded sound to the speakers. They matter because this writes that register
+      # whole, and the register is shared: its low bits are the PSG's volume, which is this
+      # verb's to set, and its high bits route the recordings, which are the mixer's. Written
+      # whole with the PSG bits alone, a program that switches sound on after the mixer came up
+      # switches every recording off — silently, since the PSG parts of the same tune keep
+      # playing. The caller that knows whether a recording plays hands the bits in
+      # (GBA::Audio#emit_enable_sound); a program with no recording hands in nothing.
+      def enable(direct_sound: 0)
         [
-          [REG_SOUNDCNT_X, 0x0080],
+          [REG_SOUNDCNT_X, SOUND_MASTER_ENABLE],
           [REG_SOUNDCNT_L, 0xFF77],
-          [REG_SOUNDCNT_H, 0x0002],
+          [REG_SOUNDCNT_H, PSG_VOLUME_FULL | direct_sound],
         ]
       end
 

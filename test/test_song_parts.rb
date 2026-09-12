@@ -65,6 +65,50 @@ class TestSongParts < Minitest::Test
     assert console.sound?
   end
 
+  # --- a recorded part on its own, with NOTHING sounding beside it ---
+
+  # THE TEST THAT WAS MISSING, and the reason a real bug lived here unnoticed: every hardware
+  # test above has something ELSE making a noise at the same time — two square-wave parts and a
+  # looping hum — so `sound?` was satisfied by the square wave while the recorded parts put out
+  # nothing at all, and the twelve voices were read off the voice TABLE, which is bookkeeping
+  # rather than audio. A tune whose melody is silent passes every one of them.
+  #
+  # So this is four parts on one instrument, no square part, no sound of the game's: if the
+  # recordings are silent there is nothing left to hear.
+  def recorded_parts_only_game
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      instrument :organ, pcm: [60, -60] * 4000, rate: 8000, note: :C4
+      song :pads do
+        %i[C4 E4 G4 C5].each_with_index { |pitch, n| voice(:"pad_#{n}", plays: :organ) { note pitch, :whole } }
+      end
+      play_song :pads
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  def test_a_song_of_recorded_parts_alone_is_audible_on_the_console
+    console = assert_emulator_loads_rom(assemble_rom(recorded_parts_only_game, name: "PADS"), frames: 10)
+
+    assert_equal [:organ] * 4, console.voices.map(&:sample), "four recorded parts hold four voices"
+    assert console.sound?, "...and they are HEARD: nothing else in this program makes a sound, " \
+                           "so silence here means the recordings never reached the speaker " \
+                           "(energy #{console.audio_energy})"
+  end
+
+  # The interpreter plays it too, so the two backends agree about the same program.
+  def test_the_interpreter_plays_a_song_of_recorded_parts_alone
+    i = Reference.new.run(recorded_parts_only_game, frames: 3)
+
+    assert_equal [:organ] * 4, i.active_samples
+    assert_equal %i[C4 E4 G4 C5].map { |pitch| NOTES[pitch] },
+                 i.audio.select { |entry| entry[0] == :note }.map(&:last)
+  end
+
   # --- what cannot be had, said plainly ---
 
   # More recorded parts than the mixer has voices stops the build (the check itself is

@@ -602,11 +602,22 @@ module RubyGBA
             @emitter.emit_call_through(ADDR)
           end
 
-          # Channel A's SOUNDCNT_H setup: PSG kept at full volume, A at full volume out to
-          # both speakers, clocked by timer 0, and its FIFO reset so playback starts clean.
+          # WHICH BITS OF SOUNDCNT_H SEND THE RECORDED SOUND TO THE SPEAKERS: channel A at full
+          # volume, out to both, clocked by timer 0. They are asked for from outside because
+          # SOUNDCNT_H is a SHARED register — its low bits are the PSG's volume — and whoever
+          # writes it whole has to put these back or the recordings stop (see Sound::Registers
+          # .enable). Nothing at all for a program that plays no recording.
+          def direct_sound_routing
+            return 0 unless plays_samples?
+
+            DSOUND_A_VOLUME_FULL | DSOUND_A_LEFT | DSOUND_A_RIGHT | DSOUND_A_TIMER0
+          end
+
+          # Channel A's SOUNDCNT_H setup at boot: that routing, the PSG kept at full volume
+          # beside it, and A's FIFO reset so playback starts clean. The reset belongs to boot
+          # alone — doing it again later would throw away whatever sound was queued.
           def direct_sound_a_config
-            PSG_VOLUME_FULL | DSOUND_A_VOLUME_FULL | DSOUND_A_LEFT | DSOUND_A_RIGHT |
-              DSOUND_A_TIMER0 | DSOUND_A_RESET_FIFO
+            PSG_VOLUME_FULL | direct_sound_routing | DSOUND_A_RESET_FIFO
           end
 
           # The DMA1 control word for feeding the sound FIFO: enabled, 32-bit transfers to a

@@ -89,4 +89,30 @@ class TestDirectSound < Minitest::Test
     v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.sound?, "Direct Sound should be audibly playing the sample (energy #{v.audio_energy})"
   end
+
+  # SWITCHING SOUND ON MUST NOT SWITCH THE RECORDINGS OFF. They share one register: its low
+  # bits are the volume of the console's own voices, which `enable_sound` sets, and its high
+  # bits route the recordings to the speakers, which the mixer sets. Written whole with only
+  # the first, a program that says `enable_sound` silences every recording in it — and says
+  # nothing, because the console's own voices go on playing.
+  #
+  # The test above does not say `enable_sound`, and neither did any other hardware test of a
+  # recording, which is how this went unseen. This one says it.
+  def test_switching_sound_on_leaves_the_recordings_playing
+    b = Builder.new
+    wave = square_wave
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      enable_sound
+      tone = sample :tone, pcm: wave, rate: 8000
+      tone.play(loop: true)
+      game_loop { wait_vblank }
+    end
+    b.emit_pending_functions
+    rom = ROM.assemble(GBA.new.lower(b.program), title: "PCM1", code: "BPC1", maker: "01")
+    v = assert_emulator_loads_rom(rom, frames: 6)
+    assert v.sound?, "`enable_sound` must keep the recordings routed to the speakers " \
+                     "(energy #{v.audio_energy})"
+  end
 end
