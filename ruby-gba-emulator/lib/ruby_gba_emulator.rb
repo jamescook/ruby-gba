@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "ruby_gba_emulator/version"
+require_relative "ruby_gba_emulator/built_for"
 
 # RubyGBAEmulator — a lean, headless libmgba binding for dev/test verification.
 #
@@ -29,8 +30,13 @@ module RubyGBAEmulator
   end
 end
 
-# The compiled half, built by extconf into lib/ruby_gba_emulator/ — an ordinary require, the
-# way any extension gem does it. `rake compile` puts it there in a checkout; `bundle install`
-# puts it there per Ruby ABI for anyone taking this as a gem.
+# The compiled half, and the require is the ordinary one any extension gem writes. What comes
+# before it is a checkout's build: `rake compile` lands under lib/<the Ruby that built it>/, so
+# putting that directory first means a Ruby finds its own build or none at all, rather than one
+# made by another Ruby that it will refuse to load. Taken as a gem there is no such directory,
+# and the require falls through to the copy RubyGems built per ABI.
+built = File.join(__dir__, RubyGBAEmulator::BUILT_FOR)
+$LOAD_PATH.unshift(built) if File.directory?(built) && !$LOAD_PATH.include?(built)
+
 require "ruby_gba_emulator/ruby_gba_emulator_ext"
 require_relative "ruby_gba_emulator/probe"

@@ -3,6 +3,7 @@
 require "rake/testtask"
 require "rbconfig"
 require_relative "tools/parallel_test"
+require_relative "ruby-gba-emulator/lib/ruby_gba_emulator/built_for"
 
 # The emulator's built extension and the sources it comes from. The emulator-backed tests run
 # on ruby-gba-emulator (the headless libmgba probe, a gem of its own in this repository), which
@@ -14,15 +15,17 @@ require_relative "tools/parallel_test"
 # (that compile takes longer than the suite itself). It's gitignored, so it persists between
 # runs locally and builds once on a fresh checkout.
 #
-# WHAT THIS DOES NOT CATCH is a change of Ruby version: a compiled extension is tied to the
-# Ruby it was built against, and switching Ruby makes no source newer, so the binary stays
-# "up to date" and refuses to load. That is what `rake clean` in ruby-gba-emulator/ is for, and
-# the error you get says so. A CONSUMER of this library never meets it — they take the emulator
+# A CHANGE OF RUBY COUNTS AS MISSING, and that is what makes caching this safe. An extension
+# is tied to the Ruby that built it, and a change of Ruby makes no source newer, so one shared
+# path would stay "up to date" while holding a binary that cannot be loaded. The build goes
+# under a directory naming its Ruby instead, so a Ruby that has not built it finds nothing there
+# and compiles its own. A CONSUMER of this library never meets it — they take the emulator
 # through bundler, which installs extensions per Ruby ABI.
 EMULATOR_DIR = "ruby-gba-emulator"
 EMULATOR_EXT = "#{EMULATOR_DIR}/ext/ruby_gba_emulator_ext"
 EMULATOR_BINARY =
-  "#{EMULATOR_DIR}/lib/ruby_gba_emulator/ruby_gba_emulator_ext.#{RbConfig::CONFIG['DLEXT']}"
+  "#{EMULATOR_DIR}/lib/#{RubyGBAEmulator::BUILT_FOR}/ruby_gba_emulator/" \
+  "ruby_gba_emulator_ext.#{RbConfig::CONFIG['DLEXT']}"
 EMULATOR_SOURCES = FileList["#{EMULATOR_EXT}/*.{c,h}", "#{EMULATOR_EXT}/extconf.rb"]
 
 file EMULATOR_BINARY => EMULATOR_SOURCES do

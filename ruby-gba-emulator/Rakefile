@@ -2,13 +2,21 @@
 
 require "rake/testtask"
 require "rbconfig"
+require_relative "lib/ruby_gba_emulator/built_for"
 
 EXT_DIR = File.expand_path("ext/ruby_gba_emulator_ext", __dir__)
 DLEXT = RbConfig::CONFIG["DLEXT"]
 
-# Where extconf installs the built library: lib/ruby_gba_emulator/, so that
-# `require "ruby_gba_emulator/ruby_gba_emulator_ext"` finds it like any other gem's.
-INSTALL_DIR = File.expand_path("lib/ruby_gba_emulator", __dir__)
+# Where extconf installs the built library: lib/<the Ruby that built it>/ruby_gba_emulator/, so
+# that `require "ruby_gba_emulator/ruby_gba_emulator_ext"` finds it like any other gem's once
+# the entry point has put that directory on the load path.
+#
+# NAMING THE RUBY IS WHAT KEEPS A BUILD HONEST. An extension belongs to the Ruby that compiled
+# it and no other, so one shared directory means a new Ruby finds a binary there, calls it up
+# to date, and hands over something that cannot be loaded. A directory per Ruby has nothing in
+# it until that Ruby builds, and both builds survive going back and forth.
+BUILT_DIR = File.expand_path("lib/#{RubyGBAEmulator::BUILT_FOR}", __dir__)
+INSTALL_DIR = File.join(BUILT_DIR, "ruby_gba_emulator")
 EXT_BUNDLE = File.join(INSTALL_DIR, "ruby_gba_emulator_ext.#{DLEXT}")
 
 # INSTALL INTO THIS GEM'S OWN lib/, not into the Ruby installation.
@@ -19,6 +27,7 @@ EXT_BUNDLE = File.join(INSTALL_DIR, "ruby_gba_emulator_ext.#{DLEXT}")
 # Ruby itself, where it shadows the gem for every project on the machine.
 desc "Build the C extension (headless libmgba probe)"
 task :compile do
+  mkdir_p INSTALL_DIR
   Dir.chdir(EXT_DIR) do
     ruby "extconf.rb"
     sh "make"
@@ -28,7 +37,11 @@ end
 
 desc "Remove built extension artifacts"
 task :clean do
-  rm_f EXT_BUNDLE
+  # Every Ruby's build, not only this one's — and the flat lib/ruby_gba_emulator/ library a
+  # checkout from before the per-Ruby split still has, which would otherwise sit on the load
+  # path behind a build that belongs to nobody.
+  rm_rf Dir.glob(File.expand_path("lib/[0-9]*", __dir__))
+  rm_rf Dir.glob(File.expand_path("lib/ruby_gba_emulator/*.{so,bundle,bundle.dSYM}", __dir__))
   Dir.chdir(EXT_DIR) do
     sh "make", "clean" if File.exist?("Makefile")
     rm_f Dir.glob("Makefile") + Dir.glob("*.#{DLEXT}") + Dir.glob("*.o") + Dir.glob("mkmf.log")

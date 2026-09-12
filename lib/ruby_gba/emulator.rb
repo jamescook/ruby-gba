@@ -43,27 +43,44 @@ module RubyGBA
       raise_missing!(e.message)
     end
 
-    # TWO FAILURES THAT LOOK THE SAME AND NEED OPPOSITE ADVICE.
+    # THREE FAILURES THAT LOOK THE SAME AND NEED DIFFERENT ADVICE, and what the loader said is
+    # the first thing to ask rather than the last.
     #
-    # Either the gem is not in your bundle at all — the usual case, and the reader is building a
-    # game — or it IS there and its C extension was never compiled, which is what a `path:`
-    # entry gets you, because bundler builds extensions for gem and git sources and not for
-    # path ones. Telling somebody to add a line they already have is the worst of both, so ask
-    # which it is: a resolvable spec means the gem is present and the build is what is missing.
+    # A binary built by another Ruby announces itself: the loader names the library it will not
+    # link against. Read that first, because the question underneath it — is the gem in the
+    # bundle — answers no for every tool run as a plain `ruby` subprocess however the load
+    # failed, and then somebody is told to add a Gemfile line they already have.
+    #
+    # Under that the two cases are: the gem is not in the bundle at all, which is the usual one
+    # and the reader is building a game; or it IS there and its C extension was never compiled,
+    # which is what a `path:` entry gets you, because bundler builds extensions for gem and git
+    # sources and not for path ones. A resolvable spec means the gem is present and the build is
+    # what is missing.
     def raise_missing!(detail)
-      raise LoadError, "#{missing_advice}\nOriginal error: #{detail}"
+      raise LoadError, "#{missing_advice(detail)}\nOriginal error: #{detail}"
     end
 
-    def missing_advice
-      return <<~BUILD if Gem.loaded_specs.key?("ruby-gba-emulator")
+    # How a loader says it found a library belonging to another Ruby. macOS names the libruby it
+    # refuses; Linux names the one it cannot find.
+    STALE_BUILD = /incompatible|libruby/i
+
+    # +bundled+ is a parameter so that each branch can be asked for on its own: it is a fact
+    # about the process, and a test of what the three messages say should not have to arrange one.
+    def missing_advice(detail, bundled: Gem.loaded_specs.key?("ruby-gba-emulator"))
+      return <<~STALE if detail.match?(STALE_BUILD)
+        An emulator is required to run a ROM. The ruby-gba-emulator extension is built, but a
+        different Ruby built it, and an extension loads only in the Ruby that made it.
+
+            rake compile_emulator
+
+        Each Ruby keeps a build of its own, so you do this one time for each Ruby.
+      STALE
+
+      return <<~BUILD if bundled
         An emulator is required to run a ROM. ruby-gba-emulator is in your bundle, but its C
         extension is not built — bundler does not build one for a `path:` source.
 
             rake compile_emulator
-
-        If you have just changed Ruby version, the build is stale rather than missing: a
-        compiled extension is tied to the Ruby that built it. Run `rake clean` in
-        ruby-gba-emulator/ first.
       BUILD
 
       <<~ADD
