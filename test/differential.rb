@@ -82,10 +82,17 @@ module Differential
   # the game gets faster or slower. For a game that fits the counter agrees with the boot
   # offset and nothing changes.
   #
-  # Only a tear-free game can be lined up that way: its shown page is the last pass it
-  # finished. A single-buffered game caught mid-pass has a half-drawn picture that no
-  # interpreter frame can match — so that one is refused, with the reason, rather than
-  # compared at two different moments and the lowering blamed.
+  # THE SAME COUNT ANSWERS A SECOND QUESTION, which is where it earns its keep. BOOT_FRAMES
+  # is one number per screen mode, measured on a program with almost nothing to set up. A
+  # real game has a map to upload and a cast to declare, reaches its loop a frame later, and
+  # is then one pass behind for the whole run however fast the game itself is. To the picture
+  # that is the same thing as being slow — a pass fewer to show — and the pass count already
+  # says so, whichever of the two it was.
+  #
+  # A game whose picture cannot be caught half-drawn can be lined up this way (see
+  # #shows_finished_passes?). A single-buffered bitmap game caught mid-pass has a half-drawn
+  # picture that no interpreter frame can match — so that one is refused, with the reason,
+  # rather than compared at two different moments and the lowering blamed.
   PASSES = :__diff_passes
 
   # A button name as the console's key bit, for holding buttons on both backends.
@@ -137,19 +144,30 @@ module Differential
     [verifier.frame_gba, verifier.var(PASSES)]
   end
 
-  # A game that fits is allowed to be this many passes short of the frame count. The boot
-  # offset was measured on a program with almost nothing to set up; one with tiles to
-  # upload or hot code to copy reaches its loop a frame later, and a still picture cannot
-  # show it. A game over budget by a whole frame a pass falls further behind than this
-  # within a few frames, so a test that wants the strict check runs more of them.
+  # A game whose picture cannot be lined up on passes is allowed to be this many passes
+  # short of the frame count. The boot offset was measured on a program with almost nothing
+  # to set up; one with tiles to upload or hot code to copy reaches its loop a frame later,
+  # and a still picture cannot show it. A game over budget by a whole frame a pass falls
+  # further behind than this within a few frames, so a test that wants the strict check
+  # runs more of them.
   BOOT_SLACK = 1
 
   # How many frames the interpreter plays so its picture is the one the console showed.
-  # A game that fits managed a pass a frame, and the boot offset already lines it up; one
-  # that did not is lined up on the passes it managed — if it can be (see PASSES).
+  #
+  # THE TWO ARE LINED UP ON PASSES (see PASSES), and a boot offset that puts the console a
+  # pass behind is the same thing as a slow game: whether the console spent a frame
+  # uploading tiles or a frame drawing, it has one pass fewer to show. So a program whose
+  # picture is a FINISHED pass is compared at the passes it finished, and the boot offset is
+  # only there to give it enough frames to make them. This is what BOOT_SLACK below cannot
+  # do: it forgives a missing pass, which is right for a still picture and a frame of drift
+  # for a moving one.
+  #
+  # A console that boots inside the offset has finished at least as many passes as were
+  # asked for, and then the number asked for is the one to play — the surplus is slack in
+  # the offset rather than a moment the caller wanted.
   def oracle_frames_for(program, frames, passes, cf)
+    return passes if passes < frames && shows_finished_passes?(program)
     return frames if passes >= frames - BOOT_SLACK
-    return passes if buffered?(program)
 
     raise OverBudget,
           "the console managed only #{passes} passes of the game loop in #{cf} frames, where a game that " \
@@ -158,8 +176,21 @@ module Differential
           "tear-free (screen :bitmap, tear_free: true), or compare a still picture."
   end
 
-  def buffered?(program)
-    program.walk.any? { |node| node.kind == :screen && node.buffered }
+  # Is the picture this program shows the state of a pass the console FINISHED, rather than
+  # one it is in the middle of?
+  #
+  # A tiled screen has no framebuffer the game paints into. The game moves variables, and
+  # the framework writes the sprite table and the scroll registers in one go right after
+  # the vblank, so whatever the display is composing, it is composing from one pass's
+  # numbers. A tear-free bitmap screen reaches the same place by the other road: it keeps
+  # two pictures and shows the one that is finished. Only a single-buffered bitmap screen
+  # can be caught half-drawn — the game paints straight into the picture the display is
+  # reading — and that is the one this is false for.
+  def shows_finished_passes?(program)
+    screens = program.walk.select { |node| node.kind == :screen }
+    screens.any? && screens.all? do |screen|
+      screen.mode == :bitmap ? screen.buffered : %i[tiled rotozoom].include?(screen.mode)
+    end
   end
 
   # Every pixel the two disagree on, as [x, y, interpreter_color, console_color].

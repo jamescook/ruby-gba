@@ -425,6 +425,64 @@ class TestDifferential < Minitest::Test
     assert_match(/passes of the game loop/, err.message)
   end
 
+  # --- a game that takes longer to boot than the offset ---
+
+  # BOOT_FRAMES was measured on a program with almost nothing to set up. A real tiled game
+  # has a map to upload and a cast to declare, and that spills into a second frame — so the
+  # console reaches its loop late and is one pass behind for the whole run, however fast the
+  # game itself is. A still picture cannot show it; this one moves, so it can.
+  #
+  # A pool of sprites over a background is what found it. What tips it over is the pool's
+  # CAPACITY, not how many are live and not what the body computes: the same program with a
+  # capacity of 16 boots inside the offset and this one does not.
+  def slow_to_boot
+    build do
+      screen :tiled
+      image(:brick, "#" => :red) { TILE }
+      image(:floor, "#" => :blue) { TILE }
+      image(:guy, "#" => :white) { TILE }
+      tiles :set, "#" => :brick, "." => :floor
+      background :bg, tiles: :set, map: FULL_MAP
+      guards = pool :guard, x: 0, y: 0, capacity: 32, image: :guy
+      6.times { |i| guards.spawn(x: (i * 20) + 16, y: 32) }
+      game_loop { guards.each { |g| g.x.add 2 } }
+    end
+  end
+
+  def test_a_game_that_boots_late_is_lined_up_on_the_passes_it_managed
+    _oracle, _console, ran = backend_pictures(slow_to_boot, frames: 6, name: "BOOT")
+
+    assert_operator ran, :<, 6, "the console reached its loop late, and the interpreter played the passes it managed"
+  end
+
+  # ...and then it draws the same picture WHILE STILL MOVING, which is the thing a fixed
+  # offset could not do. Every frame is compared, so a rule that happened to suit one of
+  # them cannot pass.
+  def test_a_game_that_boots_late_still_matches_frame_for_frame
+    program = slow_to_boot
+    (1..8).each { |f| assert_backends_agree(program, frames: f, name: "BOOT") }
+  end
+
+  # A tiled screen composes its picture from the sprite table and the scroll registers,
+  # which the framework writes in one go right after the vblank — so there is no such thing
+  # as catching it half-drawn, and its passes can be counted on. A single-buffered bitmap
+  # screen is the one that cannot (see the refusal above).
+  def test_a_tiled_screen_can_be_lined_up_on_passes_and_a_plain_bitmap_one_cannot
+    assert shows_finished_passes?(slow_to_boot)
+    assert shows_finished_passes?(over_budget(tear_free: true))
+    refute shows_finished_passes?(over_budget(tear_free: false))
+  end
+
+  # A program that names no screen at all draws on a plain bitmap one, and both halves of
+  # the helper have to say so — the frame offset it gets and whether its passes can be
+  # counted on. They are worked out separately, so this pins them together.
+  def test_a_program_that_names_no_screen_is_a_plain_bitmap_one_to_both_halves
+    silent = build { game_loop { var(:x, 0).add 1 } }
+
+    refute shows_finished_passes?(silent)
+    assert_equal BOOT_FRAMES[:bitmap], console_frames_for(silent, 4) - 4
+  end
+
   # A program that draws in two modes can't have one offset, so the helper says so
   # rather than silently comparing the wrong frames.
   def test_a_mode_switching_program_asks_for_an_explicit_frame_count
