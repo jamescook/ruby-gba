@@ -42,7 +42,7 @@ module RubyGBA
     #   background declared with a single map, which can never be handed another.
     def initialize(builder, name:, scroll_x:, scroll_y:, walls: [], affine: false,
                    cells: [0, 0], tile_index: {}, bitmap: false, map_names: nil,
-                   solid_cells: nil, tile_size: [8, 8])
+                   solid_cells: [], tile_size: [8, 8])
       @builder = builder
       @name = name
       @scroll_x = scroll_x
@@ -144,11 +144,10 @@ module RubyGBA
     def rows = @cells[1]
 
     # The background's walls as {Box}es a sprite can be tested against — the merged
-    # solid-tile rectangles from the tileset's `solid:` tiles. Empty if none were
-    # marked solid. A {HardwareSprite} reads these when it's told to be `blocked_by`
-    # this background.
+    # solid-tile rectangles of its FIRST map. Empty if nothing is solid. Introspection
+    # now rather than the way a mover is stopped: a mover asks the grid (see
+    # #solid_lookup), which is what lets the walls follow the map showing.
     def solid_boxes
-      refuse_walls_of_a_changing_map!
       @solid_boxes ||= @walls.map { |x, y, w, h| @builder.box(x, y, w, h) }
     end
 
@@ -160,24 +159,45 @@ module RubyGBA
     # what the room is made of, and is emitted afresh at every place that moves. The same
     # walls as a grid answer "is this cell a wall" in one read, for any room.
     #
-    # The grid ships as a byte per cell of read-only data (a 30x20 room is 600 bytes) and
-    # is built once however many movers consult it. nil when the tileset marked nothing
-    # solid, which is the same thing #solid_boxes says with an empty list.
+    # A BACKGROUND WITH SEVERAL MAPS KEEPS ONE GRID PER MAP, laid end to end, and the
+    # mover reads the one that is really in the cells. That is what makes walking through
+    # a door work: a room is a map, so the walls in front of you are the walls of the map
+    # showing, and a cell that is a wall in the hall can be open floor in the cave. The
+    # map to read is worked out once per check rather than once per cell, so a room with
+    # several maps costs the same nine reads a room with one does.
+    #
+    # It reads the map really IN THE CELLS rather than the one the game last asked for.
+    # `show_map` copies between frames, so for the one frame in between those differ — and
+    # a player can feel being stopped by a wall that is not on screen, where they cannot
+    # feel a frame of lag. The walls always agree with the picture.
+    #
+    # The grid ships as a byte per cell per map of read-only data (a 30x20 room is 600
+    # bytes) and is built once however many movers consult it. nil when the tileset marked
+    # nothing solid, which is the same thing #solid_boxes says with an empty list.
     def solid_lookup
-      return nil if @solid_cells.nil?
+      return nil if @solid_cells.compact.empty?
 
-      refuse_walls_of_a_changing_map!
-      @solid_lookup ||= begin
-        flat = (0...rows).flat_map { |r| (0...cols).map { |c| @solid_cells[r][c] ? 1 : 0 } }
-        SolidCells.new(table: @builder.table(:"__solid_#{@name}", flat, width: :byte),
-                       cols: cols, rows: rows, tile_w: @tile_size[0], tile_h: @tile_size[1],
-                       name: @name)
-      end
+      @solid_lookup ||= SolidCells.new(table: @builder.table(:"__solid_#{@name}", flat_walls, width: :byte),
+                                       cols: cols, rows: rows,
+                                       tile_w: @tile_size[0], tile_h: @tile_size[1],
+                                       name: @name, maps: @solid_cells.length,
+                                       # length, not one? — a background whose maps mostly have
+                                       # no walls still needs the offset, and `one?` counts the
+                                       # grids that are THERE rather than the maps.
+                                       map_var: @solid_cells.length == 1 ? nil : live_map_var)
     end
 
-    # A background's walls as a grid: the table itself, how big the grid is, and how big a
-    # cell is. Everything a mover needs to turn a pixel position into "wall or not".
-    SolidCells = Data.define(:table, :cols, :rows, :tile_w, :tile_h, :name)
+    # A background's walls as a grid: the table itself, how big the grid is, how big a
+    # cell is, and — for a background with several maps — how many maps are in the table
+    # and which variable says which one is live. Everything a mover needs to turn a pixel
+    # position into "wall or not". +map_var+ is nil for the ordinary one-map background,
+    # whose reads need no map offset at all.
+    SolidCells = Data.define(:table, :cols, :rows, :tile_w, :tile_h, :name, :maps, :map_var) do
+      def initialize(maps: 1, map_var: nil, **rest) = super
+
+      # Where a map's grid starts in the table.
+      def cells_per_map = cols * rows
+    end
 
     # Slide the view by (+dx+, +dy+) pixels from where it is now — the usual way to
     # scroll as the player moves. dx/dy may be numbers or {Value} expressions.
@@ -304,18 +324,14 @@ module RubyGBA
             "#{instead}, or use `screen :tiled`."
     end
 
-    # A background handed a different map has different walls in it, and `blocked_by` reads
-    # the walls once, while the program is built. So it would hold the first map's walls
-    # for every map — a sprite walking through a wall in one room and into thin air in
-    # another. A friendly error rather than that.
-    def refuse_walls_of_a_changing_map!
-      return if @map_names.one?
-
-      raise ArgumentError,
-            "background :#{@name} has #{@map_names.length} maps, and each of them has its walls in " \
-            "different places. `blocked_by` reads the walls one time, while the program is built, " \
-            "so it can only follow a background with one map. Give each room a background of its " \
-            "own, or test the way ahead yourself."
+    # Every map's walls, one grid after another, a byte a cell. A map with no walls of its
+    # own contributes a grid of zeros rather than being left out, so finding a map's walls
+    # stays arithmetic on where the first one starts — the same bargain the maps themselves
+    # make (see Builder#finalize_background_maps).
+    def flat_walls
+      @solid_cells.flat_map do |grid|
+        (0...rows).flat_map { |r| (0...cols).map { |c| grid&.dig(r, c) ? 1 : 0 } }
+      end
     end
 
     # A background with one map is the ordinary kind and can never be handed another —

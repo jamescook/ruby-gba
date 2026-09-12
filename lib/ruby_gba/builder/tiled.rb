@@ -145,6 +145,24 @@ module RubyGBA
       # The first is the one showing when the program starts, and they must all be the
       # same size, because they share one grid. See {Background#show_map}.
       #
+      # WHAT STOPS A MOVER, said apart from what it SEES: `walls:` is a grid of its own,
+      # the same shape as the map, saying which cells a mover cannot enter. Without it the
+      # walls are the tileset's `solid:` tiles, which is what a small game wants and what
+      # every game wrote before this existed. With it the two are separate data, which is
+      # what a real game's are: a room's collision is authored, imported or decoded beside
+      # its picture rather than read off which tile was drawn.
+      #
+      #     rooms = background :rooms, tiles: :dungeon,
+      #                        map:   { hall: HALL,       cave: CAVE, sky: SKY },
+      #                        walls: { hall: HALL_WALLS, cave: CAVE_WALLS }
+      #
+      # WHICH ROOMS HAVE WALLS IS THEN SOMETHING YOU CAN READ. A map `walls:` does not
+      # name has none — walk anywhere in it — so a room that is scenery rather than a
+      # place, a fly-over map, a cut-scene tableau, is one missing line and not a
+      # different background. A cell is a wall unless it is BLANK, and blank is a space,
+      # a `.`, a `0` or nothing at all — so a grid drawn by hand and a collision layer
+      # decoded out of somewhere else both drop in.
+      #
       # Returns a {Background} handle you can scroll (`world.scroll_by dx, dy`).
       #
       # @param name [Symbol] the background's name
@@ -153,8 +171,10 @@ module RubyGBA
       #   Hash of name => grid for a background with several maps
       # @param from [String, Hash, nil] path to a CSV tilemap (a grid of tile numbers), or
       #   a Hash of name => path for a background with several maps
+      # @param walls [String, Array<String>, Array<Array>, Hash, nil] which cells stop a
+      #   mover, apart from the picture. One grid, or a Hash keyed like `map:`.
       # @return [Background] a handle: scroll_by / scroll_to / show_map
-      def background(name, tiles:, map: nil, from: nil)
+      def background(name, tiles:, map: nil, from: nil, walls: nil)
         set = @tilesets[tiles] || raise(ArgumentError,
                                         "background :#{name}: there is no tileset named :#{tiles}. " \
                                         "Define one first with `tiles :#{tiles}, ...`.")
@@ -195,7 +215,10 @@ module RubyGBA
                              tile_index: tile_lookup(set, index_of),
                              bitmap: @screen_mode == :bitmap,
                              map_names: map_names,
-                             solid_cells: solid_cell_grid(img_rows, set),
+                             # One grid of walls per map, in the order they were declared —
+                             # so a mover is stopped by the walls of the room it is in
+                             # rather than by the first room's, wherever it stands.
+                             solid_cells: wall_grids(name, map_names, drawn, set, walls),
                              tile_size: [set[:tile_w], set[:tile_h]])
       end
 
@@ -471,6 +494,50 @@ module RubyGBA
         return nil if solid.empty?
 
         img_rows.map { |row| row.map { |img| !img.nil? && solid.include?(img) } }
+      end
+
+      # EVERY MAP'S WALLS, one grid per map in the order they were declared.
+      #
+      # With no `walls:` they come off the picture — the cells whose tile the tileset
+      # marked `solid:` — which is what a small game wants and what every game wrote
+      # before `walls:` existed. With `walls:` they are their own data, said apart from
+      # the picture, and a map `walls:` does not name has none at all.
+      def wall_grids(name, map_names, drawn, set, walls)
+        return drawn.map { |rows, _| solid_cell_grid(rows, set) } if walls.nil?
+
+        given = walls.is_a?(Hash) ? walls : { map_names.first => walls }
+        check_walls_name_maps!(name, map_names, given)
+        map_names.map { |map_name| wall_grid(given[map_name]) }
+      end
+
+      # One `walls:` grid as cells of true/false. A cell is a wall unless it is BLANK, and
+      # blank is a space, a `.`, a `0` or nothing — so a grid drawn by hand and a collision
+      # layer decoded out of somewhere else are both read the same way, with no list of
+      # which values mean which to keep in step with the data.
+      BLANK_WALL_CELLS = [nil, 0, "0", ".", " ", ""].freeze
+
+      def wall_grid(rows)
+        return nil if rows.nil?
+
+        rows = rows.lines.map(&:chomp) if rows.is_a?(String)
+        rows.map do |row|
+          cells = row.is_a?(String) ? row.chars : row
+          cells.map { |cell| !BLANK_WALL_CELLS.include?(cell) }
+        end
+      end
+
+      # `walls:` keyed by a map the background does not have is almost always a name spelled
+      # two ways, and it would silently leave that room with no walls at all — which reads
+      # as "the collision is broken in this one room" rather than as a typo.
+      def check_walls_name_maps!(name, map_names, given)
+        unknown = given.keys - map_names
+        return if unknown.empty?
+
+        raise ArgumentError,
+              "background :#{name} has no map #{unknown.map(&:inspect).join(', ')}, so `walls:` " \
+              "cannot say where its walls are. Its maps are #{map_names.map(&:inspect).join(', ')}. " \
+              "A map that `walls:` does not name has no walls, so a misspelled name here is a " \
+              "room you can walk straight through."
       end
 
       # Greedily cover the solid cells with rectangles: from each unclaimed solid cell,
