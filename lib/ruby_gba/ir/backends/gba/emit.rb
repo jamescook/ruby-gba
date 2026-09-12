@@ -19,6 +19,39 @@ module RubyGBA
         class Emit
           include Constants
 
+          # A PLACEHOLDER WAITING FOR AN ANSWER — the note the first pass leaves itself about a
+          # number it cannot know yet, because the thing it refers to has not been placed.
+          #
+          # There are THREE of them, and they are three different things rather than one thing
+          # with optional parts. That is worth saying because they used to share a single bag
+          # of seven keys, where a branch's +cond+ was missing from an address load and an
+          # address load's +reg+ was missing from a branch — both by design, which is exactly
+          # the state in which a key that is missing on purpose cannot be told from one that is
+          # missing by mistake. Each is its own record now, so asking a branch for a register
+          # raises rather than answering nil and patching the wrong instruction.
+          #
+          # +kind+ stays on all three, because it is not the same question as which record this
+          # is: it says which FLAVOUR, and #resolve_fixups dispatches on it — including to
+          # resolvers for kinds this class does not own (see the note above the class).
+          #
+          # Nothing defaults. Where a field does not apply — a plain branch has no condition,
+          # a patched-in size refers to nothing — the site writes +nil+ and says so.
+
+          # A jump, to be written once the label's position is known. +kind+ is :b, :bcond or
+          # :bl; +cond+ is the condition a :bcond branches on, and nil for the other two.
+          Branch = Data.define(:pos, :kind, :target, :cond)
+
+          # A load-immediate to be rewritten with an address once the thing is placed. +kind+
+          # says whose address (:data_addr, :label_addr, :fast_addr) — or :hot_size, which is
+          # the odd one: it patches the same shape of instruction with a transfer's SIZE, so it
+          # refers to nothing and its +target+ is nil.
+          AddressLoad = Data.define(:pos, :kind, :reg, :target)
+
+          # A word sitting INSIDE a blob rather than in the code, holding another blob's or
+          # label's run-time address — a table saying where several things are, for code that
+          # picks one by number. It has no +pos+ in the code at all.
+          BlobWord = Data.define(:kind, :blob, :offset, :target)
+
           attr_reader :code, :labels, :fixups, :data_blobs, :data_positions, :address_register,
                       :list_register
 
@@ -78,7 +111,7 @@ module RubyGBA
               @address_register.forget
               @list_register.forget
             end
-            @fixups << { pos: pos, kind: kind, cond: cond, target: target }
+            @fixups << Branch.new(pos: pos, kind: kind, cond: cond, target: target)
             @branches += 1
             emit(ASM.nop)
           end
@@ -104,16 +137,16 @@ module RubyGBA
           # understands, keyed by that kind and called as resolver.call(fix).
           def resolve_fixups(extra_resolvers = {})
             @fixups.each do |fix|
-              case fix[:kind]
+              case fix.kind
               when :data_addr then resolve_data_address(fix)
               when :label_addr then resolve_label_address(fix)
               else
-                resolver = extra_resolvers[fix[:kind]]
+                resolver = extra_resolvers[fix.kind]
                 resolver ? resolver.call(fix) : resolve_branch(fix)
               end
             end
             @data_links.each do |link|
-              @code[@data_positions.fetch(link[:blob]) + link[:offset], 4] = [data_address(link[:target])].pack("V")
+              @code[@data_positions.fetch(link.blob) + link.offset, 4] = [data_address(link.target)].pack("V")
             end
           end
 
@@ -122,23 +155,25 @@ module RubyGBA
           # Neither blob has a place until the data region is laid out, so the word is filled in
           # with the other placeholders, in the second pass.
           def link_data(blob, offset, target)
-            @data_links << { blob: blob, offset: offset, target: target }
+            # The same three fields a BlobWord carries, and the same job — this one's answer is
+            # always a data blob's address, so it needs no kind and no resolver.
+            @data_links << BlobWord.new(kind: :data_link, blob: blob, offset: offset, target: target)
           end
 
           # Rewrite a branch placeholder as a real branch. The word offset is
           # (target - here)/4; ASM folds in the pipeline adjustment.
           def resolve_branch(fix)
-            target = @labels.fetch(fix[:target]) do
-              raise LoweringError, "unresolved jump to #{fix[:target].inspect}"
+            target = @labels.fetch(fix.target) do
+              raise LoweringError, "unresolved jump to #{fix.target.inspect}"
             end
-            word_offset = (target - fix[:pos]) / 4
+            word_offset = (target - fix.pos) / 4
             encoded =
-              case fix[:kind]
+              case fix.kind
               when :b then ASM.branch(word_offset)
-              when :bcond then ASM.branch_cond(fix[:cond], word_offset)
+              when :bcond then ASM.branch_cond(fix.cond, word_offset)
               when :bl then ASM.branch_link(word_offset)
               end
-            @code[fix[:pos], 4] = encoded
+            @code[fix.pos, 4] = encoded
           end
 
           # Patch a data-address load with the blob's run-time address. The blob
@@ -146,7 +181,7 @@ module RubyGBA
           # cartridge right after the header, so its address is the cartridge base
           # plus the header plus that position.
           def resolve_data_address(fix)
-            @code[fix[:pos], 16] = ASM.load_immediate_fixed(fix[:reg], data_address(fix[:target]))
+            @code[fix.pos, 16] = ASM.load_immediate_fixed(fix.reg, data_address(fix.target))
           end
 
           # Where blob +name+ is when the cartridge runs.
@@ -162,7 +197,7 @@ module RubyGBA
           # the label table. Used to hand the interrupt vector the address of a routine
           # that lives in the code, not in the data region.
           def resolve_label_address(fix)
-            @code[fix[:pos], 16] = ASM.load_immediate_fixed(fix[:reg], label_address(fix[:target]))
+            @code[fix.pos, 16] = ASM.load_immediate_fixed(fix.reg, label_address(fix.target))
           end
 
           # Where code label +name+ is in the cartridge when it runs.
@@ -176,7 +211,7 @@ module RubyGBA
           # Load the run-time address of a named code label into +reg+ (a fixed-size
           # placeholder patched in the second pass, once the label's position is known).
           def emit_load_label_address(reg, label)
-            @fixups << { pos: pos, kind: :label_addr, reg: reg, target: label }
+            @fixups << AddressLoad.new(pos: pos, kind: :label_addr, reg: reg, target: label)
             emit(ASM.load_immediate_fixed(reg, 0))
           end
 
@@ -206,7 +241,7 @@ module RubyGBA
           # and record a fixup to patch in the real address. Consumers (a blit's DMA
           # source, a sequencer's cursor) build on this.
           def emit_load_data_address(reg, name)
-            @fixups << { pos: pos, kind: :data_addr, reg: reg, target: name }
+            @fixups << AddressLoad.new(pos: pos, kind: :data_addr, reg: reg, target: name)
             emit(ASM.load_immediate_fixed(reg, 0))
           end
 

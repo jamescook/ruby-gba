@@ -287,7 +287,8 @@ module RubyGBA
             emit_load_fast_address(ACC, HOT_START)
             emit(ASM.load_immediate(TMP, REG_DMA3DAD))
             emit(ASM.str(ACC, TMP))              # destination = where it is going
-            @emit.fixups << { pos: pos, kind: :hot_size, reg: ACC }
+            # A size rather than an address, so it refers to nothing.
+            @emit.fixups << Emit::AddressLoad.new(pos: pos, kind: :hot_size, reg: ACC, target: nil)
             emit(ASM.load_immediate_fixed(ACC, 0)) # ...and how much, patched once it is known
             emit(ASM.load_immediate(TMP, REG_DMA3CNT))
             emit(ASM.str(ACC, TMP))
@@ -298,7 +299,7 @@ module RubyGBA
           # via the resolver map GBA#lower builds (see GBA#lower).
           def resolve_hot_size(fix)
             words = @hot_bytes / 4
-            @emit.patch16(fix[:pos], ASM.load_immediate_fixed(fix[:reg], words | DMA_32BIT | DMA_ENABLE))
+            @emit.patch16(fix.pos, ASM.load_immediate_fixed(fix.reg, words | DMA_32BIT | DMA_ENABLE))
           end
 
           # Call a routine. A call that stays on one side of the cartridge/quick-memory
@@ -336,15 +337,15 @@ module RubyGBA
           # fixed-size placeholder patched in the second pass — the same trick a
           # reference to embedded data uses.
           def emit_load_fast_address(reg, label)
-            @emit.fixups << { pos: pos, kind: :fast_addr, reg: reg, target: label }
+            @emit.fixups << Emit::AddressLoad.new(pos: pos, kind: :fast_addr, reg: reg, target: label)
             emit(ASM.load_immediate_fixed(reg, 0))
           end
 
           # Also a custom fixup kind, handed to Emit's resolver map the same way
           # #resolve_hot_size is.
           def resolve_fast_address(fix)
-            offset = @emit.labels.fetch(fix[:target]) - @emit.labels.fetch(HOT_START)
-            @emit.patch16(fix[:pos], ASM.load_immediate_fixed(fix[:reg], @hot_base + offset))
+            offset = @emit.labels.fetch(fix.target) - @emit.labels.fetch(HOT_START)
+            @emit.patch16(fix.pos, ASM.load_immediate_fixed(fix.reg, @hot_base + offset))
           end
 
           # A TABLE OF WHERE ROUTINES START, one word each in the order given, for a call that
@@ -366,8 +367,8 @@ module RubyGBA
               blob = :"__routines#{@routine_tables.size}"
               @emit.data_blobs[blob] = "\x00".b * (4 * names.length)
               names.each_with_index do |name, i|
-                @emit.fixups << { kind: :routine_word, blob: blob, offset: 4 * i,
-                                  target: @functions.func_label(name) }
+                @emit.fixups << Emit::BlobWord.new(kind: :routine_word, blob: blob, offset: 4 * i,
+                                                   target: @functions.func_label(name))
               end
               blob
             end
@@ -375,7 +376,7 @@ module RubyGBA
 
           # Also a custom fixup kind, handed to Emit's resolver map the same way.
           def resolve_routine_word(fix)
-            @emit.patch_word(fix[:blob], fix[:offset], runtime_address(fix[:target]))
+            @emit.patch_word(fix.blob, fix.offset, runtime_address(fix.target))
           end
 
           # Where code label +label+ is when the program runs: inside the moved block it is
