@@ -100,7 +100,11 @@ class TestCrossBackendConformance < Minitest::Test
     gba = GBA.new
     gba.lower(program)
 
-    assert_equal registry(Reference.new.tap { |r| r.run(program) }, :@samples),
+    # Both sides keep their samples in a mixer of their own — GBA::Mixer and Reference::Mixer —
+    # so the same reach finds them on each.
+    interpreted = Reference.new.tap { |r| r.run(program) }.instance_variable_get(:@mixer)
+
+    assert_equal registry(interpreted, :@samples),
                  registry(gba.instance_variable_get(:@mixer), :@samples)
   end
 
