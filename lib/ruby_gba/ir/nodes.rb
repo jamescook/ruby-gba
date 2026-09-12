@@ -612,7 +612,7 @@ module RubyGBA
         include Node
         kind :save_init
         category :var
-        operands vars: :list, magic: :int
+        operands vars: :save, magic: :int
       end
 
       class SaveRegion

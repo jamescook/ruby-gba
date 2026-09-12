@@ -15,18 +15,24 @@ module RubyGBA
   #     into the exact sound-register writes the hardware needs. A backend that
   #     lowers to a real ROM uses this; the interpreter never does.
   module Sound
+    # One resolved beep, purely musical — no hardware in sight. The four parts are fixed
+    # here rather than named by a caller, so it is a value object and asking it for anything
+    # else says so.
+    Effect = Data.define(:frequency, :duty, :decay, :volume)
+
     # Built-in sound-effect presets, as plain musical values. A game refers to
     # one by name (beep :blip) instead of spelling out the numbers.
     PRESETS = {
-      high:  { frequency: 880,  duty: :half,    decay: :fast,   volume: 15 },
-      low:   { frequency: 220,  duty: :half,    decay: :fast,   volume: 15 },
-      blip:  { frequency: 1200, duty: :quarter, decay: :fast,   volume: 12 },
-      thud:  { frequency: 110,  duty: :half,    decay: :medium, volume: 15 },
-      score: { frequency: 660,  duty: :half,    decay: :medium, volume: 15 },
+      high:  Effect.new(frequency: 880,  duty: :half,    decay: :fast,   volume: 15),
+      low:   Effect.new(frequency: 220,  duty: :half,    decay: :fast,   volume: 15),
+      blip:  Effect.new(frequency: 1200, duty: :quarter, decay: :fast,   volume: 12),
+      thud:  Effect.new(frequency: 110,  duty: :half,    decay: :medium, volume: 15),
+      score: Effect.new(frequency: 660,  duty: :half,    decay: :medium, volume: 15),
     }.freeze
 
-    # What a bare-frequency beep uses for the parts the caller didn't specify.
-    DEFAULTS = { duty: :half, decay: :fast, volume: 15 }.freeze
+    # What a bare-frequency beep uses for the parts the caller didn't specify — a beep with
+    # everything settled but its pitch, which is what the caller is about to supply.
+    DEFAULTS = Effect.new(frequency: nil, duty: :half, decay: :fast, volume: 15)
 
     # HOW MANY RECORDED SOUNDS PLAY AT ONCE, and it lives here because it is a promise the
     # backends make to each other rather than a fact about either one. Past this a new play
@@ -46,15 +52,10 @@ module RubyGBA
     # beside them.
     MIXER_VOICES = 16
 
-    # One resolved beep, purely musical — no hardware in sight. The four parts are fixed
-    # here rather than named by a caller, so it is a value object and asking it for anything
-    # else says so.
-    Effect = Data.define(:frequency, :duty, :decay, :volume)
-
     # Resolve a beep into concrete musical values. +tone+ is either a preset name
     # (looked up first among the program's own +defined+ sounds, then the built-in
     # PRESETS) or a raw frequency in Hz. Any non-nil override replaces the base
-    # value.
+    # value — which is all #with does, once the ones nobody gave are dropped.
     def self.resolve_effect(tone, duty: nil, decay: nil, volume: nil, defined: {})
       base =
         if tone.is_a?(Symbol)
@@ -63,13 +64,10 @@ module RubyGBA
                                  "built-in: #{PRESETS.keys.join(', ')}; " \
                                  "define your own with define_sound")
         else
-          DEFAULTS.merge(frequency: tone)
+          DEFAULTS.with(frequency: tone)
         end
 
-      Effect.new(frequency: base[:frequency],
-                 duty:      duty   || base[:duty],
-                 decay:     decay  || base[:decay],
-                 volume:    volume || base[:volume])
+      base.with(**{ duty: duty, decay: decay, volume: volume }.compact)
     end
 
     # Built-in noise presets — the percussion voice, as plain intent. A game says

@@ -84,7 +84,8 @@ module ConformanceFixture
       B.clamp(:y, B.int(0), B.var_ref(:x)), # bounds worked out as the program runs
 
       # --- persistence: load a saved variable at boot, mirror it back on change ---
-      B.save_init(vars: [{ name: :hi_score, default: 0, slot: 0 }], magic: 0x53415631),
+      B.save_init(vars: [RubyGBA::IR::SavedVar.new(name: :hi_score, default: 0, slot: 0)],
+                  magic: 0x53415631),
       B.save_store(:hi_score, 0),
 
       # --- every value-operand kind and every operator ---

@@ -277,10 +277,10 @@ module RubyGBA
             when :func
               @funcs[n.name] = n
             when :define_sound
-              @defined_sounds[n.name] = {
+              @defined_sounds[n.name] = Sound::Effect.new(
                 frequency: n.frequency, duty: n.duty,
-                decay: n.decay, volume: n.volume
-              }
+                decay: n.decay, volume: n.volume,
+              )
             when :song
               @player.declare(n)
             when :song_list
@@ -1550,12 +1550,12 @@ module RubyGBA
         # the marker are written so the next boot loads them. Mirrors the GBA lowering.
         def exec_save_init(node)
           if @save[:magic] == node.magic
-            node.vars.each { |v| @vars[v[:name]] = Int32.wrap(@save[v[:slot]]) }
+            node.vars.each { |v| @vars[v.name] = Int32.wrap(@save[v.slot]) }
           else
             node.vars.each do |v|
-              value = Int32.wrap(v[:default])
-              @vars[v[:name]] = value
-              @save[v[:slot]] = value
+              value = Int32.wrap(v.default)
+              @vars[v.name] = value
+              @save[v.slot] = value
             end
             @save[:magic] = node.magic
           end

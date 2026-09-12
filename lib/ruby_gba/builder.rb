@@ -658,13 +658,13 @@ module RubyGBA
     # what's saved always matches what the game just did. A no-op for an ordinary
     # variable, so every mutation verb can call it without checking first.
     def mirror_save(name)
-      entry = @persisted.find { |v| v[:name] == name }
-      record(Build.save_store(name, entry[:slot])) if entry
+      entry = @persisted.find { |v| v.name == name }
+      record(Build.save_store(name, entry.slot)) if entry
     end
 
     # Whether +name+ is a persisted variable (declared with `save_var`).
     def persisted?(name)
-      @persisted.any? { |v| v[:name] == name }
+      @persisted.any? { |v| v.name == name }
     end
 
     # Which scenes are shown for which state, read from the case_var dispatch(es):
