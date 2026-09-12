@@ -135,7 +135,33 @@ class TestSoundModule < Minitest::Test
 
   def test_unknown_wave_shape_is_a_friendly_error
     err = assert_raises(ArgumentError) { Sound.wavetable(:zigzag) }
-    assert_match(/unknown wave shape/, err.message)
+    assert_match(/:zigzag/, err.message)
+    assert_match(/:triangle/, err.message, "it names the shapes there are")
+    assert_match(/32 steps/, err.message, "...and says a waveform of your own is the other way")
+  end
+
+  # --- a waveform of the game's own, rather than one of the names ---
+
+  # The console's wave voice is 32 steps of four bits, not a set of timbres, and a game whose
+  # music came from somewhere else arrives holding those 32 numbers. A 50% pulse is the common
+  # case and is none of the four names.
+  PULSE_50 = ([15] * 16 + [0] * 16).freeze
+
+  def test_steps_are_taken_as_the_waveform_itself
+    assert_equal PULSE_50, Sound.wavetable(PULSE_50)
+    refute_equal Sound.wavetable(:triangle), Sound.wavetable(PULSE_50), "a pulse is not a triangle"
+  end
+
+  def test_a_waveform_of_the_wrong_length_is_a_friendly_error
+    err = assert_raises(ArgumentError) { Sound.wavetable([15] * 31) }
+    assert_match(/32 steps/, err.message)
+    assert_match(/31/, err.message, "it says how many were given")
+  end
+
+  def test_a_step_outside_four_bits_is_a_friendly_error
+    err = assert_raises(ArgumentError) { Sound.wavetable(([15] * 31) + [16]) }
+    assert_match(/0 to 15/, err.message)
+    assert_match(/31/, err.message, "it names which step is wrong")
   end
 
   def test_wave_rate_inverts_the_channel3_frequency_formula

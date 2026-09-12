@@ -109,9 +109,27 @@ module RubyGBA
     # so they agree on the timbre. WAVE_SAMPLES is the table size the hardware loops.
     WAVE_SAMPLES = 32
 
-    # Built-in wave shapes, each a plain 0..15 sample table. A game says
-    # `wave :triangle, :C4` and gets that timbre; the samples are the framework's job.
+    # ...and how loud one step can be. Four bits, so 0 is silence and 15 is the top.
+    WAVE_STEP_MAX = 15
+
+    # WHAT THE WAVE VOICE PLAYS, which is one of two things a game can say.
+    #
+    # A NAME is the usual answer — `wave :triangle, :C4`, `plays: :sine` — and the samples are
+    # the framework's job. Four names cover the timbres most games reach for.
+    #
+    # THE STEPS THEMSELVES are the other, and they are here because the named shapes are a
+    # convenience rather than the truth: the console's wave voice is not a set of timbres, it is
+    # 32 steps of four bits that a game writes. A game whose music came from somewhere else —
+    # decoded out of another cartridge, drawn in a tracker — arrives holding those 32 numbers,
+    # and no name it could be given would be the waveform it actually has. A pulse is the common
+    # case and is none of the four: played as a triangle it is a different instrument, which a
+    # player hears without being able to name.
+    #
+    # So a list of 32 steps goes wherever a name goes. Name them in your own program
+    # (`PULSE_50 = [15] * 16 + [0] * 16`) and the call site still reads like game code.
     def self.wavetable(shape)
+      return wave_steps!(shape) if shape.is_a?(Array)
+
       case shape
       when :square
         Array.new(WAVE_SAMPLES) { |i| i < WAVE_SAMPLES / 2 ? 15 : 0 }
@@ -126,8 +144,27 @@ module RubyGBA
       when :sine
         Array.new(WAVE_SAMPLES) { |i| (7.5 + 7.5 * Math.sin(2 * Math::PI * i / WAVE_SAMPLES)).round.clamp(0, 15) }
       else
-        raise ArgumentError, "unknown wave shape #{shape.inspect} — built-in: :sine, :triangle, :sawtooth, :square"
+        raise ArgumentError, "The wave shape #{shape.inspect} is not known. Use :sine, :triangle, " \
+                             ":sawtooth or :square. Or give #{WAVE_SAMPLES} steps of 0 to 15, to " \
+                             "play a waveform of your own."
       end
+    end
+
+    # A WAVEFORM GIVEN AS ITS STEPS, checked and handed back. The two rules are the hardware's:
+    # the voice loops exactly 32 steps, and each one is four bits. Both are said at the line
+    # that wrote the waveform, because a list of numbers is the one thing here a person cannot
+    # check by looking at it.
+    def self.wave_steps!(steps)
+      unless steps.length == WAVE_SAMPLES
+        raise ArgumentError, "A waveform is #{WAVE_SAMPLES} steps. This one has #{steps.length}. " \
+                             "The wave voice loops #{WAVE_SAMPLES} steps, so give that many."
+      end
+
+      bad = steps.find { |step| !step.is_a?(Integer) || !step.between?(0, WAVE_STEP_MAX) }
+      return steps if bad.nil?
+
+      raise ArgumentError, "A waveform step is a whole number from 0 to #{WAVE_STEP_MAX}. " \
+                           "Step #{steps.index(bad)} is #{bad.inspect}."
     end
 
     # The console-specific half: encode musical values into sound-register writes.
