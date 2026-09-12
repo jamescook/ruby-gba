@@ -75,6 +75,11 @@ module RubyGBA
           clear = Value.new(self, IR::Build.var_ref(TILE_COLLISION_CLEAR), name: TILE_COLLISION_CLEAR)
           left = Value.new(self, IR::Build.var_ref(TILE_COLLISION_X), name: TILE_COLLISION_X) + hit_x
           top = Value.new(self, IR::Build.var_ref(TILE_COLLISION_Y), name: TILE_COLLISION_Y) + hit_y
+          # WHICH ROOM'S WALLS, worked out once for the whole check rather than once per
+          # cell: every sample a mover takes is in the map it is standing in, so the offset
+          # to that map's grid is the same for all nine. That is what keeps a background
+          # with two hundred rooms the same nine reads as a background with one.
+          base = map_base_for(cells)
           clear.set 1
           down.each do |dy|
             py = top + dy
@@ -85,13 +90,25 @@ module RubyGBA
               # rather than the cell, because dividing truncates toward zero and would fold
               # a pixel just left of the map onto column 0.
               inside = (px >= 0) & (px < width) & (py >= 0) & (py < height)
-              solid = cells.table[((py / cells.tile_h) * cells.cols) + (px / cells.tile_w)]
+              cell = ((py / cells.tile_h) * cells.cols) + (px / cells.tile_w)
+              solid = cells.table[base ? base + cell : cell]
               (inside & (solid == 1)).then { clear.set 0 }
             end
           end
         end
 
         { name: name, x: TILE_COLLISION_X, y: TILE_COLLISION_Y, clear: TILE_COLLISION_CLEAR }
+      end
+
+      # Where the showing map's walls start in the table, as a {Value} — nil for a
+      # background with one map, whose grid starts at 0 and needs no arithmetic at all.
+      # Nothing holds the number to the range here because nothing has to: the variable is
+      # written by the frame-boundary copy, which only ever puts a real map there, and a
+      # table read makes an out-of-range index safe on its own.
+      def map_base_for(cells)
+        return nil if cells.map_var.nil?
+
+        Value.new(self, IR::Build.var_ref(cells.map_var), name: cells.map_var) * cells.cells_per_map
       end
 
       # Where along a box to ask, for a box +size+ pixels across on +tile+-pixel cells:

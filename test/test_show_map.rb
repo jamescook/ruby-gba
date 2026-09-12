@@ -377,23 +377,22 @@ class TestShowMap < Minitest::Test
     assert_match(/blit/, error.message, "it says what to do instead")
   end
 
-  # `blocked_by` reads a background's walls once, while the program is built, so it cannot
-  # follow a background whose map changes: it would hold the first room's walls in every room.
-  def test_being_blocked_by_a_background_with_several_maps_is_a_friendly_error
-    error = assert_raises(ArgumentError) do
-      builder = Builder.new
-      builder.instance_eval do
-        screen :tiled
-        image(:wall, "#" => :red) { SOLID8 }
-        image(:hero, "#" => :white) { SOLID8 }
-        tiles :dungeon, "#" => :wall, solid: ["#"]
-        rooms = background :rooms, tiles: :dungeon, map: { hall: HALL, cave: HALL }
-        sprite(:hero, at: [8, 8]).blocked_by(rooms)
-      end
+  # `blocked_by` used to be refused here, because it read the walls once while the program
+  # was built and would have held the first room's walls in every room. It reads the grid of
+  # the map that is really showing now, so a mover is stopped by the walls of the room it is
+  # standing in — see test_room_walls.rb for the behaviour.
+  def test_a_background_with_several_maps_can_be_blocked_by
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image(:wall, "#" => :red) { SOLID8 }
+      image(:hero, "#" => :white) { SOLID8 }
+      tiles :dungeon, "#" => :wall, solid: ["#"]
+      rooms = background :rooms, tiles: :dungeon, map: { hall: HALL, cave: HALL }
+      sprite(:hero, at: [8, 8]).blocked_by(rooms)
     end
-    assert_match(/:rooms/, error.message)
-    assert_match(/blocked_by/, error.message)
-    assert_match(/2 maps/, error.message)
+
+    refute_nil builder.program
   end
 
   def test_a_background_given_an_empty_set_of_maps_is_a_friendly_error
