@@ -52,6 +52,7 @@ module RubyGBA
         tone:    ->(v) { v.is_a?(Symbol) || v.is_a?(Integer) }, # a defined-sound name or raw frequency
         list:    ->(v) { v.is_a?(Array) },                     # a case dispatch table
         score:   ->(v) { v.is_a?(Array) && v.all?(Music::Part) }, # a song's parts, each resolved
+        save:    ->(v) { v.is_a?(Array) && v.all?(SavedVar) },    # the variables that survive power-off
         branch:  ->(v) { v.is_a?(Node) && v.kind == :else },   # an if's else-branch node
         flag:    ->(v) { v == true || v == false },            # an on/off switch (e.g. double buffering)
       }.freeze

@@ -33,7 +33,7 @@ class TestSoundModule < Minitest::Test
   end
 
   def test_a_defined_sound_wins_over_a_built_in_of_the_same_name
-    defined = { high: { frequency: 100, duty: :eighth, decay: :none, volume: 3 } }
+    defined = { high: Sound::Effect.new(frequency: 100, duty: :eighth, decay: :none, volume: 3) }
     assert_equal 100, Sound.resolve_effect(:high, defined: defined).frequency
   end
 

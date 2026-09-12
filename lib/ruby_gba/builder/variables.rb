@@ -72,7 +72,9 @@ module RubyGBA
         end
 
         ensure_var(name)
-        @persisted << { name: name, default: default, slot: @persisted.length } unless persisted?(name)
+        unless persisted?(name)
+          @persisted << IR::SavedVar.new(name: name, default: default, slot: @persisted.length)
+        end
         handle_for(name)
       end
 

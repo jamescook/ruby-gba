@@ -62,12 +62,12 @@ module RubyGBA
             @emitter.emit(ASM.cmp_reg(stored, marker))       # equal? -> the save is real
 
             node.vars.each do |var|
-              offset = save_slot_offset(var[:slot])
+              offset = save_slot_offset(var.slot)
               emit_assemble_word(saved, base, offset, scratch: 2)
               @emitter.emit(ASM.mov_reg_cond(:eq, ACC, saved))       # real save -> take the saved value
-              @emitter.emit(ASM.load_immediate(3, Int32.wrap(var[:default])))
+              @emitter.emit(ASM.load_immediate(3, Int32.wrap(var.default)))
               @emitter.emit(ASM.mov_reg_cond(:ne, ACC, 3))           # fresh cartridge -> take the default
-              @primitives.store_var(ACC, var[:name])                # into the live variable in IWRAM
+              @primitives.store_var(ACC, var.name)                  # into the live variable in IWRAM
               emit_store_word_to_sram(ACC, base, offset, scratch: 3) # and back to save memory
             end
 

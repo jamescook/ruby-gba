@@ -118,6 +118,16 @@ class TestIRVerifier < Minitest::Test
   # nothing could check past "it is an Array" — so a misspelt key sat there unread and came out
   # layers away as a part playing the wrong voice. A shape-compatible Hash is now refused here,
   # which is what stops one being written again by hand.
+  # THE SAME FOR A SAVED VARIABLE, and this one has a trap of its own worth pinning: Hash has a
+  # #default method already — it answers the hash's own fallback, not the key called :default —
+  # so a hand-built hash sailed straight past `var.default` and handed a backend nonsense
+  # instead of raising. The slot says it must be a record, so it cannot happen again.
+  def test_a_saved_variable_that_is_not_a_record_is_caught
+    bad = program(Nodes::SaveInit.new(magic: 1, vars: [{ name: :hi, default: 0, slot: 0 }]))
+    err = assert_raises(IR::InvariantError) { Verifier.verify!(bad) }
+    assert_match(/save_init\.vars must be an author-time save/, err.message)
+  end
+
   def test_a_song_part_that_is_not_a_record_is_caught
     bad = program(Nodes::Song.new(name: :tune, total_frames: 4,
                                   voices: [{ events: [[0, 262]], duty: :half, volume: 12 }]))

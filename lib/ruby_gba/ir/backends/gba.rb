@@ -1164,10 +1164,10 @@ module RubyGBA
             when :func
               @functions.funcs[node.name] = node
             when :define_sound
-              @defined_sounds[node.name] = {
+              @defined_sounds[node.name] = Sound::Effect.new(
                 frequency: node.frequency, duty: node.duty,
-                decay: node.decay, volume: node.volume
-              }
+                decay: node.decay, volume: node.volume,
+              )
             when :song
               @songs[node.name] = node
             when :table
