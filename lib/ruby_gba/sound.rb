@@ -232,6 +232,78 @@ module RubyGBA
         [[REG_SOUND2CNT_L, control], [REG_SOUND2CNT_H, trigger]]
       end
 
+      # A SINGLE MUSIC NOTE ON THE WAVE VOICE (channel 3), for a song part that plays it.
+      #
+      # Two register values, like a square note, and for the same reason: the player copies two
+      # halfwords out of the score and the waveform itself is already in wave RAM, uploaded once
+      # when the tune started. The level holds the note and the trigger restarts the waveform.
+      # A frequency of 0 is a rest, which mutes the voice without disturbing the table.
+      #
+      # It reaches LOWER than a square voice: this one tunes by a sample rate, so its bottom is
+      # 32 Hz against the square voices' 64 — an octave further down, which is most of why a
+      # tune puts its bass here.
+      # +volume+ is 0..15, the same scale a square part's is written on — the wave voice has
+      # four fixed levels and off rather than a range, so it is rounded to the nearest.
+      def wave_note(frequency:, volume:)
+        return [[REG_SOUND3CNT_H, 0x0000], [REG_SOUND3CNT_X, 0x0000]] if frequency.zero?
+
+        [[REG_SOUND3CNT_H, WAVE_VOLUMES.fetch(wave_level(volume))],
+         [REG_SOUND3CNT_X, 0x8000 | wave_rate(frequency)]]
+      end
+
+      WAVE_LEVEL_STEPS = %i[mute quarter half three_quarter full].freeze
+
+      def wave_level(volume)
+        WAVE_LEVEL_STEPS[((volume.clamp(0, 15) * (WAVE_LEVEL_STEPS.size - 1)) / 15.0).round]
+      end
+
+      # Put a waveform in wave RAM and switch the voice on — the once-per-tune half of the pair
+      # above, split out because a note must not pay for it. Answers the eight halfwords the
+      # table packs into; which register they go to, and in what order, is the player's to emit
+      # (see Audio#emit_upload_wavetable): both banks get the table, so whichever one the voice
+      # loops, it loops this waveform.
+      def wavetable_halfwords(shape) = pack_wavetable(RubyGBA::Sound.wavetable(shape))
+
+      # A SINGLE MUSIC NOTE ON THE NOISE VOICE (channel 4), for a song part that plays it — the
+      # drums. Two register values again, so the player copies two halfwords here too.
+      #
+      # WHAT A NOTE MEANS HERE is the one thing about this voice that has to be decided rather
+      # than followed: the noise voice makes a hiss, not a tone, so there is no pitch in the way
+      # a melody has one. What it does have is a CLOCK, and a faster clock is a higher, thinner
+      # hiss where a slower one is a low rumble. So a note's pitch picks the clock nearest to it
+      # (#noise_clock), which is what a tracker's noise channel does and what makes a low note a
+      # kick and a high one a hat. The fade is the part's, not the note's: a drum hit rings out
+      # and is not held until the next one.
+      #
+      # A frequency of 0 is a rest: the voice restarts at no volume at all, which stops a hit
+      # that was still ringing.
+      def noise_note(frequency:, decay:, volume:, metallic:)
+        return [[REG_SOUND4CNT_L, 0x0000], [REG_SOUND4CNT_H, 0x8000]] if frequency.zero?
+
+        divisor, shift = noise_clock(frequency)
+        control = (volume << 12) | (decay_step(decay) << 8)
+        [[REG_SOUND4CNT_L, control],
+         [REG_SOUND4CNT_H, 0x8000 | (shift << 4) | (metallic ? 0x0008 : 0x0000) | divisor]]
+      end
+
+      # The noise voice's clock is 524288 Hz divided by a small number and then halved +shift+
+      # times over, so the rates it can make are a fixed ladder rather than a range. This finds
+      # the rung nearest a wanted pitch. A divisor of 0 means a half, which is the one rung
+      # above the rest of the ladder.
+      NOISE_CLOCK = 524_288
+      NOISE_DIVISORS = (0..7).to_a.freeze
+      NOISE_SHIFT_RANGE = (0..13).freeze
+
+      def noise_clock(frequency)
+        NOISE_DIVISORS.product(NOISE_SHIFT_RANGE.to_a).min_by do |divisor, shift|
+          (noise_frequency(divisor, shift) - frequency).abs
+        end
+      end
+
+      def noise_frequency(divisor, shift)
+        NOISE_CLOCK / (divisor.zero? ? 0.5 : divisor) / (2**(shift + 1))
+      end
+
       # A percussion / explosion hit on channel 4 (the noise voice). Channel 4
       # makes pseudo-random noise rather than a pitched tone: a control word sets
       # the starting volume and how fast it fades (the envelope, same layout as the

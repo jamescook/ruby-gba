@@ -88,6 +88,57 @@ module RubyGBA
     # number that limits sounds.
     MAX_SQUARE_PARTS = 2
 
+    # THE OTHER TWO VOICES THE CONSOLE HAS, and a tune can now use both. The wave voice loops a
+    # short waveform, so it makes rounder timbres than a square wave and reaches lower — it is a
+    # pad, a bass, a bell. The noise voice makes a hiss rather than a pitched tone, which is the
+    # drums. There is one of each, so one part apiece.
+    #
+    # WHAT THEY ARE WORTH is that they cost NO mixer voice. The console makes both sounds
+    # itself, where a part that plays a recording keeps a voice of the mixer for the whole game.
+    # So a busy song reaches for these two before it reaches for a ninth recording, and the
+    # voices it does not spend stay free for the game's own sounds.
+    MAX_WAVE_PARTS = 1
+    MAX_NOISE_PARTS = 1
+
+    # The timbres a wave part can have. `plays: :wave` is the middle one of them, which is the
+    # one somebody asking for "the wave voice" without saying more means.
+    WAVE_SHAPES = %i[sine triangle sawtooth].freeze
+    DEFAULT_WAVE_SHAPE = :triangle
+
+    # WHAT A PART PLAYS, as plain data, worked out in one place for both ways a song reaches the
+    # IR — a `song` block and a `Score` handed over as data. Answers the keys the part hash
+    # carries, so a part's kind is read off it the same way everywhere (see IR::Tunes.part_kind).
+    #
+    # A bare Symbol is an instrument's name unless it is one of the console's own voices, and
+    # nothing here looks an instrument up: a name that is neither is caught later, by the
+    # guardrail that names the song and the part (Checks::SongInstrumentUnknown).
+    def self.resolve_plays(plays)
+      case plays
+      when nil then {}
+      when :noise then { noise: true }
+      when :wave then { wave: DEFAULT_WAVE_SHAPE }
+      when *WAVE_SHAPES then { wave: plays }
+      when :square then raise ArgumentError, SQUARE_PLAYS_MESSAGE
+      when Symbol then { instrument: plays }
+      else
+        return { instrument: plays.name } if plays.respond_to?(:name)
+
+        raise ArgumentError, "plays: names an instrument, like :piano. It can also name one of " \
+                             "the console's own voices: :wave (or a shape, " \
+                             "#{WAVE_SHAPES.map(&:inspect).join(', ')}) or :noise. " \
+                             "You gave #{plays.inspect}."
+      end
+    end
+
+    # `plays: :square` is refused because it can be read two ways and the wrong reading is
+    # silent: the reader means "this part plays a square wave", which is what a part does with
+    # no `plays:` at all, and would get the WAVE voice shaped like a square instead — a
+    # different voice, and one of the two this song may be short of.
+    SQUARE_PLAYS_MESSAGE =
+      "A part plays the square wave when it names no instrument. To do that, remove `plays:` " \
+      "from this part. For the wave voice, which is rounder and goes lower, write " \
+      "`plays: :wave`."
+
     # One part of a song: a single line of notes and rests, with its own tone
     # (duty) and loudness (volume). The clock (tempo) lives on the song and is
     # shared, so every part advances together, note for note.
@@ -102,9 +153,12 @@ module RubyGBA
       def initialize(song, plays: nil, name: nil)
         @song = song       # the shared tempo is read back through this
         @name = name       # what the song calls this part, for a message about it
-        @instrument = instrument_name(plays)
+        @plays = Music.resolve_plays(plays)
+        @instrument = @plays[:instrument]
         @duty = :half
         @volume = 12
+        @decay = :fast     # a drum hit, for a part on the noise voice
+        @metallic = false  # ...and whether it rattles (a snare, a hat) or thuds (a kick)
         @events = []       # [[frame_offset, freq_hz], ...]
         @current_frame = 0
       end
@@ -114,6 +168,21 @@ module RubyGBA
       def duty(d = nil)
         return @duty if d.nil?
         @duty = d
+      end
+
+      # HOW FAST A HIT FADES, for a part on the noise voice — :fast, :medium, :slow, or :none
+      # to hold. Every other kind of part holds its note until the next one, so this is read
+      # only there. The same words `noise` takes for a sound effect.
+      def decay(d = nil)
+        return @decay if d.nil?
+        @decay = d
+      end
+
+      # ...and whether the hiss is the tighter, more tonal rattle (a snare, a hat) or the full
+      # one (a kick, an explosion). Read only by a part on the noise voice, same as #decay.
+      def metallic(m = nil)
+        return @metallic if m.nil?
+        @metallic = m
       end
 
       # Set this part's volume (0-15), or read it.
@@ -152,25 +221,13 @@ module RubyGBA
       # The part as plain data for the IR: its score, tone, and loudness — and the
       # instrument it plays, when it plays one, and its name, when it has one.
       def to_voice
-        part = { events: @events, duty: @duty, volume: @volume }
-        part[:instrument] = @instrument if @instrument
+        part = { events: @events, duty: @duty, volume: @volume }.merge(@plays)
+        part.merge!(decay: @decay, metallic: @metallic) if @plays[:noise]
         part[:name] = @name if @name
         part
       end
 
       private
-
-      # An instrument is named by the Symbol it was declared with, or by the handle
-      # `instrument` gave back — either one reads as the same name.
-      def instrument_name(plays)
-        case plays
-        when nil, Symbol then plays
-        else
-          return plays.name if plays.respond_to?(:name)
-
-          raise ArgumentError, "plays: names an instrument, like :piano. You gave #{plays.inspect}."
-        end
-      end
 
       def resolve_pitch(pitch)
         case pitch
@@ -222,10 +279,19 @@ module RubyGBA
         @tempo
       end
 
-      # Add a part, played alongside the others. Name it for readability; the
-      # framework decides which channel it sounds on — you never name a channel.
-      # `plays: :piano` makes the part play an instrument instead of the square
-      # wave: each note is the instrument's recording at that note's pitch.
+      # Add a part, played alongside the others. Name it for readability; the framework decides
+      # which channel it sounds on — you never name a channel.
+      #
+      # `plays:` says what the part SOUNDS LIKE, and there are three answers. An instrument's
+      # name (`plays: :piano`) plays that recording at each note's pitch. `plays: :wave` — or a
+      # shape, :sine, :triangle, :sawtooth — plays the console's wave voice, which is rounder
+      # than a square wave and reaches an octave lower, so it is the pad and the bass.
+      # `plays: :noise` plays the hiss, which is the drums: a low note is a kick and a high one
+      # a hat, and the part says how fast a hit fades (`decay`) and whether it rattles
+      # (`metallic`). Say nothing and the part plays the square wave, as it always did.
+      #
+      # The last two cost NO mixer voice — the console makes those sounds itself — so a busy
+      # song reaches for them before it reaches for another recording.
       def voice(name = nil, plays: nil, &block)
         raise ArgumentError, mixed_message if @default_voice
         vc = VoiceContext.new(self, plays: plays, name: name)

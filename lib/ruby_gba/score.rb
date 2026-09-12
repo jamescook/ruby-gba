@@ -65,22 +65,28 @@ module RubyGBA
       parts.flat_map(&:notes).map { |note| note.at + (note.length || ticks_per_beat) }.max || 0
     end
 
-    Part = Data.define(:notes, :plays, :volume, :duty)
+    Part = Data.define(:notes, :plays, :volume, :duty, :decay, :metallic)
 
     class Part
-      def initialize(notes:, plays: nil, volume: 12, duty: :half)
+      # +decay+ and +metallic+ are read only by a part on the noise voice (`plays: :noise`) —
+      # how fast a hit fades, and whether it rattles or thuds. Every other kind of part holds
+      # its note until the next one, so there is nothing for them to say.
+      def initialize(notes:, plays: nil, volume: 12, duty: :half, decay: :fast, metallic: false)
         super
       end
 
-      # The instrument this part plays, by name — given as its Symbol, or as the handle
-      # `instrument` gave back — or nil for the square wave.
-      def instrument
-        plays.respond_to?(:name) && !plays.is_a?(Symbol) ? plays.name : plays
-      end
+      # What this part plays, as the keys a part hash carries — an instrument's name, a wave
+      # shape, or the hiss. Worked out by the same reader a `song` block's parts use, so the two
+      # ways a song reaches the IR cannot disagree about it (see Music.resolve_plays).
+      def played = Music.resolve_plays(plays)
+
+      # The instrument this part plays, by name, or nil when it plays one of the console's own
+      # voices.
+      def instrument = played[:instrument]
 
       def to_voice(frames, total)
-        voice = { events: Events.of(self, frames, total), duty: duty, volume: volume }
-        voice[:instrument] = instrument if instrument
+        voice = { events: Events.of(self, frames, total), duty: duty, volume: volume }.merge(played)
+        voice.merge!(decay: decay, metallic: metallic) if voice[:noise]
         voice
       end
     end

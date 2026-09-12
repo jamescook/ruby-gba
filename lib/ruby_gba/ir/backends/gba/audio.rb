@@ -103,14 +103,29 @@ module RubyGBA
 
           # THE LANES A TUNE IS PLAYED ON: the hardware the player drives, fixed for the whole
           # game. The two square-wave channels, then one voice of the mixer for each part that
-          # plays a recording — as many as the most any one tune has. A song's parts are handed
-          # to lanes when it is built, plain parts to the square channels in order and recorded
-          # parts to the mixer's lanes in order. So the code for a lane only ever does one kind of
-          # thing, and the player never has to ask, as it runs, what kind of part it is playing.
-          Lane = Data.define(:kind, :index) # :square and its channel, or :recorded and its mixer lane
+          # plays a recording — as many as the most any one tune has — and then the wave voice
+          # and the noise voice, one each, for the games that use them. A song's parts are handed
+          # to lanes when it is built, each kind to its own lanes in order. So the code for a lane
+          # only ever does one kind of thing, and the player never has to ask, as it runs, what
+          # kind of part it is playing.
+          #
+          # The two console voices go LAST on purpose: a game that uses neither emits not one
+          # instruction for them, and adding them moved no lane a game already had.
+          Lane = Data.define(:kind, :index) # :square/:wave/:noise and its channel, or :recorded and its mixer lane
 
-          # One event on a square lane: [frame (u32), the note's two register values (u16 each)].
+          # One event on a lane the console plays itself — square, wave or noise: [frame (u32),
+          # the note's two register values (u16 each)]. All three are two register writes, so
+          # all three read the same row and the player copies two halfwords whichever it is.
           SQUARE_ROW = 8
+
+          # The wave voice's channel number, and the noise voice's, in the console's own count.
+          # There is one of each, so a lane's index is the channel rather than a number among
+          # several.
+          WAVE_CHANNEL = 3
+          NOISE_CHANNEL = 4
+
+          # The lanes the console plays itself, and how many of each a song may have.
+          CONSOLE_LANES = { wave: WAVE_CHANNEL, noise: NOISE_CHANNEL }.freeze
 
           # One event on a recorded lane: [frame (u32), step (u32 — how fast to read the
           # recording, 0 for a rest), instrument (u16), loudness (u16)]. The instrument is a
@@ -127,10 +142,16 @@ module RubyGBA
           NEVER = 0xFFFF_FFFF
 
           # Where things sit in a tune's directory entry: its length, which lanes it uses, where
-          # its loop table is (0 when it loops from its start), then each lane's first event.
+          # its loop table is (0 when it loops from its start), where its waveform is (0 when it
+          # has no part on the wave voice), then each lane's first event.
           ENTRY_LANES_USED = 4
           ENTRY_LOOP = 8
-          ENTRY_STARTS = 12
+          ENTRY_WAVE = 12
+          ENTRY_STARTS = 16
+
+          # A waveform, packed for wave RAM: eight halfwords the voice loops as one cycle.
+          WAVE_HALFWORDS = 8
+          WAVE_BYTES = WAVE_HALFWORDS * 2
 
           # Number the tunes the program plays, pick the lanes they need, and keep the mixer
           # voices their recorded parts will use. A tune that is written but never played costs
@@ -150,8 +171,13 @@ module RubyGBA
               raise LoweringError, "a song has #{recorded} recorded parts, and the mixer has #{Sound::MIXER_VOICES} voices"
             end
 
+            # The wave and noise lanes are added only for a game that has a part on them, so a
+            # game that uses neither emits nothing for them at all.
+            console = CONSOLE_LANES.select { |kind, _| IR::Tunes.played(program).any? { |song| IR::Tunes.parts_on(song, kind).positive? } }
             @lanes = MUSIC_CHANNELS.map { |channel| Lane.new(:square, channel) } +
-                     Array.new(recorded) { |lane| Lane.new(:recorded, lane) }
+                     Array.new(recorded) { |lane| Lane.new(:recorded, lane) } +
+                     console.map { |kind, channel| Lane.new(kind, channel) }
+            @waves = console.key?(:wave)
             # One directory entry: the tune's length in frames, which lanes it uses, where it
             # loops from, and where each lane's events start — rounded up to a power of two, so
             # finding a tune's entry is a shift of its number rather than a multiply.
@@ -284,6 +310,7 @@ module RubyGBA
             @emitter.emit_branch(:bcond, done, cond: :eq)
             @emitter.emit(ASM.load_immediate(frame, 0))
             emit_rewind_lanes(base, at, playing)
+            emit_upload_wavetable(base, at, playing) if @waves
 
             @emitter.place_label(play)
             @lanes.each_with_index { |lane, number| emit_play_lane(lane, number, base, at, value, frame) }
@@ -399,6 +426,51 @@ module RubyGBA
             @emitter.place_label(top)
           end
 
+          # PUT THE NEW TUNE'S WAVEFORM IN WAVE RAM, on the frame the tune changes and nowhere
+          # else.
+          #
+          # The wave voice loops a short waveform — that is what makes it rounder than a square
+          # wave — and the waveform belongs to the PART, so it changes only when the tune does.
+          # Uploaded here, a note on that voice costs the same two register writes a square note
+          # does; uploaded per note it would cost this every frame the part played one. A tune
+          # with no part on the wave voice has no waveform, and nothing is written.
+          #
+          # BOTH BANKS GET IT, which is the console's own trap: wave RAM is two banks, the voice
+          # loops one and the CPU can reach the other, so a table written to the bank being
+          # played is not heard. Writing both means whichever it loops, it loops this one.
+          # +at+ holds the tune's directory entry. Uses r7-r10 and ACC/TMP, all free here.
+          def emit_upload_wavetable(base, at, playing)
+            source, dest, walk, left = 7, 8, 9, 10
+            none = @emitter.gensym
+            emit_entry_address(at, base, playing)
+            @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_WAVE))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, none, cond: :eq) # this tune plays no waveform
+            @emitter.emit(ASM.add_reg(source, base, ACC))
+
+            WAVE_BANKS.each do |bank|
+              copy = @emitter.gensym
+              @emitter.write_reg16(REG_SOUND3CNT_L, bank) # the CPU reaches this bank
+              @emitter.emit(ASM.mov_reg(walk, source))
+              @emitter.emit(ASM.load_immediate(dest, REG_WAVE_RAM))
+              @emitter.emit(ASM.load_immediate(left, WAVE_HALFWORDS))
+              @emitter.place_label(copy)
+              @emitter.emit(ASM.load_halfword(ACC, walk))
+              @emitter.emit(ASM.store_halfword(ACC, dest))
+              @emitter.emit(ASM.add_imm(walk, walk, 2))
+              @emitter.emit(ASM.add_imm(dest, dest, 2))
+              @emitter.emit(ASM.subs_imm(left, left, 1))
+              @emitter.emit_branch(:bcond, copy, cond: :ne)
+            end
+            @emitter.write_reg16(REG_SOUND3CNT_L, WAVE_ON)
+            @emitter.place_label(none)
+          end
+
+          # Which bank of wave RAM the CPU reaches, and the value that switches the voice on
+          # over one 32-sample bank.
+          WAVE_BANKS = [0x0000, 0x0040].freeze
+          WAVE_ON = 0x0080
+
           # Silence every lane tune number +playing+ uses, and nothing when no tune is playing.
           # Only its OWN lanes: the second square channel is also the one sound effects play on,
           # and a one-part tune ending must not cut a beep off.
@@ -418,14 +490,16 @@ module RubyGBA
             @emitter.place_label(quiet)
           end
 
-          # A square lane goes quiet with a rest on its channel; a recorded lane by switching off
-          # the mixer voice carrying its mark, if it still has one.
+          # A lane the console plays goes quiet with a rest on its own channel — which is the
+          # rest row that lane would have played, so nothing new is decided here. A recorded
+          # lane goes quiet by switching off the mixer voice carrying its mark, if it still has
+          # one.
           def emit_silence_lane(lane)
-            if lane.kind == :square
-              emit_writes(Sound::Registers.channel_note(lane.index, frequency: 0, duty: :half, volume: 0))
-            else
+            if lane.kind == :recorded
               @emitter.emit(ASM.load_immediate(8, Mixer.music_owner(lane.index)))
               @mixer.emit_music_voice_off
+            else
+              emit_writes(console_note(lane, { duty: :half, metallic: false }, 0, 0))
             end
           end
 
@@ -438,20 +512,22 @@ module RubyGBA
             @emitter.emit(ASM.cmp_reg(ACC, frame))
             @emitter.emit_branch(:bcond, skip, cond: :ne)     # not yet — leave the lane alone
 
-            if lane.kind == :square
-              emit_square_note(lane.index, at)
-              @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
-            else
+            if lane.kind == :recorded
               emit_recorded_note(lane.index, base, at)
               @emitter.emit(ASM.add_imm(cursor, cursor, RECORDED_ROW))
+            else
+              emit_console_note(lane, at)
+              @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
             end
             @primitives.store_var(cursor, self.class.music_cursor(number))
             @emitter.place_label(skip)
           end
 
-          # Copy the row's two register values onto the square channel.
-          def emit_square_note(channel, at)
-            regs = music_voice_regs(channel)
+          # Copy the row's two register values onto whichever voice the console plays itself.
+          # The row was worked out at build time, so this is the same handful of instructions
+          # for a square note, a wave note and a drum hit alike.
+          def emit_console_note(lane, at)
+            regs = music_voice_regs(lane)
             regs[:const].each do |addr, value|                # channel 1's sweep, written first
               @emitter.emit(ASM.load_immediate(ACC, value))
               @emitter.emit(ASM.load_immediate(TMP, addr))
@@ -521,13 +597,18 @@ module RubyGBA
             instruments = @song_numbers.keys.flat_map { |name| IR::Tunes.instruments(@songs.fetch(name)) }.uniq
             @instrument_numbers = instruments.each_with_index.to_h
             @instruments_at = (@song_numbers.size + 1) * entry_bytes
-            events_at = @instruments_at + (instruments.size * INSTRUMENT_BYTES)
+            waves_at = @instruments_at + (instruments.size * INSTRUMENT_BYTES)
+            # One copy of each waveform the played tunes use, whichever of them use it.
+            shapes = @song_numbers.keys.flat_map { |name| wave_shapes(@songs.fetch(name)) }.uniq
+            wave_at = shapes.each_with_index.to_h { |shape, i| [shape, waves_at + (i * WAVE_BYTES)] }
+            events_at = waves_at + (shapes.size * WAVE_BYTES)
 
             directory = ("\0" * entry_bytes).b
             table = instruments.each_with_index.map do |name, number|
               @emitter.link_data(MUSIC_SCORE, @instruments_at + (number * INSTRUMENT_BYTES), name)
               [0, @mixer.sample_info(name).length].pack("VV") # where it is: filled in by the link
             end.join
+            table += shapes.map { |shape| Sound::Registers.wavetable_halfwords(shape).pack("v*") }.join
             events = [NEVER, 0, 0, 0].pack("VVvv") # a row any lane can wait on
             @song_numbers.each_key do |name|
               song = @songs.fetch(name)
@@ -552,30 +633,34 @@ module RubyGBA
                 loop_at = events_at + events.bytesize
                 events << [IR::Tunes.loop_frame(song), *again].pack("V*")
               end
-              directory << [song.total_frames, used, loop_at, *starts].pack("V*").ljust(entry_bytes, "\0")
+              shape = wave_shapes(song).first
+              directory << [song.total_frames, used, loop_at, shape ? wave_at.fetch(shape) : 0,
+                            *starts].pack("V*").ljust(entry_bytes, "\0")
             end
             directory + table + events
           end
 
-          def row_bytes(lane) = lane.kind == :square ? SQUARE_ROW : RECORDED_ROW
+          # The waveform a song's parts on the wave voice play. There is one wave voice, so
+          # there is at most one — Checks::SongTooManyParts refuses a song with two such parts.
+          def wave_shapes(song) = song.voices.filter_map { |part| part[:wave] }.uniq
 
-          # Which lane each of a song's parts plays on: plain parts take the square channels in
-          # order, recorded parts the mixer's lanes in order.
+          def row_bytes(lane) = lane.kind == :recorded ? RECORDED_ROW : SQUARE_ROW
+
+          # Which lane each of a song's parts plays on: each kind takes its own lanes in the
+          # order the parts are written. Refused before this by Checks::SongTooManyParts, so a
+          # part with no lane left is a lowering error rather than anything an author sees.
           def lanes_for(name, song)
-            squares = 0
-            recorded = 0
+            taken = Hash.new(0)
             song.voices.map do |part|
-              if part[:instrument]
-                recorded += 1
-                [part, MUSIC_CHANNELS.size + recorded - 1]
-              else
-                if squares == MUSIC_CHANNELS.size
-                  raise LoweringError, "song #{name.inspect} has more parts than this console can play"
-                end
-
-                squares += 1
-                [part, squares - 1]
+              kind = IR::Tunes.part_kind(part)
+              number = @lanes.each_index.select { |i| @lanes[i].kind == kind }[taken[kind]]
+              unless number
+                raise LoweringError, "song #{name.inspect} has more parts on the #{kind} voice " \
+                                     "than this console can play"
               end
+
+              taken[kind] += 1
+              [part, number]
             end
           end
 
@@ -583,36 +668,55 @@ module RubyGBA
           # a row after the last that waits for NEVER. An event may name its own instrument and
           # loudness; one that does not plays the part's.
           def lane_rows(lane, part, events)
-            if lane.kind == :square
-              regs = music_voice_regs(lane.index)
-              rows = events.map do |frame, frequency, _instrument, volume|
-                writes = Sound::Registers.channel_note(lane.index, frequency: frequency, duty: part[:duty],
-                                                                  volume: volume || part[:volume])
-                [frame, note_reg_value(writes, regs[:reg_a]), note_reg_value(writes, regs[:reg_b])].pack("Vvv")
-              end
-              rows.join + [NEVER, 0, 0].pack("Vvv")
-            else
+            if lane.kind == :recorded
               rows = events.map do |frame, frequency, instrument, volume|
                 name = instrument || part[:instrument]
                 step = frequency.zero? ? 0 : @mixer.step_at(@mixer.sample_info(name), frequency)
                 [frame, step, @instrument_numbers.fetch(name), loudness(volume || part[:volume])].pack("VVvv")
               end
               rows.join + [NEVER, 0, 0, 0].pack("VVvv")
+            else
+              regs = music_voice_regs(lane)
+              rows = events.map do |frame, frequency, _instrument, volume|
+                writes = console_note(lane, part, frequency, volume || part[:volume])
+                [frame, note_reg_value(writes, regs[:reg_a]), note_reg_value(writes, regs[:reg_b])].pack("Vvv")
+              end
+              rows.join + [NEVER, 0, 0].pack("Vvv")
+            end
+          end
+
+          # ONE NOTE ON A VOICE THE CONSOLE PLAYS ITSELF, as its two register values. Each kind
+          # answers the pair its own way — a square voice by pitch and tone, the wave voice by a
+          # sample rate, the noise voice by which rung of its clock ladder sits nearest the note
+          # — and the player copies whichever pair it finds, knowing none of that.
+          def console_note(lane, part, frequency, volume)
+            case lane.kind
+            when :square
+              Sound::Registers.channel_note(lane.index, frequency: frequency, duty: part[:duty], volume: volume)
+            when :wave
+              Sound::Registers.wave_note(frequency: frequency, volume: volume)
+            else
+              Sound::Registers.noise_note(frequency: frequency, volume: volume,
+                                          decay: part[:decay] || :fast, metallic: part[:metallic])
             end
           end
 
           # A part's volume, 0..15 like the square voices', as the mix's 0..64.
           def loudness(volume) = (volume * Mixer::MIX_LEVELS[:full] / 15.0).round
 
-          # Which two sound registers carry a music note's varying values on a given
-          # channel — the control (duty/volume) and the frequency/trigger. Channel 1
-          # also clears its sweep register (const 0), written before the note so the
-          # trigger lands last.
-          def music_voice_regs(channel)
-            case channel
+          # Which two sound registers carry a music note's varying values on a given lane — the
+          # control (tone and loudness) and the pitch-and-trigger. Channel 1 also clears its
+          # sweep register (const 0), written before the note so the trigger lands last.
+          #
+          # Every lane the console plays itself comes down to this pair, which is what lets one
+          # piece of player code drive all four voices.
+          def music_voice_regs(lane)
+            case lane.index
             when 1 then { const: [[REG_SOUND1CNT_L, 0]], reg_a: REG_SOUND1CNT_H, reg_b: REG_SOUND1CNT_X }
             when 2 then { const: [],                     reg_a: REG_SOUND2CNT_L, reg_b: REG_SOUND2CNT_H }
-            else raise LoweringError, "no music voice on channel #{channel}"
+            when WAVE_CHANNEL then { const: [], reg_a: REG_SOUND3CNT_H, reg_b: REG_SOUND3CNT_X }
+            when NOISE_CHANNEL then { const: [], reg_a: REG_SOUND4CNT_L, reg_b: REG_SOUND4CNT_H }
+            else raise LoweringError, "no music voice on channel #{lane.index}"
             end
           end
 

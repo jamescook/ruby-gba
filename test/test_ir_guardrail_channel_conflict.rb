@@ -51,6 +51,55 @@ class TestChannelConflictGuardrail < Minitest::Test
     assert_empty Check.new.detect(prog)
   end
 
+  # --- the other two voices the console plays itself ---
+  #
+  # There is ONE wave voice and ONE noise voice, so a single part on either already shares it
+  # with the matching sound effect — where a beep only collides with a song's SECOND square
+  # part. Same warning, same reason, and the build still produces a ROM.
+
+  def pad
+    song(:pad, total_frames: 4, voices: [{ events: [[0, 262]], duty: :half, volume: 12, wave: :triangle }])
+  end
+
+  def drums
+    song(:drums, total_frames: 4,
+                 voices: [{ events: [[0, 262]], duty: :half, volume: 12, noise: true,
+                            decay: :fast, metallic: false }])
+  end
+
+  def test_a_wave_part_with_a_wave_sound_effect_warns
+    prog = program(enable_sound, pad, loop_(wait_vblank, play_song(:pad), wave(shape: :sine, frequency: 440, volume: :full)))
+    findings = Check.new.detect(prog)
+
+    assert_equal 1, findings.length
+    assert findings.first.warning?
+    assert_match(/the wave voice/, findings.first.message)
+    assert_match(/`wave`/, findings.first.message)
+  end
+
+  def test_a_noise_part_with_a_noise_hit_warns
+    prog = program(enable_sound, drums, loop_(wait_vblank, play_song(:drums), noise(:kick)))
+    findings = Check.new.detect(prog)
+
+    assert_equal 1, findings.length
+    assert_match(/the noise voice/, findings.first.message)
+    assert_match(/`noise`/, findings.first.message)
+  end
+
+  # A part on one of them is quiet while nothing else plays that voice — and a beep does not
+  # reach either, so it says nothing about them.
+  def test_a_wave_part_with_only_beeps_is_quiet
+    prog = program(enable_sound, pad, loop_(wait_vblank, play_song(:pad), beep(:high)))
+
+    assert_empty Check.new.detect(prog)
+  end
+
+  def test_a_noise_part_with_no_noise_hits_is_quiet
+    prog = program(enable_sound, drums, loop_(wait_vblank, play_song(:drums)))
+
+    assert_empty Check.new.detect(prog)
+  end
+
   # It's a builtin: it fires in the default validation pass.
   def test_it_runs_in_the_default_validation_pass
     prog = program(enable_sound, duet, loop_(wait_vblank, play_song(:duet), beep(:high)))

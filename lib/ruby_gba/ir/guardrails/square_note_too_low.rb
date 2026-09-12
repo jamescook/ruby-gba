@@ -27,7 +27,9 @@ module RubyGBA
           def detect(program)
             program.walk.select { |node| node.kind == :song }.flat_map do |song|
               song.voices.each_with_index.filter_map do |part, index|
-                next if part[:instrument]
+                # Only the square voices have this bottom. A recording is read more slowly, and
+                # the wave voice tunes by a sample rate, so it reaches an octave further down.
+                next unless Tunes.part_kind(part) == :square
 
                 low = part[:events].map { |event| event[1] }.select { |hz| hz.positive? && hz < LOWEST }
                 next if low.empty?
@@ -48,8 +50,9 @@ module RubyGBA
               "#{lowest.round} Hz (MIDI key #{key(lowest)}). The square-wave voice cannot play a note lower " \
               "than #{LOWEST} Hz. It plays this note at #{LOWEST} Hz, so you hear a different note.#{count} " \
               "The lowest note that the voice plays correctly is :#{LOWEST_NOTE} (MIDI key #{LOWEST_KEY}). To " \
-              "fix this, play #{notes} one or more octaves higher. Or use `plays:` to give the part an " \
-              "instrument. An instrument can play lower notes."
+              "fix this, play #{notes} one or more octaves higher. Or write `plays: :wave` on this part. " \
+              "The wave voice goes one octave lower. Or use `plays:` to give the part an instrument. An " \
+              "instrument can play lower notes."
           end
 
           def key(hz) = (69 + (12 * Math.log2(hz / 440.0))).round
