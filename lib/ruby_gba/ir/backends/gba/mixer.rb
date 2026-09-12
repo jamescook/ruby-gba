@@ -86,6 +86,27 @@ module RubyGBA
           TICKETS = :__mix_tickets # how many sounds the game has started, for the next ticket
           LOOPS_LAST = 0x8000_0000
 
+          # WHAT DID NOT PLAY, counted on the console so a run can be asked about it.
+          #
+          # A `play` that finds every voice busy is dropped — deliberately, rather than cutting
+          # off a sound already sounding — and the console says nothing about it. Nothing on
+          # screen does either: the game carries on, one sound quieter than the author wrote.
+          # Whether it happens at all depends on play (a burst of explosions, a chord of music
+          # under them), so no build can see it; only a run can, and a run is what `rom.profile`
+          # reports on.
+          #
+          # Two words, both written on the drop path and nowhere else, so a game that never
+          # runs out of voices pays for none of this beyond the miss branch it already had:
+          #
+          #   DROPS       — how many plays found no free voice.
+          #   DROPS_MUSIC — the most voices A SONG held at one of those moments. The count of
+          #                 voices SOUNDING needs no counting: a drop means every one of them
+          #                 was. What the author cannot know without measuring is how the
+          #                 music and the game's own sounds were splitting them, which is the
+          #                 half they can do something about.
+          DROPS = :__mix_drops
+          DROPS_MUSIC = :__mix_drops_music
+
           # The fixed-point shift for STEP/FRAC: 16 fractional bits, so 1.0 == 1 << 16.
           STEP_SHIFT = 16
           STEP_ONE = 1 << STEP_SHIFT
@@ -127,6 +148,23 @@ module RubyGBA
                           length: yield(at + SLOT_LEN), step: yield(at + SLOT_STEP),
                           loop: !yield(at + SLOT_LOOP).zero?, volume: yield(at + SLOT_VOL))
               end
+            end
+          end
+
+          # WHERE THE CONSOLE COUNTS WHAT IT COULD NOT PLAY, published by the build the same
+          # way the voice table is and for the same reason: the two words are hidden variables,
+          # so their addresses exist only in the build and cannot be recovered from the
+          # cartridge afterwards.
+          #
+          # +voices+ is how many there are in all, which is what makes the count mean something
+          # — "12 dropped, the music held 9 of the 16" is a sentence; "12 dropped" is a number.
+          DropTable = Data.define(:drops_at, :music_at, :voices) do
+            # What the console has counted so far. The block reads one 32-bit word off it, the
+            # same reader the voice table takes, so this can be read from a running emulator or
+            # from a plain Hash.
+            def read
+              SoundDrops::Reading.new(dropped: yield(drops_at), music_held: yield(music_at),
+                                      voices: voices)
             end
           end
 
@@ -233,6 +271,15 @@ module RubyGBA
                            end)
           end
 
+          # Where the console counts the sounds it could not play, for the build record to
+          # carry — or nil for a program that plays no samples, which can lose none.
+          def drop_table
+            return nil unless @voice_base
+
+            DropTable.new(drops_at: @primitives.var_addr(DROPS),
+                          music_at: @primitives.var_addr(DROPS_MUSIC), voices: MAX_VOICES)
+          end
+
           def prepare_mixer(program)
             return unless @plays_samples
 
@@ -262,6 +309,11 @@ module RubyGBA
             emit_zero_region(@mix_buf1, @mixer_spf)
             @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, MIX_FRONT)                  # ...playing buffer 0 first
+            # NOTHING HAS BEEN LOST YET, and this has to be said rather than assumed: the
+            # console's memory is not zero at power-on, so a counter left unwritten reads as
+            # whatever was there and a game that dropped nothing would report rubbish.
+            @primitives.store_var(ACC, DROPS)
+            @primitives.store_var(ACC, DROPS_MUSIC)
 
             @emitter.write_reg16(REG_SOUNDCNT_X, SOUND_MASTER_ENABLE)   # master sound on
             @emitter.write_reg16(REG_SOUNDCNT_H, direct_sound_a_config) # channel A, full volume, FIFO reset
@@ -755,11 +807,52 @@ module RubyGBA
             @emitter.emit(ASM.add_imm(1, 1, SLOT_BYTES))
             @emitter.emit(ASM.cmp_reg(1, 2))
             @emitter.emit_branch(:bcond, scan, cond: :lt)
+            emit_note_drop                                        # nothing free: write down what was lost
             @emitter.emit(ASM.load_immediate(0, 0))               # none free
             @emitter.emit_branch(:b, miss)
             @emitter.place_label(found)
             @emitter.emit(ASM.mov_reg(0, 1))                      # r0 = the free slot's address
             @emitter.place_label(miss)
+          end
+
+          # A SOUND WAS JUST LOST: add one to the count, and remember how the voices were being
+          # split if this is the worst it has been.
+          #
+          # Emitted on the miss path only, so a game that never runs out of voices pays nothing
+          # for it — and a game that does pays it exactly when a sound is already being lost,
+          # which is the cheapest moment there is to spend a few dozen instructions.
+          #
+          # The music's share is counted in a second walk of its own rather than as the search
+          # above goes, because that search STOPS at the first free slot: on every play that
+          # succeeds it would have counted part of the table and called it the whole. Here the
+          # table is known to be full, so the walk is complete by construction.
+          #
+          # A slot's SOUNDING word is 0 idle, OWNER_GAME the game's, and higher for a song's
+          # part (Mixer.music_owner) — so "above OWNER_GAME" is "a song's", in one compare.
+          # Uses r0/r1/r2 and r12, the same registers the search already spends.
+          def emit_note_drop
+            e = @emitter
+            scan = e.gensym
+            keep = e.gensym
+            e.emit(ASM.load_immediate(1, @voice_base))
+            e.emit(ASM.load_immediate(ADDR, @voice_base + (MAX_VOICES * SLOT_BYTES)))
+            e.emit(ASM.load_immediate(2, 0))                      # r2 = voices a song is holding
+            e.place_label(scan)
+            e.emit(ASM.ldr_offset(0, 1, SLOT_ACTIVE))
+            e.emit(ASM.cmp_imm(0, OWNER_GAME))
+            e.emit(ASM.add_imm_cond(:gt, 2, 2, 1))                # a song's mark sits above the game's
+            e.emit(ASM.add_imm(1, 1, SLOT_BYTES))
+            e.emit(ASM.cmp_reg(1, ADDR))
+            e.emit_branch(:bcond, scan, cond: :lt)
+
+            @primitives.load_var(0, DROPS_MUSIC)
+            e.emit(ASM.cmp_reg(2, 0))
+            e.emit_branch(:bcond, keep, cond: :le)                # not the worst split so far
+            @primitives.store_var(2, DROPS_MUSIC)
+            e.place_label(keep)
+            @primitives.load_var(0, DROPS)
+            e.emit(ASM.add_imm(0, 0, 1))
+            @primitives.store_var(0, DROPS)
           end
 
           # Zero +bytes+ bytes of memory starting at +addr+ (voice slots, output buffers).

@@ -46,12 +46,15 @@ module RubyGBA
   # +voices+ is where the console keeps the sounds it is playing and where each sample landed
   # in the cartridge (see IR::Backends::GBA::Mixer::VoiceTable), or nil for a program that
   # plays no samples. It is what lets a finished cartridge be asked what it is playing.
+  # +sound_drops+ is where it counts the sounds it could NOT play, for the same reason and with
+  # the same catch: they are hidden variables, so only the build knows their addresses (see
+  # IR::Backends::GBA::Mixer::DropTable). nil where nothing plays and nothing can be lost.
   class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
                                   :palette_entries, :column_stretches, :compression,
                                   :build_options, :findings, :emitted, :routines, :video_memory,
-                                  :roomy_memory, :timer_handlers, :voices)
+                                  :roomy_memory, :timer_handlers, :voices, :sound_drops)
     def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
-                   roomy_memory: nil, timer_handlers: {}, voices: nil, **rest)
+                   roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil, **rest)
       super
     end
 
