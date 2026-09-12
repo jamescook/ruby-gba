@@ -44,9 +44,11 @@ module RubyGBA
             writes.each { |address, value| @emitter.write_reg16(address, value) }
           end
 
-          # Power on the audio hardware.
+          # Power on the audio hardware — keeping whatever sends the recorded sound to the
+          # speakers, since switching sound ON must never switch part of it off. The mixer says
+          # what that is, and says nothing for a program with no recording in it.
           def emit_enable_sound(_node = nil)
-            emit_writes(Sound::Registers.enable)
+            emit_writes(Sound::Registers.enable(direct_sound: @mixer.direct_sound_routing))
           end
 
           # A one-off sound effect on channel 2. Resolve the beep to concrete musical
