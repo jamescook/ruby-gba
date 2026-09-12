@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "gba/sprite" # what the build worked out about one sprite, for the draw to read
 require_relative "gba/address_register" # what the address register still holds, as code goes past
 require_relative "gba/emit"
 require_relative "gba/attribution"
@@ -538,7 +539,7 @@ module RubyGBA
           return nil if @objects.empty?
 
           big = @picture.objects.filter_map do |node|
-            pieces = @objects[node.name][:pieces]
+            pieces = @objects[node.name].pieces
             [node.poses.first, pieces] if pieces > 1
           end
           twins = twin_object_count
@@ -552,7 +553,7 @@ module RubyGBA
           return nil if @objects.empty?
 
           small = @objects.count { |name, _obj| @obj_banks.placement(name).narrow? }
-          shared = @objects.count { |_name, obj| obj[:tiles].nil? }
+          shared = @objects.count { |_name, obj| obj.tiles.nil? }
           RubyGBA::VideoMemory::Area.new(used: @obj_art.bytes, capacity: OBJ_TILE_CAPACITY,
                                          small: small, big: @objects.size - small,
                                          saved: sprite_memory_saved, shared: shared,
@@ -565,9 +566,9 @@ module RubyGBA
         # is its own number.
         def sprite_memory_saved
           @objects.sum do |name, obj|
-            next 0 if obj[:tiles].nil? || !@obj_banks.placement(name).narrow?
+            next 0 if obj.tiles.nil? || !@obj_banks.placement(name).narrow?
 
-            obj[:tile_units] * 32
+            obj.tile_units * 32
           end
         end
 
@@ -2069,6 +2070,7 @@ module RubyGBA
             slot_of[node.name] = front
             front += @obj_plans.fetch(node.name)[:pieces]
           end
+          affine_of = affine_slots(nodes) # ...and which rotation group each turning sprite uses
           @obj_art = ObjectArt.new(@emit)
           @scene_art = {}
           @obj_repeats = 0 # bytes a piece did not cost because another piece already held them
@@ -2086,13 +2088,14 @@ module RubyGBA
           # and only when it is not already the one loaded — so staying in a scene costs
           # one compare a frame and changing scene costs a copy.
           by_scene = nodes.group_by(&:scene)
-          (by_scene[nil] || []).each { |node| prepare_one_object(node, slot_of.fetch(node.name)) }
+          place = ->(node) { prepare_one_object(node, slot_of.fetch(node.name), affine_of[node.name]) }
+          (by_scene[nil] || []).each(&place)
           @obj_art.seal_resident
           by_scene.each do |scene, in_scene|
             next if scene.nil?
 
             @obj_art.begin_scene
-            in_scene.each { |node| prepare_one_object(node, slot_of.fetch(node.name)) }
+            in_scene.each(&place)
             @scene_art[scene] = @obj_art.end_scene
           end
 
@@ -2108,10 +2111,10 @@ module RubyGBA
         # anything.
         def sprite_art_does_not_fit(nodes)
           fullest = nodes.group_by(&:scene).max_by { |_scene, in_it| art_bytes_of(in_it) }
-          worst = fullest.last.max_by(3) { |node| @objects[node.name][:tile_units] }
+          worst = fullest.last.max_by(3) { |node| @objects[node.name].tile_units }
           # Name the PICTURES rather than the sprites: an author named the pictures, and a
           # sprite's own name is the framework's.
-          named = worst.map { |node| ":#{node.poses.first} (#{@objects[node.name][:tile_units] * 32})" }
+          named = worst.map { |node| ":#{node.poses.first} (#{@objects[node.name].tile_units * 32})" }
           "The sprites' pictures need #{@obj_art.bytes} bytes at once, and the console keeps them in " \
             "#{OBJ_TILE_CAPACITY}. Only one scene's are needed at a time. #{fullest_is(fullest.first)}, " \
             "and its biggest pictures are #{named.uniq.join(', ')}. Use fewer pictures there, smaller " \
@@ -2128,7 +2131,7 @@ module RubyGBA
         end
 
         def art_bytes_of(nodes)
-          nodes.sum { |node| @objects[node.name][:tiles] ? @objects[node.name][:tile_units] * 32 : 0 }
+          nodes.sum { |node| @objects[node.name].tiles ? @objects[node.name].tile_units * 32 : 0 }
         end
 
         # TWO SPRITES THAT SHOW THE SAME PICTURES STORE THEM ONCE.
@@ -2211,21 +2214,30 @@ module RubyGBA
           end
         end
 
-        # Set up the sprites that turn or change size. Each is given one of the console's
-        # 32 rotation/size parameter groups (its "affine slot"), and the shared sine
-        # table is baked into ROM once. A sprite that does neither keeps its default
-        # upright, drawn-size settings and gets no slot, so it costs nothing. More than
-        # 32 is a friendly error — the hardware simply has no more groups.
-        def prepare_affine(nodes)
-          transformed = nodes.select { |node| object_transformed?(node) }
-          return if transformed.empty?
-
-          if transformed.size > MAX_AFFINE_GROUPS
+        # WHICH ROTATION GROUP EACH TURNING SPRITE USES. The console draws a sprite that turns
+        # or changes size through one of 32 parameter groups (its "affine slot"); a sprite that
+        # does neither keeps its default upright, drawn-size settings, gets no group, and costs
+        # nothing. More than 32 is a friendly error — the hardware simply has no more.
+        #
+        # Worked out here, beside the sprites' places and before any of them is built, because
+        # it is the same kind of fact: something the build hands the sprite. It used to be
+        # written into each sprite AFTER it was built, which left the drawing reading a field
+        # nothing in the construction mentioned.
+        def affine_slots(nodes)
+          turning = nodes.select { |node| object_transformed?(node) }
+          if turning.size > MAX_AFFINE_GROUPS
             raise LoweringError,
-                  "#{transformed.size} sprites turn or change size, but the console can do that to at " \
+                  "#{turning.size} sprites turn or change size, but the console can do that to at " \
                   "most #{MAX_AFFINE_GROUPS} at once. Turn or resize fewer sprites at the same time."
           end
-          transformed.each_with_index { |node, group| @objects[node.name][:affine_slot] = group }
+          turning.each_with_index.to_h { |node, group| [node.name, group] }
+        end
+
+        # The sine table every turning sprite reads, baked into ROM once. A game with nothing
+        # that turns or resizes has no table at all.
+        def prepare_affine(nodes)
+          return if nodes.none? { |node| object_transformed?(node) }
+
           @emit.data_blobs[OBJ_SINE_BLOB] = build_sine_table
         end
 
@@ -2553,7 +2565,7 @@ module RubyGBA
                 "it at one of the sizes above, or do not turn or resize it."
         end
 
-        def prepare_one_object(node, slot)
+        def prepare_one_object(node, slot, affine_slot)
           name = node.name
           poses = node.poses
           plan = @obj_plans.fetch(name)
@@ -2612,7 +2624,7 @@ module RubyGBA
           # that differ carry NOTHING here — the size and shape come out of the table with
           # the rest of what changes, so these bases must not also hold the canvas's.
           shape, size = alike ? OBJ_SIZES.fetch(boxes.first.first.last(2)) : [0, 0]
-          @objects[name] = {
+          @objects[name] = Sprite.new(
             slot: slot,
             pieces: pieces, # how many of the console's 128 places this one sprite takes
             tiles: tile_blob, tile_units: tiles.bytesize / 32, # sprite memory counts in 32-byte units
@@ -2640,6 +2652,7 @@ module RubyGBA
             scale: node.scale,   # the size operand (the "as drawn" constant unless it resizes)
             transformed: object_transformed?(node), # draw it through an affine group rather than upright?
             scales: object_scales?(node),           # ...and does that group need a size worked out?
+            affine_slot: affine_slot,               # ...which group, or nothing for an upright one
             # A sprite in the see-through layer carries the blend in its own entry, so it
             # rides here rather than costing anything at draw time.
             attr0_base: (place.narrow? ? 0 : OBJ_256_COLOR) | (shape << 14) |
@@ -2651,7 +2664,7 @@ module RubyGBA
             # which is every picture that names no layers.
             attr2_base: (hardware_priority(name) << OBJ_PRIORITY_SHIFT) |
               (place.narrow? ? place.bank << OBJ_BANK_SHIFT : 0),
-          }
+          )
         end
 
         # DOES ONE POSE'S TILES FOLLOW THE LAST'S, ALL THE WAY DOWN? That is what the plain

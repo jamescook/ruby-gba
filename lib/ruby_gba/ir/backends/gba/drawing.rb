@@ -1461,9 +1461,9 @@ module RubyGBA
               # those, so there is nothing of its own to send. A sprite that belongs to a
               # scene is sent when that scene takes over, not here (see
               # #emit_scene_art_upload), since scenes share the room above this.
-              next if obj[:tiles].nil? || obj[:scene]
+              next if obj.tiles.nil? || obj.scene
 
-              emit_dma_blob(obj[:tiles], OBJ_TILE_BASE + (obj[:tile_index] * 32), obj[:tile_units] * 16) # tiles -> sprite memory
+              emit_dma_blob(obj.tiles, OBJ_TILE_BASE + (obj.tile_index * 32), obj.tile_units * 16) # tiles -> sprite memory
             end
             emit_boot_object_windows
             @palette_tint.emit_tint_state_reset # the table now holds the originals again
@@ -1517,13 +1517,13 @@ module RubyGBA
           # go is simply the case where there is one of them. The pieces take a run of
           # slots from the sprite's own, so the whole thing keeps one place in the stack.
           def emit_present_object(obj, twin: nil)
-            @lowering.value(obj[:active])
+            @lowering.value(obj.active)
             emit(ASM.cmp_imm(ACC, 0))
             draw = gensym
             done = gensym
             emit_branch(:bcond, draw, cond: :ne)
-            obj[:pieces].times do |piece|
-              write_reg16(oam_slot(obj[:slot], piece), OBJ_HIDDEN_ATTR0) # active == 0: mark it unused
+            obj.pieces.times do |piece|
+              write_reg16(oam_slot(obj.slot, piece), OBJ_HIDDEN_ATTR0) # active == 0: mark it unused
               write_reg16(oam_slot(twin[:slot], piece), OBJ_HIDDEN_ATTR0) if twin # ...and its window
             end
             emit_branch(:b, done)
@@ -1531,17 +1531,17 @@ module RubyGBA
             place_label(draw)
             # Worked out once for the whole sprite when it is drawn as several objects:
             # every piece stands at the same place and reads it back from there.
-            emit_hold_object_position(obj) if obj[:pieces] > 1
-            obj[:pieces].times do |piece|
-              base = oam_slot(obj[:slot], piece)
+            emit_hold_object_position(obj) if obj.pieces > 1
+            obj.pieces.times do |piece|
+              base = oam_slot(obj.slot, piece)
               mirror = twin && oam_slot(twin[:slot], piece)
-              if obj[:transformed]
+              if obj.transformed
                 emit_draw_object_transformed(obj, base, mirror)
               else
                 emit_draw_object_upright(obj, base, mirror, piece)
               end
             end
-            emit_window_gate(twin, obj[:pieces]) if twin
+            emit_window_gate(twin, obj.pieces) if twin
             place_label(done)
           end
 
@@ -1549,22 +1549,22 @@ module RubyGBA
 
           # An upright sprite: position and size straight into its slot.
           def emit_draw_object_upright(obj, base, mirror = nil, piece = 0)
-            return emit_draw_object_sized_poses(obj, base, mirror, piece) unless obj[:alike]
+            return emit_draw_object_sized_poses(obj, base, mirror, piece) unless obj.alike
 
             # attr0 = (y & 0xFF) | shape + 256-color flag. The offset is where this pose
             # sits inside the canvas it was drawn on — added back so trimming the blank
             # away cannot move the picture (see GBA#object_pose_box).
-            @lowering.value(obj[:y])
-            emit_add_const(ACC, ACC, obj[:offset_y], TMP) unless obj[:offset_y].zero?
+            @lowering.value(obj.y)
+            emit_add_const(ACC, ACC, obj.offset_y, TMP) unless obj.offset_y.zero?
             mask_into_acc(0xFF)
-            orr_acc(obj[:attr0_base])
+            orr_acc(obj.attr0_base)
             store_halfword_acc(base)
             mirror_attr0(mirror)
             # attr1 = (x & 0x1FF) | size
-            @lowering.value(obj[:x])
-            emit_add_const(ACC, ACC, obj[:offset_x], TMP) unless obj[:offset_x].zero?
+            @lowering.value(obj.x)
+            emit_add_const(ACC, ACC, obj.offset_x, TMP) unless obj.offset_x.zero?
             mask_into_acc(0x1FF)
-            orr_acc(obj[:attr1_base])
+            orr_acc(obj.attr1_base)
             store_halfword_acc(base + 2)
             store_halfword_acc(mirror + 2) if mirror
             # attr2 = which tiles to draw = this sprite's base tile + pose * stride
@@ -1591,15 +1591,15 @@ module RubyGBA
           POSE_DRAW_Y = :__pose_draw_y
 
           def emit_hold_object_position(obj)
-            @lowering.value(obj[:y])
+            @lowering.value(obj.y)
             store_var(ACC, POSE_DRAW_Y)
-            @lowering.value(obj[:x])
+            @lowering.value(obj.x)
             store_var(ACC, POSE_DRAW_X)
           end
 
           def emit_draw_object_sized_poses(obj, base, mirror = nil, piece = 0)
             # A sprite of several pieces had this done once for all of them, by the caller.
-            emit_hold_object_position(obj) if obj[:pieces] == 1
+            emit_hold_object_position(obj) if obj.pieces == 1
             emit_load_pose_word(obj, piece)
             # attr0 = (y + how far down) & 0xFF, then the shape out of bits 10..11.
             load_var(ACC, POSE_DRAW_Y)
@@ -1608,7 +1608,7 @@ module RubyGBA
             mask_into_acc(0xFF)
             emit(ASM.and_imm(TMP, POSE_WORD, 0x0C00))   # shape, still at bit 10
             emit(ASM.orr_reg_lsl(ACC, ACC, TMP, 4))     # ...into bit 14
-            orr_acc(obj[:attr0_base]) unless obj[:attr0_base].zero?
+            orr_acc(obj.attr0_base) unless obj.attr0_base.zero?
             store_halfword_acc(base)
             mirror_attr0(mirror)
             # attr1 = (x + how far right) & 0x1FF, then the size out of bits 12..13.
@@ -1619,15 +1619,15 @@ module RubyGBA
             mask_into_acc(0x1FF)
             emit(ASM.and_imm(TMP, POSE_WORD, 0x3000))   # size, still at bit 12
             emit(ASM.orr_reg_lsl(ACC, ACC, TMP, 2))     # ...into bit 14
-            emit_pose_mirror_bit if obj[:mirrors]&.any?
-            orr_acc(obj[:attr1_base]) unless obj[:attr1_base].zero?
+            emit_pose_mirror_bit if obj.mirrors&.any?
+            orr_acc(obj.attr1_base) unless obj.attr1_base.zero?
             store_halfword_acc(base + 2)
             store_halfword_acc(mirror + 2) if mirror
             # attr2 = the pose's own first tile, out of bits 0..9. Two shifts rather than a
             # mask: a ten-bit mask is not one of the immediates this chip can carry.
             emit(ASM.lsl_imm(ACC, POSE_WORD, 22))
             emit(ASM.lsr_imm(ACC, ACC, 22))
-            orr_acc(obj[:attr2_base]) unless obj[:attr2_base].zero?
+            orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
             store_halfword_acc(base + 4)
             store_halfword_acc(mirror + 4) if mirror
           end
@@ -1652,17 +1652,17 @@ module RubyGBA
           # this piece's row starts at a place the build already knows and the read is the
           # same one instruction whichever piece it is.
           def emit_load_pose_word(obj, piece = 0)
-            words = obj[:pose_words]
-            row = piece * obj[:pose_count]
-            fixed = const_int(obj[:pose])
+            words = obj.pose_words
+            row = piece * obj.pose_count
+            fixed = const_int(obj.pose)
             if fixed
-              at = fixed.between?(0, obj[:pose_count] - 1) ? row + fixed : row
+              at = fixed.between?(0, obj.pose_count - 1) ? row + fixed : row
               return emit(ASM.load_immediate(POSE_WORD, words[at]))
             end
 
-            @lowering.value(obj[:pose])
+            @lowering.value(obj.pose)
             emit(ASM.lsl_imm(ACC, ACC, 2)) # a word each
-            emit_load_data_address(TMP, obj[:pose_table])
+            emit_load_data_address(TMP, obj.pose_table)
             emit(ASM.add_reg(TMP, TMP, ACC))
             offset = row * 4
             return emit(ASM.ldr(POSE_WORD, TMP)) if offset.zero?
@@ -1702,20 +1702,20 @@ module RubyGBA
           # center, turn on the rotate/scale and double-size bits, point attr1 at the
           # affine group, then fill that group with this frame's matrix.
           def emit_draw_object_transformed(obj, base, mirror = nil)
-            half_w = obj[:width] / 2
-            half_h = obj[:height] / 2
+            half_w = obj.width / 2
+            half_h = obj.height / 2
             # attr0 = ((y - half_h) & 0xFF) | rotate/scale + double-size + shape/color
-            @lowering.value(obj[:y])
+            @lowering.value(obj.y)
             emit(ASM.sub_imm(ACC, ACC, half_h)) unless half_h.zero?
             mask_into_acc(0xFF)
-            orr_acc(obj[:attr0_base] | OBJ_ROTSCALE | OBJ_DOUBLE_SIZE)
+            orr_acc(obj.attr0_base | OBJ_ROTSCALE | OBJ_DOUBLE_SIZE)
             store_halfword_acc(base)
             mirror_attr0(mirror)
             # attr1 = ((x - half_w) & 0x1FF) | size | affine-group index (bits 9..13)
-            @lowering.value(obj[:x])
+            @lowering.value(obj.x)
             emit(ASM.sub_imm(ACC, ACC, half_w)) unless half_w.zero?
             mask_into_acc(0x1FF)
-            orr_acc(obj[:attr1_base] | (obj[:affine_slot] << 9))
+            orr_acc(obj.attr1_base | (obj.affine_slot << 9))
             store_halfword_acc(base + 2)
             # The twin points at the same affine group, so it turns and resizes with the
             # sprite and the hole stays the shape of the picture.
@@ -1734,9 +1734,9 @@ module RubyGBA
           # interpreter samples through, built by the same {IR::Affine} rules. The two
           # agree by design.
           def emit_object_affine_matrix(obj)
-            group = OAM_START + (obj[:affine_slot] * 32)
-            emit_object_scale_reciprocal(obj) if obj[:scales] # do the divide first: it clobbers everything
-            @lowering.value(obj[:angle])                      # r0 = angle in degrees (0..359)
+            group = OAM_START + (obj.affine_slot * 32)
+            emit_object_scale_reciprocal(obj) if obj.scales # do the divide first: it clobbers everything
+            @lowering.value(obj.angle)                      # r0 = angle in degrees (0..359)
             emit_load_data_address(TMP, OBJ_SINE_BLOB)   # r1 = sine table base
             emit(ASM.lsl_imm(2, ACC, 1))                 # r2 = angle * 2 (halfword offset)
             emit(ASM.add_reg(ADDR, TMP, 2))
@@ -1745,7 +1745,7 @@ module RubyGBA
             emit(ASM.lsl_imm(3, 3, 1))
             emit(ASM.add_reg(ADDR, TMP, 3))
             emit(ASM.ldrsh(3, ADDR))                     # r3 = sin(angle + 90) = cos(angle)
-            emit_scale_sine_and_cosine if obj[:scales]   # r2, r3 *= one over the size
+            emit_scale_sine_and_cosine if obj.scales   # r2, r3 *= one over the size
             emit(ASM.rsb_imm(ACC, 2, 0))                 # r0 = -sin(angle)
             store_halfword_reg(3, group + 6)             # PA =  cos
             store_halfword_reg(2, group + 14)            # PB =  sin
@@ -1764,7 +1764,7 @@ module RubyGBA
           # It goes to memory rather than staying in a register because the divide
           # routine uses every scratch register there is.
           def emit_object_scale_reciprocal(obj)
-            @lowering.value(obj[:scale])                             # r0 = size, in SCALE_ONE-ths
+            @lowering.value(obj.scale)                             # r0 = size, in SCALE_ONE-ths
             emit(ASM.cmp_imm(ACC, Affine::MIN_SCALE))
             emit(ASM.mov_imm_cond(:lt, ACC, Affine::MIN_SCALE)) # a size of 0 has no reciprocal
             emit(ASM.load_immediate(Divide::DIV_NUM, Build::SCALE_ONE * Affine::ONE_TH))
@@ -1798,15 +1798,15 @@ module RubyGBA
           # A constant pose (the common single-pose sprite) folds to a plain write; a
           # variable pose (facing / animation) is computed at run time.
           def emit_object_tile_number(obj, attr2_addr)
-            fixed = const_int(obj[:pose])
+            fixed = const_int(obj.pose)
             if fixed
-              write_reg16(attr2_addr, obj[:tile_index] + (fixed * obj[:per_pose]) | obj[:attr2_base])
+              write_reg16(attr2_addr, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base)
             else
-              @lowering.value(obj[:pose])                          # r0 = pose index
-              emit(ASM.load_immediate(TMP, obj[:per_pose]))   # r1 = stride between poses
+              @lowering.value(obj.pose)                          # r0 = pose index
+              emit(ASM.load_immediate(TMP, obj.per_pose))   # r1 = stride between poses
               emit(ASM.mul(2, ACC, TMP))                      # r2 = pose * stride (rd must differ from rm)
-              emit_add_const(ACC, 2, obj[:tile_index], TMP)   # r0 = r2 + base tile
-              orr_acc(obj[:attr2_base]) unless obj[:attr2_base].zero?
+              emit_add_const(ACC, 2, obj.tile_index, TMP)   # r0 = r2 + base tile
+              orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
               store_halfword_acc(attr2_addr)
             end
           end
