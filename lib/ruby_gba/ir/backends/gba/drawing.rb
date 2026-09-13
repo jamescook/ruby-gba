@@ -24,8 +24,7 @@ module RubyGBA
           include Constants
 
           def initialize(emitter:, primitives:, lowering:, divide:, framebuffer:, raster:, palette_tint:,
-                          layer_blend:, buffered:, backing_info:, fade_targets:, effect_line:,
-                          call_cold_routine:)
+                          layer_blend:, buffered:, backing_info:, call_cold_routine:)
             @emitter = emitter
             @primitives = primitives
             @lowering = lowering
@@ -36,8 +35,6 @@ module RubyGBA
             @layer_blend = layer_blend
             @buffered = buffered
             @backing_info = backing_info
-            @fade_targets = fade_targets
-            @effect_line = effect_line
             @call_cold_routine = call_cold_routine
             @layout = nil
           end
@@ -49,7 +46,7 @@ module RubyGBA
           # +map_cells+ is each background's grid size and +map_entries+ what to write into
           # a cell to show one of its tiles — the two things a run-time tile change needs
           # and nothing else does.
-          Layout = Data.define(:bitmaps, :objects, :window_twins, :backgrounds, :bg_shared, :palette,
+          Layout = Data.define(:bitmaps, :objects, :placed_fade, :backgrounds, :bg_shared, :palette,
                                 :indexed_bitmaps, :run_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
                                 :modes, :tiled, :has_objects, :obj_palette_blob, :obj_palette_units,
                                 :default_mode, :any_buffered, :mixed_display, :manage_modes, :func_mode,
@@ -113,7 +110,7 @@ module RubyGBA
             layers = [@layout.backgrounds.size, 1].max
             bits = BG_ENABLES.first(layers).reduce(0, :|)
             # ...and the object window, for a program that keeps sprites out of a fade.
-            bits |= OBJ_WINDOW_ENABLE unless @layout.window_twins.empty?
+            bits |= OBJ_WINDOW_ENABLE if @layout.placed_fade.any?
             bits
           end
 
@@ -299,8 +296,7 @@ module RubyGBA
           def emit_add_const(rd, rn, imm, scratch) = @primitives.emit_add_const(rd, rn, imm, scratch)
           def emit_call_divide_routine = @divide.emit_call_divide_routine
           def backing_info(name) = @backing_info.call(name)
-          def fade_targets(under) = @fade_targets.call(under)
-          def effect_line(under) = @effect_line.call(under)
+          def placed_fade = @layout.placed_fade
           def emit_call_cold_routine(label) = @call_cold_routine.call(label)
 
           # At the vblank boundary, flip the pages — but only while a buffered scene is
@@ -1217,10 +1213,10 @@ module RubyGBA
 
           def emit_fade_control(node)
             mode = node.toward == :white ? BLD_BRIGHTEN : BLD_DARKEN
-            write_reg16(REG_BLDCNT, mode | fade_targets(node.under))
+            write_reg16(REG_BLDCNT, mode | placed_fade.targets(node.under))
             # Where this fade sits in the stack, for the window twins to read. Only a
             # program that has twins writes it (see GBA#prepare_effect_layers).
-            store_word_immediate(effect_line(node.under), var_addr(EFFECT_LINE)) unless @layout.window_twins.empty?
+            store_word_immediate(placed_fade.line(node.under), var_addr(EFFECT_LINE)) if placed_fade.any?
           end
 
           # How far the fade has come, in the sixteenths the hardware counts in, for an
@@ -1482,10 +1478,10 @@ module RubyGBA
           # screen. EFFECT_LINE starts past the front of the stack: until a fade is
           # placed, no twin shows.
           def emit_boot_object_windows
-            return if @layout.window_twins.empty?
+            return if placed_fade.none?
 
             write_reg16(REG_WINOUT, WIN_ALL_LAYERS | WIN_EFFECT | (WIN_ALL_LAYERS << WINOUT_OBJ_SHIFT))
-            store_word_immediate(@layout.picture.stack.length, var_addr(EFFECT_LINE))
+            store_word_immediate(placed_fade.line, var_addr(EFFECT_LINE))
           end
 
           # Fill the sprite table with the "unused slot" marker so no leftover memory
@@ -1504,7 +1500,7 @@ module RubyGBA
           # with no tearing. The console composites the sprites over the background for
           # free — there's nothing to erase, unlike a software sprite.
           def emit_present_objects(node)
-            node.names.each { |name| emit_present_object(@layout.objects.fetch(name), twin: @layout.window_twins[name]) }
+            node.names.each { |name| emit_present_object(@layout.objects.fetch(name), twin: placed_fade.twin_for(name)) }
           end
 
           # Write one sprite's table entries from its live x/y/active variables. A hidden
@@ -1530,7 +1526,7 @@ module RubyGBA
             emit_branch(:bcond, draw, cond: :ne)
             obj.pieces.times do |piece|
               write_reg16(oam_slot(obj.slot, piece), OBJ_HIDDEN_ATTR0) # active == 0: mark it unused
-              write_reg16(oam_slot(twin[:slot], piece), OBJ_HIDDEN_ATTR0) if twin # ...and its window
+              write_reg16(oam_slot(twin.slot, piece), OBJ_HIDDEN_ATTR0) if twin # ...and its window
             end
             emit_branch(:b, done)
 
@@ -1541,7 +1537,7 @@ module RubyGBA
             emit_hold_object_position(obj) if obj.pieces > 1
             obj.pieces.times do |piece|
               base = oam_slot(obj.slot, piece)
-              mirror = twin && oam_slot(twin[:slot], piece)
+              mirror = twin && oam_slot(twin.slot, piece)
               if obj.transformed
                 emit_draw_object_transformed(obj, base, mirror)
               else
@@ -1733,11 +1729,11 @@ module RubyGBA
           # for a sprite drawn as several objects, since the hole has to be the shape of
           # the whole picture. Asked once for all of them, after they are drawn.
           def emit_window_gate(twin, pieces)
-            @lowering.value(twin[:gate])
+            @lowering.value(twin.gate)
             emit(ASM.cmp_imm(ACC, 0))
             keeps = gensym
             emit_branch(:bcond, keeps, cond: :ne)
-            pieces.times { |piece| write_reg16(oam_slot(twin[:slot], piece), OBJ_HIDDEN_ATTR0) }
+            pieces.times { |piece| write_reg16(oam_slot(twin.slot, piece), OBJ_HIDDEN_ATTR0) }
             place_label(keeps)
           end
 

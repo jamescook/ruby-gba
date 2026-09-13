@@ -5,6 +5,7 @@ require_relative "gba/pose_cutter" # how a sprite's picture is cut into the rect
 require_relative "gba/sprite_pictures" # one sprite's pictures, and the sets of them sprites share
 require_relative "gba/object_art" # where the sprites' pictures go in sprite memory
 require_relative "gba/sprite_layout" # ...and one attempt at fitting them all into it
+require_relative "gba/placed_fade" # a fade that sits at a place in the stack, and the twins holding it off
 require_relative "gba/address_register" # what the address register still holds, as code goes past
 require_relative "gba/emit"
 require_relative "gba/attribution"
@@ -381,8 +382,7 @@ module RubyGBA
           @drawing = Drawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                  divide: @divide, framebuffer: @framebuffer, raster: @raster,
                                  palette_tint: @palette_tint, layer_blend: @layer_blend, buffered: @buffered,
-                                 backing_info: method(:backing_info), fade_targets: method(:fade_targets),
-                                 effect_line: method(:effect_line),
+                                 backing_info: method(:backing_info),
                                  call_cold_routine: method(:emit_call_cold_routine))
           # Every value kind's handler, registered once in one place — see {Lowering}.
           @lowering.values(
@@ -737,7 +737,7 @@ module RubyGBA
           # into one record rather than twenty keyword arguments (see Drawing's class
           # comment) — settled now, so handed over right before the first thing that emits.
           layout = Drawing::Layout.new(
-            bitmaps: @bitmaps, objects: @objects, window_twins: @window_twins, backgrounds: @backgrounds,
+            bitmaps: @bitmaps, objects: @objects, placed_fade: @placed_fade, backgrounds: @backgrounds,
             bg_shared: @bg_shared, palette: @palette, indexed_bitmaps: @indexed_bitmaps,
             run_bitmaps: @run_bitmaps, blob_codecs: @blob_codecs, blob_raw_bytes: @blob_raw_bytes,
             picture: @picture, modes: @modes, tiled: @tiled, has_objects: @has_objects,
@@ -2054,7 +2054,7 @@ module RubyGBA
           # many, which changes nothing about what is in front of what (a twin paints
           # nothing, and the sprites keep their order among themselves). It has to be
           # this way round: a twin only holds the effect off a sprite that is BEHIND it.
-          front = place_window_twins
+          front = @placed_fade.place_twins { |name| @obj_pictures.fetch(name).pieces }
           slot_of = {}
           nodes.reverse_each do |node| # last declared is in front, so it takes the front slots
             slot_of[node.name] = front
@@ -2216,50 +2216,14 @@ module RubyGBA
         #
         # A twin costs one sprite slot and one table write a frame, so they are made only
         # where they are the only answer: a fade that keeps EVERY sprite leaves the OBJ
-        # bit out of the mask instead, and costs nothing at all.
+        # bit out of the mask instead, and costs nothing at all. See PlacedFade, which owns
+        # all of it; these are the numbers the hardware reads.
         EFFECT_LINE = :__effect_line # where in the stack the fade now in force is sitting
         OBJ_WINDOW_MODE = 0x0800     # attr0 bits 10-11 = 2: a window rather than a picture
         OBJ_WINDOW_ENABLE = 0x8000   # DISPCNT bit 15: the object window is on
 
-        # Which sprites need a window twin, and for each one which table slot it takes and
-        # when it shows. Worked out from every fade the program places, before any sprite
-        # is given a slot, because the twins take the front ones (see #prepare_objects).
-        #
-        # A twin is a RIDER on its sprite rather than a second sprite to work out. Where it
-        # is, which pose it holds and how big it is are all the same numbers, so the frame
-        # writes them once and drops a copy into the twin's slot on the way past (see
-        # Drawing#emit_present_object) — which is what keeps a HUD held out of a fade from
-        # costing as much again as the HUD.
-        #
-        # Its gate is where the fade in force is sitting: EFFECT_LINE against this sprite's
-        # place in the stack. So a program that also fades the whole screen somewhere else
-        # puts the twins away for that one, and the HUD goes down with the game — which is
-        # what a whole-screen fade means.
-        #
-        # Nothing to do — and not one emitted byte different — for a program that places no
-        # fade, which is every program that names no layers.
         def prepare_effect_layers(program)
-          @window_twins = {} # sprite name -> { slot:, gate: }: the window that keeps it out
-          program.walk.filter_map { |node| node.under if node.kind == :fade }
-                 .uniq
-                 .flat_map { |layer| sprites_needing_a_window(layer) }
-                 .uniq(&:name)
-                 .each_with_index do |node, nth|
-            place = @picture.stack.index(node.layer)
-            @window_twins[node.name] = {
-              slot: nth, # in front of every real sprite — see #prepare_objects
-              gate: Build.binop(:<=, Build.var_ref(EFFECT_LINE), Build.int(place)),
-            }
-          end
-        end
-
-        # The sprites a fade under +layer+ has to hold itself off one at a time. None when
-        # every sprite is on the kept side: they then leave the blend's target list
-        # together, which is one register bit and no twins at all.
-        def sprites_needing_a_window(layer)
-          kept = IR::Stacking.at_or_above(@picture, layer).map(&:name)
-          keeps, blends = @picture.objects.partition { |node| kept.include?(node.name) }
-          blends.empty? ? [] : keeps
+          @placed_fade = PlacedFade.new(@picture, program)
         end
 
         def guard_window_twins_fit(nodes)
@@ -2268,7 +2232,7 @@ module RubyGBA
           return if total <= MAX_SPRITES
 
           raise LoweringError,
-                "#{@window_twins.size} sprites are kept out of a fade, and each one needs a second " \
+                "#{@placed_fade.count} sprites are kept out of a fade, and each one needs a second " \
                 "slot in the sprite table to hold the fade off it. That is #{total} slots with the " \
                 "#{spent} sprites themselves, and the console draws #{MAX_SPRITES} at once. " \
                 "To fix this, keep fewer sprites out of the fade, or use fewer sprites."
@@ -2278,21 +2242,7 @@ module RubyGBA
         # each; a sprite whose picture is bigger than one object takes one per piece.
         def object_count(nodes) = nodes.sum { |node| @obj_pictures.fetch(node.name).pieces }
 
-        def twin_object_count
-          @window_twins.keys.sum { |name| @obj_pictures.fetch(name).pieces }
-        end
-
-        # The twins take the front places, each one a run as long as the sprite it shadows
-        # — a twin has to hold exactly the shape the sprite holds, so a sprite drawn as
-        # four objects needs four windows. Returns where the real sprites start.
-        def place_window_twins
-          front = 0
-          @window_twins.each do |name, twin|
-            twin[:slot] = front
-            front += @obj_pictures.fetch(name).pieces
-          end
-          front
-        end
+        def twin_object_count = @placed_fade.places_spent { |name| @obj_pictures.fetch(name).pieces }
 
         # Out of places in the console's sprite table. A game whose sprites are one object
         # each gets the plain count; one with a picture too big for a single object gets
@@ -2316,26 +2266,6 @@ module RubyGBA
           " A picture bigger than #{OBJ_MAX_SIDE}x#{OBJ_MAX_SIDE} is drawn as several sprites at once. " \
             "These pictures spend more than one: #{named.uniq.join(', ')}. To fix this, draw them " \
             "smaller, or use fewer sprites."
-        end
-
-        # Which layers a fade blends, as the blend register's target bits. With no layer
-        # named that is everything, exactly as it always was.
-        def fade_targets(under)
-          return BLD_ALL_LAYERS if under.nil?
-
-          kept = IR::Stacking.at_or_above(@picture, under).map(&:name)
-          bits = BLD_BACKDROP # the backdrop is behind everything, so a placed fade always reaches it
-          @picture.scenery.each_with_index do |node, layer|
-            bits |= (BLD_BG0 << layer) unless kept.include?(node.name)
-          end
-          bits |= BLD_OBJ if @picture.objects.any? { |node| !kept.include?(node.name) }
-          bits
-        end
-
-        # Where in the stack a fade sits. One past the front for a fade that names no
-        # layer, so no twin is ever shown for it.
-        def effect_line(under)
-          under.nil? ? @picture.stack.length : @picture.stack.index(under)
         end
 
         # Sort the sprites' colors into the table they all read from.
