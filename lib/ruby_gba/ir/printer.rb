@@ -2,20 +2,17 @@
 
 module RubyGBA
   module IR
-    # A printer the cost estimate writes every line through, so *how* a line looks —
-    # a heat colour, a bold group heading, or nothing at all — is decided in one place
-    # and swapped wholesale: plain text when the output is a file or a pipe, an ANSI
-    # heatmap when it's a terminal. The cost model hands each line its *meaning* (how
-    # hot it is, whether it's a group heading); the printer decides how to show it.
+    # A printer every report writes its lines through, so *how* a line looks — coloured,
+    # a bold group heading, or nothing at all — is decided in one place and swapped
+    # wholesale: plain text when the output is a file or a pipe, ANSI colour when it is a
+    # terminal. A report hands each line its *meaning* (how bad the news is, whether it is
+    # a group heading); the printer decides how to show it.
     #
     # Two printers implement the same interface — #puts(text, severity:, emphasis:) for
     # ordinary lines and #cost_line(label, value, severity:, group:) for a row of the
     # drill-down tree: {PlainPrinter} (verbatim — the exact output from before colours
-    # existed) and {ColorPrinter} (the green→red heatmap). {Printer.for} picks between them.
+    # existed) and {ColorPrinter}. {Printer.for} picks between them.
     class Printer
-      # The heat scale, coolest to hottest — how much of the frame budget a line uses.
-      SEVERITIES = %i[good ok warm hot].freeze
-
       # A tree row is "  <label padded to LABEL_WIDTH> ~<value>", so the value column
       # lines up. Kept here (not in the cost model) so both printers lay a row out
       # identically — the plain one and the coloured one differ only in styling.
@@ -62,30 +59,45 @@ module RubyGBA
       end
     end
 
-    # Wraps each line in ANSI codes: a green→red tint by how much of the frame budget it
-    # uses. A group heading (a file subtotal) is additionally bold, with an underline
-    # under just its indent-and-label — not trailing across the padding to the value —
-    # so the heading reads as a heading without a rule drawn across the whole row.
+    # Wraps a line in ANSI codes. A group heading (a file subtotal) is additionally bold,
+    # with an underline under just its indent-and-label — not trailing across the padding
+    # to the value — so the heading reads as a heading without a rule drawn across the
+    # whole row.
     class ColorPrinter < Printer
       RESET = "\e[0m"
       BOLD = "\e[1m"
       UNDERLINE = "\e[4m"
       UNDERLINE_OFF = "\e[24m"
-      # Severity → foreground colour. Orange isn't one of the basic eight, so "warm" uses
-      # a 256-colour code (widely supported); the rest are standard.
-      COLORS = { good: "\e[32m", ok: "\e[33m", warm: "\e[38;5;208m", hot: "\e[31m" }.freeze
-      # The unpriced banner is bold red on its own (no per-line severity).
-      EMPHASIS = { banner: "#{BOLD}\e[31m" }.freeze
+      RED = "\e[31m"
 
+      # WHAT A LINE'S MEANING LOOKS LIKE. There is one meaning today, and red is the right
+      # answer for it: `bad` is a report's picture verdicts — the game tore, half its
+      # drawing never arrived, sounds it asked for did not play — and each of those lines
+      # is printed ONLY when it really happened. A run that came out right prints none of
+      # them and so shows no colour at all.
+      #
+      # That is the whole rule for red here, and it is worth keeping: red is an alarm a
+      # person has to act on, never a label for "this is the biggest number". A report
+      # that reddens a healthy game teaches people to scroll past red, and then it says
+      # nothing when it matters.
+      COLORS = { bad: RED }.freeze
+
+      # The unpriced banner is bold red on its own (no per-line severity).
+      EMPHASIS = { banner: "#{BOLD}#{RED}" }.freeze
+
+      # A MEANING NOBODY GAVE A COLOUR LEAVES THE LINE ALONE, and that is deliberate rather
+      # than lax. Asking for a colour that is not there used to raise, and the lines that
+      # carry a meaning are exactly the ones printed when something has already gone wrong —
+      # so a name that did not match killed the report at the moment it had bad news, and
+      # the plain printer ignores meanings entirely, so nothing anywhere else noticed. A
+      # missing colour is worth an uncoloured line; it is never worth the finding.
       def puts(text, severity: nil, emphasis: nil)
-        codes = +""
-        codes << EMPHASIS.fetch(emphasis) if emphasis
-        codes << COLORS.fetch(severity) if severity
+        codes = "#{EMPHASIS[emphasis]}#{COLORS[severity]}"
         @out.puts(codes.empty? ? text : "#{codes}#{text}#{RESET}")
       end
 
       def cost_line(label, value, severity: nil, group: false)
-        tint = severity ? COLORS.fetch(severity) : ""
+        tint = COLORS[severity].to_s
         return @out.puts(group ? heading(label, value, tint) : "#{tint}#{layout(label, value)}#{RESET}") if tint != "" || group
 
         @out.puts(layout(label, value))
