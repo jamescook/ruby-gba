@@ -15,8 +15,12 @@ module RubyGBA
         RUNS_SUFFIX = "__runs"
         RUNS_START_SUFFIX = "__runstart"
         RUNS_MAX_ROWS = 256
-        # The byte that ends a column's list. No row can be it, because a picture that tall
-        # ships no runs at all.
+        # The byte that ends a column's list. The tallest picture that ships one has a row of
+        # exactly this number — its bottom row — so a stretch that STARTS there would read as
+        # the end of the list and everything from it would be lost. A stretch like that is
+        # widened by a row when it is written (see #readable_stretch), which costs nothing:
+        # the walk still asks each row whether its pixel is see-through. A stretch that merely
+        # ENDS on that row is untouched, because a last row is read rather than compared.
         RUNS_END = 255
         RUNS_MAX_BYTES = 0xFFFF
 
@@ -121,8 +125,19 @@ module RubyGBA
             pixels = node.pixels.unpack("v*")
             (0...node.width).map do |x|
               rows = (0...node.height).select { |y| pixels[(y * node.width) + x] != node.transparent }
-              rows.slice_when { |a, b| b != a + 1 }.map { |run| [run.first, run.last] }
+              rows.slice_when { |a, b| b != a + 1 }.map { |run| readable_stretch(run.first, run.last) }
             end
+          end
+
+          # One stretch, as a pair the reader can tell from the byte that ends the list.
+          #
+          # Only the tallest picture has a row numbered RUNS_END, and only a stretch that
+          # begins there is at risk — a lone pixel on the bottom row, or a stretch starting
+          # on it. That one begins a row earlier instead. The row it gains is see-through by
+          # construction (a lit one would have been part of the same stretch), so it draws
+          # nothing extra, which is the guarantee the stretch arithmetic already leans on.
+          def readable_stretch(first, last)
+            [first == RUNS_END ? first - 1 : first, last]
           end
         end
       end

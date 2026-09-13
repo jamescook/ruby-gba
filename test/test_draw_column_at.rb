@@ -336,6 +336,57 @@ class TestDrawColumnAtSeeThrough < Minitest::Test
   def test_a_picture_of_an_awkward_height_skips_them_on_the_tear_free_screen
     assert_backends_agree(lamp_program(tear_free: true, art: ODD_LAMP), frames: 3, name: "TFODD")
   end
+
+  # THE TALLEST PICTURE THAT STILL SKIPS ITS EMPTY ROWS, which is 256 — the commonest height
+  # a sprite sheet comes in, and the one where the bookkeeping runs out of room.
+  #
+  # A column's stretches are shipped as pairs of row numbers and the list ends with 255. At
+  # any other height no row can BE 255, so the ending byte is unmistakable; at exactly 256
+  # the bottom row is 255, and a stretch that STARTS there reads as the end of the list. The
+  # pixel is in the cartridge and never drawn.
+  #
+  # Two columns, because only one of them is the bug: a lone pixel ON the bottom row is lost,
+  # while a stretch that merely ENDS there is read as a last row and is fine.
+  TALL_ROWS = 256
+  LONE_PIXEL_ROW = TALL_ROWS - 1
+
+  def tall_picture_program
+    data = Array.new(2 * TALL_ROWS, :transparent)
+    data[(10 * 2) + 0] = :white                 # column 0, near the top
+    data[(LONE_PIXEL_ROW * 2) + 0] = :white     # ...and a lone pixel on the bottom row
+    (250...TALL_ROWS).each { |row| data[(row * 2) + 1] = :white } # column 1 ENDS on it
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      image :tall, width: 2, height: TALL_ROWS, data: data, transparent: true
+      tall = var :tall, 0
+      game_loop do
+        clear_screen :gray
+        tall.set TALL_ROWS
+        # Drawn 1:1 with the bottom of the picture pulled onto the screen, so the last rows
+        # are the ones being looked at.
+        2.times { |slice| draw_column_at :tall, slice: slice, x: 20 + slice, top: -200, height: tall }
+      end
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  # Where the picture's bottom row lands: 1:1, with the first 200 rows above the screen.
+  BOTTOM_ON_SCREEN = LONE_PIXEL_ROW - 200
+
+  def test_the_bottom_row_of_a_256_row_picture_is_drawn
+    run = Reference.new.run(tall_picture_program, frames: 2)
+
+    assert_equal Color.resolve(:white), run.screen.pixel(20, BOTTOM_ON_SCREEN),
+                 "the lone pixel on the bottom row"
+    assert_equal Color.resolve(:white), run.screen.pixel(21, BOTTOM_ON_SCREEN),
+                 "and the stretch that ends on it"
+  end
+
+  def test_the_console_draws_the_bottom_row_of_a_256_row_picture_too
+    assert_backends_agree(tall_picture_program, frames: 3, name: "TALL256")
+  end
 end
 
 # The same stretched column on the TEAR-FREE screen, which is the one a first-person view
