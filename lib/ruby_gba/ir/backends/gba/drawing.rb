@@ -1555,7 +1555,7 @@ module RubyGBA
           def oam_slot(first, piece) = OAM_START + ((first + piece) * 8)
 
           # Which pose's pictures are sitting in a sprite's room right now, for a sprite that
-          # keeps one frame at a time (see GBA#next_to_keep_to_one_frame). Its table place names
+          # keeps one frame at a time (see GBA#set_to_keep_to_one_frame). Its table place names
           # it, being the one thing about a sprite that no other sprite shares.
           def frame_in_room(obj) = :"__frame_in_room_#{obj.slot}"
 
