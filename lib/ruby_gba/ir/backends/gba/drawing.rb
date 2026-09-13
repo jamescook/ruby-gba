@@ -234,6 +234,7 @@ module RubyGBA
             skip = @emitter.gensym
             @emitter.emit_branch(:bcond, skip, cond: :eq) # already loaded? nothing to send
             sending.each { |blob, at, units| emit_dma_blob(blob, OBJ_TILE_BASE + (at * 32), units * 16) }
+            forget_frames_in_rooms(@layout.objects.each_value.select { |obj| obj.scene == name })
             @emitter.emit(ASM.load_immediate(ACC, @layout.scene_art.keys.index(name) + 1))
             @primitives.store_var(ACC, SCENE_ART_STATE)
             @emitter.place_label(skip)
@@ -1465,6 +1466,7 @@ module RubyGBA
 
               emit_dma_blob(obj.tiles, OBJ_TILE_BASE + (obj.tile_index * 32), obj.tile_units * 16) # tiles -> sprite memory
             end
+            forget_frames_in_rooms(@layout.objects.each_value)
             emit_boot_object_windows
             @palette_tint.emit_tint_state_reset # the table now holds the originals again
           end
@@ -1529,6 +1531,7 @@ module RubyGBA
             emit_branch(:b, done)
 
             place_label(draw)
+            emit_send_object_frame(obj) if obj.frames
             # Worked out once for the whole sprite when it is drawn as several objects:
             # every piece stands at the same place and reads it back from there.
             emit_hold_object_position(obj) if obj.pieces > 1
@@ -1546,6 +1549,44 @@ module RubyGBA
           end
 
           def oam_slot(first, piece) = OAM_START + ((first + piece) * 8)
+
+          # Which pose's pictures are sitting in a sprite's room right now, for a sprite that
+          # keeps one frame at a time (see GBA#next_to_send_as_shown). Its table place names
+          # it, being the one thing about a sprite that no other sprite shares.
+          def frame_in_room(obj) = :"__frame_in_room_#{obj.slot}"
+
+          # Nothing is in any room: set at boot, and again whenever sprite memory is written
+          # over — a screen change sends every picture again, and a scene taking over sends
+          # its own over the room its sprites use — so the next draw copies its frame in.
+          NO_FRAME = 0xFFFF_FFFF
+
+          def forget_frames_in_rooms(objects)
+            objects.each { |obj| store_word_immediate(NO_FRAME, var_addr(frame_in_room(obj))) if obj.frames }
+          end
+
+          # COPY THE FRAME THIS SPRITE IS SHOWING INTO ITS ROOM, when it is not the one already
+          # there. The cartridge holds every frame at one stride, so the frame's start is the
+          # pose times the stride, and one transfer moves it: whole words, since a frame is a
+          # whole number of tiles and a tile is a whole number of words. Done in the gap after
+          # the screen is drawn, with the rest of the sprite table, so the frame and the table
+          # entry pointing at it change together.
+          def emit_send_object_frame(obj)
+            already = gensym
+            @lowering.value(obj.pose)
+            load_var(TMP, frame_in_room(obj))
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit_branch(:bcond, already, cond: :eq)
+            store_var(ACC, frame_in_room(obj))
+            emit(ASM.load_immediate(TMP, obj.frame_bytes))
+            emit(ASM.mul(2, ACC, TMP))                    # r2 = where this frame starts in the blob
+            emit_load_data_address(ACC, obj.frames)
+            emit(ASM.add_reg(ACC, ACC, 2))
+            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            emit(ASM.str(ACC, TMP))                       # source = the frame in the cartridge
+            store_word_immediate(OBJ_TILE_BASE + (obj.tile_index * 32), REG_DMA3DAD)
+            store_word_immediate((obj.frame_bytes / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
+            place_label(already)
+          end
 
           # An upright sprite: position and size straight into its slot.
           def emit_draw_object_upright(obj, base, mirror = nil, piece = 0)

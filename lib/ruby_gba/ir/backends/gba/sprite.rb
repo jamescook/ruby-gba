@@ -50,9 +50,14 @@ module RubyGBA
         # sprite's place now, because it is the same kind of fact: something the build gives the
         # sprite, not something it discovers later. nil for a sprite that stays upright at its
         # drawn size, which is nearly all of them and costs nothing.
+        #
+        # +frames+ is set on a sprite whose pictures do not all stay in sprite memory (see
+        # GBA#next_to_send_as_shown): the blob in the cartridge holding every pose laid out
+        # at the same stride, +frame_bytes+ long each, one of which is copied into the room
+        # at +tile_index+ whenever the pose changes. nil for every sprite that fits.
         Sprite = Data.define(
           :slot, :pieces, :scene,
-          :tiles, :tile_units, :tile_index,
+          :tiles, :tile_units, :tile_index, :frames, :frame_bytes,
           :pose, :pose_count, :alike, :per_pose, :pose_table, :pose_words, :mirrors,
           :offset_x, :offset_y, :width, :height,
           :x, :y, :active, :angle, :scale, :transformed, :scales, :affine_slot,

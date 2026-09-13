@@ -172,24 +172,27 @@ class TestSpriteTileSharing < Minitest::Test
 
   def test_a_cycle_stores_the_part_that_does_not_move_once
     still = sprite_bytes(walk(still_torso: true), 96)
-    moving = walk(still_torso: false)
+    # The moving-torso cycle has nothing to share, so eight of its frames cost twice what four
+    # do — which is the figure the still-torso cycle would have cost too. It is measured at four
+    # because eight do not fit whole, and a cycle that does not fit keeps one frame at a time.
+    wanted = sprite_bytes(walk(still_torso: false, frames: 4), 96) * 2
 
-    # The moving-torso cycle has nothing to share and does not fit at all, which is the
-    # point: what it needs is the figure the still-torso cycle would have cost too.
-    err = assert_raises(RubyGBA::IR::Backends::GBA::LoweringError) { sprite_bytes(moving, 96) }
-    wanted = err.message[/(\d+) bytes at once/, 1].to_i
-
+    assert_operator wanted, :>, 32 * 1024, "eight frames with nothing to share are more than sprite memory holds"
     assert_operator still, :<, wanted * 3 / 4,
                     "a torso that stands still through eight frames should give back a quarter and more"
   end
 
-  # A CYCLE THAT DID NOT FIT NOW DOES, which is why this is worth having at all: sprite
-  # memory is a wall a build hits rather than a frame that runs slowly. The two cycles
-  # here are the same size, cut the same way, into the same number of objects — the
-  # only difference is whether there is anything to share.
-  def test_a_cycle_that_did_not_fit_now_builds
-    assert_operator sprite_bytes(walk(still_torso: true), 96), :<, 32 * 1024
-    assert_raises(RubyGBA::IR::Backends::GBA::LoweringError) { sprite_bytes(walk(still_torso: false), 96) }
+  # A CYCLE THAT DID NOT FIT WHOLE NOW DOES. A cycle too big for sprite memory still builds,
+  # keeping one frame there at a time and copying the next in as it steps — but a cycle kept
+  # whole shows its next frame by pointing at it, with nothing to copy. The two cycles here are
+  # the same size, cut the same way, into the same number of objects; the only difference is
+  # whether there is anything to share, and only the one with something to share is kept whole.
+  def test_a_cycle_that_did_not_fit_whole_now_does
+    still = sprite_bytes(walk(still_torso: true), 96)
+    moving = sprite_bytes(walk(still_torso: false), 96)
+
+    assert_operator still, :<, 32 * 1024
+    assert_operator moving, :<, still, "the cycle with nothing to share keeps only one frame in sprite memory"
   end
 
   # Four frames rather than the eight above: a sprite drawn as nine objects over 26K of

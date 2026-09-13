@@ -2079,9 +2079,62 @@ module RubyGBA
             front += @obj_plans.fetch(node.name)[:pieces]
           end
           affine_of = affine_slots(nodes) # ...and which rotation group each turning sprite uses
+          prepare_affine(nodes)
+
+          @obj_sent_as_shown = Set.new
+          loop do
+            lay_out_object_art(nodes, slot_of, affine_of)
+            break if @obj_art.bytes <= OBJ_TILE_CAPACITY
+
+            name = next_to_send_as_shown(nodes) or raise LoweringError, sprite_art_does_not_fit(nodes)
+            @emit.data_blobs.delete(:"__obj_tiles_#{name}")
+            @obj_sent_as_shown << name
+          end
+        end
+
+        # A SPRITE WHOSE PICTURES DO NOT ALL FIT KEEPS ONE FRAME IN SPRITE MEMORY AT A TIME.
+        #
+        # Every picture a sprite can show normally sits in the console's 32K of sprite memory
+        # from the moment its scene starts, so a character costs every frame of every
+        # animation it has, all the time. That is the fast arrangement — showing another
+        # frame is pointing at different tiles — and it is what every sprite gets while the
+        # pictures fit.
+        #
+        # When they do not, the sprite with the most to give back is given room for ONE frame
+        # instead, and whenever the frame it is showing changes, that frame's pictures are
+        # copied into the room out of the cartridge before the sprite is drawn. It is how the
+        # console's own retail games put a full cast on screen: The Minish Cap gives each
+        # character a slot of sixteen tiles and copies a frame into it when the frame changes.
+        # One more is given room this way until the pictures fit, and if every sprite that can
+        # has been and they still do not, that is the friendly error.
+        #
+        # What it costs is the copy, and only on a frame where the pose changed: a sprite
+        # holding still copies nothing, and one animating copies one frame's worth of tiles
+        # each time it steps. The cartridge holds every frame at the same stride, blank room
+        # included, so finding a frame is one multiply.
+        #
+        # Which sprites can: one whose pose the game works out and that has more than one. A
+        # sprite that always shows the same picture has nothing to give back.
+        def next_to_send_as_shown(nodes)
+          fullest = nodes.group_by(&:scene).max_by { |_scene, in_it| art_bytes_of(in_it) }.first
+          nodes.select { |node| node.scene.nil? || node.scene == fullest }
+               .reject { |node| @obj_sent_as_shown.include?(node.name) }
+               .select { |node| const_int(node.pose).nil? && node.poses.length > 1 }
+               .map { |node| [node.name, frame_room_saves(node)] }
+               .select { |_name, saves| saves.positive? }
+               .max_by { |_name, saves| saves }&.first
+        end
+
+        def frame_room_saves(node)
+          obj = @objects.fetch(node.name)
+          (obj.tiles ? obj.tile_units * 32 : 0) - @obj_frame_bytes.fetch(node.name)
+        end
+
+        def lay_out_object_art(nodes, slot_of, affine_of)
           @obj_art = ObjectArt.new(@emit)
           @scene_art = {}
           @obj_repeats = 0 # bytes a piece did not cost because another piece already held them
+          @obj_frame_bytes = {} # what one frame of each sprite's would take, were it sent as shown
 
           # ALWAYS-THERE ART FIRST, then each scene's own over the same room.
           #
@@ -2106,11 +2159,6 @@ module RubyGBA
             in_scene.each(&place)
             @scene_art[scene] = @obj_art.end_scene
           end
-
-          prepare_affine(nodes)
-          return unless @obj_art.bytes > OBJ_TILE_CAPACITY
-
-          raise LoweringError, sprite_art_does_not_fit(nodes)
         end
 
         # Out of room for sprite pictures. Name the greediest, since the fix is nearly
@@ -2125,8 +2173,9 @@ module RubyGBA
           named = worst.map { |node| ":#{node.poses.first} (#{@objects[node.name].tile_units * 32})" }
           "The sprites' pictures need #{@obj_art.bytes} bytes at once, and the console keeps them in " \
             "#{OBJ_TILE_CAPACITY}. Only one scene's are needed at a time. #{fullest_is(fullest.first)}, " \
-            "and its biggest pictures are #{named.uniq.join(', ')}. Use fewer pictures there, smaller " \
-            "ones, or fewer poses each." \
+            "and its biggest pictures are #{named.uniq.join(', ')}. Each sprite that animates already " \
+            "keeps only one frame at a time in this memory. To fix this, use fewer pictures there, or " \
+            "smaller ones." \
             "#{" Sharing already saved #{@obj_art.saved} bytes." if @obj_art.saved.positive?}"
         end
 
@@ -2191,6 +2240,16 @@ module RubyGBA
             @units = @resident_units
             @at = @resident.dup
             @scene_blobs = []
+          end
+
+          # Room for a sprite that keeps one frame at a time, which is filled while the game
+          # runs rather than sent: nothing is stored, and nothing can share it, since two
+          # sprites showing the same pictures are not showing the same frame.
+          def reserve(units, narrow:)
+            @units += 1 if @units.odd? && !narrow
+            at = @units
+            @units += units
+            at
           end
 
           # ...and this is what it has to send when it takes over: each blob, where it
@@ -2577,12 +2636,24 @@ module RubyGBA
           name = node.name
           poses = node.poses
           plan = @obj_plans.fetch(name)
-          width = plan[:width]
-          height = plan[:height]
           mirrors = plan[:mirrors]
-          boxes = plan[:boxes]
+          # A copy, because the short poses are filled out with blank pieces below and the plan
+          # is laid out again if the pictures do not fit the first time.
+          boxes = plan[:boxes].map(&:dup)
           pieces = plan[:pieces]
           place = @obj_banks.placement(name)
+          # Each stored pose's pieces, encoded as the console will hold them. A mirrored pose
+          # has none of its own: it is drawn from the pose it mirrors.
+          encoded = poses.each_with_index.map do |image, k|
+            boxes[k].map { |box| encode_object_tiles(@bitmaps.fetch(image), place, box) } unless mirrors[k]
+          end
+          blank = place.narrow? ? 32 : 64
+          # The room one frame takes, piece by piece: the most any pose needs for that piece.
+          room = (0...pieces).map { |piece| encoded.compact.map { |list| list[piece]&.bytesize || blank }.max }
+          @obj_frame_bytes[name] = room.sum
+          if @obj_sent_as_shown.include?(name)
+            return @objects[name] = frame_room_object(node, slot, affine_slot, boxes, encoded, room, place)
+          end
           # Where each pose's tiles begin, in the 32-byte units a tile number counts in —
           # taken from the bytes already written rather than from a tile count, since a
           # picture stored the big way is two units to the tile. One number per piece, and
@@ -2600,14 +2671,12 @@ module RubyGBA
           tiles = +"".b
           starts = []
           written = {} # the bytes of every run so far -> the unit it starts at
-          poses.each_with_index do |image, k|
+          poses.each_index do |k|
             if mirrors[k]
               starts << starts[mirrors[k]].dup # point it at the pose it mirrors and store nothing
               next
             end
-            bmp = @bitmaps.fetch(image)
-            starts << boxes[k].map do |box|
-              bytes = encode_object_tiles(bmp, place, box)
+            starts << encoded[k].map do |bytes|
               at = written[bytes]
               if at
                 @obj_repeats += bytes.bytesize # already written: point at it, and say so
@@ -2626,21 +2695,65 @@ module RubyGBA
           # off the poses rather than divided out of the total, because a cycle whose
           # frames are all the SAME picture shares one run between them: the stride is
           # then 0, which is the truth, where the division would say a sixth of a pose.
-          per_pose = alike ? pose_stride(starts) : 0
           tile_blob, tile_unit = @obj_art.place(name, tiles, narrow: place.narrow?)
+          @objects[name] = object_record(
+            node, slot, affine_slot, place, boxes, mirrors,
+            alike: alike, per_pose: alike ? pose_stride(starts) : 0,
+            tiles: tile_blob, tile_units: tiles.bytesize / 32, tile_index: tile_unit,
+            pose_words: alike ? nil : object_pose_table(name, boxes, starts, mirrors, tile_unit, pieces)
+          )
+        end
+
+        # THE ROOM FOR ONE FRAME, for a sprite whose pictures do not all fit (see
+        # #next_to_send_as_shown). Every pose is laid out the same way inside that room —
+        # each piece at the same place, with the room the biggest pose needs for it — so the
+        # table the drawing reads points at the room and never changes, and copying a frame in
+        # is all that showing it takes. The cartridge holds the frames back to back at the
+        # room's size, a mirrored pose holding the pictures of the pose it mirrors, and a piece
+        # a pose does not have holding nothing: blank tiles, which the console draws as nothing.
+        def frame_room_object(node, slot, affine_slot, boxes, encoded, room, place)
+          name = node.name
+          pieces = room.length
+          at = room.each_index.map { |piece| room.first(piece).sum / 32 }
+          boxes.each { |list| list << BLANK_PIECE while list.size < pieces }
+          mirrors = @obj_plans.fetch(name)[:mirrors]
+          frames = node.poses.each_index.map do |k|
+            list = encoded[mirrors[k] || k]
+            (0...pieces).map { |piece| (list[piece] || "".b).ljust(room[piece], "\0".b) }.join
+          end.join
+          blob = :"__obj_frames_#{name}"
+          @emit.data_blobs[blob] = frames.b
+          plain_blob!(blob) # a frame is found by where it starts, so the blob stays as it is
+          unit = @obj_art.reserve(room.sum / 32, narrow: place.narrow?)
+          alike = pieces == 1 && boxes.map(&:first).uniq.size == 1 && mirrors.none?
+          starts = node.poses.map { at.dup }
+          object_record(
+            node, slot, affine_slot, place, boxes, mirrors,
+            alike: alike, per_pose: 0, tiles: nil, tile_units: room.sum / 32, tile_index: unit,
+            pose_words: alike ? nil : object_pose_table(name, boxes, starts, mirrors, unit, pieces),
+            frames: blob, frame_bytes: room.sum
+          )
+        end
+
+        # The record the drawing reads, from what either layout worked out.
+        def object_record(node, slot, affine_slot, place, boxes, mirrors, alike:, per_pose:, tiles:,
+                          tile_units:, tile_index:, pose_words:, frames: nil, frame_bytes: nil)
+          name = node.name
+          plan = @obj_plans.fetch(name)
           # Poses that trimmed alike carry their one size in the sprite's own entry. Poses
           # that differ carry NOTHING here — the size and shape come out of the table with
           # the rest of what changes, so these bases must not also hold the canvas's.
           shape, size = alike ? OBJ_SIZES.fetch(boxes.first.first.last(2)) : [0, 0]
-          @objects[name] = Sprite.new(
+          Sprite.new(
             slot: slot,
-            pieces: pieces, # how many of the console's 128 places this one sprite takes
-            tiles: tile_blob, tile_units: tiles.bytesize / 32, # sprite memory counts in 32-byte units
+            pieces: plan[:pieces], # how many of the console's 128 places this one sprite takes
+            tiles: tiles, tile_units: tile_units, # sprite memory counts in 32-byte units
             scene: node.scene, # sent when that scene takes over, rather than at boot
-            tile_index: tile_unit, # this sprite's base tile number
+            tile_index: tile_index, # this sprite's base tile number
+            frames: frames, frame_bytes: frame_bytes, # every frame in the cartridge, for one sent as shown
             per_pose: per_pose,    # stride to the next pose's tiles
             pose: node.pose,     # the run-time pose selector (which pose to show)
-            pose_count: poses.length, # how long one piece's row of the pose table is
+            pose_count: node.poses.length, # how long one piece's row of the pose table is
             # Every pose trimmed the same way is the ordinary case — a walk cycle drawn
             # inside one outline — and it keeps the plain draw: one size in the sprite's
             # own entry, one stride between poses. Poses that came out DIFFERENT sizes, or
@@ -2649,12 +2762,12 @@ module RubyGBA
             alike: alike,
             mirrors: mirrors, # which poses are drawn backwards, so the draw knows to say so
             pose_table: alike ? nil : :"__poses_#{name}",
-            pose_words: alike ? nil : object_pose_table(name, boxes, starts, mirrors, tile_unit, pieces),
+            pose_words: pose_words,
             # Where the first pose sits inside the canvas it was drawn on. The sprite is
             # drawn that much further along so the picture does not move; for poses that
             # differ it comes out of the table instead.
             offset_x: boxes.first.first[0], offset_y: boxes.first.first[1],
-            width: width, height: height,
+            width: plan[:width], height: plan[:height],
             x: node.x, y: node.y, active: node.active, # the live position/visibility operands
             angle: node.angle,   # the rotation operand (a constant 0 unless the sprite turns)
             scale: node.scale,   # the size operand (the "as drawn" constant unless it resizes)
