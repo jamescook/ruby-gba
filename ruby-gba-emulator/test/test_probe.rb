@@ -158,6 +158,33 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
     assert_raises(RuntimeError) { probe.step(1) }
   end
 
+  # --- What the processor holds, at a chosen instruction ----------------------
+  #
+  # A program of three instructions written by hand, so where each one sits is known
+  # without asking the build: the cartridge's code starts right after its header.
+
+  CODE_START = 0x0800_0000 + RubyGBA::ROM::ENTRY_OFFSET
+
+  def test_a_run_stops_at_an_address_and_reads_what_the_registers_hold_there
+    rom = hand_written_rom(RubyGBA::ASM.load_immediate(4, 0x55) +
+                           RubyGBA::ASM.load_immediate(5, 0x66) +
+                           RubyGBA::ASM.loop_forever)
+    with_probe(rom) do |probe|
+      probe.run_until(CODE_START + 4)
+      assert_equal CODE_START + 4, probe.registers[:pc]
+      assert_equal 0x55, probe.registers[:r4], "the first instruction has run"
+      refute_equal 0x66, probe.registers[:r5], "the second one has not"
+    end
+  end
+
+  def test_a_run_that_never_reaches_the_address_says_so_rather_than_stopping_somewhere_else
+    rom = hand_written_rom(RubyGBA::ASM.loop_forever)
+    with_probe(rom) do |probe|
+      err = assert_raises(RuntimeError) { probe.run_until(CODE_START + 0x100, limit: 1000) }
+      assert_match(/0x080001C0/, err.message)
+    end
+  end
+
   # --- Where the cartridge's save memory goes ---------------------------------
   #
   # The emulator keeps a cartridge's battery-backed save chip as a .sav file, and left
@@ -199,6 +226,17 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
   end
 
   private
+
+  # A cartridge holding exactly these instructions and nothing the framework adds.
+  def hand_written_rom(code)
+    rom = RubyGBA::ROM.assemble(code, title: "BYHAND", code: "THND", maker: "01")
+    tf = Tempfile.new(["byhand", ".gba"])
+    tf.binmode
+    rom.write(tf.path)
+    tf.flush
+    ROM_TEMPFILES << tf
+    tf.path
+  end
 
   # A scratch directory holding one ROM that really does save, so a .sav has a reason to
   # appear. Yields [directory, rom path]; the directory goes when the block ends.

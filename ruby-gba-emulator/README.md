@@ -32,6 +32,35 @@ probe.close
 `audio_buffer`, `bus_read8/16/32`, `set_keys`, …). `RubyGBAEmulator::Probe` sits on
 top and returns structured data.
 
+## Debugging generated code: stop at an instruction, read the registers
+
+For somebody working on a code generator rather than a game. A wrong answer out of generated
+code usually comes down to one question — what did register r4 hold at this instruction? —
+and before these two, the only way to ask was to change the generator and see whether the
+symptom moved. That is a rebuild and a rerun per guess.
+
+```ruby
+probe.run_until(0x080001F4)   # run until the instruction at this address is next, then stop
+probe.registers               # => {r0: 0, r1: 67108864, ..., r14: 134218240, pc: 134218228, cpsr: 31}
+probe.registers[:r4]          # => 21
+```
+
+`run_until` stops before the instruction at that address runs, and raises if it is not
+reached within `limit:` instructions (two million by default), so a register is never read
+at the wrong place by accident. `registers[:pc]` is the address of the instruction that runs
+next, which is where `run_until` stopped. The picture is not refreshed by it: `pixel` still
+shows the last whole frame `step` ran.
+
+From ruby-gba, `RubyGBA::Verifier` does the same by routine name, so nobody counts bytes —
+where a routine landed is in the build record, including the ones copied into the console's
+quick memory at boot:
+
+```ruby
+v = RubyGBA::Verifier.new(rom, frames: 2)
+v.run_until(:count_up)        # the first instruction of func(:count_up)
+v.registers[:r14]             # where it will return to
+```
+
 ## Using it from a game
 
 Add it beside ruby-gba. It carries a C extension, so bundler builds it — per Ruby ABI, which

@@ -1556,6 +1556,63 @@ mgba_core_profile(VALUE self, VALUE rb_frames, VALUE rb_keys)
     return out;
 }
 
+/* Core#registers — what the processor holds right now, as a Hash: :r0 through
+ * :r14, :pc and :cpsr.
+ *
+ * :pc is the address of the instruction that runs NEXT (see executing_pc), not
+ * the raw r15, which is ahead of it by the processor's prefetch. That is the
+ * address a caller stopped at, and the one a disassembly lists. The raw r15 is
+ * left out on purpose: two numbers for the one register is how somebody reads
+ * the wrong one. GBA-only. */
+static VALUE
+mgba_core_registers(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA)
+        rb_raise(rb_eRuntimeError, "registers is GBA-only");
+    struct ARMCore *cpu = ((struct GBA *)mc->core->board)->cpu;
+
+    VALUE out = rb_hash_new();
+    char name[4];
+    for (int i = 0; i < 15; ++i) {
+        snprintf(name, sizeof(name), "r%d", i);
+        rb_hash_aset(out, ID2SYM(rb_intern(name)), UINT2NUM((uint32_t)cpu->gprs[i]));
+    }
+    rb_hash_aset(out, ID2SYM(rb_intern("pc")), UINT2NUM(executing_pc(cpu)));
+    rb_hash_aset(out, ID2SYM(rb_intern("cpsr")), UINT2NUM((uint32_t)cpu->cpsr.packed));
+    return out;
+}
+
+/* Core#run_until(address, limit) — run one instruction at a time until the
+ * next one to run is at +address+, and stop there without running it. True
+ * when it got there; false when +limit+ instructions went by first.
+ *
+ * In C rather than a Ruby loop over #step because the address a caller wants
+ * is often a frame or more away, which is a quarter of a million steps, and a
+ * trip into Ruby for each one is most of the wait.
+ *
+ * A sleeping processor still counts: a step while it waits for the screen jumps
+ * to whatever is due next, so a game that sleeps between frames reaches its
+ * next frame's code in a handful of steps rather than never. GBA-only. */
+static VALUE
+mgba_core_run_until(VALUE self, VALUE rb_address, VALUE rb_limit)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA)
+        rb_raise(rb_eRuntimeError, "run_until is GBA-only");
+    struct mCore *core = mc->core;
+    struct ARMCore *cpu = ((struct GBA *)core->board)->cpu;
+
+    uint32_t address = NUM2UINT(rb_address);
+    long limit = NUM2LONG(rb_limit);
+    for (long i = 0; i < limit; ++i) {
+        if (!cpu->halted && executing_pc(cpu) == address)
+            return Qtrue;
+        core->step(core);
+    }
+    return (!cpu->halted && executing_pc(cpu) == address) ? Qtrue : Qfalse;
+}
+
 #ifdef RUBY_GBA_EMULATOR_RCHEEVOS
 /* --------------------------------------------------------- */
 /* RubyGBAEmulator::RARuntime — thin wrapper around rc_runtime_t   */
@@ -1903,6 +1960,8 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "measure_frame_busy_cycles", mgba_core_measure_frame_busy_cycles, 0);
     rb_define_method(cCore, "measure_frame_work", mgba_core_measure_frame_work, 0);
     rb_define_method(cCore, "profile",       mgba_core_profile, 2);
+    rb_define_method(cCore, "registers",     mgba_core_registers, 0);
+    rb_define_method(cCore, "run_until",     mgba_core_run_until, 2);
 
     /* BIOS checksum utility */
     rb_define_module_function(mRubyGBAEmulator, "gba_bios_checksum", mgba_gba_bios_checksum, 1);

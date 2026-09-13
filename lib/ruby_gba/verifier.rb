@@ -189,6 +189,36 @@ module RubyGBA
       mem32(address)
     end
 
+    # --- the processor ---
+    #
+    # For debugging what the lowering emitted: stop the running cartridge at the first
+    # instruction of a routine, then read what the processor holds there. The frames run
+    # first, so the stop is the next time the routine is reached after them.
+
+    # How many instructions {#run_until} runs before it gives up: several frames of a game
+    # that never sleeps.
+    RUN_UNTIL_LIMIT = 2_000_000
+
+    # Run on until the routine named +routine+ is about to run its first instruction. The
+    # name is the one the program gave it (`func(:count_up)`), or BuildRecord::FRAME_ROUTINE
+    # for the game loop's own body. Raises when the routine is never reached, rather than
+    # leaving the processor somewhere else to be read as if it were there.
+    def run_until(routine, limit: RUN_UNTIL_LIMIT)
+      ensure_rendered!
+      address = routine_start!(routine)
+      return self if @core.run_until(address, limit)
+
+      raise RuntimeError, format("The routine %p (at 0x%08X) did not run within %d instructions.",
+                                 routine, address, limit)
+    end
+
+    # What the processor holds right now: +:r0+ through +:r14+, +:pc+ (the instruction that
+    # runs next) and +:cpsr+.
+    def registers
+      ensure_rendered!
+      @core.registers
+    end
+
     # WHAT THE CONSOLE IS PLAYING, as values — one per sounding voice, in the order the
     # mixer holds them (see IR::Backends::GBA::Mixer::Voice for what each carries). Read off
     # the running console at the final frame boundary, so it is what the lowering really did
@@ -331,6 +361,21 @@ module RubyGBA
               "record, then read the voices: ROM.assemble(code, ..., built: backend.build_record(program))."
       end
       @rom.built.voices
+    end
+
+    # Where a routine's first instruction really is while the cartridge runs — which is not
+    # where it sits in the cartridge when it was copied into the console's quick memory, so
+    # only the build record can say.
+    def routine_start!(routine)
+      unless @rom.built
+        raise ArgumentError,
+              "This ROM does not know where its routines are. Assemble it with its build record: " \
+              "ROM.assemble(code, ..., built: backend.build_record(program))."
+      end
+      span = @rom.built.routines[routine] or
+        raise ArgumentError, "This ROM has no routine #{routine.inspect}. " \
+                             "Its routines are: #{@rom.built.routines.keys.map(&:inspect).join(', ')}."
+      span.begin
     end
 
     # ...and where it counts what it could not play. Same rule: only the build knows, because

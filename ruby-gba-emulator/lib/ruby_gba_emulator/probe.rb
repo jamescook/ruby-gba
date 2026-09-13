@@ -365,6 +365,41 @@ module RubyGBAEmulator
                   cycles_per_frame: frame_cycles)
     end
 
+    # --- stopping inside a frame, for somebody debugging generated code ------
+    #
+    # Everything above answers what a program DID. These two answer what the processor was
+    # holding while it did it, which is the question a wrong answer out of a code generator
+    # comes down to: "what is in r4 at this instruction". Stop at the instruction, then read.
+
+    # How many instructions {#run_until} runs before it gives up: several frames of a game that
+    # never sleeps, which is far past any address a frame is going to reach.
+    RUN_UNTIL_LIMIT = 2_000_000
+
+    # What the processor holds right now: +:r0+ through +:r14+, +:pc+ and +:cpsr+, each an
+    # unsigned 32-bit Integer. +:pc+ is the address of the instruction that runs next, which is
+    # where {#run_until} stopped.
+    #
+    # @return [Hash{Symbol=>Integer}]
+    def registers
+      ensure_open!
+      @core.registers
+    end
+
+    # Run one instruction at a time until the next one to run is at +address+, and stop there
+    # before it runs. Raises when +limit+ instructions go by first, because a run that quietly
+    # stopped somewhere else would have its registers read as if it had not.
+    #
+    # The picture is not refreshed: {#pixel} still shows the last whole frame {#step} ran.
+    #
+    # @param address [Integer] where to stop — a routine's first instruction, say
+    # @return [self]
+    def run_until(address, limit: RUN_UNTIL_LIMIT)
+      ensure_open!
+      return self if @core.run_until(address, limit)
+
+      raise RuntimeError, format("the program did not reach 0x%08X within %d instructions", address, limit)
+    end
+
     # Save the whole console — registers, RAM, video memory, everything — to a file, so a
     # moment can be come back to later without playing to it again.
     #
