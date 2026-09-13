@@ -52,7 +52,7 @@ module RubyGBA
         # drawn size, which is nearly all of them and costs nothing.
         #
         # +frames+ is set on a sprite whose pictures do not all stay in sprite memory (see
-        # GBA#next_to_send_as_shown): the blob in the cartridge holding every pose laid out
+        # GBA#next_to_keep_to_one_frame): the blob in the cartridge holding every pose laid out
         # at the same stride, +frame_bytes+ long each, one of which is copied into the room
         # at +tile_index+ whenever the pose changes. nil for every sprite that fits.
         Sprite = Data.define(

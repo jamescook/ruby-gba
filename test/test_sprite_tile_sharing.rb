@@ -182,12 +182,12 @@ class TestSpriteTileSharing < Minitest::Test
                     "a torso that stands still through eight frames should give back a quarter and more"
   end
 
-  # A CYCLE THAT DID NOT FIT WHOLE NOW DOES. A cycle too big for sprite memory still builds,
+  # SHARING IS WHAT KEEPS A BIG CYCLE WHOLE. A cycle too big for sprite memory still builds,
   # keeping one frame there at a time and copying the next in as it steps — but a cycle kept
   # whole shows its next frame by pointing at it, with nothing to copy. The two cycles here are
   # the same size, cut the same way, into the same number of objects; the only difference is
   # whether there is anything to share, and only the one with something to share is kept whole.
-  def test_a_cycle_that_did_not_fit_whole_now_does
+  def test_sharing_keeps_a_cycle_whole_that_would_otherwise_keep_one_frame
     still = sprite_bytes(walk(still_torso: true), 96)
     moving = sprite_bytes(walk(still_torso: false), 96)
 

@@ -219,22 +219,26 @@ module RubyGBA
           # one compare a frame while changing scene costs the copy.
           #
           # A scene with no art of its own emits nothing at all, which is every scene in a
-          # game that declares its sprites at the top level.
+          # game that declares its sprites at the top level. A scene whose characters keep one
+          # frame at a time has art of its own even when it has nothing to send: another
+          # scene's pictures go into the same memory, so taking over has to mark those frames
+          # as gone and say this scene is the one loaded.
           #
           # The copy lands where the scene's own routine runs, which is near the top of a
           # frame rather than strictly between frames. A sprite caught half-replaced would
           # show for one frame — on the frame a game changes what the whole screen is, and
           # where the scene it is leaving has already stopped drawing its own sprites.
           def emit_scene_art_upload(name)
-            sending = @layout.scene_art[name]
-            return if sending.nil? || sending.empty?
+            sending = @layout.scene_art[name] || []
+            rooms = @layout.objects.each_value.select { |obj| obj.scene == name && obj.frames }
+            return if sending.empty? && rooms.empty?
 
             @primitives.load_var(ACC, SCENE_ART_STATE)
             @emitter.emit(ASM.cmp_imm(ACC, @layout.scene_art.keys.index(name) + 1))
             skip = @emitter.gensym
             @emitter.emit_branch(:bcond, skip, cond: :eq) # already loaded? nothing to send
             sending.each { |blob, at, units| emit_dma_blob(blob, OBJ_TILE_BASE + (at * 32), units * 16) }
-            forget_frames_in_rooms(@layout.objects.each_value.select { |obj| obj.scene == name })
+            forget_frames_in_rooms(rooms)
             @emitter.emit(ASM.load_immediate(ACC, @layout.scene_art.keys.index(name) + 1))
             @primitives.store_var(ACC, SCENE_ART_STATE)
             @emitter.place_label(skip)
@@ -1551,7 +1555,7 @@ module RubyGBA
           def oam_slot(first, piece) = OAM_START + ((first + piece) * 8)
 
           # Which pose's pictures are sitting in a sprite's room right now, for a sprite that
-          # keeps one frame at a time (see GBA#next_to_send_as_shown). Its table place names
+          # keeps one frame at a time (see GBA#next_to_keep_to_one_frame). Its table place names
           # it, being the one thing about a sprite that no other sprite shares.
           def frame_in_room(obj) = :"__frame_in_room_#{obj.slot}"
 
