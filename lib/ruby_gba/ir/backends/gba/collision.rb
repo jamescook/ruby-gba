@@ -81,13 +81,8 @@ module RubyGBA
           # everywhere). Same "is this pixel drawn?" test the blit uses to skip
           # transparent pixels.
           def mask_bytes(bmp)
-            pixels = bmp.pixels
-            transparent = bmp.transparent
             out = (+"".b)
-            (bmp.width * bmp.height).times do |i|
-              color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
-              out << ((transparent.nil? || color != transparent) ? 1 : 0).chr
-            end
+            (bmp.width * bmp.height).times { |i| out << (bmp.drawn_at?(i) ? 1 : 0).chr }
             out
           end
 

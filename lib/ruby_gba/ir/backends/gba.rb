@@ -1523,10 +1523,10 @@ module RubyGBA
 
         # A tile's distinct colors, first-seen order, without the see-through one.
         def tile_colors(node, index)
-          pixels = @bitmaps.fetch(node.tiles[index]).pixels
+          bmp = @bitmaps.fetch(node.tiles[index])
           seen = {}
           (TILE_PX * TILE_PX).times do |i|
-            color = (pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
+            color = bmp.color_at(i)
             seen[color] = true unless color == BG_SEE_THROUGH
           end
           seen.keys
@@ -1781,7 +1781,7 @@ module RubyGBA
           bytes = (+"").b
           pending = nil
           (TILE_PX * TILE_PX).times do |i|
-            color = (bmp.pixels.getbyte(i * 2) | (bmp.pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
+            color = bmp.color_at(i)
             index = color == BG_SEE_THROUGH ? 0 : place.indices.fetch(color)
             next bytes << index.chr unless place.narrow?
 
@@ -2443,14 +2443,11 @@ module RubyGBA
 
         # Every non-see-through color in a sprite picture, first-seen order, deduped.
         def scan_object_colors(bmp, colors)
-          pixels = bmp.pixels
-          transparent = bmp.transparent
           seen = colors.to_h { |color| [color, true] }
           (bmp.width * bmp.height).times do |i|
-            color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
-            next if transparent && color == transparent
+            next unless bmp.drawn_at?(i)
 
-            color &= 0x7FFF
+            color = bmp.color_at(i)
             next if seen[color]
 
             seen[color] = true
@@ -2879,14 +2876,8 @@ module RubyGBA
 
         # Does any pixel of this part of the picture draw anything?
         def region_draws?(bmp, x0, y0, w, h)
-          transparent = bmp.transparent
-          pixels = bmp.pixels
           (y0...[y0 + h, bmp.height].min).any? do |y|
-            (x0...[x0 + w, bmp.width].min).any? do |x|
-              i = (y * bmp.width) + x
-              color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
-              transparent.nil? || color != transparent
-            end
+            (x0...[x0 + w, bmp.width].min).any? { |x| bmp.drawn_at?((y * bmp.width) + x) }
           end
         end
 
@@ -2929,9 +2920,7 @@ module RubyGBA
           left = top = right = bottom = nil
           bmp.height.times do |y|
             bmp.width.times do |x|
-              i = (y * bmp.width) + x
-              color = bmp.pixels.getbyte(i * 2) | (bmp.pixels.getbyte((i * 2) + 1) << 8)
-              next if bmp.transparent && color == bmp.transparent
+              next unless bmp.drawn_at?((y * bmp.width) + x)
 
               left = x if left.nil? || x < left
               right = x if right.nil? || x > right
@@ -2976,10 +2965,8 @@ module RubyGBA
         # 8bpp one 64, but OBJ tile NUMBERS count in 32s either way — which is why a wide
         # sprite has to start on an even one, see #prepare_objects.)
         def encode_object_tiles(bmp, placement, box = nil)
-          pixels = bmp.pixels
           width = bmp.width
           height = bmp.height
-          transparent = bmp.transparent
           indices = placement.indices
           bytes = (+"").b
           # The part of the picture this pose is stored from — its whole self unless it
@@ -2998,8 +2985,7 @@ module RubyGBA
                             0
                           else
                             i = (y * width) + x
-                            color = pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)
-                            transparent && color == transparent ? 0 : indices.fetch(color & 0x7FFF)
+                            bmp.drawn_at?(i) ? indices.fetch(bmp.color_at(i)) : 0
                           end
                   next bytes << index.chr unless placement.narrow?
 

@@ -24,6 +24,22 @@ module RubyGBA
               transparent: node.transparent, pixels: node.pixels, colors: node.colors)
         end
 
+        # ONE PIXEL, COUNTING ACROSS THE ROWS: pixel 0 is the top left, and the next is the
+        # one to its right. Two bytes each, the low one first.
+        #
+        # TWO READINGS, AND THE DIFFERENCE MATTERS. +raw_at+ is the number the program wrote,
+        # which is fifteen bits of color and a sixteenth bit that marks a pixel see-through —
+        # so it is the one to compare against +transparent+, and #drawn_at? is that comparison.
+        # +color_at+ drops that bit, and is the color the console shows. Reading the wrong one
+        # is quiet: a see-through pixel would read as a real color nothing else uses, and turn
+        # up as one more color in a picture's table.
+        def raw_at(index) = pixels.getbyte(index * 2) | (pixels.getbyte((index * 2) + 1) << 8)
+
+        def color_at(index) = raw_at(index) & 0x7FFF
+
+        # Does this pixel draw anything? A picture with no see-through color draws every one.
+        def drawn_at?(index) = transparent.nil? || raw_at(index) != transparent
+
         # THE SAME PICTURE THE OTHER WAY ROUND — every row read right to left.
         #
         # "Left is the right one, backwards" is close to universal in 2D games, and this

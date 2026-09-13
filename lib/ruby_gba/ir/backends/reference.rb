@@ -1069,9 +1069,8 @@ module RubyGBA
         def tile_colors(name)
           @tile_colors[name] ||= begin
             bmp = @bitmaps.fetch(name)
-            pixels = @data.fetch(name)
             Array.new(bmp.width * bmp.height) do |i|
-              color = (pixels.getbyte(i * 2) | (pixels.getbyte((i * 2) + 1) << 8)) & 0x7FFF
+              color = bmp.color_at(i)
               color.zero? ? nil : color
             end
           end
