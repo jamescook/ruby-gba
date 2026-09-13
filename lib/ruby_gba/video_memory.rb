@@ -41,15 +41,20 @@ module RubyGBA
     # a second starting point — which the console only allows at fixed marks, so lining a
     # layer up with one can leave a gap behind it. Nobody writes any of that, and the gap is
     # otherwise invisible, so it is worth a number.
-    Area = Data.define(:used, :capacity, :small, :big, :saved, :shared, :repeats, :skipped) do
-      def initialize(repeats: 0, skipped: 0, **rest) = super
+    # +one_frame+ is how many sprites keep one frame in this memory at a time, their other
+    # frames waiting in the cartridge — which is the other way a picture comes to cost nothing
+    # here, and a different thing from sharing: a shared picture is in this memory once for
+    # everyone showing it, where these are copied in as the sprite animates.
+    Area = Data.define(:used, :capacity, :small, :big, :saved, :shared, :repeats, :skipped,
+                       :one_frame) do
+      def initialize(repeats: 0, skipped: 0, one_frame: 0, **rest) = super
 
       def free = capacity - used
       def share = capacity.zero? ? 0.0 : used.to_f / capacity
 
       def to_h
         { used: used, capacity: capacity, free: free, small: small, big: big,
-          saved: saved, shared: shared, repeats: repeats, skipped: skipped }
+          saved: saved, shared: shared, repeats: repeats, skipped: skipped, one_frame: one_frame }
       end
     end
 

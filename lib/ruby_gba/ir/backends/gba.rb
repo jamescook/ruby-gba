@@ -556,12 +556,15 @@ module RubyGBA
         def sprite_memory_report
           return nil if @objects.empty?
 
-          small = @objects.count { |name, _obj| @obj_banks.placement(name).narrow? }
-          shared = @objects.count { |_name, obj| obj.tiles.nil? }
+          small = @objects.count { |name, _obj| @obj_pictures.fetch(name).place.narrow? }
+          # A sprite that stores no pictures of its own is either showing another sprite's or
+          # keeping one frame here at a time, and those are different savings to report.
+          one_frame = @objects.count { |_name, obj| obj.frames }
+          shared = @objects.count { |_name, obj| obj.tiles.nil? && obj.frames.nil? }
           RubyGBA::VideoMemory::Area.new(used: @obj_layout.bytes, capacity: OBJ_TILE_CAPACITY,
                                          small: small, big: @objects.size - small,
                                          saved: sprite_memory_saved, shared: shared,
-                                         repeats: @obj_layout.repeats)
+                                         one_frame: one_frame, repeats: @obj_layout.repeats)
         end
 
         # What the same pictures would have cost stored the old way: a small one is exactly
@@ -570,7 +573,9 @@ module RubyGBA
         # is its own number.
         def sprite_memory_saved
           @objects.sum do |name, obj|
-            next 0 if obj.tiles.nil? || !@obj_banks.placement(name).narrow?
+            # A sprite showing another's pictures costs nothing either way. One keeping a
+            # frame at a time does take room here, and its room is half the size too.
+            next 0 if (obj.tiles.nil? && obj.frames.nil?) || !@obj_pictures.fetch(name).place.narrow?
 
             obj.tile_units * 32
           end

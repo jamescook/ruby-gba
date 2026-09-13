@@ -223,6 +223,34 @@ class TestSpriteOneFrameAtATime < Minitest::Test
     assert_backends_agree(prog, frames: 10, name: "ROOMS") # ...and back in :paused
   end
 
+  # --- what the report says ---
+
+  # Two sprites showing one set of pictures store them once; a sprite kept to one frame at a
+  # time stores none of its own either, and those are different things. The report has to tell
+  # them apart, because they are the two ways a game's pictures come to fit and the reader is
+  # deciding what to draw next.
+  def test_the_report_tells_sharing_apart_from_keeping_one_frame
+    hero = (0...63).map { |n| :"hero_#{n}" }
+    art = method(:frame_art)
+    rom = RubyGBA.build("REPORT", code: "BRPT", maker: "01", validate: false,
+                        out: StringIO.new, err: StringIO.new) do
+      screen :tiled
+      hero.each_with_index { |name, n| image name, width: 32, height: 32, data: art.call(n) }
+      image :guard_a, width: 32, height: 32, data: art.call(500)
+      image :guard_b, width: 32, height: 32, data: art.call(500) # the same picture, drawn twice
+      image :statue, width: 32, height: 32, data: art.call(700)  # ...and one more, so it does not fit
+      sprite :hero, at: [40, 40], frames: hero, rate: 1
+      sprite :guard_a, at: [80, 40]
+      sprite :guard_b, at: [120, 40]
+      sprite :statue, at: [160, 40]
+      game_loop {}
+    end
+
+    sprites = rom.built.video_memory.sprites
+    assert_equal 1, sprites.shared, "one guard shows the other's picture, stored once"
+    assert_equal 1, sprites.one_frame, "the hero keeps one frame at a time"
+  end
+
   # --- who is kept to one frame ---
 
   # What has to fit is what every screen shows PLUS one scene's. Here the pictures every screen

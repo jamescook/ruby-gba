@@ -239,6 +239,12 @@ module RubyGBA
       # is stored once. Nothing in the program says which parts those are, so this is the
       # only place the number appears.
       parts << "#{room(area.repeats)} more saved where poses share a part" if area.repeats.positive?
+      # A character with more frames than this memory holds keeps one here and the rest in the
+      # cartridge, copied in as it animates. Nothing in the program asks for that, so this is
+      # where a reader finds out it happened — and that those frames cost nothing here.
+      if area.one_frame.positive?
+        parts << "#{area.one_frame} keep one frame at a time, the rest read from the cartridge"
+      end
       # A gap left to line a layer up with a starting point of its own. Rare, invisible from
       # the program, and the only part of this memory that is spent on nothing.
       parts << "#{room(area.skipped)} skipped so a layer could count from a place of its own" if area.skipped.positive?
