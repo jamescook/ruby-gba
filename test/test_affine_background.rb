@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "differential"
 
 # Affine backgrounds: `screen :rotozoom` gives a background handle `rotate`/`scale`,
 # the same names and units a hardware sprite's `face_angle`/`scale` already use,
@@ -8,6 +9,8 @@ require "test_helper"
 # reference interpreter's fake screen — see .claude/CLAUDE.md's testing altitude
 # rule: behavior (what a turned/resized picture looks like), not the IR it builds.
 class TestAffineBackground < Minitest::Test
+  include Differential
+
   def interpret(&block)
     builder = Builder.new
     builder.instance_eval(&block)
@@ -145,7 +148,8 @@ class TestAffineBackground < Minitest::Test
     assert_operator at_3x.size, :<, at_1x.size
   end
 
-  def test_scaling_up_makes_the_squares_bigger_on_the_console
+  # A checkerboard of two colours, as a whole program, for the two tests below.
+  def board_program(scale: nil)
     rows = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "L" : "D" }.join }
     builder = Builder.new
     builder.instance_eval do
@@ -154,11 +158,15 @@ class TestAffineBackground < Minitest::Test
       image :dark, "#" => :blue do "########\n" * 8 end
       tiles :checker, "L" => :light, "D" => :dark
       board = background :board, tiles: :checker, map: rows
-      board.scale(2.0)
+      board.scale(scale) if scale
       game_loop { wait_vblank }
     end
     builder.emit_pending_functions
-    rom = ROM.assemble(GBA.new.lower(builder.program), title: "AFFINE", code: "BAFF", maker: "01")
+    builder.program
+  end
+
+  def test_scaling_up_makes_the_squares_bigger_on_the_console
+    rom = ROM.assemble(GBA.new.lower(board_program(scale: 2.0)), title: "AFFINE", code: "BAFF", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 3)
 
     runs = []
@@ -171,6 +179,22 @@ class TestAffineBackground < Minitest::Test
       end
     end
     assert_equal [16], runs[1..-2].map(&:last).uniq, "at twice the size the console draws 16px squares"
+    # ...and they are the two colours the board was drawn from, in turn. Run LENGTHS alone
+    # pass on a board of any two colours at all, which is how a board coming out black and
+    # white went unnoticed.
+    assert_equal [Color.resolve(:white), Color.resolve(:blue)].sort,
+                 runs[1..-2].map(&:first).uniq.sort,
+                 "and they are white and blue, the colours it was drawn from"
+  end
+
+  # HOW A TURNING LAYER READS ITS COLOURS, which is not a choice: that pair of hardware
+  # layers reads a whole byte per pixel whatever the art is drawn from, because its map
+  # holds one byte a cell with no room to name a group of sixteen colours. A board drawn
+  # from two colours is the case that catches it — few enough colours to be sorted into
+  # such a group, which would store the tiles at half size under a layer reading them at
+  # full size: half of every tile blank, every colour after the first black.
+  def test_a_turning_background_drawn_from_few_colours_draws_the_same_on_both
+    assert_backends_agree(board_program, frames: 4)
   end
 
   # --- guardrails: the two footguns this feature makes plain-language errors ---

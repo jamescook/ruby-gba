@@ -1400,11 +1400,18 @@ module RubyGBA
         # One picture per tile for a layer stored the small way, and one picture for the
         # whole of a layer stored the big way (its tiles share the table, so they share
         # an entry).
+        #
+        # A layer stored the big way is read a whole byte a pixel, so it is handed over as
+        # +wide+ — its colours must run across the whole table, however few of them there
+        # are. A layer that went big because one greedy tile has too many colours is wide
+        # on the count alone; a TURNING layer is the one that needs saying, because the
+        # console gives it no other way to be read (its map holds one byte a cell, with no
+        # room to name a bank) and it can still be drawn from a handful of colours.
         def bank_pictures(nodes, big)
           nodes.map do |node|
             if big.include?(node)
               colors = node.tiles.each_index.flat_map { |i| tile_colors(node, i) }.uniq
-              PaletteBanks::Picture.new(key: node.name, colors: colors, authored: nil)
+              PaletteBanks::Picture.new(key: node.name, colors: colors, authored: nil, wide: true)
             else
               node.tiles.each_index.map do |i|
                 PaletteBanks::Picture.new(key: tile_key(node, i), colors: tile_colors(node, i),

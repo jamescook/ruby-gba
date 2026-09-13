@@ -36,6 +36,7 @@ module Differential
   BOOT_FRAMES = {
     bitmap: 2, # same buffered (`tear_free: true`) or not
     tiled: 1,
+    rotozoom: 1, # the other tile screen, and it boots the same
   }.freeze
 
   # Run +program+ on both backends and assert they draw exactly the same screen.

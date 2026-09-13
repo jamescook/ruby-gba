@@ -385,8 +385,18 @@ class TestDifferential < Minitest::Test
       game_loop { bg.scroll_by 1, 0 }
     end
 
+    turning = build do
+      screen :rotozoom
+      image(:brick, "#" => :red) { TILE }
+      image(:floor, "#" => :blue) { TILE }
+      tiles :set, "#" => :brick, "." => :floor
+      bg = background :bg, tiles: :set, map: FULL_MAP # square, which a turning map must be
+      game_loop { bg.rotate bg.angle + 5 }
+    end
+
     assert_equal BOOT_FRAMES[:bitmap], measured_offset(bitmap, "OFSBMP"), "bitmap boot cost changed"
     assert_equal BOOT_FRAMES[:tiled], measured_offset(tiled, "OFSTIL"), "tiled boot cost changed"
+    assert_equal BOOT_FRAMES[:rotozoom], measured_offset(turning, "OFSROT"), "turning boot cost changed"
   end
 
   # --- a game that does not fit in a frame ---

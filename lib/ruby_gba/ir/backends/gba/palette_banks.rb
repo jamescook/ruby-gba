@@ -91,7 +91,16 @@ module RubyGBA
           # first — the shape a palette exported from anywhere else on this console has.
           # It pins the bank exactly: nothing is reordered and nothing is added, because
           # the pixels of art made against that table are numbers picking out of it.
-          Picture = Data.define(:key, :colors, :authored) do
+          #
+          # +wide+ says the caller has ALREADY settled that this picture is read a whole
+          # byte a pixel, so its colours have to run across the whole table however few of
+          # them there are. Some hardware leaves no choice — a turning background's map
+          # holds one byte a cell, with no room to name a bank — and then the two decisions
+          # must agree: a picture stored half size under a layer read at full size draws
+          # half a tile of nothing and the wrong colours for the rest.
+          Picture = Data.define(:key, :colors, :authored, :wide) do
+            def initialize(key:, colors:, authored: nil, wide: false) = super
+
             def authored? = !authored.nil?
           end
 
@@ -140,6 +149,8 @@ module RubyGBA
           end
 
           def fits_a_bank?(picture)
+            return false if picture.wide # the caller has already settled this one
+
             picture.authored? || picture.colors.size <= BANK_COLORS
           end
 
