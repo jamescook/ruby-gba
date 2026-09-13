@@ -1,15 +1,34 @@
 #!/bin/sh
-# Block commit messages that embed a bead/tracker id (e.g. gba-5lp).
+# Keep working-method noise out of permanent, public git history.
 #
-# Beads is internal to the workflow; git history is for humans, and a reader of the
-# log has no access to the tracker — the id is noise, and it leaks the internal
-# process into permanent history. Describe the change instead.
+# This repo sets core.hooksPath to .githooks, which REPLACES any global hook rather
+# than adding to it — so the checks a global hook would do are repeated here on
+# purpose. If you change one, change the other.
 #
-# Matches the lowercase "gba-<id>" form the tracker uses (case-sensitive, so prose
-# like "GBA-based" is fine). Comment lines are ignored. Bypass a genuine false
-# positive with:  git commit --no-verify
+# 1. AI-authorship trailers (Co-Authored-By, Claude-Session).
+# 2. Bead/tracker ids of the form gba-<id>. Beads is internal to the workflow, and a
+#    reader of the log has no access to the tracker — the id is noise. Describe the
+#    change instead.
+# 3. A read of the message itself, which warns rather than blocks. Opt-in.
+#
+# The id match is lowercase and case-sensitive, so prose like "GBA-based" is fine.
+# Comment lines are ignored.
+#
+# Bypass a genuine false positive with:  git commit --no-verify
 
 msg_file="$1"
+
+if grep -qi '^co-authored-by:' "$msg_file"; then
+  echo "commit-msg: this message has a 'Co-Authored-By' trailer — not allowed." >&2
+  echo "Remove it and commit again." >&2
+  exit 1
+fi
+
+if grep -qi '^claude-session:' "$msg_file"; then
+  echo "commit-msg: this message has a 'Claude-Session' trailer — not allowed." >&2
+  echo "Remove it and commit again." >&2
+  exit 1
+fi
 
 # The real message, minus git's comment/scissor lines.
 body=$(grep -vE '^[[:space:]]*#' "$msg_file")
@@ -28,6 +47,66 @@ if [ -n "$ids" ]; then
   echo "Keep tracker ids out of git history — say what the change does, not which bead it's for." >&2
   echo "(Genuine false positive? re-run with: git commit --no-verify)" >&2
   exit 1
+fi
+
+# Message-quality review. WARNS, never blocks — a judgement about wording is not something to
+# stop a commit over, and the reviewer is another model and can be wrong. Opt in per machine by
+# creating the sentinel file, which is gitignored:  touch .enable-claude-commit-review
+review_bin=""
+if command -v timeout >/dev/null 2>&1; then
+  review_bin="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  review_bin="gtimeout"
+fi
+
+if [ -f ".enable-claude-commit-review" ] && [ -n "$review_bin" ] && command -v claude >/dev/null 2>&1; then
+  # Merge, revert and fixup wording is git's, not the author's.
+  case "$body" in
+    Merge\ *|Revert\ *|fixup!\ *|squash!\ *) exit 0 ;;
+  esac
+
+  msg_text=$(printf '%s' "$body" | head -c 8000)
+
+  review_prompt="You are a strict reviewer of git commit messages. Judge ONLY the message below.
+
+A GOOD message says WHAT THE CHANGE DOES and, where it is not obvious, why. It is written for a human reading 'git log' months later with no other context. A subject line under about 72 characters, then a body only where there is something non-obvious to say.
+
+THE SUBJECT LINE IS JUDGED HARDEST, because it is the only part most readers see. It must be one claim, with a verb doing real work, naming what a person would NOTICE about a game built with this framework, or about the framework itself. Someone who has never opened this repository should be able to read it and know what it is about. 'Every song pops at the end of its notes' and 'A sprite bigger than the console can draw still moves as one thing' are right. Reject a subject that is any of:
+- A label rather than a claim: a noun phrase with no verb, or a colon or em-dash subtitle bolting a vague half onto a jargon half ('Entity movement: the definition speed through the coarse collision primitive', 'Port the direction from one point to another — the tangent table').
+- Named after the mechanism where the consequence is what matters: the routine, the table, the struct field, the class name, in place of what it lets a game do or stops it doing.
+- Carrying an internal symbol a reader cannot look up (SLOT_GAIN, MIX_ROUTINE_IWRAM_MAX, emit_music_voice_routine, IR::Guardrails, Backends::GBA) without the subject also saying in plain words what it is. A hardware register a GBA programmer would know (DISPCNT, VRAM, OAM) is the same rule: the subject says what it does for the player.
+The body may use any of those terms freely. The subject may not carry them alone.
+
+A BAD message is any of:
+- A narrative of how the work happened: 'first I tried X', 'as discussed', 'continuing from the last change'.
+- Process noise: how many tests were added, whether the suite is green, tool or agent chatter.
+- Restating the diff line by line instead of saying what the change accomplishes.
+- Padding: several sentences making the same point, or over-justifying something simple.
+- Sounding pleased with itself.
+
+Here is the message:
+
+\`\`\`
+${msg_text}
+\`\`\`
+
+Respond in this exact format, nothing else:
+VERDICT: PASS or WARN
+REASON: (if WARN) one sentence per problem, quoting the offending phrase and saying how to cut it. If PASS, say so in one sentence."
+
+  review_result=$(printf '%s' "$review_prompt" | "$review_bin" 60 claude -p --model haiku --allowedTools "" 2>/dev/null || true)
+
+  case "$review_result" in
+    *WARN*)
+      echo "" >&2
+      echo "commit-msg: message review (WARN only, not blocking):" >&2
+      printf '%s\n' "$review_result" >&2
+      echo "" >&2
+      echo "If you're an agent acting on this: AMEND the commit that just succeeded" >&2
+      echo "(git commit --amend), don't add a follow-up commit to fix its message." >&2
+      echo "" >&2
+      ;;
+  esac
 fi
 
 exit 0

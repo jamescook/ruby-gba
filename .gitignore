@@ -35,3 +35,8 @@ CLAUDE.local.md
 # by nature: it says what THIS machine has verified, so committing it would tell a fresh
 # clone the corpus had been scored when nobody had run anything.
 tools/.cost_stamp
+
+# Opt in, per machine, to the commit-msg hook's message review (see .githooks/commit-msg).
+# Local by nature: whether a machine has `claude` on its PATH and wants to spend a call on
+# every commit is that machine's business, not the repo's.
+.enable-claude-commit-review
