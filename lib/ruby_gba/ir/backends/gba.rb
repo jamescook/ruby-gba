@@ -932,7 +932,8 @@ module RubyGBA
         # Forwards to @mixer (see {Mixer}) — the whole sampled-audio picture, from
         # registering samples as ROM data to mixing and playing them.
         def emit_mixer_boot = @mixer.emit_mixer_boot
-        def emit_mixer_tick = @mixer.emit_mixer_tick
+        def emit_mixer_handover = @mixer.emit_mixer_handover
+        def emit_mixer_fill = @mixer.emit_mixer_fill
         def emit_mix_routine = @mixer.emit_mix_routine
 
         # Forwards to @audio (see {Audio}) — the music player the screen's interrupt runs.
@@ -1065,16 +1066,19 @@ module RubyGBA
           # second of sound is a fact about the display and not about how long the game took to
           # think; and it moves the tune on a frame, because a tempo is too. A game whose pass
           # spans two frames comes round here twice, and gets two slices and two frames of tune
-          # — see Mixer#emit_mixer_tick for what went wrong when it did not. The tune goes first,
-          # so a note a recorded part starts this frame is in this frame's slice.
+          # — see Mixer#emit_mixer_fill for what went wrong when it did not. The slice built last
+          # frame is handed to the sound hardware before anything else, at the same moment every
+          # frame (see Mixer#emit_mixer_handover). Then the tune, so a note a recorded part starts
+          # this frame is in the slice built this frame.
           emit_irq_source(IRQ_VBLANK, bios_ack: true) do
+            emit_mixer_handover if @mixer.plays_samples?
             emit_frame_count
             emit_music_tick if @audio.plays_music?
             # ...and between the two, a frame of every sounding note's shape, so a note that has
             # just started has climbed and one that has just ended is on its way down before the
             # slice they are both in is built (see Mixer#emit_envelope_step).
             @mixer.emit_envelope_step if @mixer.shapes_notes?
-            emit_mixer_tick if @mixer.plays_samples?
+            emit_mixer_fill if @mixer.plays_samples?
           end if @uses_vblank
           irq_timers.each do |name, info|
             emit_irq_source(timer_irq_bit(info[:rate])) do

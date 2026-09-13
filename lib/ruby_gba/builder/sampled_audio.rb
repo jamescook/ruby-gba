@@ -27,6 +27,12 @@ module RubyGBA
       # @return [Sample]
       def sample(name, pcm: nil, from: nil, rate: nil, note: :C4, envelope: nil, holds_from: nil)
         raise ArgumentError, "A sample name must be a Symbol. You gave #{name.inspect}." unless name.is_a?(Symbol)
+        if RubyGBA::Music::CONSOLE_VOICE_NAMES.include?(name)
+          raise ArgumentError, "The recording #{name.inspect} has the name of one of the console's own " \
+                               "voices. A song part that says `plays: #{name.inspect}` plays that voice, " \
+                               "not this recording. Give the recording a different name, for example " \
+                               ":#{name}_tone."
+        end
 
         bytes, rate = sample_data(name, pcm, from, rate)
         unless Whole.positive?(rate)

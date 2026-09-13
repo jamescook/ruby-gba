@@ -37,13 +37,16 @@ class TestNoteEnvelope < Minitest::Test
 
   def score(envelope)
     notes = (0...NOTES).map { |n| RubyGBA::Score::Note.new(at: GAP * n, key: :C4, length: 6 + n) }
+    tune_of(notes, envelope)
+  end
+
+  def tune_of(notes, envelope)
     part = RubyGBA::Score::Part.new(plays: :tone, notes: notes, envelope: envelope, volume: 15)
     RubyGBA::Score.new(parts: [part], tempo: TEMPO, ticks_per_beat: TICKS_PER_BEAT,
                        length: GAP * (NOTES + 1))
   end
 
-  def build(envelope, holds_from: nil)
-    tune = score(envelope)
+  def build(envelope, holds_from: nil, tune: score(envelope))
     RubyGBA.build("ENVELOPE", code: "BENV", maker: "01", validate: false) do
       screen :bitmap
       enable_sound
@@ -93,7 +96,7 @@ class TestNoteEnvelope < Minitest::Test
     quiet = 0
     mono.each_index do |i|
       quiet = mono[i].abs < QUIET ? quiet + 1 : 0
-      ends << (i - quiet) if quiet == QUIET_RUN
+      ends << (i - quiet) if quiet == QUIET_RUN && i >= quiet # the silence before the first note ends nothing
     end
     ends.map { |at| steps[[at - QUIET_RUN, 0].max..at].max }
   end
@@ -119,6 +122,46 @@ class TestNoteEnvelope < Minitest::Test
     fading.each_with_index do |step, n|
       assert_operator step, :<=, own,
                       "note #{n} ends with a jump of #{step}, and the wave's own is #{own}"
+    end
+  end
+
+  # THE FASTEST RELEASE ON A RETAIL CARTRIDGE: 89, which keeps about a third of the level each
+  # frame and is silent in six. Most of that fall happens in the first frame, so a level that moved
+  # only at the frame boundary took most of the wave away in one step — a click, a smaller one than
+  # stopping dead but the same thing. The gain slides across the frame instead.
+  FASTEST_RETAIL_RELEASE = RubyGBA::Envelope.new(release: 89)
+
+  def test_the_fastest_retail_release_ends_a_note_without_a_jump
+    require_emulator!
+    own = the_waves_own_step
+
+    mono, steps = rendered(build(FASTEST_RETAIL_RELEASE))
+    ends = steps_at_note_ends(mono, steps)
+
+    assert_equal NOTES, ends.length, "every note should be followed by a rest"
+    ends.each_with_index do |step, n|
+      assert_operator step, :<=, own, "note #{n} ends with a jump of #{step}, and the wave's own is #{own}"
+    end
+  end
+
+  # A NOTE THAT COMES BEFORE THE LAST ONE HAS FINISHED FADING. The last one falls away on its own
+  # voice while the new one sounds on another, so for a moment two waves are playing — and two
+  # waves together can move twice as far in a sample as one. Anything past that is a break in the
+  # sound: the new note taking the old one's voice would stop the old wave dead mid-fade.
+  #
+  # Each note lasts until the next, and each is a frame longer than the last, so they end at
+  # different points of the wave. A slow release as well as the fast one, since a slow fade is
+  # still loud when the next note arrives.
+  def test_a_note_that_arrives_mid_fade_does_not_cut_the_fade_off
+    require_emulator!
+    own = the_waves_own_step
+    notes = (0..NOTES).map { |n| RubyGBA::Score::Note.new(at: (0...n).sum { |k| 8 + k }, key: :C4) }
+
+    [FASTEST_RETAIL_RELEASE, RubyGBA::Envelope.new(release: 188)].each do |shape|
+      _, steps = rendered(build(shape, tune: tune_of(notes, shape)))
+
+      assert_operator steps.max, :<=, own * 2,
+                      "release #{shape.release}: a jump of #{steps.max}, and two waves together move #{own * 2} at most"
     end
   end
 
@@ -183,6 +226,65 @@ class TestNoteEnvelope < Minitest::Test
                     "...and it is quieter the longer it has been falling"
     assert_empty interpret({ release: 0.5 }, frames: 90).active_samples,
                  "and in the end it is over, and its voice goes back"
+  end
+
+  # --- the voices a falling note holds, which both backends have to agree about ---
+
+  VOICES = RubyGBA::Sound::MIXER_VOICES
+  SLOW_RELEASE = RubyGBA::Envelope.new(release: 250) # still sounding a good second after its note
+
+  # A game with two recordings, a part that plays +notes+ shaped by SLOW_RELEASE, and — on pass
+  # +burst+ — as many sounds of the game's own as there are voices.
+  def voices_game(notes, burst: nil)
+    tune = RubyGBA::Score.new(
+      parts: [RubyGBA::Score::Part.new(plays: :low, envelope: SLOW_RELEASE, notes: notes)],
+      tempo: TEMPO, ticks_per_beat: TICKS_PER_BEAT, length: 200
+    )
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      instrument :low, pcm: RECORDING, rate: RATE, note: :C4, holds_from: 0
+      instrument :high, pcm: RECORDING, rate: RATE, note: :C4, holds_from: 0
+      clips = (0...VOICES).map { |n| sample :"s#{n}", pcm: [25 + n, -25 - n] * 8000, rate: 8000 }
+      music = songs :music, [tune]
+      music.play 0
+      pass = var :pass, 0
+      game_loop do
+        pass.add 1
+        (pass == burst).then { clips.each(&:play) } if burst
+      end
+    end
+    b.emit_pending_functions
+    b.program
+  end
+
+  # What each backend has sounding +frames+ in, and what each could not play.
+  def voices_on_both(program, frames:)
+    ruby = Reference.new.run(program, frames: frames)
+    console = assert_emulator_loads_rom(assemble_rom(program, name: "TAILS"), frames: frames + 2)
+    [[ruby.active_samples, ruby.sound_drops], [console.sounding, console.sound_drops]]
+  end
+
+  def test_a_parts_next_note_leaves_the_last_falling_on_its_own_voice
+    notes = [RubyGBA::Score::Note.new(at: 0, key: :C4, instrument: :low),
+             RubyGBA::Score::Note.new(at: 10, key: :C4, instrument: :high)]
+    (ruby, _), (console, _) = voices_on_both(voices_game(notes), frames: 14)
+
+    assert_equal %i[low high], ruby, "the first note falls away on its voice while the second sounds on another"
+    assert_equal ruby, console
+  end
+
+  def test_a_game_sound_takes_a_falling_notes_voice_rather_than_being_dropped
+    notes = [RubyGBA::Score::Note.new(at: 0, key: :C4, length: 4)]
+    ruby, console = voices_on_both(voices_game(notes, burst: 10), frames: 14)
+
+    clips = (0...VOICES).map { |n| :"s#{n}" }
+
+    assert_equal [clips.last] + clips[0...-1], ruby.first,
+                 "every voice is the game's: the last sound took the first voice, which the falling note gave up"
+    assert_equal 0, ruby.last.dropped
+    assert_equal ruby, console
   end
 
   # The four numbers, and the two ways an author can say them.

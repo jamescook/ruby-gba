@@ -105,6 +105,12 @@ module RubyGBA
     WAVE_SHAPES = %i[sine triangle sawtooth].freeze
     DEFAULT_WAVE_SHAPE = :triangle
 
+    # EVERY NAME `plays:` READS AS ONE OF THE CONSOLE'S OWN VOICES rather than as an instrument
+    # (see .resolve_plays). A recording can never be given one of these: `plays: :sine` would
+    # pick the wave voice and not the recording, and the recording would sit in the cartridge
+    # unplayed, with its envelope and its hold point along with it and nothing to say so.
+    CONSOLE_VOICE_NAMES = [:noise, :wave, :square, *WAVE_SHAPES].freeze
+
     # WHAT A PART PLAYS, as plain data, worked out in one place for both ways a song reaches the
     # IR — a `song` block and a `Score` handed over as data. Answers the fields a Part carries,
     # so a part's kind is read off it the same way everywhere (see IR::Tunes.part_kind). The

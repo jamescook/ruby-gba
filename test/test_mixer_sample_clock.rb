@@ -109,6 +109,46 @@ class TestMixerSampleClock < Minitest::Test
     end
   end
 
+  # A FRAME THAT MIXES FAR MORE THAN THE ONE BEFORE IT still hands over in one piece.
+  #
+  # The DMA takes a lot whenever the sound hardware asks, on a grid the clock fixes, and between
+  # two hand-overs it takes as many lots as grid points fell between them. So a hand-over made
+  # later than the last one takes a lot from past the end of the buffer. Made after the mix, a
+  # hand-over was as late as that frame's mix was long — and here every voice but one joins on
+  # the same frame, which makes that frame's mix many lots longer than the one before it.
+  #
+  # One voice is loud and already sounding, so a lot taken from the wrong place is a jump in a
+  # wave that is there to hear. The voices that join are nearly silent: they are only there to
+  # make the mix long.
+  def test_voices_joining_a_sounding_one_do_not_break_it
+    hz = 15_768
+    wave = ->(height) { (0...hz).map { |i| (Math.sin(2 * Math::PI * 220 * i / hz) * height).round } }
+    loud = wave.call(100)
+    quiet = wave.call(1)
+    joining = RubyGBA::Sound::MIXER_VOICES - 1
+    rom = RubyGBA.build("MIXCLK", code: "BMXC", maker: "01", validate: false,
+                        out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      lead = sample :lead, pcm: loud, rate: hz
+      crowd = (1..joining).map { |n| sample :"quiet#{n}", pcm: quiet, rate: hz }
+      frame = var :frame, 0
+      game_loop do
+        frame.add 1
+        (frame == 5).then { lead.play loop: true }
+        (frame == 20).then { crowd.each { |tone| tone.play loop: true } }
+      end
+    end
+    v = assert_emulator_loads_rom(rom, frames: 40)
+    left = v.audio_samples.each_slice(2).map(&:first)
+    around = left[(12 * left.length / 40)...(30 * left.length / 40)] # the lead sounding, and the crowd joining it
+    biggest = around.each_cons(2).map { |a, b| (b - a).abs }.max
+    bar = steepest(v.sample_clock) * 2 * (100 + (quiet.max * joining)) / 100.0
+
+    assert_operator biggest, :<, bar,
+                    "a step of #{biggest} between neighbouring samples, and the voices together cannot " \
+                    "climb faster than #{(bar / 2).round} — so the stream was broken where they joined"
+  end
+
   # Nothing sounding means nothing at all. This is the half that catches the DMA running off
   # the end of a buffer: what is allocated next is the voice slots, and it plays those.
   def test_the_silence_after_a_note_is_silent

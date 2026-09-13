@@ -199,6 +199,17 @@ class TestSongInstruments < Minitest::Test
     assert_match(/instrument :piano/, err.string)
   end
 
+  # `plays: :sine` is the console's wave voice, so a recording called :sine could never be played
+  # by a part — it would sit in the cartridge, envelope and all, and nothing would say so.
+  def test_a_recording_named_like_one_of_the_consoles_own_voices_is_a_friendly_error
+    error = assert_raises(ArgumentError) do
+      Builder.new.instance_eval { instrument :sine, pcm: [60, -60] * 400, rate: 8000 }
+    end
+
+    assert_match(/:sine/, error.message)
+    assert_match(/different name/, error.message)
+  end
+
   def test_the_instrument_handle_works_as_well_as_its_name
     b = Builder.new
     b.instance_eval do

@@ -622,7 +622,10 @@ module RubyGBA
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_LEVEL))
             @emitter.emit(ASM.ldr_offset(ACC, voice, Mixer::SLOT_VOL))
             @emitter.emit(ASM.mov_imm_cond(:ne, ACC, 0))     # a shaped note is silent until it climbs
+            @emitter.emit(ASM.lsl_imm(ACC, ACC, Mixer::GAIN_FRACTION))
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_GAIN))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_RAMP)) # and it does not slide
           end
 
           # EVERY TUNE THE PROGRAM PLAYS, as one piece of data:

@@ -48,17 +48,14 @@ module RubyGBA
   # (out of 256, so 216 keeps about six sevenths of it and 89 keeps about a third), and
   # +sustain+ is the level it holds at.
   #
-  # WHAT IT COSTS is one pass over the sounding voices once a frame — not per sample. The level
-  # holds still for the whole of a frame's worth of sound, so it is folded into the loudness the
-  # mix already multiplies by, and the mix's inner loop does not change at all. That is also
-  # what the console's own retail sound engine does, which is where the four numbers come from.
-  #
-  # AND IT IS WHY A VERY FAST FADE STILL STEPS. The level moves at the frame boundary and nowhere
-  # else, so the fall the speaker hears is a staircase: a fade over thirty frames takes a small
-  # step each time and is inaudible, where one over three takes most of the way in a single step
-  # and is a quieter click rather than no click. About a quarter of a second is where it stops
-  # being audible, and the numbers a retail cartridge carries are all in that range or slower.
-  # Nothing stops you asking for less; it is just worth knowing what you get.
+  # WHAT IT COSTS is one pass over the sounding voices once a frame, where the four numbers move
+  # the level — and then one addition per sample, in the mix, to slide the loudness there. The
+  # console's own retail sound engine moves the level at the frame boundary and nowhere else,
+  # which makes a fade a staircase, and a fast fade takes most of its fall in the first step: the
+  # fastest release on a retail cartridge, 89, keeps about a third of the level each frame, so its
+  # first step is two thirds of the wave and is a click. Slid across the frame's samples instead,
+  # no fade steps further in one sample than the wave itself does. A game that shapes no note
+  # emits none of this, and its mix is the one it always had.
   Envelope = Data.define(:attack, :decay, :sustain, :release)
 
   class Envelope

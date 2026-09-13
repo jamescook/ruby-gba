@@ -53,6 +53,12 @@ module RubyGBA
           # about when a note is over.
           FALLING = RubyGBA::Envelope::FALLING
 
+          # ...and the frame after a note has fallen to nothing, which the console spends mixing
+          # the last of the fade (GBA::Mixer::PHASE_DONE) and this backend spends holding the voice
+          # so it is given back on the same frame. Which frame a voice comes free on decides which
+          # voice the next note gets, so the two have to agree about it.
+          DONE = :done
+
           # Whose a voice is, when it is not a song's.
           GAME = :game
 
@@ -111,11 +117,12 @@ module RubyGBA
           # cut each other off), remembering how many frames it runs for (from its length and
           # rate) so a looping voice can re-trigger itself at the end. A one-shot voice simply
           # falls silent there. It takes the first free voice, as the console does; with none
-          # free, the new one is dropped.
+          # free, the quietest of a song's notes that is falling away (see #take_for_music); with
+          # none of those either, the new one is dropped.
           def start(node)
             info = sample_info(node.name)
             @log << [:sample, node.name]
-            free = @slots.index(nil) or return note_drop
+            free = @slots.index(nil) || quietest_tail or return note_drop
 
             # A pitched voice reads its sample faster (higher notes) or slower (lower), so it
             # plays out in proportionally fewer or more frames.
@@ -166,9 +173,14 @@ module RubyGBA
           # --- the voices a song's recorded parts borrow ---
 
           # WHICH VOICE A SONG'S NOTE GETS, by the rule the console's player keeps
-          # (GBA::Mixer#emit_music_voice_routine): the part's own voice if it is still sounding,
-          # or the first free one, or — with none free — the voice of the game's sound that has
-          # been playing longest, a one-shot before a loop. That sound is cut short.
+          # (GBA::Mixer#emit_music_voice_routine): the part's own voice if it is still sounding a
+          # note with no shape, or the first free one, or the quietest note falling away, or —
+          # with none of those — the voice of the game's sound that has been playing longest, a
+          # one-shot before a loop. That sound is cut short.
+          #
+          # A part's sounding note WITH a shape is not taken over: its note ends here, and it falls
+          # away on its own voice while the new note takes another. Taking it over would stop the
+          # old wave dead, which is the click the shape is there to remove.
           #
           # +lane+ is the part, by number. +name+ is the recording and +frequency+ the note, out
           # of which comes how many frames the recording lasts read at that pitch: a higher note
@@ -178,7 +190,9 @@ module RubyGBA
           def take_for_music(lane, name, frequency, envelope = nil)
             info = @samples[name] ||
                    raise(ProgramError, "a song part plays #{name.inspect}, which is not declared")
-            slot = @slots.index { |v| v && v.owner == lane } || @slots.index(nil) ||
+            own = sounding_note(lane)
+            own = nil if own && falling!(@slots[own])
+            slot = own || @slots.index(nil) || quietest_tail ||
                    @slots.each_index.select { |i| @slots[i].owner == GAME }.min_by { |i| @slots[i].ticket }
             frames = frames_for(info, frequency / Music::NOTE_FREQUENCIES.fetch(info.note || :C4).to_f)
             @slots[slot] = Voice.new(name: name, owner: lane, frames_left: frames,
@@ -192,16 +206,31 @@ module RubyGBA
           # more quietly each frame, until there is none of it left (see #step_envelopes). That
           # is the whole difference between a note that ends and a note that clicks.
           def release_music(lane)
-            slot = @slots.index { |v| v && v.owner == lane }
+            slot = sounding_note(lane)
             return unless slot
 
             @slots[slot] = nil unless falling!(@slots[slot])
           end
 
           # Every voice a song holds is let go — what changing tune, or stopping, does. The ones
-          # with a shape fall away rather than stopping, same as a part's own rest.
+          # with a shape fall away rather than stopping, same as a part's own rest, and the ones
+          # already falling carry on as they were.
           def release_all_music
-            @slots.map! { |voice| voice if voice.nil? || voice.owner == GAME || falling!(voice) }
+            @slots.map! { |voice| voice if voice.nil? || voice.owner == GAME || tail?(voice) || falling!(voice) }
+          end
+
+          # The voice sounding a part's note now — not one of its earlier notes falling away.
+          def sounding_note(lane) = @slots.index { |v| v && v.owner == lane && !tail?(v) }
+
+          # A song's note that has ended and is falling away, or has just finished falling.
+          def tail?(voice) = voice.owner != GAME && [FALLING, DONE].include?(voice.phase)
+
+          # THE QUIETEST OF A SONG'S NOTES FALLING AWAY — the first thing to give way when a voice
+          # is wanted and none is free, since it is on its way out already, and cutting the
+          # quietest short is the smallest jump. The first of them, when two are as quiet, which is
+          # the one the console's walk over its voices keeps.
+          def quietest_tail
+            @slots.each_index.select { |i| @slots[i] && tail?(@slots[i]) }.min_by { |i| @slots[i].level }
           end
 
           # Tell a voice its note has ended. True when it has a shape to fall through, so the
@@ -233,13 +262,14 @@ module RubyGBA
           # runs between the tune's frame and the mix (GBA::Mixer#emit_envelope_step). The rule
           # itself is neither backend's: it is {RubyGBA::Envelope}#step, so the two cannot differ
           # about how fast a note fades. A note that has fallen to nothing is over, and its voice
-          # goes back.
+          # goes back on the frame after — the frame the console spends mixing the last of it.
           def step_envelopes
             @slots.each_with_index do |voice, slot|
               next unless voice&.envelope
+              next @slots[slot] = nil if voice.phase == DONE
 
               voice.level, voice.phase = voice.envelope.step(voice.level, voice.phase)
-              @slots[slot] = nil if voice.level.zero? && voice.phase == FALLING
+              voice.phase = DONE if voice.level.zero? && voice.phase == FALLING
             end
           end
 
