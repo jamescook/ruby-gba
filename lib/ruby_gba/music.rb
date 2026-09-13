@@ -164,7 +164,10 @@ module RubyGBA
     # every other part carries the answer a drum would have given and nobody looks. That is the
     # trade an optional field makes: one harmless value on every part, against a `|| :fast`
     # written at each reader and a key that might not be there.
-    Part = Data.define(:events, :duty, :volume, :instrument, :wave, :noise, :decay, :metallic, :name)
+    # +envelope+ shapes how each of this part's notes starts and ends — read only by a part that
+    # plays a recording, since the console's own voices shape their own notes.
+    Part = Data.define(:events, :duty, :volume, :instrument, :wave, :noise, :decay, :metallic,
+                       :name, :envelope)
 
     class Part
       # WHAT A PART CARRIES WHEN IT SAYS NOTHING — every optional field's answer, in one place,
@@ -172,7 +175,7 @@ module RubyGBA
       # writing a part back as the call that builds it) cannot drift apart. +events+ is not
       # here: a part with no notes in it is a part nobody wrote.
       DEFAULTS = { duty: :half, volume: 12, instrument: nil, wave: nil,
-                   noise: false, decay: :fast, metallic: false, name: nil }.freeze
+                   noise: false, decay: :fast, metallic: false, name: nil, envelope: nil }.freeze
 
       def initialize(events:, **said) = super(events: events, **DEFAULTS.merge(said))
 
@@ -193,10 +196,11 @@ module RubyGBA
     class VoiceContext
       attr_reader :events
 
-      def initialize(song, plays: nil, name: nil)
+      def initialize(song, plays: nil, name: nil, envelope: nil)
         @song = song       # the shared tempo is read back through this
         @name = name       # what the song calls this part, for a message about it
         @plays = Music.resolve_plays(plays)
+        @envelope = Envelope.of(envelope, "the part #{(name || plays).inspect}")
         @duty = :half
         @volume = 12
         @decay = :fast     # a drum hit, for a part on the noise voice
@@ -238,8 +242,15 @@ module RubyGBA
       #
       # @param pitch [Symbol, Integer] note name (:C4, :Fs4) or frequency in Hz
       # @param duration [Symbol] :whole, :half, :quarter, :eighth, :sixteenth, etc.
-      def note(pitch, duration)
-        @events << [@current_frame, resolve_pitch(pitch)]
+      # An +envelope+ here shapes this one note instead of the part's — a note plucked where the
+      # rest are bowed.
+      # An event is read by position and a note that says nothing leaves the later slots off
+      # entirely — so the shape a note can have costs nothing to every note that has none, and
+      # a song written before shapes existed builds the events it always did.
+      def note(pitch, duration, envelope: nil)
+        shape = Envelope.of(envelope, "a note of the part #{(@name || @plays[:instrument]).inspect}")
+        @events << (shape ? [@current_frame, resolve_pitch(pitch), nil, nil, shape]
+                          : [@current_frame, resolve_pitch(pitch)])
         @current_frame += duration_frames(duration)
       end
 
@@ -264,7 +275,7 @@ module RubyGBA
       # voice it plays on, and its name, when it has one.
       def to_voice
         Part.new(events: @events, duty: @duty, volume: @volume, decay: @decay,
-                 metallic: @metallic, name: @name, **@plays)
+                 metallic: @metallic, name: @name, envelope: @envelope, **@plays)
       end
 
       private
@@ -332,9 +343,9 @@ module RubyGBA
       #
       # The last two cost NO mixer voice — the console makes those sounds itself — so a busy
       # song reaches for them before it reaches for another recording.
-      def voice(name = nil, plays: nil, &block)
+      def voice(name = nil, plays: nil, envelope: nil, &block)
         raise ArgumentError, mixed_message if @default_voice
-        vc = VoiceContext.new(self, plays: plays, name: name)
+        vc = VoiceContext.new(self, plays: plays, name: name, envelope: envelope)
         vc.instance_eval(&block)
         @voices << { name: name, voice: vc }
         @has_blocks = true

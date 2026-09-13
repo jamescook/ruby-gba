@@ -41,8 +41,17 @@ module RubyGBA
           # +ticket+ says which play started it, so the one playing longest is known when a
           # song's note needs a voice. It is [loops?, count] so that a sound which loops sorts
           # after every one-shot — a loop never ends by itself, so it gives way last.
+          # +envelope+ and the two beside it are the shape of the note, when it has one: +level+ is
+          # how far it has climbed or fallen (0 to Envelope::FULL) and +phase+ which part of the
+          # note it is in. A voice with no envelope carries none of it and sounds flat out, which
+          # is what every voice did before shapes existed.
           Voice = Struct.new(:name, :owner, :loop, :volume, :pitch, :frames_left, :frames_total,
-                             :ticket, keyword_init: true)
+                             :ticket, :envelope, :level, :phase, keyword_init: true)
+
+          # Which part of a note a voice is in. Named where the rule that moves it is
+          # ({RubyGBA::Envelope}), so this backend and the console's own pass cannot drift apart
+          # about when a note is over.
+          FALLING = RubyGBA::Envelope::FALLING
 
           # Whose a voice is, when it is not a song's.
           GAME = :game
@@ -114,8 +123,18 @@ module RubyGBA
             @slots[free] = Voice.new(name: node.name, owner: GAME, loop: node.loop,
                                      volume: node.volume, pitch: node.pitch,
                                      frames_left: frames, frames_total: frames,
-                                     ticket: [node.loop ? 1 : 0, @tickets += 1])
+                                     ticket: [node.loop ? 1 : 0, @tickets += 1],
+                                     **shaped(info.envelope))
             count_the_voices
+          end
+
+          # WHERE A NOTE STARTS IN ITS OWN SHAPE. One with a shape starts at nothing and climbs;
+          # one without carries no shape at all and sounds flat out, which is what every voice
+          # did before shapes existed.
+          def shaped(envelope)
+            shape = envelope && !envelope.plain? ? envelope : nil
+            { envelope: shape, level: shape ? 0 : RubyGBA::Envelope::FULL,
+              phase: RubyGBA::Envelope::CLIMBING }
           end
 
           # Stop a sample: drop its voices from the mix (or every voice of the game's, if no
@@ -154,34 +173,81 @@ module RubyGBA
           # +lane+ is the part, by number. +name+ is the recording and +frequency+ the note, out
           # of which comes how many frames the recording lasts read at that pitch: a higher note
           # reads it faster, so it runs out sooner.
-          def take_for_music(lane, name, frequency)
+          # +envelope+ is the shape this note was asked for — the note's own, or its part's. A note
+          # that asks for none takes whatever the recording itself was declared with.
+          def take_for_music(lane, name, frequency, envelope = nil)
             info = @samples[name] ||
                    raise(ProgramError, "a song part plays #{name.inspect}, which is not declared")
             slot = @slots.index { |v| v && v.owner == lane } || @slots.index(nil) ||
                    @slots.each_index.select { |i| @slots[i].owner == GAME }.min_by { |i| @slots[i].ticket }
             frames = frames_for(info, frequency / Music::NOTE_FREQUENCIES.fetch(info.note || :C4).to_f)
-            @slots[slot] = Voice.new(name: name, owner: lane, frames_left: frames)
+            @slots[slot] = Voice.new(name: name, owner: lane, frames_left: frames,
+                                     frames_total: frames, loop: info.held_by.positive?,
+                                     **shaped(envelope || info.envelope))
           end
 
           # A part rests: its voice, if it still has one, goes quiet and is free for anybody.
+          #
+          # A SHAPED NOTE IS NOT SILENCED HERE, only told to start falling — it goes on sounding,
+          # more quietly each frame, until there is none of it left (see #step_envelopes). That
+          # is the whole difference between a note that ends and a note that clicks.
           def release_music(lane)
             slot = @slots.index { |v| v && v.owner == lane }
-            @slots[slot] = nil if slot
+            return unless slot
+
+            @slots[slot] = nil unless falling!(@slots[slot])
           end
 
-          # Every voice a song holds is freed — what changing tune, or stopping, does.
+          # Every voice a song holds is let go — what changing tune, or stopping, does. The ones
+          # with a shape fall away rather than stopping, same as a part's own rest.
           def release_all_music
-            @slots.map! { |voice| voice if voice.nil? || voice.owner == GAME }
+            @slots.map! { |voice| voice if voice.nil? || voice.owner == GAME || falling!(voice) }
           end
 
-          # A frame of the recorded parts' voices: a recording that has played out stops.
+          # Tell a voice its note has ended. True when it has a shape to fall through, so the
+          # caller keeps it; false when it has none and simply stops.
+          def falling!(voice)
+            return false unless voice.envelope
+
+            voice.phase = FALLING
+            true
+          end
+
+          # A frame of the recorded parts' voices: a recording that has played out stops, unless
+          # it is one that HOLDS — then it reads round its hold point again, so a note can last
+          # longer than the recording it is made of.
           def age_music
             @slots.map! do |voice|
               next voice unless voice && voice.owner != GAME
 
               voice.frames_left -= 1
-              voice if voice.frames_left.positive?
+              next voice if voice.frames_left.positive?
+              next nil unless voice.loop
+
+              voice.frames_left = voice.frames_total
+              voice
             end
+          end
+
+          # ONE FRAME OF EVERY SOUNDING NOTE'S SHAPE — the counterpart of the pass the console
+          # runs between the tune's frame and the mix (GBA::Mixer#emit_envelope_step). The rule
+          # itself is neither backend's: it is {RubyGBA::Envelope}#step, so the two cannot differ
+          # about how fast a note fades. A note that has fallen to nothing is over, and its voice
+          # goes back.
+          def step_envelopes
+            @slots.each_with_index do |voice, slot|
+              next unless voice&.envelope
+
+              voice.level, voice.phase = voice.envelope.step(voice.level, voice.phase)
+              @slots[slot] = nil if voice.level.zero? && voice.phase == FALLING
+            end
+          end
+
+          # How loud a sounding voice is right now, out of {RubyGBA::Envelope}::FULL — its first
+          # voice, or nil when it is not sounding at all. What a test reads to see a note fall
+          # away instead of stopping.
+          def level_of(name)
+            @slots.compact.find { |v| v.name == name }&.level
           end
 
           # Note how much polyphony is in use. Called wherever a voice is taken, by the game or

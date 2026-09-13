@@ -98,6 +98,10 @@ module RubyGBA
         # The level a currently-sounding sample is playing at — see {Mixer#volume_of}.
         def volume_of(name) = @mixer.volume_of(name)
 
+        # How far through its own shape a sounding note is — see {Mixer#level_of}. What a test
+        # reads to watch a note fall away rather than stop.
+        def level_of(name) = @mixer.level_of(name)
+
         # +save+ is the cartridge's save memory — an external store that outlives the
         # interpreter, so passing the SAME object to two Reference.new(...).run calls models
         # a power cycle (the second boot sees what the first one saved). Defaults to a
@@ -666,8 +670,15 @@ module RubyGBA
           @timers.each { |name, t| accrue_timer(name, t) if t[:running] }
           @mixer.advance
           # The tune moves on once for every frame that really passed, not once for the pass:
-          # the console plays it from the screen's own interrupt, which keeps real time.
-          took.times { @player.advance }
+          # the console plays it from the screen's own interrupt, which keeps real time. Then a
+          # frame of every sounding note's shape, and then the mix — the console's own order, so
+          # a note that has just started has climbed and one that has just ended is on its way
+          # down before either is heard (see GBA::Mixer#emit_envelope_step).
+          took.times do
+            @player.advance
+            @mixer.step_envelopes
+            @mixer.age_music
+          end
           @held = to_button_set(Array(@input_script.call(@frame))) if @input_script
           @log << [:vblank, @frame]
           @on_vblank&.call(@frame)

@@ -57,6 +57,7 @@ module RubyGBA
         waveform: ->(v) { v.is_a?(Symbol) || (v.is_a?(Array) && v.all?(Integer)) },
         branch:  ->(v) { v.is_a?(Node) && v.kind == :else },   # an if's else-branch node
         flag:    ->(v) { v == true || v == false },            # an on/off switch (e.g. double buffering)
+        shape:   ->(v) { v.is_a?(Envelope) },                  # how a note starts and how it ends
       }.freeze
 
       # Verify a whole program tree. Returns the node on success; raises

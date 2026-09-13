@@ -29,9 +29,29 @@ module RubyGBA
 
       # Every instrument a song names — for its parts, and for any note that names its own.
       def instruments(song)
+        soundings(song).map(&:name).uniq
+      end
+
+      # WHAT ONE NOTE SOUNDS: the recording it plays, and the envelope that shapes how it starts
+      # and ends. The two travel together because they are one thing to a sounding voice, and
+      # keeping them together is what makes an envelope free per note: two notes on the same
+      # recording shaped differently are two of these, each gets its own entry in the score's
+      # table of recordings, and a note names an entry by the number it already carried.
+      #
+      # A nil envelope is "whatever the recording itself was declared with", which only the
+      # backend knows, since it is the one holding the declarations.
+      Sounding = Data.define(:name, :envelope)
+
+      # Every sounding a song asks for. A note's own instrument and envelope win over the part's,
+      # and the part's own pairing is here too, for a part whose notes all say nothing.
+      def soundings(song)
         song.voices.flat_map do |part|
-          [part.instrument, *part.events.map { |event| event[2] }]
-        end.compact.uniq
+          next [] unless part.instrument
+
+          part.events.map do |event|
+            Sounding.new(name: event[2] || part.instrument, envelope: event[4] || part.envelope)
+          end.push(Sounding.new(name: part.instrument, envelope: part.envelope))
+        end.uniq
       end
 
       # WHICH OF THE CONSOLE'S VOICES A PART PLAYS ON, read off the part itself. One reader, so

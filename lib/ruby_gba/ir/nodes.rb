@@ -605,7 +605,8 @@ module RubyGBA
         include Node
         kind :sample
         category :data
-        operands name: :name, bytes: :text, rate: :int, note: :option
+        operands name: :name, bytes: :text, rate: :int, note: :option,
+                 envelope: :shape, holds_from: :int
       end
 
       class SaveInit

@@ -1070,6 +1070,10 @@ module RubyGBA
           emit_irq_source(IRQ_VBLANK, bios_ack: true) do
             emit_frame_count
             emit_music_tick if @audio.plays_music?
+            # ...and between the two, a frame of every sounding note's shape, so a note that has
+            # just started has climbed and one that has just ended is on its way down before the
+            # slice they are both in is built (see Mixer#emit_envelope_step).
+            @mixer.emit_envelope_step if @mixer.shapes_notes?
             emit_mixer_tick if @mixer.plays_samples?
           end if @uses_vblank
           irq_timers.each do |name, info|

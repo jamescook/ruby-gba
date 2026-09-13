@@ -8,6 +8,7 @@ require_relative "ruby_gba/color"
 require_relative "ruby_gba/sound"
 require_relative "ruby_gba/music" # before the IR: the backends size their music player by it
 require_relative "ruby_gba/score" # music handed over as data, rather than written as a block
+require_relative "ruby_gba/envelope" # how a note starts and how it ends, so an edge is not a click
 require_relative "ruby_gba/asm"
 require_relative "ruby_gba/progress" # what a build says it is doing while it does it
 require_relative "ruby_gba/ir"

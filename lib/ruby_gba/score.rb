@@ -65,13 +65,18 @@ module RubyGBA
       parts.flat_map(&:notes).map { |note| note.at + (note.length || ticks_per_beat) }.max || 0
     end
 
-    Part = Data.define(:notes, :plays, :volume, :duty, :decay, :metallic)
+    Part = Data.define(:notes, :plays, :volume, :duty, :decay, :metallic, :envelope)
 
     class Part
       # +decay+ and +metallic+ are read only by a part on the noise voice (`plays: :noise`) —
       # how fast a hit fades, and whether it rattles or thuds. Every other kind of part holds
       # its note until the next one, so there is nothing for them to say.
-      def initialize(notes:, plays: nil, volume: 12, duty: :half, decay: :fast, metallic: false)
+      #
+      # +envelope+ shapes how each of this part's notes starts and ends — read only by a part
+      # that plays a recording, since the console's own voices shape their own. A part that says
+      # nothing takes whatever the instrument it plays was declared with.
+      def initialize(notes:, plays: nil, volume: 12, duty: :half, decay: :fast, metallic: false,
+                     envelope: nil)
         super
       end
 
@@ -80,14 +85,15 @@ module RubyGBA
       # reaches the IR cannot disagree about it (see Music::Part.playing).
       def to_voice(frames, total)
         Music::Part.playing(plays, events: Events.of(self, frames, total), duty: duty,
-                                   volume: volume, decay: decay, metallic: metallic)
+                                   volume: volume, decay: decay, metallic: metallic,
+                                   envelope: Envelope.of(envelope, "a part"))
       end
     end
 
-    Note = Data.define(:at, :key, :length, :instrument, :volume)
+    Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope)
 
     class Note
-      def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil)
+      def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil, envelope: nil)
         super
       end
 
@@ -141,12 +147,13 @@ module RubyGBA
       def of(part, frames, total)
         notes = part.notes.sort_by(&:at)
         events = notes.each_with_index.flat_map do |note, n|
-          on = [frames.at(note.at), note.frequency, note.instrument_name, note.volume]
+          on = [frames.at(note.at), note.frequency, note.instrument_name, note.volume,
+                Envelope.of(note.envelope, "a note")]
           next [on] unless note.length
 
           ends = note.at + note.length
           following = notes[n + 1]
-          following && following.at <= ends ? [on] : [on, [frames.at(ends), 0, nil, nil]]
+          following && following.at <= ends ? [on] : [on, [frames.at(ends), 0, nil, nil, nil]]
         end
         events.each_with_object({}) { |event, by_frame| by_frame[event.first] = event }
               .values.select { |event| event.first < total }.sort_by(&:first)

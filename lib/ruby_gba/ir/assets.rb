@@ -41,10 +41,20 @@ module RubyGBA
       # A recorded sound: how many samples a second it was recorded at, how many there are,
       # and the note it was played at when recorded (which is what playing it at another
       # pitch is measured from).
-      Sample = Data.define(:rate, :length, :note) do
+      # +holds_from+ is where a held note reads back to at the end of the recording, as a sample
+      # number, or nil for one that runs out. It is kept as HOW FAR BACK that is rather than
+      # where it starts, because that is what a voice needs: the mixer moves its read pointer
+      # back by this when it reaches the end, which is one subtraction and no arithmetic about
+      # where the recording began.
+      Sample = Data.define(:rate, :length, :note, :envelope, :holds_from) do
         def self.of(node)
-          new(rate: node.rate, length: node.bytes.bytesize, note: node.note)
+          new(rate: node.rate, length: node.bytes.bytesize, note: node.note,
+              envelope: node.envelope, holds_from: node.holds_from)
         end
+
+        # How far a held note goes back at the end of the recording, or 0 for one that stops
+        # there. A recording that holds from its very start goes back by the whole of it.
+        def held_by = holds_from ? length - holds_from : 0
       end
     end
   end

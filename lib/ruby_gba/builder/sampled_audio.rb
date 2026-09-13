@@ -25,7 +25,7 @@ module RubyGBA
       # @param from [String, nil] a .wav file to load (or use pcm:)
       # @param rate [Integer, nil] samples per second — defaults to the WAV's rate, or 8192 for pcm:
       # @return [Sample]
-      def sample(name, pcm: nil, from: nil, rate: nil, note: :C4)
+      def sample(name, pcm: nil, from: nil, rate: nil, note: :C4, envelope: nil, holds_from: nil)
         raise ArgumentError, "A sample name must be a Symbol. You gave #{name.inspect}." unless name.is_a?(Symbol)
 
         bytes, rate = sample_data(name, pcm, from, rate)
@@ -35,7 +35,9 @@ module RubyGBA
         raise ArgumentError, "sample :#{name} has no sound data. The samples or the .wav file are empty." if bytes.empty?
         Sample.validate_note!(note, "sample :#{name} note:")
 
-        record(IR::Build.sample(name, bytes, rate, note: note))
+        record(IR::Build.sample(name, bytes, rate, note: note,
+                                                   envelope: Envelope.of(envelope, "sample :#{name}"),
+                                                   holds_from: holds_point(name, holds_from, bytes.bytesize, rate)))
         Sample.new(self, name)
       end
 
@@ -48,11 +50,35 @@ module RubyGBA
       #   piano.play(:C4, :E4, :G4)   # ...or a chord
       #
       # @return [Instrument]
-      def instrument(name, pcm: nil, from: nil, rate: nil, note: :C4)
-        Instrument.new(self, sample(name, pcm: pcm, from: from, rate: rate, note: note))
+      def instrument(name, pcm: nil, from: nil, rate: nil, note: :C4, envelope: nil, holds_from: nil)
+        Instrument.new(self, sample(name, pcm: pcm, from: from, rate: rate, note: note,
+                                          envelope: envelope, holds_from: holds_from))
       end
 
       private
+
+      # WHERE A HELD NOTE READS BACK TO, as a sample number. A recording is finite and a note can
+      # outlast it: a piano recorded for half a second, held for two. Without this the note ends
+      # where the recording does, which is both too early and a click — the sound stops at
+      # whatever the wave was doing.
+      #
+      # Said as a time in seconds (a Float) or as a sample number (a whole number), which is the
+      # same Float-or-Integer rule the rest of the framework uses — and which matters here
+      # because a recording taken out of another game arrives with a sample number and nothing
+      # else.
+      def holds_point(name, holds_from, length, rate)
+        return nil if holds_from.nil?
+
+        at = holds_from.is_a?(Float) ? (holds_from * rate).round : holds_from
+        unless at.is_a?(Integer) && at >= 0 && at < length
+          raise ArgumentError, "sample :#{name} holds from #{holds_from.inspect}, and it is " \
+                               "#{length} samples long (#{format('%.2f', length.fdiv(rate))} seconds). " \
+                               "A held note reads back to a point inside the recording. Give a time " \
+                               "in seconds, like 0.4, or a sample number."
+        end
+
+        at
+      end
 
       # Resolve the sample's [bytes, rate] from whichever source was given — a WAV file
       # (its own rate, unless overridden) or raw pcm: samples — insisting on exactly one.

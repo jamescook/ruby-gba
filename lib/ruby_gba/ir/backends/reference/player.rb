@@ -90,18 +90,17 @@ module RubyGBA
             song.voices.each_with_index do |part, number|
               kind = IR::Tunes.part_kind(part)
               lane = kind == :recorded ? (recorded += 1) - 1 : nil
-              offset, frequency, instrument = @events[number][@cursors[number]]
+              offset, frequency, instrument, _volume, envelope = @events[number][@cursors[number]]
               next unless offset == @frame
 
               @log << [:note, @playing, frequency]
               # A part on the WAVE or NOISE voice: the console makes the sound itself, so no
               # mixer voice is taken — the whole point of putting a part there.
               console_voice(kind, part, frequency) if %i[wave noise].include?(kind)
-              sound_recording(lane, part, instrument, frequency) if lane
+              sound_recording(lane, part, instrument, frequency, envelope) if lane
               @cursors[number] += 1
             end
             @mixer.count_the_voices
-            @mixer.age_music
             come_round(song)
           end
 
@@ -133,11 +132,13 @@ module RubyGBA
           end
 
           # A note on one of the mixer's voices: it starts from the top of the recording the
-          # note names (or the part's own), and a rest gives the voice back.
-          def sound_recording(lane, part, instrument, frequency)
+          # note names (or the part's own), shaped the way the note asks (or the part, or the
+          # recording itself), and a rest gives the voice back.
+          def sound_recording(lane, part, instrument, frequency, envelope)
             return @mixer.release_music(lane) if frequency.zero?
 
-            @mixer.take_for_music(lane, instrument || part.instrument, frequency)
+            @mixer.take_for_music(lane, instrument || part.instrument, frequency,
+                                  envelope || part.envelope)
           end
 
           # A SONG'S NOTE ON THE WAVE OR NOISE VOICE. The console makes both sounds itself, so

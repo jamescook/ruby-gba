@@ -279,8 +279,12 @@ module RubyGBA
       # Define a named PCM sample: +bytes+ is its 8-bit signed samples (a binary string),
       # +rate+ how many of them play per second (its recording rate in Hz). +note+ is the
       # musical pitch it was recorded at — the reference `play(pitch:)` shifts from.
-      def sample(name, bytes, rate, note: :C4)
-        Nodes.build(:sample, name: name, bytes: bytes, rate: rate, note: note)
+      # +envelope+ shapes how a note on it starts and ends (nil for the plain note that starts
+      # and stops dead); +holds_from+ is the sample a held note reads back to when it reaches
+      # the end, or nil for a recording that simply runs out.
+      def sample(name, bytes, rate, note: :C4, envelope: nil, holds_from: nil)
+        Nodes.build(:sample, name: name, bytes: bytes, rate: rate, note: note,
+                             envelope: envelope, holds_from: holds_from)
       end
 
       # Play the named sample from the start. +loop+ true replays it seamlessly on a

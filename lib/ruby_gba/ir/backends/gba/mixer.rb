@@ -58,16 +58,35 @@ module RubyGBA
           CLOCK_TIMER = 0
 
           # A voice slot, in EWRAM: the sample's address in ROM, how far it has played (a whole
-          # sample index), its length, whether it loops, whether it's sounding, its level
-          # (0..64), and — for pitch — a 16.16 fixed-point STEP (how many source samples to
-          # advance per output sample: 1.0 = 0x10000 plays at the recorded pitch, 2.0 an
-          # octave up) plus a FRAC accumulator carrying the leftover fraction between frames,
-          # kept in its TOP 16 bits so that adding to it overflows exactly when a whole
-          # sample is due (see #emit_mix_routine).
+          # sample index), its length, HOW FAR BACK it goes at the end (0 for a sound that plays
+          # once), whether it's sounding, its level (0..64), and — for pitch — a 16.16
+          # fixed-point STEP (how many source samples to advance per output sample: 1.0 = 0x10000
+          # plays at the recorded pitch, 2.0 an octave up) plus a FRAC accumulator carrying the
+          # leftover fraction between frames, kept in its TOP 16 bits so that adding to it
+          # overflows exactly when a whole sample is due (see #emit_mix_routine).
+          #
+          # LOOP IS A DISTANCE AND NOT A FLAG, which is what lets a note be HELD: a piano
+          # recorded for half a second and held for two reads round a point part way in rather
+          # than starting over, so the attack is heard once and the body of the note goes on for
+          # as long as the note does. A sound that loops in the ordinary way goes back by its
+          # whole length, which is the same subtraction — so the mix has one case, not two, and
+          # it is one instruction shorter than the flag was.
+          #
           # A game sound's slot also keeps its TICKET — which play started it, counting up — so
           # the one playing longest can be told apart when a song's note needs its voice. A
           # sound that loops has the top bit set, which makes it later than every sound that
           # plays once, so it is the last to go.
+          #
+          # THEN THE ENVELOPE, for a voice that has one (see {RubyGBA::Envelope}): the four
+          # numbers packed into ENV, where the LEVEL has climbed or fallen to, which PHASE of the
+          # note it is in, and GAIN — the loudness the mix actually multiplies by, which is VOL
+          # scaled by that level. ENV of 0 means no envelope at all, and then none of the four is
+          # ever read and the gain never moves.
+          #
+          # THE GAIN IS WORKED OUT ONCE A FRAME, by the pass before the mix, and that is the
+          # whole reason a shaped note costs nothing per sample: the level cannot change inside a
+          # frame, so there is nothing for the inner loop to do about it. It is also what the
+          # console's own retail sound engine does, which is where the four numbers come from.
           SLOT_SRC = 0
           SLOT_POS = 4
           SLOT_LEN = 8
@@ -77,7 +96,22 @@ module RubyGBA
           SLOT_STEP = 24
           SLOT_FRAC = 28
           SLOT_TICKET = 32
-          SLOT_BYTES = 36
+          SLOT_ENV = 36
+          SLOT_LEVEL = 40
+          SLOT_PHASE = 44
+          SLOT_GAIN = 48
+          SLOT_BYTES = 52
+
+          # Which part of a note a voice is in. Climbing, then holding (which covers the fall to
+          # the sustain level and the hold there — one test tells them apart, the level against
+          # the sustain), then falling away after the note has ended — and then DONE, which is
+          # the frame the gain spends sliding the last of the way to nothing. The voice is given
+          # back at the END of that frame rather than the start of it, because a voice taken away
+          # while its gain is still above nothing is the very click this is here to remove.
+          PHASE_CLIMBING = 0
+          PHASE_HOLDING = 1
+          PHASE_FALLING = 2
+          PHASE_DONE = 3
 
           # Whose a sounding slot is, in its SOUNDING word: the game's, or a song's recorded part.
           OWNER_GAME = 1
@@ -193,6 +227,7 @@ module RubyGBA
             @samples = {}          # name -> { rate:, length: } (a Direct Sound PCM sample)
             @plays_samples = false # does the program play any sample (uses Direct Sound)?
             @music_takes_voices = false # does a song's recorded part start notes in the slots?
+            @uses_envelopes = false # does any note in it have a shape (see #emit_envelope_step)?
           end
 
           # The output rate the mix runs at, settled by #prepare_mixer.
@@ -285,6 +320,8 @@ module RubyGBA
           def prepare_mixer(program)
             return unless @plays_samples
 
+            @uses_envelopes = shapes_any_note?(program)
+
             # The clock and the samples-a-frame are ONE decision, not two: the hardware eats a
             # sample every time this timer overflows, so how many it eats in a frame is fixed
             # by the clock, and that is exactly how many the mix has to write. Asking for both
@@ -375,10 +412,11 @@ module RubyGBA
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_POS))          # slot.pos = 0
               @emitter.emit(ASM.load_immediate(TMP, sample.length))
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LEN))          # slot.len = length
-              @emitter.emit(ASM.load_immediate(TMP, node.loop ? 1 : 0))
-              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # slot.loop
+              @emitter.emit(ASM.load_immediate(TMP, loop_back(node, sample)))
+              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # how far back at the end
               @emitter.emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node.volume, MIX_LEVELS[:full])))
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..64 gain)
+              emit_start_envelope(0, TMP, sample.envelope) if @uses_envelopes
               @emitter.emit(ASM.load_immediate(TMP, voice_step(node, sample)))
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_STEP))         # slot.step (pitch + rate, 16.16)
               @emitter.emit(ASM.load_immediate(TMP, 0))
@@ -392,6 +430,39 @@ module RubyGBA
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_ACTIVE))       # slot.active: the game's (now it sounds)
               @emitter.place_label(done)
             end
+          end
+
+          # HOW FAR BACK A VOICE GOES when it reaches the end of its recording, or 0 for one that
+          # plays once and stops. A sound asked to loop goes back to where the recording holds
+          # from — which for a recording with no hold point is its very start, so the ordinary
+          # loop is this same subtraction.
+          def loop_back(node, sample)
+            return 0 unless node.loop
+
+            held = sample.held_by
+            held.positive? ? held : sample.length
+          end
+
+          # THE FOUR NUMBERS AND WHERE THE NOTE STARTS, written onto a voice that is about to
+          # sound. A voice with no envelope writes 0 for the four, which is what tells the pass
+          # before the mix to leave it alone — its gain is its loudness and never moves.
+          # +slot+ holds the voice's address and +scratch+ is a register free to be clobbered.
+          def emit_start_envelope(slot, scratch, envelope)
+            shape = envelope && !envelope.plain? ? envelope : nil
+            @emitter.emit(ASM.load_immediate(scratch, shape ? shape.packed : 0))
+            @emitter.emit(ASM.str_offset(scratch, slot, SLOT_ENV))
+            @emitter.emit(ASM.load_immediate(scratch, shape ? 0 : Envelope::FULL))
+            @emitter.emit(ASM.str_offset(scratch, slot, SLOT_LEVEL)) # a shaped note climbs from nothing
+            @emitter.emit(ASM.load_immediate(scratch, PHASE_CLIMBING))
+            @emitter.emit(ASM.str_offset(scratch, slot, SLOT_PHASE))
+            # The gain the mix reads. A shaped note is climbed by the pass before the first mix,
+            # which is the same frame, so nothing of the note is lost by starting it at nothing.
+            if shape
+              @emitter.emit(ASM.load_immediate(scratch, 0))
+            else
+              @emitter.emit(ASM.ldr_offset(scratch, slot, SLOT_VOL))
+            end
+            @emitter.emit(ASM.str_offset(scratch, slot, SLOT_GAIN))
           end
 
           # The 16.16 step for a voice: how many source samples to advance per output sample.
@@ -478,6 +549,12 @@ module RubyGBA
           # Stop the voice with the part's mark (r8) — or nothing, when the part has none: its last
           # note ran out, and the mix retired it. A part never has two, since a note of its own
           # takes over the voice it already has. Uses r0, r1, r7.
+          #
+          # A SHAPED NOTE IS NOT STOPPED HERE, it is only told to start falling. What ends it is
+          # the pass before the mix, when its level has fallen away to nothing — which is the
+          # whole point, because a note that stops leaves the speaker wherever the wave was and
+          # that jump is a click. A voice with no envelope stops the moment it is told to, as it
+          # always did.
           def emit_music_voice_off_routine
             e = @emitter
             scan = e.gensym
@@ -490,6 +567,16 @@ module RubyGBA
             e.emit(ASM.ldr_offset(0, 7, SLOT_ACTIVE))
             e.emit(ASM.cmp_reg(0, 8))
             e.emit_branch(:bcond, onward, cond: :ne)
+            if @uses_envelopes
+              stop = e.gensym
+              e.emit(ASM.ldr_offset(0, 7, SLOT_ENV))
+              e.emit(ASM.cmp_imm(0, 0))
+              e.emit_branch(:bcond, stop, cond: :eq)          # no envelope: it stops where it is
+              e.emit(ASM.load_immediate(0, PHASE_FALLING))
+              e.emit(ASM.str_offset(0, 7, SLOT_PHASE))        # ...otherwise it starts falling
+              e.emit_branch(:b, done)
+              e.place_label(stop)
+            end
             e.emit(ASM.load_immediate(0, 0))
             e.emit(ASM.str_offset(0, 7, SLOT_ACTIVE))
             e.emit_branch(:b, done)
@@ -559,6 +646,122 @@ module RubyGBA
             e.place_label(done)
             e.emit(ASM.return)
           end
+
+          # ONE FRAME OF EVERY SOUNDING NOTE'S SHAPE — the pass that moves each voice's envelope
+          # level on, emitted in the screen's own interrupt between the tune's frame and the mix.
+          #
+          # WHY IT IS HERE AND NOT IN THE MIX. The level holds still for a whole frame's worth of
+          # sound, so working it out per sample would be the same answer thousands of times over.
+          # Instead it is folded into the loudness the mix already multiplies by (GAIN), once per
+          # sounding voice per frame — so the mix's inner loop, which is the busiest thing in a
+          # game that plays recordings, is not touched at all. That also keeps it out of the
+          # 384 bytes reserved in the quick memory for that loop, which is room the game's own
+          # hot code would otherwise lose.
+          #
+          # BETWEEN THE TUNE AND THE MIX, in that order, and both halves matter. After the tune,
+          # so a note started this frame has climbed before anything is mixed and none of its
+          # attack is lost. Before the mix, so the slice about to be built is built at the level
+          # this frame is really at.
+          #
+          # A voice with no envelope is two instructions: its ENV is 0 and its gain never moves.
+          # r4 is the slot, r5 the voices left, r1 the four numbers, r2 the level, r6 the phase,
+          # r0/r3 scratch — all free here, since the console saves r0-r3 and r12 on the way in
+          # and the dispatcher r4-r11.
+          def emit_envelope_step
+            e = @emitter
+            voice = e.gensym
+            holding = e.gensym
+            falling = e.gensym
+            write = e.gensym
+            retire = e.gensym
+            onward = e.gensym
+            e.emit(ASM.load_immediate(4, @voice_base))
+            e.emit(ASM.load_immediate(5, MAX_VOICES))
+
+            e.place_label(voice)
+            e.emit(ASM.ldr_offset(0, 4, SLOT_ACTIVE))
+            e.emit(ASM.cmp_imm(0, 0))
+            e.emit_branch(:bcond, onward, cond: :eq)          # nothing sounding here
+            e.emit(ASM.ldr_offset(1, 4, SLOT_ENV))
+            e.emit(ASM.cmp_imm(1, 0))
+            e.emit_branch(:bcond, onward, cond: :eq)          # no envelope: its gain never moves
+            e.emit(ASM.ldr_offset(2, 4, SLOT_LEVEL))
+            e.emit(ASM.ldr_offset(6, 4, SLOT_PHASE))
+            e.emit(ASM.cmp_imm(6, PHASE_DONE))
+            e.emit_branch(:bcond, retire, cond: :eq)          # its gain reached nothing last frame
+            e.emit(ASM.cmp_imm(6, PHASE_FALLING))
+            e.emit_branch(:bcond, falling, cond: :eq)
+            e.emit(ASM.cmp_imm(6, PHASE_CLIMBING))
+            e.emit_branch(:bcond, holding, cond: :ne)
+
+            # Climbing: the attack is ADDED each frame until the note is as loud as it was asked
+            # to be, and then the note is up and holding.
+            e.emit(ASM.and_imm(0, 1, 0xFF))
+            e.emit(ASM.add_reg(2, 2, 0))
+            e.emit(ASM.cmp_imm(2, Envelope::FULL))
+            e.emit(ASM.mov_imm_cond(:ge, 2, Envelope::FULL))
+            e.emit(ASM.mov_imm_cond(:ge, 6, PHASE_HOLDING))
+            e.emit_branch(:b, write)
+
+            # Holding: the level falls toward the sustain level and stays there. The fall is a
+            # MULTIPLY by a fraction, so it slows as it goes — which is what a struck note does.
+            e.place_label(holding)
+            e.emit(ASM.lsr_imm(3, 1, 16))
+            e.emit(ASM.and_imm(3, 3, 0xFF))                   # r3 = the sustain level
+            e.emit(ASM.cmp_reg(2, 3))
+            e.emit_branch(:bcond, write, cond: :le)           # already there
+            e.emit(ASM.lsr_imm(0, 1, 8))
+            e.emit(ASM.and_imm(0, 0, 0xFF))                   # r0 = the decay
+            e.emit(ASM.mul(2, 0, 2))
+            e.emit(ASM.lsr_imm(2, 2, Envelope::SCALE))
+            e.emit(ASM.cmp_reg(2, 3))
+            e.emit(ASM.mov_reg_cond(:lt, 2, 3))               # never below the sustain level
+            e.emit_branch(:b, write)
+
+            # Falling: the note has ended, so the level is multiplied down until there is none of
+            # it left. Reaching nothing does not give the voice back on the same frame, and that
+            # is deliberate: this frame is still mixed, now at no loudness at all, so what the
+            # speaker hears last is silence rather than whatever the wave was doing. THEN the
+            # voice goes back. A voice taken away while its gain is still up is the very click
+            # all of this is here to remove.
+            e.place_label(falling)
+            e.emit(ASM.lsr_imm(0, 1, 24))                     # r0 = the release
+            e.emit(ASM.mul(2, 0, 2))
+            e.emit(ASM.lsr_imm(2, 2, Envelope::SCALE))
+            e.emit(ASM.cmp_imm(2, 0))
+            e.emit(ASM.mov_imm_cond(:eq, 6, PHASE_DONE))
+
+            e.place_label(write)
+            e.emit(ASM.str_offset(2, 4, SLOT_LEVEL))
+            e.emit(ASM.str_offset(6, 4, SLOT_PHASE))
+            # THE LOUDNESS THE MIX MULTIPLIES BY: what the note asked for, scaled by the level.
+            # One more than the level, so a full level is exactly the loudness asked for rather
+            # than a shade under it, and a level of nothing is still nothing.
+            e.emit(ASM.ldr_offset(0, 4, SLOT_VOL))
+            e.emit(ASM.add_imm(3, 2, 1))
+            e.emit(ASM.mul(0, 3, 0))
+            e.emit(ASM.lsr_imm(0, 0, Envelope::SCALE))
+            e.emit(ASM.str_offset(0, 4, SLOT_GAIN))
+            e.emit_branch(:b, onward)
+
+            e.place_label(retire)
+            e.emit(ASM.load_immediate(0, 0))
+            e.emit(ASM.str_offset(0, 4, SLOT_ACTIVE))
+
+            e.place_label(onward)
+            e.emit(ASM.add_imm(4, 4, SLOT_BYTES))
+            e.emit(ASM.subs_imm(5, 5, 1))
+            e.emit_branch(:bcond, voice, cond: :ne)
+          end
+
+          # Does any voice in this program have a shape to its notes? A program with none emits
+          # not one instruction of the pass above, and its voices sound exactly as they did.
+          def shapes_notes? = @uses_envelopes
+
+          # The slot field the mix takes its loudness from: the one the envelope pass works out,
+          # or — for a game that shapes nothing — the note's own loudness, which is the field it
+          # has always read.
+          def gain_field = @uses_envelopes ? SLOT_GAIN : SLOT_VOL
 
           # The per-frame refill: fill the buffer that is NOT playing with the next slice of
           # mixed sound, then swap — point the DMA at the freshly filled buffer so it plays
@@ -716,7 +919,7 @@ module RubyGBA
             e.emit(ASM.lsr_imm(8, 10, STEP_SHIFT))            # ...r8 = its whole samples
             e.emit(ASM.lsl_imm(10, 10, STEP_SHIFT))           # ...r10 = its fraction, in the top half
             e.emit(ASM.ldr_offset(11, 4, SLOT_FRAC))          # r11 = the fraction carried in (top half)
-            e.emit(ASM.ldr_offset(12, 4, SLOT_VOL))           # r12 = volume gain (0..64)
+            e.emit(ASM.ldr_offset(12, 4, gain_field))         # r12 = the gain it is sounding at
             e.emit(ASM.mov_reg(7, 3))                         # r7 = the first total
             e.emit(ASM.load_immediate(2, @mixer_spf))         # r2 = output samples to fill
 
@@ -741,11 +944,10 @@ module RubyGBA
             e.emit_branch(:b, end_voice)
 
             e.place_label(wrapped)
-            e.emit(ASM.ldr_offset(0, 4, SLOT_LOOP))           # loop?
+            e.emit(ASM.ldr_offset(0, 4, SLOT_LOOP))           # how far back at the end, 0 = play once
             e.emit(ASM.cmp_imm(0, 0))
             e.emit_branch(:bcond, retire, cond: :eq)
-            e.emit(ASM.ldr_offset(0, 4, SLOT_LEN))
-            e.emit(ASM.sub_reg(6, 6, 0))                      # loop: back by the recording's length
+            e.emit(ASM.sub_reg(6, 6, 0))                      # back to where it holds from
             e.emit_branch(:b, advance)
 
             e.place_label(retire)                             # one-shot done: mark idle, stop adding
@@ -887,6 +1089,20 @@ module RubyGBA
             @emitter.emit(ASM.sub_imm(2, 2, 1))
             @emitter.emit(ASM.cmp_imm(2, 0))
             @emitter.emit_branch(:bcond, loop_lbl, cond: :ne)
+          end
+
+          # DOES ANYTHING IN THIS PROGRAM SHAPE A NOTE? Asked once, of the whole program, because
+          # the answer decides whether a single instruction of the envelope is emitted anywhere —
+          # a game that names none is exactly the game it was before any of this existed.
+          #
+          # Three places can say so: a recording declared with one, a part of a played tune, or
+          # one of that part's notes. A tune nobody plays says nothing, the same as it costs
+          # nothing everywhere else.
+          def shapes_any_note?(program)
+            program.walk.any? { |node| node.kind == :sample && node.envelope } ||
+              IR::Tunes.played(program).any? do |song|
+                IR::Tunes.soundings(song).any? { |sounding| sounding.envelope }
+              end
           end
 
           # The output rate to mix at: the rate most of the program's samples were recorded

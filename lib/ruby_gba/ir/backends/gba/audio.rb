@@ -135,9 +135,20 @@ module RubyGBA
           # from one note to the next.
           RECORDED_ROW = 12
 
-          # One entry in that table: where the recording is in the cartridge, and how long it is.
-          INSTRUMENT_SHIFT = 3
+          # One entry in that table: where the recording is in the cartridge, how long it is, the
+          # four numbers that shape a note on it (0 for a note that starts and stops dead), and
+          # how far back a held note goes when it reaches the end (0 for one that runs out).
+          #
+          # THE SHAPE IS HERE AND NOT ON THE NOTE, which is what makes it free: a note already
+          # carries the number of the recording it plays, so two notes on the same recording
+          # shaped differently are simply two entries and the note's own number picks between
+          # them. Putting the four numbers on every note instead would have grown every recorded
+          # lane of every tune by a third, whether it shaped anything or not.
+          INSTRUMENT_SHIFT = 4
           INSTRUMENT_BYTES = 1 << INSTRUMENT_SHIFT
+          INSTRUMENT_LENGTH = 4
+          INSTRUMENT_ENVELOPE = 8
+          INSTRUMENT_HELD_BY = 12
 
           # A frame no tune ever reaches. Each part ends in a row that waits for it, so a part
           # that has run out stays quiet until the tune comes round again.
@@ -570,17 +581,48 @@ module RubyGBA
             @primitives.emit_add_const(recording, recording, @instruments_at, ACC) # ...its table entry
             @emitter.emit(ASM.ldr(ACC, recording))                            # where it is
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_SRC))
-            @emitter.emit(ASM.ldr_offset(ACC, recording, 4))                  # how long it is
+            @emitter.emit(ASM.ldr_offset(ACC, recording, INSTRUMENT_LENGTH))  # how long it is
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_LEN))
+            # A NOTE CAN OUTLAST ITS RECORDING, and this is what stops it ending there: a
+            # recording that holds says how far back to read when it reaches the end, so the body
+            # of the note goes round for as long as the note lasts. One that does not hold says 0
+            # here, and runs out as it always did.
+            @emitter.emit(ASM.ldr_offset(ACC, recording, INSTRUMENT_HELD_BY))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_LOOP))
             @emitter.emit(ASM.load_immediate(ACC, 0))
-            [Mixer::SLOT_POS, Mixer::SLOT_FRAC, Mixer::SLOT_LOOP].each do |field|
+            [Mixer::SLOT_POS, Mixer::SLOT_FRAC].each do |field|
               @emitter.emit(ASM.str_offset(ACC, voice, field))                # from the top, once
             end
+            emit_note_shape(voice, recording) if @mixer.shapes_notes?
             @emitter.emit(ASM.str_offset(mark, voice, Mixer::SLOT_ACTIVE))      # the part's now
             @emitter.emit_branch(:b, sounded)
             @emitter.place_label(rest)
             @mixer.emit_music_voice_off
             @emitter.place_label(sounded)
+          end
+
+          # WHERE THE NOTE STARTS IN ITS OWN SHAPE, read off the recording's table entry.
+          #
+          # The four numbers are a fact about the entry, which the note names by a number it
+          # already carries — so which shape this note has is not known until the row is read,
+          # and the two cases are told apart here rather than at build time. A note with no shape
+          # is full from its first frame and its gain never moves again; a shaped one starts at
+          # nothing and the pass before the mix climbs it, in this same frame.
+          #
+          # The compare's flags carry down through the two stores after it: an LDR, an STR and a
+          # plain MOV all leave the flags alone, so one compare answers both questions.
+          def emit_note_shape(voice, recording)
+            @emitter.emit(ASM.load_immediate(TMP, Mixer::PHASE_CLIMBING))
+            @emitter.emit(ASM.str_offset(TMP, voice, Mixer::SLOT_PHASE))
+            @emitter.emit(ASM.ldr_offset(ACC, recording, INSTRUMENT_ENVELOPE))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_ENV))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.mov_imm_cond(:eq, ACC, Envelope::FULL))
+            @emitter.emit(ASM.mov_imm_cond(:ne, ACC, 0))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_LEVEL))
+            @emitter.emit(ASM.ldr_offset(ACC, voice, Mixer::SLOT_VOL))
+            @emitter.emit(ASM.mov_imm_cond(:ne, ACC, 0))     # a shaped note is silent until it climbs
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_GAIN))
           end
 
           # EVERY TUNE THE PROGRAM PLAYS, as one piece of data:
@@ -601,19 +643,24 @@ module RubyGBA
           # tune does not use points at a row that waits for NEVER.
           def score_blob
             entry_bytes = 1 << @entry_shift
-            instruments = @song_numbers.keys.flat_map { |name| IR::Tunes.instruments(@songs.fetch(name)) }.uniq
-            @instrument_numbers = instruments.each_with_index.to_h
+            soundings = @song_numbers.keys.flat_map { |name| IR::Tunes.soundings(@songs.fetch(name)) }.uniq
+            @sounding_numbers = soundings.each_with_index.to_h
             @instruments_at = (@song_numbers.size + 1) * entry_bytes
-            waves_at = @instruments_at + (instruments.size * INSTRUMENT_BYTES)
+            waves_at = @instruments_at + (soundings.size * INSTRUMENT_BYTES)
             # One copy of each waveform the played tunes use, whichever of them use it.
             shapes = @song_numbers.keys.flat_map { |name| wave_shapes(@songs.fetch(name)) }.uniq
             wave_at = shapes.each_with_index.to_h { |shape, i| [shape, waves_at + (i * WAVE_BYTES)] }
             events_at = waves_at + (shapes.size * WAVE_BYTES)
 
             directory = ("\0" * entry_bytes).b
-            table = instruments.each_with_index.map do |name, number|
-              @emitter.link_data(MUSIC_SCORE, @instruments_at + (number * INSTRUMENT_BYTES), name)
-              [0, @mixer.sample_info(name).length].pack("VV") # where it is: filled in by the link
+            table = soundings.each_with_index.map do |sounding, number|
+              @emitter.link_data(MUSIC_SCORE, @instruments_at + (number * INSTRUMENT_BYTES), sounding.name)
+              info = @mixer.sample_info(sounding.name)
+              # A part or a note that says nothing about the shape takes whatever the recording
+              # itself was declared with, which is where music decoded from elsewhere keeps it.
+              shape = sounding.envelope || info.envelope
+              shape = nil if shape&.plain?
+              [0, info.length, shape ? shape.packed : 0, info.held_by].pack("VVVV")
             end.join
             table += shapes.map { |shape| Sound::Registers.wavetable_halfwords(shape).pack("v*") }.join
             events = [NEVER, 0, 0, 0].pack("VVvv") # a row any lane can wait on
@@ -676,10 +723,11 @@ module RubyGBA
           # loudness; one that does not plays the part's.
           def lane_rows(lane, part, events)
             if lane.kind == :recorded
-              rows = events.map do |frame, frequency, instrument, volume|
-                name = instrument || part.instrument
-                step = frequency.zero? ? 0 : @mixer.step_at(@mixer.sample_info(name), frequency)
-                [frame, step, @instrument_numbers.fetch(name), loudness(volume || part.volume)].pack("VVvv")
+              rows = events.map do |frame, frequency, instrument, volume, envelope|
+                sounding = IR::Tunes::Sounding.new(name: instrument || part.instrument,
+                                                   envelope: envelope || part.envelope)
+                step = frequency.zero? ? 0 : @mixer.step_at(@mixer.sample_info(sounding.name), frequency)
+                [frame, step, @sounding_numbers.fetch(sounding), loudness(volume || part.volume)].pack("VVvv")
               end
               rows.join + [NEVER, 0, 0, 0].pack("VVvv")
             else
