@@ -43,14 +43,13 @@ module RubyGBA
 
           # The prepare-pass results this file reads, bundled into one record and handed
           # over through #layout= once every pass that decides them has run.
-          # +map_cells+ is each background's grid size and +map_entries+ what to write into
-          # a cell to show one of its tiles — the two things a run-time tile change needs
-          # and nothing else does.
+          # Where a background's cells are and what to write into one is on its own placement
+          # record (see GBA::MapGrid), which is what a run-time tile change reads.
           Layout = Data.define(:bitmaps, :objects, :placed_fade, :backgrounds, :bg_shared, :palette,
                                 :indexed_bitmaps, :run_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
                                 :modes, :tiled, :has_objects, :obj_palette_blob, :obj_palette_units,
                                 :default_mode, :any_buffered, :mixed_display, :manage_modes, :func_mode,
-                                :map_cells, :map_entries, :scene_art)
+                                :scene_art)
 
           # Fill the area itself, which is what clearing means when only part of the picture may
           # be painted: a row-at-a-time block fill over exactly those edges. It does not go
@@ -781,20 +780,29 @@ module RubyGBA
             bg = @layout.backgrounds[node.name]
             return if bg.nil? # a background with no tiled layer (a bitmap-mode program)
 
-            cell = @layout.map_cells.fetch(node.name)
-            entry = @layout.map_entries.fetch(node.name).fetch(node.tile)
+            grid = bg.grid or raise_no_cells_to_change(node.name)
+            entry = grid.cell_for(node.tile)
             fixed = [const_int(node.col), const_int(node.row)]
-            return emit_fixed_tile_write(bg, cell, entry, *fixed) if fixed.all?
+            return emit_fixed_tile_write(bg, grid, entry, *fixed) if fixed.all?
 
-            emit_computed_tile_write(node, bg, cell, entry)
+            emit_computed_tile_write(node, bg, grid, entry)
+          end
+
+          # A background that turns and resizes holds a tile number in each cell and nothing
+          # else, so the framework has no way yet to change one cell of it while the game runs.
+          def raise_no_cells_to_change(name)
+            raise LoweringError,
+                  "The background :#{name} is on screen :rotozoom, so it can turn and resize. One " \
+                  "cell of it cannot be changed while the game runs. To fix this, put this background " \
+                  "on screen :tiled, or change the whole map with show_map."
           end
 
           # A cell settled while the program was written: the address is worked out here,
           # in Ruby, and the console does one store.
-          def emit_fixed_tile_write(bg, cell, entry, col, row)
-            return unless col >= 0 && col < cell[:cols] && row >= 0 && row < cell[:rows]
+          def emit_fixed_tile_write(bg, grid, entry, col, row)
+            return unless grid.holds?(col, row)
 
-            write_reg16(map_cell_address(bg, cell, col, row), entry)
+            write_reg16(map_cell_address(bg, grid, col, row), entry)
           end
 
           # THE ADDRESS OF ONE CELL, and why it is not simply row times width.
@@ -803,8 +811,8 @@ module RubyGBA
           # then right, top pair before bottom pair — so a cell's place depends on which
           # quarter of the map it is in. 32 is a power of two, so that is shifts and masks
           # rather than division.
-          def map_cell_address(bg, cell, col, row)
-            quarter = ((row / MAP_CELLS) * (cell[:cols] / MAP_CELLS)) + (col / MAP_CELLS)
+          def map_cell_address(bg, grid, col, row)
+            quarter = ((row / MAP_CELLS) * (grid.cols / MAP_CELLS)) + (col / MAP_CELLS)
             index = (quarter * MAP_CELLS * MAP_CELLS) + ((row % MAP_CELLS) * MAP_CELLS) + (col % MAP_CELLS)
             VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES) + (index * 2)
           end
@@ -817,7 +825,7 @@ module RubyGBA
           TILE_ROW = 5
           TILE_ADDR = 6
 
-          def emit_computed_tile_write(node, bg, cell, entry)
+          def emit_computed_tile_write(node, bg, grid, entry)
             @lowering.value(node.col)
             emit(ASM.mov_reg(TILE_COL, ACC))
             @lowering.value(node.row)
@@ -826,12 +834,12 @@ module RubyGBA
             done = gensym
             # One unsigned compare catches both ends: a negative coordinate reads as a
             # very large number, so anything outside 0...size fails the same test.
-            emit(ASM.cmp_imm(TILE_COL, cell[:cols]))
+            emit(ASM.cmp_imm(TILE_COL, grid.cols))
             emit_branch(:bcond, done, cond: :hs)
-            emit(ASM.cmp_imm(TILE_ROW, cell[:rows]))
+            emit(ASM.cmp_imm(TILE_ROW, grid.rows))
             emit_branch(:bcond, done, cond: :hs)
 
-            emit_cell_index(cell)
+            emit_cell_index(grid)
             emit(ASM.load_immediate(TMP, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES)))
             emit(ASM.lsl_imm(TILE_ADDR, TILE_ADDR, 1)) # two bytes a cell
             emit(ASM.add_reg(TILE_ADDR, TMP, TILE_ADDR))
@@ -843,21 +851,21 @@ module RubyGBA
           # The cell's index within the whole map, built from the column and row into
           # TILE_ADDR. Which quarter of the map it is in rides in bits 10 and up; a map
           # that fits one square has no quarters and needs neither shift.
-          def emit_cell_index(cell)
+          def emit_cell_index(grid)
             emit(ASM.and_imm(TILE_ADDR, TILE_ROW, MAP_CELLS - 1))
             emit(ASM.lsl_imm(TILE_ADDR, TILE_ADDR, 5))
             emit(ASM.and_imm(TMP, TILE_COL, MAP_CELLS - 1))
             emit(ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
-            return if cell[:cols] == MAP_CELLS && cell[:rows] == MAP_CELLS
+            return if grid.cols == MAP_CELLS && grid.rows == MAP_CELLS
 
-            unless cell[:rows] == MAP_CELLS
+            unless grid.rows == MAP_CELLS
               # The bottom half of a tall map is a whole square further on — two of them
               # when the map is also wide, since a row of squares comes first.
               emit(ASM.lsr_imm(TMP, TILE_ROW, 5))
-              emit(ASM.lsl_imm(TMP, TMP, cell[:cols] == MAP_CELLS ? 10 : 11))
+              emit(ASM.lsl_imm(TMP, TMP, grid.cols == MAP_CELLS ? 10 : 11))
               emit(ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
             end
-            return if cell[:cols] == MAP_CELLS
+            return if grid.cols == MAP_CELLS
 
             emit(ASM.lsr_imm(TMP, TILE_COL, 5))
             emit(ASM.lsl_imm(TMP, TMP, 10))

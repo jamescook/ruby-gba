@@ -201,4 +201,22 @@ class TestSetTile < Minitest::Test
     assert_match(/screen :bitmap/, error.message)
     assert_match(/blit/, error.message, "it says what to do instead")
   end
+
+  # A background that turns and resizes is drawn from a map of another shape, and one cell of it
+  # cannot be changed while the game runs. That is a friendly error naming the background rather
+  # than an internal one about a missing key.
+  def test_changing_a_cell_of_a_turning_background_is_a_friendly_error
+    builder = Builder.new
+    builder.instance_eval do
+      screen :rotozoom
+      image(:wall, "#" => :red) { SOLID8 }
+      tiles :dungeon, "#" => :wall
+      room = background :room, tiles: :dungeon, map: ["##", "##"]
+      game_loop { room.set_tile 0, 0, "#" }
+    end
+    builder.emit_pending_functions
+    error = assert_raises(GBA::LoweringError) { GBA.new.lower(builder.program) }
+    assert_match(/:room/, error.message)
+    assert_match(/screen :rotozoom/, error.message)
+  end
 end

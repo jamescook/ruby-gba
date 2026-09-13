@@ -211,7 +211,16 @@ module RubyGBA
         # map counts 1 and has nothing to step to.
         BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :size,
                                           :priority, :affine, :small, :char_base,
-                                          :map_count, :map_bytes)
+                                          :map_count, :map_bytes, :grid)
+
+        # A BACKGROUND'S GRID OF CELLS, for changing one of them while the game runs: how many
+        # cells there are each way, and what to write into one to show a given tile. Nothing
+        # else needs either, and a background that turns and resizes has no grid of this shape
+        # at all — its cells hold a tile number and nothing else, so it is nil there.
+        MapGrid = Data.define(:cols, :rows, :cells) do
+          def holds?(col, row) = col >= 0 && col < cols && row >= 0 && row < rows
+          def cell_for(tile) = cells.fetch(tile)
+        end
 
         # Two more scratch registers, live only inside one arithmetic expression and
         # never across a statement. A 64-bit multiply needs both of them, because its
@@ -744,7 +753,7 @@ module RubyGBA
             obj_palette_blob: @obj_palette_blob, obj_palette_units: @obj_palette_units,
             default_mode: @default_mode, any_buffered: @any_buffered, mixed_display: @mixed_display,
             manage_modes: @manage_modes, func_mode: @func_mode,
-            map_cells: @map_cells, map_entries: @map_entries, scene_art: @scene_art || {},
+            scene_art: @scene_art || {},
           )
           @drawing.layout = layout
           @buffered.layout = layout
@@ -1445,11 +1454,6 @@ module RubyGBA
           @tile_bytes_written = {} # the same picture, stored once — see #append_tiles
           @tiles_shared = 0
           @tiles_skipped = 0 # bytes nothing draws from — see #choose_char_base
-          # What a run-time tile change needs, and nothing else does: each background's
-          # grid size, and what to write into a cell to show one of its tiles.
-          @map_cells = {}
-          @map_entries = {}
-
           begin
             regular_nodes.each_with_index { |node, layer| prepare_one_background(node, layer, banks, big, char) }
             affine_nodes.each { |node| prepare_affine_background(node, banks, char) }
@@ -1581,8 +1585,6 @@ module RubyGBA
             bank = small ? banks.placement(tile_key(node, index)).bank : 0
             [index, numbers.fetch(index) | (bank << BG_BANK_SHIFT)]
           end
-          @map_cells[name] = { cols: cols, rows: rows }
-          @map_entries[name] = cell_for
           entries = map_entries(node.map, cols, rows, blank) { |index| cell_for.fetch(index) }
 
           grids = every_map(node)
@@ -1599,7 +1601,8 @@ module RubyGBA
             affine: false,
             small: small,
             char_base: base / CHAR_BLOCK_BYTES,
-            map_count: grids.size, map_bytes: entries.size * 2
+            map_count: grids.size, map_bytes: entries.size * 2,
+            grid: MapGrid.new(cols: cols, rows: rows, cells: cell_for)
           )
         end
 
@@ -1855,7 +1858,8 @@ module RubyGBA
             affine: true,
             small: false,
             char_base: base / CHAR_BLOCK_BYTES,
-            map_count: grids.size, map_bytes: entries.size
+            map_count: grids.size, map_bytes: entries.size,
+            grid: nil # its cells are one byte and hold a tile number alone: no grid of that shape
           )
         end
 
