@@ -132,6 +132,29 @@ class TestPongTitle < Minitest::Test
     assert_empty notes(i), "nothing should sound for the whole rally"
   end
 
+  # ...and it stops when the game does. A song plays until something silences it, so a
+  # tune started in the rally carries straight on through the end screen and back onto
+  # the title unless the end screen says otherwise — which sounds like the game never
+  # finished.
+  #
+  # START, then the paddle is held at the top edge for the rest of the run: the cpu takes
+  # five points off a player who is not defending, which is a finished game in half the
+  # frames an even match would take.
+  TO_THE_END = 900
+
+  def test_the_music_stops_when_the_game_is_over
+    i = title(TO_THE_END) { |f| f < 3 ? [:a] : [:up] }
+
+    assert_equal WIN_SCORE, i[:cpu_score], "the game really did finish"
+    assert_equal 3, i[:state], "on the screen that says so"
+
+    sounded = i.audio.select { |entry| %i[note stop_music].include?(entry[0]) }
+
+    refute_empty sounded.select { |entry| entry[0] == :note }, "the song was playing during the rally"
+    assert_equal :stop_music, sounded.last[0],
+                 "and the end screen silenced it, with nothing sounding since"
+  end
+
   # --- the difficulty screen, and where its cursor opens ---
   #
   # The title's third row opens a screen of its own: two rows, NORMAL and HARD, and a
