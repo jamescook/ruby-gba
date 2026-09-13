@@ -4,6 +4,7 @@ require_relative "gba/sprite" # what the build worked out about one sprite, for 
 require_relative "gba/pose_cutter" # how a sprite's picture is cut into the rectangles the console draws
 require_relative "gba/sprite_pictures" # one sprite's pictures, and the sets of them sprites share
 require_relative "gba/object_art" # where the sprites' pictures go in sprite memory
+require_relative "gba/sprite_layout" # ...and one attempt at fitting them all into it
 require_relative "gba/address_register" # what the address register still holds, as code goes past
 require_relative "gba/emit"
 require_relative "gba/attribution"
@@ -557,10 +558,10 @@ module RubyGBA
 
           small = @objects.count { |name, _obj| @obj_banks.placement(name).narrow? }
           shared = @objects.count { |_name, obj| obj.tiles.nil? }
-          RubyGBA::VideoMemory::Area.new(used: @obj_art.bytes, capacity: OBJ_TILE_CAPACITY,
+          RubyGBA::VideoMemory::Area.new(used: @obj_layout.bytes, capacity: OBJ_TILE_CAPACITY,
                                          small: small, big: @objects.size - small,
                                          saved: sprite_memory_saved, shared: shared,
-                                         repeats: @obj_repeats)
+                                         repeats: @obj_layout.repeats)
         end
 
         # What the same pictures would have cost stored the old way: a small one is exactly
@@ -2058,15 +2059,22 @@ module RubyGBA
           prepare_affine(nodes)
 
           sets = @obj_pictures.values.group_by(&:stored).values.map { |sprites| PictureSet.new(sprites: sprites) }
-          @obj_one_frame = Set.new # the names of the sprites kept to one frame at a time
+          one_frame = Set.new # the names of the sprites kept to one frame at a time
+          blobs = SpriteLayout::Blobs.new(emit: @emit, keep_plain: method(:plain_blob!))
           loop do
-            lay_out_object_art(nodes, slot_of, affine_of)
-            break if @obj_art.bytes <= OBJ_TILE_CAPACITY
+            @obj_layout = SpriteLayout.new(emit: @emit, nodes: nodes, pictures: @obj_pictures,
+                                           one_frame: one_frame, blobs: blobs) do |pictures, placed|
+              object_record(pictures, slot: slot_of.fetch(pictures.name),
+                                      affine_slot: affine_of[pictures.name], **placed)
+            end
+            break if @obj_layout.fits?(OBJ_TILE_CAPACITY)
 
-            set = set_to_keep_to_one_frame(sets) or raise LoweringError, sprite_art_does_not_fit(nodes)
+            set = set_to_keep_to_one_frame(sets, one_frame) or raise LoweringError, sprite_art_does_not_fit(nodes)
             set.names.each { |name| @emit.data_blobs.delete(:"__obj_tiles_#{name}") }
-            @obj_one_frame.merge(set.names)
+            one_frame.merge(set.names)
           end
+          @objects = @obj_layout.sprites
+          @scene_art = @obj_layout.scene_art
         end
 
         # A SPRITE WHOSE PICTURES DO NOT ALL FIT KEEPS ONE FRAME IN SPRITE MEMORY AT A TIME.
@@ -2095,67 +2103,32 @@ module RubyGBA
         # until all of them are kept to one frame, and then each costs a frame's room. A pool is
         # the usual case, and is often worth more kept whole. What has to give back is what is
         # over: the pictures every screen shows and the fullest scene's.
-        def set_to_keep_to_one_frame(sets)
-          scene = fullest_scene
-          best = sets.reject { |set| @obj_one_frame.include?(set.names.first) }
+        def set_to_keep_to_one_frame(sets, one_frame)
+          scene = @obj_layout.fullest_scene
+          best = sets.reject { |set| one_frame.include?(set.names.first) }
                      .select(&:can_keep_to_one_frame?)
                      .max_by { |set| set.gives_back(scene) }
           best if best&.gives_back(scene)&.positive?
         end
-
-        def lay_out_object_art(nodes, slot_of, affine_of)
-          @obj_art = ObjectArt.new(@emit)
-          @scene_art = {}
-          @obj_repeats = 0 # bytes a piece did not cost because another piece already held them
-          @obj_scene_bytes = {} # what each scene needs, the pictures every screen shows included
-
-          # ALWAYS-THERE ART FIRST, then each scene's own over the same room.
-          #
-          # A sprite declared inside a scene is on screen only while that scene is the
-          # active state — that is what a scene already means — so no two scenes' pictures
-          # are ever wanted at once. Which means the budget a game has to fit is ONE
-          # SCENE'S, not the whole game's, and a game with more art than the console's 32K
-          # still builds so long as no single scene has. That is what lets a game with
-          # hundreds of rooms declare each room's cast where it belongs.
-          #
-          # A scene's pictures are sent when that scene takes over rather than at boot,
-          # and only when it is not already the one loaded — so staying in a scene costs
-          # one compare a frame and changing scene costs a copy.
-          by_scene = nodes.group_by(&:scene)
-          place = ->(node) { prepare_one_object(node, slot_of.fetch(node.name), affine_of[node.name]) }
-          (by_scene[nil] || []).each(&place)
-          @obj_art.seal_resident
-          by_scene.each do |scene, in_scene|
-            next if scene.nil?
-
-            @obj_art.begin_scene
-            in_scene.each(&place)
-            @obj_scene_bytes[scene] = @obj_art.bytes_so_far
-            @scene_art[scene] = @obj_art.end_scene
-          end
-        end
-
-        # The scene whose pictures, with the ones every screen shows, need the most sprite
-        # memory — or nothing, for a game whose sprites all belong to every screen.
-        def fullest_scene = @obj_scene_bytes.max_by { |_scene, bytes| bytes }&.first
 
         # Out of room for sprite pictures. Name the greediest, since the fix is nearly
         # always one piece of art rather than "fewer sprites" — and say what sharing
         # already saved, because a reader's first question is whether it is doing
         # anything.
         def sprite_art_does_not_fit(nodes)
-          scene = fullest_scene
+          scene = @obj_layout.fullest_scene
+          sprites = @obj_layout.sprites
           worst = nodes.select { |node| node.scene.nil? || node.scene == scene }
-                       .max_by(3) { |node| @objects[node.name].tile_units }
+                       .max_by(3) { |node| sprites[node.name].tile_units }
           # Name the PICTURES rather than the sprites: an author named the pictures, and a
           # sprite's own name is the framework's.
-          named = worst.map { |node| ":#{node.poses.first} (#{@objects[node.name].tile_units * 32})" }
-          "The sprites' pictures need #{@obj_art.bytes} bytes at once, and the console keeps them in " \
+          named = worst.map { |node| ":#{node.poses.first} (#{sprites[node.name].tile_units * 32})" }
+          "The sprites' pictures need #{@obj_layout.bytes} bytes at once, and the console keeps them in " \
             "#{OBJ_TILE_CAPACITY}. Only one scene's are needed at a time. #{fullest_is(scene)}, " \
             "and its biggest pictures are #{named.uniq.join(', ')}. When that makes room, a sprite that " \
             "animates keeps only one frame at a time in this memory, and that was not enough. To fix " \
             "this, use fewer pictures there, or smaller ones." \
-            "#{" Sharing already saved #{@obj_art.saved} bytes." if @obj_art.saved.positive?}"
+            "#{" Sharing already saved #{@obj_layout.saved} bytes." if @obj_layout.saved.positive?}"
         end
 
         # A scene is a routine named after the state it draws, with a prefix of the
@@ -2489,40 +2462,6 @@ module RubyGBA
                              stored: stored, starts: starts, repeats: repeats,
                              width: cut[:width], height: cut[:height],
                              animates: const_int(node.pose).nil? && node.poses.length > 1)
-        end
-
-        # A sprite's place in sprite memory for this pass of the layout: its pictures stored
-        # whole where they fit, or room for one frame where it is kept to one at a time.
-        def prepare_one_object(node, slot, affine_slot)
-          pictures = @obj_pictures.fetch(node.name)
-          at = { slot: slot, affine_slot: affine_slot }
-          return @objects[node.name] = one_frame_object(pictures, **at) if @obj_one_frame.include?(node.name)
-
-          @obj_repeats += pictures.repeats
-          blob, unit = @obj_art.place(node.name, pictures.stored, narrow: pictures.place.narrow?)
-          @objects[node.name] = object_record(
-            pictures, **at, starts: pictures.starts, alike: pictures.evenly_spaced?,
-                            per_pose: pictures.evenly_spaced? ? pictures.stride : 0,
-                            tiles: blob, tile_units: pictures.stored_bytes / 32, tile_index: unit
-          )
-        end
-
-        # THE ROOM FOR ONE FRAME, for a sprite kept to one frame at a time (see
-        # #set_to_keep_to_one_frame). Every pose is laid out the same way inside that room, so
-        # the table the drawing reads points at the room and never changes, and copying a frame
-        # in is all that showing it takes. Every frame goes into the cartridge at the room's
-        # stride, where the copy finds it.
-        def one_frame_object(pictures, slot:, affine_slot:)
-          blob = :"__obj_frames_#{pictures.name}"
-          @emit.data_blobs[blob] = pictures.frames
-          plain_blob!(blob) # a frame is found by where it starts, so the blob stays as it is
-          object_record(
-            pictures, slot: slot, affine_slot: affine_slot, starts: pictures.room_starts,
-                      alike: pictures.one_shape?, per_pose: 0,
-                      tiles: nil, tile_units: pictures.frame_bytes / 32,
-                      tile_index: @obj_art.reserve(pictures.frame_bytes / 32, narrow: pictures.place.narrow?),
-                      frames: blob, frame_bytes: pictures.frame_bytes
-          )
         end
 
         # The record the drawing reads, from what either layout worked out. +starts+ is where
