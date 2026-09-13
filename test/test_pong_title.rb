@@ -18,7 +18,8 @@ class TestPongTitle < Minitest::Test
   Fonts = RubyGBA::Fonts
 
   ROW_START = 90       # the menu's first row (examples/pong.rb: `at: [menu_x, 90]`)
-  ROW_MUSIC = 106      # ...and the second, one `spacing: 16` below it
+  ROW_MUSIC = 106      # ...and the two below it, one `spacing: 16` apart each time
+  ROW_DIFFICULTY = 122
   CURSOR = ">"
 
   PICKED = Color.resolve(:white)
@@ -129,6 +130,83 @@ class TestPongTitle < Minitest::Test
     end
 
     assert_empty notes(i), "nothing should sound for the whole rally"
+  end
+
+  # --- the difficulty screen, and where its cursor opens ---
+  #
+  # The title's third row opens a screen of its own: two rows, NORMAL and HARD, and a
+  # cursor that starts on the SECOND of them. That is the game recommending a setting —
+  # a player who presses the button straight through gets the harder game rather than
+  # the gentler one, which is a real difference in how pong plays rather than a
+  # cosmetic one.
+  #
+  # That screen inherits pong's top-level bitmap mode, so its rows are painted into the
+  # picture where the title's are composited by the console. Neither the example nor
+  # these tests say which; the rows are read the same way on both.
+
+  DIFF_NORMAL = 80 # examples/pong.rb: `at: [diff_x, 80], spacing: 16`
+  DIFF_HARD = 96
+
+  # Down twice to the DIFFICULTY row, then A to open it.
+  def open_difficulty(frames, extra = {})
+    title(frames) { |f| { 1 => [:down], 4 => [:down], 7 => [:a] }.merge(extra).fetch(f, []) }
+  end
+
+  # The colour a difficulty row's label is drawn in, or nil if it drew nothing. Read from
+  # the label itself rather than from the cursor beside it, so "picked" is the row lighting
+  # up and not something else on the line.
+  def difficulty_row_color(interp, y)
+    diff_x = (240 - Fonts.get(:default).text_width(NORMAL)) / 2
+    (diff_x...(diff_x + 40)).each do |x|
+      (0...7).each do |dy|
+        px = interp.screen.pixel(x, y + dy)
+        return px if px&.positive?
+      end
+    end
+    nil
+  end
+
+  def test_the_difficulty_screen_opens_on_hard
+    i = open_difficulty(10)
+
+    assert_equal PICKED, difficulty_row_color(i, DIFF_HARD), "the cursor opens on HARD"
+    assert_equal PLAIN, difficulty_row_color(i, DIFF_NORMAL), "and NORMAL is the plain row"
+  end
+
+  # Where the cursor STARTS, not where it is held: it moves from there like any other.
+  def test_the_difficulty_cursor_still_moves_from_where_it_started
+    i = open_difficulty(13, 10 => [:up])
+
+    assert_equal PICKED, difficulty_row_color(i, DIFF_NORMAL)
+    assert_equal PLAIN, difficulty_row_color(i, DIFF_HARD)
+  end
+
+  # ...and what the setting does. Both runs reach the same rally at the same moment — the
+  # zoom hands over to a game whose ball and paddles start in fixed places — so the only
+  # difference is how fast the cpu paddle chases. Measured at the moment the ball is near
+  # the bottom of the screen, a long way from where the paddle began.
+  RALLY = 110
+
+  def cpu_gap(setting)
+    keys = { 1 => [:down], 4 => [:down], 7 => [:a] } # to the difficulty screen
+    keys[10] = [:up] if setting == :normal           # up from HARD to NORMAL
+    keys[13] = [:a]                                  # choose it, which returns to the title
+    keys[16] = [:up]                                 # up past MUSIC...
+    keys[19] = [:up]                                 # ...to START
+    keys[22] = [:a]                                  # ...and begin
+    i = title(RALLY) { |f| keys.fetch(f, []) }
+    [(i[:cpu_y] / 65_536.0) + (PADDLE_H / 2) - i[:ball_y], i[:ball_y]]
+  end
+
+  PADDLE_H = 24
+
+  def test_the_cpu_paddle_keeps_up_better_on_hard
+    normal, normal_ball = cpu_gap(:normal)
+    hard, hard_ball = cpu_gap(:hard)
+
+    assert_equal normal_ball, hard_ball, "the same rally, so the two are comparable"
+    assert_operator hard.abs, :<, normal.abs,
+                    "the harder cpu paddle is nearer the ball after the same frames"
   end
 
   # --- on the console ---

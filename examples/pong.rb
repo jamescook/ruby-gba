@@ -8,6 +8,7 @@
 #   - First to 5 wins
 #   - D-pad up/down moves player paddle
 #   - The title screen is a menu: up/down to move, A to choose
+#   - Two difficulties, on a screen of their own, opening on the one the game recommends
 #   - Background music during gameplay, unless you turn it off on the title
 #   - Sound effects on paddle hits, wall bounces, and scoring
 #   - The screen stings red when the CPU scores on you
@@ -23,11 +24,12 @@
 # an empty screen would, and the picture is all still there underneath the moment the
 # sting lifts.
 #
-# The title is a `menu`: two rows, a cursor, and a block under each saying what picking it
-# does. It is the same verb the jukebox uses on a plain bitmap screen, written the same
+# The title is a `menu`: three rows, a cursor, and a block under each saying what picking
+# it does. It is the same verb the jukebox uses on a plain bitmap screen, written the same
 # way — but this title runs on `screen :rotozoom`, where there is no framebuffer and the
 # console composites every character as a little sprite of its own. Nothing in the menu
-# below says which of the two it got.
+# below says which of the two it got, and the difficulty screen it opens is a menu written
+# exactly the same way on a screen that IS a framebuffer.
 #
 # The MUSIC row is the interesting one, because what it says depends on the setting. Give
 # a row the list of things it can say and the variable that decides, and the words become
@@ -44,7 +46,13 @@ PADDLE_H     = 24
 BALL_SIZE    = 4
 PADDLE_SPEED = 2
 BALL_SPEED   = 2
-CPU_SPEED    = 1
+# How far the cpu paddle slides toward the ball each frame, on each setting of the title's
+# difficulty screen. Both are UNDER the ball's own vertical speed, which is what keeps the
+# game winnable: a paddle that moved as fast as the ball would line up once and never miss
+# again. Hard just leaves less room. They are fractions, because there is no whole number
+# between 1 and 2 — write a Float and the framework keeps the fraction for you.
+CPU_NORMAL   = 1.0
+CPU_HARD     = 1.6
 WIN_SCORE    = 5
 STING_FRAMES = 18       # how long the red sting takes to fall away when the cpu scores
 LEFT_X       = 8        # player paddle x
@@ -57,6 +65,9 @@ ZOOM_PER_FRAME = 0.05   # how much bigger the title backdrop gets each of those 
 # column is centred on, so the row never shifts sideways as it is toggled.
 MUSIC_OFF      = "MUSIC: OFF"
 MUSIC_ON       = "MUSIC: ON"
+DIFFICULTY     = "DIFFICULTY" # the title row that opens the screen below
+NORMAL         = "NORMAL"     # ...and its two rows
+HARD           = "HARD"
 
 Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   screen :bitmap
@@ -105,11 +116,16 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   ball_dx      = var :ball_dx, BALL_SPEED
   ball_dy      = var :ball_dy, BALL_SPEED
   player_y     = var :player_y, 68
-  cpu_y        = var :cpu_y, 68
+  # The cpu paddle holds a fraction, so its two speeds can differ by less than a pixel a
+  # frame. Everything that reads it as a place on screen asks for the whole number.
+  cpu_y        = var :cpu_y, 68.0
   player_score = var :player_score, 0
   cpu_score    = var :cpu_score, 0
-  state        = var :state, 0    # 0=title, 1=playing, 2=player_wins, 3=cpu_wins
+  state        = var :state, 0    # 0=title, 1=playing, 2=player_wins, 3=cpu_wins, 4=difficulty
   music_on     = var :music_on, 1 # 1=play the gameplay music, 0=don't (set from the title menu)
+  # How hard the game is, which is the cpu paddle's speed and nothing else. It starts on
+  # the harder of the two, which is the row the difficulty screen's cursor opens on.
+  cpu_speed    = var :cpu_speed, CPU_HARD
   zoom_timer   = var :zoom_timer, 0 # 0=idle; counting up while the title zooms in on START
 
   # --- Subroutines ---
@@ -124,7 +140,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     player_score.set 0
     cpu_score.set 0
     player_y.set 68
-    cpu_y.set 68
+    cpu_y.set 68.0
     ball_dx.set BALL_SPEED
     ball_dy.set BALL_SPEED
     ball_x.set 118
@@ -134,12 +150,13 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   end
 
   func :update_cpu do
-    # Simple AI: slide the paddle's center toward the ball at up to CPU_SPEED per
-    # frame, then keep it on-screen. approach moves cpu_y toward the target
+    # Simple AI: slide the paddle's center toward the ball at up to the difficulty's
+    # speed per frame, then keep it on-screen. approach moves cpu_y toward the target
     # without overshooting, so the paddle settles when it lines up instead of
     # jittering. The target is the ball's y minus half a paddle, so the paddle's
-    # center — not its top — is what tracks the ball.
-    cpu_y.approach ball_y - PADDLE_H / 2, CPU_SPEED
+    # center — not its top — is what tracks the ball. The step is a variable rather
+    # than a number, which is the whole of the difficulty setting.
+    cpu_y.approach (ball_y - PADDLE_H / 2).to_f, cpu_speed
     cpu_y.clamp 0, SCREEN_H - PADDLE_H
   end
 
@@ -168,7 +185,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     # a size — and ask whether they touch with `overlaps?`.
     ball       = box(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
     player_pad = box(LEFT_X, player_y, PADDLE_W, PADDLE_H)
-    cpu_pad    = box(RIGHT_X, cpu_y, PADDLE_W, PADDLE_H)
+    cpu_pad    = box(RIGHT_X, cpu_y.to_i, PADDLE_W, PADDLE_H)
 
     ball.overlaps?(player_pad).then do
       ball_dx.abs # bounce right
@@ -227,14 +244,16 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     draw_text "PONG", :center, 40, :white
 
     # The menu. Ask the font how wide its longest row comes out and centre the column on
-    # that, so the two rows share a left edge for the cursor to line up under and nothing
+    # that, so the rows share a left edge for the cursor to line up under and nothing
     # here is a number counted by eye.
-    menu_x = (SCREEN_W - text_width(MUSIC_OFF)) / 2
+    menu_x = (SCREEN_W - [MUSIC_OFF, DIFFICULTY].map { |row| text_width(row) }.max) / 2
     menu :title, at: [menu_x, 90], spacing: 16, color: :gray, picked: :white do |m|
       m.item("START") { zoom_timer.set 1 }
       # A row whose words follow the setting. `1 - music_on` is the toggle: 1 becomes 0
       # and 0 becomes 1.
       m.item([MUSIC_OFF, MUSIC_ON], showing: music_on) { music_on.set 1 - music_on }
+      # ...and a row that opens a screen of its own, below.
+      m.item(DIFFICULTY) { state.set 4 }
     end
 
     # Zoom the backdrop in once START is chosen, then hand off to :playing when the zoom
@@ -262,7 +281,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     # Draw
     call :draw_field
     draw_rect_at LEFT_X, :player_y, PADDLE_W, PADDLE_H, :white
-    draw_rect_at RIGHT_X, :cpu_y, PADDLE_W, PADDLE_H, :white
+    draw_rect_at RIGHT_X, cpu_y.to_i, PADDLE_W, PADDLE_H, :white
     draw_rect_at :ball_x, :ball_y, BALL_SIZE, BALL_SIZE, :white
 
     # Live score, one digit each side of the center line (first to WIN_SCORE). Each is
@@ -273,6 +292,28 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
 
     # Background music, unless it was turned off on the title screen.
     (music_on == 1).then { play_song :gameplay }.else { stop_music }
+  end
+
+  # How hard the game is, on a screen of its own. Two rows and a cursor that opens on the
+  # SECOND of them, which is the point of `starts_on:`: a difficulty screen recommends a
+  # setting, and a player who presses the button straight through should get the game the
+  # author meant rather than the gentlest one. Writing the rows the other way round would
+  # say it too, and would then lie about which is harder — so the recommendation is a
+  # number the menu is given instead of an order the rows are forced into.
+  #
+  # It inherits the top-level `screen :bitmap`, so its rows are painted into the picture;
+  # the title's are composited by the console. Nothing here says which, and the verb is
+  # written the same way on both.
+  scene :difficulty do
+    clear_screen :black
+    draw_text DIFFICULTY, :center, 40, :white
+
+    diff_x = (SCREEN_W - text_width(NORMAL)) / 2
+    menu :difficulty, at: [diff_x, 80], spacing: 16, color: :gray, picked: :white,
+                      starts_on: 1 do |m|
+      m.item(NORMAL) { cpu_speed.set CPU_NORMAL; state.set 0 }
+      m.item(HARD)   { cpu_speed.set CPU_HARD;   state.set 0 }
+    end
   end
 
   scene :player_wins do
@@ -298,6 +339,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
       when_val 1, :playing
       when_val 2, :player_wins
       when_val 3, :cpu_wins
+      when_val 4, :difficulty
     end
   end
 end

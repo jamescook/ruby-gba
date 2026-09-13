@@ -28,7 +28,7 @@ class TestMenu < Minitest::Test
   # block ran, so the action half is observable too. The same program is built for
   # either screen — that one verb reads the same way on both is the thing under test
   # in the tiled section below.
-  def menu_program(press: :a, repeat_every: nil, on: :bitmap, &extra)
+  def menu_program(press: :a, repeat_every: nil, on: :bitmap, starts_on: nil, &extra)
     build_program do
       screen on
       var :chose, 0
@@ -37,6 +37,7 @@ class TestMenu < Minitest::Test
         options = { at: [X, Y], spacing: SPACING, color: :gray, picked: :white,
                     disabled: :red, press: press }
         options[:repeat_every] = repeat_every if repeat_every
+        options[:starts_on] = starts_on if starts_on
         m = menu(:main, **options) do |rows|
           ROWS.each_with_index do |label, i|
             rows.item(label, enabled: i != 1) { set :chose, i + 1 }
@@ -102,6 +103,41 @@ class TestMenu < Minitest::Test
     i = walk(menu_program, frames: 2, &NOTHING_HELD)
 
     assert_equal DIMMED, row_color(i, 1)
+  end
+
+  # WHERE THE CURSOR STARTS IS SOMETHING A GAME CAN SAY. The first row that can be
+  # picked is the right default and it is not always right: a difficulty screen whose
+  # rows run from easiest to hardest recommends one of them, and that recommendation is
+  # a real difference in the game rather than a cosmetic one.
+  def test_the_cursor_can_start_on_a_row_the_game_names
+    i = walk(menu_program(starts_on: 2), frames: 2, &NOTHING_HELD)
+
+    assert_equal 2, cursor_row(i)
+    assert_equal PICKED, row_color(i, 2), "and that row is the one drawn picked"
+    assert_equal PLAIN, row_color(i, 0), "while the first row is drawn plainly"
+  end
+
+  # ...and it is where the cursor STARTS, not where it is held. A per-frame set would
+  # pin it there and the menu would stop working entirely.
+  def test_a_cursor_that_started_elsewhere_still_moves
+    i = walk(menu_program(starts_on: 2), frames: 3) { |f| f == 1 ? [:down] : [] }
+
+    assert_equal 3, cursor_row(i)
+  end
+
+  def test_starting_on_a_row_that_cannot_be_picked_is_a_friendly_error
+    error = assert_raises(ArgumentError) { menu_program(starts_on: 1) }
+
+    assert_match(/starts_on/, error.message)
+    assert_match(/1/, error.message, "it names the row")
+    assert_match(/enabled: false/, error.message, "and says what is wrong with it")
+  end
+
+  def test_starting_past_the_last_row_is_a_friendly_error
+    error = assert_raises(ArgumentError) { menu_program(starts_on: 9) }
+
+    assert_match(/starts_on/, error.message)
+    assert_match(/4 rows/, error.message, "it says how many rows there are")
   end
 
   # ---- moving ----
@@ -239,6 +275,37 @@ class TestMenu < Minitest::Test
     i = walk(program, frames: 12) { |f| { 1 => [:down], 3 => [:down], 5 => [:b], 8 => [:b] }.fetch(f, []) }
 
     assert_equal 2, cursor_row(i)
+  end
+
+  # A row the game named is where the cursor STARTS, once, at power-on — so a menu you
+  # back out of still opens where you left it rather than jumping back to the
+  # recommendation.
+  def test_a_named_start_is_the_power_on_row_and_not_where_it_returns_to
+    program = build_program do
+      screen :bitmap
+      state = var :state, 0
+      game_loop do
+        clear_screen :black
+        case_var(:state) do
+          when_val 0, :picking
+          when_val 1, :away
+        end
+      end
+      scene :picking do
+        menu(:main, at: [X, Y], spacing: SPACING, starts_on: 2) do |rows|
+          ROWS.each { |label| rows.item(label) }
+        end
+        pressed(:b).then { state.set 1 }
+      end
+      scene :away do
+        draw_text "AWAY", 10, 120, :white
+        pressed(:b).then { state.set 0 }
+      end
+    end
+
+    i = walk(program, frames: 12) { |f| { 1 => [:down], 3 => [:b], 6 => [:b] }.fetch(f, []) }
+
+    assert_equal 3, cursor_row(i), "one row down from the start, and still there on the way back"
   end
 
   def test_two_menus_keep_their_own_pick

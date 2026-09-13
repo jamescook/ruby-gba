@@ -184,6 +184,16 @@ module RubyGBA
         # of opens where you left it. That is free: the pick is a variable, and a
         # variable's starting value is applied once, at power-on.
         #
+        # WHERE THE CURSOR STARTS is the first row that can be picked, unless `starts_on:`
+        # names another. A difficulty screen is what wants it: its rows run from gentlest
+        # to hardest, and the one the game RECOMMENDS is usually not the first — so a
+        # player who presses the button straight through gets the game the author meant
+        # rather than the easiest one. That is a real difference in how hard the game is,
+        # not a cosmetic one, and it is a number the menu is given rather than an order
+        # the rows have to be written in. It applies at power-on only: the cursor moves
+        # from there like any other, and a menu you back out of still opens where you
+        # left it.
+        #
         # THE COLOURS come in three, and any of them can be said per row:
         #
         #   color:     a row the cursor is not on
@@ -200,10 +210,11 @@ module RubyGBA
         # @param font [Symbol] a font registered by {Builder::Text#font}
         # @param press [Symbol] the button that runs the picked row's block
         # @param repeat_every [Integer] frames between rows while a button is held
+        # @param starts_on [Integer, nil] which row the cursor is on at power-on
         # @return [Menu] a handle: `.picked`, `.moved`, `.length`
         def menu(name, at:, spacing: nil, color: :gray, picked: :white,
                  disabled: DISABLED_COLOR, cursor: CURSOR, font: :default,
-                 press: :a, repeat_every: HELD_REPEAT_FRAMES, &block)
+                 press: :a, repeat_every: HELD_REPEAT_FRAMES, starts_on: nil, &block)
           items = menu_items!(name, block)
           menu_place!
           check_button!(press)
@@ -211,7 +222,7 @@ module RubyGBA
           step = menu_spacing!(spacing || (text_height(font: font) + ROW_GAP))
           menu_repeat!(repeat_every)
 
-          pick = var :"__menu_#{name}", items.index(&:enabled)
+          pick = var :"__menu_#{name}", menu_first_row!(name, items, starts_on)
           wait = var :"__menu_#{name}_wait", 0
           moved = var :"__menu_#{name}_moved", 0
 
@@ -494,6 +505,36 @@ module RubyGBA
           raise ArgumentError,
                 "menu takes `repeat_every:` as the frames a held button waits before it " \
                 "walks to the next row. Got #{frames.inspect}."
+        end
+
+        # Which row the cursor is on at power-on: the one the game named, else the first
+        # that can be picked.
+        #
+        # A row that cannot be picked is refused rather than quietly stepped past. Which
+        # rows those are is settled while the program is built, so a start that lands on
+        # one is a mistake in the program — and moving the cursor for you would hide it.
+        def menu_first_row!(name, items, starts_on)
+          return items.index(&:enabled) if starts_on.nil?
+
+          unless starts_on.is_a?(Integer)
+            raise ArgumentError,
+                  "menu takes `starts_on:` as which row the cursor starts on, counting " \
+                  "from 0, like `starts_on: 2`. Got #{starts_on.inspect}."
+          end
+          unless (0...items.length).cover?(starts_on)
+            raise ArgumentError,
+                  "menu :#{name} must start on one of its own rows. It has #{items.length} " \
+                  "rows, and `starts_on: #{starts_on}` names none of them. Rows count from " \
+                  "0, so the last one is row #{items.length - 1}."
+          end
+          unless items[starts_on].enabled
+            raise ArgumentError,
+                  "menu :#{name} cannot start on row #{starts_on}, because that row is " \
+                  "`enabled: false`. The cursor never lands on a row that cannot be picked. " \
+                  "To fix this, give `starts_on:` a row that can be picked."
+          end
+
+          starts_on
         end
       end
     end
