@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "gba/sprite" # what the build worked out about one sprite, for the draw to read
+require_relative "gba/pose_cutter" # how a sprite's picture is cut into the rectangles the console draws
 require_relative "gba/sprite_pictures" # one sprite's pictures, and the sets of them sprites share
 require_relative "gba/object_art" # where the sprites' pictures go in sprite memory
 require_relative "gba/address_register" # what the address register still holds, as code goes past
@@ -1966,35 +1967,6 @@ module RubyGBA
           end
         end
 
-        # The picture sizes sprite hardware can draw, each mapped to the two shape/size
-        # numbers that describe it. (The sizes fall out of how the hardware groups an
-        # object's 8x8 tiles into a rectangle.) A picture that is NOT one of these is
-        # drawn as several objects at once — see #object_pose_pieces.
-        OBJ_SIZES = {
-          [8, 8] => [0, 0],  [16, 16] => [0, 1], [32, 32] => [0, 2], [64, 64] => [0, 3],
-          [16, 8] => [1, 0], [32, 8] => [1, 1],  [32, 16] => [1, 2], [64, 32] => [1, 3],
-          [8, 16] => [2, 0], [8, 32] => [2, 1],  [16, 32] => [2, 2], [32, 64] => [2, 3],
-        }.freeze
-
-        # The largest object the console has: not one of the twelve draws more than this
-        # many pixels a side.
-        OBJ_MAX_SIDE = 64
-
-        # The largest picture the framework will cut up into objects. The ceiling is the
-        # pose table's own: it says where each piece sits inside the picture as a whole
-        # byte each way, so a bigger picture has corners it could not name.
-        MAX_OBJECT_CANVAS = 256
-
-        # The most objects one sprite is cut into. Cutting more finely drops more blank and
-        # so costs less picture memory, but every piece spends one of the 128 places the
-        # console draws from — and on a large sparse picture the saving alone would happily
-        # take twenty of them.
-        #
-        # The COARSEST cover always fits under this, which is what makes it a preference
-        # rather than a wall: the largest picture is MAX_OBJECT_CANVAS square and the
-        # largest object OBJ_MAX_SIDE square, so a cover of those never comes to more.
-        MAX_OBJECT_PIECES = (MAX_OBJECT_CANVAS / OBJ_MAX_SIDE)**2
-
         # attr0 bit 13 (8bpp): this sprite's pixels are whole bytes, so it reads across the
         # console's whole 256-color sprite table. Left clear (4bpp) a pixel is half a byte
         # and the sprite draws from one bank of sixteen — half the memory for the same
@@ -2062,11 +2034,13 @@ module RubyGBA
                   "#{nodes.size} sprites declared, but the console draws at most #{MAX_SPRITES} at once"
           end
           build_shared_object_palette(nodes)
-          # HOW MANY OBJECTS EACH SPRITE IS BUILT FROM, before any of them is given a
-          # place: a picture the console can draw in one go is one object, and a bigger
-          # one is several (see #object_pose_pieces), so the places are handed out in runs
-          # rather than one apiece.
-          @obj_plans = nodes.to_h { |node| [node.name, plan_one_object(node)] }
+          # EVERY SPRITE'S PICTURES, cut into the rectangles the console draws and encoded,
+          # before any of them is given a place: a picture the console can draw in one go is
+          # one object, and a bigger one is several (see PoseCutter), so the places are handed
+          # out in runs rather than one apiece. None of this changes while the pictures are
+          # fitted into memory below, so it is done once.
+          cutter = PoseCutter.new(@bitmaps)
+          @obj_pictures = nodes.to_h { |node| [node.name, sprite_pictures(node, cutter)] }
           guard_objects_fit(nodes)
           guard_window_twins_fit(nodes)
 
@@ -2078,12 +2052,11 @@ module RubyGBA
           slot_of = {}
           nodes.reverse_each do |node| # last declared is in front, so it takes the front slots
             slot_of[node.name] = front
-            front += @obj_plans.fetch(node.name)[:pieces]
+            front += @obj_pictures.fetch(node.name).pieces
           end
           affine_of = affine_slots(nodes) # ...and which rotation group each turning sprite uses
           prepare_affine(nodes)
 
-          @obj_pictures = nodes.to_h { |node| [node.name, sprite_pictures(node)] }
           sets = @obj_pictures.values.group_by(&:stored).values.map { |sprites| PictureSet.new(sprites: sprites) }
           @obj_one_frame = Set.new # the names of the sprites kept to one frame at a time
           loop do
@@ -2325,10 +2298,10 @@ module RubyGBA
 
         # How many of the console's 128 places the sprites take between them. Usually one
         # each; a sprite whose picture is bigger than one object takes one per piece.
-        def object_count(nodes) = nodes.sum { |node| @obj_plans.fetch(node.name)[:pieces] }
+        def object_count(nodes) = nodes.sum { |node| @obj_pictures.fetch(node.name).pieces }
 
         def twin_object_count
-          @window_twins.keys.sum { |name| @obj_plans.fetch(name)[:pieces] }
+          @window_twins.keys.sum { |name| @obj_pictures.fetch(name).pieces }
         end
 
         # The twins take the front places, each one a run as long as the sprite it shadows
@@ -2338,7 +2311,7 @@ module RubyGBA
           front = 0
           @window_twins.each do |name, twin|
             twin[:slot] = front
-            front += @obj_plans.fetch(name)[:pieces]
+            front += @obj_pictures.fetch(name).pieces
           end
           front
         end
@@ -2358,10 +2331,10 @@ module RubyGBA
         # Which sprites are drawn as more than one object, said in the author's own names
         # — the pictures, since a sprite's own name is the framework's.
         def big_sprites_sentence(nodes)
-          big = nodes.select { |node| @obj_plans.fetch(node.name)[:pieces] > 1 }
+          big = nodes.select { |node| @obj_pictures.fetch(node.name).pieces > 1 }
           return " To fix this, use fewer sprites." if big.empty?
 
-          named = big.map { |node| ":#{node.poses.first} (#{@obj_plans.fetch(node.name)[:pieces]} each)" }
+          named = big.map { |node| ":#{node.poses.first} (#{@obj_pictures.fetch(node.name).pieces} each)" }
           " A picture bigger than #{OBJ_MAX_SIDE}x#{OBJ_MAX_SIDE} is drawn as several sprites at once. " \
             "These pictures spend more than one: #{named.uniq.join(', ')}. To fix this, draw them " \
             "smaller, or use fewer sprites."
@@ -2466,81 +2439,6 @@ module RubyGBA
             "are #{named}. Draw them from fewer colors, or use fewer sprites at once."
         end
 
-        # EVERYTHING ABOUT A SPRITE'S POSES THAT DOES NOT DEPEND ON MEMORY: which poses are
-        # another pose mirrored, and the boxes each pose is drawn from. Worked out before
-        # any sprite is given a place in the console's table, because a picture too big for
-        # one object is drawn as SEVERAL and each of them takes a place of its own.
-        def plan_one_object(node)
-          width, height = object_pose_size!(node.name, node.poses)
-          guard_object_canvas!(node, width, height)
-          # A SPRITE THAT TURNS OR RESIZES IS NEITHER TRIMMED NOR MIRRORED, and that is
-          # about being right rather than about being easy. The console spins an object
-          # about the middle of its own box, so trimming the blank away would move the
-          # pivot and the sprite would swing around a different point than the author drew
-          # it to; and the two attribute bits that mirror an object are the ones that name
-          # the rotation group once it is turning, so there are none left to mirror with.
-          plain = !object_transformed?(node)
-          # EACH POSE IS STORED AT ITS OWN SIZE, trimmed to what it actually draws (see
-          # #object_pose_pieces) rather than at the canvas they were all drawn on.
-          boxes = node.poses.map do |image|
-            plain ? object_pose_pieces(@bitmaps.fetch(image)) : [[0, 0, width, height]]
-          end
-          mirrors = plain ? object_pose_mirrors(node.poses) : Array.new(node.poses.length)
-          mirrors = reflect_mirrored_poses(mirrors, boxes, width)
-          { width: width, height: height, mirrors: mirrors, boxes: boxes,
-            pieces: boxes.map(&:size).max }
-        end
-
-        # A POSE THAT IS ANOTHER ONE MIRRORED IS NOT STORED AT ALL: it is drawn from the
-        # source's tiles, reversed, so its boxes are the source's reflected in the canvas.
-        #
-        # Unless one of them would land at a NEGATIVE offset, and then this pose keeps its
-        # own pixels after all. That happens where a box is bigger than the picture it came
-        # from — a 24x24 picture stored as one 32x32 object overhangs by eight, and its
-        # reflection would have to be drawn eight pixels to the left of the canvas, which
-        # the pose table has no way to say. Rare, and costs only the memory the sharing
-        # would have saved.
-        def reflect_mirrored_poses(mirrors, boxes, width)
-          mirrors.each_with_index.map do |source, k|
-            next nil if source.nil?
-
-            reflected = boxes[source].map { |box| mirrored_pose_box(box, width) }
-            next nil if reflected.any? { |(x0, _y0, _w, _h)| x0.negative? }
-
-            boxes[k] = reflected
-            source
-          end
-        end
-
-        # THE PICTURE THE AUTHOR DREW HAS TO BE MADE OF WHOLE TILES, and small enough that
-        # the pose table can say where each of its pieces sits. Everything between those
-        # two the framework cuts up for itself, so this is the whole of what it refuses.
-        # The message names the PICTURE rather than the sprite, since a sprite's own name
-        # is the framework's and the author named the art.
-        def guard_object_canvas!(node, width, height)
-          art = node.poses.first
-          if width % TILE_PX != 0 || height % TILE_PX != 0
-            raise LoweringError,
-                  "A sprite in screen :tiled is built from #{TILE_PX}x#{TILE_PX} tiles. So its picture " \
-                  "must be a multiple of #{TILE_PX} pixels each way. The picture :#{art} is " \
-                  "#{width}x#{height}. To fix this, resize it."
-          end
-          if width > MAX_OBJECT_CANVAS || height > MAX_OBJECT_CANVAS
-            raise LoweringError,
-                  "A sprite in screen :tiled can be #{MAX_OBJECT_CANVAS} pixels each way at most. " \
-                  "The picture :#{art} is #{width}x#{height}. To fix this, draw it smaller, or build " \
-                  "this part of the picture from a background instead."
-          end
-          return if !object_transformed?(node) || OBJ_SIZES.key?([width, height])
-
-          raise LoweringError,
-                "A sprite that turns or changes size must be one of these sizes: " \
-                "#{OBJ_SIZES.keys.map { |w, h| "#{w}x#{h}" }.join(', ')}. The picture :#{art} is " \
-                "#{width}x#{height}. A picture that size is drawn as several sprites at once. The console " \
-                "turns each sprite about its own middle, so the picture will come apart. To fix this, draw " \
-                "it at one of the sizes above, or do not turn or resize it."
-        end
-
         # ONE SPRITE'S PICTURES, encoded once for the whole build (see SpritePictures).
         #
         # Where each pose's tiles begin, in the 32-byte units a tile number counts in —
@@ -2557,13 +2455,14 @@ module RubyGBA
         # and every frame points at them. Judged on the encoded bytes, which say the
         # pixels and the size of the box together, so two pieces match only when they
         # would draw the same thing.
-        def sprite_pictures(node)
-          plan = @obj_plans.fetch(node.name)
-          mirrors = plan[:mirrors]
-          boxes = plan[:boxes].map(&:dup) # the short poses are filled out with blank pieces below
+        def sprite_pictures(node, cutter)
+          cut = cutter.cut(node, transformed: object_transformed?(node))
+          mirrors = cut[:mirrors]
+          boxes = cut[:boxes]
+          pieces = boxes.map(&:size).max
           place = @obj_banks.placement(node.name)
           encoded = node.poses.each_with_index.map do |image, k|
-            boxes[k].map { |box| encode_object_tiles(@bitmaps.fetch(image), place, box) } unless mirrors[k]
+            boxes[k].map { |box| cutter.encode(@bitmaps.fetch(image), place, box) } unless mirrors[k]
           end
           stored = +"".b
           starts = []
@@ -2585,9 +2484,10 @@ module RubyGBA
               at
             end
           end
-          pad_object_pieces(boxes, starts, stored, place, plan[:pieces])
+          pad_object_pieces(boxes, starts, stored, place, pieces)
           SpritePictures.new(node: node, place: place, boxes: boxes, mirrors: mirrors, encoded: encoded,
                              stored: stored, starts: starts, repeats: repeats,
+                             width: cut[:width], height: cut[:height],
                              animates: const_int(node.pose).nil? && node.poses.length > 1)
         end
 
@@ -2635,14 +2535,13 @@ module RubyGBA
           place = pictures.place
           boxes = pictures.boxes
           mirrors = pictures.mirrors
-          plan = @obj_plans.fetch(name)
           # Poses that trimmed alike carry their one size in the sprite's own entry. Poses
           # that differ carry NOTHING here — the size and shape come out of the table with
           # the rest of what changes, so these bases must not also hold the canvas's.
           shape, size = alike ? OBJ_SIZES.fetch(boxes.first.first.last(2)) : [0, 0]
           Sprite.new(
             slot: slot,
-            pieces: plan[:pieces], # how many of the console's 128 places this one sprite takes
+            pieces: pictures.pieces, # how many of the console's 128 places this one sprite takes
             tiles: tiles, tile_units: tile_units, # sprite memory counts in 32-byte units
             scene: node.scene, # sent when that scene takes over, rather than at boot
             tile_index: tile_index, # this sprite's base tile number
@@ -2658,12 +2557,13 @@ module RubyGBA
             alike: alike,
             mirrors: mirrors, # which poses are drawn backwards, so the draw knows to say so
             pose_table: alike ? nil : :"__poses_#{name}",
-            pose_words: alike ? nil : object_pose_table(name, boxes, starts, mirrors, tile_index, plan[:pieces]),
+            pose_words: alike ? nil : object_pose_table(name, boxes, starts, mirrors, tile_index,
+                                                        pictures.pieces),
             # Where the first pose sits inside the canvas it was drawn on. The sprite is
             # drawn that much further along so the picture does not move; for poses that
             # differ it comes out of the table instead.
             offset_x: boxes.first.first[0], offset_y: boxes.first.first[1],
-            width: plan[:width], height: plan[:height],
+            width: pictures.width, height: pictures.height,
             x: node.x, y: node.y, active: node.active, # the live position/visibility operands
             angle: node.angle,   # the rotation operand (a constant 0 unless the sprite turns)
             scale: node.scale,   # the size operand (the "as drawn" constant unless it resizes)

@@ -17,7 +17,7 @@ module RubyGBA
         # is the colour storage the sprite draws from, and +animates+ whether the game picks
         # among more than one pose while it runs.
         SpritePictures = Data.define(:node, :place, :boxes, :mirrors, :encoded, :stored, :starts,
-                                     :repeats, :animates) do
+                                     :repeats, :width, :height, :animates) do
           def name = node.name
           def scene = node.scene
           def animates? = animates
