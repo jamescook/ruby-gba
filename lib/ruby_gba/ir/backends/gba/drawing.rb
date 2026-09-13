@@ -44,11 +44,12 @@ module RubyGBA
           # The prepare-pass results this file reads, bundled into one record and handed
           # over through #layout= once every pass that decides them has run.
           # Where a background's cells are and what to write into one is on its own placement
-          # record (see GBA::MapGrid), which is what a run-time tile change reads.
+          # record (see GBA::MapGrid), which is what a run-time tile change reads. Which screen
+          # mode each scene draws in is on +modes+ (see IR::Modes), which is asked rather than
+          # copied out field by field.
           Layout = Data.define(:bitmaps, :objects, :placed_fade, :backgrounds, :bg_shared, :palette,
-                                :indexed_bitmaps, :run_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
+                                :indexed_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
                                 :modes, :tiled, :has_objects, :obj_palette_blob, :obj_palette_units,
-                                :default_mode, :any_buffered, :mixed_display, :manage_modes, :func_mode,
                                 :scene_art)
 
           # Fill the area itself, which is what clearing means when only part of the picture may
@@ -74,7 +75,7 @@ module RubyGBA
           # preamble, so a `screen` node is only a build-time declaration of a scene's
           # mode and emits nothing here. Otherwise it's the plain one-time register write.
           def emit_screen(node)
-            return if @layout.manage_modes
+            return if @layout.modes.switched_per_scene?
 
             mode = node.mode
             value = if mode == :tiled
@@ -119,8 +120,8 @@ module RubyGBA
           # showing page 0 and drawing into page 1; a tiled default brings up the tile
           # layers and sprites; a direct default is the plain Mode 3 write.
           def emit_boot_screen
-            upload_palette if @layout.any_buffered # the palette exists only for the buffered path
-            case @layout.default_mode
+            upload_palette if @layout.modes.any_buffered? # the palette exists only for the buffered path
+            case @layout.modes.default_mode
             when :tiled then enter_tiled_mode
             when :affine then enter_affine_mode
             when :buffered then enter_buffered_mode
@@ -143,7 +144,7 @@ module RubyGBA
             # to the tiled screen, that screen's own colors have been in this table since —
             # so put the originals back, which is also what makes the remembered tint true
             # again.
-            upload_palette if @palette_tint.palette_tint? && @layout.mixed_display
+            upload_palette if @palette_tint.palette_tint? && @layout.modes.mixed_display?
           end
 
           # Switch the hardware into direct-color (Mode 3) and record it as live. Writing
@@ -196,7 +197,7 @@ module RubyGBA
           # transition). Steady frames — the same scene running again — cost just the
           # compare, and a buffered scene's DISPCNT is left to the page flip.
           def emit_scene_preamble(name)
-            mode = @layout.func_mode[name]
+            mode = @layout.modes.func_mode[name]
             @primitives.load_var(ACC, MODE_STATE)
             @emitter.emit(ASM.cmp_imm(ACC, mode_state_marker(mode)))
             skip = @emitter.gensym
@@ -1161,7 +1162,7 @@ module RubyGBA
           # It is set beside the offset rather than at boot so a program that never
           # moves the camera emits not one extra byte.
           def emit_camera(node)
-            raise LoweringError, CAMERA_NEEDS_BITMAP if @layout.default_mode == :tiled
+            raise LoweringError, CAMERA_NEEDS_BITMAP if @layout.modes.default_mode == :tiled
 
             write_reg16(REG_BG2PA, FIXED_ONE)
             write_reg16(REG_BG2PB, 0)

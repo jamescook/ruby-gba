@@ -6,6 +6,7 @@ require_relative "gba/sprite_pictures" # one sprite's pictures, and the sets of 
 require_relative "gba/object_art" # where the sprites' pictures go in sprite memory
 require_relative "gba/sprite_layout" # ...and one attempt at fitting them all into it
 require_relative "gba/placed_fade" # a fade that sits at a place in the stack, and the twins holding it off
+require_relative "gba/stretched_columns" # the pictures a stretched column draws, and where each holds pixels
 require_relative "gba/address_register" # what the address register still holds, as code goes past
 require_relative "gba/emit"
 require_relative "gba/attribution"
@@ -114,23 +115,9 @@ module RubyGBA
         # DISPCNT value (so a flip toggles a single bit) and the address of the page
         # currently being drawn into.
         PALETTE_BLOB = :__palette
-        # What a picture's palette-number form is filed under, beside its colors.
+        # What a picture's palette-number form is filed under, beside its colors. Where each
+        # of its columns holds pixels is filed beside them too — see StretchedColumns.
         INDEXED_SUFFIX = "__indexed"
-        # ...and where each of its columns holds pixels (see #register_column_runs): the
-        # stretches themselves, and where each column's list of them starts.
-        #
-        # A row number is one byte, so a picture taller than this ships none and walks its
-        # whole height, as every picture did before there were lists. Any height up to it
-        # ships them — turning a picture row into a screen row divides by the height, and a
-        # height that is not a power of two divides by a multiply the build settles rather
-        # than by a shift (see Framebuffer::ColumnDivide).
-        RUNS_SUFFIX = "__runs"
-        RUNS_START_SUFFIX = "__runstart"
-        RUNS_MAX_ROWS = 256
-        # The byte that ends a column's list. No row can be it, because a picture that tall
-        # ships no runs at all.
-        RUNS_END = 255
-        RUNS_MAX_BYTES = 0xFFFF
         DISPCNT_STATE = :__dispcnt
         BACKBUF = :__backbuf
 
@@ -179,20 +166,6 @@ module RubyGBA
         # whether the count is a power of two — which decides whether an out-of-range index
         # is wrapped (one instruction) or clamped against both ends.
         TableLayout = Data.define(:count, :elem_bytes, :signed, :pow2)
-
-        # WHAT THE BUILD COULD DO FOR ONE SEE-THROUGH PICTURE a stretched column reads:
-        # whether it ships where each of its columns holds pixels (see #register_column_runs),
-        # and what stopped it when it does not. +held_back_by+ is nil when it ships, :too_tall
-        # for a picture past RUNS_MAX_ROWS, and :too_many when its lists together run past
-        # RUNS_MAX_BYTES.
-        #
-        # A picture that ships none walks EVERY row of every column it draws, and a see-through
-        # picture is mostly rows that draw nothing — so this is the difference between a lamp
-        # costing its lit rows and costing its square. Nothing about how the game runs reads it;
-        # it is here so the estimate charges what really happens and the report can say so.
-        ColumnStretches = Data.define(:height, :held_back_by) do
-          def skips_empty_rows? = held_back_by.nil?
-        end
 
         # A background, once given hardware to live in: where its map sits, which of the
         # console's layers draws it, and how far forward that layer is. +affine+ marks a
@@ -248,7 +221,7 @@ module RubyGBA
         COLUMN_SRC = 10
         COLUMN_DEST = 11
         # ...and r7 for where the picture's column holds pixels, when it ships that (see
-        # #register_column_runs). The walk goes round once per stretch of them.
+        # StretchedColumns). The walk goes round once per stretch of them.
         COLUMN_RUNS = 7
 
         # Interrupt-driven frame timing. `wait_vblank` asks the BIOS to sleep the CPU
@@ -350,8 +323,7 @@ module RubyGBA
           @bitmaps = {}          # name -> { width:, height: } (a blob that has a shape)
           @tables = {}           # name -> { count:, elem_bytes:, signed:, pow2: } (a ROM lookup table)
           @backgrounds = {}      # name -> resolved tiled-background layer (map blob, BG number, screen block, priority)
-          @run_bitmaps = []      # pictures that ship where each of their columns holds pixels
-          @column_stretches = {} # ...and what the build could do for each, for the report
+          @stretched_columns = nil # the pictures a stretched column draws — built in #lower, from the program
           @timers = Timers.new(emitter: @emit) # named timer -> which hardware timer(s) back it
           @collision = Collision.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                      bitmaps: @bitmaps)
@@ -374,14 +346,14 @@ module RubyGBA
           @statements = Statements.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                        placement: self, functions: @functions)
           @framebuffer = Framebuffer.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
-                                         divide: @divide, run_bitmaps: @run_bitmaps)
+                                         divide: @divide)
           @raster = Raster.new(emitter: @emit, primitives: @primitives, memory: @memory,
                                lowering: @lowering, backgrounds: @backgrounds, framebuffer: @framebuffer)
           @mixer = Mixer.new(emitter: @emit, memory: @memory, timers: @timers, primitives: @primitives)
           @audio = Audio.new(emitter: @emit, primitives: @primitives, lowering: @lowering, mixer: @mixer,
                              sounds: @defined_sounds, songs: @songs,
                              frames: @frames, expressions: @expressions, raster: @raster, drawing: self,
-                             uses_pressed: -> { @uses_pressed }, any_buffered: -> { @any_buffered })
+                             uses_pressed: -> { @uses_pressed }, any_buffered: -> { @modes.any_buffered? })
           @palette_tint = PaletteTint.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                           drawing: self)
           @layer_blend = LayerBlend.new(emitter: @emit, lowering: @lowering, primitives: @primitives,
@@ -452,12 +424,6 @@ module RubyGBA
           @palette = nil         # the color table, built once when any scene is buffered
           @indexed_bitmaps = {}  # name -> the number meaning see-through, for pictures drawn indexed
           @modes = nil           # IR::Modes: which screen mode each scene resolves to
-          @any_buffered = false  # does any scene use double buffering?
-          @mixed_display = false # does the program cross the bitmap/tiled boundary?
-          @manage_modes = false  # is the display switched per scene (buffered or mixed)?
-          @default_mode = :direct # the boot screen mode (from the top-level `screen`)
-          @func_mode = {}        # func name -> :direct | :buffered (resolved from the call graph)
-          @scene_funcs = []      # funcs entered per frame, which switch the mode on entry
           @tiled = false         # does the program use tile mode (screen :tiled)?
           @bg_shared = nil       # the one palette + character block every background layer shares
           @has_objects = false   # does the program declare any composited objects (sprites)?
@@ -504,7 +470,7 @@ module RubyGBA
           RubyGBA::BuildRecord.new(source_program: program, placement: iwram_report,
                                    var_addresses: var_addresses, loop_shapes: loop_shapes,
                                    palette_entries: palette_entries,
-                                   column_stretches: @column_stretches,
+                                   column_stretches: @stretched_columns&.to_h || {},
                                    compression: compression_report,
                                    emitted: @attribution.emitted,
                                    routines: routine_addresses,
@@ -695,7 +661,8 @@ module RubyGBA
           @attribution.reset
           # Which pictures a stretched column reads, which decides whether a see-through one
           # still needs its pixels in the cartridge. Wanted before the assets are registered.
-          @column_bitmaps = program.walk.filter_map { |node| node.name if node.kind == :draw_column_at }.uniq
+          @stretched_columns = StretchedColumns.new(program, emitter: @emit)
+          @framebuffer.stretched_columns = @stretched_columns
           # First in internal memory, before anything else is given a home there: only a
           # program that divides by something it works out as it runs carries the divide
           # routine, and every other division is settled at build time.
@@ -732,7 +699,7 @@ module RubyGBA
           @layer_blend.prepare_layer_blend(program) # ...and which layer, if any, you can see through
           prepare_objects(program) if @has_objects
           @uses_save = program.walk.any? { |node| node.kind == :save_init }
-          prepare_palette(program) if @any_buffered
+          prepare_palette(program) if @modes.any_buffered?
           # The palette layout: settled by now, across several prepare passes above —
           # handed to PaletteTint as one record rather than five ivars (see its class
           # comment).
@@ -748,11 +715,9 @@ module RubyGBA
           layout = Drawing::Layout.new(
             bitmaps: @bitmaps, objects: @objects, placed_fade: @placed_fade, backgrounds: @backgrounds,
             bg_shared: @bg_shared, palette: @palette, indexed_bitmaps: @indexed_bitmaps,
-            run_bitmaps: @run_bitmaps, blob_codecs: @blob_codecs, blob_raw_bytes: @blob_raw_bytes,
+            blob_codecs: @blob_codecs, blob_raw_bytes: @blob_raw_bytes,
             picture: @picture, modes: @modes, tiled: @tiled, has_objects: @has_objects,
             obj_palette_blob: @obj_palette_blob, obj_palette_units: @obj_palette_units,
-            default_mode: @default_mode, any_buffered: @any_buffered, mixed_display: @mixed_display,
-            manage_modes: @manage_modes, func_mode: @func_mode,
             scene_art: @scene_art || {},
           )
           @drawing.layout = layout
@@ -773,13 +738,13 @@ module RubyGBA
           emit_mixer_boot if @mixer.plays_samples? # start the sound DMA + clock; voices added by `play`
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
-          emit_boot_screen if @manage_modes # set the boot mode (+ palette for buffered)
+          emit_boot_screen if @modes.switched_per_scene? # set the boot mode (+ palette for buffered)
           # Upload the tiled assets once at boot only when the program stays in tiled
           # mode. When it crosses the bitmap/tiled boundary, a bitmap scene overwrites
           # the video memory the tiles live in, so the assets are (re)uploaded on each
           # entry into a tiled scene instead (enter_tiled_mode) — always current, and
           # only paid on the actual switch.
-          unless @manage_modes
+          unless @modes.switched_per_scene?
             emit_boot_backgrounds if @tiled && !@backgrounds.empty? # shared BG palette + tiles
             emit_boot_objects if @has_objects # sprite tiles/colors + clear the sprite table
             emit_boot_layer_blend if @layer_blend.see_through? # ...and which layer you can see through
@@ -790,7 +755,7 @@ module RubyGBA
           # overwrite.
           emit_boot_row_bends if @raster.latches_row_bends?
           emit_tint_state_init if @palette_tint.palette_tint? # the color tables start as they were drawn
-          @lowering.in_mode(@default_mode) do
+          @lowering.in_mode(@modes.default_mode) do
             program.children.each { |stmt| @lowering.statement(stmt) }
           end
           guard_variables_clear_of_routines
@@ -853,21 +818,17 @@ module RubyGBA
         # graph from the game's entry points. A drawing helper reached in two
         # different modes can't be lowered both ways; Modes flags that, and we
         # surface it as a lowering error.
+        # When a program switches the hardware per scene — because some scene double-
+        # buffers, or because it crosses the bitmap/tiled boundary — the display
+        # registers are managed centrally: set once at boot, then re-set only on a
+        # scene's mode transition (its preamble). A single-display-system program
+        # leaves each `screen` node to write DISPCNT inline, exactly as before. That is
+        # IR::Modes#switched_per_scene?, which every reader here asks rather than each
+        # keeping an answer of its own.
         def resolve_modes(program)
           @modes = IR::Modes.resolve(program)
           @functions.modes = @modes
           @palette_tint.modes = @modes
-          @default_mode = @modes.default_mode
-          @func_mode = @modes.func_mode
-          @scene_funcs = @modes.scene_funcs
-          @any_buffered = @modes.any_buffered?
-          @mixed_display = @modes.mixed_display?
-          # When a program switches the hardware per scene — because some scene double-
-          # buffers, or because it crosses the bitmap/tiled boundary — the display
-          # registers are managed centrally: set once at boot, then re-set only on a
-          # scene's mode transition (its preamble). A single-display-system program
-          # leaves each `screen` node to write DISPCNT inline, exactly as before.
-          @manage_modes = @any_buffered || @mixed_display
         rescue IR::Modes::Conflict => e
           raise LoweringError, e.message
         end
@@ -1210,8 +1171,8 @@ module RubyGBA
               # into the code, so it needs no copy — unless a stretched column reads it, which
               # walks the picture as it runs and so needs it there. A scaled sprite in a
               # first-person view is exactly that case.
-              @emit.data_blobs[node.name] = node.pixels if !node.transparent || @column_bitmaps.include?(node.name)
-              register_column_runs(node)
+              @emit.data_blobs[node.name] = node.pixels if !node.transparent || @stretched_columns.reads?(node.name)
+              @stretched_columns.register(node)
             when :list_new
               # Storage is reserved once, up front, so every op that touches it (anywhere
               # in the tree, including funcs emitted later) already knows its base address
@@ -1312,65 +1273,6 @@ module RubyGBA
         end
 
         def indexed_blob(name) = :"#{name}#{INDEXED_SUFFIX}"
-        def runs_blob(name) = :"#{name}#{RUNS_SUFFIX}"
-        def runs_start_blob(name) = :"#{name}#{RUNS_START_SUFFIX}"
-
-        # WHERE EACH COLUMN OF A SEE-THROUGH PICTURE HOLDS PIXELS, as the stretches of rows
-        # that hold them.
-        #
-        # A stretched column walks down the screen asking each row for a pixel, and for a
-        # picture that is mostly see-through most of those rows answer "nothing here". A
-        # scaled sprite is exactly that: a lamp, a barrel, a clip of ammunition, each in the
-        # middle of a square of see-through. Knowing the stretches, the walk goes round once
-        # per stretch and never asks a row that cannot answer.
-        #
-        # THE STRETCHES AND NOT JUST THE FIRST AND LAST. A thing lying on the floor holds its
-        # pixels in the bottom sixth of its column and one band would catch that — but a lamp
-        # that hangs holds them at the TOP of its column and at the bottom, with the ceiling
-        # between, and the gap in the middle is where a player standing under it is looking.
-        # Measured on a real floor: the first-and-last band leaves 30 rows walked in every
-        # hundred, and the stretches leave 17.
-        #
-        # A column that holds nothing at all gets an empty list, so it walks no rows.
-        def register_column_runs(node)
-          return unless node.transparent && @column_bitmaps.include?(node.name)
-
-          held_back = ships_column_runs(node)
-          @column_stretches[node.name] = ColumnStretches.new(height: node.height, held_back_by: held_back)
-          @run_bitmaps << node.name unless held_back
-        end
-
-        # ...done, and what stopped it: nil when the picture ships its stretches, else which
-        # of the two ceilings it ran into.
-        def ships_column_runs(node)
-          return :too_tall if node.height > RUNS_MAX_ROWS
-
-          runs = column_runs(node)
-          starts = []
-          at = 0
-          runs.each do |column|
-            starts << at
-            at += (column.length * 2) + 1 # a pair of rows each, then the byte that ends the list
-          end
-          # Where a column's list starts is a halfword, so a picture whose lists together run
-          # past that ships none and walks its whole height, as every picture did before there
-          # were lists.
-          return :too_many if at > RUNS_MAX_BYTES
-
-          @emit.data_blobs[runs_blob(node.name)] =
-            runs.flat_map { |column| column.flat_map { |run| [run.first, run.last] } << RUNS_END }
-                .pack("C*")
-          @emit.data_blobs[runs_start_blob(node.name)] = starts.pack("v*")
-          nil
-        end
-
-        def column_runs(node)
-          pixels = node.pixels.unpack("v*")
-          (0...node.width).map do |x|
-            rows = (0...node.height).select { |y| pixels[(y * node.width) + x] != node.transparent }
-            rows.slice_when { |a, b| b != a + 1 }.map { |run| [run.first, run.last] }
-          end
-        end
 
         # The console's tile size (8x8 pixels) and the number of cells across a
         # regular background map (32x32). These are fixed hardware facts.

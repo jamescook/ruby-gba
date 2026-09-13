@@ -44,13 +44,18 @@ module RubyGBA
             def by_multiply? = !magic.nil?
           end
 
-          def initialize(emitter:, primitives:, lowering:, divide:, run_bitmaps:)
+          def initialize(emitter:, primitives:, lowering:, divide:)
             @emitter = emitter
             @primitives = primitives
             @lowering = lowering
             @divide = divide
-            @run_bitmaps = run_bitmaps
+            @stretched_columns = nil
           end
+
+          # The pictures a stretched column draws, and where each of their columns holds
+          # pixels — handed over once the program is known (see GBA#lower), since that is
+          # what says which pictures those are.
+          attr_writer :stretched_columns
 
           # WHERE DRAWING MAY LAND. The whole screen, unless an `inside` says otherwise
           # — and then these four are what every shape cuts itself against.
@@ -129,11 +134,8 @@ module RubyGBA
                   "block fill moves two pixels per step"
           end
 
-          # What a blob that ships where a picture's columns hold pixels is filed
-          # under, beside its colors — see #register_column_runs on the backend.
+          # What a picture's palette-number form is filed under, beside its colors.
           def indexed_blob(name) = :"#{name}#{INDEXED_SUFFIX}"
-          def runs_blob(name) = :"#{name}#{RUNS_SUFFIX}"
-          def runs_start_blob(name) = :"#{name}#{RUNS_START_SUFFIX}"
 
           # Everything a column needs before its first row: how many rows, how far down
           # the picture each one moves, where it starts on screen, and where its pixels
@@ -174,13 +176,13 @@ module RubyGBA
           # This column's list of the stretches of rows that hold pixels. ACC holds the
           # picture's column coming in and still holds it going out.
           def emit_column_runs_pointer(name)
-            return unless @run_bitmaps.include?(name)
+            return unless @stretched_columns.skips_empty_rows?(name)
 
             @emitter.emit(ASM.lsl_imm(SPARE, ACC, 1)) # a halfword a column
-            @emitter.emit_load_data_address(TMP, runs_start_blob(name))
+            @emitter.emit_load_data_address(TMP, @stretched_columns.runs_start_blob(name))
             @emitter.emit(ASM.add_reg(TMP, TMP, SPARE))
             @emitter.emit(ASM.load_halfword(SPARE, TMP))
-            @emitter.emit_load_data_address(COLUMN_RUNS, runs_blob(name))
+            @emitter.emit_load_data_address(COLUMN_RUNS, @stretched_columns.runs_blob(name))
             @emitter.emit(ASM.add_reg(COLUMN_RUNS, COLUMN_RUNS, SPARE))
           end
 
@@ -202,7 +204,7 @@ module RubyGBA
           # rounded up with a row to spare. See {ColumnDivide} for how each end is
           # rounded and why the far one sometimes wants a second spare row.
           def emit_column_runs(name, bmp, bail)
-            unless @run_bitmaps.include?(name)
+            unless @stretched_columns.skips_empty_rows?(name)
               @emitter.emit(ASM.load_immediate(SPARE, 0))
               @emitter.emit(ASM.mov_reg(HIGH, COLUMN_ROWS))
               return yield(bail)

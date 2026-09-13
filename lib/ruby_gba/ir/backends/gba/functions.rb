@@ -50,7 +50,10 @@ module RubyGBA
             # entry point) also switches the hardware to that mode as it takes over.
             @lowering.in_mode(@modes.func_mode.fetch(name, @modes.default_mode)) do
               if @modes.scene_funcs.include?(name)
-                @scene_preamble.call(name) if manage_modes?
+                # ...a preamble that switches the display, in a program that switches it per
+                # scene. One that does not leaves each `screen` node to write DISPCNT inline,
+                # so a scene needs no preamble of its own.
+                @scene_preamble.call(name) if @modes.switched_per_scene?
                 # ...and its own sprite pictures, which scenes share the room for, so a
                 # scene taking over sends its own and one already running sends nothing.
                 @scene_art.call(name)
@@ -130,12 +133,6 @@ module RubyGBA
             @emitter.emit(ASM.load_immediate(TMP, count))
             @emitter.emit(ASM.cmp_reg(ACC, TMP))
           end
-
-          # Whether the display is switched centrally on a scene's entry — true once
-          # any scene double-buffers or the program crosses the bitmap/tiled boundary.
-          # A single-display-system program leaves each `screen` node to write DISPCNT
-          # inline instead, so a scene never needs a preamble of its own.
-          def manage_modes? = @modes.any_buffered? || @modes.mixed_display?
         end
       end
     end

@@ -82,6 +82,11 @@ module RubyGBA
         systems.uniq.size > 1
       end
 
+      # Is the display switched as each scene takes over? A program whose scenes do not
+      # all draw the same way has to be set up once and then re-set on a scene's change,
+      # rather than leaving each `screen` to say it where it is written.
+      def switched_per_scene? = any_buffered? || mixed_display?
+
       # Whether the program mixes modes — some scene direct, some buffered. A
       # single-mode program can be judged as a whole; a mixed one has to be judged
       # scene by scene, since each mode has its own drawing budget.
