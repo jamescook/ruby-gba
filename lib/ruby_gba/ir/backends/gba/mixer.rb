@@ -134,7 +134,12 @@ module RubyGBA
           # which is how a slot's source address becomes a name again. Two samples with
           # identical bytes may share one address, and then a voice playing either reads back
           # as whichever was declared first.
-          VoiceTable = Data.define(:base, :count, :sample_addresses) do
+          # +clock+ is the sample clock the build settled on (Timers.sample_clock), and it
+          # belongs here because a voice's STEP is meaningless without it: a step of 1.0 means
+          # "read the recording at this rate", so what pitch that comes out at depends on the
+          # rate. It is also the one thing about the mixer an author might want to see, which
+          # is why `rom.profile` reports it.
+          VoiceTable = Data.define(:base, :count, :sample_addresses, :clock) do
             # The sounding voices, in slot order. The block reads one 32-bit word off the
             # console at the address it is given — the reader is handed in rather than owned,
             # so this can be tested against a plain Hash as easily as against an emulator.
@@ -173,9 +178,6 @@ module RubyGBA
           # halves it. The same words the other sound verbs use.
           MIX_LEVELS = { full: 64, three_quarter: 48, half: 32, quarter: 16, mute: 0 }.freeze
           VOL_SHIFT = 6 # 2**6 = 64, the :full gain
-
-          # The frame rate the mixer refills at — one slice of sound per displayed frame.
-          MIXER_FPS = 60
 
           # Which of the two output buffers the DMA is playing right now (0 or 1).
           MIX_FRONT = :__mix_front
@@ -265,7 +267,7 @@ module RubyGBA
           def voice_table
             return nil unless @voice_base
 
-            VoiceTable.new(base: @voice_base, count: MAX_VOICES,
+            VoiceTable.new(base: @voice_base, count: MAX_VOICES, clock: @sample_clock,
                            sample_addresses: @samples.keys.to_h do |name|
                              [name, ROM_START + RubyGBA::ROM::ENTRY_OFFSET + @emitter.data_positions.fetch(name)]
                            end)
@@ -283,8 +285,13 @@ module RubyGBA
           def prepare_mixer(program)
             return unless @plays_samples
 
-            @mixer_rate = common_sample_rate(program)
-            @mixer_spf = [(@mixer_rate + MIXER_FPS - 1) / MIXER_FPS, 1].max # samples per frame (ceil)
+            # The clock and the samples-a-frame are ONE decision, not two: the hardware eats a
+            # sample every time this timer overflows, so how many it eats in a frame is fixed
+            # by the clock, and that is exactly how many the mix has to write. Asking for both
+            # separately is how they came to disagree. See Timers.sample_clock.
+            @sample_clock = Timers.sample_clock(common_sample_rate(program))
+            @mixer_rate = @sample_clock.rate
+            @mixer_spf = @sample_clock.samples_a_frame
             @mix_buf0 = @memory.alloc_roomy(@mixer_spf)
             @mix_buf1 = @memory.alloc_roomy(@mixer_spf)
             # WHAT GOES IN THE QUICK MEMORY is decided by how often the mix touches it. The
@@ -322,9 +329,11 @@ module RubyGBA
             @primitives.store_word_immediate(REG_FIFO_A, REG_DMA1DAD)       # DMA dest = the sound FIFO
             @primitives.store_word_immediate(dma_fifo_control, REG_DMA1CNT) # feed the FIFO continuously
 
-            prescaler, reload = @timers.timer_config(@mixer_rate)  # timer 0 = the mixer's sample rate
-            @emitter.write_reg16(@timers.timer_reg_l(CLOCK_TIMER), reload)
-            @emitter.write_reg16(@timers.timer_reg_h(CLOCK_TIMER), TIMER_ENABLE | prescaler)
+            # Timer 0 = the sample clock, written as the PERIOD the clock was chosen as rather
+            # than by asking for its rate back: going through a rate would divide and truncate
+            # a second time, and land a cycle or two off the period a frame divides.
+            @emitter.write_reg16(@timers.timer_reg_l(CLOCK_TIMER), 65_536 - @sample_clock.period)
+            @emitter.write_reg16(@timers.timer_reg_h(CLOCK_TIMER), TIMER_ENABLE | Timers::FINEST_PRESCALER)
 
             emit_copy_mix_routine_to_iwram
           end

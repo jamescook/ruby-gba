@@ -84,7 +84,10 @@ class TestInstrument < Minitest::Test
 
     chord = %i[C4 E4 G4]
     steps = v.voices.map(&:step)
-    expected = chord.map { |n| (NOTES[n].to_f / NOTES[:C4] * GBA::Mixer::STEP_ONE).round }
+    # The mix runs at a rate the sound hardware can sustain rather than at the rate the
+    # recording was made at, and a step carries both that and the note's own pitch.
+    resample = 8000.0 / v.sample_clock.rate
+    expected = chord.map { |n| (NOTES[n].to_f / NOTES[:C4] * resample * GBA::Mixer::STEP_ONE).round }
 
     assert v.sound?, "the chord should be audible (energy #{v.audio_energy})"
     assert_equal 3, steps.uniq.size, "the chord is three distinct pitches, got steps #{steps.inspect}"

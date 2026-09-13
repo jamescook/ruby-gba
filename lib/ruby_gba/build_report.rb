@@ -51,7 +51,24 @@ module RubyGBA
       roomy_memory_lines(built.roomy_memory, printer)
       glyph_lines(program, printer)
       column_stretch_lines(built.column_stretches, printer)
+      sample_clock_line(built.voices, printer)
       tearing_line(program, printer)
+    end
+
+    # WHAT RATE THE RECORDED SOUND CAME OUT AT, which nobody wrote and nothing else can say.
+    #
+    # A game names the rate its recordings were MADE at; the rate they are PLAYED at is the
+    # build's business, because the sound hardware can only be clocked so that a whole number
+    # of samples — and a whole number of the lots its DMA moves — fits in a frame. So the
+    # build picks the nearest one that does, and the recordings are resampled to it as they
+    # play. Worth a line because it is the one number that decides both how the sound came out
+    # and what the mixing costs, and it is gone once the cartridge is built.
+    def sample_clock_line(voices, printer)
+      clock = voices&.clock
+      return unless clock
+
+      printer.puts "  recorded sound plays at:"
+      printer.puts format("    %d Hz, %d samples a frame", clock.rate, clock.samples_a_frame)
     end
 
     # WHICH SEE-THROUGH PICTURES SKIP THE ROWS THEY HAVE NOTHING IN, and which walk the lot.

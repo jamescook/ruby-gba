@@ -15,6 +15,15 @@ class TestScores < Minitest::Test
   NOTES = RubyGBA::Music::NOTE_FREQUENCIES
   STEP_ONE = GBA::Mixer::STEP_ONE
 
+  # A step carries the note's pitch against the recorded one AND the resampling: the mix runs
+  # at a rate the sound hardware can sustain (GBA::Timers.sample_clock) rather than at the rate
+  # these instruments were recorded at, so a note at the recorded pitch is not a step of 1.0.
+  RECORDED_AT = 8000
+  def step_for(note)
+    resample = RECORDED_AT.to_f / GBA::Timers.sample_clock(RECORDED_AT).rate
+    (NOTES[note].to_f / NOTES[:C4] * resample * STEP_ONE).round
+  end
+
   # At 150 beats a minute and 24 ticks a beat, a tick is one frame — so a note's tick is the
   # frame it sounds on, counted from the frame the song starts.
   def notes_every_ten_ticks(*keys, plays: nil, tempo: 150)
@@ -159,7 +168,7 @@ class TestScores < Minitest::Test
 
     assert_equal [:piano], early.map(&:sample)
     assert_equal [:harp], later.map(&:sample), "the second note names its own instrument"
-    assert_in_delta (NOTES[:E4].to_f / NOTES[:C4] * STEP_ONE).round, later.first.step, 2
+    assert_in_delta step_for(:E4), later.first.step, 2
     assert_equal (6 * 64 / 15.0).round, later.first.volume, "...and its own loudness"
   end
 
@@ -172,7 +181,7 @@ class TestScores < Minitest::Test
     playing = assert_emulator_loads_rom(rom, frames: 8).voices
 
     assert_equal [:harp], playing.map(&:sample)
-    assert_in_delta (NOTES[:G4].to_f / NOTES[:C4] * STEP_ONE).round, playing.first.step, 2
+    assert_in_delta step_for(:G4), playing.first.step, 2
   end
 
   # Stopped and named again in one frame, the console starts the song over: the voice playing

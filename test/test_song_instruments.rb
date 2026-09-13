@@ -161,7 +161,14 @@ class TestSongInstruments < Minitest::Test
     assert_emulator_loads_rom(rom, frames: frames).voices.map { |v| [v.sample, v.step] }
   end
 
-  def step_for(note) = (NOTES[note].to_f / NOTES[:C4] * STEP_ONE).round
+  # A step carries the note's pitch against the recorded one AND the resampling: the mix runs
+  # at a rate the sound hardware can sustain (GBA::Timers.sample_clock) rather than at the rate
+  # the piano was recorded at, so a note at the recorded pitch is not a step of 1.0.
+  RECORDED_AT = 8000
+  def step_for(note)
+    resample = RECORDED_AT.to_f / GBA::Timers.sample_clock(RECORDED_AT).rate
+    (NOTES[note].to_f / NOTES[:C4] * resample * STEP_ONE).round
+  end
 
   def test_the_console_plays_each_note_at_its_pitch
     first = console_steps_at(6)

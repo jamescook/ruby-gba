@@ -207,6 +207,11 @@ module RubyGBA
     # backends agree about sound with one equality.
     def sounding = voices.map(&:sample)
 
+    # The sample clock this cartridge was built with — the rate the mix runs at and how many
+    # samples that is a frame. A voice's step is a ratio against this rate, so anything asking
+    # what pitch a voice is playing at needs it. Nil for a program that plays no samples.
+    def sample_clock = voice_table!&.clock
+
     # WHAT THE CONSOLE COULD NOT PLAY: how many plays found every voice busy and were dropped,
     # and how the voices were being split at the worst of them. Counted since the cartridge
     # booted, so a test reads it at the end of a run. Directly comparable with the
@@ -229,6 +234,17 @@ module RubyGBA
     def audio_energy
       ensure_rendered!
       @audio.unpack("s<*").sum(&:abs)
+    end
+
+    # The sound itself: one Integer per 16-bit sample, the two channels interleaved.
+    #
+    # What this answers that #audio_energy cannot is what SHAPE the sound had. A break in the
+    # stream — the mixer handing the hardware a buffer that does not line up with what it eats
+    # — is a jump from one sample to the next, and a run full of them has exactly the same
+    # total energy as a clean one.
+    def audio_samples
+      ensure_rendered!
+      @audio.unpack("s<*")
     end
 
     # True when the run produced no sound at all (energy exactly 0).

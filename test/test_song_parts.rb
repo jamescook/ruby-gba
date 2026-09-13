@@ -57,7 +57,10 @@ class TestSongParts < Minitest::Test
   def test_the_console_sounds_all_twelve_recorded_parts_at_their_pitches_beside_the_games_sound
     console = assert_emulator_loads_rom(assemble_rom(fourteen_part_game, name: "SONG14"), frames: 6)
     organ = console.voices.select { |voice| voice.sample == :organ }.map(&:step).sort
-    expected = CHORD.map { |pitch| (NOTES[pitch].to_f / NOTES[:C4] * STEP_ONE).round }
+    # A step is the note's pitch against the recorded one times the resampling — the mix runs
+    # at a rate the sound hardware can sustain, not at the rate the organ was recorded at.
+    resample = 8000.0 / console.sample_clock.rate
+    expected = CHORD.map { |pitch| (NOTES[pitch].to_f / NOTES[:C4] * resample * STEP_ONE).round }
 
     assert_equal 12, organ.size, "twelve recorded parts sounding (#{console.voices.inspect})"
     organ.zip(expected).each { |got, want| assert_in_delta want, got, 2 }

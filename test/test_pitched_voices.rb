@@ -71,14 +71,19 @@ class TestPitchedVoices < Minitest::Test
       game_loop { wait_vblank }
     end
     b.emit_pending_functions
-    base, high = assert_emulator_loads_rom(assemble_rom(b.program, name: "PIT0"), frames: 6).voices
+    v = assert_emulator_loads_rom(assemble_rom(b.program, name: "PIT0"), frames: 6)
+    base, high = v.voices
 
     assert_operator base.position, :>, 0, "the base voice advanced through its sample"
     ratio = high.position.to_f / base.position
     assert_operator ratio, :>, 1.7, "the octave-up voice advanced ~2x as far (#{high.position} vs #{base.position})"
     assert_operator ratio, :<, 2.3, "...and not more than ~2x (#{high.position} vs #{base.position})"
 
-    expected = (523.0 / 262 * GBA::Mixer::STEP_ONE).round # C5/C4, 16.16 fixed
+    # A step is how fast the recording is read, so it carries the pitch AND the resampling:
+    # the mix runs at a rate the sound hardware can sustain (Timers.sample_clock), which is
+    # rarely the rate the recording was made at. The pitch on its own is the two steps' ratio.
+    assert_in_delta 523.0 / 262, high.step.to_f / base.step, 0.01, "an octave apart, whatever the mix rate"
+    expected = (523.0 / 262 * (8000.0 / v.sample_clock.rate) * GBA::Mixer::STEP_ONE).round
     assert_in_delta expected, high.step, 2, "the octave step is the C5/C4 ratio in 16.16"
   end
 end
