@@ -31,7 +31,7 @@ class TestVramLayout < Minitest::Test
     backend = GBA.new
     backend.lower(four_layer_program)
 
-    tile_end = backend.bg_shared[:char_units] * 2
+    tile_end = backend.bg_shared.tile_bytes
     first_map = backend.backgrounds.values.map(&:screen_block).min * GBA::SCREENBLOCK_BYTES
     assert_operator tile_end, :<=, first_map, "tile pictures must stop before the first map"
     assert_operator backend.backgrounds.values.map(&:screen_block).max, :<,
@@ -74,7 +74,7 @@ class TestVramLayout < Minitest::Test
 
     backend = GBA.new
     backend.lower(prog)
-    assert_equal 1000 * GBA::SMALL_TILE_BYTES, (backend.bg_shared[:char_units] * 2) - GBA::BIG_TILE_BYTES
+    assert_equal 1000 * GBA::SMALL_TILE_BYTES, backend.bg_shared.tile_bytes - GBA::BIG_TILE_BYTES
   end
 
   # EACH LAYER COUNTS ITS TILE NUMBERS FROM ITS OWN STARTING POINT, which is what makes
@@ -118,7 +118,7 @@ class TestVramLayout < Minitest::Test
 
     # The blank tile every empty cell points at (stored the big way so either kind of
     # layer can read it), plus the ONE picture the four tilesets all drew.
-    assert_equal GBA::BIG_TILE_BYTES + GBA::SMALL_TILE_BYTES, backend.bg_shared[:char_units] * 2
+    assert_equal GBA::BIG_TILE_BYTES + GBA::SMALL_TILE_BYTES, backend.bg_shared.tile_bytes
   end
 
   def test_tiles_that_differ_are_not_shared
@@ -128,7 +128,7 @@ class TestVramLayout < Minitest::Test
     # The blank tile (stored the big way so either kind of layer can read it) and the
     # four landmark tiles, each a different color.
     assert_equal GBA::BIG_TILE_BYTES + (4 * GBA::SMALL_TILE_BYTES),
-                 backend.bg_shared[:char_units] * 2
+                 backend.bg_shared.tile_bytes
   end
 
   # Every tiled layer draws from one table of colors, so a game whose tiles name

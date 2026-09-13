@@ -729,8 +729,8 @@ module RubyGBA
           # goes in with the rest of them below. Each layer's map and control register are
           # set later, when its background node is reached (emit_background_hardware).
           def emit_boot_backgrounds
-            emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @layout.bg_shared[:pal_units])   # colors -> palette memory
-            emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @layout.bg_shared[:char_units]) # tile pictures -> video memory
+            emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @layout.bg_shared.palette_units)  # colors -> palette memory
+            emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @layout.bg_shared.tile_units)    # pictures -> video memory
             @palette_tint.emit_tint_state_reset # the table now holds the originals again
           end
 

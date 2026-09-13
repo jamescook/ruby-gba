@@ -252,7 +252,7 @@ module RubyGBA
             return [[PALETTE_BLOB, BG_PALETTE, @layout.palette.size]] if mode == IR::Modes::BUFFERED && @layout.palette
 
             tables = []
-            tables << [BG_SHARED_PAL, BG_PALETTE, @layout.bg_shared[:pal_units]] if @layout.bg_shared
+            tables << [BG_SHARED_PAL, BG_PALETTE, @layout.bg_shared.palette_units] if @layout.bg_shared
             tables << [@layout.obj_palette_blob, OBJ_PALETTE, @layout.obj_palette_units] if @layout.obj_palette_blob
             tables
           end

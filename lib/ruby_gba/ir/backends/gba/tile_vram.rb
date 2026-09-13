@@ -40,7 +40,7 @@ module RubyGBA
         #
         # Nothing hands out those starting points here, because picking one needs to know
         # how many tiles the layer is about to add and which of them are already stored —
-        # see #choose_char_base in gba.rb. This class knows the bytes.
+        # that is {BackgroundTiles}, which owns the pictures. This class owns the room.
         class TileVram
           SCREEN_BLOCKS = 32
           SCREEN_BLOCK_BYTES = 0x800
