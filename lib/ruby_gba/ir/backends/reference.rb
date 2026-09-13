@@ -759,7 +759,7 @@ module RubyGBA
         def exec_draw_text(node)
           x = eval_value(node.x)
           y = eval_value(node.y)
-          color = resolve_color(node.color)
+          color = resolve_color(node.picked && eval_value(node.showing) != 0 ? node.picked : node.color)
           Fonts.get(node.font).each_pixel(node.text) do |dx, dy|
             @screen.set_pixel(x + dx, y + dy, color)
           end

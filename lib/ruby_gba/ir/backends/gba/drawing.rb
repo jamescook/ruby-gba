@@ -2093,7 +2093,7 @@ module RubyGBA
             return @buffered.emit_draw_text_buffered(node) if @lowering.mode == :buffered
 
             x, y = constant_ints!(node, x: node.x, y: node.y)
-            emit(ASM.load_immediate(ACC, Color.resolve(node.color)))
+            @framebuffer.emit_text_color(node, ACC) { |color| Color.resolve(color) }
 
             Fonts.get(node.font).each_pixel(node.text) do |dx, dy|
               px = x + dx
@@ -2104,7 +2104,6 @@ module RubyGBA
               emit(ASM.store_halfword(ACC, TMP))
             end
           end
-
           # Draw the run-time digit held in +value+ (0..9). A font can't be indexed by a
           # run-time value the way an array is, so there are two ways to render it, and
           # the cheaper one is picked here.

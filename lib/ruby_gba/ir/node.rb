@@ -129,6 +129,11 @@ module RubyGBA
       # Something drawn in a color.
       def colored? = self.class.tags.key?(:color)
 
+      # Every color this node can draw in, for the places that need all of them (a table
+      # of colors has to hold each). One, for everything but a kind that can pick between
+      # two as it runs.
+      def drawn_colors = colored? && color ? [color] : []
+
       # A test with a branch to take when it fails.
       def branching? = self.class.tags.key?(:else)
 

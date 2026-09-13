@@ -108,10 +108,12 @@ module RubyGBA
       #   draw_text "HP",     8,  8, [:white, :red],  showing: hp < 20
       #
       # Written the long way — the same words drawn twice, under a test and its
-      # opposite — it says the same thing and looks the same. What it saves is on a
-      # tiled screen, where the console draws each character as its own little sprite
-      # out of a table of 128: two draws mean two sprites for every character, one of
-      # them always hidden, where this is one sprite that changes colour. A menu's rows
+      # opposite — it says the same thing and looks the same, and costs twice as much on
+      # either screen. On a tiled screen the console draws each character as its own
+      # little sprite out of a table of 128, so two draws are two sprites for every
+      # character where this is one sprite that changes colour. On a bitmap screen the
+      # words are painted pixel by pixel, so two draws are every pixel of them twice
+      # over where this paints them once with the colour picked first. A menu's rows
       # cost half as much for it (see the `menu` verb).
       #
       # @param text [String] the words to draw
@@ -141,14 +143,13 @@ module RubyGBA
 
         return record(Build.draw_text(text, x, y, colors.first, font: font)) if colors.length == 1
 
-        # A bitmap screen paints where it is called, so a pair of colours is the test
-        # written out: the same words, twice, in one colour or the other. There is
-        # nothing to save here — a painted pixel costs the same whichever way it was
-        # decided — so this is the plain reading of what the pair means.
+        # A bitmap screen paints where it is called, and the words are the same words in
+        # either colour — so they are painted ONCE, with the test worked out first to say
+        # which colour. Written the long way, as the words under a test and again under its
+        # opposite, it takes no longer and is every pixel of the words twice over.
         which = text_color_test(showing)
-        which.then { record(Build.draw_text(text, x, y, colors.last, font: font)) }
-             .else { record(Build.draw_text(text, x, y, colors.first, font: font)) }
-        nil
+        consume_condition(which)
+        record(Build.draw_text(text, x, y, colors.first, font: font, picked: colors.last, showing: which.node))
       end
 
       # Draw a whole number at (x, y): a score, a damage counter, a timer. The value

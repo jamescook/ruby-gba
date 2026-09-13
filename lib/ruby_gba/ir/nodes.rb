@@ -279,11 +279,17 @@ module RubyGBA
                  width: :int, usually: :int
       end
 
+      # Words at a fixed place. +picked+ is a second colour and +showing+ the test that picks
+      # it — the words are drawn in +picked+ while the test holds and in +color+ when it does
+      # not. The words are ONE set however many colours they can be, so a backend paints them
+      # once with the colour worked out first. Without +picked+, +showing+ is never read.
       class DrawText
         include Node
         kind :draw_text
         category :draw
-        operands text: :text, x: :int, y: :int, color: :color, font: :name
+        operands text: :text, x: :int, y: :int, color: :color, font: :name, picked: :color, showing: :value
+
+        def drawn_colors = [color, picked].compact
       end
 
       class Else

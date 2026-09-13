@@ -137,6 +137,29 @@ module RubyGBA
           # What a picture's palette-number form is filed under, beside its colors.
           def indexed_blob(name) = :"#{name}#{INDEXED_SUFFIX}"
 
+          # The number a line of text is painted with, into +reg+: a colour on the direct
+          # screen, a slot of the colour table on the tear-free one — the block turns a
+          # colour into whichever of those this screen wants.
+          #
+          # ONE COLOUR IS ONE LOAD, exactly as it always was. Two are the test worked out
+          # first and then one load or the other, so the words that follow are painted once
+          # whichever colour they come out — a handful of instructions, where painting the
+          # words under the test and again under its opposite was every pixel of them twice.
+          def emit_text_color(node, reg)
+            return @emitter.emit(ASM.load_immediate(reg, yield(node.color))) unless node.picked
+
+            @lowering.value(node.showing) # r0 = the test: not zero picks the second colour
+            first = @emitter.gensym
+            done = @emitter.gensym
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, first, cond: :eq)
+            @emitter.emit(ASM.load_immediate(reg, yield(node.picked)))
+            @emitter.emit_branch(:b, done)
+            @emitter.place_label(first)
+            @emitter.emit(ASM.load_immediate(reg, yield(node.color)))
+            @emitter.place_label(done)
+          end
+
           # Everything a column needs before its first row: how many rows, how far down
           # the picture each one moves, where it starts on screen, and where its pixels
           # come from.

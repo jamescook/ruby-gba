@@ -614,9 +614,14 @@ module RubyGBA
           # contains it, splice the index into the correct half, write it back. The
           # glyph positions are known while building, so which half each pixel lands in
           # is settled here, not at run time. Off-screen pixels are dropped.
+          #
+          # A line in one of two colours is painted once too: the slot is worked out first
+          # and held in a register the pixel writes splice from, where one colour splices a
+          # number written into each of them.
           def emit_draw_text_buffered(node)
             x, y = constant_ints!(node, x: node.x, y: node.y)
-            index = @layout.palette.index_of(node.color)
+            index = @layout.palette.index_of(node.color) unless node.picked
+            @framebuffer.emit_text_color(node, TEXT_INDEX) { |color| @layout.palette.index_of(color) } if node.picked
             base = 6
             load_var(base, BACKBUF) # the hidden page base, held for the whole line
 
@@ -625,9 +630,13 @@ module RubyGBA
               py = y + dy
               next unless @framebuffer.in_bounds?(px, py)
 
-              emit_write_index_pixel_const(base, px, py, index)
+              emit_write_index_pixel_const(base, px, py, index || TEXT_INDEX, held: node.picked)
             end
           end
+
+          # Where a two-colour line's slot waits while its pixels are written: clear of the
+          # page base (r6) and of the two a pixel write works in (r0 and r1).
+          TEXT_INDEX = 7
 
           # Render one run-time digit on the hidden page through the shared glyph-
           # walking routine for this font (see #emit_digit_routines) — the tear-free
@@ -757,11 +766,12 @@ module RubyGBA
           # Read-modify-write one pixel at a build-time-constant position: overwrite
           # its byte inside the 16-bit unit, leaving the paired pixel untouched.
           # +base_reg+ holds the hidden page base. Uses r0/r1 as scratch.
-          def emit_write_index_pixel_const(base_reg, px, py, index)
+          # +index+ is the slot itself, or — with +held+ — the register already holding it.
+          def emit_write_index_pixel_const(base_reg, px, py, index, held: false)
             halfword_offset = ((py * SCREEN_WIDTH) + px) & ~1 # start of the pixel's 16-bit unit
             emit_add_const(1, base_reg, halfword_offset, ACC) # r1 = &unit (scratch r0)
             emit(ASM.load_halfword(ACC, 1))                   # r0 = the current pixel pair
-            splice_index_byte(ACC, index, px.odd?)
+            held ? splice_index_byte_reg(ACC, index, px.odd?) : splice_index_byte(ACC, index, px.odd?)
             emit(ASM.store_halfword(ACC, 1))
           end
 

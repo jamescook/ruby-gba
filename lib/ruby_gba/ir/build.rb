@@ -134,8 +134,12 @@ module RubyGBA
 
       # Write a line of text at a fixed top-left origin, drawn with a named font
       # (+font+, a key in the Fonts registry). +x+/+y+ are compile-time constants.
-      def draw_text(text, x, y, color, font: :default)
-        Nodes.build(:draw_text, text: text, x: x, y: y, color: color, font: font)
+      #
+      # +picked+ and +showing+ give it a second colour and the test that picks it: the words
+      # are drawn in +picked+ while +showing+ is not zero, and in +color+ otherwise.
+      def draw_text(text, x, y, color, font: :default, picked: nil, showing: nil)
+        Nodes.build(:draw_text, text: text, x: x, y: y, color: color, font: font,
+                                picked: picked, showing: showing || int(0))
       end
 
       # Draw the single decimal digit of +value+ (a run-time 0..9) at the fixed
