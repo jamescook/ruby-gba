@@ -92,6 +92,26 @@ class TestTimer < Minitest::Test
     assert_match(/hardware timers/i, err.message)
   end
 
+  # Sampled sound takes two of the four for itself, which nothing in the program says — so a
+  # program that runs out because of it is told so.
+  def test_running_out_of_timers_beside_sampled_sound_says_the_sound_took_two
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      tone = sample :tone, pcm: [0, 50, 100, 50], rate: 8192
+      counted = timer :counted, per_second: 60
+      timer :plain, per_second: 60
+      var :snap, 0
+      game_loop do
+        tone.play
+        set :snap, counted.ticks
+      end
+    end
+    err = assert_raises(RubyGBA::IR::Backends::GBA::LoweringError) { GBA.new.lower(b.program) }
+    assert_match(/hardware timers/i, err.message)
+    assert_match(/sampled sound uses two/i, err.message)
+  end
+
   # --- on_tick: a handler driven by the timer's overflow ---
 
   # Runs `beat.on_tick { add :hits, 1 }` at the given rate and halts at `stop_frame`;

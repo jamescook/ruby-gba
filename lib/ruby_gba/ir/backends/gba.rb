@@ -1067,9 +1067,9 @@ module RubyGBA
           # think; and it moves the tune on a frame, because a tempo is too. A game whose pass
           # spans two frames comes round here twice, and gets two slices and two frames of tune
           # — see Mixer#emit_mixer_fill for what went wrong when it did not. The slice built last
-          # frame is handed to the sound hardware before anything else, at the same moment every
-          # frame (see Mixer#emit_mixer_handover). Then the tune, so a note a recorded part starts
-          # this frame is in the slice built this frame.
+          # frame is handed to the sound hardware before anything else (see
+          # Mixer#emit_mixer_handover). Then the tune, so a note a recorded part starts this frame
+          # is in the slice built this frame.
           emit_irq_source(IRQ_VBLANK, bios_ack: true) do
             emit_mixer_handover if @mixer.plays_samples?
             emit_frame_count

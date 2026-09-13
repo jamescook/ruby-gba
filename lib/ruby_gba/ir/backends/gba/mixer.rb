@@ -55,8 +55,35 @@ module RubyGBA
           MIX_ROUTINE_IWRAM_MAX = 384
 
           # Timer 0 clocks the mixer's output rate (how fast the DMA hands bytes to the sound
-          # FIFO). It's the only hardware timer the mixer needs.
+          # FIFO).
           CLOCK_TIMER = 0
+
+          # Timer 1 COUNTS those samples: it is chained to timer 0, so it goes up by one every
+          # time the sound hardware takes a sample, and nothing else. It raises no interrupt and
+          # costs nothing to run. What it is for is the hand-over, which reads it to learn exactly
+          # how much of the last buffer the DMA has already taken (see #emit_mixer_handover).
+          COUNT_TIMER = 1
+
+          # WHILE THE MIXER FINDS ITS FEET at boot the sample clock runs this fast, in cycles a
+          # sample, so the few lots it has to watch go by in a moment instead of a fraction of a
+          # second (see #emit_find_lot_grid). Changing the clock's speed afterwards moves nothing
+          # the watching found out, because that was counted in samples and not in time.
+          CALIBRATION_PERIOD = 512
+
+          # HOW LATE A HAND-OVER CAN BE and still play every lot in its place, in cycles. The
+          # screen's interrupt waits for a DMA the game is in the middle of, and the longest one
+          # the framework makes while a game runs is a whole-screen clear, about a fifth of a
+          # frame. A third leaves room over. Each buffer carries this much sound past its end
+          # (see #guard_lots), so this is what it costs: memory, and a copy of it once a frame.
+          LATE_ROOM = Timers::FRAME_CYCLES / 3
+
+          # Where the DMA's grid of lots falls against the sample count (0 to 15), found at boot.
+          MIX_PHASE = :__mix_phase
+
+          # Which lot, counting every lot the DMA has ever taken, the next hand-over's buffer is
+          # meant to start at — kept less one, and shifted up to the top twelve bits so that the
+          # counting wraps where the sample count does (see #emit_mixer_handover).
+          MIX_LOT = :__mix_lot
 
           # A voice slot, in EWRAM: the sample's address in ROM, how far it has played (a whole
           # sample index), its length, HOW FAR BACK it goes at the end (0 for a sound that plays
@@ -355,8 +382,8 @@ module RubyGBA
             @sample_clock = Timers.sample_clock(common_sample_rate(program))
             @mixer_rate = @sample_clock.rate
             @mixer_spf = @sample_clock.samples_a_frame
-            @mix_buf0 = @memory.alloc_roomy(@mixer_spf)
-            @mix_buf1 = @memory.alloc_roomy(@mixer_spf)
+            @mix_buf0 = @memory.alloc_roomy(buffer_bytes)
+            @mix_buf1 = @memory.alloc_roomy(buffer_bytes)
             # WHAT GOES IN THE QUICK MEMORY is decided by how often the mix touches it. The
             # running total of every voice — a halfword per output sample, read and written
             # again for every voice at every sample — goes there. The voice slots do not: the
@@ -366,8 +393,27 @@ module RubyGBA
             @mix_totals = @memory.alloc(@mixer_spf * 2)
             @voice_base = @memory.alloc_roomy(MAX_VOICES * SLOT_BYTES)
             @mix_routine_iwram = @memory.alloc(MIX_ROUTINE_IWRAM_MAX) # the mix routine is copied here from ROM at boot
-            @timers.reserve!(CLOCK_TIMER + 1) # reserve timer 0 only
+            @timers.reserve!(COUNT_TIMER + 1, because: "Sampled sound uses two of them: one to play the " \
+                                                       "sound, and one to count how much of it has played.")
           end
+
+          # THE LOTS EACH BUFFER CARRIES PAST ITS END: enough of the next buffer's start to cover
+          # a hand-over LATE_ROOM late, rounded up to whole lots.
+          def guard_lots
+            lot = Timers::DMA_SAMPLES_A_LOT * @sample_clock.period
+            (LATE_ROOM + lot - 1) / lot
+          end
+
+          # HOW FAR OFF THE NEXT SAMPLE HAS TO BE, in cycles, for the hand-over to read the count
+          # and re-arm the DMA before it comes. That is about fifteen instructions, and 512 cycles
+          # is several times what they take even from the cartridge at its slowest timing; a
+          # clock too fast to leave that much of a sample clear gets three quarters of one
+          # instead. It has to stay short of a whole sample, or the wait would never end.
+          def count_clearance = [@sample_clock.period * 3 / 4, 512].min
+
+          def lots_a_frame = @mixer_spf / Timers::DMA_SAMPLES_A_LOT
+
+          def buffer_bytes = @mixer_spf + (guard_lots * Timers::DMA_SAMPLES_A_LOT)
 
           # Bring the mixer up at boot: silence the voice slots and both buffers, power on
           # the sound hardware, point the DMA at the first buffer and the sample clock at the
@@ -375,8 +421,8 @@ module RubyGBA
           def emit_mixer_boot
             emit_zero_region(@voice_base, MAX_VOICES * SLOT_BYTES) # all voices idle
             emit_zero_region(@mix_totals, @mixer_spf * 2)          # the totals start at nothing
-            emit_zero_region(@mix_buf0, @mixer_spf)                # buffers start silent...
-            emit_zero_region(@mix_buf1, @mixer_spf)
+            emit_zero_region(@mix_buf0, buffer_bytes)              # buffers start silent...
+            emit_zero_region(@mix_buf1, buffer_bytes)
             @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, MIX_FRONT)                  # ...playing buffer 0 first
             # NOTHING HAS BEEN LOST YET, and this has to be said rather than assumed: the
@@ -384,21 +430,89 @@ module RubyGBA
             # whatever was there and a game that dropped nothing would report rubbish.
             @primitives.store_var(ACC, DROPS)
             @primitives.store_var(ACC, DROPS_MUSIC)
+            # A lot half the count away from any the DMA could be on, so the first hand-over
+            # finds it out of reach and starts the counting from wherever the DMA really is.
+            @emitter.emit(ASM.load_immediate(ACC, 0x8000_0000))
+            @primitives.store_var(ACC, MIX_LOT)
 
             @emitter.write_reg16(REG_SOUNDCNT_X, SOUND_MASTER_ENABLE)   # master sound on
             @emitter.write_reg16(REG_SOUNDCNT_H, direct_sound_a_config) # channel A, full volume, FIFO reset
             @emitter.emit(ASM.load_immediate(ACC, @mix_buf0))
             store_reg_ioreg(ACC, REG_DMA1SAD)                      # DMA source = buffer 0
-            @primitives.store_word_immediate(REG_FIFO_A, REG_DMA1DAD)       # DMA dest = the sound FIFO
-            @primitives.store_word_immediate(dma_fifo_control, REG_DMA1CNT) # feed the FIFO continuously
+            @primitives.store_word_immediate(REG_FIFO_A, REG_DMA1DAD) # DMA dest = the sound FIFO
+            # ...feeding it continuously, and for now saying so each time it does (see below).
+            @primitives.store_word_immediate(dma_fifo_control | DMA_IRQ, REG_DMA1CNT)
 
-            # Timer 0 = the sample clock, written as the PERIOD the clock was chosen as rather
-            # than by asking for its rate back: going through a rate would divide and truncate
-            # a second time, and land a cycle or two off the period a frame divides.
-            @emitter.write_reg16(@timers.timer_reg_l(CLOCK_TIMER), 65_536 - @sample_clock.period)
+            # Timer 1 counts the samples from nothing. It is started first: chained, it waits
+            # for timer 0, so it counts every sample timer 0 ever clocks.
+            @emitter.write_reg16(@timers.timer_reg_l(COUNT_TIMER), 0)
+            @emitter.write_reg16(@timers.timer_reg_h(COUNT_TIMER), TIMER_ENABLE | TIMER_CASCADE)
+            @emitter.write_reg16(@timers.timer_reg_l(CLOCK_TIMER), 65_536 - CALIBRATION_PERIOD)
             @emitter.write_reg16(@timers.timer_reg_h(CLOCK_TIMER), TIMER_ENABLE | Timers::FINEST_PRESCALER)
 
+            emit_find_lot_grid
+
+            # Now timer 0 = the sample clock, written as the PERIOD the clock was chosen as rather
+            # than by asking for its rate back: going through a rate would divide and truncate
+            # a second time, and land a cycle or two off the period a frame divides. The new
+            # period is taken up at the next sample, without restarting anything.
+            @emitter.write_reg16(@timers.timer_reg_l(CLOCK_TIMER), 65_536 - @sample_clock.period)
+            # Back to the start of buffer 0, with the DMA no longer announcing every lot.
+            @emitter.emit(ASM.load_immediate(ACC, @mix_buf0))
+            store_reg_ioreg(ACC, REG_DMA1SAD)
+            emit_rearm_dma
+
             emit_copy_mix_routine_to_iwram
+          end
+
+          # WHERE THE DMA'S LOTS FALL AGAINST THE SAMPLE COUNT — which of every sixteen samples
+          # is the one the sound hardware asks for more on. The hand-over needs it to turn a
+          # count of samples into a count of lots, and it is the one fact about the sound
+          # hardware that cannot be written down ahead of time: the asking follows how full the
+          # FIFO is, and a FIFO starting from empty asks a few times out of step before it
+          # settles, differently on different hardware. Once settled it never moves.
+          #
+          # So it is watched. The DMA was told to raise its flag each time it moves a lot; this
+          # waits for the flag, reads the sample count at once, and stops at the first two lots
+          # exactly sixteen samples apart, which is the grid settled. Interrupts are not armed
+          # yet, so nothing else clears the flag, and the count is read long before the next
+          # sample: a turn of the loop is a few instructions, and a sample is CALIBRATION_PERIOD
+          # cycles.
+          #
+          # If the flag never comes — which it always does, but a boot that hangs is the one
+          # failure nobody can see the cause of — it gives up after a while and takes 0. The sound
+          # still plays; a game busy past the end of its frame may click where the guess is wrong.
+          def emit_find_lot_grid
+            e = @emitter
+            wait = e.gensym
+            found = e.gensym
+            gave_up = e.gensym
+            e.emit(ASM.push(4))
+            e.emit(ASM.load_immediate(ADDR, REG_IF))
+            e.emit(ASM.load_immediate(3, @timers.timer_reg_l(COUNT_TIMER)))
+            e.emit(ASM.load_immediate(4, IRQ_DMA1))
+            e.emit(ASM.load_immediate(2, 0x10000))     # the last lot's count: none yet
+            e.emit(ASM.load_immediate(1, 0x10000))     # turns of the loop before giving up
+            e.emit(ASM.store_halfword(4, ADDR))        # clear a flag left from before
+            e.place_label(wait)
+            e.emit(ASM.subs_imm(1, 1, 1))
+            e.emit_branch(:bcond, gave_up, cond: :eq)
+            e.emit(ASM.load_halfword(ACC, ADDR))
+            e.emit(ASM.tst_imm(ACC, IRQ_DMA1))
+            e.emit_branch(:bcond, wait, cond: :eq)     # no lot moved yet
+            e.emit(ASM.load_halfword(ACC, 3))          # the count, the moment one did
+            e.emit(ASM.store_halfword(4, ADDR))        # and clear its flag for the next
+            e.emit(ASM.sub_reg(2, ACC, 2))
+            e.emit(ASM.cmp_imm(2, Timers::DMA_SAMPLES_A_LOT))
+            e.emit(ASM.mov_reg(2, ACC))
+            e.emit_branch(:bcond, wait, cond: :ne)     # not a lot's worth since the last: not settled
+            e.emit(ASM.and_imm(ACC, ACC, Timers::DMA_SAMPLES_A_LOT - 1))
+            e.emit_branch(:b, found)
+            e.place_label(gave_up)
+            e.emit(ASM.load_immediate(ACC, 0))
+            e.place_label(found)
+            e.emit(ASM.pop(4))
+            @primitives.store_var(ACC, MIX_PHASE)
           end
 
           # Copy the mix routine from ROM into IWRAM once, at boot, so its per-sample inner
@@ -902,45 +1016,97 @@ module RubyGBA
           # THE HAND-OVER: point the DMA at the buffer the mix filled last frame, so it plays
           # now. Which buffer is which is held in a hidden variable and flipped each frame.
           #
-          # FIRST THING IN THE SCREEN'S INTERRUPT, before the tune, the note shapes or the mix,
-          # and that order is what keeps the sound whole. The DMA takes sixteen samples at a time,
+          # WHY IT CANNOT SIMPLY POINT AT THE START. The DMA takes sixteen samples at a time,
           # whenever the sound hardware asks, and the asking falls on a grid the sample clock
           # fixes. Its read position only ever moves forward: this re-arm is the one thing that
-          # brings it back to the start of a buffer. So between two re-arms it takes as many lots
-          # as grid points fell between them. A buffer is a whole number of lots (see
-          # Timers.sample_clock), which is right only if the re-arms are a frame apart to the
-          # cycle. One LATER than the last by enough to cross a grid point takes a lot from past
-          # the end of the buffer — the other buffer as it stands, or the voice table beyond it —
-          # and one EARLIER leaves the buffer's last lot unplayed. Either is a jump in the sound.
+          # brings it back to a buffer. So between two re-arms it takes as many lots as grid
+          # points fell between them, and that is a frame's worth only if the re-arms are a frame
+          # apart to the cycle. They are not. The screen's interrupt is answered at once when the
+          # game is asleep at the end of its frame, and late when the game is in the middle of a
+          # DMA of its own — a screen clear is one, a fifth of a frame long — which holds every
+          # interrupt off until it is done, a different wait every frame. A re-arm that lands a
+          # lot later than the last has taken a lot from past the end of the buffer; one that
+          # lands a lot earlier has left the buffer's last lot unplayed. Either is a jump.
           #
-          # Made after the mix, a re-arm waited for everything the interrupt did first, and that
-          # changes from frame to frame: a note starting, a crowd of sounds joining one already
-          # sounding. Whether a given change crossed a grid point depended on where the grid
-          # happened to fall, so it broke some cartridges and not others, and some notes and not
-          # others. Made first, it is the same few dozen instructions after the interrupt every
-          # frame whatever the frame goes on to do. The cost is that a sound is heard a frame after
-          # it is mixed rather than straight away — every sound alike, so nothing moves against
-          # anything else.
+          # SO THE HAND-OVER COUNTS instead of trusting its timing. Timer 1 counts every sample
+          # the hardware has taken, and the grid of lots sits at a known place in that count
+          # (MIX_PHASE), so the count says exactly how many lots the DMA has taken, and so which
+          # lot it takes next. A hand-over two lots late points the DMA two lots into the new
+          # buffer, where the sound meant for that moment is. The two lots taken late came from
+          # past the end of the buffer before it, which is why every buffer carries the start of
+          # the next one there (see #emit_mixer_fill). Late by anything up to that, the sound
+          # comes out whole.
           #
-          # WHAT CAN STILL MOVE IT is when the interrupt is entered. A game asleep at the end of
-          # its frame is woken at once, every frame. A game whose pass runs past the end of the
-          # frame can be in the middle of a DMA of its own — a screen clear is one — and the
-          # interrupt waits for that to finish, which is a different wait each frame.
+          # One case the count cannot settle by itself: a sample taken between reading the count
+          # and re-arming the DMA, which might have been a request answered from either buffer.
+          # So the count is read only with #count_clearance to go before the next sample, and a
+          # hand-over that finds the next one closer than that waits for it to pass.
+          #
+          # Which lot a buffer is MEANT to start at is kept from one frame to the next and moves
+          # on a frame's worth of lots each time. When the count puts the DMA out of reach of
+          # the buffer — the first hand-over of all, one later than the room a buffer carries, or
+          # one EARLIER than the hand-over the counting started from — it starts again from where
+          # the DMA really is. That hand-over is a jump. Counting started on a late frame is
+          # started again by the next prompt one, so a game settles on its prompt hand-overs
+          # within its first frames, and after that only a hand-over later than LATE_ROOM jumps.
+          #
+          # STILL THE FIRST THING IN THE SCREEN'S INTERRUPT, before the tune, the note shapes or
+          # the mix, which keeps a game asleep at the end of its frame at the same lot every
+          # frame, and a busy one no later than it has to be. The cost is that a sound is heard a
+          # frame after it is mixed — every sound alike, so nothing moves against anything else.
           def emit_mixer_handover
-            play_buf1 = @emitter.gensym
-            done = @emitter.gensym
+            e = @emitter
+            play_buf1 = e.gensym
+            chosen = e.gensym
+            wait = e.gensym
             @primitives.load_var(0, MIX_FRONT)      # r0 = the buffer that was playing
-            @emitter.emit(ASM.cmp_imm(0, 0))
-            @emitter.emit_branch(:bcond, play_buf1, cond: :eq)
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            e.emit(ASM.cmp_imm(0, 0))
+            e.emit_branch(:bcond, play_buf1, cond: :eq)
+            e.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, MIX_FRONT)
-            emit_rearm_dma(@mix_buf0)
-            @emitter.emit_branch(:b, done)
-            @emitter.place_label(play_buf1)
-            @emitter.emit(ASM.load_immediate(ACC, 1))
+            e.emit(ASM.load_immediate(3, @mix_buf0))
+            e.emit_branch(:b, chosen)
+            e.place_label(play_buf1)
+            e.emit(ASM.load_immediate(ACC, 1))
             @primitives.store_var(ACC, MIX_FRONT)
-            emit_rearm_dma(@mix_buf1)
-            @emitter.place_label(done)
+            e.emit(ASM.load_immediate(3, @mix_buf1))
+            e.place_label(chosen)                   # r3 = the buffer to play now
+
+            # Everything the re-arm needs that is not the count, loaded before the count is read,
+            # so the gap between the two is as short as it can be. The interrupt dispatcher saves
+            # r4-r8 around this.
+            @primitives.load_var(2, MIX_PHASE)
+            @primitives.load_var(1, MIX_LOT)
+            e.emit(ASM.load_immediate(ADDR, @timers.timer_reg_l(CLOCK_TIMER)))
+            e.emit(ASM.load_immediate(4, REG_DMA1SAD))
+            e.emit(ASM.load_immediate(5, dma_fifo_control))
+            e.emit(ASM.load_immediate(6, 0))
+            e.emit(ASM.load_immediate(7, 65_536 - count_clearance))
+
+            e.place_label(wait)
+            e.emit(ASM.load_halfword(ACC, ADDR))               # timer 0 counts up to the next sample
+            e.emit(ASM.cmp_reg(ACC, 7))
+            e.emit_branch(:bcond, wait, cond: :hs)            # the next sample is too near: let it pass
+            e.emit(ASM.load_halfword_offset(ACC, ADDR, COUNT_TIMER * 4)) # samples taken
+            e.emit(ASM.sub_reg(ACC, ACC, 2))
+            e.emit(ASM.lsl_imm(ACC, ACC, 16))                 # top twelve bits: lots taken
+            e.emit(ASM.sub_reg(8, ACC, 1))
+            e.emit(ASM.lsr_imm(8, 8, 20))                     # how far into this buffer the next one is
+            e.emit(ASM.cmp_imm(8, guard_lots + 1))
+            e.emit(ASM.mov_imm_cond(:hs, 8, 0))               # out of reach: start from its beginning
+            e.emit(ASM.lsl_imm(8, 8, 4))
+            e.emit(ASM.add_reg(8, 8, 3))
+            e.emit(ASM.str(8, 4))                             # the DMA's source
+            e.emit(ASM.str_offset(6, 4, REG_DMA1CNT - REG_DMA1SAD)) # off...
+            e.emit(ASM.str_offset(5, 4, REG_DMA1CNT - REG_DMA1SAD)) # ...and on, which reloads it
+
+            # Out of reach, this buffer starts at the lot the DMA takes next. Either way the next
+            # one starts a frame's worth of lots later.
+            e.emit(ASM.lsr_imm(ACC, ACC, 20))
+            e.emit(ASM.mov_reg_lsl_cond(:hs, 1, ACC, 20))
+            e.emit(ASM.load_immediate(ACC, lots_a_frame << 20))
+            e.emit(ASM.add_reg(1, 1, ACC))
+            @primitives.store_var(1, MIX_LOT)
           end
 
           # The per-frame refill: fill the buffer that is NOT playing with the next slice of
@@ -962,6 +1128,11 @@ module RubyGBA
           # they are in the table (#holding_off_interrupts), so this never sees one half-written.
           # This can retire a voice but never start one; the music player, earlier in the same
           # interrupt, starts voices, and can take one of the game's (#emit_music_voice_routine).
+          #
+          # THEN THE START OF WHAT IT MIXED is copied past the end of the buffer now playing, as
+          # far as a late hand-over can reach (see #emit_mixer_handover): those lots are the ones
+          # the DMA takes from there when the next hand-over is late, and they are the lots that
+          # come next.
           def emit_mixer_fill
             mix_buf0 = @emitter.gensym
             done = @emitter.gensym
@@ -969,10 +1140,27 @@ module RubyGBA
             @emitter.emit(ASM.cmp_imm(0, 0))
             @emitter.emit_branch(:bcond, mix_buf0, cond: :ne)
             emit_call_mix(@mix_buf1)
+            emit_copy_guard(from: @mix_buf1, to: @mix_buf0)
             @emitter.emit_branch(:b, done)
             @emitter.place_label(mix_buf0)
             emit_call_mix(@mix_buf0)
+            emit_copy_guard(from: @mix_buf0, to: @mix_buf1)
             @emitter.place_label(done)
+          end
+
+          # Copy the first guard_lots of +from+ to just past the end of +to+, a word at a time.
+          def emit_copy_guard(from:, to:)
+            e = @emitter
+            copy = e.gensym
+            e.emit(ASM.load_immediate(0, from))
+            e.emit(ASM.load_immediate(1, to + @mixer_spf))
+            e.emit(ASM.load_immediate(2, guard_lots * Timers::DMA_SAMPLES_A_LOT / 4))
+            e.place_label(copy)
+            e.emit(ASM.ldr(3, 0))
+            e.emit(ASM.add_imm(0, 0, 4))
+            e.emit(ASM.str_post(3, 1, 4))
+            e.emit(ASM.subs_imm(2, 2, 1))
+            e.emit_branch(:bcond, copy, cond: :ne)
           end
 
           # Call the IWRAM mix routine to fill +dest+ (one of the two output buffers) with the
@@ -1016,12 +1204,10 @@ module RubyGBA
             @emitter.emit(ASM.str(reg, TMP))
           end
 
-          # Point channel A's DMA at +buffer+ and (re)start it. The DMA reloads its source
-          # only when switched off and on, so a swap is: stop, set the source, start.
-          def emit_rearm_dma(buffer)
+          # (Re)start channel A's DMA from the source last written. The DMA reloads its source
+          # only when switched off and on.
+          def emit_rearm_dma
             @primitives.store_word_immediate(0, REG_DMA1CNT)                # off
-            @emitter.emit(ASM.load_immediate(ACC, buffer))
-            store_reg_ioreg(ACC, REG_DMA1SAD)                               # source = the freshly mixed buffer
             @primitives.store_word_immediate(dma_fifo_control, REG_DMA1CNT) # on
           end
 

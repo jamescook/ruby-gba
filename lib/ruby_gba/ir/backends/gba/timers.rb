@@ -17,8 +17,8 @@ module RubyGBA
         # count is just reading the cascade timer's counter register.
         #
         # Its only state (@timers, @next_hw_timer) is its own — nothing else reaches
-        # into it by name. The one hardware timer Mixer claims for its own sample clock,
-        # ahead of anything the program named, goes through #reserve! (see
+        # into it by name. The two hardware timers Mixer claims for its sample clock and the
+        # count of it, ahead of anything the program named, go through #reserve! (see
         # Mixer#prepare_mixer) rather than touching @next_hw_timer directly.
         class Timers
           include Constants
@@ -111,10 +111,13 @@ module RubyGBA
           end
 
           # Claim the first +count+ hardware timer indices before any named timer is
-          # allocated — Mixer's sample clock reserves timer 0 this way, ahead of
-          # anything the program named with timer_start.
-          def reserve!(count)
+          # allocated — Mixer's sample clock and the timer counting it reserve timers 0 and 1
+          # this way, ahead of anything the program named with timer_start. +because+ is a
+          # sentence for the error a program that runs out of timers gets, since from its
+          # side these timers are nowhere in the program.
+          def reserve!(count, because:)
             @next_hw_timer = [@next_hw_timer, count].max
+            @reserved_because = because
           end
 
           # Assign each named timer its hardware timer index (0-3) up front, so a
@@ -141,9 +144,9 @@ module RubyGBA
             @next_hw_timer += counted ? 2 : 1
             if @next_hw_timer > NUM_HW_TIMERS
               raise LoweringError,
-                    "This program uses more hardware timers than the GBA has (#{NUM_HW_TIMERS}). Reading a " \
-                    "timer's ticks costs two timers: one to run it, and one to count its overflows. To fix " \
-                    "this, use fewer timers."
+                    "This program uses more hardware timers than the GBA has (#{NUM_HW_TIMERS}). " \
+                    "#{"#{@reserved_because} " if @reserved_because}Reading a timer's ticks costs two " \
+                    "timers: one to run it, and one to count its overflows. To fix this, use fewer timers."
             end
             @timers[name] = { rate: rate, count: count, handler: handler, hz: hz }
           end

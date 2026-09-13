@@ -149,6 +149,42 @@ class TestMixerSampleClock < Minitest::Test
                     "climb faster than #{(bar / 2).round} — so the stream was broken where they joined"
   end
 
+  # A GAME WHOSE PASS RUNS PAST THE END OF THE FRAME still hands over in one piece.
+  #
+  # The hand-over is the first thing the screen's interrupt does, but the interrupt itself can
+  # be held off: a whole-screen clear is one long DMA, and nothing interrupts the console while
+  # one runs. A game clearing the screen several times a pass is inside one of them when the
+  # frame ends, a different distance through it every frame, so the hand-over lands a different
+  # number of the DMA's lots late every frame.
+  def test_a_game_busy_past_the_end_of_the_frame_does_not_break_the_sound
+    [8192, 15_768, 22_050].each do |hz|
+      pcm = (0...hz).map { |i| (Math.sin(2 * Math::PI * 220 * i / hz) * 100).round }
+      rom = RubyGBA.build("MIXCLK", code: "BMXC", maker: "01", validate: false,
+                          out: StringIO.new, err: StringIO.new) do
+        screen :bitmap
+        tone = sample :tone, pcm: pcm, rate: hz
+        started = var :started, 0
+        game_loop do
+          (started == 0).then do
+            started.set 1
+            tone.play loop: true
+          end
+          8.times { clear_screen :black }
+        end
+      end
+      v = assert_emulator_loads_rom(rom, frames: 60)
+      left = v.audio_samples.each_slice(2).map(&:first)
+      note = left[(15 * left.length / 60)..]
+      biggest = note.each_cons(2).map { |a, b| (b - a).abs }.max
+      bar = steepest(v.sample_clock) * 2
+
+      assert_operator biggest, :<, bar,
+                      "asked #{hz}: a step of #{biggest} between neighbouring samples, and the note " \
+                      "cannot climb faster than #{steepest(v.sample_clock).round} — so the stream broke " \
+                      "where the frame ended inside the game's own work"
+    end
+  end
+
   # Nothing sounding means nothing at all. This is the half that catches the DMA running off
   # the end of a buffer: what is allocated next is the voice slots, and it plays those.
   def test_the_silence_after_a_note_is_silent
