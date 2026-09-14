@@ -78,14 +78,23 @@ module RubyGBA
       #
       # `fade_music_out` walks it down to silence over time, and this is what it moves.
       #
-      # @param amount [Integer, Value] 0..100; anything outside that is held at the nearer end
-      def music_volume(amount)
+      # WITH NO NUMBER IT READS how loud the music is now, 0 to 100 — which is how a game waits
+      # for a fade to finish before it switches songs, so the switch is never heard:
+      #
+      #   (music_volume == 0).then { track.set next_track; fade_music_in }
+      #
+      # @param amount [Integer, Value, nil] 0..100; anything outside that is held at the nearer
+      #   end. Leave it out to read the volume instead.
+      # @return [Value, nil] the volume now, when reading
+      def music_volume(amount = nil)
         level = handle_for(IR::Tunes::LEVEL)
         unless @music_level_declared
           var IR::Tunes::LEVEL, IR::Tunes::FULL_LEVEL
           @music_level_declared = true
         end
         full = IR::Tunes::FULL_LEVEL
+        return level * 100 / full if amount.nil?
+
         if amount.is_a?(Integer)
           level.set amount.clamp(0, 100) * full / 100
         else

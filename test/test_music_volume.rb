@@ -9,8 +9,10 @@ require "test_helper"
 # music slider, and the level `fade_music_out` walks down to silence.
 class TestMusicVolume < Minitest::Test
   # A song holding one long note at volume 12 — on the first square voice, or on whichever voice
-  # +plays+ names — and a game that runs +body+ on each pass with the pass number.
-  def held_note_game(plays: nil, &body)
+  # +plays+ names — and a game that runs +body+ on each pass with the pass number. The game names
+  # the song on every pass, or with +named_once+ on its first pass only and then whenever +body+
+  # says so.
+  def held_note_game(plays: nil, named_once: false, &body)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -32,7 +34,7 @@ class TestMusicVolume < Minitest::Test
       pass = var :pass, 0
       game_loop do
         pass.add 1
-        play_song :hold
+        named_once ? (pass == 1).then { play_song :hold } : play_song(:hold)
         instance_exec(pass, &body)
       end
     end
@@ -40,19 +42,184 @@ class TestMusicVolume < Minitest::Test
     b.program
   end
 
-  # How loud each square voice was set, on the frames it was set, from the interpreter:
-  # { frame => [[channel, volume 0..15], ...] }.
-  def loudness_by_frame(program, frames)
+  # How loud each voice was set, on the frames it was set, from the interpreter:
+  # { frame => [[channel, volume 0..15], ...] }. With +stops+, a frame the music stopped on
+  # says :stop_music among them.
+  def loudness_by_frame(program, frames, stops: false)
     i = Reference.new
     heard = {}
     logged = 0
     i.each_vblank do |frame|
-      fresh = i.audio.drop(logged).select { |entry| entry[0] == :loudness }.map { |entry| entry.drop(1) }
+      fresh = i.audio.drop(logged).filter_map do |entry|
+        next entry.drop(1) if entry[0] == :loudness
+
+        :stop_music if stops && entry[0] == :stop_music
+      end
       logged = i.audio.size
       heard[frame] = fresh unless fresh.empty?
     end
     i.run(program, frames: frames)
     heard
+  end
+
+  # --- fading the music out and back in ---
+
+  # Said once, it walks the volume down over the frames it was given — the first of them still
+  # at full, the last at nothing, the same reckoning `fade_out` makes for the screen — and holds
+  # it there. The song goes on playing, silently, until something brings it back.
+  def test_a_fade_out_walks_the_music_down_to_silence_and_holds_it_there
+    program = held_note_game(named_once: true) { |pass| (pass == 10).then { fade_music_out frames: 5 } }
+    heard = loudness_by_frame(program, 30, stops: true).reject { |frame, _| frame == 2 }
+
+    assert_equal [[[1, 9]], [[1, 6]], [[1, 3]], [[1, 0]]], heard.values
+    assert_equal (heard.keys.first...heard.keys.first + 4).to_a, heard.keys, "on four frames in a row"
+  end
+
+  # Brought in, the music comes up from nothing to full over the frames it was given — the song
+  # playing now, or the one a game names in the same frame, which then starts silent.
+  def test_a_fade_in_brings_the_music_up_from_silence
+    program = held_note_game(named_once: true) { |pass| (pass == 10).then { fade_music_in frames: 5 } }
+    heard = loudness_by_frame(program, 30).reject { |frame, _| frame == 2 }
+
+    assert_equal [[[1, 0]], [[1, 3]], [[1, 6]], [[1, 9]], [[1, 12]]], heard.values
+  end
+
+  # A fade in said with no length comes up as fast as the last fade out went down.
+  def test_a_fade_in_with_no_length_takes_as_long_as_the_fade_out_did
+    program = held_note_game(named_once: true) do |pass|
+      (pass == 5).then { fade_music_out frames: 3 }
+      (pass == 15).then { fade_music_in }
+    end
+    heard = loudness_by_frame(program, 30).select { |frame, _| frame > 15 }
+
+    assert_equal [[[1, 6]], [[1, 12]]], heard.values
+  end
+
+  # ...and on the console, where it can be heard: loud, then silent, then loud again.
+  def test_the_console_fades_the_music_out_and_back_in
+    program = held_note_game(named_once: true) do |pass|
+      (pass == 10).then { fade_music_out frames: 10 }
+      (pass == 40).then { fade_music_in }
+    end
+    energy = assert_emulator_loads_rom(assemble_rom(program, name: "MUSFADE"), frames: 70).audio_energy_by_frame
+    loud = energy.max / 4
+
+    assert_operator energy[4..9].min, :>, loud, "the song sounds (#{energy.inspect})"
+    assert_operator energy[26..40].max, :<, loud, "then fades to nothing (#{energy.inspect})"
+    assert_operator energy[58..].min, :>, loud, "and comes back (#{energy.inspect})"
+  end
+
+  # --- guardrails ---
+
+  def warnings(&block)
+    b = Builder.new
+    b.instance_eval(&block)
+    b.emit_pending_functions
+    RubyGBA::IR::Guardrails::Validator.new.run(b.program, autofix: false).warnings.map(&:check)
+  end
+
+  # A song faded out goes on playing silently, and so does every song after it — the game plays
+  # on with no music and nothing says why.
+  def test_music_faded_out_and_never_brought_back_is_caught
+    found = warnings do
+      screen :bitmap
+      enable_sound
+      song(:tune) { note :C4, :whole }
+      game_loop do
+        play_song :tune
+        fade_music_out
+      end
+    end
+
+    assert_includes found, :music_faded_out_never_in
+  end
+
+  def test_music_faded_out_and_brought_back_is_not_flagged
+    found = warnings do
+      screen :bitmap
+      enable_sound
+      song(:tune) { note :C4, :whole }
+      pass = var :pass, 0
+      game_loop do
+        pass.add 1
+        play_song :tune
+        (pass == 10).then { fade_music_out }
+        (pass == 90).then { fade_music_in }
+      end
+    end
+
+    refute_includes found, :music_faded_out_never_in
+  end
+
+  # A fade in down the other branch of a test still brings it back.
+  def test_music_brought_back_in_an_else_branch_is_not_flagged
+    found = warnings do
+      screen :bitmap
+      enable_sound
+      song(:tune) { note :C4, :whole }
+      over = var :over, 0
+      game_loop do
+        play_song :tune
+        (over == 1).then { fade_music_out }.else { fade_music_in }
+      end
+    end
+
+    refute_includes found, :music_faded_out_never_in
+  end
+
+  # ...and turning it back up by hand brings it back just as well.
+  def test_music_faded_out_and_turned_back_up_is_not_flagged
+    found = warnings do
+      screen :bitmap
+      enable_sound
+      song(:tune) { note :C4, :whole }
+      pass = var :pass, 0
+      game_loop do
+        pass.add 1
+        play_song :tune
+        (pass == 10).then { fade_music_out }
+        (pass == 90).then { music_volume 100 }
+      end
+    end
+
+    refute_includes found, :music_faded_out_never_in
+  end
+
+  def test_a_game_that_never_fades_its_music_is_not_flagged
+    found = warnings do
+      screen :bitmap
+      enable_sound
+      song(:tune) { note :C4, :whole }
+      game_loop { play_song :tune }
+    end
+
+    refute_includes found, :music_faded_out_never_in
+  end
+
+  # WHAT LETS A GAME WAIT FOR A FADE: `music_volume` with no number reads how loud the music is
+  # now, 0 to 100. A song switched while nobody can hear it is a song switched without a jump.
+  def test_the_music_volume_reads_back_how_loud_the_music_is_now
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      pass = var :pass, 0
+      loud_at_start = var :loud_at_start, 0
+      silent_at = var :silent_at, 0
+      game_loop do
+        pass.add 1
+        (pass == 1).then { loud_at_start.set music_volume }
+        (pass == 2).then { fade_music_out frames: 4 }
+        ((music_volume == 0) & (silent_at == 0)).then { silent_at.set pass }
+      end
+    end
+    b.emit_pending_functions
+    run = Reference.new.run(b.program, frames: 20)
+
+    assert_equal 100, run[:loud_at_start]
+    assert_equal 5, run[:silent_at],
+                 "a fade runs at the top of a pass, so it is down on passes 3 and 4 and silent by the " \
+                 "body of the fifth"
   end
 
   # The note starts at its own volume, and a note ALREADY SOUNDING drops to half on the frame
