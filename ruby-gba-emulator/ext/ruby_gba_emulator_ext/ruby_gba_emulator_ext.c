@@ -1447,6 +1447,108 @@ mgba_core_scroll(VALUE self, VALUE which)
 }
 
 /* --------------------------------------------------------- */
+/* TAKING THE PICTURE AND THE SOUND APART                     */
+/*                                                            */
+/* The console composes one picture out of four backgrounds   */
+/* and the sprites, and mixes one sound out of six voices.    */
+/* Neither the finished picture nor the finished sound can be */
+/* asked which of them it came from — so "is the HUD drawing  */
+/* at all" and "did that voice sound" have no answer in them. */
+/* The emulator can leave one out, and then the question is   */
+/* just "what changed".                                       */
+/*                                                            */
+/* The names come from mGBA rather than from us: it knows     */
+/* what it built, and a console it gains a layer on says so   */
+/* here without this file being touched.                      */
+/* --------------------------------------------------------- */
+static VALUE
+channel_list(size_t count, const struct mCoreChannelInfo *info)
+{
+    VALUE out = rb_ary_new_capa((long)count);
+    size_t i;
+
+    for (i = 0; i < count; i++) {
+        VALUE entry = rb_hash_new();
+        rb_hash_aset(entry, ID2SYM(rb_intern("id")), SIZET2NUM(info[i].id));
+        rb_hash_aset(entry, ID2SYM(rb_intern("name")), rb_str_new_cstr(info[i].internalName));
+        rb_ary_push(out, entry);
+    }
+    return out;
+}
+
+/* Core#video_layers — every layer the console draws with, as {id:, name:}. */
+static VALUE
+mgba_core_video_layers(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    const struct mCoreChannelInfo *info = NULL;
+    size_t count = mc->core->listVideoLayers(mc->core, &info);
+    return channel_list(count, info);
+}
+
+/* Core#audio_channels — every voice the console mixes, as {id:, name:}. */
+static VALUE
+mgba_core_audio_channels(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    const struct mCoreChannelInfo *info = NULL;
+    size_t count = mc->core->listAudioChannels(mc->core, &info);
+    return channel_list(count, info);
+}
+
+/* --------------------------------------------------------- */
+/* MAKE THE CONSOLE DRAW THE WHOLE PICTURE AGAIN.             */
+/*                                                            */
+/* mGBA does not redraw a row of the screen whose registers   */
+/* have not moved since the last frame — a large saving on a  */
+/* still picture, and the reason switching a layer off can    */
+/* look like it did nothing: the rows were never drawn again, */
+/* so the layer is still in the picture they kept. A game     */
+/* with something moving hides it, which is worse, because    */
+/* then it works until the frame nothing happens on.          */
+/*                                                            */
+/* Every row is marked as needing a redraw, which is what the */
+/* renderer's own cache is asked for. It reaches past the     */
+/* public renderer to the software one, which is the only one */
+/* this binding ever builds.                                  */
+/* --------------------------------------------------------- */
+static void
+redraw_everything(struct mgba_core *mc)
+{
+    struct GBA *gba;
+    struct GBAVideoSoftwareRenderer *renderer;
+    size_t i;
+
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA) {
+        return;
+    }
+    gba = (struct GBA *)mc->core->board;
+    renderer = (struct GBAVideoSoftwareRenderer *)gba->video.renderer;
+    for (i = 0; i < sizeof(renderer->scanlineDirty) / sizeof(renderer->scanlineDirty[0]); i++) {
+        renderer->scanlineDirty[i] = 0xFFFFFFFF;
+    }
+}
+
+/* Core#enable_video_layer(id, on) — leave a layer out of the picture, or put it back. */
+static VALUE
+mgba_core_enable_video_layer(VALUE self, VALUE id, VALUE on)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    mc->core->enableVideoLayer(mc->core, NUM2SIZET(id), RTEST(on));
+    redraw_everything(mc);
+    return on;
+}
+
+/* Core#enable_audio_channel(id, on) — leave a voice out of the mix, or put it back. */
+static VALUE
+mgba_core_enable_audio_channel(VALUE self, VALUE id, VALUE on)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    mc->core->enableAudioChannel(mc->core, NUM2SIZET(id), RTEST(on));
+    return on;
+}
+
+/* --------------------------------------------------------- */
 /* Cycle timing — for calibrating the cost model             */
 /*                                                           */
 /* The GBA runs at a fixed cycle budget per frame (~280896   */
@@ -2307,6 +2409,10 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "sprites",     mgba_core_sprites, 0);
     rb_define_method(cCore, "palette",     mgba_core_palette, 0);
     rb_define_method(cCore, "scroll",      mgba_core_scroll, 1);
+    rb_define_method(cCore, "video_layers",   mgba_core_video_layers, 0);
+    rb_define_method(cCore, "audio_channels", mgba_core_audio_channels, 0);
+    rb_define_method(cCore, "enable_video_layer",   mgba_core_enable_video_layer, 2);
+    rb_define_method(cCore, "enable_audio_channel", mgba_core_enable_audio_channel, 2);
     rb_define_method(cCore, "watch",       mgba_core_watch, 1);
     rb_define_method(cCore, "take_changes",   mgba_core_take_changes, 0);
     rb_define_method(cCore, "changes_missed", mgba_core_changes_missed, 0);

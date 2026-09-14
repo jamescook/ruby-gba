@@ -237,4 +237,136 @@ class TestFrameEvents < Minitest::Test
     assert probe.respond_to?(:complaints), "a probe can say what the emulator complained about"
     assert_kind_of Array, probe.complaints
   end
+
+  # TAKING THE PICTURE APART. The console composes one picture out of four backgrounds and
+  # the sprites, and the finished picture cannot be asked which of them drew a given pixel —
+  # so "is the HUD drawing at all" has no answer in it. A HUD sitting behind the scenery, or
+  # drawn in the colour already there, makes exactly the same picture as one that never drew.
+  # The emulator can leave a layer out, and then the question is just "what changed".
+
+  RED = [255, 0, 0].freeze
+  BLUE = [0, 0, 255].freeze
+
+  # A background over the whole screen with one blue sprite sitting on it.
+  def layered_rom
+    build_rom("LAYERS", code: "TLAY") do
+      screen :tiled
+      image(:brick, "#" => :red) { TILE_8X8 }
+      image(:dot, "." => :transparent, "#" => :blue) { TILE_8X8 }
+      tiles :set, "#" => :brick
+      background :ground, tiles: :set, map: ["#" * 30] * 20
+      sprite :dot, at: [40, 24]
+      game_loop { wait_vblank }
+    end
+  end
+
+  def test_a_probe_says_which_layers_and_channels_the_console_has
+    with_probe(red_rom) do |probe|
+      assert_equal %i[bg0 bg1 bg2 bg3 sprites window0 window1 sprite_window], probe.layers
+      assert_equal %i[square1 square2 wave noise sample_a sample_b], probe.channels
+    end
+  end
+
+  def test_a_probe_can_leave_one_layer_out_and_put_it_back
+    with_probe(layered_rom) do |probe|
+      probe.step(4)
+
+      assert_equal BLUE, probe.pixel(44, 28), "the sprite is drawn over the scenery"
+
+      probe.showing(without: :sprites) do
+        probe.step(2)
+
+        assert_equal RED, probe.pixel(44, 28), "with the sprites out, the scenery behind shows"
+      end
+
+      probe.step(2)
+
+      assert_equal BLUE, probe.pixel(44, 28), "and the sprite is back once the block has ended"
+    end
+  end
+
+  def test_a_probe_can_show_one_layer_on_its_own
+    with_probe(layered_rom) do |probe|
+      probe.step(4)
+
+      assert_equal RED, probe.pixel(100, 100), "scenery everywhere the sprite is not"
+
+      probe.showing(only: :sprites) do
+        probe.step(2)
+
+        assert_equal BLUE, probe.pixel(44, 28), "the sprite still draws"
+        refute_equal RED, probe.pixel(100, 100), "and nothing else does"
+      end
+    end
+  end
+
+  # A TONE HELD ON ONE VOICE, and which voice it really came out of. A game with music under
+  # its effects cannot tell from the loudness alone which of them sounded — silencing the
+  # others is the only way to put that question.
+  def sustained_tone_rom
+    build_rom("TONE", code: "TTON") do
+      screen :bitmap
+      clear_screen :black
+      enable_sound
+      wave :triangle, :C4
+      game_loop { wait_vblank }
+    end
+  end
+
+  # Taking a voice out from under a note it is HOLDING is a cut rather than a rest: the mix
+  # steps down where the note was and drifts back over about half a second, which is the same
+  # click a game gets for stopping a note dead. So the tone goes quiet shortly after, not at
+  # the instant — and a test that reads the loudness straight away reads the cut.
+  SETTLE_AFTER_A_CUT = 50
+
+  def test_a_probe_can_leave_one_sound_channel_out
+    with_probe(sustained_tone_rom) do |probe|
+      probe.step(10)
+
+      refute probe.silent?, "the game is holding a tone"
+
+      probe.hearing(without: :wave) do
+        probe.step(SETTLE_AFTER_A_CUT)
+        probe.step(10)
+
+        assert probe.silent?, "with that voice out, nothing is left sounding (#{probe.audio_energy})"
+      end
+
+      probe.step(10)
+
+      refute probe.silent?, "the voice comes back once the block has ended"
+    end
+  end
+
+  # Said before a frame has run, so nothing is cut and there is nothing to settle: the tone
+  # sounds on the voice the game named and on no other.
+  def test_a_probe_can_hear_one_sound_channel_on_its_own
+    with_probe(sustained_tone_rom) do |probe|
+      probe.hearing(only: :wave) { probe.step(10) }
+
+      refute probe.silent?, "the tone is on the voice the game named"
+    end
+
+    with_probe(sustained_tone_rom) do |probe|
+      probe.hearing(only: :noise) { probe.step(10) }
+
+      assert probe.silent?, "and on no other (#{probe.audio_energy})"
+    end
+  end
+
+  def test_asking_for_a_layer_that_does_not_exist_says_which_there_are
+    with_probe(red_rom) do |probe|
+      error = assert_raises(ArgumentError) { probe.showing(only: :hud) }
+
+      assert_match(/hud/, error.message)
+      assert_match(/bg0/, error.message, "the message names the layers there are")
+    end
+  end
+
+  def test_showing_must_say_whether_it_is_keeping_or_leaving_out
+    with_probe(red_rom) do |probe|
+      assert_raises(ArgumentError) { probe.showing }
+      assert_raises(ArgumentError) { probe.showing(only: :bg0, without: :sprites) }
+    end
+  end
 end

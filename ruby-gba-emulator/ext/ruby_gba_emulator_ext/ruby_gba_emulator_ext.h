@@ -18,6 +18,7 @@
 #include <mgba/internal/gba/bios.h>
 #include <mgba/internal/gba/gba.h>
 #include <mgba/internal/gba/io.h>
+#include <mgba/internal/gba/renderers/video-software.h>
 #include <mgba/debugger/debugger.h>
 
 extern VALUE mRubyGBAEmulator;

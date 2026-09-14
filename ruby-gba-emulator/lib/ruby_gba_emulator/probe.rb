@@ -185,6 +185,69 @@ module RubyGBAEmulator
       @core.scroll(which)
     end
 
+    # THE LAYERS THE CONSOLE DRAWS WITH, by name — four backgrounds and the sprites.
+    #
+    # @return [Array<Symbol>]
+    def layers
+      layer_ids.keys
+    end
+
+    # THE VOICES THE CONSOLE MIXES ITS SOUND OUT OF, by name — two square voices, the wave
+    # voice, the noise voice, and the two the recorded sound comes out of.
+    #
+    # @return [Array<Symbol>]
+    def channels
+      channel_ids.keys
+    end
+
+    # DRAW THE PICTURE WITHOUT SOME OF IT, so a test can ask which layer drew what.
+    #
+    #   probe.showing(only: :sprites) { probe.step; probe.lit_pixels }
+    #   probe.showing(without: :bg1)  { probe.step; probe.pixel(44, 28) }
+    #
+    # The console composes one picture out of four backgrounds and the sprites, and the
+    # finished picture cannot be asked which of them drew a given pixel. So "is the HUD
+    # drawing at all" has no answer in it: a HUD behind the scenery, one drawn in the colour
+    # already there, and one that never drew make the same picture. Leave the rest out and
+    # the question is just "what is left".
+    #
+    # +only:+ keeps the layers named and leaves out the rest; +without:+ leaves out the ones
+    # named. Either takes one name or a list.
+    #
+    # THE GAME IS NO LONGER QUITE THE ONE THAT SHIPS while a layer is out — this changes the
+    # console, not the reading. With a block the layers go back as they were afterwards, which
+    # is why the block form is the one to reach for; without one the change stands for the
+    # rest of the run.
+    #
+    # @return [Object] the block's value, or self when there is no block
+    def showing(only: nil, without: nil, &block)
+      isolate(kind: :video, only: only, without: without, &block)
+    end
+
+    # MIX THE SOUND WITHOUT SOME OF IT, so a test can ask which voice sounded.
+    #
+    #   probe.hearing(only: :noise)   { probe.step(10); probe.audio_energy }
+    #   probe.hearing(without: :wave) { probe.step(10); probe.silent? }
+    #
+    # A game with music under its effects mixes down to one loudness, and that number cannot
+    # say which voice put what into it — so "did the explosion sound" cannot be asked of it at
+    # all while the music plays. Silence the rest and it can.
+    #
+    # Same words and the same warning as {#showing}: +only:+ keeps, +without:+ leaves out, a
+    # block puts the voices back afterwards, and while one is out the game is not sounding
+    # quite as it ships.
+    #
+    # TAKING A VOICE OUT FROM UNDER A NOTE IT IS HOLDING IS A CUT, not a rest. The mix steps
+    # down where that note was and drifts back over about half a second — the same click a
+    # game gets for stopping a note dead rather than letting it fade. So a reading taken
+    # straight after is a reading of the cut, and "has it gone quiet" wants half a second
+    # first. Said before the note starts, there is nothing to cut and nothing to wait for.
+    #
+    # @return [Object] the block's value, or self when there is no block
+    def hearing(only: nil, without: nil, &block)
+      isolate(kind: :audio, only: only, without: without, &block)
+    end
+
     # How many times the game has READ THE PAD since the cartridge was loaded.
     #
     # This is what the emulator saw, not how many times a game loop went round. The two look
@@ -653,6 +716,101 @@ module RubyGBAEmulator
     end
 
     private
+
+    # WHAT THE CONSOLE'S OWN PARTS ARE CALLED HERE. mGBA's names for them are the hardware
+    # manual's — +obj+ for the sprites, +ch3+ for the wave voice — which say where a thing
+    # sits rather than what it is, and a test silencing +ch3+ when it meant the noise voice
+    # gets no complaint from anybody. So each is given the name of what it does. The numbered
+    # backgrounds keep their numbers, which is what everything else here calls them too
+    # ({#scroll} takes the same 0 to 3). Anything mGBA grows that is not in here arrives under
+    # the name mGBA gave it.
+    LAYER_NAMES = {
+      "bg0" => :bg0, "bg1" => :bg1, "bg2" => :bg2, "bg3" => :bg3, "obj" => :sprites,
+      "win0" => :window0, "win1" => :window1, "objwin" => :sprite_window
+    }.freeze
+
+    CHANNEL_NAMES = {
+      "ch1" => :square1, "ch2" => :square2, "ch3" => :wave, "ch4" => :noise,
+      "chA" => :sample_a, "chB" => :sample_b
+    }.freeze
+
+    # What each kind is called where a person reads it: the word they wrote, and the word for
+    # one of the things.
+    PARTS = {
+      video: { verb: "showing", what: "layer" },
+      audio: { verb: "hearing", what: "sound channel" }
+    }.freeze
+
+    # Switch the named parts the way +only:+ / +without:+ asks, run the block if there is one,
+    # and put everything back the way it was found.
+    def isolate(kind:, only:, without:, &block)
+      ensure_open!
+      wanted = wanted_state(kind: kind, only: only, without: without)
+      was = state_of(kind).dup
+      wanted.each { |name, on| enable(kind, name, on) }
+      return self unless block
+
+      begin
+        block.call(self)
+      ensure
+        was.each { |name, on| enable(kind, name, on) }
+      end
+    end
+
+    # Which of the parts are to be on, as a name => true/false Hash covering all of them.
+    def wanted_state(kind:, only:, without:)
+      verb, what = PARTS.fetch(kind).values_at(:verb, :what)
+      all = state_of(kind).keys
+      if only.nil? == without.nil?
+        raise ArgumentError,
+              "#{verb} must say only: or without:. only: keeps the #{what}s you name and " \
+              "leaves out the rest. without: leaves out the ones you name."
+      end
+
+      named = Array(only || without).map { |name| known!(name, all, what) }
+      kept = only ? named : all - named
+      all.to_h { |name| [name, kept.include?(name)] }
+    end
+
+    def known!(name, all, what)
+      return name if all.include?(name)
+
+      raise ArgumentError,
+            "there is no #{what} called #{name.inspect}. The #{what}s are: #{all.join(', ')}."
+    end
+
+    # Switch one part on or off and remember which way it is set: mGBA takes the instruction
+    # but cannot be asked afterwards what it took.
+    def enable(kind, name, on)
+      if kind == :video
+        @core.enable_video_layer(layer_ids.fetch(name), on)
+      else
+        @core.enable_audio_channel(channel_ids.fetch(name), on)
+      end
+      state_of(kind)[name] = on
+    end
+
+    # Which parts are on right now. Everything the console has is on until something here
+    # switches it off.
+    def state_of(kind)
+      if kind == :video
+        @shown ||= layer_ids.keys.to_h { |name| [name, true] }
+      else
+        @heard ||= channel_ids.keys.to_h { |name| [name, true] }
+      end
+    end
+
+    def layer_ids
+      @layer_ids ||= ids_by_name(@core.video_layers, LAYER_NAMES)
+    end
+
+    def channel_ids
+      @channel_ids ||= ids_by_name(@core.audio_channels, CHANNEL_NAMES)
+    end
+
+    def ids_by_name(listed, names)
+      listed.to_h { |part| [names.fetch(part[:name], part[:name].to_sym), part[:id]] }
+    end
 
     # Take the frame's changes off the core and hand each to whoever asked about that
     # address. Done once a frame rather than at the change itself, because the change
