@@ -123,6 +123,73 @@ class TestIRNode < Minitest::Test
     assert_equal %i[case int int], n.walk.map(&:kind)
   end
 
+  # An Array that says how many times something asked it to hand its elements over. The tally
+  # is kept in an object of its own because the node freezes the list it is given, and a
+  # frozen list cannot even count.
+  class CountingList < Array
+    Tally = Struct.new(:reads)
+
+    attr_reader :tally
+
+    def initialize(...)
+      super
+      @tally = Tally.new(0)
+    end
+
+    def each(&block)
+      @tally.reads += 1 if block
+      super
+    end
+  end
+
+  # A table's values are numbers and can never be nodes, so a walk has no business reading
+  # them. Asserted by counting the reads, since "did not look" has no other witness.
+  def test_a_walk_does_not_read_the_numbers_in_a_list_that_holds_no_node
+    values = CountingList.new([1, 2, 3])
+    node = Table.new(name: :t, values: values)
+    values.tally.reads = 0 # the one read that settles the answer is not the one under test
+
+    node.walk { |_| }
+
+    assert_equal 0, values.tally.reads, "the walk read a list that cannot hold a node"
+  end
+
+  # What makes it safe to remember the answer: the list cannot be changed behind the node's
+  # back afterwards, so the answer cannot go stale.
+  def test_a_list_put_into_a_node_cannot_be_changed_afterwards
+    node = Table.new(name: :t, values: [1, 2, 3])
+
+    assert_raises(FrozenError) { node.values << 4 }
+  end
+
+  def test_a_node_put_into_a_field_after_the_fact_is_still_walked
+    node = Case.new(clauses: [])
+    node.clauses = [int(9)]
+
+    assert_equal %i[case int], node.walk.map(&:kind)
+  end
+
+  # A walk arrives at a node's operands in the order the kind declares them, whatever order
+  # they were written in. Passes that collect as they go — the colours a program draws in,
+  # the routines it can reach — would otherwise come out in a different order depending on
+  # how the node was assembled.
+  def test_a_walk_reads_operands_in_the_order_the_kind_declares_them
+    node = Binop.new(op: :+, lhs: int(1), rhs: int(2))
+    node.rhs = int(9) # written last, still second
+    node.lhs = int(8) # written last, still first
+
+    assert_equal [8, 9], node.walk.select { |n| n.kind == :int }.map(&:value)
+  end
+
+  def test_a_field_that_stops_holding_a_node_stops_being_walked
+    node = Case.new(clauses: [int(1)])
+    assert_equal %i[case int], node.walk.map(&:kind)
+
+    node.clauses = [7]
+
+    assert_equal [:case], node.walk.map(&:kind)
+  end
+
   # ========================================================================
   # value / expression composition
   # ========================================================================
