@@ -370,19 +370,150 @@ class TestLoopForm < Minitest::Test
   end
 
   # The saving is really in the emitted code, both halves of it. A loop that reported the fast
-  # shape without them would count in a register the call had already written.
+  # shape without them would count in a register the call had already written. A loop that
+  # reads its index counts up against a limit and saves both; one that does not counts down and
+  # has only its counter to save.
   def test_a_spilled_loop_emits_the_save_and_the_restore
     rom = RubyGBA.build("LOOPSAVE", code: "BLSV", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       n = var :n, 0
       b = self
       func(:bump) { n.add 1 }
-      game_loop { b.repeat(4) { b.call :bump } }
+      game_loop do
+        b.repeat(4) do |i|
+          n.add i
+          b.call :bump
+        end
+        b.repeat(4) { b.call :bump }
+      end
     end
     pair = [LoopForm::COUNTER, LoopForm::LIMIT]
 
     assert_includes rom.buffer, RubyGBA::ASM.push(*pair), "the pair is saved"
     assert_includes rom.buffer, RubyGBA::ASM.pop(*pair), "and put back"
+    assert_includes rom.buffer, RubyGBA::ASM.push(LoopForm::COUNTER), "the counter alone is saved"
+    assert_includes rom.buffer, RubyGBA::ASM.pop(LoopForm::COUNTER), "and put back"
+  end
+
+  # --- what a pass of the loop itself costs ---
+  #
+  # A body that never reads its index does not care which way the count runs, and counting
+  # DOWN is cheaper: taking one off a number already says whether it reached nought, so the
+  # test at the end of the pass is the subtract and a branch. Counting up has to compare against
+  # the limit as an instruction of its own.
+  #
+  # Measured on the console, as the instructions a loop of PASSES runs beyond the same body
+  # written out PASSES times with no loop at all — so what is left is the loop and nothing else.
+  PASSES = 200
+
+  # The third instruction is not the counting: the top of a pass can be reached from two places,
+  # so the body finds the base of the variable memory again there, where written out in a row it
+  # would still be sitting in its register from the statement before.
+  def test_a_held_pass_that_ignores_its_index_is_a_subtract_and_a_branch
+    overhead = loop_overhead { |_b, n| n.add 1 }
+
+    assert_equal 3, overhead
+  end
+
+  # The same count down in a loop that lends its registers out around a call. The index is
+  # not read, so nothing has to be written out to its variable before the call — the bracket is
+  # the save and the restore.
+  def test_a_spilled_pass_that_ignores_its_index_is_the_save_the_restore_and_the_count
+    overhead = loop_overhead { |b, _n| b.call :bump }
+
+    assert_equal 4, overhead
+  end
+
+  # Through memory, the count is kept in the index's own variable, so there is no limit to
+  # load: load it, take one off, store it back, and branch while it is not yet nought. The load
+  # is two instructions, because the calls in the body have left the base of the variable
+  # memory somewhere else by then.
+  def test_a_pass_through_memory_that_ignores_its_index_loads_takes_one_off_and_stores
+    overhead = loop_overhead { |b, _n| 3.times { b.call :bump } }
+
+    assert_equal 5, overhead
+  end
+
+  # A count that runs no passes — nought, or below it — must still run none. Counting down
+  # tests at the END of a pass, so the first test has to be made before the first pass instead.
+  def test_a_loop_counted_nought_or_below_runs_no_passes_on_the_console
+    rom = RubyGBA.build("LOOPNONE", code: "BLNO", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      none = var :none, 0
+      below = var :below, -3
+      hit = var :hit, 0
+      passes = var :passes, 0
+      b = self
+      func(:bump) { passes.add 1 }
+      game_loop do
+        passes.set 0
+        [none, below].each do |count|
+          b.repeat(count) { passes.add 1 }                        # held
+          b.repeat(count) { b.call :bump }                        # spilled
+          b.repeat(count) { 3.times { b.call :bump } }            # through memory
+          b.repeat(count, stop_when: hit == 1) { passes.add 1 }   # stops early
+        end
+        b.repeat(3, stop_when: hit == 1) { passes.add 100 }
+      end
+    end
+
+    assert_equal 300, read_var(rom, :passes), "only the loop counted three ran, three times"
+  end
+
+  # A body that never mentions its index can still have it read: a routine declared inside the
+  # block captures it, and the call to that routine is all the body says. Counting that loop
+  # down would hand the routine the passes left instead of the pass it is on.
+  def test_an_index_read_only_by_a_routine_the_body_calls_still_counts_up
+    rom = RubyGBA.build("LOOPCAPT", code: "BLCP", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      seen = var :seen, 0
+      b = self
+      game_loop do
+        seen.set 0
+        b.repeat(4) do |i|
+          b.func(:look) { seen.add i * 10 + 1 }
+          b.call :look
+        end
+      end
+    end
+
+    assert_equal 64, RubyGBA::IR::Backends::Reference.new.run(rom.source_program)[:seen],
+                 "passes 0 to 3, each adding ten times its number and one"
+    assert_equal 64, read_var(rom, :seen)
+  end
+
+  # The instructions a pass of the loop runs beyond its body. Each form is measured at PASSES
+  # and at twice that, so what either spends once — setting the loop up, or the first statement
+  # finding the variables — cancels out of the difference. The body is given the builder and a
+  # variable to count with.
+  def loop_overhead(&body)
+    looped = [PASSES, PASSES * 2].map do |passes|
+      instructions_a_frame(pass_rom("BLPL") { |b, n| b.repeat(passes) { body.call(b, n) } })
+    end
+    inline = [PASSES, PASSES * 2].map do |passes|
+      instructions_a_frame(pass_rom("BLPI") { |b, n| passes.times { body.call(b, n) } })
+    end
+    ((looped.last - looped.first) - (inline.last - inline.first)) / PASSES
+  end
+
+  # Nothing is moved to the quick memory, which changes how a call is made depending on where
+  # the caller and the routine each landed — and a body written out four hundred times lands
+  # somewhere different from one written out two hundred.
+  def pass_rom(code)
+    RubyGBA.build("LOOPPASS", code: code, maker: "01", err: StringIO.new, out: StringIO.new,
+                              fast_code: false) do
+      screen :bitmap
+      n = var :n, 0
+      b = self
+      func(:bump) { n.add 1 }
+      game_loop { yield b, n }
+    end
+  end
+
+  def instructions_a_frame(rom)
+    result = RubyGBA::Profiler.run(rom, frames: 10, picture: false)
+    refute result.dropping_frames?, "a pass count is only exact while the game keeps up (#{result.fps} fps)"
+    result.samples_per_frame
   end
 
   SETTLE = 12

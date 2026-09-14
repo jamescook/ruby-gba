@@ -156,10 +156,10 @@ class TestMusicKeepsTime < Minitest::Test
   BEATS = FRAMES / 12
 
   # HOW MUCH WORK MAKES A PASS LATE on this emulator, measured, and each picked from the middle
-  # of the range that gives it — about twenty thousand steps is a frame of this game. The test
-  # asserts what it got, so a change in the machine shows up as a failed assumption rather than
-  # a test quietly measuring nothing.
-  BURNS = { 1 => 0, 2 => 30_000, 3 => 50_000 }.freeze
+  # of the range that gives it — about twenty-five thousand steps is a frame of this game. The
+  # test asserts what it got, so a change in the machine shows up as a failed assumption rather
+  # than a test quietly measuring nothing.
+  BURNS = { 1 => 0, 2 => 35_000, 3 => 60_000 }.freeze
 
   def beat_game(burn)
     b = Builder.new

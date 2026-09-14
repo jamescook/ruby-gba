@@ -664,6 +664,7 @@ module RubyGBA
           # still needs its pixels in the cartridge. Wanted before the assets are registered.
           @stretched_columns = StretchedColumns.new(program, emitter: @emit)
           @framebuffer.stretched_columns = @stretched_columns
+          @statements.unread_indexes = LoopForm.unread_indexes(program)
           # First in internal memory, before anything else is given a home there: only a
           # program that divides by something it works out as it runs carries the divide
           # routine, and every other division is settled at build time.

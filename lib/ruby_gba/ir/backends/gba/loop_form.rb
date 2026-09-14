@@ -69,6 +69,42 @@ module RubyGBA
             node.kind == :raw || writes?(node, index)
           end
 
+          # THE LOOPS THAT CAN COUNT DOWN: the ones whose index nothing in the program reads.
+          #
+          # Counting down is cheaper because of how the processor reports a result. Every
+          # subtract that sets the flags also says whether the answer was nought, so a count
+          # taken down by one IS the test for the last pass, and the branch reads it straight
+          # off. Counting up has to compare against the limit as an instruction of its own —
+          # and, in memory, load that limit first.
+          #
+          # What stops every loop doing it is the index the body is handed. `repeat(n) { |i| }`
+          # promises 0, 1, 2…, and a count running the other way would have to be turned back
+          # round every time it was read, which spends the instruction it saved. So a loop
+          # counts down only when nothing reads its index anywhere — not just in its body,
+          # because a routine the body calls can be handed the index by a Ruby block that
+          # captured it. A name that turns up in any field of any other node counts as read.
+          def unread_indexes(program)
+            indexes = []
+            named = Set.new
+            program.walk do |node|
+              node.attrs.each do |field, value|
+                next indexes << value if node.kind == :repeat && field == :index
+
+                named.merge(names_in(value))
+              end
+            end
+            indexes.to_set - named
+          end
+
+          def names_in(value)
+            case value
+            when Symbol then [value]
+            when Array then value.flat_map { |element| names_in(element) }
+            when Hash then value.flat_map { |key, element| names_in(key) + names_in(element) }
+            else []
+            end
+          end
+
           # Whether this repeat can keep its counter in a register with nothing saved.
           def registers?(node)
             node.kind == :repeat && !stops_early?(node) && blocking_children(node).empty?

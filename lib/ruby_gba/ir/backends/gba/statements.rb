@@ -36,11 +36,17 @@ module RubyGBA
             @placement = placement
             @functions = functions
             @loop_shapes = {}
+            @unread_indexes = Set.new
           end
 
           # Which shape each loop got (register/spilled/memory), keyed by its index —
           # read by GBA#loop_shapes for the cost estimate.
           attr_reader :loop_shapes
+
+          # The loops whose index nothing reads, which count down (see LoopForm.unread_indexes).
+          # Worked out from the whole program before anything is emitted; until then every loop
+          # counts up, which is right for any of them.
+          attr_writer :unread_indexes
 
           def emit_set(node)
             @lowering.value(node.value)
@@ -212,8 +218,11 @@ module RubyGBA
           # anything at all may happen in the body — a call, a nested loop, a divide that
           # reaches the console's own routine — and the loop still counts right.
           #
-          # It costs sixteen instructions a pass, twelve of them reaching those two numbers.
+          # Counting up, a pass loads both numbers, compares them, then loads the counter again
+          # to add one and store it.
           def emit_repeat_in_memory(node)
+            return emit_countdown_in_memory(node) if counts_down?(node)
+
             index = node.index
             limit = :"#{index}__limit"
 
@@ -247,9 +256,45 @@ module RubyGBA
             @emitter.place_label(done)
           end
 
+          # ...and counting down, when nothing reads the index. The passes left are kept in the
+          # index's own variable, so there is no limit to keep at all: a pass loads that, takes
+          # one off, stores it back and branches while it has not reached nought. The store
+          # sits between the subtract and the branch, which is safe because storing a number
+          # leaves the flags as the subtract set them.
+          #
+          # The test is at the end of a pass rather than the start, so a count of nought or
+          # less has to be caught before the first one.
+          def emit_countdown_in_memory(node)
+            index = node.index
+            top = @emitter.gensym
+            done = @emitter.gensym
+
+            @lowering.value(node.count)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, done, cond: :le)
+            @primitives.store_var(ACC, index)
+
+            @emitter.place_label(top)
+            if LoopForm.stops_early?(node)
+              @lowering.value(node.stop_when)
+              @emitter.emit(ASM.cmp_imm(ACC, 0))
+              @emitter.emit_branch(:bcond, done, cond: :ne)
+            end
+
+            node.children.each { |stmt| @lowering.statement(stmt) }
+
+            @primitives.load_var(ACC, index)
+            @emitter.emit(ASM.subs_imm(ACC, ACC, 1))
+            @primitives.store_var(ACC, index)
+            @emitter.emit_branch(:bcond, top, cond: :ne)
+            @emitter.place_label(done)
+          end
+
+          def counts_down?(node) = @unread_indexes.include?(node.index)
+
           # THE FAST SHAPE: the counter and the limit stay in two registers for the whole loop,
-          # so a pass is a compare, a branch, an add and a branch — four instructions where the
-          # safe shape spends sixteen.
+          # so a pass is a compare, a branch, an add and a branch — four instructions, where the
+          # safe shape loads and stores its two numbers besides.
           #
           # The body may still READ the index (`xs[i]` is what most loops are for), and it
           # reads it out of the register: #load_var is told the index is being held, so a read
@@ -293,16 +338,27 @@ module RubyGBA
           # One statement run with the loop's pair kept safe across it. The index is written to
           # its variable first and read from there while the bracket is open, since the register
           # holding it is about to be somebody else's.
+          #
+          # A loop counting down has no index anyone reads and no limit, so the bracket is the
+          # save and the restore of the one register.
           def emit_bracketed(index)
+            return emit_saving(LoopForm::COUNTER) { yield } if @unread_indexes.include?(index)
+
             @primitives.store_var(LoopForm::COUNTER, index)
-            @emitter.emit(ASM.push(LoopForm::COUNTER, LoopForm::LIMIT))
-            @primitives.not_holding(index) { yield }
-            @emitter.emit(ASM.pop(LoopForm::COUNTER, LoopForm::LIMIT))
+            emit_saving(LoopForm::COUNTER, LoopForm::LIMIT) { @primitives.not_holding(index) { yield } }
+          end
+
+          def emit_saving(*registers)
+            @emitter.emit(ASM.push(*registers))
+            yield
+            @emitter.emit(ASM.pop(*registers))
           end
 
           # The counting the two register shapes share: set up, test, run the body, step on.
           # Only what happens to the body differs between them, so only that is passed in.
-          def emit_repeat_loop(node)
+          def emit_repeat_loop(node, &body)
+            return emit_countdown_loop(node, &body) if counts_down?(node)
+
             @lowering.value(node.count)
             @emitter.emit(ASM.mov_reg(LoopForm::LIMIT, ACC))
             @emitter.emit(ASM.load_immediate(LoopForm::COUNTER, 0))
@@ -319,6 +375,25 @@ module RubyGBA
             @emitter.emit_branch(:b, top)
             @emitter.place_label(done)
             @primitives.store_var(LoopForm::COUNTER, node.index)
+          end
+
+          # ...and counting down, when nothing reads the index: a pass ends in a subtract and a
+          # branch, where counting up spends a compare, a branch, an add and a branch. Moving the
+          # count into its register sets the flags on the way, so the same instruction says
+          # whether there is a first pass to make at all.
+          def emit_countdown_loop(node)
+            top = @emitter.gensym
+            done = @emitter.gensym
+
+            @lowering.value(node.count)
+            @emitter.emit(ASM.subs_imm(LoopForm::COUNTER, ACC, 0))
+            @emitter.emit_branch(:bcond, done, cond: :le)
+
+            @emitter.place_label(top)
+            yield
+            @emitter.emit(ASM.subs_imm(LoopForm::COUNTER, LoopForm::COUNTER, 1))
+            @emitter.emit_branch(:bcond, top, cond: :ne)
+            @emitter.place_label(done)
           end
 
           # every: run the body once every `period` frames. Tick the hidden frame

@@ -32,7 +32,7 @@ class TestMixerKeepsTime < Minitest::Test
   # give one, two, three and four frames to a pass on this emulator. The test asserts what it
   # actually got, so a change in the machine shows up as a failed assumption rather than as a
   # test quietly measuring nothing.
-  BURNS = { 1 => 0, 2 => 20_000, 3 => 40_000 }.freeze
+  BURNS = { 1 => 0, 2 => 35_000, 3 => 57_000 }.freeze
 
   # A game that plays one clip at the start and then burns +burn+ steps a pass.
   def late_game(burn)
