@@ -52,6 +52,7 @@ static VALUE ra_empty_array; /* frozen [] returned by do_frame when nothing trig
  */
 #define LOG_LINES 64
 #define LOG_LINE_MAX 256
+#define CHANGES_MAX 4096
 
 static void recording_log(struct mLogger *, int, enum mLogLevel, const char *, va_list);
 
@@ -170,9 +171,19 @@ struct mgba_core {
     int log_count;             /* complaints kept */
     int log_dropped;           /* complaints past the cap */
     char log_lines[LOG_LINES][LOG_LINE_MAX];
+    /* Watching an address change — see Core#watch. NULL until something is watched. */
+    struct mDebugger *debugger;
+    int change_count;
+    int change_dropped;
+    struct watched_change {
+        uint32_t address;
+        uint32_t was;
+        uint32_t now;
+    } changes[CHANGES_MAX];
 };
 
 static struct mgba_core *s_logging_core = NULL;
+static struct mgba_core *s_watching_core = NULL;
 
 static void
 install_core_callbacks(struct mgba_core *mc);
@@ -467,13 +478,20 @@ mgba_core_initialize(int argc, VALUE *argv, VALUE self)
 
 struct run_frame_args {
     struct mCore *core;
+    struct mDebugger *debugger; /* non-NULL only while something is being watched */
 };
 
 static void *
 run_frame_nogvl(void *arg)
 {
     struct run_frame_args *a = arg;
-    a->core->runFrame(a->core);
+    /* A cartridge being watched has to be driven through the debugger, since that is what
+     * checks the watchpoints — see Core#watch. Everything else runs the plain way. */
+    if (a->debugger) {
+        mDebuggerRunFrame(a->debugger);
+    } else {
+        a->core->runFrame(a->core);
+    }
     return NULL;
 }
 
@@ -481,8 +499,9 @@ static VALUE
 mgba_core_run_frame(VALUE self)
 {
     struct mgba_core *mc = get_mgba_core(self);
-    struct run_frame_args args = { .core = mc->core };
+    struct run_frame_args args = { .core = mc->core, .debugger = mc->debugger };
     s_logging_core = mc;
+    if (mc->debugger) s_watching_core = mc;
     rb_thread_call_without_gvl(run_frame_nogvl, &args, RUBY_UBF_IO, NULL);
     s_logging_core = NULL;
     return Qnil;
@@ -1185,6 +1204,121 @@ mgba_core_bios_loaded_p(VALUE self)
     }
     struct GBA *gba = (struct GBA *)mc->core->board;
     return gba->biosVf ? Qtrue : Qfalse;
+}
+
+/* --------------------------------------------------------- */
+/* Core#watch(address) / Core#changes                          */
+/*                                                            */
+/* BEING TOLD a value changed, rather than looking at it once  */
+/* a frame and inferring the rest. Sampling cannot see a value */
+/* that moved twice between looks, cannot say when inside the  */
+/* frame it moved, and cannot say what it moved FROM. For      */
+/* chasing "what is knocking the player's health down", those  */
+/* are the whole question.                                    */
+/*                                                            */
+/* mGBA's own debugger does this. It attaches with no command  */
+/* line and no thread of its own: make one of the CUSTOM kind, */
+/* give it somewhere to report to, attach it, then hand it the */
+/* address. It calls back on a change with both values.       */
+/*                                                            */
+/* IT IS NOT FREE. Every read and write the game makes goes    */
+/* through the debugger's own memory handling for as long as   */
+/* anything is watched, and frames have to be driven through   */
+/* the debugger rather than the core. So nothing is attached   */
+/* until something is actually watched, and a cartridge nobody */
+/* asked about runs exactly as it did before.                 */
+/* --------------------------------------------------------- */
+
+/* The debugger has nowhere to hang a context of its own, so the core being watched is kept
+ * in a file-level pointer (declared above) — the same one-at-a-time limitation the logger
+ * has, and for the same reason. */
+static void
+watch_entered(struct mDebugger *debugger, enum mDebuggerEntryReason reason,
+              struct mDebuggerEntryInfo *info)
+{
+    struct mgba_core *mc = s_watching_core;
+
+    if (mc && reason == DEBUGGER_ENTER_WATCHPOINT && info) {
+        if (mc->change_count < CHANGES_MAX) {
+            struct watched_change *slot = &mc->changes[mc->change_count];
+            slot->address = info->address;
+            slot->was     = info->type.wp.oldValue;
+            slot->now     = info->type.wp.newValue;
+            mc->change_count++;
+        } else {
+            mc->change_dropped++;
+        }
+    }
+    /* Carry on running: this is a report, not a place to stop. */
+    debugger->state = DEBUGGER_RUNNING;
+}
+
+/* Core#watch(address) — report every change to the word at this address. */
+static VALUE
+mgba_core_watch(VALUE self, VALUE rb_address)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    struct mWatchpoint wp;
+
+    if (!mc->debugger) {
+        if (!mc->core->supportsDebuggerType(mc->core, DEBUGGER_CUSTOM)) {
+            rb_raise(rb_eRuntimeError, "this core cannot be watched");
+        }
+        /* mGBA's own factory only builds the command-line and network debuggers — the
+         * CUSTOM kind is the one a program drives itself, and it is expected to bring its
+         * own. So this is a plain zeroed one with somewhere to report to; attaching fills
+         * in the rest (the platform, the identity, the stack trace). */
+        mc->debugger = calloc(1, sizeof(struct mDebugger));
+        if (!mc->debugger) {
+            rb_raise(rb_eNoMemError, "could not make a debugger to watch with");
+        }
+        mc->debugger->type    = DEBUGGER_CUSTOM;
+        mc->debugger->entered = watch_entered;
+        mDebuggerAttach(mc->debugger, mc->core);
+        mc->debugger->state = DEBUGGER_RUNNING;
+    }
+
+    memset(&wp, 0, sizeof(wp));
+    wp.address   = (uint32_t)NUM2ULONG(rb_address);
+    wp.segment   = -1;
+    wp.type      = WATCHPOINT_WRITE_CHANGE; /* a write that leaves a different value */
+    wp.condition = NULL;
+
+    s_watching_core = mc;
+    if (mc->debugger->platform->setWatchpoint(mc->debugger->platform, &wp) < 0) {
+        rb_raise(rb_eRuntimeError, "could not watch 0x%08X", (unsigned)wp.address);
+    }
+    return self;
+}
+
+/* Core#changes_missed — changes that happened after the record filled up. A busy address
+ * can move thousands of times a second, so the record is bounded; saying how many were lost
+ * is what stops a truncated list reading like the whole story. */
+static VALUE
+mgba_core_changes_missed(VALUE self)
+{
+    return INT2NUM(get_mgba_core(self)->change_dropped);
+}
+
+/* Core#take_changes — the changes seen since the last time this was asked, oldest first,
+ * and the record starts again. Drained once a frame, so the record only has to hold one
+ * frame's worth rather than a whole run's. */
+static VALUE
+mgba_core_take_changes(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    VALUE out = rb_ary_new_capa(mc->change_count);
+    int i;
+
+    for (i = 0; i < mc->change_count; i++) {
+        VALUE entry = rb_hash_new();
+        rb_hash_aset(entry, ID2SYM(rb_intern("address")), ULONG2NUM(mc->changes[i].address));
+        rb_hash_aset(entry, ID2SYM(rb_intern("was")),     ULONG2NUM(mc->changes[i].was));
+        rb_hash_aset(entry, ID2SYM(rb_intern("now")),     ULONG2NUM(mc->changes[i].now));
+        rb_ary_push(out, entry);
+    }
+    mc->change_count = 0;
+    return out;
 }
 
 /* --------------------------------------------------------- */
@@ -2173,6 +2307,9 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "sprites",     mgba_core_sprites, 0);
     rb_define_method(cCore, "palette",     mgba_core_palette, 0);
     rb_define_method(cCore, "scroll",      mgba_core_scroll, 1);
+    rb_define_method(cCore, "watch",       mgba_core_watch, 1);
+    rb_define_method(cCore, "take_changes",   mgba_core_take_changes, 0);
+    rb_define_method(cCore, "changes_missed", mgba_core_changes_missed, 0);
     rb_define_method(cCore, "crashed?",    mgba_core_crashed_p, 0);
     rb_define_method(cCore, "complaints",  mgba_core_complaints, 0);
     rb_define_method(cCore, "run_frame",   mgba_core_run_frame, 0);

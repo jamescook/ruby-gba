@@ -28,6 +28,17 @@ module RubyGBAEmulatorTestSupport
     tf.path
   end
 
+  # Put an already-built ROM on disk and hand back the path. For a test that needs the ROM
+  # object itself as well — to ask it where a variable ended up, say.
+  def write_rom(rom, name)
+    tf = Tempfile.new([name, ".gba"])
+    tf.binmode
+    rom.write(tf.path)
+    tf.flush
+    ROM_TEMPFILES << tf
+    tf.path
+  end
+
   # A plain red full-screen ROM — the workhorse fixture for pixel/read tests.
   def red_rom
     build_rom("RED", code: "TRED") do

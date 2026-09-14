@@ -22,6 +22,12 @@ module RubyGBAEmulator
   # @example Hold a button while stepping
   #   probe.step(10, keys: :right)  # right held for 10 frames
   #   probe.step(2, keys: %i[a b])  # A+B held for 2 frames
+  # ONE CHANGE TO A WATCHED ADDRESS: where it was, what the value had been, and what it
+  # became. See {Probe#watch}.
+  Change = Data.define(:address, :was, :now) do
+    def to_s = format("0x%08X  %d -> %d", address, was, now)
+  end
+
   class Probe
     # Native pixels are 4 bytes each: byte 0 = red, 1 = green, 2 = blue,
     # 3 = unused padding (mGBA's XBGR8 color_t, little-endian).
@@ -75,10 +81,63 @@ module RubyGBAEmulator
         @core.run_frame
         @last_audio << @core.audio_buffer
         @frames_run += 1
+        collect_changes if @watchers
       end
       @prev_pixels = @pixels
       @pixels = @core.video_buffer
       self
+    end
+
+    # BE TOLD WHEN THE WORD AT +address+ CHANGES, instead of reading it once a frame and
+    # inferring the rest.
+    #
+    #   probe.watch(hp_address) { |change| puts "#{change.was} -> #{change.now}" }
+    #   probe.step(60)
+    #
+    # ...or without a block, and read {#changes} afterwards. Both work; the block is usually
+    # what you want, since it puts what to do with a change next to the asking.
+    #
+    # Sampling cannot see a value that moved twice between looks, cannot say what it moved
+    # FROM, and cannot say which write did it. For chasing "what is knocking the player's
+    # health down", those are the whole question.
+    #
+    # WHEN THE BLOCK RUNS: after the frame the change happened in, once per change, in the
+    # order they happened — not at the instant of the change itself. That instant is inside
+    # the emulator with Ruby's lock released, where no Ruby can run at all. For a block that
+    # reports, records or asserts, the difference does not arise; for one that wants to catch
+    # the machine mid-frame and look around, it does, and it cannot.
+    #
+    # NOT FREE, though cheaper than it sounds: while anything is watched, every read and
+    # write the game makes goes through the emulator's debugging path. Measured at about a
+    # third again on a busy cartridge. A cartridge nobody asked about runs exactly as before.
+    #
+    # @return [self]
+    def watch(address, &block)
+      ensure_open!
+      @core.watch(address)
+      @watchers ||= {}
+      @changes ||= []
+      @watchers[address] = block if block
+      self
+    end
+
+    # Every change seen at a watched address since the cartridge was loaded, oldest first.
+    # Empty until something is watched. The first is usually the game giving the variable its
+    # starting value.
+    #
+    # @return [Array<Change>]
+    def changes
+      @changes ||= []
+    end
+
+    # How many changes happened after the record filled up. A busy address moves thousands
+    # of times a second, and a truncated list that does not say so reads like the whole
+    # story — which is the thing watching exists to avoid.
+    #
+    # @return [Integer]
+    def changes_missed
+      ensure_open!
+      @core.changes_missed
     end
 
     # THE SPRITES THE CONSOLE IS SHOWING, read out of its own table rather than hunted for
@@ -594,6 +653,21 @@ module RubyGBAEmulator
     end
 
     private
+
+    # Take the frame's changes off the core and hand each to whoever asked about that
+    # address. Done once a frame rather than at the change itself, because the change
+    # happens inside the emulator where no Ruby can run — and done EVERY frame so the core
+    # only has to hold one frame's worth rather than a whole run's.
+    def collect_changes
+      fresh = @core.take_changes.map { |raw| Change.new(**raw) }
+      return if fresh.empty?
+
+      @changes.concat(fresh)
+      fresh.each do |change|
+        watcher = @watchers[change.address]
+        watcher&.call(change)
+      end
+    end
 
     def bit_for(name)
       GBA_BTN_BITS.fetch(name) do

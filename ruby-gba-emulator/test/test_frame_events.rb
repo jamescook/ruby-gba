@@ -146,6 +146,82 @@ class TestFrameEvents < Minitest::Test
     assert_equal 8, down
   end
 
+  # BEING TOLD WHEN A VARIABLE CHANGED, rather than looking at it once a frame and inferring
+  # the rest. Sampling cannot see a value that moved twice between looks, cannot say WHEN
+  # inside the frame it moved, and cannot say what it moved from. For a port chasing "what
+  # is knocking the player's health down", those are the whole question.
+  def test_a_probe_reports_every_change_to_a_watched_address
+    rom = RubyGBA.build("WATCH", validate: false) do
+      screen :bitmap
+      hp = var :hp, 100
+      game_loop { hp.sub! 7 }
+    end
+    address = rom.var_addresses.fetch(:hp)
+    path = write_rom(rom, "watch")
+
+    probe = RubyGBAEmulator.open(path)
+    probe.watch(address)
+    probe.step(4)
+    changes = probe.changes
+
+    # Every write is reported, the boot one included: the variable is given its starting
+    # value, and then each pass takes seven off.
+    assert_equal [[0, 100], [100, 93], [93, 86], [86, 79]],
+                 changes.map { |c| [c.was, c.now] }
+    assert(changes.all? { |c| c.address == address })
+    assert_equal 0, probe.changes_missed, "four changes is nowhere near a frame's worth"
+  end
+
+  # The block form: what to do with a change sits next to the asking.
+  def test_a_watcher_can_be_handed_a_block_to_run_on_each_change
+    rom = RubyGBA.build("WATCHBLK", validate: false) do
+      screen :bitmap
+      hp = var :hp, 50
+      game_loop { hp.sub! 5 }
+    end
+    path = write_rom(rom, "watchblk")
+
+    seen = []
+    probe = RubyGBAEmulator.open(path)
+    probe.watch(rom.var_addresses.fetch(:hp)) { |change| seen << [change.was, change.now] }
+    probe.step(3)
+
+    assert_equal [[0, 50], [50, 45], [45, 40]], seen
+    assert_equal seen.size, probe.changes.size, "the block sees what the record keeps"
+  end
+
+  # The record is emptied every frame, so it only has to hold ONE frame's changes — 12,000
+  # spread over sixty frames fit easily. What does not fit is one frame that moves an address
+  # thousands of times, and a truncated list that does not say so reads like the whole story.
+  def test_a_single_frame_that_moves_an_address_too_often_says_what_was_missed
+    rom = RubyGBA.build("BUSY", validate: false) do
+      screen :bitmap
+      hp = var :hp, 0
+      game_loop { repeat(6000) { hp.add! 1 } }
+    end
+    path = write_rom(rom, "busywatch")
+
+    probe = RubyGBAEmulator.open(path)
+    probe.watch(rom.var_addresses.fetch(:hp))
+    probe.step(2)
+
+    assert_operator probe.changes_missed, :>, 0, "6,000 changes in one frame do not fit"
+  end
+
+  # Watching costs something, so a probe nobody asked to watch anything pays nothing and
+  # reports nothing.
+  def test_a_probe_asked_to_watch_nothing_reports_nothing
+    path = build_rom("NOWATCH", code: "TNOW") do
+      screen :bitmap
+      game_loop { clear_screen :blue }
+    end
+
+    probe = RubyGBAEmulator.open(path)
+    probe.step(4)
+
+    assert_empty probe.changes
+  end
+
   # What the emulator itself said while the frame ran. mGBA reports a bad read or an
   # unimplemented register as a log line; the binding has been discarding every one of them,
   # so a cartridge doing something the console would object to fails a test silently.
