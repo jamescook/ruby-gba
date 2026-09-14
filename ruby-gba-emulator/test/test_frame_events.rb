@@ -460,6 +460,86 @@ class TestFrameEvents < Minitest::Test
     end
   end
 
+  # FINDING WHICH ADDRESS HOLDS A NUMBER, with nothing to go on but the number.
+  #
+  # A cartridge this framework built needs none of this: the build knows where every variable
+  # went and will say. A cartridge it did not build — the retail game a port is being measured
+  # against — has no such record, and then the only way to the address is to watch memory for
+  # a number you can see on screen and narrow it down as it moves.
+  #
+  # The framework's own build record is the answer key here: the search is told nothing but
+  # the numbers, and has to arrive at the address the build already knows.
+  def counting_rom
+    rom = RubyGBA.build("COUNTDOWN", validate: false) do
+      screen :bitmap
+      clear_screen :black
+      hp = var :hp, 31_337
+      game_loop { hp.sub! 1 }
+    end
+    [rom, write_rom(rom, "countdown")]
+  end
+
+  # A number that jumps to another number when A is held, so the test knows both without
+  # asking the build anything — which is the position somebody is in with a cartridge they
+  # did not write: they can see the number, and nothing else.
+  def jumping_rom
+    rom = RubyGBA.build("JUMPER", validate: false) do
+      screen :bitmap
+      clear_screen :black
+      hp = var :hp, 31_337
+      game_loop { held(:a).then { hp.set! 4_242 } }
+    end
+    [rom, write_rom(rom, "jumper")]
+  end
+
+  def test_an_address_can_be_found_from_the_value_it_holds
+    rom, path = jumping_rom
+    address = rom.var_addresses.fetch(:hp)
+
+    with_probe(path) do |probe|
+      probe.step(2)
+
+      refute_empty probe.addresses_holding(31_337), "somewhere holds the number on screen"
+      probe.step(2, keys: :a)
+
+      assert_includes probe.narrow_to(4_242), address,
+                      "and narrowing lands on where the build put it"
+    end
+  end
+
+  def test_a_search_can_narrow_on_which_way_the_number_moved
+    rom, path = counting_rom
+    address = rom.var_addresses.fetch(:hp)
+
+    with_probe(path) do |probe|
+      probe.step(1)
+      probe.addresses_holding(31_337)
+      probe.step(10)
+
+      assert_includes probe.narrow_to(:lower), address, "the count is going down"
+    end
+  end
+
+  def test_a_way_of_narrowing_nobody_has_says_which_there_are
+    rom, path = counting_rom
+
+    with_probe(path) do |probe|
+      probe.step(1)
+      probe.addresses_holding(31_337)
+      error = assert_raises(ArgumentError) { probe.narrow_to(:sideways) }
+
+      assert_match(/lower/, error.message)
+    end
+  end
+
+  def test_narrowing_before_there_is_anything_to_narrow_says_so
+    with_probe(red_rom) do |probe|
+      probe.step(1)
+
+      assert_raises(RuntimeError) { probe.narrow_to(4) }
+    end
+  end
+
   def test_asking_for_a_layer_that_does_not_exist_says_which_there_are
     with_probe(red_rom) do |probe|
       error = assert_raises(ArgumentError) { probe.showing(only: :hud) }

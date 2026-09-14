@@ -191,6 +191,8 @@ struct mgba_core {
     /* Every write the game makes to the display — see Core#watch_display. NULL until asked
      * for, since it puts a shim in front of the renderer that costs a call per write. */
     struct display_recorder *display;
+    /* The addresses a search has got down to — see Core#addresses_holding. One at a time. */
+    struct mCoreMemorySearchResults *search;
 };
 
 static struct mgba_core *s_logging_core = NULL;
@@ -201,6 +203,9 @@ install_core_callbacks(struct mgba_core *mc);
 
 static void
 display_recorder_free(struct mgba_core *mc);
+
+static void
+search_free(struct mgba_core *mc);
 
 static void
 recording_log(struct mLogger *logger, int category, enum mLogLevel level,
@@ -254,6 +259,7 @@ mgba_core_cleanup(struct mgba_core *mc)
 {
     mgba_rewind_free(mc);
     display_recorder_free(mc);
+    search_free(mc);
     if (!mc->destroyed && mc->core) {
         mc->core->deinit(mc->core);
         mc->core = NULL;
@@ -325,6 +331,7 @@ mgba_core_alloc(VALUE klass)
     mc->rewind_state_size = 0;
     mc->rewind_slots = NULL;
     mc->display = NULL;
+    mc->search = NULL;
     return obj;
 }
 
@@ -1861,6 +1868,102 @@ mgba_core_display_writes_missed(VALUE self)
     return INT2NUM(mc->display ? mc->display->dropped : 0);
 }
 
+/* --------------------------------------------------------- */
+/* FINDING WHICH ADDRESS HOLDS A NUMBER                       */
+/*                                                            */
+/* A cartridge this framework built needs none of this: the   */
+/* build knows where every variable went and will say. A      */
+/* cartridge it did NOT build has no such record, and then    */
+/* the only way to an address is from a number you can see on */
+/* screen — look for everywhere holding it, let the game run, */
+/* and narrow to the places that moved the way the number     */
+/* did. That is how anybody finds a value in a game they did  */
+/* not write, and mGBA already does it.                       */
+/*                                                            */
+/* Writable memory only. A game's state is in the console's   */
+/* memory, never in the cartridge, so searching the cartridge */
+/* would add megabytes of certainly-wrong answers.            */
+/* --------------------------------------------------------- */
+
+/* How many places one look will keep. A first look for a common number — 0, or 1 — matches
+ * far more than this, and then the address wanted may not be among the ones kept. Starting
+ * from a rarer number is the answer, and the count coming back full is the sign. */
+#define SEARCH_KEEP_MAX 10000
+
+static void
+search_free(struct mgba_core *mc)
+{
+    if (!mc->search) {
+        return;
+    }
+    mCoreMemorySearchResultsDeinit(mc->search);
+    free(mc->search);
+    mc->search = NULL;
+}
+
+static void
+search_params(struct mCoreMemorySearchParams *params, enum mCoreMemorySearchOp op, int32_t value)
+{
+    params->memoryFlags = mCORE_MEMORY_RW;
+    params->type = mCORE_MEMORY_SEARCH_INT;
+    params->op = op;
+    params->align = -1;
+    params->width = 4;
+    params->valueInt = value;
+}
+
+static VALUE
+search_addresses(struct mgba_core *mc)
+{
+    VALUE out;
+    size_t i, count;
+
+    if (!mc->search) {
+        return rb_ary_new();
+    }
+    count = mCoreMemorySearchResultsSize(mc->search);
+    out = rb_ary_new_capa((long)count);
+    for (i = 0; i < count; i++) {
+        struct mCoreMemorySearchResult *found = mCoreMemorySearchResultsGetPointer(mc->search, i);
+        rb_ary_push(out, UINT2NUM(found->address));
+    }
+    return out;
+}
+
+/* Core#addresses_holding(value) — every writable address holding that whole number. */
+static VALUE
+mgba_core_addresses_holding(VALUE self, VALUE value)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    struct mCoreMemorySearchParams params;
+
+    search_free(mc);
+    mc->search = calloc(1, sizeof(struct mCoreMemorySearchResults));
+    if (!mc->search) {
+        rb_raise(rb_eNoMemError, "there is not enough memory to search with");
+    }
+    mCoreMemorySearchResultsInit(mc->search, 0);
+    search_params(&params, mCORE_MEMORY_SEARCH_EQUAL, (int32_t)NUM2LONG(value));
+    mCoreMemorySearch(mc->core, &params, mc->search, SEARCH_KEEP_MAX);
+    return search_addresses(mc);
+}
+
+/* Core#narrow_to(op, value) — of those addresses, the ones that still match. */
+static VALUE
+mgba_core_narrow_to(VALUE self, VALUE op, VALUE value)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    struct mCoreMemorySearchParams params;
+
+    if (!mc->search) {
+        rb_raise(rb_eRuntimeError,
+                 "there is nothing to narrow. Look for a value first, then narrow what that found.");
+    }
+    search_params(&params, (enum mCoreMemorySearchOp)NUM2INT(op), (int32_t)NUM2LONG(value));
+    mCoreMemorySearchRepeat(mc->core, &params, mc->search);
+    return search_addresses(mc);
+}
+
 /* Core#enable_audio_channel(id, on) — leave a voice out of the mix, or put it back. */
 static VALUE
 mgba_core_enable_audio_channel(VALUE self, VALUE id, VALUE on)
@@ -2734,6 +2837,14 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "video_layers",   mgba_core_video_layers, 0);
     rb_define_method(cCore, "audio_channels", mgba_core_audio_channels, 0);
     rb_define_method(cCore, "enable_video_layer",   mgba_core_enable_video_layer, 2);
+    rb_define_method(cCore, "addresses_holding",   mgba_core_addresses_holding, 1);
+    rb_define_method(cCore, "narrow_to",           mgba_core_narrow_to, 2);
+    /* The ways a search can be narrowed, so the Ruby side names them rather than knowing
+     * which number the emulator gives each. */
+    rb_define_const(cCore, "HOLDS_THIS",   INT2NUM(mCORE_MEMORY_SEARCH_EQUAL));
+    rb_define_const(cCore, "WENT_UP",      INT2NUM(mCORE_MEMORY_SEARCH_DELTA_POSITIVE));
+    rb_define_const(cCore, "WENT_DOWN",    INT2NUM(mCORE_MEMORY_SEARCH_DELTA_NEGATIVE));
+    rb_define_const(cCore, "MOVED_AT_ALL", INT2NUM(mCORE_MEMORY_SEARCH_DELTA_ANY));
     rb_define_method(cCore, "watch_display",        mgba_core_watch_display, 0);
     rb_define_method(cCore, "take_display_writes",  mgba_core_take_display_writes, 0);
     rb_define_method(cCore, "display_writes_missed", mgba_core_display_writes_missed, 0);

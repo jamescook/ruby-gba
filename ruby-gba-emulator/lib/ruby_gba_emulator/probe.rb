@@ -395,6 +395,45 @@ module RubyGBAEmulator
       @core.bus_read32(address)
     end
 
+    # EVERY WRITABLE ADDRESS HOLDING +value+ RIGHT NOW.
+    #
+    #   probe.addresses_holding(31_336)   # the score, as it reads on screen
+    #   probe.step(60)
+    #   probe.narrow_to(31_332)           # the ones that moved with it
+    #   probe.narrow_to(:lower)           # or: the ones that went down
+    #
+    # A cartridge this framework built needs none of this — the build knows where every
+    # variable went and will say. A cartridge it did NOT build, which is the retail game a
+    # port is being measured against, has no such record, and then the only way to an address
+    # is from a number you can see on screen: look for everywhere holding it, let the game
+    # run, and narrow to the places that moved the way the number did.
+    #
+    # Writable memory only, since a game's state is never in the cartridge.
+    #
+    # ONE SEARCH AT A TIME, and a look for a common number (0, or 1) matches more places than
+    # are kept — so the address wanted can be missing from the very first list. Start from the
+    # rarest number on screen.
+    #
+    # @return [Array<Integer>]
+    def addresses_holding(value)
+      ensure_open!
+      @core.addresses_holding(value)
+    end
+
+    # Of the addresses found so far, the ones that still match.
+    #
+    # Give a number for "it holds this now", or one of +:lower+, +:higher+ and +:changed+ for
+    # which way it moved since the last look — which is what finds a value whose number you
+    # cannot read exactly, like a health bar.
+    #
+    # @return [Array<Integer>]
+    def narrow_to(value)
+      ensure_open!
+      return @core.narrow_to(Core::HOLDS_THIS, value) unless value.is_a?(Symbol)
+
+      @core.narrow_to(NARROWINGS.fetch(value) { unknown_narrowing!(value) }, 0)
+    end
+
     # READ A WHOLE STRETCH AT ONCE, as raw bytes.
     #
     #   probe.read_bytes(guards_start, 64 * 4).unpack("V*")
@@ -921,6 +960,18 @@ module RubyGBAEmulator
 
     # What each number the emulator tags a write with means. The order matches the C side.
     DISPLAY_WRITE_KINDS = %i[register colour sprite].freeze
+
+    # The ways a search can be narrowed, by the name a caller writes. The numbers behind them
+    # are the emulator's own, read off it rather than written down here.
+    NARROWINGS = {
+      higher: Core::WENT_UP, lower: Core::WENT_DOWN, changed: Core::MOVED_AT_ALL
+    }.freeze
+
+    def unknown_narrowing!(name)
+      raise ArgumentError,
+            "there is no way to narrow called #{name.inspect}. Give a number the address " \
+            "holds now, or one of: #{NARROWINGS.keys.join(', ')}."
+    end
 
     # Take the frame's writes to the display off the core, for the same reason the changes
     # are taken: the emulator then only has to hold one frame's worth.

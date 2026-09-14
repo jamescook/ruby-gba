@@ -21,6 +21,7 @@
 #include <mgba/internal/gba/renderers/video-software.h>
 #include <mgba/internal/gba/renderers/proxy.h>
 #include <mgba/feature/video-logger.h>
+#include <mgba/core/mem-search.h>
 #include <mgba/debugger/debugger.h>
 
 extern VALUE mRubyGBAEmulator;
