@@ -100,6 +100,17 @@ module RubyGBA
           # Each lane's next event, as a byte offset into the score.
           def self.music_cursor(lane) = :"__music_cursor_#{lane}"
 
+          # The music volume the notes sounding now were started at, so the player can tell when
+          # the game has moved it (see IR::Tunes::LEVEL). Belongs to the player alone.
+          MUSIC_LEVEL_APPLIED = :__music_level_applied
+
+          # The note a square lane is holding — the two register values of its row, as one word —
+          # kept for a game that moves the music volume, because a square voice takes its volume
+          # only as a note starts, and the only way to make a held note quieter is to start it
+          # again. A rest is kept as its values too, and its volume of 0 is what says there is
+          # nothing to start again.
+          def self.music_note(lane) = :"__music_note_#{lane}"
+
           # Every tune the game plays, in one piece of cartridge data. See #score_blob.
           MUSIC_SCORE = :__music_score
 
@@ -183,6 +194,9 @@ module RubyGBA
             end
             number_the_songs(program)
             @counts_stops = program.walk.any? { |node| node.kind == :stop_music }
+            # A game that never moves the music volume plays every note exactly as it was written,
+            # and none of the working-out for one is emitted.
+            @scales = program.walk.any? { |node| node.kind == :set && node.var == IR::Tunes::LEVEL }
             @loops = IR::Tunes.played(program).any? { |song| IR::Tunes.loop_frame(song).positive? }
             recorded = IR::Tunes.most_recorded_parts(program)
             if recorded > Sound::MIXER_VOICES # refused before this by Guardrails::Checks::SongTooManyParts
@@ -331,6 +345,7 @@ module RubyGBA
             emit_upload_wavetable(base, at, playing) if @waves
 
             @emitter.place_label(play)
+            emit_follow_the_level if @scales
             @lanes.each_with_index { |lane, number| emit_play_lane(lane, number, base, at, value, frame) }
 
             onward = @emitter.gensym
@@ -502,7 +517,7 @@ module RubyGBA
               unused = @emitter.gensym
               @emitter.emit(ASM.tst_imm(lanes_used, 1 << number))
               @emitter.emit_branch(:bcond, unused, cond: :eq)
-              emit_silence_lane(lane)
+              emit_silence_lane(lane, number)
               @emitter.place_label(unused)
             end
             @emitter.place_label(quiet)
@@ -512,13 +527,82 @@ module RubyGBA
           # rest row that lane would have played, so nothing new is decided here. A recorded
           # lane goes quiet by switching off the mixer voice carrying its mark, if it still has
           # one.
-          def emit_silence_lane(lane)
+          def emit_silence_lane(lane, number)
             if lane.kind == :recorded
               @emitter.emit(ASM.load_immediate(8, Mixer.music_owner(lane.index)))
               @mixer.emit_music_voice_off
             else
               emit_writes(console_note(lane, SILENCE, 0, 0))
+              forget_held_note(number) if holds_notes?(lane)
             end
+          end
+
+          # THE REGISTERS THE MUSIC VOLUME IS WORKED OUT IN, all free in the player's interrupt:
+          # the level, a lane's held note, and two to work its register values out in.
+          LEVEL_REG = 11
+          NOTE_REG = 7
+          WORK_REG = 8
+          WRITE_REG = 9
+
+          # Whether a lane keeps the note it is holding, for starting it again at a new volume.
+          def holds_notes?(lane) = @scales && lane.kind == :square
+
+          def forget_held_note(number)
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, self.class.music_note(number))
+          end
+
+          # THE GAME HAS MOVED THE MUSIC VOLUME since the player last looked: every square lane
+          # holding a note starts it again at the new level, before any lane plays this frame's
+          # notes — which is the order the interpreter does it in. The level stays in its
+          # register for the notes this frame plays after it.
+          def emit_follow_the_level
+            same = @emitter.gensym
+            @primitives.load_var(LEVEL_REG, IR::Tunes::LEVEL)
+            @primitives.load_var(ACC, MUSIC_LEVEL_APPLIED)
+            @emitter.emit(ASM.cmp_reg(LEVEL_REG, ACC))
+            @emitter.emit_branch(:bcond, same, cond: :eq)
+            @primitives.store_var(LEVEL_REG, MUSIC_LEVEL_APPLIED)
+            @lanes.each_with_index do |lane, number|
+              next unless holds_notes?(lane)
+
+              resting = @emitter.gensym
+              @primitives.load_var(NOTE_REG, self.class.music_note(number))
+              @emitter.emit(ASM.tst_imm(NOTE_REG, 0xF000)) # a volume of 0 is a rest, or nothing yet
+              @emitter.emit_branch(:bcond, resting, cond: :eq)
+              emit_scaled_note(lane)
+              @emitter.place_label(resting)
+            end
+            @emitter.place_label(same)
+          end
+
+          # Start the note in NOTE_REG on a square lane at the level in LEVEL_REG. The word holds
+          # the row's two register values, the control low and the pitch high; the control's top
+          # four bits are the volume, which comes out as that volume times the level over
+          # IR::Tunes::FULL_LEVEL (a multiply and a shift, IR::Tunes.scaled_volume) and goes back
+          # in over the same four bits. The pitch is written last, because its top bit is what
+          # starts the note — and starting it is what makes the voice take the new volume.
+          #
+          # The console's own documentation says a square voice loads its volume when a note
+          # starts, and Nintendo's sound engine agrees: it writes the volume and then starts the
+          # note again, every time it moves one. The emulator the tests run on takes a new volume
+          # at once without that, so nothing there can tell the difference — the start is here
+          # for the console.
+          def emit_scaled_note(lane)
+            regs = music_voice_regs(lane)
+            emit_sweep(regs)
+            @emitter.emit(ASM.lsr_imm(WORK_REG, NOTE_REG, 12))
+            @emitter.emit(ASM.and_imm(WORK_REG, WORK_REG, 0xF))      # the written volume
+            @emitter.emit(ASM.mul(WORK_REG, LEVEL_REG, WORK_REG))    # ...times the level
+            @emitter.emit(ASM.lsr_imm(WORK_REG, WORK_REG, 4))        # ...over sixteen
+            @emitter.emit(ASM.lsl_imm(WRITE_REG, NOTE_REG, 20))
+            @emitter.emit(ASM.lsr_imm(WRITE_REG, WRITE_REG, 20))     # the control without it
+            @emitter.emit(ASM.orr_reg_lsl(WRITE_REG, WRITE_REG, WORK_REG, 12))
+            @emitter.emit(ASM.load_immediate(TMP, regs[:reg_a]))
+            @emitter.emit(ASM.store_halfword(WRITE_REG, TMP))
+            @emitter.emit(ASM.lsr_imm(WRITE_REG, NOTE_REG, 16))
+            @emitter.emit(ASM.load_immediate(TMP, regs[:reg_b]))
+            @emitter.emit(ASM.store_halfword(WRITE_REG, TMP))
           end
 
           # Play one lane's next event, if it is due on this frame.
@@ -533,6 +617,11 @@ module RubyGBA
             if lane.kind == :recorded
               emit_recorded_note(lane.index, base, at)
               @emitter.emit(ASM.add_imm(cursor, cursor, RECORDED_ROW))
+            elsif holds_notes?(lane)
+              @emitter.emit(ASM.ldr_offset(NOTE_REG, at, 4))           # both register values
+              @primitives.store_var(NOTE_REG, self.class.music_note(number))
+              emit_scaled_note(lane)
+              @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
             else
               emit_console_note(lane, at)
               @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
@@ -546,13 +635,18 @@ module RubyGBA
           # for a square note, a wave note and a drum hit alike.
           def emit_console_note(lane, at)
             regs = music_voice_regs(lane)
-            regs[:const].each do |addr, value|                # channel 1's sweep, written first
-              @emitter.emit(ASM.load_immediate(ACC, value))
+            emit_sweep(regs)
+            [[4, regs[:reg_a]], [6, regs[:reg_b]]].each do |offset, addr|
+              @emitter.emit(ASM.load_halfword_offset(ACC, at, offset))
               @emitter.emit(ASM.load_immediate(TMP, addr))
               @emitter.emit(ASM.store_halfword(ACC, TMP))
             end
-            [[4, regs[:reg_a]], [6, regs[:reg_b]]].each do |offset, addr|
-              @emitter.emit(ASM.load_halfword_offset(ACC, at, offset))
+          end
+
+          # Channel 1's sweep, cleared before each note it plays so the trigger lands last.
+          def emit_sweep(regs)
+            regs[:const].each do |addr, value|
+              @emitter.emit(ASM.load_immediate(ACC, value))
               @emitter.emit(ASM.load_immediate(TMP, addr))
               @emitter.emit(ASM.store_halfword(ACC, TMP))
             end

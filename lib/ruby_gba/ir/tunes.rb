@@ -9,7 +9,22 @@ module RubyGBA
     # Counted two ways, the interpreter would play a note the console does not, and only in the
     # one moment that decides it — the end of a song, a part with no room to sound.
     module Tunes
+      # HOW LOUD THE MUSIC PLAYS RIGHT NOW, as a variable the game writes and the player reads
+      # at the start of each frame — the same arrangement as the tune it names. It runs 0 to
+      # FULL_LEVEL, and a part sounds at its written volume times that, over FULL_LEVEL. A
+      # program that never says `music_volume` has no such variable, and plays every part at
+      # its written volume with nothing worked out at all.
+      #
+      # Sixteen steps and not a hundred because the console's own voices have sixteen: a volume
+      # is four bits, so a finer level would only round to the same sound.
+      LEVEL = :__music_level
+      FULL_LEVEL = 16
+
       module_function
+
+      # A written volume (0..15) at +level+: multiplied and shifted back down, so it is whole
+      # numbers on every backend and never rounds up past what was written.
+      def scaled_volume(volume, level) = (volume * level) >> 4
 
       # The songs the program can play, in the order they are declared: every song it names with
       # `play_song`, and every song in a list it picks from by number. A song that is written and

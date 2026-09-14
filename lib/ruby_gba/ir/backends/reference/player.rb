@@ -35,6 +35,8 @@ module RubyGBA
             @frame = 0          # how far into that tune, in frames
             @events = []        # the events each of its parts is walking now
             @cursors = []       # each of its parts' next event
+            @sounding = {}      # square channel -> the written volume of the note it is on
+            @level = IR::Tunes::FULL_LEVEL # the music volume the notes sounding were set at
           end
 
           # A `song` or `song_list` declaration was reached. Gathered up front, like a func
@@ -81,19 +83,27 @@ module RubyGBA
           # starts from the top and a rest stops. The voice ages in the frame it starts, because
           # the console mixes that frame's slice right after the note is started, in the same
           # interrupt.
-          def advance
+          #
+          # +level+ is the music volume the game last said (see IR::Tunes::LEVEL), or nil for a
+          # program that never says one. A change reaches the notes already sounding before any
+          # new note is played, which is the order the console does it in.
+          def advance(level: nil)
             catch_up
             return unless @playing
 
+            follow_the_level(level) if level
             song = @songs[@playing]
             recorded = 0
+            squares = 0
             song.voices.each_with_index do |part, number|
               kind = IR::Tunes.part_kind(part)
               lane = kind == :recorded ? (recorded += 1) - 1 : nil
-              offset, frequency, instrument, _volume, envelope = @events[number][@cursors[number]]
+              channel = kind == :square ? (squares += 1) : nil
+              offset, frequency, instrument, volume, envelope = @events[number][@cursors[number]]
               next unless offset == @frame
 
               @log << [:note, @playing, frequency]
+              sound_square(channel, frequency.zero? ? 0 : volume || part.volume) if channel && level
               # A part on the WAVE or NOISE voice: the console makes the sound itself, so no
               # mixer voice is taken — the whole point of putting a part there.
               console_voice(kind, part, frequency) if %i[wave noise].include?(kind)
@@ -113,6 +123,7 @@ module RubyGBA
 
             @stops_seen = @stops
             @log << [:stop_music] if @playing
+            @sounding.clear
             @mixer.release_all_music
             @playing = @wanted
             @frame = 0
@@ -129,6 +140,26 @@ module RubyGBA
             @frame = IR::Tunes.loop_frame(song)
             @events = passes(@playing).map(&:again)
             @cursors.fill(0)
+          end
+
+          # THE MUSIC VOLUME HAS MOVED: every square voice holding a note sounds it again at the
+          # new level. A square voice takes its volume only as a note starts, so a note already
+          # sounding cannot be made quieter any other way.
+          def follow_the_level(level)
+            return if level == @level
+
+            @level = level
+            @sounding.each { |channel, volume| log_loudness(channel, volume) if volume.positive? }
+          end
+
+          # A note on a square voice, at the music volume in force. A rest is a volume of 0.
+          def sound_square(channel, volume)
+            @sounding[channel] = volume
+            log_loudness(channel, volume)
+          end
+
+          def log_loudness(channel, volume)
+            @log << [:loudness, channel, IR::Tunes.scaled_volume(volume, @level)]
           end
 
           # A note on one of the mixer's voices: it starts from the top of the recording the

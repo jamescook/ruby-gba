@@ -675,7 +675,8 @@ module RubyGBA
           # a note that has just started has climbed and one that has just ended is on its way
           # down before either is heard (see GBA::Mixer#emit_envelope_step).
           took.times do
-            @player.advance
+            # A program that never said `music_volume` has no level, rather than a level of 0.
+            @player.advance(level: @vars.fetch(IR::Tunes::LEVEL, nil))
             @mixer.step_envelopes
             @mixer.age_music
           end

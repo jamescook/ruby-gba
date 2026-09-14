@@ -68,6 +68,33 @@ module RubyGBA
         record(Build.stop_music)
       end
 
+      # HOW LOUD THE MUSIC PLAYS, from 0 (silent) to 100 (as written). It reaches the song
+      # playing now, notes already sounding included, from the next frame — and every song
+      # after it, until it is said again. Sound effects are not the music, and keep their own
+      # volume.
+      #
+      #   music_volume 50          # half as loud
+      #   music_volume slider      # whatever a settings screen holds
+      #
+      # `fade_music_out` walks it down to silence over time, and this is what it moves.
+      #
+      # @param amount [Integer, Value] 0..100; anything outside that is held at the nearer end
+      def music_volume(amount)
+        level = handle_for(IR::Tunes::LEVEL)
+        unless @music_level_declared
+          var IR::Tunes::LEVEL, IR::Tunes::FULL_LEVEL
+          @music_level_declared = true
+        end
+        full = IR::Tunes::FULL_LEVEL
+        if amount.is_a?(Integer)
+          level.set amount.clamp(0, 100) * full / 100
+        else
+          level.set amount * full / 100
+          level.clamp 0, full
+        end
+        nil
+      end
+
       # HAND OVER MUSIC AS DATA, and play it by number.
       #
       #   music = songs :music, [title_theme, file_select, forest]   # RubyGBA::Score each
