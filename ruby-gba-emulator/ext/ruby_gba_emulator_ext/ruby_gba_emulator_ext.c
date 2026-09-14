@@ -1043,6 +1043,22 @@ mgba_core_frame_blending_p(VALUE self)
 
 /* --------------------------------------------------------- */
 /* Rewind ring buffer                                        */
+/*                                                            */
+/* A ring of whole save states: push one per frame, and pop   */
+/* to go back to the oldest one the ring still holds. It is   */
+/* reached from Ruby as Core#rewind_init / _push / _pop /     */
+/* _count, and ruby-gba does not call any of them — the probe */
+/* has no wrapper over them and nothing in the framework asks */
+/* for one. It is here for a caller that wants to step back   */
+/* through a run, which is a thing a game's own tests want    */
+/* long before this framework does.                           */
+/*                                                            */
+/* WHAT IT DOES IS JUMP, NOT STEP. The pop loads the OLDEST   */
+/* state held and empties the ring, so it goes back to the    */
+/* far end of the history rather than a frame. Going back one */
+/* frame at a time wants mGBA's own rewind (core/rewind.h),   */
+/* which stores the difference between one state and the next */
+/* and can be asked for any point in between.                 */
 /* --------------------------------------------------------- */
 
 /*
