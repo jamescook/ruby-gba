@@ -1188,6 +1188,68 @@ mgba_core_bios_loaded_p(VALUE self)
 }
 
 /* --------------------------------------------------------- */
+/* Core#sprites — the objects the console is showing          */
+/*                                                            */
+/* The console keeps a table of 128 sprites and composes the  */
+/* picture from it. Working backwards from the finished       */
+/* picture cannot tell a hidden sprite from one drawn in the  */
+/* backdrop colour, from one behind a background, or from one */
+/* just off the edge — and a test asking "where is the ship"  */
+/* wants the answer, not a pixel hunt. The table has it, and  */
+/* the emulator hands it over.                                */
+/*                                                            */
+/* Only the ones actually being drawn are returned: an entry  */
+/* the game has switched off is nothing to a test, and there  */
+/* are always 128 entries whether the game uses them or not.  */
+/* The bit layout is read with mGBA's own accessors, so which */
+/* bit means what stays mGBA's business and not ours.         */
+/* --------------------------------------------------------- */
+static VALUE
+mgba_core_sprites(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    struct GBA *gba;
+    VALUE out;
+    int i;
+
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA) {
+        rb_raise(rb_eRuntimeError, "sprites is GBA-only");
+    }
+    gba = (struct GBA *)mc->core->board;
+    out = rb_ary_new();
+
+    for (i = 0; i < 128; i++) {
+        struct GBAObj *obj = &gba->video.oam.obj[i];
+        VALUE entry;
+
+        /* A sprite that is not transformed and carries the disable bit is switched off.
+         * The same bit means "draw me at double size" once a sprite is transformed, so
+         * the two have to be told apart before it can be read. */
+        if (!GBAObjAttributesAIsTransformed(obj->a) && GBAObjAttributesAIsDisable(obj->a)) {
+            continue;
+        }
+
+        entry = rb_hash_new();
+        rb_hash_aset(entry, ID2SYM(rb_intern("slot")),     INT2NUM(i));
+        rb_hash_aset(entry, ID2SYM(rb_intern("x")),        INT2NUM(GBAObjAttributesBGetX(obj->b)));
+        rb_hash_aset(entry, ID2SYM(rb_intern("y")),        INT2NUM(GBAObjAttributesAGetY(obj->a)));
+        rb_hash_aset(entry, ID2SYM(rb_intern("tile")),     INT2NUM(GBAObjAttributesCGetTile(obj->c)));
+        rb_hash_aset(entry, ID2SYM(rb_intern("palette")),  INT2NUM(GBAObjAttributesCGetPalette(obj->c)));
+        rb_hash_aset(entry, ID2SYM(rb_intern("priority")), INT2NUM(GBAObjAttributesCGetPriority(obj->c)));
+        rb_hash_aset(entry, ID2SYM(rb_intern("shape")),    INT2NUM(GBAObjAttributesAGetShape(obj->a)));
+        rb_hash_aset(entry, ID2SYM(rb_intern("size")),     INT2NUM(GBAObjAttributesBGetSize(obj->b)));
+        rb_hash_aset(entry, ID2SYM(rb_intern("mirrored_across")),
+                     GBAObjAttributesBIsHFlip(obj->b) ? Qtrue : Qfalse);
+        rb_hash_aset(entry, ID2SYM(rb_intern("mirrored_down")),
+                     GBAObjAttributesBIsVFlip(obj->b) ? Qtrue : Qfalse);
+        rb_hash_aset(entry, ID2SYM(rb_intern("turned")),
+                     GBAObjAttributesAIsTransformed(obj->a) ? Qtrue : Qfalse);
+        rb_ary_push(out, entry);
+    }
+    return out;
+}
+
+/* --------------------------------------------------------- */
 /* Cycle timing — for calibrating the cost model             */
 /*                                                           */
 /* The GBA runs at a fixed cycle budget per frame (~280896   */
@@ -2045,6 +2107,7 @@ Init_ruby_gba_emulator_ext(void)
 
     rb_define_method(cCore, "initialize",  mgba_core_initialize, -1);
     rb_define_method(cCore, "pad_reads",   mgba_core_pad_reads, 0);
+    rb_define_method(cCore, "sprites",     mgba_core_sprites, 0);
     rb_define_method(cCore, "crashed?",    mgba_core_crashed_p, 0);
     rb_define_method(cCore, "complaints",  mgba_core_complaints, 0);
     rb_define_method(cCore, "run_frame",   mgba_core_run_frame, 0);

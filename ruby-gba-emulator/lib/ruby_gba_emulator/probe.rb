@@ -81,6 +81,25 @@ module RubyGBAEmulator
       self
     end
 
+    # THE SPRITES THE CONSOLE IS SHOWING, read out of its own table rather than hunted for
+    # in the finished picture.
+    #
+    # One Hash per sprite being drawn: +:x+, +:y+, +:slot+, +:tile+, +:palette+, +:priority+,
+    # +:shape+, +:size+, +:mirrored_across+, +:mirrored_down+, +:turned+. Sprites the game has
+    # switched off are left out, which is the answer a test wants — the console keeps 128
+    # entries whether a game uses them or not.
+    #
+    # Worth having because the picture cannot answer several ordinary questions: it cannot
+    # tell a hidden sprite from one drawn in the backdrop colour, or from one behind a
+    # background, or from one a pixel off the edge. A game with a cast of dozens asks those
+    # constantly.
+    #
+    # @return [Array<Hash>]
+    def sprites
+      ensure_open!
+      @core.sprites
+    end
+
     # How many times the game has READ THE PAD since the cartridge was loaded.
     #
     # This is what the emulator saw, not how many times a game loop went round. The two look

@@ -43,6 +43,65 @@ class TestFrameEvents < Minitest::Test
     assert_equal 0, probe.pad_reads
   end
 
+  # WHERE THE SPRITES ARE, asked rather than deduced.
+  #
+  # A test that wants to know where a sprite is has had to hunt for its pixels and reason
+  # backwards — which fails for a sprite behind something, one drawn in the backdrop colour,
+  # or one off the edge, and says nothing at all about a sprite that is hidden when it
+  # should not be. The console keeps a table of them and the emulator has it.
+  def test_a_probe_can_read_the_sprites_the_console_is_showing
+    path = build_rom("SPRITES", code: "TSPR") do
+      screen :tiled
+      image(:dot, "." => :transparent, "#" => :red) { <<~ART }
+        ########
+        ########
+        ########
+        ########
+        ########
+        ########
+        ########
+        ########
+      ART
+      sprite :dot, at: [40, 24]
+      game_loop { wait_vblank }
+    end
+
+    probe = RubyGBAEmulator.open(path)
+    probe.step(4)
+    shown = probe.sprites
+
+    assert_equal 1, shown.size, "one sprite was declared, so one is on screen"
+    assert_equal 40, shown.first[:x]
+    assert_equal 24, shown.first[:y]
+  end
+
+  # A sprite the game has hidden is not on screen, and the table says so rather than the
+  # test inferring it from an absence of pixels — which is the same picture a sprite drawn
+  # in the backdrop colour makes.
+  def test_a_hidden_sprite_is_not_among_the_ones_being_shown
+    path = build_rom("HIDDEN", code: "THID") do
+      screen :tiled
+      image(:dot, "." => :transparent, "#" => :red) { <<~ART }
+        ########
+        ########
+        ########
+        ########
+        ########
+        ########
+        ########
+        ########
+      ART
+      s = sprite :dot, at: [40, 24]
+      s.hide
+      game_loop { wait_vblank }
+    end
+
+    probe = RubyGBAEmulator.open(path)
+    probe.step(4)
+
+    assert_empty probe.sprites
+  end
+
   # What the emulator itself said while the frame ran. mGBA reports a bad read or an
   # unimplemented register as a log line; the binding has been discarding every one of them,
   # so a cartridge doing something the console would object to fails a test silently.
