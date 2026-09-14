@@ -19,8 +19,8 @@
 # What to listen for (on PIANO CHORDS):
 #   1. Press A: HOORAY plays over the tune, and the tune never stops or slips.
 #   2. Press A twice quickly: HOORAY starts again from its first note.
-#   3. Press A on the big chord: some of the chord's notes drop out while HOORAY
-#      plays, and come back with the tune's next chord.
+#   3. Press A on the big chord: one of the chord's notes drops out while HOORAY
+#      plays, and comes back with the tune's next big chord.
 #   4. Press B on the big chord: nothing is heard, and the chord is untouched.
 #      Press B on the small chord: the blip is heard.
 #   5. Press A, then move the cursor: the tune fades, and HOORAY does not.
@@ -173,10 +173,8 @@ module Jukebox
     playing   = var :playing, 0
     switching = var :switching, 0
 
-    # Which sound effect was asked for last (1 HOORAY, 2 BLIP), and for how many more frames its
-    # name stays lit.
+    # Which sound effect was asked for last (1 HOORAY, 2 BLIP), whose name is lit.
     asked = var :asked, 0
-    lit   = var :lit, 0
 
     game_loop do
       # --- Advance the bobbing blocks: move each by its speed, and reverse (snap
@@ -230,11 +228,10 @@ module Jukebox
       # --- The sound effects, over whatever is playing ---
       # Each plays once from the frame after it is asked for. Who is heard when the piano is
       # already using every voice is the priorities' to say, not this code's.
-      pressed(:a).then { sfx.play :hooray; asked.set 1; lit.set 30 }
-      pressed(:b).then { sfx.play :blip; asked.set 2; lit.set 30 }
-      (lit > 0).then { lit.sub 1 }
-      draw_text "A HOORAY", 64, EFFECTS_ROW, [:gray, :white], showing: (asked == 1) & (lit > 0)
-      draw_text "B BLIP", 136, EFFECTS_ROW, [:gray, :white], showing: (asked == 2) & (lit > 0)
+      pressed(:a).then { sfx.play :hooray; asked.set 1 }
+      pressed(:b).then { sfx.play :blip; asked.set 2 }
+      draw_text "A HOORAY", 64, EFFECTS_ROW, [:gray, :white], showing: asked == 1
+      draw_text "B BLIP", 136, EFFECTS_ROW, [:gray, :white], showing: asked == 2
     end
   end
 

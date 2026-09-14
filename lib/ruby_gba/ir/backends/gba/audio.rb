@@ -225,7 +225,6 @@ module RubyGBA
             @effects = ranked.map(&:first)
             @effect_ranks = ranked.to_h
             @effect_lists = {}
-            @effects_record = false
             return unless plays_sound_effects?
 
             slots = @effects.each_with_index.to_h
@@ -239,7 +238,6 @@ module RubyGBA
             @effect_lanes << Lane.new(:noise, NOISE_CHANNEL) if noise
             @effect_lanes += Array.new(recorded) { |lane| Lane.new(:recorded, lane) }
             if recorded.positive?
-              @effects_record = true
               @mixer.ranks_voices!(@effects.flat_map do |name|
                 Array.new(IR::Tunes.recorded_parts(@songs.fetch(name))) do |lane|
                   [Mixer.ranked_owner(@effect_ranks.fetch(name), lane), [name, lane]]
@@ -541,7 +539,9 @@ module RubyGBA
           # tune's note it takes the voice from is no longer held by the tune, so a music volume
           # moving later does not start it again.
           #
-          # Uses r0, r1, r3-r5, r9, r10 and r12.
+          # Uses r0, r1, r3-r5, r9, r10 and r12. In a game whose effects play recordings, it calls
+          # the mixer too, so it keeps its return address on the stack and gives back every
+          # register it holds around each call.
           def emit_sound_effects_routine
             e = @emitter
             slot, entry, outranks = EFFECT_SLOT, EFFECT_ENTRY, EFFECT_OUTRANKS
@@ -549,7 +549,7 @@ module RubyGBA
             walk = e.gensym
             out = e.gensym
             e.place_label(SOUND_EFFECTS)
-            e.emit(ASM.push(LR)) if @effects_record # a recorded note calls the mixer
+            e.emit(ASM.push(Mixer::LR)) if @mixer.ranks_voices? # a recorded note calls the mixer
             e.emit(ASM.load_immediate(table_end, @effect_table + (@effects.size * @effect_slot_bytes)))
             e.place_label(walk)
             e.emit(ASM.cmp_reg(slot, table_end))
@@ -623,27 +623,28 @@ module RubyGBA
             e.emit(ASM.add_imm(entry, entry, EFFECT_STARTS + (4 * @effect_lanes.size)))
             e.emit_branch(:b, walk)
             e.place_label(out)
-            e.emit(@effects_record ? ASM.pop(PC) : ASM.return)
+            e.emit(@mixer.ranks_voices? ? ASM.pop(PC) : ASM.return)
           end
 
           # THE REGISTERS THE EFFECTS ROUTINE KEEPS across a call into the mixer, which uses most
           # of them: the score, the table's end, the cursor, the frame, the slot, the entry, the
-          # rank, the row and the rank it plays down to.
-          EFFECT_KEEPS = [2, 3, 4, 5, 7, 8, 9, 10, 11].freeze
+          # rank, the row and the rank it plays down to — the numbers #emit_sound_effects_routine
+          # names at its top.
+          EFFECT_KEEPS = [2, 3, 4, 5, EFFECT_SLOT, EFFECT_ENTRY, 9, 10, EFFECT_OUTRANKS].freeze
 
-          # Where a routine returns to, kept on the stack by one that calls another, and popped
-          # straight into the program counter to return.
-          LR = 14
+          # The program counter: the routine's return address, kept on the stack, is popped
+          # straight into it to return.
           PC = 15
 
           # AN EFFECT'S NOTE ON A RECORDED LANE, in the row at +row+: played the way a song's is
           # (#emit_recorded_note), on a voice whose mark carries the effect's rank in +rank+.
           def emit_effect_recorded_note(lane, rank, row)
+            mark, base, at = 8, 2, 3
             @emitter.emit(ASM.push(*EFFECT_KEEPS))
-            @emitter.emit(ASM.mov_reg(3, row))
-            @emitter.emit(ASM.mov_reg(8, rank))
-            emit_ranked_mark(8, lane.index)
-            emit_recorded_note(lane: lane.index, base: 2, at: 3)
+            @emitter.emit(ASM.mov_reg(at, row))
+            @emitter.emit(ASM.mov_reg(mark, rank))
+            @mixer.emit_ranked_mark(mark, lane.index)
+            emit_recorded_note(lane: lane.index, base: base, at: at)
             @emitter.emit(ASM.pop(*EFFECT_KEEPS))
           end
 
@@ -652,26 +653,18 @@ module RubyGBA
           def emit_effect_voice_off(lane, rank)
             @emitter.emit(ASM.push(EFFECT_SLOT, EFFECT_ENTRY))
             @emitter.emit(ASM.mov_reg(8, rank))
-            emit_ranked_mark(8, lane.index)
+            @mixer.emit_ranked_mark(8, lane.index)
             @mixer.emit_music_voice_off
             @emitter.emit(ASM.pop(EFFECT_SLOT, EFFECT_ENTRY))
-          end
-
-          # +reg+ = the mark a voice of recorded lane +lane+ carries, from the rank already in
-          # +reg+ (Mixer.ranked_owner).
-          def emit_ranked_mark(reg, lane)
-            @emitter.emit(ASM.add_imm(reg, reg, 1))
-            @emitter.emit(ASM.lsl_imm(reg, reg, Mixer::MARK_RANK_SHIFT))
-            @emitter.emit(ASM.orr_imm(reg, reg, lane)) unless lane.zero?
           end
 
           # +reg+ = the mark a voice of the tune's recorded lane +lane+ carries: its own number, or
           # in a game whose sound effects play recordings, that and the tune's rank.
           def emit_song_mark(reg, lane)
-            return @emitter.emit(ASM.load_immediate(reg, Mixer.music_owner(lane))) unless @effects_record
+            return @emitter.emit(ASM.load_immediate(reg, Mixer.music_owner(lane))) unless @mixer.ranks_voices?
 
             @primitives.load_var(reg, MUSIC_RANK)
-            emit_ranked_mark(reg, lane)
+            @mixer.emit_ranked_mark(reg, lane)
           end
 
           # MAY THE NOTE IN +row+, OF RANK +rank+, SOUND ON +lane+'s VOICE? When whoever holds the
@@ -1107,20 +1100,20 @@ module RubyGBA
             voice, mark, recording = 7, 8, 9
             rest = @emitter.gensym
             sounded = @emitter.gensym
-            scales = @scales && number
+            follows_level = @scales && number # an effect keeps its own volume
             emit_song_mark(mark, lane) if number
             @emitter.emit(ASM.ldr_offset(ACC, at, 4))                         # how fast to read it
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, rest, cond: :eq)                     # 0 is a rest
             @mixer.emit_take_music_voice                                      # r7 = the voice it gets
-            if @effects_record
+            if @mixer.ranks_voices?
               @emitter.emit(ASM.cmp_imm(voice, 0))
               @emitter.emit_branch(:bcond, sounded, cond: :eq)                # ...none: not played
             end
             @emitter.emit(ASM.ldr_offset(ACC, at, 4))
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_STEP))
             @emitter.emit(ASM.load_halfword_offset(ACC, at, 10))              # how loud
-            if scales
+            if follows_level
               @primitives.store_var(ACC, self.class.music_note(number))
               emit_scaled_loudness(ACC)
             end
@@ -1147,7 +1140,7 @@ module RubyGBA
             @emitter.emit(ASM.str_offset(mark, voice, Mixer::SLOT_ACTIVE))      # the part's now
             @emitter.emit_branch(:b, sounded)
             @emitter.place_label(rest)
-            forget_held_note(number) if scales
+            forget_held_note(number) if follows_level
             @mixer.emit_music_voice_off
             @emitter.place_label(sounded)
           end
@@ -1321,8 +1314,10 @@ module RubyGBA
               rows = events.map do |frame, frequency, instrument, volume, envelope|
                 sounding = IR::Tunes::Sounding.new(name: instrument || part.instrument,
                                                    envelope: envelope || part.envelope)
-                step = frequency.zero? ? 0 : @mixer.step_at(@mixer.sample_info(sounding.name), frequency)
-                [frame, step, @sounding_numbers.fetch(sounding), loudness(volume || part.volume)].pack("VVvv")
+                heard = loudness(volume || part.volume)
+                # A note at volume 0 sounds nothing, so it is a rest: it takes no voice.
+                step = frequency.zero? || heard.zero? ? 0 : @mixer.step_at(@mixer.sample_info(sounding.name), frequency)
+                [frame, step, @sounding_numbers.fetch(sounding), heard].pack("VVvv")
               end
               rows.join + [NEVER, 0, 0, 0].pack("VVvv")
             else

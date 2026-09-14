@@ -236,10 +236,12 @@ class TestSoundEffects < Minitest::Test
 
   # --- sharing the mixer ---
 
-  # A song whose +parts+ recorded parts each hold one note from its start, at +priority+.
-  def chord(parts, priority: 0)
+  # A song whose +parts+ recorded parts each strike a note at each tick of +at+, at +priority+ —
+  # held until the next unless it has a +length+, and shaped by +envelope+ when given.
+  def chord(parts, priority: 0, at: [0], length: nil, envelope: nil)
+    notes = at.map { |tick| Note.new(at: tick, key: :C4, length: length) }
     Score.new(tempo: 150, priority: priority, length: 400,
-              parts: Array.new(parts) { Part.new(plays: :piano, notes: [Note.new(at: 0, key: :C4)]) })
+              parts: Array.new(parts) { Part.new(plays: :piano, envelope: envelope, notes: notes) })
   end
 
   # One recorded note ranked at +priority+, asked for on pass 10.
@@ -293,6 +295,44 @@ class TestSoundEffects < Minitest::Test
     i = Reference.new.run(program, frames: 20)
 
     assert_equal [[:"sfx.0", 0]] + SONG_PARTS.take(15), i.sound_owners
+  end
+
+  # Every voice holds a song note that has ended and is fading away: the effect's note takes the
+  # quietest of those, whoever's it is, rather than one ranked below it.
+  def test_an_effect_note_takes_a_fading_note_first
+    fading = chord(16, length: 8, envelope: { release: 1.0 })
+    program = game([recorded_hit(68)], tune: fading) { |sfx, pass| (pass == 12).then { sfx.play 0 } }
+    i = Reference.new.run(program, frames: 16)
+
+    assert_equal [[:"sfx.0", 0]] + SONG_PARTS.drop(1), i.sound_owners
+    assert_equal 0, i.sound_drops.dropped
+  end
+
+  # A song part that loses its voice to an effect is heard again from its next note.
+  def test_a_song_part_that_loses_its_voice_has_one_again_at_its_next_note
+    program = game([recorded_hit(68)], tune: chord(16, at: [0, 60])) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
+
+    assert_equal [[:"sfx.0", 0]] + SONG_PARTS.drop(1), Reference.new.run(program, frames: 30).sound_owners
+    assert_equal SONG_PARTS, Reference.new.run(program, frames: 70).sound_owners
+  end
+
+  # A note at volume 0 sounds nothing, so on the mixer too it takes no voice and lets go of the
+  # one its part had — the same as a rest.
+  def test_a_silent_recorded_note_takes_no_voice
+    quiet = Score.new(tempo: 150, priority: 68, length: 60, parts: [Part.new(plays: :piano, notes: [
+      Note.new(at: 0, key: :C5), Note.new(at: 10, key: :D5, volume: 0),
+    ])])
+    program = game([quiet], tune: chord(16)) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
+
+    assert_equal [[:"sfx.0", 0]] + SONG_PARTS.drop(1), Reference.new.run(program, frames: 15).sound_owners
+    assert_equal SONG_PARTS.drop(1), Reference.new.run(program, frames: 25).sound_owners
+  end
+
+  # How many voices sounded at once counts an effect's, with no song playing.
+  def test_the_most_voices_at_once_counts_an_effects
+    program = game([recorded_hit(68, parts: 3)]) { |sfx, pass| (pass == 3).then { sfx.play 0 } }
+
+    assert_equal 3, Reference.new.run(program, frames: 10).peak_voices
   end
 
   # The song starting over lets go of its own voices and not the effect's.
@@ -619,6 +659,24 @@ class TestSoundEffects < Minitest::Test
     assert_equal 1, console_run(under, frames: 20).sound_drops.dropped, "the console counts the note that did not play"
   end
 
+  # A fading note taken first, a song part that lost its voice having one again at its next note,
+  # and a silent note taking none, on both backends.
+  def test_the_console_takes_fading_notes_gives_voices_back_and_passes_over_silent_notes
+    fading = game([recorded_hit(68)], tune: chord(16, length: 8, envelope: { release: 1.0 })) do |sfx, pass|
+      (pass == 12).then { sfx.play 0 }
+    end
+    again = game([recorded_hit(68)], tune: chord(16, at: [0, 60])) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
+    quiet = Score.new(tempo: 150, priority: 68, length: 60, parts: [Part.new(plays: :piano, notes: [
+      Note.new(at: 0, key: :C5), Note.new(at: 10, key: :D5, volume: 0),
+    ])])
+    silent = game([quiet], tune: chord(16)) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
+
+    [[fading, 18], [again, 30], [again, 72], [silent, 15], [silent, 27]].each do |program, frames|
+      interpreted, console = owners_on_both(program, frames: frames)
+      assert_equal interpreted, console, "#{frames} frames in"
+    end
+  end
+
   # An effect filling every voice: the song's note under it is not played, and its next one is.
   def test_the_console_plays_the_songs_next_note_once_an_effect_filling_the_mixer_ends
     tune = Score.new(tempo: 150, parts: [Part.new(plays: :piano, notes: [
@@ -647,11 +705,13 @@ class TestSoundEffects < Minitest::Test
       (pass == 3).then { sfx.play 0 }
     end
 
-    { restarted => 12, song_restarts => 18, ended => 40, shaped => 26 }.each do |program, frames|
-      interpreted, console = owners_on_both(program, frames: frames)
-      assert_equal interpreted, console, "#{frames} frames in"
-      refute_empty interpreted unless program == ended
-    end
+    sounding = [[:"sfx.0", 0]]
+    { restarted => sounding, song_restarts => [[:song, 0], [:"sfx.0", 0]], ended => [], shaped => sounding }
+      .zip([12, 18, 40, 26]).each do |(program, owners), frames|
+        interpreted, console = owners_on_both(program, frames: frames)
+        assert_equal owners, interpreted, "#{frames} frames in"
+        assert_equal interpreted, console, "#{frames} frames in"
+      end
   end
 
   # An effect's voice plays at the effect's own volume while the music volume moves, and reads its

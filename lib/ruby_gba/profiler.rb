@@ -588,9 +588,9 @@ module RubyGBA
                    "#{drops.voices} mixer voices was busy", severity: :bad)
       return if drops.music_held.zero?
 
-      printer.puts("  songs and sound effects held #{drops.music_held} of them at the worst moment, and " \
-                   "the game's own sounds held #{drops.game_held} — a recorded part of a song or a " \
-                   "sound effect keeps a voice while its note sounds")
+      printer.puts("  the music held #{drops.music_held} of them at the worst moment, and the game's own " \
+                   "sounds held #{drops.game_held}. A recorded part of a song or a sound effect keeps a " \
+                   "voice while its note sounds.")
     end
 
     # Said only on the screen where drawing can be lost — the tear-free one. Every other

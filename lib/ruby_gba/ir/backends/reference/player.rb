@@ -128,6 +128,7 @@ module RubyGBA
             above.each { |name, rank| effect_frame(name, rank, asked) }
             play_the_song(level) if @playing
             below.each { |name, rank| effect_frame(name, rank, asked) }
+            @mixer.count_the_voices
           end
 
           private
@@ -149,12 +150,14 @@ module RubyGBA
               # can have: the part carries on in time, silent here, and is heard again from its
               # next note once there is one.
               shared = channel && kind != :wave
+              sounds = sounds?(frequency, volume || part.volume)
               heard = if shared
-                        take_voice(channel, rank, sounds: sounds?(frequency, volume || part.volume))
+                        take_voice(channel, rank, sounds: sounds)
                       elsif lane
+                        # A rest is heard whether or not the part still had a voice to give back.
                         sound_recording(owner: lane, rank: rank, name: instrument || part.instrument,
-                                        frequency: frequency, envelope: envelope || part.envelope) ||
-                          frequency.zero?
+                                        frequency: sounds ? frequency : 0, envelope: envelope || part.envelope) ||
+                          !sounds
                       else
                         true
                       end
@@ -176,7 +179,6 @@ module RubyGBA
               console_voice(kind, part, frequency) if %i[wave noise].include?(kind)
               @cursors[number] += 1
             end
-            @mixer.count_the_voices
             come_round(song)
           end
 
@@ -215,7 +217,8 @@ module RubyGBA
               run.cursors[number] += 1
               if lane
                 heard = sound_recording(owner: [name, lane], rank: rank, name: instrument || part.instrument,
-                                        frequency: frequency, envelope: envelope || part.envelope)
+                                        frequency: sounds?(frequency, volume || part.volume) ? frequency : 0,
+                                        envelope: envelope || part.envelope)
                 @log << [:note, name, frequency] if heard
                 next
               end
@@ -239,8 +242,7 @@ module RubyGBA
               @log << [:voice, channel, name, 0, 0]
               @log << [:noise, nil] if channel == NOISE_CHANNEL
             end
-            recorded = @songs.fetch(name).voices.count { |part| IR::Tunes.part_kind(part) == :recorded }
-            recorded.times { |lane| @log << [:note, name, 0] if @mixer.release_music([name, lane]) }
+            IR::Tunes.recorded_parts(@songs.fetch(name)).times { |lane| @log << [:note, name, 0] if @mixer.release_music([name, lane]) }
           end
 
           # MAY A NOTE OF THIS RANK SOUND ON +channel+? Yes when nobody holding it outranks it

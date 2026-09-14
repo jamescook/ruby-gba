@@ -109,7 +109,7 @@ class TestJukeboxExample < Minitest::Test
   # because the example drew ">" for a long time and nothing appeared: the built-in
   # font had no such glyph, so every frame drew an invisible cursor and the only thing
   # marking the picked row was its colour.
-  ROW_TOPS = Array.new(Jukebox::SONGS.size) { |row| Jukebox::FIRST_ROW + (row * Jukebox::ROW_GAP) }.freeze
+  ROW_TOPS = [50, 64, 78, 92].freeze
 
   def test_the_cursor_hangs_off_the_left_of_the_picked_row
     at_rest = Reference.new.run(Jukebox.program, max_steps: 4000).screen
@@ -144,6 +144,10 @@ class TestJukeboxExample < Minitest::Test
   # +presses+ — a button, and how many frames after the first press it goes down. Each press is
   # held for three frames, so the game sees one press whether a pass of its loop takes one frame
   # or two. Handed whose each voice is on every frame, it answers the buttons held on that frame.
+  #
+  # IT WAITS FOR THE CHORD rather than for a frame number, because the two backends do not start
+  # counting at the same moment — the console sets the game up before its first pass — so the
+  # same frame number is a different moment of the tune on each. The chord is the same moment.
   class Listener
     TAP = 3
 
@@ -153,12 +157,15 @@ class TestJukeboxExample < Minitest::Test
       @chord = chord
       @presses = presses
       @frame = 0
+      @frames_in_chord = 0
     end
 
     def keys(owners)
       @frame += 1
       return taps_down if @frame <= 6 * TAP
-      return [] unless @pressed_at || waiting_over?(owners)
+
+      count_the_chord(owners) unless @pressed_at
+      return [] unless @pressed_at || @frames_in_chord > 8
 
       @pressed_at ||= @frame
       @presses.filter_map { |button, after| button if (@frame - @pressed_at - after).between?(0, TAP - 1) }
@@ -169,19 +176,18 @@ class TestJukeboxExample < Minitest::Test
     # Three taps of DOWN: row 0 to the piano tune on row 3.
     def taps_down = ((@frame - 1) / TAP).even? ? [:down] : []
 
-    # A few frames into the chord, so both backends are well inside it.
-    def waiting_over?(owners)
+    # How many frames running every voice has been the tune's chord.
+    def count_the_chord(owners)
       voices = @chord == :big ? 16 : 4
-      @in_chord = owners.size == voices && owners.all? { |owner| owner.first == :song } ? (@in_chord || 0) + 1 : 0
-      @in_chord > 8
+      in_chord = owners.size == voices && owners.all? { |owner| owner.first == :song }
+      @frames_in_chord = in_chord ? @frames_in_chord + 1 : 0
     end
   end
 
-  # ONE FRAME OF THE JUKEBOX, as a test reads it: the voices sounding as the frame began, and
-  # how loud the console's sound was over it (nil from the interpreter, which mixes nothing).
-  Moment = Data.define(:voices, :loudness) do
-    def owners = voices.map { |voice| voice.respond_to?(:owner) ? voice.owner : voice }
-  end
+  # ONE FRAME OF THE JUKEBOX, as a test reads it: whose each voice was as the frame began, the
+  # voices themselves and how loud the sound was over the frame (the console's only — the
+  # interpreter mixes nothing).
+  Moment = Data.define(:owners, :voices, :loudness)
 
   # A run of the jukebox on the interpreter with +listener+ at the buttons: every frame's Moment,
   # from the listener's first press on (from the start, when it never presses), and what the
@@ -190,7 +196,7 @@ class TestJukeboxExample < Minitest::Test
     i = Reference.new
     moments = []
     i.input_each_frame do |_frame|
-      moments << Moment.new(voices: i.sound_owners, loudness: nil)
+      moments << Moment.new(owners: i.sound_owners, voices: nil, loudness: nil)
       listener.keys(moments.last.owners)
     end
     i.run(Jukebox.program, frames: frames)
@@ -206,8 +212,9 @@ class TestJukeboxExample < Minitest::Test
       probe = RubyGBA::Emulator.probe(path)
       moments = Array.new(frames) do
         voices = rom.built.voices.read { |address| probe.read32(address) }
-        probe.step(1, keys: listener.keys(voices.map(&:owner)))
-        Moment.new(voices, probe.audio_energy)
+        owners = voices.map(&:owner)
+        probe.step(1, keys: listener.keys(owners))
+        Moment.new(owners: owners, voices: voices, loudness: probe.audio_energy)
       end
       probe.close
       from_the_press(moments, listener)
@@ -238,26 +245,30 @@ class TestJukeboxExample < Minitest::Test
     end
   end
 
-  # BLIP ranks below the tune: on the big chord there is no voice for it, and the chord is left
-  # exactly as it was — on the small one, it is heard.
+  # BLIP ranks below the tune: on the big chord there is no voice for it, and every voice is as it
+  # would have been with nobody pressing B — on the small chord, it is heard.
   def test_blip_is_not_played_on_the_big_chord_and_is_on_the_small_one
-    big, log = interpreted_jukebox(Listener.new(chord: :big, presses: [[:b, 0]]), frames: 300)
+    _, log = interpreted_jukebox(Listener.new(chord: :big, presses: [[:b, 0]]), frames: 300)
+    pressed = on_both(frames: 300, chord: :big, presses: [[:b, 0]])
+    nobody = on_both(frames: 300, chord: :big, presses: [])
 
     assert_includes log, [:sound_effect, :"sfx.blip"]
-    [big, console_jukebox(Listener.new(chord: :big, presses: [[:b, 0]]), frames: 300)].each do |moments|
-      assert(moments.first(30).all? { |now| now.owners == BIG_CHORD }, "the big chord, untouched")
+    pressed.zip(nobody).each do |with_b, without|
+      assert_equal without.first(30).map(&:owners), with_b.first(30).map(&:owners), "the big chord, untouched"
     end
     on_both(frames: 200, chord: :small, presses: [[:b, 0]]).each do |moments|
       assert(moments.first(30).any? { |now| now.owners == SMALL_CHORD + [BLIP] }, "BLIP over the small chord")
     end
   end
 
-  # A SECOND PRESS STARTS HOORAY AGAIN from its first note: a few frames after it, its voice is
-  # reading the first note's pitch again where its second note would otherwise be sounding.
+  # A SECOND PRESS STARTS HOORAY AGAIN from its first note: the interpreter plays that note twice,
+  # and on the console, a few frames after the second press, HOORAY's voice is reading the first
+  # note's pitch again where its second note would otherwise be sounding.
   def test_hooray_pressed_again_starts_from_its_first_note
     _, log = interpreted_jukebox(Listener.new(chord: :small, presses: [[:a, 0], [:a, 7]]), frames: 200)
 
     assert_equal 2, log.count([:sound_effect, :"sfx.hooray"])
+    assert_equal 2, log.count([:note, :"sfx.hooray", RubyGBA::Music::NOTE_FREQUENCIES[:C5]])
     moments = console_jukebox(Listener.new(chord: :small, presses: [[:a, 0], [:a, 7]]), frames: 200)
     steps = moments.first(30).map { |now| now.voices.find { |voice| voice.owner == HOORAY }&.step }
     first_note = steps.compact.first
@@ -265,13 +276,17 @@ class TestJukeboxExample < Minitest::Test
     assert_equal first_note, steps[14], "the first note again, where the second was due (#{steps.inspect})"
   end
 
-  # HOORAY KEEPS ITS OWN VOLUME while the music fades: A, then DOWN moves the cursor off the tune.
+  # HOORAY KEEPS SOUNDING, AT ITS OWN VOLUME, while the music fades: A, then DOWN moves the cursor
+  # off the tune. Both backends keep its voice through the fade; the console says how loud.
   def test_hooray_does_not_fade_with_the_music
-    moments = console_jukebox(Listener.new(chord: :small, presses: [[:a, 0], [:down, 2]]), frames: 200)
+    both = on_both(frames: 200, chord: :small, presses: [[:a, 0], [:down, 2]])
+    both.each do |moments|
+      assert_operator moments.first(25).count { |now| now.owners.include?(HOORAY) }, :>, 15, "HOORAY sounds through the fade"
+    end
+
+    moments = both.last
     hooray = moments.first(25).filter_map { |now| now.voices.find { |voice| voice.owner == HOORAY }&.volume }
     tune = moments.first(25).map { |now| now.voices.select { |voice| voice.owner.first == :song }.sum(&:volume) }
-
-    assert_operator hooray.size, :>, 15, "HOORAY sounds through the fade"
     assert_equal [hooray.first], hooray.uniq, "at one volume"
     assert_operator tune.last, :<, tune.first, "while the tune goes quiet"
   end

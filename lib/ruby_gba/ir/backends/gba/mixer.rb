@@ -344,6 +344,14 @@ module RubyGBA
 
           def ranks_voices? = !@effect_marks.empty?
 
+          # +reg+ = the mark a voice of recorded lane +lane+ carries, from the rank already in +reg+
+          # (Mixer.ranked_owner, worked out as the game runs).
+          def emit_ranked_mark(reg, lane)
+            @emitter.emit(ASM.add_imm(reg, reg, 1))
+            @emitter.emit(ASM.lsl_imm(reg, reg, MARK_RANK_SHIFT))
+            @emitter.emit(ASM.orr_imm(reg, reg, lane)) unless lane.zero?
+          end
+
           # ...and a game that moves the music volume sets a part's note to the new level while it
           # sounds, so it needs to find the voice the note is on.
           def music_follows_level! = @music_follows_level = true
