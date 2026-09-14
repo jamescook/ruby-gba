@@ -17,7 +17,7 @@ module RubyGBA
       Build the game declared in GAME_FILE into a Game Boy Advance cartridge. The file
       declares its game with:
 
-        RubyGBA.game "NAME", code: "CODE", maker: "01" do
+        RubyGBA.game "NAME" do
           # ...the game...
         end
 
@@ -208,7 +208,7 @@ module RubyGBA
       load path
       RubyGBA.registered_games.last || raise(Thor::Error, <<~MSG.chomp)
         #{game_file} does not declare a game. Add:
-          RubyGBA.game "NAME", code: "CODE", maker: "01" do
+          RubyGBA.game "NAME" do
             # ...the game...
           end
       MSG
@@ -220,8 +220,6 @@ module RubyGBA
     def starter_source(name)
       title = name.upcase.gsub(/[^A-Z0-9 ]/, "").strip[0, 12]
       title = "GAME" if title.empty?
-      letters = title.gsub(/[^A-Z0-9]/, "")
-      code = "B#{letters}".ljust(4, "X")[0, 4]
       const = constantize(name)
 
       <<~RUBY
@@ -232,7 +230,7 @@ module RubyGBA
 
         require "ruby_gba"
 
-        #{const} = RubyGBA.game "#{title}", code: "#{code}", maker: "01" do
+        #{const} = RubyGBA.game "#{title}" do
           screen :bitmap
 
           game_loop do

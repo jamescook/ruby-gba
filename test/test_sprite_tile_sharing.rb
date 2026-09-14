@@ -212,7 +212,7 @@ class TestSpriteTileSharing < Minitest::Test
   def test_a_cycle_of_one_picture_shares_it_and_stays_on_the_plain_draw
     one = noise(32, 41)
     clear = CLEAR
-    still = RubyGBA.build("ONE", code: "BONE", maker: "01", validate: false,
+    still = RubyGBA.build("ONE", validate: false,
                           out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image :hero, width: 32, height: 32, data: one, transparent: clear

@@ -6,7 +6,7 @@ require "tempfile"
 
 class TestPixelDrawing < Minitest::Test
   def test_display_bitmap_sets_mode3
-    rom = RubyGBA.build("DISPTEST", code: "BDSP", maker: "01") do
+    rom = RubyGBA.build("DISPTEST") do
       screen :bitmap
       halt
     end

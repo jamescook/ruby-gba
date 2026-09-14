@@ -41,7 +41,7 @@ module FloatingDigits
 
   # The game as a block the builder runs (so a test can drive the exact program
   # that ships — the interpreter runs THIS, the console runs the ROM built from it).
-  GAME = RubyGBA.game("FLOATNUM", code: "BFLN", maker: "01") do
+  GAME = RubyGBA.game("FLOATNUM") do
     screen :bitmap
 
     # A colored glyph image per digit. '.' is transparent, so only the digit's lit

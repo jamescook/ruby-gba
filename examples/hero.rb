@@ -76,7 +76,7 @@ module Hero
     end.join
   end.freeze
 
-  GAME = RubyGBA.game("HERO", code: "BHRO", maker: "01") do
+  GAME = RubyGBA.game("HERO") do
     screen :tiled # tile mode: a scrolling background for the world + a hardware sprite on top
 
     image :grass, "." => rgb(3, 18, 5), "'" => rgb(5, 24, 7) do

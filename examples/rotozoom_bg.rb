@@ -32,7 +32,7 @@ module RotozoomBg
   MIN_ZOOM = 0.5
   MAX_ZOOM = 3.0
 
-  GAME = RubyGBA.game("ROTOZOOM", code: "BROT", maker: "01") do
+  GAME = RubyGBA.game("ROTOZOOM") do
     screen :rotozoom # the rotate/scale layer, not the plain-scroll one `screen :tiled` gives
 
     image :light, "#" => rgb(20, 20, 26) do

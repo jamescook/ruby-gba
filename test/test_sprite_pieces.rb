@@ -372,7 +372,7 @@ class TestSpritePieces < Minitest::Test
   def test_the_profile_prints_what_a_big_sprite_spends
     art = ragged(96, 96)
     clear = CLEAR
-    rom = RubyGBA.build("PIECES", code: "BPIE", maker: "01", validate: false,
+    rom = RubyGBA.build("PIECES", validate: false,
                         out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image :big, width: 96, height: 96, data: art, transparent: clear

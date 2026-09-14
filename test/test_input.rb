@@ -6,7 +6,7 @@ class TestInput < Minitest::Test
   include RubyGBA::Constants
 
   def build(validate: false, &block)
-    RubyGBA.build("INPTEST", code: "BINP", maker: "01", validate: validate, &block)
+    RubyGBA.build("INPTEST", validate: validate, &block)
   end
 
   def instructions(rom)

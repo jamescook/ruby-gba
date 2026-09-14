@@ -102,7 +102,7 @@ module Lake
     end.join
   end.freeze
 
-  GAME = RubyGBA.game("LAKE", code: "BLAK", maker: "01") do
+  GAME = RubyGBA.game("LAKE") do
     screen :tiled # tile mode: two background layers the console composites for us
 
     # --- the scene above the water ---

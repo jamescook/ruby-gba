@@ -30,7 +30,7 @@ module Level
   HERO  = "assets/hero.png"  # a 4-frame walk-cycle sprite sheet
   MAP   = "assets/level.csv" # a 30x20 tilemap exported as CSV (1 = brick, 2 = floor)
 
-  GAME = RubyGBA.game("LEVEL", code: "BLVL", maker: "01") do
+  GAME = RubyGBA.game("LEVEL") do
     screen :tiled # tile mode: a background room + a hardware sprite over it
 
     # Import the whole tile sheet as numbered tiles, then read the CSV level straight

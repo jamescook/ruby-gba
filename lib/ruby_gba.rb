@@ -16,6 +16,7 @@ require_relative "ruby_gba/rom_validator"
 require_relative "ruby_gba/video_memory" # how much room the pictures took, and what the storage saved
 require_relative "ruby_gba/roomy_memory" # ...and what went in the other, roomier work memory
 require_relative "ruby_gba/build_record" # what the build worked out, for the cartridge to carry
+require_relative "ruby_gba/game_code" # the four characters an emulator tells one cartridge from another by
 require_relative "ruby_gba/rom"
 require_relative "ruby_gba/font"
 require_relative "ruby_gba/fonts"
@@ -76,8 +77,11 @@ module RubyGBA
   # Build a GBA ROM using the DSL.
   #
   # @param title [String] Game title (up to 12 chars)
-  # @param code [String] 4-char game code (e.g. "BTKE")
-  # @param maker [String] 2-char maker code (e.g. "01")
+  # @param code [String, nil] the 4 characters an emulator tells one cartridge from another
+  #   by. Leave it out: the framework works a free one out from the title, and a code a real
+  #   cartridge already carries is refused (see {GameCode}).
+  # @param maker [String, nil] the 2 characters that name a publisher. Leave it out and the
+  #   cartridge says it has none, which is true — "01" is Nintendo's.
   # @param validate [Boolean] run the ROM-image validation after build (default: true)
   # @param fast_cartridge [Boolean] ask the console for quick cartridge timing at boot
   #   (default: true). Pass false to leave the cautious power-on timing alone — the
@@ -110,7 +114,11 @@ module RubyGBA
   # @return [RubyGBA::ROM] finalized ROM ready to write
   # +out+/+err+ are the streams dump_func writes its disassembly and warnings to;
   # they default to the process streams and can be pointed at a StringIO in tests.
-  def self.build(title, code:, maker:, validate: true, frame_sync: :auto, fast_cartridge: true,
+  # +code+ and +maker+ are the four characters an emulator tells one cartridge from another
+  # by, and the two that name a publisher. Leave them out: the framework works a free code
+  # out from the title (see {GameCode}), and a code a released cartridge already carries is
+  # refused rather than quietly shipped.
+  def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: true,
                  fast_code: true, out: $stdout, err: $stderr, progress: Progress.silent,
                  profile: false, &block)
     if profile == true
@@ -249,6 +257,9 @@ module RubyGBA
   # WITH NO EMULATOR THERE IS NOTHING TO RUN, and a build still has to work, so it falls back
   # to choosing from the shape of the program. `rom.profile` says which of the two happened.
   def self.build_measured(title, code:, maker:, out:, err:, progress:, **options, &block)
+    # code/maker are passed through as they arrived, nil included — the cartridge header
+    # is where a missing one is settled (see {GameCode}), and both builds below have to
+    # settle it the same way or the second would measure a different cartridge.
     held = StringIO.new
     first = begin
       build(title, code: code, maker: maker, profile: false,

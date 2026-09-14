@@ -84,8 +84,8 @@ module Corridor
   # knob that decides whether this fits in a frame, and the example is about that: at the
   # sixty rays it ships with the console spends about four fifths of a frame, and at eighty it
   # does not fit at all. A test drives both sides to check the estimate agrees.
-  def self.game(name: "CORRIDOR", code: "BCOR", cols: NUM_COLS, col_w: COL_W)
-    RubyGBA.game(name, code: code, maker: "01") do
+  def self.game(name: "CORRIDOR", cols: NUM_COLS, col_w: COL_W)
+    RubyGBA.game(name) do
       screen :bitmap, tear_free: true # double-buffered: the whole view is repainted each frame
       enable_sound
       define_sound :chime, frequency: 1400, duty: :half, decay: :fast

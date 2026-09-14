@@ -3,8 +3,8 @@
 module RubyGBA
   # A game the DSL block defines but has not built yet.
   #
-  # `RubyGBA.game "NAME", code:, maker: do ...dsl... end` records the title, the
-  # cartridge codes, and the DSL block, and hands back this handle — WITHOUT building
+  # `RubyGBA.game "NAME" do ...dsl... end` records the title, the cartridge codes if
+  # the game bothered to write any, and the DSL block, and hands back this handle — WITHOUT building
   # or writing anything. That separation is the point: a game file only declares the
   # game, so the tool that drives the build (the `ruby-gba` command) owns the output
   # path and how much it prints. The same handle also carries the two methods tests
@@ -21,7 +21,7 @@ module RubyGBA
       { fast_cartridge: @fast_cartridge, fast_code: @fast_code }
     end
 
-    def initialize(title, code:, maker:, block:, frame_sync: :auto, fast_cartridge: true, fast_code: true)
+    def initialize(title, code: nil, maker: nil, block:, frame_sync: :auto, fast_cartridge: true, fast_code: true)
       @title = title
       @code = code
       @maker = maker
@@ -121,9 +121,9 @@ module RubyGBA
     # Declare a game: record its DSL block for later building and return a Game
     # handle. Building and writing are left to the caller — see Game — except for the
     # `ruby game.rb` convenience above.
-    def game(title, code:, maker:, frame_sync: :auto, fast_cartridge: true, fast_code: true, &block)
+    def game(title, code: nil, maker: nil, frame_sync: :auto, fast_cartridge: true, fast_code: true, &block)
       unless block
-        raise ArgumentError, %(RubyGBA.game needs a block: RubyGBA.game("NAME", code: "CODE", maker: "01") { ... })
+        raise ArgumentError, %(RubyGBA.game needs a block: RubyGBA.game("NAME") { ... })
       end
 
       handle = Game.new(title, code: code, maker: maker, block: block, frame_sync: frame_sync,

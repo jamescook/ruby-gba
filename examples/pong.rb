@@ -69,7 +69,7 @@ DIFFICULTY     = "DIFFICULTY" # the title row that opens the screen below
 NORMAL         = "NORMAL"     # ...and its two rows
 HARD           = "HARD"
 
-Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
+Pong = RubyGBA.game("PONG") do
   screen :bitmap
   enable_sound
 

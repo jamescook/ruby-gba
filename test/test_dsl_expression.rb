@@ -34,7 +34,7 @@ class TestDSLExpression < Minitest::Test
 
   # Build a real ROM (for the emulator-backed hardware-confirmation tests).
   def build(&block)
-    RubyGBA.build("EXPR", code: "BEXP", maker: "01", validate: false, &block)
+    RubyGBA.build("EXPR", validate: false, &block)
   end
 
   # Build the IR tree without running it — only the guardrail tests need this, to

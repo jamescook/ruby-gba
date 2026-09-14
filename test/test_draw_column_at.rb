@@ -117,7 +117,7 @@ class TestDrawColumnAt < Minitest::Test
     drawn = (0...8).count { |x| interp.screen.pixel(x, 0) == RubyGBA::Color.resolve(:red) }
     assert_equal 8, drawn, "the interpreter should draw every column"
 
-    rom = ROM.assemble(GBA.new.lower(prog), title: "LOOP", code: "ALUP", maker: "01")
+    rom = ROM.assemble(GBA.new.lower(prog), title: "LOOP")
     gba = assert_emulator_loads_rom(rom, frames: 4)
     on_console = (0...8).count { |x| gba.pixel_gba(x, 0) == RubyGBA::Color.resolve(:red) }
 

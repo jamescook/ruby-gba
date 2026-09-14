@@ -81,7 +81,7 @@ module Raycaster
   FAR = RubyGBA::Color.rgb(11, 10, 9)
   WALL_SHADES = [NEAR, MID, FAR].freeze
 
-  GAME = RubyGBA.game("RAYCAST", code: "BRAY", maker: "01") do
+  GAME = RubyGBA.game("RAYCAST") do
     screen :bitmap, tear_free: true # double-buffered: the whole view is repainted each frame
 
     # A table written with Floats holds numbers with a fraction, and every read from it

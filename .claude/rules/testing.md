@@ -162,8 +162,7 @@ include EmulatorSupport                    # from test/test_helper.rb
 require_emulator!                          # ensure the emulator; fails loud if it isn't built
 
 # lower an IR program to a ROM:
-rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(prog),
-                            title: "NAME", code: "BXYZ", maker: "01")
+rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(prog), title: "NAME")
 
 v = assert_emulator_loads_rom(rom, frames: 6, keys: KEY_LEFT)  # returns a Verifier
 v.red?(x, y) / v.white? / v.blue? / v.green? / v.black?     # named-colour checks
@@ -230,8 +229,11 @@ that's filed but not fixed, so it stays visible without failing the build.
 
 - **DSL** (asserting the surface behaves): `b = RubyGBA::Builder.new;
   b.instance_eval { screen :bitmap; ...; game_loop { ... } }; b.emit_pending_functions;
-  b.program`. Or `RubyGBA.build("NAME", code:, maker:) { ... }` which returns a ROM
+  b.program`. Or `RubyGBA.build("NAME") { ... }` which returns a ROM
   (its `out:`/`err:` streams are DI'd — pass `StringIO` to assert warnings).
+  **Don't write a `code:`** — a made-up four-character cartridge code lands on a real
+  cartridge's often enough that thirteen in this suite did, and one that does is now a
+  build error. Left out, it's worked out from the title.
 
 ## Choosing test values
 

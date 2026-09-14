@@ -99,7 +99,7 @@ module Snake
   # The whole game, as a block the builder runs. Keeping it in one place means the
   # test drives the exact program that ships: the headless interpreter runs THIS to
   # check the game plays without crashing, and the console runs the ROM built from it.
-  GAME = RubyGBA.game("SNAKE", code: "BSNK", maker: "01") do
+  GAME = RubyGBA.game("SNAKE") do
     screen :bitmap
     enable_sound
 

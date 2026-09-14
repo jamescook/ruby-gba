@@ -69,7 +69,7 @@ module BufferedSnake
   START_CELLS = [[5, START_ROW], [6, START_ROW], [7, START_ROW], [8, START_ROW]].freeze
   FOOD_TRIES = 8
 
-  GAME = RubyGBA.game("SNAKEBUF", code: "BSNB", maker: "01") do
+  GAME = RubyGBA.game("SNAKEBUF") do
     screen :bitmap, tear_free: true # <-- the whole difference. Remove it and it tears.
     enable_sound
 

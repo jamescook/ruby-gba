@@ -17,7 +17,7 @@ require_relative "../lib/ruby_gba"
 module FontsDemo
   SCORE = 12_345
 
-  GAME = RubyGBA.game("FONTS", code: "BFON", maker: "01") do
+  GAME = RubyGBA.game("FONTS") do
     screen :bitmap
     clear_screen :black
 

@@ -31,12 +31,12 @@ module RubyGBA
   # what lets a {#call} refer to a {#func} defined later in the block.
   #
   # @example Minimal ROM
-  #   rom = RubyGBA.build("MYGAME", code: "BMGE", maker: "01") do
+  #   rom = RubyGBA.build("MYGAME") do
   #     entry { loop_forever }
   #   end
   #
   # @example Draw pixels
-  #   rom = RubyGBA.build("PIXELS", code: "BPXL", maker: "01") do
+  #   rom = RubyGBA.build("PIXELS") do
   #     screen :bitmap
   #     pixel 120, 80, :red
   #     pixel 121, 80, color("#00FF00")

@@ -58,7 +58,7 @@ module Piano
   CHORD_HOLD  = 60             # frames the chord stays down before lifting
   RELEASE     = 4             # lift a melody finger this many frames before its note ends
 
-  GAME = RubyGBA.game("PIANO", code: "BPNO", maker: "01") do
+  GAME = RubyGBA.game("PIANO") do
     # Tiled mode: the console composites the hands and the key-lights as hardware
     # sprites over the keyboard background — no framebuffer, no redraw by hand.
     screen :tiled

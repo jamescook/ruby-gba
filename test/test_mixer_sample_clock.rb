@@ -68,7 +68,7 @@ class TestMixerSampleClock < Minitest::Test
   # frame into 137.16 samples — the case that went wrong — so this fails on the old arithmetic.
   def sounded(hz, frames: 90, stop_at: 40)
     pcm = (0...hz).map { |i| (Math.sin(2 * Math::PI * 220 * i / hz) * 100).round }
-    rom = RubyGBA.build("MIXCLK", code: "BMXC", maker: "01", validate: false,
+    rom = RubyGBA.build("MIXCLK", validate: false,
                         out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       tone = sample :tone, pcm: pcm, rate: hz
@@ -126,7 +126,7 @@ class TestMixerSampleClock < Minitest::Test
     loud = wave.call(100)
     quiet = wave.call(1)
     joining = RubyGBA::Sound::MIXER_VOICES - 1
-    rom = RubyGBA.build("MIXCLK", code: "BMXC", maker: "01", validate: false,
+    rom = RubyGBA.build("MIXCLK", validate: false,
                         out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       lead = sample :lead, pcm: loud, rate: hz
@@ -159,7 +159,7 @@ class TestMixerSampleClock < Minitest::Test
   def test_a_game_busy_past_the_end_of_the_frame_does_not_break_the_sound
     [8192, 15_768, 22_050].each do |hz|
       pcm = (0...hz).map { |i| (Math.sin(2 * Math::PI * 220 * i / hz) * 100).round }
-      rom = RubyGBA.build("MIXCLK", code: "BMXC", maker: "01", validate: false,
+      rom = RubyGBA.build("MIXCLK", validate: false,
                           out: StringIO.new, err: StringIO.new) do
         screen :bitmap
         tone = sample :tone, pcm: pcm, rate: hz

@@ -122,7 +122,7 @@ module Breakout
     end
   end.freeze
 
-  GAME = RubyGBA.game("BREAKOUT", code: "BBRK", maker: "01") do
+  GAME = RubyGBA.game("BREAKOUT") do
     screen :bitmap, tear_free: true # draw to a hidden page, flip when done — no tearing
     enable_sound
 

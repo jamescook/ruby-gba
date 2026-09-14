@@ -28,7 +28,7 @@ class TestLoopForm < Minitest::Test
   end
 
   def shapes_of(&block)
-    rom = RubyGBA.build("LOOPS", code: "BLPF", maker: "01", err: StringIO.new,
+    rom = RubyGBA.build("LOOPS", err: StringIO.new,
                                  out: StringIO.new, &block)
     [rom, rom.loop_shapes]
   end
@@ -567,7 +567,7 @@ class TestLoopForm < Minitest::Test
   # block captures it, and the call to that routine is all the body says. Counting that loop
   # down would hand the routine the passes left instead of the pass it is on.
   def test_an_index_read_only_by_a_routine_the_body_calls_still_counts_up
-    rom = RubyGBA.build("LOOPCAPT", code: "BLCP", maker: "01", err: StringIO.new, out: StringIO.new) do
+    rom = RubyGBA.build("LOOPCAPT", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       seen = var :seen, 0
       b = self
@@ -592,10 +592,10 @@ class TestLoopForm < Minitest::Test
   # ordinary variable.
   def loop_overhead(&body)
     looped = [PASSES, PASSES * 2].map do |passes|
-      instructions_a_frame(pass_rom("BLPL") { |b, n, _stand_in| b.repeat(passes) { |i| body.call(b, n, i) } })
+      instructions_a_frame(pass_rom("LOOPED") { |b, n, _stand_in| b.repeat(passes) { |i| body.call(b, n, i) } })
     end
     inline = [PASSES, PASSES * 2].map do |passes|
-      instructions_a_frame(pass_rom("BLPI") { |b, n, stand_in| passes.times { body.call(b, n, stand_in) } })
+      instructions_a_frame(pass_rom("INLINE") { |b, n, stand_in| passes.times { body.call(b, n, stand_in) } })
     end
     ((looped.last - looped.first) - (inline.last - inline.first)) / PASSES
   end
@@ -603,9 +603,8 @@ class TestLoopForm < Minitest::Test
   # Nothing is moved to the quick memory, which changes how a call is made depending on where
   # the caller and the routine each landed — and a body written out four hundred times lands
   # somewhere different from one written out two hundred.
-  def pass_rom(code)
-    RubyGBA.build("LOOPPASS", code: code, maker: "01", err: StringIO.new, out: StringIO.new,
-                              fast_code: false) do
+  def pass_rom(name)
+    RubyGBA.build(name, err: StringIO.new, out: StringIO.new, fast_code: false) do
       screen :bitmap
       n = var :n, 0
       stand_in = var :stand_in, 0

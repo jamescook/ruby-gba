@@ -45,7 +45,7 @@ module Animate
 
   FRAMES = SPIN.each_index.map { |k| :"coin#{k}" }.freeze
 
-  GAME = RubyGBA.game("ANIMATE", code: "BANM", maker: "01") do
+  GAME = RubyGBA.game("ANIMATE") do
     screen :bitmap
     clear_screen rgb(0, 0, 8) # a dark blue field
 

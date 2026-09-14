@@ -49,7 +49,7 @@ module Parallax
     end.join
   end.freeze
 
-  GAME = RubyGBA.game("PARALLAX", code: "BPLX", maker: "01") do
+  GAME = RubyGBA.game("PARALLAX") do
     screen :tiled # tile mode: two background layers, composited by the hardware
 
     # --- FAR layer tiles: sky and clouds (fully opaque; it's the backmost layer) ---

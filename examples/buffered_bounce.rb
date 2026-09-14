@@ -26,7 +26,7 @@ module BufferedBounce
   BALL = 8
   SPEED = 2
 
-  GAME = RubyGBA.game("BOUNCE", code: "BBNC", maker: "01") do
+  GAME = RubyGBA.game("BOUNCE") do
     screen :bitmap, tear_free: true # the tear-proof screen — try flipping this to false
 
     # Each ball is a position (x, y) and a velocity (dx, dy).

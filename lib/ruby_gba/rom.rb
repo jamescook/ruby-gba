@@ -53,22 +53,25 @@ module RubyGBA
     # cartridge report on itself. A caller with a backend to hand gets it in one call —
     # `built: backend.build_record(program)`. Leave it out and the ROM is a cartridge and
     # nothing more, which is right for machine code that came from somewhere else.
-    def self.assemble(machine_code, title:, code:, maker:, validate: true, built: nil)
+    def self.assemble(machine_code, title:, code: nil, maker: nil, validate: true, built: nil)
       rom = new(title: title, code: code, maker: maker, built: built)
       rom.emit(machine_code)
       rom.finalize!(validate: validate)
       rom
     end
 
-    def initialize(title:, code:, maker:, built: nil)
+    # +code+ and +maker+ are the cartridge bureaucracy, and a game need not know they
+    # exist: left out, the code is worked out from the title (see {GameCode}) and the
+    # cartridge says it has no commercial publisher, which is true.
+    def initialize(title:, code: nil, maker: nil, built: nil)
       @built = built
       @buffer = ("\x00".b) * [512, HEADER_SIZE].max
       @code_offset = ENTRY_OFFSET
 
       write_logo
       write_title(title)
-      write_code(code)
-      write_maker(maker)
+      write_code(code || GameCode.for(title))
+      write_maker(maker || GameCode::NO_PUBLISHER)
       @buffer.setbyte(HEADER_FIXED, FIXED_VALUE)
     end
 
@@ -208,7 +211,7 @@ module RubyGBA
 
     def write_code(code)
       raise ArgumentError, "game code must be #{CODE_LENGTH} chars" unless code.bytesize == CODE_LENGTH
-      @buffer[HEADER_CODE, CODE_LENGTH] = code
+      @buffer[HEADER_CODE, CODE_LENGTH] = GameCode.check!(code)
     end
 
     def write_maker(maker)

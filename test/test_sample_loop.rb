@@ -76,7 +76,7 @@ class TestSampleLoop < Minitest::Test
       game_loop { wait_vblank }
     end
     b.emit_pending_functions
-    rom = ROM.assemble(GBA.new.lower(b.program), title: "LOOP", code: "BLOP", maker: "01")
+    rom = ROM.assemble(GBA.new.lower(b.program), title: "LOOP")
     v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.sound?, "a looping sample should keep the speaker going (energy #{v.audio_energy})"
   end

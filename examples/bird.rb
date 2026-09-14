@@ -32,7 +32,7 @@ module Bird
   FURTHEST = 0.75
   DRIFT_SECONDS = 2.5
 
-  GAME = RubyGBA.game("BIRD", code: "BBRD", maker: "01") do
+  GAME = RubyGBA.game("BIRD") do
     screen :tiled # tile mode: a background layer for the sky + a hardware sprite for the bird
 
     # A plain sky the bird flies over (one repeated tile).

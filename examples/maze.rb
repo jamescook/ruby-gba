@@ -50,7 +50,7 @@ module Maze
     "##############################",
   ].freeze
 
-  GAME = RubyGBA.game("MAZE", code: "BMAZ", maker: "01") do
+  GAME = RubyGBA.game("MAZE") do
     screen :tiled # tile mode: a background room + a hardware sprite over it
 
     # Two 8x8 tiles: a brick wall and a dark floor. A little texture in each so a run

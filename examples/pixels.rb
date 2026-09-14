@@ -12,7 +12,7 @@
 
 require_relative "../lib/ruby_gba"
 
-Pixels = RubyGBA.game("RUBYGBA", code: "BRBY", maker: "01") do
+Pixels = RubyGBA.game("RUBYGBA") do
   screen :bitmap
 
   # Draw an Italian flag in the center of the screen

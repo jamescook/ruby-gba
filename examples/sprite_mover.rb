@@ -38,7 +38,7 @@ module SpriteMover
 
   # The game as a block the builder runs, so a test can drive the exact program
   # that ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = RubyGBA.game("SPRITEMV", code: "BSPM", maker: "01") do
+  GAME = RubyGBA.game("SPRITEMV") do
     screen :bitmap
 
     # A little red heart. "." is transparent, so the field shows through its corners

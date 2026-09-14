@@ -429,7 +429,7 @@ module RubyGBA
     # counter) is a reading of this ROM's memory and not a guess.
     def build_for_measuring(program, options = {})
       backend = IR::Backends::GBA.new(**options)
-      rom = ROM.assemble(backend.lower(program), title: "PROFILE", code: "BPRF", maker: "01")
+      rom = ROM.assemble(backend.lower(program), title: "PROFILE")
       { rom: rom, vars: backend.var_addresses }
     end
 

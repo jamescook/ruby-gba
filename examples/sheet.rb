@@ -54,7 +54,7 @@ module Sheet
     "##############################",
   ].freeze
 
-  GAME = RubyGBA.game("SHEET", code: "BSHT", maker: "01") do
+  GAME = RubyGBA.game("SHEET") do
     screen :tiled # tile mode: a background room + a hardware sprite over it
 
     # Import the tile sheet straight into the tileset: "#" is its first tile (the

@@ -15,7 +15,7 @@ require_relative "lib/ruby_gba"
 
 # A trimmed slice of examples/snake.rb — see that file for the full, commented game.
 # (Grid constants like CELL, MIN_COL, BODY_CAP and the STEP beat are defined there.)
-Snake = RubyGBA.game("SNAKE", code: "BSNK", maker: "01") do
+Snake = RubyGBA.game("SNAKE") do
   screen :bitmap
   enable_sound
   define_sound :eat, frequency: 880, duty: :quarter, decay: :fast

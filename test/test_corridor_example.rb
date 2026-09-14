@@ -63,9 +63,9 @@ class TestCorridorExample < Minitest::Test
   # eighty does not. Both are run, so neither answer is anybody's opinion.
   def test_which_side_of_the_line_the_game_is_on
     require_emulator!
-    [[Corridor::NUM_COLS, Corridor::COL_W, true, "BCOR"],
-     [80, 3, false, "BCO8"]].each do |cols, col_w, should_fit, code|
-      game = Corridor.game(name: "COR#{cols}", code: code, cols: cols, col_w: col_w)
+    [[Corridor::NUM_COLS, Corridor::COL_W, true],
+     [80, 3, false]].each do |cols, col_w, should_fit|
+      game = Corridor.game(name: "COR#{cols}", cols: cols, col_w: col_w)
       result = profile_of(game)
 
       assert_equal should_fit, !result.dropping_frames?,
