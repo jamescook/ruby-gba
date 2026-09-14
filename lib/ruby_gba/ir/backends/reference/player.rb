@@ -49,6 +49,7 @@ module RubyGBA
             @effect_lists = {}  # name -> the effects a sound effect list holds, in order
             @effects = []       # every sound effect, in the order declared (see IR::Tunes.effect_rank)
             @asked = []         # the effects the program asked for since the last frame
+            @stopping = []      # ...and the effects of a group those cut off, stopped on that frame
             @running = {}       # an effect sounding -> how far into it, and each part's next event
             @holders = Hash.new(0) # a console voice -> the rank of whoever holds it (IR::Tunes.song_rank)
           end
@@ -65,10 +66,25 @@ module RubyGBA
 
           # START effect number +which+ of a list at the next frame — from its first note, whether
           # or not it is sounding already. A number naming no effect plays nothing.
+          #
+          # AN EFFECT IN A GROUP is decided here, as it is asked for, the way the console decides it
+          # (IR::Tunes.group): if another of its group is sounding or already asked for, an effect
+          # of lower priority is not played, and one of at least that priority stops that one on
+          # the next frame and starts in its place.
           def wants_effect(list, which)
             effects = @effect_lists[list] ||
                       raise(ProgramError, "play_sound_effect of undefined list #{list.inspect}")
-            @asked << effects[which] if which >= 0 && which < effects.length
+            return unless which >= 0 && which < effects.length
+
+            name = effects[which]
+            group = IR::Tunes.group(@songs.fetch(name))
+            current = group && @effects.find { |other| IR::Tunes.group(@songs.fetch(other)) == group && current?(other) }
+            if current
+              return if @songs.fetch(name).priority < @songs.fetch(current).priority
+              @asked.delete(current)
+              @stopping << current
+            end
+            @asked << name
           end
 
           # NAME THE TUNE PLAYING NOW. The player takes it up at the next frame, so this can be
@@ -197,6 +213,8 @@ module RubyGBA
           # are due, on the voices its rank lets it take.
           def effect_frame(name, rank, asked)
             song = @songs.fetch(name)
+            # Cut off by another of its group, or of a group and asked for again: it stops first.
+            finish_effect(name, rank) if @stopping.delete(name)
             if asked.include?(name)
               @running[name] = EffectRun.new(frame: 0, cursors: Array.new(song.voices.size, 0))
               @log << [:sound_effect, name]
@@ -231,6 +249,10 @@ module RubyGBA
             end
             run.frame += 1
           end
+
+          # Is this effect its group's one now: asked for, or sounding — which it still is on the
+          # frame after its last, until the player lets it go?
+          def current?(name) = !@stopping.include?(name) && (@asked.include?(name) || @running.key?(name))
 
           # An effect over: every voice it still holds goes quiet, and is free — a recorded note
           # with a shape falling away rather than stopping, as it would at a rest.

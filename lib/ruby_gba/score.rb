@@ -35,7 +35,12 @@ module RubyGBA
   # the same one of the console's voices at once: the higher number takes it (see
   # IR::Tunes.song_rank). A cartridge's own sound engine carries one on every sequence, so a decoder
   # hands it straight over.
-  Score = Data.define(:parts, :tempo, :ticks_per_beat, :length, :loop_from, :priority)
+  #
+  # A GROUP says which sound effects cut each other off: effects with the same +group+ play one at
+  # a time, the way a character has one voice. Asked for while another of its group sounds, an
+  # effect of at least that priority stops it and starts; one of lower priority is not played. A
+  # cartridge's engine plays each effect on one of a few players, and the player is the group.
+  Score = Data.define(:parts, :tempo, :ticks_per_beat, :length, :loop_from, :priority, :group)
 
   class Score
     # FRAMES A SECOND, the rate the music is played at — the same round figure a song block's
@@ -49,21 +54,21 @@ module RubyGBA
     # note ends — and a note with no length of its own counts as a beat long for that, since
     # it lasts until the next note and the last one has none after it. +loop_from+ is the tick
     # it comes round TO; left out, that is its start.
-    def initialize(parts:, tempo: 120, ticks_per_beat: 24, length: nil, loop_from: nil, priority: 0)
+    def initialize(parts:, tempo: 120, ticks_per_beat: 24, length: nil, loop_from: nil, priority: 0, group: nil)
       super
     end
 
     # The score as the plain data every backend replays: each part's events as [frame,
     # frequency in Hz, instrument, volume] — a frequency of 0 a rest, and a nil instrument or
-    # volume meaning the part's own — the song's length in frames, its priority, and the frame
-    # it loops from when it has an introduction.
+    # volume meaning the part's own — the song's length in frames, its priority and group, and
+    # the frame it loops from when it has an introduction.
     def to_song
       Checks.score!(self)
       frames = Timing.new(self)
       ticks = length || last_tick
       total = [frames.at(ticks), 1].max
       song = { voices: parts.map { |part| part.to_voice(frames, total) }, total_frames: total,
-               priority: priority }
+               priority: priority, group: group }
       return song unless loop_from
 
       Checks.loop_from!(loop_from, ticks) { frames.at(loop_from) < total }
@@ -187,6 +192,10 @@ module RubyGBA
         end
         tempo!(score.tempo)
         priority!(score.priority)
+        unless score.group.nil? || score.group.is_a?(Symbol)
+          raise ArgumentError, "A Score has the group #{score.group.inspect}. A group is a name, like :voice. " \
+                               "Give `group:` a name, or remove it."
+        end
         score.parts.each_with_index { |part, number| part!(part, number) }
       end
 

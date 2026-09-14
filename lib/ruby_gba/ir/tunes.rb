@@ -132,6 +132,17 @@ module RubyGBA
       # +order+ counts the program's sound effects from 0, in the order they were declared.
       def effect_rank(song, order) = song_rank(song) | (ORDER_MASK - order)
 
+      # THE PRIORITY A RANK CARRIES, without the order under it — what decides whether an effect
+      # cuts off another of its group, where a tie goes to the one asked for.
+      def priority_of(rank) = rank >> RANK_SHIFT
+
+      # WHICH SOUND EFFECTS CUT EACH OTHER OFF: those whose Scores name the same group, which play
+      # one at a time. Asked for while another of its group is sounding or about to, an effect of at
+      # least that one's priority stops it and starts; one of lower priority is not played at all.
+      # That is how a cartridge's own sound engine plays an effect on its player, one at a time.
+      # nil for an effect that plays alongside any other.
+      def group(song) = song.group
+
       # Every sound effect the program declares, in order: the songs of each effect list.
       def effects(program)
         program.walk.select { |node| node.kind == :sound_effect_list }.flat_map(&:effects)

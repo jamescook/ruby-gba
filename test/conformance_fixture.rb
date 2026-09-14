@@ -49,8 +49,9 @@ module ConformanceFixture
       # a song only a list names, which loops from frame 1 with a note held across it
       B.song(:theme, events: [[0, 330], [2, 392]], total_frames: 4, loop_frame: 1),
       B.song_list(:tracks, [:theme]),                      # ...the list, picked from by number below
-      # a sound effect over the tune, on the square voice and the noise voice, with a priority
-      B.song(:hit, total_frames: 3, priority: 68, voices: [
+      # a sound effect over the tune, on the square voice and the noise voice, with a priority and
+      # a group of its own
+      B.song(:hit, total_frames: 3, priority: 68, group: :sword, voices: [
                RubyGBA::Music::Part.new(events: [[0, 523], [2, 0]]),
                RubyGBA::Music::Part.new(events: [[0, 131]], noise: true),
              ]),

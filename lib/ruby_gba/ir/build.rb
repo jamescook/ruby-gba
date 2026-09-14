@@ -245,10 +245,12 @@ module RubyGBA
       #
       # +loop_frame:+ is where the song goes back to at its end, so what comes before it
       # plays once — an introduction. Left out, the song loops from its start.
-      def song(name, total_frames:, voices: nil, events: nil, duty: :half, volume: 12, loop_frame: nil, priority: nil)
+      def song(name, total_frames:, voices: nil, events: nil, duty: :half, volume: 12, loop_frame: nil, priority: nil,
+               group: nil)
         voices ||= [Music::Part.new(events: events, duty: duty, volume: volume)]
         looping = loop_frame ? { loop_frame: loop_frame } : {}
         looping[:priority] = priority if priority
+        looping[:group] = group if group
         Nodes.build(:song, name: name, voices: voices, total_frames: total_frames, **looping)
       end
 

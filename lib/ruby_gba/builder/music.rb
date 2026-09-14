@@ -120,7 +120,13 @@ module RubyGBA
       # `songs :music, { title: TITLE, forest: FOREST }`, then `music.play :forest`. Returns a
       # {RubyGBA::SongList}.
       def songs(name, scores)
-        keys, members = record_scores(name: name, scores: scores, verb: :songs, entry: "Song")
+        keys, members = record_scores(name: name, scores: scores, verb: :songs, entry: "Song") do |key, score|
+          next unless score.group
+
+          raise ArgumentError, "Song #{key.inspect} of :#{name} has `group:`. A group says which sound effects " \
+                               "cut each other off, and one song plays at a time already. Remove `group:` " \
+                               "from this Score."
+        end
         record(Build.song_list(name, members))
         RubyGBA::SongList.new(self, name, keys)
       end
@@ -189,7 +195,7 @@ module RubyGBA
         song = score.to_song
         @songs[member] = score
         record(Build.song(member, voices: song[:voices], total_frames: song[:total_frames],
-                                  loop_frame: song[:loop_frame], priority: song[:priority]))
+                                  loop_frame: song[:loop_frame], priority: song[:priority], group: song[:group]))
         member
       end
 

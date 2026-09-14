@@ -345,6 +345,87 @@ class TestSoundEffects < Minitest::Test
     assert_includes Reference.new.run(program, frames: 18).sound_owners, [:"sfx.0", 0]
   end
 
+  # --- one at a time, in a group ---
+
+  # A CRY on the first square voice, three notes ten ticks apart, and a HURT on the noise voice
+  # — different voices, so without a group the two would sound together.
+  def cry(priority, group: :voice)
+    Score.new(tempo: 150, priority: priority, group: group,
+              parts: [Part.new(notes: %i[C5 E5 G5].each_with_index.map { |key, n| Note.new(at: n * 10, key: key) })])
+  end
+
+  def hurt(priority, group: :voice)
+    Score.new(tempo: 150, priority: priority, group: group,
+              parts: [Part.new(plays: :noise, notes: [Note.new(at: 0, key: :C3, length: 30)])])
+  end
+
+  # The cry asked for on pass 3, and the hurt on pass 8.
+  def cry_then_hurt(cry_priority:, hurt_priority:, group: :voice)
+    game([cry(cry_priority, group: group), hurt(hurt_priority, group: group)]) do |sfx, pass|
+      (pass == 3).then { sfx.play 0 }
+      (pass == 8).then { sfx.play 1 }
+    end
+  end
+
+  # Asked for while another of its group sounds, at a priority at least as high, an effect cuts
+  # that one off: its voice goes quiet, and its later notes are never heard.
+  def test_an_effect_cuts_off_the_one_its_group_is_playing
+    heard = notes_by_frame(cry_then_hurt(cry_priority: 64, hurt_priority: 72), 40)
+
+    assert_equal [[:"sfx.0", NOTES[:C5]]], heard[4]
+    assert_equal [[:"sfx.1", NOTES[:C3]], [:"sfx.0", 0]], heard[9], "the hurt starts, and the cry goes quiet"
+    refute heard.key?(14), "the cry's second note is not heard"
+  end
+
+  # At a lower priority it is not played at all, and the one sounding carries on.
+  def test_an_effect_below_the_one_its_group_is_playing_is_not_played
+    i = Reference.new.run(cry_then_hurt(cry_priority: 72, hurt_priority: 64), frames: 40)
+
+    assert_equal 1, i.audio.count { |entry| entry[0] == :sound_effect }, "only the cry started"
+    assert_includes i.audio, [:note, :"sfx.0", NOTES[:G5]]
+    refute(i.audio.any? { |entry| entry[0] == :note && entry[1] == :"sfx.1" })
+  end
+
+  # A tie cuts off the one sounding: the effect asked for is the one the game wants now.
+  def test_an_effect_as_high_as_the_one_its_group_is_playing_cuts_it_off
+    heard = notes_by_frame(cry_then_hurt(cry_priority: 64, hurt_priority: 64), 40)
+
+    assert_includes heard[9], [:"sfx.1", NOTES[:C3]]
+    refute heard.key?(14)
+  end
+
+  # Effects in different groups, or in none, sound together as before.
+  def test_effects_in_different_groups_sound_together
+    apart = notes_by_frame(game([cry(72, group: :voice), hurt(64, group: :sword)]) do |sfx, pass|
+      (pass == 3).then { sfx.play 0 }
+      (pass == 8).then { sfx.play 1 }
+    end, 40)
+    ungrouped = notes_by_frame(cry_then_hurt(cry_priority: 72, hurt_priority: 64, group: nil), 40)
+
+    [apart, ungrouped].each do |heard|
+      assert_equal [[:"sfx.1", NOTES[:C3]]], heard[9]
+      assert_equal [[:"sfx.0", NOTES[:E5]]], heard[14]
+    end
+  end
+
+  # Asked for again while it sounds, an effect in a group stops before it starts again: its voice
+  # goes quiet on that frame, the same as the one it would cut off.
+  def test_an_effect_in_a_group_asked_for_again_stops_first
+    program = game([cry(64)]) { |sfx, pass| ((pass == 3) | (pass == 8)).then { sfx.play 0 } }
+
+    assert_equal [[:"sfx.0", 0], [:"sfx.0", NOTES[:C5]]], notes_by_frame(program, 20)[9]
+  end
+
+  # Two of a group asked for on one pass: the higher priority starts, whichever was asked first.
+  def test_of_two_asked_for_together_in_a_group_the_higher_priority_starts
+    [[1, 0], [0, 1]].each do |order|
+      program = game([cry(64), hurt(72)]) { |sfx, pass| (pass == 3).then { order.each { |which| sfx.play which } } }
+      i = Reference.new.run(program, frames: 10)
+
+      assert_equal [[:sound_effect, :"sfx.1"]], i.audio.select { |entry| entry[0] == :sound_effect }, order.inspect
+    end
+  end
+
   # --- picked by name, or by a number the game works out ---
 
   def test_an_effect_is_played_by_name
@@ -659,6 +740,45 @@ class TestSoundEffects < Minitest::Test
     assert_equal 1, console_run(under, frames: 20).sound_drops.dropped, "the console counts the note that did not play"
   end
 
+  # A GROUP ON THE CONSOLE: cut off by a higher priority, a lower one not played, a tie, one asked
+  # for again, and two asked for on one pass in either order — the square voice and the noise voice
+  # set the same way as the interpreter sets them.
+  def test_the_console_plays_one_of_a_group_at_a_time_the_way_the_interpreter_does
+    tones = { "sfx.0": :half, "sfx.1": nil }
+    together = [[1, 0], [0, 1]].map do |order|
+      game([cry(64), hurt(72)]) { |sfx, pass| (pass == 3).then { order.each { |which| sfx.play which } } }
+    end
+    again = game([cry(64)]) { |sfx, pass| ((pass == 3) | (pass == 8)).then { sfx.play 0 } }
+    late = Score.new(tempo: 150, group: :voice, parts: [Part.new(notes: [Note.new(at: 5, key: :C5, length: 40)])])
+    late_again = game([late]) { |sfx, pass| ((pass == 3) | (pass == 20)).then { sfx.play 0 } }
+    programs = [cry_then_hurt(cry_priority: 64, hurt_priority: 72), cry_then_hurt(cry_priority: 72, hurt_priority: 64),
+                cry_then_hurt(cry_priority: 64, hurt_priority: 64), again, late_again, *together]
+
+    assert_equal [[0, setting(:half, 12)], [5, 0]], interpreted_changes(programs.first, 1, tones, frames: 60),
+                 "the cry is cut off five frames in"
+    assert_equal [[0, setting(:half, 12)], [12, 0], [17, setting(:half, 12)], [57, 0]],
+                 interpreted_changes(late_again, 1, tones, frames: 80), "asked for again, it goes quiet until its first note"
+    programs.each do |program|
+      assert_backends_share_the_voice(program, tones)
+      assert_backends_share_the_voice(program, tones, channel: 4) unless [again, late_again].include?(program)
+    end
+  end
+
+  # A recorded effect cut off by another of its group lets its mixer voice go.
+  def test_the_console_lets_a_cut_off_recorded_effect_go_the_way_the_interpreter_does
+    long = ->(key, priority) { Score.new(tempo: 150, priority: priority, group: :voice, parts: [Part.new(plays: :piano, notes: [Note.new(at: 0, key: key, length: 60)])]) }
+    program = game([long.call(:C4, 64), long.call(:E4, 72)]) do |sfx, pass|
+      (pass == 3).then { sfx.play 0 }
+      (pass == 10).then { sfx.play 1 }
+    end
+
+    [8, 20].each do |frames|
+      interpreted, console = owners_on_both(program, frames: frames)
+      assert_equal interpreted, console, "#{frames} frames in"
+    end
+    assert_equal [[:"sfx.1", 0]], Reference.new.run(program, frames: 20).sound_owners
+  end
+
   # A fading note taken first, a song part that lost its voice having one again at its next note,
   # and a silent note taking none, on both backends.
   def test_the_console_takes_fading_notes_gives_voices_back_and_passes_over_silent_notes
@@ -814,6 +934,21 @@ class TestSoundEffects < Minitest::Test
 
     assert_match(/the sound effect :rumble of :sfx/, found.message)
     refute_match(/plays: :wave/, found.message)
+  end
+
+  def test_a_group_that_is_not_a_name_is_a_friendly_error
+    named_by_text = [cry(64, group: "voice")]
+
+    assert_match(/A group is a name/, build_error { sound_effects :sfx, named_by_text })
+  end
+
+  # A song plays one at a time already, so a group on one is a mistake worth saying.
+  def test_a_song_in_a_group_is_a_friendly_error
+    grouped = { theme: cry(0) }
+    message = build_error { songs :music, grouped }
+
+    assert_match(/:theme of :music/, message)
+    assert_match(/group:/, message)
   end
 
   def test_a_priority_that_is_not_a_byte_is_a_friendly_error
