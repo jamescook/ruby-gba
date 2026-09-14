@@ -11,10 +11,8 @@ require_relative "test_helper"
 class TestFrameEvents < Minitest::Test
   include RubyGBAEmulatorTestSupport
 
-  # A game loop reads the pad once a pass, so this is how many passes the game managed —
-  # the number the cross-backend test currently gets by adding a counter to the program.
-  def test_a_probe_says_how_many_passes_the_game_managed
-    path = build_rom("PASSES", code: "TPAS") do
+  def test_a_probe_says_how_often_the_game_asked_for_buttons
+    path = build_rom("PADREAD", code: "TPAD") do
       screen :bitmap
       tick = var :tick, 0
       game_loop do
@@ -26,13 +24,14 @@ class TestFrameEvents < Minitest::Test
     probe = RubyGBAEmulator.open(path)
     probe.step(8)
 
-    assert_operator probe.passes, :>, 0, "the game ran, so it read the pad"
-    assert_operator probe.passes, :<=, 8, "it cannot have passed more often than there were frames"
+    assert_operator probe.pad_reads, :>, 0, "the game ran, and it reads the pad every pass"
+    assert_operator probe.pad_reads, :<=, 8, "it cannot have asked more often than there were frames"
   end
 
-  # A cartridge that never reads the pad has no passes to report, and saying so is better
-  # than reporting a number that means something else.
-  def test_a_game_that_never_reads_the_pad_reports_no_passes
+  # The trap this name exists to avoid: a game loop that never asks for input reads the pad
+  # never, however many times it goes round. So this counts the asking, and a test wanting
+  # passes has to count something else.
+  def test_a_game_that_never_asks_for_buttons_reads_the_pad_never
     path = build_rom("NOPAD", code: "TNOP") do
       screen :bitmap
       game_loop { clear_screen :blue }
@@ -41,7 +40,7 @@ class TestFrameEvents < Minitest::Test
     probe = RubyGBAEmulator.open(path)
     probe.step(8)
 
-    assert_equal 0, probe.passes
+    assert_equal 0, probe.pad_reads
   end
 
   # What the emulator itself said while the frame ran. mGBA reports a bad read or an

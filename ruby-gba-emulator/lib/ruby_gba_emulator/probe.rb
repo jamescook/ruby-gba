@@ -81,18 +81,17 @@ module RubyGBAEmulator
       self
     end
 
-    # HOW MANY PASSES OF THE GAME LOOP the cartridge has managed since it was loaded.
+    # How many times the game has READ THE PAD since the cartridge was loaded.
     #
-    # The core counts this, rather than the cartridge being altered to count itself: a game
-    # loop reads the pad once a pass, and mGBA says when the pad is read. A cartridge that
-    # never reads the pad has no passes to report and answers 0 — the count is of the game
-    # asking for input, which for a game loop is the same thing, and for a program without
-    # one is nothing.
+    # This is what the emulator saw, not how many times a game loop went round. The two look
+    # alike — a game loop reads the pad once a pass — but a loop that never asks for input
+    # reads it never, so this is a fact about the game asking for buttons and nothing more.
+    # Counting passes wants the loop's own routine watched instead.
     #
     # @return [Integer]
-    def passes
+    def pad_reads
       ensure_open!
-      @core.passes
+      @core.pad_reads
     end
 
     # WHAT THE EMULATOR SAID about this cartridge — a bad read, an unmapped address, a

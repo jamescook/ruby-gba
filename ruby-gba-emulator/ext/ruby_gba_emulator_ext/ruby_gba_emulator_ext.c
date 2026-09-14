@@ -528,9 +528,10 @@ install_core_callbacks(struct mgba_core *mc)
     mc->core->addCoreCallbacks(mc->core, &cbs);
 }
 
-/* Core#passes — how many times the game has read the pad since the cartridge was loaded. */
+/* Core#pad_reads — how many times the game has read the pad since the cartridge was
+ * loaded. A game loop reads it once a pass, at the START of one. */
 static VALUE
-mgba_core_passes(VALUE self)
+mgba_core_pad_reads(VALUE self)
 {
     return INT2NUM(get_mgba_core(self)->ev_passes);
 }
@@ -2043,7 +2044,7 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_alloc_func(cCore, mgba_core_alloc);
 
     rb_define_method(cCore, "initialize",  mgba_core_initialize, -1);
-    rb_define_method(cCore, "passes",      mgba_core_passes, 0);
+    rb_define_method(cCore, "pad_reads",   mgba_core_pad_reads, 0);
     rb_define_method(cCore, "crashed?",    mgba_core_crashed_p, 0);
     rb_define_method(cCore, "complaints",  mgba_core_complaints, 0);
     rb_define_method(cCore, "run_frame",   mgba_core_run_frame, 0);

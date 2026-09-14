@@ -137,10 +137,15 @@ module Differential
   # The console's picture, and how many passes of the game loop it managed.
   #
   # The passes are counted by adding a variable and an instruction to the game loop, so the
-  # console runs a program the interpreter never sees. The emulator can report the game
-  # READING THE PAD, which a game loop does once a pass — but that marks the START of a
-  # pass, and lining up pictures needs passes FINISHED, so the two disagree by one exactly
-  # when a run stops mid-pass. Until there is a signal for a pass ending, this stays.
+  # console runs a program the interpreter never sees. That is worth removing — an extra
+  # instruction can tip a routine out of the console's quick memory, so the thing proved
+  # identical is not quite the thing that ships — but it is EXACT, and what replaces it has
+  # to be exact too.
+  #
+  # The emulator can report the game reading the pad, which a game loop does once a pass;
+  # that is a proxy rather than a count, and it says nothing at all about a loop that never
+  # reads input. Counting arrivals at the loop's own routine would be a real count, since
+  # the build knows where that routine is.
   def console_picture(program, cf, name, keys)
     mask = keys.sum { |key| KEY_BITS.fetch(key) }
     counted = RubyGBA::Analyzer.instrument_frame_counter(program, PASSES)
