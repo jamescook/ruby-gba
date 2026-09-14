@@ -198,9 +198,9 @@ module RubyGBA
           # effect has. Those share the mixer's voices rather than one voice each, so who gives way
           # is the mixer's to say, by the rank each voice's mark carries (Mixer.ranked_owner).
           #
-          # In a game with groups (IR::Tunes.group) two more states say what the game decided when
-          # it asked: an effect cut off by another of its group is STOPPING, and one of a group asked
-          # for again while it sounds is RESTARTING — its voices are let go before it starts.
+          # In a game with groups (IR::Tunes.priority_of) two more states say what the game decided
+          # when it asked: an effect stopped by another of its group is STOPPING, and one of a group
+          # asked for again while it sounds is RESTARTING — its voices are let go before it starts.
           EFFECT_STATE = 0    # 0, EFFECT_ASKED, EFFECT_SOUNDING, EFFECT_STOPPING or EFFECT_RESTARTING
           EFFECT_FRAME = 4    # how far into the effect, in frames
           EFFECT_CURSORS = 8  # each lane's next event, as a byte offset into the score
@@ -209,13 +209,16 @@ module RubyGBA
           EFFECT_STOPPING = 3
           EFFECT_RESTARTING = 4
 
-          # WHO EACH EFFECT CUTS OFF, for a game with groups: one entry a table place, in table order
-          # — where its group's list starts in this same data, how many are in it, and its priority —
-          # and then each group's list of table places.
+          # WHO EACH EFFECT STOPS, for a game with groups: one entry a table place, in table order
+          # — where its group's list starts in this same data, how many are in it, and its priority,
+          # each a halfword, and a fourth left empty so an entry is a shift of its place — and then
+          # each group's list of table places, a halfword each.
           SOUND_EFFECT_GROUPS = :__sound_effect_groups
-          GROUP_ENTRY_SHIFT = 3 # eight bytes: where (u16), how many (u16), priority (u16), and room
+          GROUP_ENTRY_SHIFT = 3
+          GROUP_LIST = 0
           GROUP_COUNT = 2
           GROUP_PRIORITY = 4
+          GROUP_MEMBER_BYTES = 2
 
           # An effect's entry in the score: its length in frames, its rank, and where each of its
           # lanes' events start.
@@ -322,18 +325,26 @@ module RubyGBA
           end
 
           # Does any sound effect belong to a group?
-          def grouped? = plays_sound_effects? && @effects.any? { |name| IR::Tunes.group(@songs.fetch(name)) }
+          def grouped? = plays_sound_effects? && @effects.any? { |name| group_of(name) }
+
+          # The group of the sound effect named +name+, or nil.
+          def group_of(name) = @songs.fetch(name).group
 
           # See SOUND_EFFECT_GROUPS.
           def groups_blob
-            groups = @effects.each_index.group_by { |slot| IR::Tunes.group(@songs.fetch(@effects[slot])) }
+            groups = @effects.each_index.group_by { |slot| group_of(@effects[slot]) }
             groups.delete(nil)
-            at = (@effects.size << GROUP_ENTRY_SHIFT)
-            starts = groups.transform_values { |members| at.tap { at += members.size * 2 } }
-            entries = @effects.each_with_index.map do |name, slot|
-              group = IR::Tunes.group(@songs.fetch(name))
-              members = group ? groups.fetch(group) : []
-              [group ? starts.fetch(group) : 0, members.size, IR::Tunes.priority_of(@effect_ranks.fetch(name)), 0].pack("vvvv")
+            starts = {}
+            at = @effects.size << GROUP_ENTRY_SHIFT
+            groups.each do |group, members|
+              starts[group] = at
+              at += members.size * GROUP_MEMBER_BYTES
+            end
+            entries = @effects.map do |name|
+              group = group_of(name)
+              count = group ? groups.fetch(group).size : 0
+              priority = IR::Tunes.priority_of(@effect_ranks.fetch(name))
+              [starts.fetch(group, 0), count, priority, 0].pack("vvvv")
             end
             entries.join + groups.values.map { |members| members.pack("v*") }.join
           end
@@ -353,52 +364,66 @@ module RubyGBA
           # the game works out is turned into a place in the table by a small table of its own —
           # and one naming no effect in the list plays nothing.
           #
-          # A list with an effect in a group asks differently (#emit_ask_in_group).
+          # A list with an effect in a group asks through the group instead, for every effect in it
+          # (#emit_ask_in_group): the effect a number the game works out names is not known until
+          # the game runs.
           def emit_play_sound_effect(node)
             slots = @effect_lists.fetch(node.name)
             fixed = @primitives.const_int(node.which)
-            grouped = slots.any? { |slot| IR::Tunes.group(@songs.fetch(@effects[slot])) }
-            if fixed && grouped
+            grouped = slots.any? { |slot| group_of(@effects[slot]) }
+            if fixed
               return unless fixed.between?(0, slots.size - 1)
-
-              @emitter.emit(ASM.load_immediate(ASK_PLACE, slots[fixed]))
-              return emit_ask_in_group
-            elsif fixed
-              return unless fixed.between?(0, slots.size - 1)
+              return emit_ask_in_group(place: slots[fixed]) if grouped
 
               @emitter.emit(ASM.load_immediate(TMP, @effect_table + (slots[fixed] * @effect_slot_bytes)))
+              return emit_ask
+            end
+
+            none = @emitter.gensym
+            @lowering.value(node.which)                       # ACC = which
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, none, cond: :lt)
+            @emitter.emit(ASM.load_immediate(TMP, slots.size))
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit_branch(:bcond, none, cond: :ge)     # past the last effect
+            @emitter.emit_load_data_address(TMP, effect_slots_blob(node.name))
+            @emitter.emit(ASM.lsl_imm(ACC, ACC, 1))
+            @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
+            @emitter.emit(ASM.load_halfword(ACC, TMP))        # its place in the table
+            if grouped
+              emit_ask_in_group
             else
-              none = @emitter.gensym
-              @lowering.value(node.which)                       # ACC = which
-              @emitter.emit(ASM.cmp_imm(ACC, 0))
-              @emitter.emit_branch(:bcond, none, cond: :lt)
-              @emitter.emit(ASM.load_immediate(TMP, slots.size))
-              @emitter.emit(ASM.cmp_reg(ACC, TMP))
-              @emitter.emit_branch(:bcond, none, cond: :ge)     # past the last effect
-              @emitter.emit_load_data_address(TMP, effect_slots_blob(node.name))
-              @emitter.emit(ASM.lsl_imm(ACC, ACC, 1))
-              @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
-              @emitter.emit(ASM.load_halfword(ACC, TMP))        # its place in the table
-              if grouped
-                @emitter.emit(ASM.mov_reg(ASK_PLACE, ACC))
-                emit_ask_in_group
-                return @emitter.place_label(none)
-              end
               @emitter.emit(ASM.lsl_imm(ACC, ACC, @effect_slot_bytes.bit_length - 1))
               @emitter.emit(ASM.load_immediate(TMP, @effect_table))
               @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
+              emit_ask
             end
-            @emitter.emit(ASM.load_immediate(ACC, EFFECT_ASKED))
-            @emitter.emit(ASM.str_offset(ACC, TMP, EFFECT_STATE))
-            @emitter.place_label(none) if none
+            @emitter.place_label(none)
           end
 
-          # The register the place in the table of the effect asked for is handed over in.
-          ASK_PLACE = 2
+          # Ask for the effect whose place in the table is at the address in TMP: one store.
+          def emit_ask
+            @emitter.emit(ASM.load_immediate(ACC, EFFECT_ASKED))
+            @emitter.emit(ASM.str_offset(ACC, TMP, EFFECT_STATE))
+          end
 
-          # ASK FOR THE EFFECT AT TABLE PLACE r2, deciding its group as it is asked (IR::Tunes.group).
+          # THE REGISTERS THE ASK IN A GROUP WORKS IN. The place asked for is handed over in
+          # ASK_PLACE; the rest are kept on the stack and given back, except ACC and TMP, which
+          # every statement may use, and r3, where the interrupts' master switch waits.
+          ASK_LIST = 0     # the group's list, walked
+          ASK_LEFT = 1     # how many of it are left
+          ASK_PLACE = 2    # the place in the table asked for
+          ASK_BLOB = 4     # the groups' data
+          ASK_PRIORITY = 5 # the priority of the effect asked for
+          ASK_TABLE = 6    # the table's start
+          ASK_MEMBER = 7   # the place of the one of the group being looked at
+          ASK_STATE = 8    # its state
+          ASK_KEEPS = [ASK_BLOB, ASK_PRIORITY, ASK_TABLE, ASK_MEMBER, ASK_STATE].freeze
+
+          # ASK FOR THE EFFECT AT A TABLE PLACE — +place+, or with none given, the place in ACC —
+          # deciding its group as it is asked (IR::Tunes.priority_of).
           #
-          # The game reads the table and writes two places in it, where asking for an effect with no
+          # The game reads the table and writes two places in it, where asking in a list with no
           # group is a single store — so the screen's interrupt, which moves the table on, is held
           # off while it does, and sees the decision whole. Each of the group is looked at in turn:
           #
@@ -410,75 +435,96 @@ module RubyGBA
           #     then it still holds voices to let go of.
           #
           # A group has one sounding or asked for at most, which is what lets the walk stop at the
-          # first it finds. Uses r0-r3 and r12, and keeps r4-r8 on the stack.
-          def emit_ask_in_group
+          # first it finds. An effect in no group has an empty list, and is simply asked for.
+          def emit_ask_in_group(place: nil)
             e = @emitter
-            list, left, place, blob, priority, table, member, state = 0, 1, ASK_PLACE, 4, 5, 6, 7, 8
-            scan = e.gensym
+            place ? e.emit(ASM.load_immediate(ASK_PLACE, place)) : e.emit(ASM.mov_reg(ASK_PLACE, ACC))
             found = e.gensym
-            other = e.gensym
             ask = e.gensym
             done = e.gensym
             @mixer.holding_off_interrupts do
-              e.emit(ASM.push(blob, priority, table, member, state))
-              e.emit_load_data_address(blob, SOUND_EFFECT_GROUPS)
-              e.emit(ASM.lsl_imm(ADDR, place, GROUP_ENTRY_SHIFT))
-              e.emit(ASM.add_reg(ADDR, blob, ADDR))                     # this one's entry
-              e.emit(ASM.load_halfword(list, ADDR))
-              e.emit(ASM.add_reg(list, blob, list))                     # its group's list
-              e.emit(ASM.load_halfword_offset(left, ADDR, GROUP_COUNT))
-              e.emit(ASM.load_halfword_offset(priority, ADDR, GROUP_PRIORITY))
-              e.emit(ASM.load_immediate(table, @effect_table))
-              e.emit(ASM.cmp_imm(left, 0))
-              e.emit_branch(:bcond, ask, cond: :eq)                     # in no group
-
-              e.place_label(scan)
-              e.emit(ASM.load_halfword(member, list))
-              e.emit(ASM.add_imm(list, list, 2))
-              emit_table_place(ADDR, table, member)
-              e.emit(ASM.ldr_offset(state, ADDR, EFFECT_STATE))
-              [EFFECT_ASKED, EFFECT_SOUNDING, EFFECT_RESTARTING].each do |current|
-                e.emit(ASM.cmp_imm(state, current))
-                e.emit_branch(:bcond, found, cond: :eq)
-              end
-              e.emit(ASM.subs_imm(left, left, 1))
-              e.emit_branch(:bcond, scan, cond: :ne)
+              e.emit(ASM.push(*ASK_KEEPS))
+              emit_open_group(ask)
+              emit_find_in_group(found)
               e.emit_branch(:b, ask)                                    # none of them: ask
-
               e.place_label(found)
-              e.emit(ASM.cmp_reg(member, place))
-              e.emit_branch(:bcond, other, cond: :ne)
-              e.emit(ASM.cmp_imm(state, EFFECT_SOUNDING))               # itself: asked for again
-              e.emit_branch(:bcond, done, cond: :ne)
-              e.emit(ASM.load_immediate(state, EFFECT_RESTARTING))
-              e.emit(ASM.str_offset(state, ADDR, EFFECT_STATE))
-              e.emit_branch(:b, done)
-
-              e.place_label(other)
-              e.emit(ASM.lsl_imm(state, member, GROUP_ENTRY_SHIFT))
-              e.emit(ASM.add_reg(state, blob, state))
-              e.emit(ASM.load_halfword_offset(state, state, GROUP_PRIORITY))
-              e.emit(ASM.cmp_reg(priority, state))
-              e.emit_branch(:bcond, done, cond: :lo)                    # higher than this one: not played
-              e.emit(ASM.load_immediate(state, EFFECT_STOPPING))
-              e.emit(ASM.str_offset(state, ADDR, EFFECT_STATE))
-
+              emit_decide_in_group(done)
               e.place_label(ask)
-              emit_table_place(ADDR, table, place)
-              e.emit(ASM.ldr_offset(state, ADDR, EFFECT_STATE))
-              e.emit(ASM.cmp_imm(state, EFFECT_STOPPING))
-              e.emit(ASM.mov_imm_cond(:eq, state, EFFECT_RESTARTING))
-              e.emit(ASM.mov_imm_cond(:ne, state, EFFECT_ASKED))
-              e.emit(ASM.str_offset(state, ADDR, EFFECT_STATE))
+              emit_table_place(ADDR, ASK_PLACE)
+              e.emit(ASM.ldr_offset(ASK_STATE, ADDR, EFFECT_STATE))
+              e.emit(ASM.cmp_imm(ASK_STATE, EFFECT_STOPPING))
+              e.emit(ASM.mov_imm_cond(:eq, ASK_STATE, EFFECT_RESTARTING))
+              e.emit(ASM.mov_imm_cond(:ne, ASK_STATE, EFFECT_ASKED))
+              e.emit(ASM.str_offset(ASK_STATE, ADDR, EFFECT_STATE))
               e.place_label(done)
-              e.emit(ASM.pop(blob, priority, table, member, state))
+              e.emit(ASM.pop(*ASK_KEEPS))
             end
           end
 
-          # +reg+ = the address of place number +number+ (a register) in the table starting at +table+.
-          def emit_table_place(reg, table, number)
+          # The asked-for effect's entry: its group's list and how many are in it, and its priority —
+          # and on to +ask+ when it has no group.
+          def emit_open_group(ask)
+            e = @emitter
+            e.emit_load_data_address(ASK_BLOB, SOUND_EFFECT_GROUPS)
+            e.emit(ASM.lsl_imm(ADDR, ASK_PLACE, GROUP_ENTRY_SHIFT))
+            e.emit(ASM.add_reg(ADDR, ASK_BLOB, ADDR))
+            e.emit(ASM.load_halfword_offset(ASK_LIST, ADDR, GROUP_LIST))
+            e.emit(ASM.add_reg(ASK_LIST, ASK_BLOB, ASK_LIST))
+            e.emit(ASM.load_halfword_offset(ASK_LEFT, ADDR, GROUP_COUNT))
+            e.emit(ASM.load_halfword_offset(ASK_PRIORITY, ADDR, GROUP_PRIORITY))
+            e.emit(ASM.load_immediate(ASK_TABLE, @effect_table))
+            e.emit(ASM.cmp_imm(ASK_LEFT, 0))
+            e.emit_branch(:bcond, ask, cond: :eq)
+          end
+
+          # Walk the group for the one sounding or asked for, and on to +found+ with its place in
+          # ASK_MEMBER, its address in ADDR and its state in ASK_STATE. Falls through when none is.
+          def emit_find_in_group(found)
+            e = @emitter
+            scan = e.gensym
+            e.place_label(scan)
+            e.emit(ASM.load_halfword(ASK_MEMBER, ASK_LIST))
+            e.emit(ASM.add_imm(ASK_LIST, ASK_LIST, GROUP_MEMBER_BYTES))
+            emit_table_place(ADDR, ASK_MEMBER)
+            e.emit(ASM.ldr_offset(ASK_STATE, ADDR, EFFECT_STATE))
+            [EFFECT_ASKED, EFFECT_SOUNDING, EFFECT_RESTARTING].each do |current|
+              e.emit(ASM.cmp_imm(ASK_STATE, current))
+              e.emit_branch(:bcond, found, cond: :eq)
+            end
+            e.emit(ASM.subs_imm(ASK_LEFT, ASK_LEFT, 1))
+            e.emit_branch(:bcond, scan, cond: :ne)
+          end
+
+          # The group's one is found. Itself, it restarts if it is sounding and is left as it is
+          # otherwise; another, it is STOPPING unless it outranks the one asked for, and then this
+          # one is not played. Both of those go on to +done+; stopping the other falls through, to
+          # ask for this one.
+          def emit_decide_in_group(done)
+            e = @emitter
+            other = e.gensym
+            e.emit(ASM.cmp_reg(ASK_MEMBER, ASK_PLACE))
+            e.emit_branch(:bcond, other, cond: :ne)
+            e.emit(ASM.cmp_imm(ASK_STATE, EFFECT_SOUNDING))
+            e.emit_branch(:bcond, done, cond: :ne)
+            e.emit(ASM.load_immediate(ASK_STATE, EFFECT_RESTARTING))
+            e.emit(ASM.str_offset(ASK_STATE, ADDR, EFFECT_STATE))
+            e.emit_branch(:b, done)
+
+            e.place_label(other)
+            e.emit(ASM.lsl_imm(ASK_STATE, ASK_MEMBER, GROUP_ENTRY_SHIFT))
+            e.emit(ASM.add_reg(ASK_STATE, ASK_BLOB, ASK_STATE))
+            e.emit(ASM.load_halfword_offset(ASK_STATE, ASK_STATE, GROUP_PRIORITY))
+            e.emit(ASM.cmp_reg(ASK_PRIORITY, ASK_STATE))
+            e.emit_branch(:bcond, done, cond: :lo)                      # it outranks this one
+            e.emit(ASM.load_immediate(ASK_STATE, EFFECT_STOPPING))
+            e.emit(ASM.str_offset(ASK_STATE, ADDR, EFFECT_STATE))
+          end
+
+          # +reg+ = the address of the table place whose number is in +number+ (the table's start
+          # in ASK_TABLE).
+          def emit_table_place(reg, number)
             @emitter.emit(ASM.lsl_imm(reg, number, @effect_slot_bytes.bit_length - 1))
-            @emitter.emit(ASM.add_reg(reg, table, reg))
+            @emitter.emit(ASM.add_reg(reg, ASK_TABLE, reg))
           end
 
           # NAME THE TUNE PLAYING NOW. One number into one variable, and the player in the

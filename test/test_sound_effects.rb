@@ -394,7 +394,7 @@ class TestSoundEffects < Minitest::Test
     refute heard.key?(14)
   end
 
-  # Effects in different groups, or in none, sound together as before.
+  # Effects in different groups, or in none, sound together.
   def test_effects_in_different_groups_sound_together
     apart = notes_by_frame(game([cry(72, group: :voice), hurt(64, group: :sword)]) do |sfx, pass|
       (pass == 3).then { sfx.play 0 }
@@ -414,6 +414,21 @@ class TestSoundEffects < Minitest::Test
     program = game([cry(64)]) { |sfx, pass| ((pass == 3) | (pass == 8)).then { sfx.play 0 } }
 
     assert_equal [[:"sfx.0", 0], [:"sfx.0", NOTES[:C5]]], notes_by_frame(program, 20)[9]
+  end
+
+  # Asked for again, an effect is still its group's one, so a lower one asked for after it on the
+  # same pass is not played — whether or not it was already sounding.
+  def test_an_effect_asked_for_again_still_holds_its_group_against_a_lower_one
+    sounding = game([cry(72), hurt(64)]) do |sfx, pass|
+      (pass == 3).then { sfx.play 0 }
+      (pass == 8).then { sfx.play 0; sfx.play 1 }
+    end
+    twice = game([cry(72), hurt(64)]) { |sfx, pass| (pass == 3).then { sfx.play 0; sfx.play 0; sfx.play 1 } }
+
+    [sounding, twice].each do |program|
+      i = Reference.new.run(program, frames: 20)
+      refute_includes i.audio, [:sound_effect, :"sfx.1"]
+    end
   end
 
   # Two of a group asked for on one pass: the higher priority starts, whichever was asked first.
@@ -740,43 +755,108 @@ class TestSoundEffects < Minitest::Test
     assert_equal 1, console_run(under, frames: 20).sound_drops.dropped, "the console counts the note that did not play"
   end
 
-  # A GROUP ON THE CONSOLE: cut off by a higher priority, a lower one not played, a tie, one asked
-  # for again, and two asked for on one pass in either order — the square voice and the noise voice
-  # set the same way as the interpreter sets them.
-  def test_the_console_plays_one_of_a_group_at_a_time_the_way_the_interpreter_does
-    tones = { "sfx.0": :half, "sfx.1": nil }
+  # A GROUP ON THE CONSOLE: the square voice the cry plays and the noise voice the hurt plays are
+  # set the same way the interpreter sets them.
+  GROUP_TONES = { "sfx.0": :half, "sfx.1": nil }.freeze
+
+  def assert_backends_share_both_voices(program)
+    assert_backends_share_the_voice(program, GROUP_TONES)
+    assert_backends_share_the_voice(program, GROUP_TONES, channel: 4)
+  end
+
+  def test_the_console_cuts_an_effect_off_for_a_higher_one_of_its_group
+    program = cry_then_hurt(cry_priority: 64, hurt_priority: 72)
+
+    assert_equal [[0, setting(:half, 12)], [5, 0]], interpreted_changes(program, 1, GROUP_TONES, frames: 60),
+                 "the cry is cut off five frames in"
+    assert_backends_share_both_voices(program)
+  end
+
+  def test_the_console_does_not_play_a_lower_one_of_a_group
+    assert_backends_share_both_voices(cry_then_hurt(cry_priority: 72, hurt_priority: 64))
+  end
+
+  def test_the_console_cuts_an_effect_off_on_a_tie_in_its_group
+    assert_backends_share_both_voices(cry_then_hurt(cry_priority: 64, hurt_priority: 64))
+  end
+
+  def test_the_console_plays_effects_of_two_groups_together
+    two_groups = game([cry(72, group: :voice), hurt(64, group: :sword)]) do |sfx, pass|
+      (pass == 3).then { sfx.play 0 }
+      (pass == 8).then { sfx.play 1 }
+    end
+
+    assert_backends_share_both_voices(two_groups)
+  end
+
+  # Asked for again, it goes quiet until its first note — which, in this one, comes five frames in.
+  def test_the_console_stops_an_effect_of_a_group_asked_for_again
+    late = Score.new(tempo: 150, group: :voice, parts: [Part.new(notes: [Note.new(at: 5, key: :C5, length: 40)])])
+    program = game([late]) { |sfx, pass| ((pass == 3) | (pass == 20)).then { sfx.play 0 } }
+
+    assert_equal [[0, setting(:half, 12)], [12, 0], [17, setting(:half, 12)], [57, 0]],
+                 interpreted_changes(program, 1, GROUP_TONES, frames: 80)
+    assert_backends_share_the_voice(program, GROUP_TONES)
+  end
+
+  # Two of a group asked for on one pass, in either order; and one asked for again on the pass a
+  # lower one is, sounding or not.
+  def test_the_console_decides_several_asks_on_one_pass_the_way_the_interpreter_does
     together = [[1, 0], [0, 1]].map do |order|
       game([cry(64), hurt(72)]) { |sfx, pass| (pass == 3).then { order.each { |which| sfx.play which } } }
     end
-    again = game([cry(64)]) { |sfx, pass| ((pass == 3) | (pass == 8)).then { sfx.play 0 } }
-    late = Score.new(tempo: 150, group: :voice, parts: [Part.new(notes: [Note.new(at: 5, key: :C5, length: 40)])])
-    late_again = game([late]) { |sfx, pass| ((pass == 3) | (pass == 20)).then { sfx.play 0 } }
-    programs = [cry_then_hurt(cry_priority: 64, hurt_priority: 72), cry_then_hurt(cry_priority: 72, hurt_priority: 64),
-                cry_then_hurt(cry_priority: 64, hurt_priority: 64), again, late_again, *together]
+    again_and_lower = game([cry(72), hurt(64)]) do |sfx, pass|
+      (pass == 3).then { sfx.play 0 }
+      (pass == 8).then { sfx.play 0; sfx.play 1 }
+    end
+    twice_and_lower = game([cry(72), hurt(64)]) { |sfx, pass| (pass == 3).then { sfx.play 0; sfx.play 0; sfx.play 1 } }
 
-    assert_equal [[0, setting(:half, 12)], [5, 0]], interpreted_changes(programs.first, 1, tones, frames: 60),
-                 "the cry is cut off five frames in"
-    assert_equal [[0, setting(:half, 12)], [12, 0], [17, setting(:half, 12)], [57, 0]],
-                 interpreted_changes(late_again, 1, tones, frames: 80), "asked for again, it goes quiet until its first note"
-    programs.each do |program|
-      assert_backends_share_the_voice(program, tones)
-      assert_backends_share_the_voice(program, tones, channel: 4) unless [again, late_again].include?(program)
+    [*together, again_and_lower, twice_and_lower].each { |program| assert_backends_share_both_voices(program) }
+  end
+
+  # A number the game works out, naming an effect with no group in a list that has groups in it,
+  # plays it alongside the one sounding.
+  def test_the_console_plays_an_effect_with_no_group_from_a_list_with_groups
+    program = game([cry(72), hurt(64, group: nil)]) do |sfx, pass|
+      which = var :which, 0
+      (pass == 3).then { sfx.play which }
+      (pass == 4).then { which.set 1 }
+      (pass == 8).then { sfx.play which }
+    end
+
+    assert_includes notes_by_frame(program, 20)[9], [:"sfx.1", NOTES[:C3]]
+    assert_backends_share_both_voices(program)
+  end
+
+  # RECORDED EFFECTS IN A GROUP: cut off, not played for a lower one, on a tie, and asked for
+  # again — whose each mixer voice is, the same on both backends.
+  def long_recorded(key, priority)
+    Score.new(tempo: 150, priority: priority, group: :voice,
+              parts: [Part.new(plays: :piano, notes: [Note.new(at: 5, key: key, length: 60)])])
+  end
+
+  def recorded_pair(first:, second:, asks: [0, 1])
+    game([long_recorded(:C4, first), long_recorded(:E4, second)]) do |sfx, pass|
+      (pass == 3).then { sfx.play asks.first }
+      (pass == 14).then { sfx.play asks.last }
     end
   end
 
-  # A recorded effect cut off by another of its group lets its mixer voice go.
-  def test_the_console_lets_a_cut_off_recorded_effect_go_the_way_the_interpreter_does
-    long = ->(key, priority) { Score.new(tempo: 150, priority: priority, group: :voice, parts: [Part.new(plays: :piano, notes: [Note.new(at: 0, key: key, length: 60)])]) }
-    program = game([long.call(:C4, 64), long.call(:E4, 72)]) do |sfx, pass|
-      (pass == 3).then { sfx.play 0 }
-      (pass == 10).then { sfx.play 1 }
+  def test_the_console_decides_a_group_of_recorded_effects_the_way_the_interpreter_does
+    cry_alone = [[:"sfx.0", 0]]
+    hurt_alone = [[:"sfx.1", 0]]
+    {
+      recorded_pair(first: 64, second: 72) => { 10 => cry_alone, 22 => hurt_alone },
+      recorded_pair(first: 72, second: 64) => { 10 => cry_alone, 22 => cry_alone },
+      recorded_pair(first: 64, second: 64) => { 10 => cry_alone, 22 => hurt_alone },
+      recorded_pair(first: 64, second: 72, asks: [0, 0]) => { 10 => cry_alone, 17 => [], 22 => cry_alone },
+    }.each do |program, moments|
+      moments.each do |frames, owners|
+        interpreted, console = owners_on_both(program, frames: frames)
+        assert_equal owners, interpreted, "#{frames} frames in"
+        assert_equal interpreted, console, "#{frames} frames in"
+      end
     end
-
-    [8, 20].each do |frames|
-      interpreted, console = owners_on_both(program, frames: frames)
-      assert_equal interpreted, console, "#{frames} frames in"
-    end
-    assert_equal [[:"sfx.1", 0]], Reference.new.run(program, frames: 20).sound_owners
   end
 
   # A fading note taken first, a song part that lost its voice having one again at its next note,

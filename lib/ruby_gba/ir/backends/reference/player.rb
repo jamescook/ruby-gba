@@ -68,7 +68,7 @@ module RubyGBA
           # or not it is sounding already. A number naming no effect plays nothing.
           #
           # AN EFFECT IN A GROUP is decided here, as it is asked for, the way the console decides it
-          # (IR::Tunes.group): if another of its group is sounding or already asked for, an effect
+          # (IR::Tunes.priority_of): if another of its group is sounding or already asked for, an effect
           # of lower priority is not played, and one of at least that priority stops that one on
           # the next frame and starts in its place.
           def wants_effect(list, which)
@@ -77,10 +77,10 @@ module RubyGBA
             return unless which >= 0 && which < effects.length
 
             name = effects[which]
-            group = IR::Tunes.group(@songs.fetch(name))
-            current = group && @effects.find { |other| IR::Tunes.group(@songs.fetch(other)) == group && current?(other) }
+            group = group_of(name)
+            current = group && @effects.find { |other| group_of(other) == group && current?(other) }
             if current
-              return if @songs.fetch(name).priority < @songs.fetch(current).priority
+              return if priority_of(name) < priority_of(current)
               @asked.delete(current)
               @stopping << current
             end
@@ -250,9 +250,14 @@ module RubyGBA
             run.frame += 1
           end
 
-          # Is this effect its group's one now: asked for, or sounding — which it still is on the
-          # frame after its last, until the player lets it go?
-          def current?(name) = !@stopping.include?(name) && (@asked.include?(name) || @running.key?(name))
+          # Is this effect its group's one now: asked for — even when it is stopping first, to start
+          # again — or sounding and not stopping? It is still sounding on the frame after its last,
+          # until the player lets it go.
+          def current?(name) = @asked.include?(name) || (@running.key?(name) && !@stopping.include?(name))
+
+          def group_of(name) = @songs.fetch(name).group
+
+          def priority_of(name) = IR::Tunes.priority_of(IR::Tunes.song_rank(@songs.fetch(name)))
 
           # An effect over: every voice it still holds goes quiet, and is free — a recorded note
           # with a shape falling away rather than stopping, as it would at a rest.

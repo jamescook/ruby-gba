@@ -124,7 +124,7 @@ module RubyGBA
           next unless score.group
 
           raise ArgumentError, "Song #{key.inspect} of :#{name} has `group:`. A group says which sound effects " \
-                               "cut each other off, and one song plays at a time already. Remove `group:` " \
+                               "play one at a time. Songs already play one at a time. Remove `group:` " \
                                "from this Score."
         end
         record(Build.song_list(name, members))
