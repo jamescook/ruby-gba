@@ -354,6 +354,112 @@ class TestFrameEvents < Minitest::Test
     end
   end
 
+  # WHAT THE GAME TOLD THE DISPLAY, WRITE BY WRITE, AND ON WHICH ROW.
+  #
+  # Everything else here reads the console once a frame, which is fine while a game sets the
+  # display up between pictures and leaves it alone. A game that changes the display WHILE
+  # the picture is being drawn — a background that bends row by row, a split screen, a
+  # colour that changes half way down — cannot be seen that way at all: by the time the
+  # frame ends the registers hold whatever the last row left in them, and every earlier
+  # value is gone. This is the only instrument that can say those happened.
+  def test_a_probe_can_be_told_every_write_the_game_makes_to_the_display
+    path = build_rom("SCROLLW", code: "TSCW") do
+      screen :tiled
+      image(:brick, "#" => :red) { TILE_8X8 }
+      tiles :set, "#" => :brick
+      bg = background :bg, tiles: :set, map: ["#" * 30] * 20
+      game_loop { bg.scroll_to 24, 8 }
+    end
+
+    with_probe(path) do |probe|
+      probe.watch_display
+      probe.step(4)
+      scrolls = probe.display_writes.select { |w| w.kind == :register && w.value == 24 }
+
+      refute_empty scrolls, "the game set the camera across, and that is a write to the display"
+      assert(scrolls.all? { |w| w.row.between?(0, 227) }, "each one says which row was being drawn")
+    end
+  end
+
+  # THE CASE NOTHING ELSE REACHES: a background bent row by row writes the same register
+  # over and over inside one frame, and only the last of those values is still there to read
+  # when the frame ends.
+  def test_a_write_made_part_way_down_the_picture_is_seen_where_it_happened
+    path = build_rom("BENDW", code: "TBND") do
+      screen :tiled
+      image(:brick, "#" => :red) { TILE_8X8 }
+      tiles :set, "#" => :brick
+      bg = background :bg, tiles: :set, map: ["#" * 30] * 20
+      bg.scroll_each_row { |row| row }
+      game_loop { wait_vblank }
+    end
+
+    with_probe(path) do |probe|
+      probe.watch_display
+      probe.step(4)
+      rows = probe.display_writes.select { |w| w.kind == :register }.map(&:row).uniq
+
+      assert_operator rows.size, :>, 100,
+                      "a bend writes the camera on row after row, not once for the frame"
+    end
+  end
+
+  # Each of the console's three taps counts its addresses its own way — two of them from the
+  # start of their own memory, one of them in pairs of bytes — so a write says the address it
+  # really landed at, and reading that address back gives what the write put there.
+  def test_a_write_says_the_address_it_landed_at
+    path = build_rom("WHEREW", code: "TWHR") do
+      screen :tiled
+      image(:brick, "#" => :red) { TILE_8X8 }
+      image(:dot, "." => :transparent, "#" => :blue) { TILE_8X8 }
+      tiles :set, "#" => :brick
+      background :bg, tiles: :set, map: ["#" * 30] * 20
+      sprite :dot, at: [40, 24]
+      game_loop { wait_vblank }
+    end
+
+    with_probe(path) do |probe|
+      probe.watch_display
+      probe.step(6)
+      settled = probe.display_writes.group_by(&:address).transform_values(&:last)
+      colour = settled.values.find { |w| w.kind == :colour }
+      sprite = settled.values.find { |w| w.kind == :sprite }
+
+      assert colour, "the game declared colours, so it wrote some"
+      assert_equal colour.value, probe.read16(colour.address),
+                   "the colour is at the address the write named"
+      assert_equal sprite.value, probe.read16(sprite.address),
+                   "and so is the sprite's own entry"
+    end
+  end
+
+  # Recording the writes puts a shim in front of the console's renderer, and leaving a layer
+  # out is set ON that renderer — so the two touch the same thing and the one is easy to
+  # break with the other.
+  def test_a_layer_can_still_be_left_out_while_the_writes_are_recorded
+    with_probe(layered_rom) do |probe|
+      probe.watch_display
+      probe.step(4)
+
+      assert_equal BLUE, probe.pixel(44, 28), "the sprite is drawn over the scenery"
+
+      probe.showing(without: :sprites) do
+        probe.step(2)
+
+        assert_equal RED, probe.pixel(44, 28), "and still goes when the sprites are left out"
+      end
+      refute_empty probe.display_writes, "the writes were recorded the whole time"
+    end
+  end
+
+  def test_a_probe_nobody_asked_records_no_writes
+    with_probe(red_rom) do |probe|
+      probe.step(4)
+
+      assert_empty probe.display_writes
+    end
+  end
+
   def test_asking_for_a_layer_that_does_not_exist_says_which_there_are
     with_probe(red_rom) do |probe|
       error = assert_raises(ArgumentError) { probe.showing(only: :hud) }

@@ -28,6 +28,19 @@ module RubyGBAEmulator
     def to_s = format("0x%08X  %d -> %d", address, was, now)
   end
 
+  # ONE WRITE THE GAME MADE TO THE DISPLAY, and where the picture had got to when it landed.
+  #
+  # +kind+ is +:register+ (where a layer sits, how it blends, what the screen is showing),
+  # +:colour+ (one of the 512 colours the console draws from) or +:sprite+ (one halfword of
+  # the table saying where the sprites are). +address+ is the hardware address for a register
+  # and the offset into that table for the other two. +row+ is the row of the screen being
+  # drawn: 0 to 159 is on the picture, and anything above that is the gap between pictures,
+  # which is where a game does most of its setting up.
+  DisplayWrite = Data.define(:kind, :address, :value, :row) do
+    def on_screen? = row < 160
+    def to_s = format("%-8s 0x%08X = 0x%04X  row %d", kind, address, value, row)
+  end
+
   class Probe
     # Native pixels are 4 bytes each: byte 0 = red, 1 = green, 2 = blue,
     # 3 = unused padding (mGBA's XBGR8 color_t, little-endian).
@@ -82,6 +95,7 @@ module RubyGBAEmulator
         @last_audio << @core.audio_buffer
         @frames_run += 1
         collect_changes if @watchers
+        collect_display_writes if @display_writes
       end
       @prev_pixels = @pixels
       @pixels = @core.video_buffer
@@ -183,6 +197,58 @@ module RubyGBAEmulator
     def scroll(which)
       ensure_open!
       @core.scroll(which)
+    end
+
+    # BE TOLD EVERY WRITE THE GAME MAKES TO THE DISPLAY, and which row was being drawn.
+    #
+    #   probe.watch_display
+    #   probe.step(2)
+    #   probe.display_writes.select { |w| w.on_screen? }
+    #
+    # Everything else here reads the console once a frame, which answers everything while a
+    # game sets the display up between pictures and then leaves it alone. A game that changes
+    # the display WHILE the picture is being drawn cannot be seen that way at all: a
+    # background bent row by row writes the same register on all 160 rows, and by the time the
+    # frame ends only the last of those values is still there to read. Every earlier one is
+    # gone, and so is the order they happened in.
+    #
+    # The record is emptied into Ruby every frame, so what {#display_writes} holds is the
+    # whole run and the emulator only ever has one frame's worth. {#display_writes_missed}
+    # says whether a single frame wrote more than the record could hold.
+    #
+    # WRITES TO THE PICTURE MEMORY ITSELF ARE LEFT OUT: what the emulator reports for one is
+    # an address with no value, and a game that draws anything makes thousands of them, so
+    # keeping them would bury the writes somebody asked about. Read the pictures whole
+    # afterwards instead.
+    #
+    # NOT FREE, and dearer than watching an address: while this is on, a shim sits in front of
+    # the emulator's renderer and every write to the display goes through it. Measured at
+    # about two and a half times on a cartridge bending every row with a sprite moving — which
+    # is close to the worst there is, since that writes the display on all 160 rows. A probe
+    # that never asks pays nothing at all.
+    #
+    # @return [self]
+    def watch_display
+      ensure_open!
+      @core.watch_display
+      @display_writes ||= []
+      self
+    end
+
+    # Every write to the display since {#watch_display} was called, oldest first.
+    #
+    # @return [Array<DisplayWrite>]
+    def display_writes
+      @display_writes ||= []
+    end
+
+    # How many writes happened after the record filled up in a single frame. A truncated list
+    # that does not say so reads like the whole story.
+    #
+    # @return [Integer]
+    def display_writes_missed
+      ensure_open!
+      @core.display_writes_missed
     end
 
     # THE LAYERS THE CONSOLE DRAWS WITH, by name — four backgrounds and the sprites.
@@ -850,6 +916,22 @@ module RubyGBAEmulator
       fresh.each do |change|
         watcher = @watchers[change.address]
         watcher&.call(change)
+      end
+    end
+
+    # What each number the emulator tags a write with means. The order matches the C side.
+    DISPLAY_WRITE_KINDS = %i[register colour sprite].freeze
+
+    # Take the frame's writes to the display off the core, for the same reason the changes
+    # are taken: the emulator then only has to hold one frame's worth.
+    def collect_display_writes
+      fresh = @core.take_display_writes
+      return if fresh.empty?
+
+      fresh.each do |raw|
+        @display_writes << DisplayWrite.new(kind: DISPLAY_WRITE_KINDS.fetch(raw[:kind]),
+                                            address: raw[:address], value: raw[:value],
+                                            row: raw[:row])
       end
     end
 

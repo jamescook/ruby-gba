@@ -54,6 +54,12 @@ static VALUE ra_empty_array; /* frozen [] returned by do_frame when nothing trig
 #define LOG_LINE_MAX 256
 #define CHANGES_MAX 4096
 
+/* One frame's worth of writes to the display. A background bent row by row writes the camera
+ * on every one of 160 rows, a game's sprites are 512 halfwords and its colours another 512,
+ * so a frame that sets everything up and bends as well comes to around 1,200. This is well
+ * clear of that, and what goes past it is counted rather than dropped quietly. */
+#define DISPLAY_WRITES_MAX 8192
+
 static void recording_log(struct mLogger *, int, enum mLogLevel, const char *, va_list);
 
 static struct mLogger s_recording_logger = {
@@ -150,6 +156,8 @@ color_correct_pixel(uint32_t argb)
     return gba_color_lut[r5][g5][b5];
 }
 
+struct display_recorder;
+
 struct mgba_core {
     struct mCore *core;
     color_t *video_buffer;
@@ -180,6 +188,9 @@ struct mgba_core {
         uint32_t was;
         uint32_t now;
     } changes[CHANGES_MAX];
+    /* Every write the game makes to the display — see Core#watch_display. NULL until asked
+     * for, since it puts a shim in front of the renderer that costs a call per write. */
+    struct display_recorder *display;
 };
 
 static struct mgba_core *s_logging_core = NULL;
@@ -187,6 +198,9 @@ static struct mgba_core *s_watching_core = NULL;
 
 static void
 install_core_callbacks(struct mgba_core *mc);
+
+static void
+display_recorder_free(struct mgba_core *mc);
 
 static void
 recording_log(struct mLogger *logger, int category, enum mLogLevel level,
@@ -239,6 +253,7 @@ static void
 mgba_core_cleanup(struct mgba_core *mc)
 {
     mgba_rewind_free(mc);
+    display_recorder_free(mc);
     if (!mc->destroyed && mc->core) {
         mc->core->deinit(mc->core);
         mc->core = NULL;
@@ -309,6 +324,7 @@ mgba_core_alloc(VALUE klass)
     mc->rewind_count = 0;
     mc->rewind_state_size = 0;
     mc->rewind_slots = NULL;
+    mc->display = NULL;
     return obj;
 }
 
@@ -1550,6 +1566,162 @@ mgba_core_audio_channels(VALUE self)
 }
 
 /* --------------------------------------------------------- */
+/* EVERY WRITE THE GAME MAKES TO THE DISPLAY, AND ON WHICH ROW */
+/*                                                            */
+/* Everything else in this file reads the console once a      */
+/* frame, which answers everything while a game sets the      */
+/* display up between pictures and then leaves it alone. A    */
+/* game that changes the display WHILE the picture is being   */
+/* drawn cannot be seen that way at all: a background bent    */
+/* row by row writes the same register on all 160 rows, and   */
+/* by the time the frame ends only the last of those values   */
+/* is still there to read. Every earlier one is gone.         */
+/*                                                            */
+/* mGBA already taps exactly these writes, for its own        */
+/* reasons: its video logger records a frame as a stream of   */
+/* packets so another renderer can replay it. Those taps are  */
+/* what this wants, so the shim and the taps are mGBA's; the  */
+/* stream is decoded back into records here rather than       */
+/* written to a file.                                         */
+/*                                                            */
+/* VRAM WRITES ARE LEFT OUT. What the tap gives for one is an */
+/* address with no value — the picture data itself follows as */
+/* a 4K block — and a game that draws anything writes         */
+/* thousands of them, so keeping them would bury the writes   */
+/* somebody asked about. The pictures can be read whole from  */
+/* memory afterwards instead.                                 */
+/* --------------------------------------------------------- */
+
+enum display_write_kind {
+    DISPLAY_WRITE_REGISTER = 0,  /* a display register: where a layer is, how it blends   */
+    DISPLAY_WRITE_COLOUR,        /* one of the 512 colours the console draws from         */
+    DISPLAY_WRITE_SPRITE         /* one halfword of the table saying where the sprites are */
+};
+
+struct display_write {
+    uint8_t kind;
+    uint16_t row;      /* the row being drawn: 0 to 159 on screen, past that between pictures */
+    uint32_t address;
+    uint32_t value;
+};
+
+struct display_recorder {
+    struct GBAVideoProxyRenderer proxy;
+    struct mVideoLogger logger;
+    struct GBAVideo *video;   /* for the row being drawn when a write lands */
+    int count;
+    int dropped;
+    int skip_next;            /* the next call carries a block of picture data, not a packet */
+    struct display_write writes[DISPLAY_WRITES_MAX];
+};
+
+/* mGBA hands the stream to this a packet at a time. A packet that carries data after it —
+ * a block of picture memory — arrives as a second call, which is skipped rather than read. */
+static bool
+display_write_data(struct mVideoLogger *logger, const void *data, size_t length)
+{
+    struct display_recorder *rec = logger->dataContext;
+    const struct mVideoLoggerDirtyInfo *packet = data;
+    struct display_write *slot;
+    uint32_t address;
+    uint8_t kind;
+
+    if (rec->skip_next) {
+        rec->skip_next = 0;
+        return true;
+    }
+    if (length != sizeof(struct mVideoLoggerDirtyInfo)) {
+        return true;
+    }
+
+    /* Each tap counts its address its own way — the registers and the colours from the start
+     * of their own memory in bytes, the sprite table in halfwords — so each is turned into
+     * the address it really landed at. Then every write says where on the console it went,
+     * and the same number reads that value back. */
+    switch (packet->type) {
+    case DIRTY_REGISTER:
+        kind = DISPLAY_WRITE_REGISTER;
+        address = BASE_IO | packet->address;
+        break;
+    case DIRTY_PALETTE:
+        kind = DISPLAY_WRITE_COLOUR;
+        address = BASE_PALETTE_RAM | packet->address;
+        break;
+    case DIRTY_OAM:
+        kind = DISPLAY_WRITE_SPRITE;
+        address = BASE_OAM | (packet->address * 2);
+        break;
+    case DIRTY_VRAM:
+    case DIRTY_BUFFER:
+        rec->skip_next = 1;
+        return true;
+    default:
+        /* The drawing itself — a scanline done, a frame done — rather than a write. */
+        return true;
+    }
+
+    if (rec->count >= DISPLAY_WRITES_MAX) {
+        rec->dropped++;
+        return true;
+    }
+    slot = &rec->writes[rec->count++];
+    slot->kind = kind;
+    slot->row = (uint16_t)(rec->video ? rec->video->vcount : 0);
+    slot->address = address;
+    slot->value = packet->value;
+    return true;
+}
+
+static void
+display_post_event(struct mVideoLogger *logger, enum mVideoLoggerEvent event)
+{
+    (void)logger;
+    (void)event;
+}
+
+static void
+display_lock_nothing(struct mVideoLogger *logger)
+{
+    (void)logger;
+}
+
+static void
+display_wake_nothing(struct mVideoLogger *logger, int y)
+{
+    (void)logger;
+    (void)y;
+}
+
+static void
+display_recorder_free(struct mgba_core *mc)
+{
+    struct GBA *gba;
+
+    if (!mc->display) {
+        return;
+    }
+    if (!mc->destroyed && mc->core && mc->core->platform(mc->core) == mPLATFORM_GBA) {
+        gba = (struct GBA *)mc->core->board;
+        GBAVideoProxyRendererUnshim(&gba->video, &mc->display->proxy);
+    }
+    free(mc->display);
+    mc->display = NULL;
+}
+
+/* The renderer that really draws. While the writes are being recorded there is a shim in
+ * front of it, and anything reaching past the public renderer — the row cache, the flags
+ * saying which layers to leave out — belongs to the one behind. */
+static struct GBAVideoRenderer *
+drawing_renderer(struct mgba_core *mc)
+{
+    struct GBA *gba = (struct GBA *)mc->core->board;
+    if (mc->display) {
+        return mc->display->proxy.backend;
+    }
+    return gba->video.renderer;
+}
+
+/* --------------------------------------------------------- */
 /* MAKE THE CONSOLE DRAW THE WHOLE PICTURE AGAIN.             */
 /*                                                            */
 /* mGBA does not redraw a row of the screen whose registers   */
@@ -1568,18 +1740,41 @@ mgba_core_audio_channels(VALUE self)
 static void
 redraw_everything(struct mgba_core *mc)
 {
-    struct GBA *gba;
     struct GBAVideoSoftwareRenderer *renderer;
     size_t i;
 
     if (mc->core->platform(mc->core) != mPLATFORM_GBA) {
         return;
     }
-    gba = (struct GBA *)mc->core->board;
-    renderer = (struct GBAVideoSoftwareRenderer *)gba->video.renderer;
+    renderer = (struct GBAVideoSoftwareRenderer *)drawing_renderer(mc);
     for (i = 0; i < sizeof(renderer->scanlineDirty) / sizeof(renderer->scanlineDirty[0]); i++) {
         renderer->scanlineDirty[i] = 0xFFFFFFFF;
     }
+}
+
+/* Which layers to leave out is set on whatever renderer is public, and while the writes are
+ * being recorded that is the shim — which draws nothing itself. The renderer behind it is
+ * the one that reads these, so they are carried across. */
+static void
+carry_layer_choices_across(struct mgba_core *mc)
+{
+    struct GBA *gba;
+    struct GBAVideoRenderer *shim, *drawing;
+    int i;
+
+    if (!mc->display) {
+        return;
+    }
+    gba = (struct GBA *)mc->core->board;
+    shim = gba->video.renderer;
+    drawing = drawing_renderer(mc);
+    for (i = 0; i < 4; i++) {
+        drawing->disableBG[i] = shim->disableBG[i];
+    }
+    drawing->disableOBJ = shim->disableOBJ;
+    drawing->disableWIN[0] = shim->disableWIN[0];
+    drawing->disableWIN[1] = shim->disableWIN[1];
+    drawing->disableOBJWIN = shim->disableOBJWIN;
 }
 
 /* Core#enable_video_layer(id, on) — leave a layer out of the picture, or put it back. */
@@ -1588,8 +1783,82 @@ mgba_core_enable_video_layer(VALUE self, VALUE id, VALUE on)
 {
     struct mgba_core *mc = get_mgba_core(self);
     mc->core->enableVideoLayer(mc->core, NUM2SIZET(id), RTEST(on));
+    carry_layer_choices_across(mc);
     redraw_everything(mc);
     return on;
+}
+
+/* Core#watch_display — start recording what the game writes to the display. */
+static VALUE
+mgba_core_watch_display(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    struct GBA *gba;
+    struct display_recorder *rec;
+
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA) {
+        rb_raise(rb_eRuntimeError, "watching the display is GBA-only");
+    }
+    if (mc->display) {
+        return self;
+    }
+    gba = (struct GBA *)mc->core->board;
+    rec = calloc(1, sizeof(struct display_recorder));
+    if (!rec) {
+        rb_raise(rb_eNoMemError, "there is not enough memory to record the display writes");
+    }
+    rec->video = &gba->video;
+
+    mVideoLoggerRendererCreate(&rec->logger, false);
+    rec->logger.writeData = display_write_data;
+    rec->logger.postEvent = display_post_event;
+    rec->logger.dataContext = rec;
+    rec->logger.block = false;
+    rec->logger.waitOnFlush = false;
+    rec->logger.lock = display_lock_nothing;
+    rec->logger.unlock = display_lock_nothing;
+    rec->logger.wait = display_lock_nothing;
+    rec->logger.wake = display_wake_nothing;
+
+    rec->proxy.logger = &rec->logger;
+    GBAVideoProxyRendererCreate(&rec->proxy, gba->video.renderer);
+    GBAVideoProxyRendererShim(&gba->video, &rec->proxy);
+
+    mc->display = rec;
+    carry_layer_choices_across(mc);
+    return self;
+}
+
+/* Core#take_display_writes — hand over what has been recorded and start the record again. */
+static VALUE
+mgba_core_take_display_writes(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    VALUE out = rb_ary_new();
+    int i;
+
+    if (!mc->display) {
+        return out;
+    }
+    for (i = 0; i < mc->display->count; i++) {
+        struct display_write *w = &mc->display->writes[i];
+        VALUE entry = rb_hash_new();
+        rb_hash_aset(entry, ID2SYM(rb_intern("kind")), INT2NUM(w->kind));
+        rb_hash_aset(entry, ID2SYM(rb_intern("row")), INT2NUM(w->row));
+        rb_hash_aset(entry, ID2SYM(rb_intern("address")), UINT2NUM(w->address));
+        rb_hash_aset(entry, ID2SYM(rb_intern("value")), UINT2NUM(w->value));
+        rb_ary_push(out, entry);
+    }
+    mc->display->count = 0;
+    return out;
+}
+
+/* Core#display_writes_missed — how many went past the record's size. */
+static VALUE
+mgba_core_display_writes_missed(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    return INT2NUM(mc->display ? mc->display->dropped : 0);
 }
 
 /* Core#enable_audio_channel(id, on) — leave a voice out of the mix, or put it back. */
@@ -2465,6 +2734,9 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "video_layers",   mgba_core_video_layers, 0);
     rb_define_method(cCore, "audio_channels", mgba_core_audio_channels, 0);
     rb_define_method(cCore, "enable_video_layer",   mgba_core_enable_video_layer, 2);
+    rb_define_method(cCore, "watch_display",        mgba_core_watch_display, 0);
+    rb_define_method(cCore, "take_display_writes",  mgba_core_take_display_writes, 0);
+    rb_define_method(cCore, "display_writes_missed", mgba_core_display_writes_missed, 0);
     rb_define_method(cCore, "enable_audio_channel", mgba_core_enable_audio_channel, 2);
     rb_define_method(cCore, "watch",       mgba_core_watch, 1);
     rb_define_method(cCore, "take_changes",   mgba_core_take_changes, 0);
