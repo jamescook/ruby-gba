@@ -352,7 +352,7 @@ module RubyGBA
                                lowering: @lowering, backgrounds: @backgrounds, framebuffer: @framebuffer)
           @mixer = Mixer.new(emitter: @emit, memory: @memory, timers: @timers, primitives: @primitives)
           @audio = Audio.new(emitter: @emit, primitives: @primitives, lowering: @lowering, mixer: @mixer,
-                             sounds: @defined_sounds, songs: @songs,
+                             memory: @memory, sounds: @defined_sounds, songs: @songs,
                              frames: @frames, expressions: @expressions, raster: @raster, drawing: self,
                              uses_pressed: -> { @uses_pressed }, any_buffered: -> { @modes.any_buffered? })
           @palette_tint = PaletteTint.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
@@ -416,6 +416,7 @@ module RubyGBA
             stop_wave: @audio.method(:emit_stop_wave),
             play_song: @audio.method(:emit_play_song), stop_music: @audio.method(:emit_stop_music),
             song_list: Lowering::NOTHING, play_from_list: @audio.method(:emit_play_from_list),
+            sound_effect_list: Lowering::NOTHING, play_sound_effect: @audio.method(:emit_play_sound_effect),
             timer_start: method(:emit_timer_start), timer_stop: method(:emit_timer_stop),
             on_timer: Lowering::NOTHING, sample: Lowering::NOTHING, play_sample: @mixer.method(:emit_play_sample),
             stop_sample: @mixer.method(:emit_stop_sample),
@@ -1084,6 +1085,7 @@ module RubyGBA
           # inside this routine's span — so they move with it if it is copied to the quick
           # memory, and a call to them is always near enough.
           @mixer.emit_music_voice_routines if @mixer.music_takes_voices?
+          @audio.emit_sound_effects_routine if @audio.plays_sound_effects?
           # Its byte span, so the build can weigh keeping it in the quick memory against
           # everything else that wants the room (see Placement#IRQ_ROUTINE).
           @functions.func_ranges[Placement::IRQ_ROUTINE] = (start...pos)

@@ -683,7 +683,27 @@ module RubyGBA
         include Node
         kind :song
         category :sound
-        operands name: :name, voices: :score, total_frames: :int, loop_frame: :int
+        operands name: :name, voices: :score, total_frames: :int, loop_frame: :int, priority: :int
+      end
+
+      # A named list of songs that each play ONCE, over the tune playing now, when the program
+      # asks for one (see PlaySoundEffect). A definition: it names what can be played and sounds
+      # nothing.
+      class SoundEffectList
+        include Node
+        kind :sound_effect_list
+        category :sound
+        operands name: :name, effects: :list
+      end
+
+      # Effect number +which+ of a SoundEffectList starts from its first note, counting from 0 — a
+      # number that may be worked out as the program runs. Asked for while it is still sounding,
+      # it starts again; a number naming no effect in the list plays nothing.
+      class PlaySoundEffect
+        include Node
+        kind :play_sound_effect
+        category :sound
+        operands name: :name, which: :value
       end
 
       # A named list of songs, in order — the game's music, picked by number (see

@@ -111,6 +111,41 @@ module RubyGBA
       # The frame a song goes back to at its end: 0, unless it has a loop point.
       def loop_frame(song) = song.loop_frame || 0
 
+      # WHO SOUNDS ON A VOICE TWO PLAYERS WANT AT ONCE — the song and a sound effect, or two
+      # effects — as one number each, so a single comparison settles it on every backend.
+      #
+      # The higher priority takes the voice. A tie goes to a sound effect over the song, and
+      # between two effects to the one declared first: the priority sits in the top half of the
+      # number and the order in the bottom half, the song's bottom half 0 and the first effect's
+      # the largest. A note takes a voice whose holder's rank is no higher than its own, so a
+      # player's next note always takes back the voice its last one held — and a voice nobody
+      # holds is rank 0, which every note takes.
+      #
+      # The bottom half tells the two kinds of holder apart as well: it is 0 for the song and
+      # never 0 for an effect, which is how a song that stops knows to leave an effect's voice
+      # alone.
+      RANK_SHIFT = 16
+      ORDER_MASK = (1 << RANK_SHIFT) - 1
+
+      def song_rank(song) = (song.priority || 0) << RANK_SHIFT
+
+      # +order+ counts the program's sound effects from 0, in the order they were declared.
+      def effect_rank(song, order) = song_rank(song) | (ORDER_MASK - order)
+
+      # Every sound effect the program declares, in order: the songs of each effect list.
+      def effects(program)
+        program.walk.select { |node| node.kind == :sound_effect_list }.flat_map(&:effects)
+      end
+
+      # THE ORDER A FRAME PLAYS THE SOUND EFFECTS IN: highest rank first, as [name, rank] — given
+      # the effects' song nodes in the order they were declared. Played in this order, with the
+      # song's parts at their own rank's place among them, whoever writes a voice first on a
+      # frame is whoever keeps it.
+      def effects_by_rank(songs)
+        songs.each_with_index.map { |song, order| [song.name, effect_rank(song, order)] }
+             .sort_by { |_, rank| -rank }
+      end
+
       # EACH PART'S NOTES THE FIRST TIME ROUND, AND EVERY TIME AFTER.
       #
       # A song that loops from a point plays what comes before it once: at its end the song

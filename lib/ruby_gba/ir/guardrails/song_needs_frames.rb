@@ -16,14 +16,14 @@ module RubyGBA
           PLAIN_NAME = "a song with no frames to play on"
 
           MESSAGE =
-            "This game plays a song with `play_song`, but it never waits for the screen. " \
-            "A song moves one step on every frame, so it needs frames to play on. A frame " \
+            "This game plays a song or a sound effect, but it never waits for the screen. " \
+            "Music moves one step on every frame, so it needs frames to play on. A frame " \
             "ends when the game waits for the screen. With no wait there are no frames, and " \
-            "the song never plays. To fix this, put the game in a `game_loop`. A `game_loop` " \
+            "the music never plays. To fix this, put the game in a `game_loop`. A `game_loop` " \
             "waits for the screen on each pass."
 
           def detect(program)
-            played = program.walk.find { |node| %i[play_song play_from_list].include?(node.kind) }
+            played = program.walk.find { |node| %i[play_song play_from_list play_sound_effect].include?(node.kind) }
             return [] unless played
             return [] if program.walk.any? { |node| node.kind == :wait_vblank }
 

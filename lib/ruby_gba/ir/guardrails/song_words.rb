@@ -18,13 +18,15 @@ module RubyGBA
 
         ORDINALS = %w[first second third fourth fifth sixth seventh eighth ninth tenth].freeze
 
-        # "the song :title", "song 2 of :music", "the song :forest of :music".
+        # "the song :title", "song 2 of :music", "the song :forest of :music" — and "the sound
+        # effect :hit of :sfx" for a Score handed to `sound_effects`.
         def song(program, node)
           list = list_of(program, node)
           return "the song :#{node.name}" unless list
 
+          what = effect?(program, node) ? "sound effect" : "song"
           key = node.name.to_s.delete_prefix("#{list.name}.")
-          key.match?(/\A\d+\z/) ? "song #{key} of :#{list.name}" : "the song :#{key} of :#{list.name}"
+          key.match?(/\A\d+\z/) ? "#{what} #{key} of :#{list.name}" : "the #{what} :#{key} of :#{list.name}"
         end
 
         # The same, to start a sentence with.
@@ -32,6 +34,9 @@ module RubyGBA
 
         # Did the song come from a list of Scores, rather than a `song` block?
         def score?(program, node) = !list_of(program, node).nil?
+
+        # Is it one of the game's sound effects, which play only the square and noise voices?
+        def effect?(program, node) = list_of(program, node)&.kind == :sound_effect_list
 
         # "the part :bass" / "the second part" for a song block, "part 1" for a Score.
         def part(program, node, index)
@@ -50,7 +55,10 @@ module RubyGBA
         end
 
         def list_of(program, node)
-          program.walk.find { |candidate| candidate.kind == :song_list && candidate.songs.include?(node.name) }
+          program.walk.find do |candidate|
+            (candidate.kind == :song_list && candidate.songs.include?(node.name)) ||
+              (candidate.kind == :sound_effect_list && candidate.effects.include?(node.name))
+          end
         end
       end
     end

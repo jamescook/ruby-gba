@@ -85,6 +85,8 @@ module RubyGBA
         song: :portable, play_song: :portable, stop_music: :portable,
         # ...and songs picked by a number from a list — every backend holds the list
         song_list: :portable, play_from_list: :portable,
+        # ...and songs played once over the tune, sharing voices by a number any backend compares
+        sound_effect_list: :portable, play_sound_effect: :portable,
         # sampled PCM audio — recorded sound any backend with a mixer can play back
         play_sample: :portable, stop_sample: :portable,
 

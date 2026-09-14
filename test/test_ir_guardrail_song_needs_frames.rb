@@ -24,6 +24,15 @@ class TestSongNeedsFramesGuardrail < Minitest::Test
     assert_match(/game_loop/, findings.first.message)
   end
 
+  # A sound effect is moved on at the same moment, so it has the same need.
+  def test_a_sound_effect_played_with_no_wait_for_the_screen_warns
+    findings = Check.new.detect(program(enable_sound, tune, sound_effect_list(:sfx, [:tune]),
+                                        play_sound_effect(:sfx, which: 0), halt))
+
+    assert_equal 1, findings.length
+    assert_match(/sound effect/, findings.first.message)
+  end
+
   def test_a_song_in_a_game_loop_is_quiet
     assert_empty Check.new.detect(program(enable_sound, tune, loop_(wait_vblank, play_song(:tune))))
   end

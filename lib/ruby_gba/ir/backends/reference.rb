@@ -290,6 +290,8 @@ module RubyGBA
               @player.declare(n)
             when :song_list
               @player.declare_list(n.name, n.songs)
+            when :sound_effect_list
+              @player.declare_effects(n.name, n.effects)
             when :sample
               @mixer.declare(n.name, Assets::Sample.of(n))
             when :table
@@ -591,7 +593,8 @@ module RubyGBA
             exec_show_map(node)
           when :enable_sound
             @audio << [:enabled]
-          when :define_sound, :song, :song_list, :sample, :data, :bitmap, :backing_buffer, :object, :table
+          when :define_sound, :song, :song_list, :sound_effect_list, :sample, :data, :bitmap, :backing_buffer,
+               :object, :table
             # Definitions: gathered up front, so reaching one inline does nothing
             # (just like a func body).
             nil
@@ -610,6 +613,8 @@ module RubyGBA
             # The number is worked out HERE and handed over: which song a game picks can be an
             # expression, and evaluating one is the interpreter's business, not the player's.
             @player.wants_number(node.name, eval_value(node.which))
+          when :play_sound_effect
+            @player.wants_effect(node.name, eval_value(node.which))
           when :stop_music
             @player.stop
           when :play_sample

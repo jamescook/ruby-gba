@@ -22,12 +22,13 @@ module RubyGBA
           # Sound module, so the ROM and the interpreter play the same thing. A write
           # is just "put this 16-bit value at this register address."
 
-          def initialize(emitter:, primitives:, lowering:, mixer:, sounds:, songs:, frames:, expressions:,
+          def initialize(emitter:, primitives:, lowering:, mixer:, memory:, sounds:, songs:, frames:, expressions:,
                           raster:, drawing:, uses_pressed:, any_buffered:)
             @emitter = emitter
             @primitives = primitives
             @lowering = lowering # works out a song's number when the game names it by one
             @mixer = mixer # where a recorded part's notes are played
+            @memory = memory # where the sound effects keep how far each one has got
             @defined_sounds = sounds
             @songs = songs
             @frames = frames
@@ -38,6 +39,7 @@ module RubyGBA
             @any_buffered = any_buffered
             @song_numbers = {} # tune name -> the number the player knows it by (see #prepare_music)
             @lanes = []        # the hardware the player drives (see Lane)
+            @effects = []      # every sound effect, highest rank first (see #prepare_sound_effects)
           end
 
           def emit_writes(writes)
@@ -177,6 +179,68 @@ module RubyGBA
           WAVE_HALFWORDS = 8
           WAVE_BYTES = WAVE_HALFWORDS * 2
 
+          # SOUND EFFECTS, played once over the tune.
+          #
+          # Each has a place in a table in memory: whether it is waiting to start (the game's one
+          # store), sounding, or neither; how far into it the player is; and each of its lanes'
+          # next event. The player walks the table once a frame, so an effect that is not sounding
+          # costs a load and a compare. The table is in RANK ORDER, highest first
+          # (IR::Tunes.effects_by_rank), and the tune's parts are played at their own rank's place
+          # among the effects — so whoever writes a voice first on a frame keeps it, and a note
+          # never has to be written and then covered.
+          #
+          # An effect's lanes are the voices it shares with the tune: the two square voices and the
+          # noise voice, whichever of them any effect uses. Who holds each such voice is a rank in a
+          # variable of its own (IR::Tunes.song_rank), and a note is written only when nobody
+          # holding the voice outranks it.
+          EFFECT_STATE = 0    # 0, EFFECT_ASKED or EFFECT_SOUNDING
+          EFFECT_FRAME = 4    # how far into the effect, in frames
+          EFFECT_CURSORS = 8  # each lane's next event, as a byte offset into the score
+          EFFECT_ASKED = 1
+          EFFECT_SOUNDING = 2
+
+          # An effect's entry in the score: its length in frames, its rank, and where each of its
+          # lanes' events start.
+          EFFECT_LENGTH = 0
+          EFFECT_RANK = 4
+          EFFECT_STARTS = 8
+
+          # The routine the tick calls to play a run of the table (#emit_sound_effects_routine).
+          SOUND_EFFECTS = :__sound_effects
+
+          # The tune's rank, kept when it starts, for its parts to compare with a voice's holder.
+          MUSIC_RANK = :__music_rank
+
+          # Who holds the console voice numbered +channel+: a rank, or 0 for nobody.
+          def self.voice_rank(channel) = :"__voice_rank_#{channel}"
+
+          # The effects, highest rank first; which of the console's voices they use; and where
+          # each is in the table. Nothing at all for a game with none.
+          def prepare_sound_effects(program)
+            ranked = IR::Tunes.effects_by_rank(IR::Tunes.effects(program).map { |name| @songs.fetch(name) })
+            @effects = ranked.map(&:first)
+            @effect_ranks = ranked.to_h
+            @effect_lists = {}
+            return unless plays_sound_effects?
+
+            slots = @effects.each_with_index.to_h
+            program.walk.each do |node|
+              @effect_lists[node.name] = node.effects.map { |name| slots.fetch(name) } if node.kind == :sound_effect_list
+            end
+            squares = @effects.map { |name| IR::Tunes.parts_on(@songs.fetch(name), :square) }.max
+            noise = @effects.any? { |name| IR::Tunes.parts_on(@songs.fetch(name), :noise).positive? }
+            @effect_lanes = MUSIC_CHANNELS.first(squares).map { |channel| Lane.new(:square, channel) }
+            @effect_lanes << Lane.new(:noise, NOISE_CHANNEL) if noise
+            # A power of two, so a place in the table is a shift of its number.
+            @effect_slot_bytes = 1 << (EFFECT_CURSORS + (4 * @effect_lanes.size) - 1).bit_length
+            @effect_table = @memory.alloc_roomy(@effects.size * @effect_slot_bytes)
+          end
+
+          def effect_slots_blob(list) = :"__sound_effect_slots_#{list}"
+
+          # Does an effect share the voice this tune lane plays on?
+          def shared_lane?(lane) = plays_sound_effects? && @effect_lanes.any? { |shared| shared == lane }
+
           # A PART WITH NOTHING IN IT, for a lane being silenced when a tune changes. Silence is
           # a rest, and a rest names no pitch — so a part's tone, its fade and its rattle are all
           # unread, and a part that says nothing answers every one of them.
@@ -210,10 +274,13 @@ module RubyGBA
                      Array.new(recorded) { |lane| Lane.new(:recorded, lane) } +
                      console.map { |kind, channel| Lane.new(kind, channel) }
             @waves = console.key?(:wave)
+            prepare_sound_effects(program)
             # One directory entry: the tune's length in frames, which lanes it uses, where it
-            # loops from, and where each lane's events start — rounded up to a power of two, so
-            # finding a tune's entry is a shift of its number rather than a multiply.
-            @entry_shift = (ENTRY_STARTS + (4 * @lanes.size) - 1).bit_length
+            # loops from, and where each lane's events start — and, in a game with sound effects,
+            # the tune's rank — rounded up to a power of two, so finding a tune's entry is a shift
+            # of its number rather than a multiply.
+            @entry_rank = ENTRY_STARTS + (4 * @lanes.size)
+            @entry_shift = (@entry_rank + (plays_sound_effects? ? 4 : 0) - 1).bit_length
             @mixer.music_takes_voices! if recorded.positive?
             @mixer.music_follows_level! if recorded.positive? && @scales
           end
@@ -222,10 +289,50 @@ module RubyGBA
           def build_score
             @emitter.data_blobs[MUSIC_SCORE] = score_blob if plays_music?
             @emitter.data_blobs[MUSIC_WAVE_LEVELS] = wave_levels_blob if plays_music? && @scales && @waves
+            @effect_lists.each { |name, slots| @emitter.data_blobs[effect_slots_blob(name)] = slots.pack("v*") }
           end
 
-          # Does the program play any tune (so the player goes in the screen's interrupt)?
-          def plays_music? = !@song_numbers.empty?
+          # Does the program play any tune or sound effect (so the player goes in the screen's
+          # interrupt)?
+          def plays_music? = !@song_numbers.empty? || plays_sound_effects?
+
+          def plays_sound_effects? = !@effects.empty?
+
+          # START SOUND EFFECT +which+ OF A LIST: one number stored in the effect's place in the
+          # table, which the player in the screen's interrupt reads on the next frame. A single
+          # store is all the game ever writes there, so the interrupt can land before it or after
+          # it and never in the middle. Asked for while it sounds, the player starts it again.
+          #
+          # The table is in rank order, not the list's (see #prepare_sound_effects), so a number
+          # the game works out is turned into a place in the table by a small table of its own —
+          # and one naming no effect in the list plays nothing.
+          def emit_play_sound_effect(node)
+            slots = @effect_lists.fetch(node.name)
+            fixed = @primitives.const_int(node.which)
+            if fixed
+              return unless fixed.between?(0, slots.size - 1)
+
+              @emitter.emit(ASM.load_immediate(TMP, @effect_table + (slots[fixed] * @effect_slot_bytes)))
+            else
+              none = @emitter.gensym
+              @lowering.value(node.which)                       # ACC = which
+              @emitter.emit(ASM.cmp_imm(ACC, 0))
+              @emitter.emit_branch(:bcond, none, cond: :lt)
+              @emitter.emit(ASM.load_immediate(TMP, slots.size))
+              @emitter.emit(ASM.cmp_reg(ACC, TMP))
+              @emitter.emit_branch(:bcond, none, cond: :ge)     # past the last effect
+              @emitter.emit_load_data_address(TMP, effect_slots_blob(node.name))
+              @emitter.emit(ASM.lsl_imm(ACC, ACC, 1))
+              @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
+              @emitter.emit(ASM.load_halfword(ACC, TMP))        # its place in the table
+              @emitter.emit(ASM.lsl_imm(ACC, ACC, @effect_slot_bytes.bit_length - 1))
+              @emitter.emit(ASM.load_immediate(TMP, @effect_table))
+              @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
+            end
+            @emitter.emit(ASM.load_immediate(ACC, EFFECT_ASKED))
+            @emitter.emit(ASM.str_offset(ACC, TMP, EFFECT_STATE))
+            @emitter.place_label(none) if none
+          end
 
           # NAME THE TUNE PLAYING NOW. One number into one variable, and the player in the
           # screen's interrupt does the rest. Written every frame or once, from a branch or from
@@ -306,11 +413,15 @@ module RubyGBA
           # dispatcher r4-r11. r2 holds the score, r3 an entry or a row in it, r4 the tune asked
           # for and then a cursor, r5 the frame, r6 the tune playing, r7-r9 a mixer voice, its
           # part's mark and its recording; r0/r1 carry each write.
+          #
+          # In a game with sound effects, the effects that outrank the tune are played just before
+          # its parts and the rest just after, and with no tune playing all of them are.
           def emit_music_tick
             base, at, value, frame, playing = 2, 3, 4, 5, 6
             changed = @emitter.gensym
             play = @emitter.gensym
             done = @emitter.gensym
+            finished = @emitter.gensym
 
             @primitives.load_var(value, MUSIC_WANTED)
             @primitives.load_var(playing, MUSIC_PLAYING)
@@ -345,8 +456,21 @@ module RubyGBA
             @emitter.emit(ASM.load_immediate(frame, 0))
             emit_rewind_lanes(base, at, playing)
             emit_upload_wavetable(base, at, playing) if @waves
+            if plays_sound_effects?
+              emit_entry_address(at, base, playing)
+              @emitter.emit(ASM.ldr_offset(ACC, at, @entry_rank))
+              @primitives.store_var(ACC, MUSIC_RANK)
+            end
 
             @emitter.place_label(play)
+            if plays_sound_effects? # ...the effects that outrank the tune
+              @primitives.load_var(EFFECT_STOP, MUSIC_RANK)
+              emit_first_effect
+              @emitter.emit(ASM.push(frame))
+              @emitter.emit_branch(:bl, SOUND_EFFECTS)
+              @emitter.emit(ASM.pop(frame))
+              @emitter.emit(ASM.push(EFFECT_SLOT, EFFECT_ENTRY)) # where they stopped
+            end
             emit_follow_the_level if @scales
             @lanes.each_with_index { |lane, number| emit_play_lane(lane, number, base, at, value, frame) }
 
@@ -361,7 +485,139 @@ module RubyGBA
             emit_rewind_lanes(base, at, playing)
             @emitter.place_label(onward)
             @primitives.store_var(frame, MUSIC_FRAME)
+            if plays_sound_effects? # ...and the rest, carrying on from where the first run stopped
+              @emitter.emit(ASM.pop(EFFECT_SLOT, EFFECT_ENTRY))
+              @emitter.emit_load_data_address(base, MUSIC_SCORE)
+              @emitter.emit(ASM.load_immediate(EFFECT_STOP, 0))
+              @emitter.emit_branch(:bl, SOUND_EFFECTS)
+              @emitter.emit_branch(:b, finished)
+            end
             @emitter.place_label(done)
+            if plays_sound_effects? # no tune: every effect
+              @emitter.emit_load_data_address(base, MUSIC_SCORE)
+              @emitter.emit(ASM.load_immediate(EFFECT_STOP, 0))
+              emit_first_effect
+              @emitter.emit_branch(:bl, SOUND_EFFECTS)
+            end
+            @emitter.place_label(finished)
+          end
+
+          # THE REGISTERS THE EFFECTS ROUTINE TAKES AND GIVES BACK: where in the table it starts and
+          # the effect's entry in the score, both handed back where it stopped, and the rank it
+          # stops at — it plays effects that outrank that, and no further.
+          EFFECT_SLOT = 7
+          EFFECT_ENTRY = 8
+          EFFECT_STOP = 11
+
+          def emit_first_effect
+            @emitter.emit(ASM.load_immediate(EFFECT_SLOT, @effect_table))
+            @primitives.emit_add_const(EFFECT_ENTRY, 2, @effects_at, ACC)
+          end
+
+          # PLAY A RUN OF THE SOUND EFFECTS TABLE, from EFFECT_SLOT until an effect that does not
+          # outrank EFFECT_STOP or the end of the table; r2 holds the score. Emitted once, inside
+          # the screen's interrupt, and called from it.
+          #
+          # For each effect: asked for, it starts from its first frame; sounding and at its end, it
+          # lets go of every voice it still holds, silencing each; and sounding, each of its lanes
+          # plays its next event if that is due — on the voice only if nobody holding it outranks
+          # the effect, and then holding it while the note sounds and letting it go for a rest. A
+          # tune's note it takes the voice from is no longer held by the tune, so a music volume
+          # moving later does not start it again.
+          #
+          # Uses r0, r1, r3-r5, r9, r10 and r12.
+          def emit_sound_effects_routine
+            e = @emitter
+            slot, entry, stop = EFFECT_SLOT, EFFECT_ENTRY, EFFECT_STOP
+            base, table_end, cursor, frame, rank, row = 2, 3, 4, 5, 9, 10
+            walk = e.gensym
+            out = e.gensym
+            e.place_label(SOUND_EFFECTS)
+            e.emit(ASM.load_immediate(table_end, @effect_table + (@effects.size * @effect_slot_bytes)))
+            e.place_label(walk)
+            e.emit(ASM.cmp_reg(slot, table_end))
+            e.emit_branch(:bcond, out, cond: :hs)
+            e.emit(ASM.ldr_offset(rank, entry, EFFECT_RANK))
+            e.emit(ASM.cmp_reg(rank, stop))
+            e.emit_branch(:bcond, out, cond: :le)              # not above the tune
+
+            onward = e.gensym
+            sounding = e.gensym
+            play = e.gensym
+            e.emit(ASM.ldr_offset(ACC, slot, EFFECT_STATE))
+            e.emit(ASM.cmp_imm(ACC, EFFECT_SOUNDING))
+            e.emit_branch(:bcond, sounding, cond: :eq)
+            e.emit(ASM.cmp_imm(ACC, EFFECT_ASKED))
+            e.emit_branch(:bcond, onward, cond: :ne)           # neither: nothing to do
+
+            e.emit(ASM.load_immediate(ACC, EFFECT_SOUNDING))  # asked for: from its first frame
+            e.emit(ASM.str_offset(ACC, slot, EFFECT_STATE))
+            e.emit(ASM.load_immediate(frame, 0))
+            @effect_lanes.each_index do |number|
+              e.emit(ASM.ldr_offset(ACC, entry, EFFECT_STARTS + (4 * number)))
+              e.emit(ASM.str_offset(ACC, slot, EFFECT_CURSORS + (4 * number)))
+            end
+            e.emit_branch(:b, play)
+
+            e.place_label(sounding)
+            e.emit(ASM.ldr_offset(frame, slot, EFFECT_FRAME))
+            e.emit(ASM.ldr_offset(ACC, entry, EFFECT_LENGTH))
+            e.emit(ASM.cmp_reg(frame, ACC))
+            e.emit_branch(:bcond, play, cond: :lt)
+            e.emit(ASM.load_immediate(ACC, 0))                # at its end
+            e.emit(ASM.str_offset(ACC, slot, EFFECT_STATE))
+            @effect_lanes.each do |lane|
+              kept = e.gensym
+              @primitives.load_var(ACC, self.class.voice_rank(lane.index))
+              e.emit(ASM.cmp_reg(ACC, rank))
+              e.emit_branch(:bcond, kept, cond: :ne)           # not its voice any more
+              emit_writes(console_note(lane, SILENCE, 0, 0))
+              e.emit(ASM.load_immediate(ACC, 0))
+              @primitives.store_var(ACC, self.class.voice_rank(lane.index))
+              e.place_label(kept)
+            end
+            e.emit_branch(:b, onward)
+
+            e.place_label(play)
+            @effect_lanes.each_with_index do |lane, number|
+              skip = e.gensym
+              e.emit(ASM.ldr_offset(cursor, slot, EFFECT_CURSORS + (4 * number)))
+              e.emit(ASM.add_reg(row, base, cursor))
+              e.emit(ASM.ldr(ACC, row))
+              e.emit(ASM.cmp_reg(ACC, frame))
+              e.emit_branch(:bcond, skip, cond: :ne)           # not due
+              e.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
+              e.emit(ASM.str_offset(cursor, slot, EFFECT_CURSORS + (4 * number)))
+              emit_take_voice(lane, rank, row, skip)
+              emit_console_note(lane, row)
+              song_lane = @lanes.index(lane)
+              forget_held_note(song_lane) if song_lane && holds_notes?(lane)
+              e.place_label(skip)
+            end
+            e.emit(ASM.add_imm(frame, frame, 1))
+            e.emit(ASM.str_offset(frame, slot, EFFECT_FRAME))
+
+            e.place_label(onward)
+            e.emit(ASM.add_imm(slot, slot, @effect_slot_bytes))
+            e.emit(ASM.add_imm(entry, entry, EFFECT_STARTS + (4 * @effect_lanes.size)))
+            e.emit_branch(:b, walk)
+            e.place_label(out)
+            e.emit(ASM.return)
+          end
+
+          # MAY THE NOTE IN +row+, OF RANK +rank+, SOUND ON +lane+'s VOICE? When whoever holds the
+          # voice outranks it, on to +dropped+. Otherwise it holds the voice while it sounds, and a
+          # rest — a row whose volume is 0 — lets it go.
+          def emit_take_voice(lane, rank, row, dropped)
+            holder = self.class.voice_rank(lane.index)
+            @primitives.load_var(ACC, holder)
+            @emitter.emit(ASM.cmp_reg(ACC, rank))
+            @emitter.emit_branch(:bcond, dropped, cond: :gt)
+            @emitter.emit(ASM.load_halfword_offset(ACC, row, 4))
+            @emitter.emit(ASM.tst_imm(ACC, 0xF000))
+            @emitter.emit(ASM.mov_reg(TMP, rank)) unless rank == TMP
+            @emitter.emit(ASM.mov_imm_cond(:eq, TMP, 0))
+            @primitives.store_var(TMP, holder)
           end
 
           # Wait for the vertical blank — the brief pause between drawn frames, the safe
@@ -534,9 +790,22 @@ module RubyGBA
               forget_held_note(number) if holds_notes?(lane)
               @emitter.emit(ASM.load_immediate(8, Mixer.music_owner(lane.index)))
               @mixer.emit_music_voice_off
-            else
+            elsif !shared_lane?(lane)
               emit_writes(console_note(lane, SILENCE, 0, 0))
               forget_held_note(number) if holds_notes?(lane)
+            else
+              # A voice a sound effect holds is the effect's, and is left alone: its rank's bottom
+              # half is not 0 (IR::Tunes.song_rank).
+              forget_held_note(number) if holds_notes?(lane)
+              kept = @emitter.gensym
+              @primitives.load_var(ACC, self.class.voice_rank(lane.index))
+              @emitter.emit(ASM.lsl_imm(ACC, ACC, IR::Tunes::RANK_SHIFT))
+              @emitter.emit(ASM.cmp_imm(ACC, 0))
+              @emitter.emit_branch(:bcond, kept, cond: :ne)
+              emit_writes(console_note(lane, SILENCE, 0, 0))
+              @emitter.emit(ASM.load_immediate(ACC, 0))
+              @primitives.store_var(ACC, self.class.voice_rank(lane.index)) # nobody holds it
+              @emitter.place_label(kept)
             end
           end
 
@@ -695,6 +964,21 @@ module RubyGBA
             @emitter.emit(ASM.ldr(ACC, at))                   # the frame it is due
             @emitter.emit(ASM.cmp_reg(ACC, frame))
             @emitter.emit_branch(:bcond, skip, cond: :ne)     # not yet — leave the lane alone
+
+            if shared_lane?(lane)
+              # A sound effect holding the voice with a higher rank: the part carries on in time,
+              # silent here, and is heard again from its next note once the voice is free.
+              dropped = @emitter.gensym
+              @primitives.load_var(TMP, MUSIC_RANK)
+              emit_take_voice(lane, TMP, at, dropped)
+              heard = @emitter.gensym
+              @emitter.emit_branch(:b, heard)
+              @emitter.place_label(dropped)
+              @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
+              @primitives.store_var(cursor, self.class.music_cursor(number))
+              @emitter.emit_branch(:b, skip)
+              @emitter.place_label(heard)
+            end
 
             if lane.kind == :recorded
               emit_recorded_note(lane.index, number, base, at)
@@ -875,10 +1159,49 @@ module RubyGBA
                 events << [IR::Tunes.loop_frame(song), *again].pack("V*")
               end
               shape = wave_shapes(song).first
+              rank = plays_sound_effects? ? [IR::Tunes.song_rank(song)] : []
               directory << [song.total_frames, used, loop_at, shape ? wave_at.fetch(shape) : 0,
-                            *starts].pack("V*").ljust(entry_bytes, "\0")
+                            *starts, *rank].pack("V*").ljust(entry_bytes, "\0")
             end
-            directory + table + events
+            score = directory + table + events
+            score + effects_blob(at: score.bytesize, never: events_at)
+          end
+
+          # EVERY SOUND EFFECT, after the tunes: an entry for each, in rank order — its length, its
+          # rank, and where each lane's events start — and then the events themselves. A lane an
+          # effect does not use waits on the row at +never+. Sets where the entries start, for the
+          # tick to walk them.
+          def effects_blob(at:, never:)
+            @effects_at = at
+            return "".b unless plays_sound_effects?
+
+            entry_bytes = EFFECT_STARTS + (4 * @effect_lanes.size)
+            rows = "".b
+            rows_at = at + (@effects.size * entry_bytes)
+            entries = @effects.each_with_index.map do |name, order|
+              song = @songs.fetch(name)
+              starts = Array.new(@effect_lanes.size, never)
+              effect_lanes_for(song).each do |part, number|
+                starts[number] = rows_at + rows.bytesize
+                rows << lane_rows(@effect_lanes[number], part, part.events)
+              end
+              [song.total_frames, @effect_ranks.fetch(name), *starts].pack("V*")
+            end
+            entries.join + rows
+          end
+
+          # Which effect lane each of an effect's parts plays on: its square parts the square
+          # voices in order, and its noise part the noise voice.
+          def effect_lanes_for(song)
+            squares = 0
+            song.voices.map do |part|
+              lane = if IR::Tunes.part_kind(part) == :noise
+                       Lane.new(:noise, NOISE_CHANNEL)
+                     else
+                       Lane.new(:square, MUSIC_CHANNELS.fetch(squares).tap { squares += 1 })
+                     end
+              [part, @effect_lanes.index(lane)]
+            end
           end
 
           # The waveform a song's parts on the wave voice play. There is one wave voice, so

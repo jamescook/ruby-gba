@@ -40,14 +40,32 @@ module RubyGBA
             @frame = 0          # how far into that tune, in frames
             @events = []        # the events each of its parts is walking now
             @cursors = []       # each of its parts' next event
-            @sounding = {}      # a voice holding a note -> that note's written volume (see #hold)
+            @sounding = {}      # a voice the song holds a note on -> its written volume (see #hold)
             @level = IR::Tunes::FULL_LEVEL # the music volume the notes sounding were set at
+            @effect_lists = {}  # name -> the effects a sound effect list holds, in order
+            @effects = []       # every sound effect, in the order declared (see IR::Tunes.effect_rank)
+            @asked = []         # the effects the program asked for since the last frame
+            @running = {}       # an effect sounding -> how far into it, and each part's next event
+            @holders = Hash.new(0) # a console voice -> the rank of whoever holds it (IR::Tunes.song_rank)
           end
 
-          # A `song` or `song_list` declaration was reached. Gathered up front, like a func
-          # body, so naming one declared later still works.
+          # A `song`, `song_list` or `sound_effect_list` declaration was reached. Gathered up
+          # front, like a func body, so naming one declared later still works.
           def declare(node) = @songs[node.name] = node
           def declare_list(name, songs) = @lists[name] = songs
+
+          def declare_effects(name, effects)
+            @effect_lists[name] = effects
+            @effects.concat(effects)
+          end
+
+          # START effect number +which+ of a list at the next frame — from its first note, whether
+          # or not it is sounding already. A number naming no effect plays nothing.
+          def wants_effect(list, which)
+            effects = @effect_lists[list] ||
+                      raise(ProgramError, "play_sound_effect of undefined list #{list.inspect}")
+            @asked << effects[which] if which >= 0 && which < effects.length
+          end
 
           # NAME THE TUNE PLAYING NOW. The player takes it up at the next frame, so this can be
           # written once or every frame, from a branch or a scene, and it is the same tune.
@@ -92,12 +110,28 @@ module RubyGBA
           # +level+ is the music volume the game last said (see IR::Tunes::LEVEL), or nil for a
           # program that never says one. A change reaches the notes already sounding before any
           # new note is played, which is the order the console does it in.
+          #
+          # SOUND EFFECTS PLAY AROUND THE SONG, highest rank first (IR::Tunes.effects_by_rank): the
+          # effects that outrank the tune before its parts, the rest after. So a note that loses
+          # its voice to one due on the same frame is never written at all, rather than written
+          # and then covered — whoever writes a voice first on a frame is whoever keeps it.
           def advance(level: nil)
             catch_up
-            return unless @playing
+            asked = @asked.uniq
+            @asked.clear
+            tune = @playing ? IR::Tunes.song_rank(@songs[@playing]) : -1
+            above, below = ranked_effects.partition { |_, rank| rank > tune }
+            above.each { |name, rank| effect_frame(name, rank, asked) }
+            play_the_song(level) if @playing
+            below.each { |name, rank| effect_frame(name, rank, asked) }
+          end
 
+          private
+
+          def play_the_song(level)
             follow_the_level(level) if level
             song = @songs[@playing]
+            rank = IR::Tunes.song_rank(song)
             recorded = 0
             squares = 0
             song.voices.each_with_index do |part, number|
@@ -106,6 +140,13 @@ module RubyGBA
               channel = console_channel(kind) { squares += 1 }
               offset, frequency, instrument, volume, envelope = @events[number][@cursors[number]]
               next unless offset == @frame
+
+              # A voice a sound effect holds with a higher rank: the part carries on in time,
+              # silent here, and is heard again from its next note once the voice is free.
+              if channel && kind != :wave && !take_voice(channel, rank, frequency)
+                @cursors[number] += 1
+                next
+              end
 
               @log << [:note, @playing, frequency]
               if channel && level
@@ -124,15 +165,70 @@ module RubyGBA
             come_round(song)
           end
 
-          private
+          # Every sound effect with its rank, highest first.
+          def ranked_effects
+            @ranked_effects ||= IR::Tunes.effects_by_rank(@effects.map { |name| @songs.fetch(name) })
+          end
+
+          # ONE SOUND EFFECT'S FRAME. Asked for, it starts from its first note; at its end it lets
+          # go of the voices it still holds, silencing them; and sounding, it plays whatever notes
+          # are due, on the voices its rank lets it take.
+          def effect_frame(name, rank, asked)
+            song = @songs.fetch(name)
+            if asked.include?(name)
+              @running[name] = { frame: 0, cursors: Array.new(song.voices.size, 0) }
+              @log << [:sound_effect, name]
+            elsif @running.key?(name) && @running[name][:frame] >= song.total_frames
+              finish_effect(name, rank)
+            end
+            run = @running[name] or return
+
+            squares = 0
+            song.voices.each_with_index do |part, number|
+              kind = IR::Tunes.part_kind(part)
+              channel = console_channel(kind) { squares += 1 }
+              offset, frequency = part.events[run[:cursors][number]]
+              next unless offset == run[:frame]
+
+              run[:cursors][number] += 1
+              next unless take_voice(channel, rank, frequency)
+
+              @sounding.delete(channel) # the song's note there, if it had one, is gone
+              @log << [:note, name, frequency]
+              console_voice(kind, part, frequency) if kind == :noise
+            end
+            run[:frame] += 1
+          end
+
+          # An effect over: every voice it still holds goes quiet, and is free.
+          def finish_effect(name, rank)
+            @running.delete(name)
+            @holders.select { |_, holder| holder == rank }.each_key do |channel|
+              @holders[channel] = 0
+              @log << [:note, name, 0]
+              @log << [:noise, nil] if channel == NOISE_CHANNEL
+            end
+          end
+
+          # MAY A NOTE OF THIS RANK SOUND ON +channel+? Yes when nobody holding it outranks it
+          # (IR::Tunes.song_rank) — and then it holds the voice while it sounds, where a rest lets
+          # it go.
+          def take_voice(channel, rank, frequency)
+            return false if @holders[channel] > rank
+
+            @holders[channel] = frequency.zero? ? 0 : rank
+            true
+          end
 
           # The tune the program asked for has changed, or it said stop: silence what was
-          # playing and start the new one from its first frame.
+          # playing and start the new one from its first frame. A voice a sound effect holds is
+          # the effect's, and is left alone.
           def catch_up
             return if @wanted == @playing && @stops == @stops_seen
 
             @stops_seen = @stops
             @log << [:stop_music] if @playing
+            @holders.each_key { |channel| @holders[channel] = 0 if (@holders[channel] & IR::Tunes::ORDER_MASK).zero? }
             @sounding.clear
             @mixer.release_all_music
             @playing = @wanted

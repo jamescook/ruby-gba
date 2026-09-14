@@ -50,9 +50,16 @@ module RubyGBA
               "#{lowest.round} Hz (MIDI key #{key(lowest)}). The square-wave voice cannot play a note lower " \
               "than #{LOWEST} Hz. It plays this note at #{LOWEST} Hz, so you hear a different note.#{count} " \
               "The lowest note that the voice plays correctly is :#{LOWEST_NOTE} (MIDI key #{LOWEST_KEY}). To " \
-              "fix this, play #{notes} one or more octaves higher. Or write `plays: :wave` on this part. " \
-              "The wave voice goes one octave lower. Or use `plays:` to give the part an instrument. An " \
-              "instrument can play lower notes."
+              "fix this, play #{notes} one or more octaves higher.#{other_voices(program, song)}"
+          end
+
+          # A song's part can move to a voice that goes lower. A sound effect plays only the square
+          # and noise voices, so it cannot.
+          def other_voices(program, song)
+            return "" if SongWords.effect?(program, song)
+
+            " Or write `plays: :wave` on this part. The wave voice goes one octave lower. Or use `plays:` " \
+              "to give the part an instrument. An instrument can play lower notes."
           end
 
           def key(hz) = (69 + (12 * Math.log2(hz / 440.0))).round

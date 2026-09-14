@@ -49,6 +49,12 @@ module ConformanceFixture
       # a song only a list names, which loops from frame 1 with a note held across it
       B.song(:theme, events: [[0, 330], [2, 392]], total_frames: 4, loop_frame: 1),
       B.song_list(:tracks, [:theme]),                      # ...the list, picked from by number below
+      # a sound effect over the tune, on the square voice and the noise voice, with a priority
+      B.song(:hit, total_frames: 3, priority: 68, voices: [
+               RubyGBA::Music::Part.new(events: [[0, 523], [2, 0]]),
+               RubyGBA::Music::Part.new(events: [[0, 131]], noise: true),
+             ]),
+      B.sound_effect_list(:sfx, [:hit]),
       B.data(:blob, "\x01\x02\x03\x04".b),
       B.bitmap(:sprite, width: 2, height: 2,
                         pixels: [0x001F, 0x03E0, 0x7C00, 0x8000].pack("v*"),
@@ -248,6 +254,7 @@ module ConformanceFixture
       B.stop_wave,
       B.play_song(:tune),
       B.play_from_list(:tracks, which: B.var_ref(:x)), # a number worked out as the program runs
+      B.play_sound_effect(:sfx, which: B.var_ref(:x)),
       B.stop_music,
       B.play_sample(:clip), # a recorded sound through Direct Sound
       B.stop_sample,

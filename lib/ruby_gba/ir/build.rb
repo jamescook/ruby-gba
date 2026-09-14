@@ -245,10 +245,21 @@ module RubyGBA
       #
       # +loop_frame:+ is where the song goes back to at its end, so what comes before it
       # plays once — an introduction. Left out, the song loops from its start.
-      def song(name, total_frames:, voices: nil, events: nil, duty: :half, volume: 12, loop_frame: nil)
+      def song(name, total_frames:, voices: nil, events: nil, duty: :half, volume: 12, loop_frame: nil, priority: nil)
         voices ||= [Music::Part.new(events: events, duty: duty, volume: volume)]
         looping = loop_frame ? { loop_frame: loop_frame } : {}
+        looping[:priority] = priority if priority
         Nodes.build(:song, name: name, voices: voices, total_frames: total_frames, **looping)
+      end
+
+      # A named list of songs, each played once as a sound effect when it is asked for.
+      def sound_effect_list(name, effects)
+        Nodes.build(:sound_effect_list, name: name, effects: effects)
+      end
+
+      # Effect number +which+ of list +name+ (counting from 0) starts from its first note.
+      def play_sound_effect(name, which:)
+        Nodes.build(:play_sound_effect, name: name, which: wrap(which))
       end
 
       # Name the tune playing now. Every backend moves it on once per frame by itself, and

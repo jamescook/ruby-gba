@@ -30,31 +30,40 @@ module RubyGBA
   # A SONG WITH AN INTRODUCTION says where its loop starts: `loop_from: 384` plays the first 384
   # ticks once, then everything from there to the end over and over. Without it, the whole song
   # repeats.
-  Score = Data.define(:parts, :tempo, :ticks_per_beat, :length, :loop_from)
+  #
+  # PRIORITY decides who sounds when a sound effect and the song, or two sound effects, want
+  # the same one of the console's voices at once: the higher number takes it (see
+  # IR::Tunes.rank). A cartridge's own sound engine carries one on every sequence, so a decoder
+  # hands it straight over.
+  Score = Data.define(:parts, :tempo, :ticks_per_beat, :length, :loop_from, :priority)
 
   class Score
     # FRAMES A SECOND, the rate the music is played at — the same round figure a song block's
     # note lengths are worked out from, so the two agree about how long a beat is.
     FRAME_RATE = 60
 
+    # The highest priority there is. A byte, which is what a cartridge carries.
+    MOST_PRIORITY = 255
+
     # +length+ is where the song comes round again, in ticks. Left out, it is where the last
     # note ends — and a note with no length of its own counts as a beat long for that, since
     # it lasts until the next note and the last one has none after it. +loop_from+ is the tick
     # it comes round TO; left out, that is its start.
-    def initialize(parts:, tempo: 120, ticks_per_beat: 24, length: nil, loop_from: nil)
+    def initialize(parts:, tempo: 120, ticks_per_beat: 24, length: nil, loop_from: nil, priority: 0)
       super
     end
 
     # The score as the plain data every backend replays: each part's events as [frame,
     # frequency in Hz, instrument, volume] — a frequency of 0 a rest, and a nil instrument or
-    # volume meaning the part's own — the song's length in frames, and the frame it loops from
-    # when it has an introduction.
+    # volume meaning the part's own — the song's length in frames, its priority, and the frame
+    # it loops from when it has an introduction.
     def to_song
       Checks.score!(self)
       frames = Timing.new(self)
       ticks = length || last_tick
       total = [frames.at(ticks), 1].max
-      song = { voices: parts.map { |part| part.to_voice(frames, total) }, total_frames: total }
+      song = { voices: parts.map { |part| part.to_voice(frames, total) }, total_frames: total,
+               priority: priority }
       return song unless loop_from
 
       Checks.loop_from!(loop_from, ticks) { frames.at(loop_from) < total }
@@ -177,7 +186,15 @@ module RubyGBA
                                "You gave #{score.ticks_per_beat.inspect}."
         end
         tempo!(score.tempo)
+        priority!(score.priority)
         score.parts.each_with_index { |part, number| part!(part, number) }
+      end
+
+      def priority!(priority)
+        return if priority.is_a?(Integer) && priority.between?(0, MOST_PRIORITY)
+
+        raise ArgumentError, "The Score has the priority #{priority.inspect}. A priority is a whole number " \
+                             "from 0 to #{MOST_PRIORITY}."
       end
 
       # The loop starts somewhere inside the song: at a tick from 0 up to its last one — and
