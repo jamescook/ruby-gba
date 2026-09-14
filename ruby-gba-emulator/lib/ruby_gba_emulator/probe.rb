@@ -100,6 +100,32 @@ module RubyGBAEmulator
       @core.sprites
     end
 
+    # THE COLOURS THE CONSOLE IS DRAWING FROM — 512 of them, backgrounds first, then
+    # sprites, each a 15-bit colour.
+    #
+    # A game fades, tints, or recolours a character by changing these rather than by
+    # redrawing anything. So "did the fade happen", asked of the picture, is really a
+    # question about these numbers put the long way round — and one that whatever else is on
+    # screen can confuse.
+    #
+    # @return [Array<Integer>]
+    def palette
+      ensure_open!
+      @core.palette
+    end
+
+    # WHERE BACKGROUND +which+ (0 to 3) IS SCROLLED TO, as [across, down] in pixels.
+    #
+    # The console's scroll registers are write-only: a game sets them and nothing on the
+    # hardware can read them back, so a test looking at the picture can only guess how far a
+    # scrolling game has travelled. The emulator kept the values it was handed.
+    #
+    # @return [Array(Integer, Integer)]
+    def scroll(which)
+      ensure_open!
+      @core.scroll(which)
+    end
+
     # How many times the game has READ THE PAD since the cartridge was loaded.
     #
     # This is what the emulator saw, not how many times a game loop went round. The two look

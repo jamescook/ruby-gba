@@ -1250,6 +1250,69 @@ mgba_core_sprites(VALUE self)
 }
 
 /* --------------------------------------------------------- */
+/* Core#palette — the colours the console is drawing from      */
+/*                                                            */
+/* 512 of them: the first 256 for the backgrounds, the rest    */
+/* for the sprites, each a 15-bit colour. A game fades, tints  */
+/* or recolours a character by changing these rather than by   */
+/* redrawing anything, so a test asking "did the fade happen"  */
+/* off the picture is really asking about these numbers — the  */
+/* long way round, and confounded by everything else on        */
+/* screen.                                                     */
+/* --------------------------------------------------------- */
+static VALUE
+mgba_core_palette(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    struct GBA *gba;
+    VALUE out;
+    int i;
+
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA) {
+        rb_raise(rb_eRuntimeError, "palette is GBA-only");
+    }
+    gba = (struct GBA *)mc->core->board;
+    out = rb_ary_new_capa(512);
+    for (i = 0; i < 512; i++) {
+        rb_ary_push(out, INT2NUM(gba->video.palette[i]));
+    }
+    return out;
+}
+
+/* --------------------------------------------------------- */
+/* Core#scroll(n) — where background n is scrolled to          */
+/*                                                            */
+/* [across, down], in pixels. These registers are WRITE-ONLY  */
+/* on the console, so a game can set them and nothing can read */
+/* them back — a test looking at the picture can only guess    */
+/* how far a scrolling game has travelled. The emulator kept   */
+/* the values it was given.                                    */
+/* --------------------------------------------------------- */
+static VALUE
+mgba_core_scroll(VALUE self, VALUE which)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    struct GBA *gba;
+    int n = NUM2INT(which);
+    VALUE out;
+
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA) {
+        rb_raise(rb_eRuntimeError, "scroll is GBA-only");
+    }
+    if (n < 0 || n > 3) {
+        rb_raise(rb_eArgError, "there are four backgrounds, 0 to 3 — asked for %d", n);
+    }
+    gba = (struct GBA *)mc->core->board;
+
+    /* Each background has a pair of registers four bytes apart, starting at BG0's. The
+     * io array is indexed in halfwords, hence the shift. */
+    out = rb_ary_new_capa(2);
+    rb_ary_push(out, INT2NUM(gba->memory.io[(REG_BG0HOFS >> 1) + (n * 2)] & 0x1FF));
+    rb_ary_push(out, INT2NUM(gba->memory.io[(REG_BG0VOFS >> 1) + (n * 2)] & 0x1FF));
+    return out;
+}
+
+/* --------------------------------------------------------- */
 /* Cycle timing — for calibrating the cost model             */
 /*                                                           */
 /* The GBA runs at a fixed cycle budget per frame (~280896   */
@@ -2108,6 +2171,8 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "initialize",  mgba_core_initialize, -1);
     rb_define_method(cCore, "pad_reads",   mgba_core_pad_reads, 0);
     rb_define_method(cCore, "sprites",     mgba_core_sprites, 0);
+    rb_define_method(cCore, "palette",     mgba_core_palette, 0);
+    rb_define_method(cCore, "scroll",      mgba_core_scroll, 1);
     rb_define_method(cCore, "crashed?",    mgba_core_crashed_p, 0);
     rb_define_method(cCore, "complaints",  mgba_core_complaints, 0);
     rb_define_method(cCore, "run_frame",   mgba_core_run_frame, 0);

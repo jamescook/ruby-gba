@@ -9,6 +9,7 @@
 #include <mgba-util/vfs.h>
 #include <mgba/internal/gba/bios.h>
 #include <mgba/internal/gba/gba.h>
+#include <mgba/internal/gba/io.h>
 
 extern VALUE mRubyGBAEmulator;
 

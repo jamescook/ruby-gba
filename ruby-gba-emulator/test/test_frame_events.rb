@@ -11,6 +11,9 @@ require_relative "test_helper"
 class TestFrameEvents < Minitest::Test
   include RubyGBAEmulatorTestSupport
 
+  # A tiled screen draws from 8x8 tiles, so that is what a tileset's art has to be.
+  TILE_8X8 = ("########\n" * 8).freeze
+
   def test_a_probe_says_how_often_the_game_asked_for_buttons
     path = build_rom("PADREAD", code: "TPAD") do
       screen :bitmap
@@ -100,6 +103,47 @@ class TestFrameEvents < Minitest::Test
     probe.step(4)
 
     assert_empty probe.sprites
+  end
+
+  # THE COLOURS THE CONSOLE IS DRAWING FROM. A game fades, tints, or swaps a character's
+  # colours by changing this table rather than by redrawing anything — so "did the fade
+  # happen" read off the picture is really a question about these numbers, asked the long
+  # way round and confounded by whatever else is on screen.
+  def test_a_probe_can_read_the_colours_the_console_is_drawing_from
+    path = build_rom("PALETTE", code: "TPAL") do
+      screen :tiled
+      image(:brick, "#" => :red) { TILE_8X8 }
+      tiles :set, "#" => :brick
+      background :bg, tiles: :set, map: "##\n##\n"
+      game_loop { wait_vblank }
+    end
+
+    probe = RubyGBAEmulator.open(path)
+    probe.step(4)
+    colours = probe.palette
+
+    assert_equal 512, colours.size, "the console holds 512 colours, backgrounds then sprites"
+    assert(colours.any? { |c| c.positive? }, "the game declared colours, so some are set")
+  end
+
+  # WHERE THE CAMERA IS. A scrolling game moves the window over its map, and the registers
+  # that say by how much are write-only on the hardware — so a test reading the picture can
+  # only guess at it. The emulator kept the values.
+  def test_a_probe_can_read_where_each_background_is_scrolled_to
+    path = build_rom("SCROLL", code: "TSCR") do
+      screen :tiled
+      image(:brick, "#" => :red) { TILE_8X8 }
+      tiles :set, "#" => :brick
+      bg = background :bg, tiles: :set, map: "##\n##\n"
+      game_loop { bg.scroll_to 24, 8 }
+    end
+
+    probe = RubyGBAEmulator.open(path)
+    probe.step(6)
+    across, down = probe.scroll(0)
+
+    assert_equal 24, across
+    assert_equal 8, down
   end
 
   # What the emulator itself said while the frame ran. mGBA reports a bad read or an
