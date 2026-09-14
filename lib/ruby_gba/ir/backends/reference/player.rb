@@ -165,8 +165,8 @@ module RubyGBA
               # A voice a sound effect holds with a higher rank, or a mixer with no voice this note
               # can have: the part carries on in time, silent here, and is heard again from its
               # next note once there is one.
-              shared = channel && kind != :wave
-              sounds = sounds?(frequency, volume || part.volume)
+              shared = !channel.nil?
+              sounds = sounds?(kind, frequency, volume || part.volume)
               heard = if shared
                         take_voice(channel, rank, sounds: sounds)
                       elsif lane
@@ -203,10 +203,11 @@ module RubyGBA
             @ranked_effects ||= IR::Tunes.effects_by_rank(@effects.map { |name| @songs.fetch(name) })
           end
 
-          # WHAT A VOICE A SOUND EFFECT CAN SHARE WAS SET TO — the square voices and the noise voice
-          # — is logged as [:voice, channel, who, frequency, volume] whenever the song or an effect
-          # writes it, and as a frequency and volume of 0 when an effect's end silences it. A tune
-          # that stops logs [:stop_music] instead.
+          # WHAT A VOICE A SOUND EFFECT CAN SHARE WAS SET TO — the square voices, the wave voice and
+          # the noise voice — is logged as [:voice, channel, who, frequency, volume] whenever the song
+          # or an effect writes it, and as a frequency and volume of 0 when an effect's end silences
+          # it. A tune that stops logs [:stop_music] instead. A note on the wave voice is in its own
+          # part's waveform, which the [:wave] entry beside it names.
           #
           # ONE SOUND EFFECT'S FRAME. Asked for, it starts from its first note; at its end it lets
           # go of the voices it still holds, silencing them; and sounding, it plays whatever notes
@@ -235,17 +236,17 @@ module RubyGBA
               run.cursors[number] += 1
               if lane
                 heard = sound_recording(owner: [name, lane], rank: rank, name: instrument || part.instrument,
-                                        frequency: sounds?(frequency, volume || part.volume) ? frequency : 0,
+                                        frequency: sounds?(kind, frequency, volume || part.volume) ? frequency : 0,
                                         envelope: envelope || part.envelope)
                 @log << [:note, name, frequency] if heard
                 next
               end
-              next unless take_voice(channel, rank, sounds: sounds?(frequency, volume || part.volume))
+              next unless take_voice(channel, rank, sounds: sounds?(kind, frequency, volume || part.volume))
 
               @sounding.delete(channel) # the song's note there, if it had one, is gone
               @log << [:note, name, frequency]
               @log << [:voice, channel, name, frequency, volume || part.volume]
-              console_voice(kind, part, frequency) if kind == :noise
+              console_voice(kind, part, frequency) unless kind == :square
             end
             run.frame += 1
           end
@@ -268,6 +269,7 @@ module RubyGBA
               @log << [:note, name, 0]
               @log << [:voice, channel, name, 0, 0]
               @log << [:noise, nil] if channel == NOISE_CHANNEL
+              @log << [:stop_wave] if channel == WAVE_CHANNEL
             end
             IR::Tunes.recorded_parts(@songs.fetch(name)).times { |lane| @log << [:note, name, 0] if @mixer.release_music([name, lane]) }
           end
@@ -282,7 +284,13 @@ module RubyGBA
             true
           end
 
-          def sounds?(frequency, volume) = frequency.positive? && volume.positive?
+          # Does a note make a sound? Not a rest, and not at volume 0 — nor, on the wave voice, at a
+          # volume whose nearest of that voice's five is none.
+          def sounds?(kind, frequency, volume)
+            return false unless frequency.positive? && volume.positive?
+
+            kind != :wave || Sound::Registers.wave_level(volume) != :mute
+          end
 
           # The tune the program asked for has changed, or it said stop: silence what was
           # playing and start the new one from its first frame. A voice a sound effect holds is

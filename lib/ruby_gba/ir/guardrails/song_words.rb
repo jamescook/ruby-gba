@@ -35,7 +35,7 @@ module RubyGBA
         # Did the song come from a list of Scores, rather than a `song` block?
         def score?(program, node) = !list_of(program, node).nil?
 
-        # Is it one of the game's sound effects, which play only the square and noise voices?
+        # Is it one of the game's sound effects rather than a song?
         def effect?(program, node) = list_of(program, node)&.kind == :sound_effect_list
 
         # "the part :bass" / "the second part" for a song block, "part 1" for a Score.

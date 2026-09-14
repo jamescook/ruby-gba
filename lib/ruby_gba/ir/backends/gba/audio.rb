@@ -76,11 +76,24 @@ module RubyGBA
           def emit_wave(node)
             samples = Sound.wavetable(node.shape)
             emit_writes(Sound::Registers.wave_play(samples, frequency: node.frequency, volume: node.volume))
+            emit_forget_waveform
           end
 
           # Silence the wave voice.
           def emit_stop_wave(_node = nil)
             emit_writes(Sound::Registers.wave_stop)
+            emit_forget_waveform
+          end
+
+          # The game's own `wave` puts a waveform of its own in wave RAM, and `stop_wave` switches
+          # the voice off: either way, no player's waveform is there to be sounded, so the next note
+          # on the voice loads its own (see WAVE_LOADED). The store goes after the writes, so a
+          # player running in between loads once more than it needs to rather than once too few.
+          def emit_forget_waveform
+            return unless @effect_waves
+
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, WAVE_LOADED)
           end
 
           # The two square-wave channels a tune's plain parts play on, in order. The score names
@@ -189,10 +202,10 @@ module RubyGBA
           # among the effects — so whoever writes a voice first on a frame keeps it, and a note
           # never has to be written and then covered.
           #
-          # An effect's lanes are the voices it shares with the tune: the two square voices and the
-          # noise voice, whichever of them any effect uses. Who holds each such voice is a rank in a
-          # variable of its own (IR::Tunes.song_rank), and a note is written only when nobody
-          # holding the voice outranks it.
+          # An effect's lanes are the voices it shares with the tune: the two square voices, the wave
+          # voice and the noise voice, whichever of them any effect uses. Who holds each such voice
+          # is a rank in a variable of its own (IR::Tunes.song_rank), and a note is written only when
+          # nobody holding the voice outranks it.
           #
           # Then one recorded lane for each part that plays a recording, as many as the most any
           # effect has. Those share the mixer's voices rather than one voice each, so who gives way
@@ -221,10 +234,25 @@ module RubyGBA
           GROUP_MEMBER_BYTES = 2
 
           # An effect's entry in the score: its length in frames, its rank, and where each of its
-          # lanes' events start.
+          # lanes' events start — and in a game whose effects play the wave voice, where its
+          # waveform is (see #effect_wave_at).
           EFFECT_LENGTH = 0
           EFFECT_RANK = 4
           EFFECT_STARTS = 8
+
+          # WHICH WAVEFORM IS IN WAVE RAM, for a game whose effects play the wave voice: where it is
+          # in the score, or 0 before any. There is room there for one waveform, and the tune and
+          # an effect can each want theirs, so a note on the wave voice — not a rest — loads its own
+          # first if this says another is there (UPLOAD_WAVE), which is on the frames it changes
+          # and no others. The tune's waveform waits in MUSIC_WAVE from the frame the tune starts,
+          # rather than being loaded then over an effect that may hold the voice.
+          WAVE_LOADED = :__wave_loaded
+          MUSIC_WAVE = :__music_wave
+          UPLOAD_WAVE = :__upload_wave
+
+          # The registers a waveform is copied with: where it is, where it goes, the walk along it
+          # and how many halfwords are left.
+          WAVE_COPY_REGS = [7, 8, 9, 10].freeze
 
           # The routine the tick calls to play a run of the table (#emit_sound_effects_routine).
           SOUND_EFFECTS = :__sound_effects
@@ -242,6 +270,7 @@ module RubyGBA
             @effects = ranked.map(&:first)
             @effect_ranks = ranked.to_h
             @effect_lists = {}
+            @effect_waves = false
             return unless plays_sound_effects?
 
             slots = @effects.each_with_index.to_h
@@ -249,10 +278,13 @@ module RubyGBA
               @effect_lists[node.name] = node.effects.map { |name| slots.fetch(name) } if node.kind == :sound_effect_list
             end
             squares = @effects.map { |name| IR::Tunes.parts_on(@songs.fetch(name), :square) }.max
-            noise = @effects.any? { |name| IR::Tunes.parts_on(@songs.fetch(name), :noise).positive? }
             recorded = @effects.map { |name| IR::Tunes.recorded_parts(@songs.fetch(name)) }.max
             @effect_lanes = MUSIC_CHANNELS.first(squares).map { |channel| Lane.new(:square, channel) }
-            @effect_lanes << Lane.new(:noise, NOISE_CHANNEL) if noise
+            CONSOLE_LANES.each do |kind, channel|
+              used = @effects.any? { |name| IR::Tunes.parts_on(@songs.fetch(name), kind).positive? }
+              @effect_lanes << Lane.new(kind, channel) if used
+            end
+            @effect_waves = @effect_lanes.any? { |lane| lane.kind == :wave }
             @effect_lanes += Array.new(recorded) { |lane| Lane.new(:recorded, lane) }
             if recorded.positive?
               @mixer.ranks_voices!(@effects.flat_map do |name|
@@ -648,7 +680,13 @@ module RubyGBA
             @emitter.emit_branch(:bcond, done, cond: :eq)
             @emitter.emit(ASM.load_immediate(frame, 0))
             emit_rewind_lanes(base, at, playing)
-            emit_upload_wavetable(base, at, playing) if @waves
+            if @waves && @effect_waves
+              emit_entry_address(at, base, playing)
+              @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_WAVE))
+              @primitives.store_var(ACC, MUSIC_WAVE)
+            elsif @waves
+              emit_upload_wavetable(base, at, playing)
+            end
             if plays_sound_effects?
               emit_entry_address(at, base, playing)
               @emitter.emit(ASM.ldr_offset(ACC, at, @entry_rank))
@@ -718,17 +756,18 @@ module RubyGBA
           # tune's note it takes the voice from is no longer held by the tune, so a music volume
           # moving later does not start it again.
           #
-          # Uses r0, r1, r3-r5, r9, r10 and r12. In a game whose effects play recordings, it calls
-          # the mixer too, so it keeps its return address on the stack and gives back every
-          # register it holds around each call.
+          # Uses r0, r1, r3-r5, r9, r10 and r12. In a game whose effects play recordings or the
+          # wave voice, it calls the mixer or UPLOAD_WAVE too, so it keeps its return address on the
+          # stack and gives back every register it holds around each call.
           def emit_sound_effects_routine
             e = @emitter
             slot, entry, outranks = EFFECT_SLOT, EFFECT_ENTRY, EFFECT_OUTRANKS
             base, table_end, cursor, frame, rank, row = 2, 3, 4, 5, 9, 10
             walk = e.gensym
             out = e.gensym
+            makes_calls = @mixer.ranks_voices? || @effect_waves
             e.place_label(SOUND_EFFECTS)
-            e.emit(ASM.push(Mixer::LR)) if @mixer.ranks_voices? # a recorded note calls the mixer
+            e.emit(ASM.push(Mixer::LR)) if makes_calls
             e.emit(ASM.load_immediate(table_end, @effect_table + (@effects.size * @effect_slot_bytes)))
             e.place_label(walk)
             e.emit(ASM.cmp_reg(slot, table_end))
@@ -793,6 +832,10 @@ module RubyGBA
                 emit_effect_recorded_note(lane, rank, row)
               else
                 emit_take_voice(lane: lane, rank: rank, row: row, dropped: skip)
+                if lane.kind == :wave
+                  e.emit(ASM.ldr_offset(ACC, entry, effect_wave_at))
+                  emit_load_waveform(row)
+                end
                 emit_console_note(lane, row)
                 song_lane = @lanes.index(lane)
                 forget_held_note(song_lane) if song_lane && holds_notes?(lane)
@@ -804,10 +847,46 @@ module RubyGBA
 
             e.place_label(onward)
             e.emit(ASM.add_imm(slot, slot, @effect_slot_bytes))
-            e.emit(ASM.add_imm(entry, entry, EFFECT_STARTS + (4 * @effect_lanes.size)))
+            e.emit(ASM.add_imm(entry, entry, effect_entry_bytes))
             e.emit_branch(:b, walk)
             e.place_label(out)
-            e.emit(@mixer.ranks_voices? ? ASM.pop(PC) : ASM.return)
+            e.emit(makes_calls ? ASM.pop(PC) : ASM.return)
+            emit_upload_wave_routine if @effect_waves
+          end
+
+          # Where an effect's waveform sits in its entry, after where its lanes start — and how
+          # long an entry is.
+          def effect_wave_at = EFFECT_STARTS + (4 * @effect_lanes.size)
+          def effect_entry_bytes = effect_wave_at + (@effect_waves ? 4 : 0)
+
+          # THE ROW AT +row+ IS ABOUT TO BE WRITTEN TO THE WAVE VOICE, with its waveform in ACC: a
+          # note loads that waveform first if it is not the one there, and a rest loads nothing. A
+          # note starts the voice and a rest does not, so the bit that starts it says which.
+          def emit_load_waveform(row)
+            rest = @emitter.gensym
+            @emitter.emit(ASM.load_halfword_offset(TMP, row, 6))
+            @emitter.emit(ASM.tst_imm(TMP, 0x8000))
+            @emitter.emit_branch(:bcond, rest, cond: :eq)
+            @emitter.emit_branch(:bl, UPLOAD_WAVE)
+            @emitter.place_label(rest)
+          end
+
+          # LOAD THE WAVEFORM AT OFFSET ACC IN THE SCORE (r2) INTO WAVE RAM, unless it is there
+          # already (WAVE_LOADED). Keeps every register but r0, r1 and r12.
+          def emit_upload_wave_routine
+            e = @emitter
+            loaded = e.gensym
+            e.place_label(UPLOAD_WAVE)
+            @primitives.load_var(TMP, WAVE_LOADED)
+            e.emit(ASM.cmp_reg(ACC, TMP))
+            e.emit_branch(:bcond, loaded, cond: :eq)
+            @primitives.store_var(ACC, WAVE_LOADED)
+            e.emit(ASM.push(*WAVE_COPY_REGS))
+            e.emit(ASM.add_reg(WAVE_COPY_REGS.first, 2, ACC))
+            emit_copy_waveform(WAVE_COPY_REGS.first)
+            e.emit(ASM.pop(*WAVE_COPY_REGS))
+            e.place_label(loaded)
+            e.emit(ASM.return)
           end
 
           # EVERY VOICE THE EFFECT OF RANK +rank+ STILL HOLDS goes quiet and is free: a console voice
@@ -998,15 +1077,24 @@ module RubyGBA
           # loops one and the CPU can reach the other, so a table written to the bank being
           # played is not heard. Writing both means whichever it loops, it loops this one.
           # +at+ holds the tune's directory entry. Uses r7-r10 and ACC/TMP, all free here.
+          #
+          # A game whose sound effects play the wave voice does not do this, since an effect may
+          # hold the voice as the tune changes: see WAVE_LOADED.
           def emit_upload_wavetable(base, at, playing)
-            source, dest, walk, left = 7, 8, 9, 10
             none = @emitter.gensym
             emit_entry_address(at, base, playing)
             @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_WAVE))
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, none, cond: :eq) # this tune plays no waveform
-            @emitter.emit(ASM.add_reg(source, base, ACC))
+            @emitter.emit(ASM.add_reg(WAVE_COPY_REGS.first, base, ACC))
+            emit_copy_waveform(WAVE_COPY_REGS.first)
+            @emitter.place_label(none)
+          end
 
+          # Copy the waveform at the address in +source+ into both banks of wave RAM, and switch the
+          # voice on. Uses the other WAVE_COPY_REGS and ACC/TMP.
+          def emit_copy_waveform(source)
+            _, dest, walk, left = WAVE_COPY_REGS
             WAVE_BANKS.each do |bank|
               copy = @emitter.gensym
               @emitter.write_reg16(REG_SOUND3CNT_L, bank) # the CPU reaches this bank
@@ -1022,7 +1110,6 @@ module RubyGBA
               @emitter.emit_branch(:bcond, copy, cond: :ne)
             end
             @emitter.write_reg16(REG_SOUND3CNT_L, WAVE_ON)
-            @emitter.place_label(none)
           end
 
           # Which bank of wave RAM the CPU reaches, and the value that switches the voice on
@@ -1245,6 +1332,10 @@ module RubyGBA
               @emitter.emit_branch(:b, skip)
               @emitter.place_label(heard)
             end
+            if lane.kind == :wave && @effect_waves
+              @primitives.load_var(ACC, MUSIC_WAVE)
+              emit_load_waveform(at)
+            end
 
             if lane.kind == :recorded
               emit_recorded_note(lane: lane.index, number: number, base: base, at: at)
@@ -1393,8 +1484,9 @@ module RubyGBA
             @sounding_numbers = soundings.each_with_index.to_h
             @instruments_at = (@song_numbers.size + 1) * entry_bytes
             waves_at = @instruments_at + (soundings.size * INSTRUMENT_BYTES)
-            # One copy of each waveform the played tunes use, whichever of them use it.
-            shapes = @song_numbers.keys.flat_map { |name| wave_shapes(@songs.fetch(name)) }.uniq
+            # One copy of each waveform the played tunes and the sound effects use, whichever of
+            # them use it.
+            shapes = (@song_numbers.keys + @effects).flat_map { |name| wave_shapes(@songs.fetch(name)) }.uniq
             wave_at = shapes.each_with_index.to_h { |shape, i| [shape, waves_at + (i * WAVE_BYTES)] }
             events_at = waves_at + (shapes.size * WAVE_BYTES)
 
@@ -1433,26 +1525,25 @@ module RubyGBA
                 loop_at = events_at + events.bytesize
                 events << [IR::Tunes.loop_frame(song), *again].pack("V*")
               end
-              shape = wave_shapes(song).first
               rank = plays_sound_effects? ? [IR::Tunes.song_rank(song)] : []
-              directory << [song.total_frames, used, loop_at, shape ? wave_at.fetch(shape) : 0,
+              directory << [song.total_frames, used, loop_at, waveform_at(song, wave_at),
                             *starts, *rank].pack("V*").ljust(entry_bytes, "\0")
             end
             score = directory + table + events
-            score + effects_blob(at: score.bytesize, never: events_at)
+            score + effects_blob(at: score.bytesize, never: events_at, wave_at: wave_at)
           end
 
           # EVERY SOUND EFFECT, after the tunes: an entry for each, in rank order — its length, its
-          # rank, and where each lane's events start — and then the events themselves. A lane an
-          # effect does not use waits on the row at +never+. Sets where the entries start, for the
-          # tick to walk them.
-          def effects_blob(at:, never:)
+          # rank, where each lane's events start and, in a game whose effects play the wave voice,
+          # where its waveform is in +wave_at+ (0 for one that plays none) — and then the events
+          # themselves. A lane an effect does not use waits on the row at +never+. Sets where the
+          # entries start, for the tick to walk them.
+          def effects_blob(at:, never:, wave_at:)
             @effects_at = at
             return "".b unless plays_sound_effects?
 
-            entry_bytes = EFFECT_STARTS + (4 * @effect_lanes.size)
             rows = "".b
-            rows_at = at + (@effects.size * entry_bytes)
+            rows_at = at + (@effects.size * effect_entry_bytes)
             entries = @effects.each_with_index.map do |name, order|
               song = @songs.fetch(name)
               starts = Array.new(@effect_lanes.size, never)
@@ -1460,20 +1551,22 @@ module RubyGBA
                 starts[number] = rows_at + rows.bytesize
                 rows << lane_rows(@effect_lanes[number], part, part.events)
               end
-              [song.total_frames, @effect_ranks.fetch(name), *starts].pack("V*")
+              wave = @effect_waves ? [waveform_at(song, wave_at)] : []
+              [song.total_frames, @effect_ranks.fetch(name), *starts, *wave].pack("V*")
             end
             entries.join + rows
           end
 
           # Which effect lane each of an effect's parts plays on: its square parts the square
-          # voices in order, its noise part the noise voice, and its recorded parts the recorded
-          # lanes in order.
+          # voices in order, its wave and noise parts those voices, and its recorded parts the
+          # recorded lanes in order.
           def effect_lanes_for(song)
             squares = 0
             recorded = 0
             song.voices.map do |part|
-              lane = case IR::Tunes.part_kind(part)
-                     when :noise then Lane.new(:noise, NOISE_CHANNEL)
+              kind = IR::Tunes.part_kind(part)
+              lane = case kind
+                     when :wave, :noise then Lane.new(kind, CONSOLE_LANES.fetch(kind))
                      when :recorded then Lane.new(:recorded, recorded).tap { recorded += 1 }
                      else Lane.new(:square, MUSIC_CHANNELS.fetch(squares).tap { squares += 1 })
                      end
@@ -1484,6 +1577,13 @@ module RubyGBA
           # The waveform a song's parts on the wave voice play. There is one wave voice, so
           # there is at most one — Checks::SongTooManyParts refuses a song with two such parts.
           def wave_shapes(song) = song.voices.filter_map { |part| part.wave }.uniq
+
+          # Where in the score that waveform is, given where each one is in +wave_at+ — or 0 for a
+          # song or effect with no part on the wave voice.
+          def waveform_at(song, wave_at)
+            shape = wave_shapes(song).first
+            shape ? wave_at.fetch(shape) : 0
+          end
 
           def row_bytes(lane) = lane.kind == :recorded ? RECORDED_ROW : SQUARE_ROW
 

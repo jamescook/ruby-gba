@@ -199,24 +199,15 @@ module RubyGBA
         member
       end
 
-      # Refuse a Score a sound effect cannot play. An effect plays the square wave, the noise voice
-      # and recordings, which are the voices it shares with the song by priority, and it plays
-      # once, so it has no loop. How many parts it may have on each is checked with a song's, on
-      # the finished program (Guardrails::Checks::SongTooManyParts).
+      # Refuse a Score a sound effect cannot play. An effect plays every voice a song does, sharing
+      # each with the song by priority, but it plays once, so it has no loop. How many parts it may
+      # have on each is checked with a song's, on the finished program
+      # (Guardrails::Checks::SongTooManyParts).
       def check_sound_effect!(effect:, score:)
-        if score.loop_from
-          raise ArgumentError, "#{effect} has `loop_from:`. A sound effect plays one time, and does not " \
-                               "loop. Remove `loop_from:` from this Score."
-        end
+        return unless score.loop_from
 
-        score.to_song[:voices].each_with_index do |part, number|
-          next unless IR::Tunes.part_kind(part) == :wave
-
-          raise ArgumentError, "#{effect} has a part that plays the wave voice (part #{number}). A sound " \
-                               "effect can play the square wave, the noise voice or a recording. For the " \
-                               "square wave, remove `plays:` from this part. For the noise voice, use " \
-                               "`plays: :noise`."
-        end
+        raise ArgumentError, "#{effect} has `loop_from:`. A sound effect plays one time, and does not " \
+                             "loop. Remove `loop_from:` from this Score."
       end
 
       def score_entries(name:, scores:, verb:)

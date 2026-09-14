@@ -57,10 +57,8 @@ module RubyGBA
           # WHERE THE PARTS THAT DO NOT FIT CAN GO, one voice with room per sentence. The point
           # of naming them all is that the two the console plays itself cost NO mixer voice,
           # which is the thing an author has no way to know and the reason to reach for them.
-          # A sound effect cannot play the wave voice, so that one is not offered for an effect.
           def fixes(program, song, kind, counts)
-            voices = SongWords.effect?(program, song) ? LIMITS.keys - %i[wave] : LIMITS.keys
-            room = voices.reject { |other| other == kind }
+            room = LIMITS.keys.reject { |other| other == kind }
                          .select { |other| counts.fetch(other) < LIMITS.fetch(other).first }
             last = "To fix this, use fewer parts that #{LIMITS.fetch(kind)[1]}."
             return last if room.empty?

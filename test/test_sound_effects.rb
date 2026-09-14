@@ -19,22 +19,23 @@ class TestSoundEffects < Minitest::Test
     Score.new(tempo: 150, priority: priority, parts: [Part.new(plays: plays, notes: notes)])
   end
 
-  # A game with +effects+ as sound effects and, when given, +tune+ as the one song it plays from
-  # its first pass. The block runs each pass with the effects and the pass number. Every game has a
-  # recording to play, :piano, four seconds long at middle C, which the block can play as @piano.
+  # A game with +effects+ as sound effects and, when given, +tune+ as the song it plays from its
+  # first pass — or a list of them, the first played. The block runs each pass with the effects,
+  # the pass number and the songs. Every game has a recording to play, :piano, four seconds long
+  # at middle C, which the block can play as @piano.
   def game(effects, tune: nil, &body)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
       enable_sound
       @piano = instrument :piano, pcm: [60, -60] * 16_000, rate: 8000, note: :C4
-      music = songs :music, [tune] if tune
+      music = songs :music, Array(tune) if tune
       sfx = sound_effects :sfx, effects
       pass = var :pass, 0
       game_loop do
         pass.add 1
         music&.play 0
-        instance_exec(sfx, pass, &body)
+        instance_exec(sfx, pass, music, &body)
       end
     end
     b.emit_pending_functions
@@ -70,13 +71,14 @@ class TestSoundEffects < Minitest::Test
   # --- over the song, on the same voice ---
 
   # The song's one part sounds on frames 2, 22 and 42; the effect, on the same voice, from frame
-  # 11 to its end on frame 40. Both play the first square voice, or both whatever +plays+ names.
-  # The effect's part is quieter, and a thinner tone, so the console can tell the two apart.
-  def song_and_effect(song_priority:, effect_priority:, plays: nil)
+  # 11 to its end on frame 40. Both play the first square voice, or both whatever +plays+ names —
+  # the effect +effect_plays+, when that is given. The effect's part is quieter, and a thinner
+  # tone, so the console can tell the two apart.
+  def song_and_effect(song_priority:, effect_priority:, plays: nil, effect_plays: plays)
     tune = Score.new(tempo: 150, priority: song_priority, parts: [Part.new(plays: plays, notes: [
       Note.new(at: 0, key: :C4), Note.new(at: 20, key: :E4), Note.new(at: 40, key: :G4),
     ])])
-    hit = Score.new(tempo: 150, priority: effect_priority, parts: [Part.new(plays: plays, volume: 9, duty: :quarter, notes: [
+    hit = Score.new(tempo: 150, priority: effect_priority, parts: [Part.new(plays: effect_plays, volume: 9, duty: :quarter, notes: [
       Note.new(at: 0, key: :C5), Note.new(at: 5, key: :D5),
     ])])
     game([hit], tune: tune) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
@@ -137,6 +139,58 @@ class TestSoundEffects < Minitest::Test
     assert_equal [[:"music.0", NOTES[:E4]]], notes_by_frame(program, 30)[22]
     assert_includes console_changes(program, SQUARE_1, frames: 40), [20, square_setting(:half, 12)],
                     "the console plays the song's note 20 frames after its first"
+  end
+
+  # --- on the wave voice ---
+
+  # The wave voice is shared by the same rule: the effect's sawtooth takes it from the song's
+  # triangle, and the song comes back with its next note.
+  def test_an_effect_of_higher_priority_takes_the_wave_voice_until_it_ends
+    program = song_and_effect(song_priority: 0, effect_priority: 68, plays: :triangle, effect_plays: :sawtooth)
+
+    assert_equal({ 2 => [[:"music.0", NOTES[:C4]]], 11 => [[:"sfx.0", NOTES[:C5]]],
+                   16 => [[:"sfx.0", NOTES[:D5]]], 40 => [[:"sfx.0", 0]], 42 => [[:"music.0", NOTES[:G4]]] },
+                 notes_by_frame(program, 50))
+  end
+
+  # ...and each note sounds in its own player's waveform: the sawtooth while the effect holds the
+  # voice, silence at its end, and the triangle again after.
+  def test_a_note_on_the_wave_voice_sounds_in_its_own_waveform
+    program = song_and_effect(song_priority: 0, effect_priority: 68, plays: :triangle, effect_plays: :sawtooth)
+
+    assert_equal({ 2 => :triangle, 11 => :sawtooth, 16 => :sawtooth, 40 => :silent, 42 => :triangle },
+                 wave_notes_by_frame(program, 50))
+  end
+
+  # What the interpreter says the wave voice was set to on each frame it was: the waveform of the
+  # note, or :silent.
+  def wave_notes_by_frame(program, frames)
+    i = Reference.new
+    shapes = {}
+    i.each_vblank do |frame|
+      i.audio.each do |kind, settings|
+        shapes[frame] = settings[:shape] if kind == :wave
+        shapes[frame] = :silent if kind == :stop_wave
+      end
+      i.audio.clear
+    end
+    i.run(program, frames: frames)
+    shapes
+  end
+
+  # The wave voice has five volumes, and the nearest to 1 of 15 is none: that note is silent, so it
+  # lets the voice go, and the song's note on frame 22 is heard.
+  def test_a_note_too_quiet_for_the_wave_voice_lets_it_go
+    tune = Score.new(tempo: 150, parts: [Part.new(plays: :triangle, notes: [
+      Note.new(at: 0, key: :C4), Note.new(at: 20, key: :E4), Note.new(at: 40, key: :G4),
+    ])])
+    hit = Score.new(tempo: 150, priority: 68, parts: [Part.new(plays: :sawtooth, volume: 9, notes: [
+      Note.new(at: 0, key: :C5), Note.new(at: 5, key: :D5, volume: 1),
+    ])])
+    program = game([hit], tune: tune) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
+
+    assert_equal [[:"music.0", NOTES[:E4]]], notes_by_frame(program, 30)[22]
+    assert_backends_share_the_voice(program, WAVE_TONES, channel: 3)
   end
 
   # --- asked for again, and several at once ---
@@ -520,17 +574,22 @@ class TestSoundEffects < Minitest::Test
 
   # How a voice was set on the console: [frames since it first sounded, setting] for each change.
   def console_changes(program, register, frames:)
+    changes(console_readings(program, frames: frames) { |probe| probe.read32(register) & SETTING })
+  end
+
+  # What the block reads from the console after each of +frames+ frames.
+  def console_readings(program, frames:)
     rom = assemble_rom(program, name: "SFXVOICE")
     Dir.mktmpdir do |dir|
       path = File.join(dir, "sfx.gba")
       rom.write(path)
       probe = RubyGBA::Emulator.probe(path)
-      settings = Array.new(frames) do
+      readings = Array.new(frames) do
         probe.step(1)
-        probe.read32(register) & SETTING
+        yield probe
       end
       probe.close
-      changes(settings)
+      readings
     end
   end
 
@@ -562,7 +621,8 @@ class TestSoundEffects < Minitest::Test
     runs.map { |setting, frame| [frame - runs.first.last, setting] }
   end
 
-  REGISTERS = { 1 => SQUARE_1, 2 => RubyGBA::Constants::REG_SOUND2CNT_L, 4 => NOISE }.freeze
+  REGISTERS = { 1 => SQUARE_1, 2 => RubyGBA::Constants::REG_SOUND2CNT_L, 3 => RubyGBA::Constants::REG_SOUND3CNT_H,
+                4 => NOISE }.freeze
 
   # The two backends agree about when a voice changed and what it changed to, from the first sound
   # the interpreter heard to its last — the console runs on a little, since it starts later.
@@ -573,8 +633,13 @@ class TestSoundEffects < Minitest::Test
     assert_equal want.take_while { |frame, _| frame <= 56 }, got, "the voice numbered #{channel}"
   end
 
-  # A voice's setting that reads back: a square voice's tone, and the volume.
-  def self.setting(tone, volume) = ((tone ? RubyGBA::Sound::Registers.duty_bits(tone) : 0) << 6) | (volume << 12)
+  # A voice's setting that reads back: a square voice's tone, and the volume — or for a +tone+ of
+  # :wave, the nearest of the wave voice's five volumes.
+  def self.setting(tone, volume)
+    return RubyGBA::Sound::Registers::WAVE_VOLUMES.fetch(RubyGBA::Sound::Registers.wave_level(volume)) if tone == :wave
+
+    ((tone ? RubyGBA::Sound::Registers.duty_bits(tone) : 0) << 6) | (volume << 12)
+  end
   def setting(tone, volume) = self.class.setting(tone, volume)
   def square_setting(tone, volume) = setting(tone, volume)
 
@@ -601,6 +666,83 @@ class TestSoundEffects < Minitest::Test
     assert_equal [12 << 12, 9 << 12, 0, 12 << 12], interpreted_changes(program, 4, tones, frames: 60).map(&:last),
                  "the effect takes the voice, is silenced at its end, and the song comes back"
     assert_backends_share_the_voice(program, tones, channel: 4)
+  end
+
+  WAVE_TONES = { "music.0": :wave, "sfx.0": :wave }.freeze
+
+  def test_the_console_shares_the_wave_voice_the_way_the_interpreter_does
+    program = song_and_effect(song_priority: 0, effect_priority: 68, plays: :triangle, effect_plays: :sawtooth)
+
+    assert_equal [setting(:wave, 12), setting(:wave, 9), 0, setting(:wave, 12)],
+                 interpreted_changes(program, 3, WAVE_TONES, frames: 60).map(&:last),
+                 "the effect takes the voice, is silenced at its end, and the song comes back"
+    assert_backends_share_the_voice(program, WAVE_TONES, channel: 3)
+  end
+
+  # THE WAVEFORM ON THE CONSOLE. The wave voice loops whatever waveform is in wave RAM, and there
+  # is room there for one, so an effect's note has to put its own there — and the song's note after
+  # it has to put the song's back.
+  #
+  # A tune on the triangle with a note every ten frames; an effect on the sawtooth from pass 10,
+  # twelve frames long; and from pass 16 a second tune, on the sine, which starts while the effect
+  # holds the voice. Its first note is lost to the effect, and its second is heard in the sine.
+  #
+  # The effect opens with a rest, which loads nothing, and a note too quiet to hear, which loads
+  # the sawtooth all the same — a note, heard or not, is in its own waveform.
+  def test_the_console_loads_the_waveform_of_each_note
+    triangle = every_ten_ticks(:C4, :E4, :G4, :C5, :E5, plays: :triangle)
+    sine = every_ten_ticks(:C4, :E4, :G4, :C5, :E5, plays: :sine)
+    hit = Score.new(tempo: 150, priority: 68, parts: [Part.new(plays: :sawtooth, volume: 9, notes: [
+      Note.new(at: 0, key: nil), Note.new(at: 2, key: :C5, volume: 1), Note.new(at: 4, key: :C5, length: 8),
+    ])])
+    program = game([hit], tune: [triangle, sine]) do |sfx, pass, music|
+      (pass == 10).then { sfx.play 0 }
+      (pass >= 16).then { music.play 1 }
+    end
+    want = interpreted_waveforms(program, frames: 40)
+
+    assert_equal [[0, waveform(:triangle)], [11, waveform(:sawtooth)], [25, waveform(:sine)]], want
+    assert_equal want, console_waveforms(program, frames: 50).take_while { |frame, _| frame <= 36 }
+  end
+
+  # The game's own `wave` puts its waveform in wave RAM too, so the song's next note puts the
+  # song's back — in a game whose effects play the wave voice, whether or not one is playing. The
+  # game's own sound is compared by its place in the order only: the game's code and the player
+  # count their frames from different moments, so it lands a frame apart on the two backends.
+  def test_the_console_loads_the_songs_waveform_again_after_the_games_own_wave
+    triangle = every_ten_ticks(:C4, :E4, :G4, :C5, :E5, plays: :triangle)
+    hit = every_ten_ticks(:C5, plays: :sawtooth)
+    program = game([hit], tune: triangle) { |_sfx, pass| (pass == 5).then { wave :sine, :C5 } }
+    want = interpreted_waveforms(program, frames: 30)
+    got = console_waveforms(program, frames: 40).take_while { |frame, _| frame <= 26 }
+
+    assert_equal %i[triangle sine triangle].map { |shape| waveform(shape) }, want.map(&:last)
+    assert_equal want.map(&:last), got.map(&:last)
+    assert_equal want.last, got.last, "the song's note puts the triangle back on the same frame"
+  end
+
+  # A waveform as the number wave RAM holds for it, reading its four words in order.
+  def waveform(shape)
+    RubyGBA::Sound::Registers.wavetable_halfwords(shape).each_slice(2).each_with_index.sum do |(low, high), word|
+      (low | (high << 16)) << (32 * word)
+    end
+  end
+
+  # [frames since the wave voice first sounded, waveform] for each change, from the interpreter:
+  # the waveform of the last note on the voice.
+  def interpreted_waveforms(program, frames:)
+    shapes = wave_notes_by_frame(program, frames).reject { |_, shape| shape == :silent }
+    loaded = nil
+    changes((1..frames).filter_map { |frame| (loaded = shapes.fetch(frame, loaded)) && waveform(loaded) })
+  end
+
+  # ...and from the console, reading wave RAM once a frame from the frame the voice first sounds.
+  def console_waveforms(program, frames:)
+    readings = console_readings(program, frames: frames) do |probe|
+      ram = (0...4).sum { |word| probe.read32(RubyGBA::Constants::REG_WAVE_RAM + (word * 4)) << (32 * word) }
+      [probe.read32(REGISTERS.fetch(3)) & SETTING, ram]
+    end
+    changes(readings.drop_while { |setting, _| setting.zero? }.map(&:last))
   end
 
   # THE HIT'S SHAPE: an effect on a square voice and the noise voice at once, over a song on both.
@@ -685,11 +827,11 @@ class TestSoundEffects < Minitest::Test
     assert_backends_share_the_voice(program, tones)
   end
 
-  # A song holding one long note, and an effect over it from pass 10; the block says what else
-  # the game does on each pass.
-  def long_note_under_an_effect(&body)
-    tune = Score.new(tempo: 150, length: 200, parts: [Part.new(notes: [Note.new(at: 0, key: :C4)])])
-    hit = Score.new(tempo: 150, priority: 68, parts: [Part.new(volume: 9, duty: :quarter, notes: [
+  # A song holding one long note, and an effect over it from pass 10, on the voice +plays+ and
+  # +effect_plays+ name; the block says what else the game does on each pass.
+  def long_note_under_an_effect(plays: nil, effect_plays: nil, &body)
+    tune = Score.new(tempo: 150, length: 200, parts: [Part.new(plays: plays, notes: [Note.new(at: 0, key: :C4)])])
+    hit = Score.new(tempo: 150, priority: 68, parts: [Part.new(plays: effect_plays, volume: 9, duty: :quarter, notes: [
       Note.new(at: 0, key: :C5), Note.new(at: 10, key: :E5),
     ])])
     game([hit], tune: tune) do |sfx, pass|
@@ -716,6 +858,17 @@ class TestSoundEffects < Minitest::Test
     assert_equal [[0, SONG_SETTING[:"music.0"]], [9, SONG_SETTING[:"sfx.0"]], [43, 0]],
                  interpreted_changes(program, 1, SONG_TONES, frames: 60)
     assert_backends_share_the_voice(program, SONG_TONES)
+  end
+
+  # ...and the same on the wave voice, whose held note takes a new volume without starting again.
+  def test_the_console_keeps_an_effects_wave_voice_when_the_music_volume_moves
+    program = long_note_under_an_effect(plays: :triangle, effect_plays: :sawtooth) do |pass|
+      (pass == 20).then { music_volume 50 }
+    end
+
+    assert_equal [[0, setting(:wave, 12)], [9, setting(:wave, 9)], [43, 0]],
+                 interpreted_changes(program, 3, WAVE_TONES, frames: 60)
+    assert_backends_share_the_voice(program, WAVE_TONES, channel: 3)
   end
 
   # --- the console's mixer ---
@@ -965,15 +1118,6 @@ class TestSoundEffects < Minitest::Test
     err.message
   end
 
-  def test_an_effect_on_the_wave_voice_is_a_friendly_error
-    pad = { pad: every_ten_ticks(:C5, plays: :triangle) }
-    message = build_error { sound_effects :sfx, pad }
-
-    assert_match(/:pad of :sfx/, message)
-    assert_match(/wave voice/, message)
-    assert_match(/a recording/, message)
-  end
-
   def test_an_effect_that_loops_is_a_friendly_error
     looping = [Score.new(tempo: 150, loop_from: 5, parts: [Part.new(notes: [Note.new(at: 0, key: :C5, length: 10)])])]
 
@@ -993,8 +1137,8 @@ class TestSoundEffects < Minitest::Test
     RubyGBA::IR::Guardrails::Validator.new.run(b.program, autofix: false).findings
   end
 
-  # An effect with more parts than it has voices names the effect, and offers only voices an
-  # effect can play.
+  # An effect with more parts than it has voices names the effect, and offers the voices with
+  # room — the wave voice among them.
   def test_an_effect_with_more_parts_than_it_has_voices_is_a_friendly_error
     notes = [Note.new(at: 0, key: :C5)]
     three = Score.new(parts: [Part.new(notes: notes), Part.new(notes: notes), Part.new(notes: notes)])
@@ -1004,16 +1148,16 @@ class TestSoundEffects < Minitest::Test
     assert_match(/The sound effect :rumble of :sfx has 3 parts/, found.message)
     assert_match(/A sound effect can have 2 of them at most/, found.message)
     assert_match(/One part can play an instrument/, found.message)
-    refute_match(/plays: :wave/, found.message)
+    assert_match(/plays: :wave/, found.message)
   end
 
-  # A warning about a note in an effect names the effect, and offers only what an effect can do.
+  # A warning about a note in an effect names the effect, and offers the voices that go lower.
   def test_a_warning_about_an_effects_note_names_the_effect
     low = Score.new(parts: [Part.new(notes: [Note.new(at: 0, key: 30)])])
     found = findings_for(low).find { |finding| finding.check == :square_note_too_low }
 
     assert_match(/the sound effect :rumble of :sfx/, found.message)
-    refute_match(/plays: :wave/, found.message)
+    assert_match(/plays: :wave/, found.message)
   end
 
   def test_a_group_that_is_not_a_name_is_a_friendly_error
