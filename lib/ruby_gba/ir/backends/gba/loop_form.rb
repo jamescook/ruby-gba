@@ -7,10 +7,10 @@ module RubyGBA
         # WHICH SHAPE A `repeat` IS LOWERED TO, decided from the loop's body alone.
         #
         # A loop has to keep two numbers: how many passes it has made, and how many it is going
-        # to make. Kept in MEMORY, every pass loads both, compares them, loads the counter
-        # again, adds one and stores it back — sixteen instructions, twelve of them reaching
-        # two numbers in the console's quick memory. Kept in REGISTERS it is a compare, a
-        # branch, an add and a branch: four.
+        # to make. Kept in MEMORY, every pass loads the counter, adds one, stores it back, loads
+        # the limit, compares and branches. Kept in REGISTERS it is an add, a compare and a
+        # branch. (A loop whose index nothing reads counts down instead and is cheaper again
+        # either way — see #unread_indexes.)
         #
         # Memory is the safe answer and that is why it is the default. The body of a loop may
         # call a routine, and a routine is free to use any register it likes; it may hold a
@@ -56,10 +56,12 @@ module RubyGBA
           CALLS_A_ROUTINE = %i[div_fix pixels_overlap draw_column_at draw_digit].freeze
 
           # HOW MANY STATEMENTS ARE WORTH BRACKETING before giving up the registers is cheaper.
-          # A bracket is four instructions — the count written out to its variable, then the
-          # pair saved and restored around the statement — against the twelve a pass through
-          # memory spends over one in registers. So two brackets still pay, and three do not.
-          SPILL_LIMIT = 2
+          # A bracket is the count written out to its variable, then the registers saved and
+          # restored around the statement — three instructions, or two for a loop counting down,
+          # which has no index to write out. A pass through memory costs one more than a pass in
+          # registers with one bracket, whichever way the loop counts. So one bracket pays, and
+          # a second costs more than memory does.
+          SPILL_LIMIT = 1
 
           # A blocker that cannot be bracketed. `raw` is instructions the author wrote, and
           # nothing here can say whether they leave the stack as they found it. A body that

@@ -219,10 +219,10 @@ module RubyGBA
           # reaches the console's own routine — and the loop still counts right.
           #
           # Counting up, the test is at the END of a pass: load the counter, add one, store it,
-          # load the limit, compare and branch back while there are passes left. Tested at the
-          # start instead, a pass loads the counter twice (once to compare, once to add) and
-          # spends a branch out as well as the branch back. Every pass after the first is the
-          # same either way, so only the first test has to move — before the first pass.
+          # load the limit, compare and branch back while there are passes left. That loads the
+          # counter once, where a test at the start of a pass would load it to compare and again
+          # to add, and spend a branch out as well as the branch back. A test at the end cannot
+          # see a loop with no passes, so a count of nought or less is caught before the first.
           def emit_repeat_in_memory(node)
             return emit_countdown_in_memory(node) if counts_down?(node)
 
@@ -239,8 +239,6 @@ module RubyGBA
             @emitter.emit_branch(:bcond, done, cond: :le) # no passes at all
 
             @emitter.place_label(top)
-            # ...and the other way out: a loop given something to stop for asks before every
-            # pass, so one already answered on its first pass runs the body no times at all.
             emit_stop_test(node, done)
 
             node.children.each { |stmt| @lowering.statement(stmt) }
@@ -254,6 +252,8 @@ module RubyGBA
             @emitter.place_label(done)
           end
 
+          # The other way out of a loop: one given something to stop for asks before every pass,
+          # so one already answered on its first pass runs the body no times at all.
           def emit_stop_test(node, done)
             return unless LoopForm.stops_early?(node)
 
@@ -319,11 +319,11 @@ module RubyGBA
           # body otherwise — but it can only do that WHILE IT RUNS, so saving the pair across
           # it is enough.
           #
-          # A bracket is four instructions: the count written out to its variable, so a body
-          # that reads the loop's index inside the bracket reads the true one (the fast shape
-          # only writes it back on the way out, so its memory is stale until then), and the
-          # pair saved and restored around the statement. Against the twelve a pass through
-          # memory spends, two brackets still pay — which is what LoopForm::SPILL_LIMIT says.
+          # A bracket is the count written out to its variable, so a body that reads the loop's
+          # index inside the bracket reads the true one (the fast shape only writes it back on
+          # the way out, so its memory is stale until then), and the pair saved and restored
+          # around the statement. How many of those still beat a pass through memory is what
+          # LoopForm::SPILL_LIMIT says.
           def emit_repeat_spilled(node)
             index = node.index
             bracketed = LoopForm.blocking_children(node).to_set
@@ -359,8 +359,8 @@ module RubyGBA
           # The counting the two register shapes share: set up, run the body, step on, test.
           # Only what happens to the body differs between them, so only that is passed in.
           #
-          # The test is at the end of a pass — an add, a compare and a branch back — rather than
-          # at the start, where a pass would also spend a branch out. Moving the count into its
+          # The test is at the end of a pass — an add, a compare and a branch back — which spends
+          # no branch out of the loop on the passes that go round. Moving the count into its
           # register sets the flags on the way, so that same instruction says whether there is a
           # first pass to make at all.
           def emit_repeat_loop(node, &body)
