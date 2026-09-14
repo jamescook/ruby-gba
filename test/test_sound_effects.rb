@@ -121,6 +121,22 @@ class TestSoundEffects < Minitest::Test
     assert_equal [[:"music.0", NOTES[:E4]]], notes_by_frame(program, 30)[22]
   end
 
+  # A note at volume 0 sounds nothing, so it lets the voice go the way a rest does: the song's note
+  # on frame 22 is heard, on both backends.
+  def test_a_silent_note_lets_the_voice_go
+    tune = Score.new(tempo: 150, parts: [Part.new(notes: [
+      Note.new(at: 0, key: :C4), Note.new(at: 20, key: :E4), Note.new(at: 40, key: :G4),
+    ])])
+    hit = Score.new(tempo: 150, priority: 68, parts: [Part.new(volume: 9, duty: :quarter, notes: [
+      Note.new(at: 0, key: :C5), Note.new(at: 5, key: :D5, volume: 0),
+    ])])
+    program = game([hit], tune: tune) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
+
+    assert_equal [[:"music.0", NOTES[:E4]]], notes_by_frame(program, 30)[22]
+    assert_includes console_changes(program, SQUARE_1, frames: 40), [20, square_setting(:half, 12)],
+                    "the console plays the song's note 20 frames after its first"
+  end
+
   # --- asked for again, and several at once ---
 
   # Asked for again while it sounds, it starts again from its first note — it does not play twice
@@ -148,7 +164,7 @@ class TestSoundEffects < Minitest::Test
   # Two effects on one voice: the higher priority sounds, whichever was asked for first — and on a
   # tie, the one declared first.
   def test_of_two_effects_on_one_voice_the_higher_priority_sounds
-    asked = lambda do |low_priority|
+    heard_when_both_start = lambda do |low_priority|
       program = game([every_ten_ticks(:C5, priority: low_priority), every_ten_ticks(:E5, priority: 50)]) do |sfx, pass|
         (pass == 3).then do
           sfx.play 1
@@ -158,9 +174,9 @@ class TestSoundEffects < Minitest::Test
       notes_by_frame(program, 10)[4]
     end
 
-    assert_equal [[:"sfx.1", NOTES[:E5]]], asked.call(10)
-    assert_equal [[:"sfx.0", NOTES[:C5]]], asked.call(90)
-    assert_equal [[:"sfx.0", NOTES[:C5]]], asked.call(50), "a tie goes to the effect declared first"
+    assert_equal [[:"sfx.1", NOTES[:E5]]], heard_when_both_start.call(10)
+    assert_equal [[:"sfx.0", NOTES[:C5]]], heard_when_both_start.call(90)
+    assert_equal [[:"sfx.0", NOTES[:C5]]], heard_when_both_start.call(50), "a tie goes to the effect declared first"
   end
 
   # --- picked by name, or by a number the game works out ---
@@ -256,15 +272,24 @@ class TestSoundEffects < Minitest::Test
     end
   end
 
-  # The same, from what the interpreter says sounded on the voice: each note's setting, by who
-  # played it, or 0 for a voice going quiet. The two start counting at different moments, so
-  # both count from the first sound.
-  def interpreted_changes(program, settings, frames:)
-    heard = notes_by_frame(program, frames)
+  # The same, from what the interpreter logs each voice was set to: a note's volume and the tone of
+  # the part that played it (+tones+, by who; none on the noise voice), or 0 for a voice going
+  # quiet. The two start counting at different moments, so both count from the first sound.
+  def interpreted_changes(program, channel, tones, frames:)
+    i = Reference.new
+    set = {}
+    i.each_vblank do |frame|
+      i.audio.select { |entry| entry[0] == :voice && entry[1] == channel }.each { |entry| set[frame] = entry }
+      i.audio.clear
+    end
+    i.run(program, frames: frames)
     current = 0
     changes((1..frames).map do |frame|
-      who, frequency = heard[frame]&.last
-      current = frequency.zero? ? 0 : settings.fetch(who) if who
+      _, _, who, frequency, volume = set[frame]
+      if who
+        tone = tones.fetch(who)
+        current = frequency.zero? ? 0 : setting(tone.is_a?(Hash) ? tone.fetch(channel) : tone, volume)
+      end
       current
     end)
   end
@@ -275,19 +300,24 @@ class TestSoundEffects < Minitest::Test
     runs.map { |setting, frame| [frame - runs.first.last, setting] }
   end
 
-  # The two backends agree about when a voice changed and who it changed to, from the first sound
-  # the interpreter heard to its last — the console runs on a little, since it starts later.
-  def assert_backends_share_the_voice(program, settings, register: SQUARE_1)
-    want = interpreted_changes(program, settings, frames: 60)
-    got = console_changes(program, register, frames: 75).take_while { |frame, _| frame <= 58 - 2 }
+  REGISTERS = { 1 => SQUARE_1, 2 => RubyGBA::Constants::REG_SOUND2CNT_L, 4 => NOISE }.freeze
 
-    assert_equal want.take_while { |frame, _| frame <= 56 }, got
+  # The two backends agree about when a voice changed and what it changed to, from the first sound
+  # the interpreter heard to its last — the console runs on a little, since it starts later.
+  def assert_backends_share_the_voice(program, tones, channel: 1)
+    want = interpreted_changes(program, channel, tones, frames: 60)
+    got = console_changes(program, REGISTERS.fetch(channel), frames: 75).take_while { |frame, _| frame <= 56 }
+
+    assert_equal want.take_while { |frame, _| frame <= 56 }, got, "the voice numbered #{channel}"
   end
 
-  def self.square_setting(duty, volume) = (RubyGBA::Sound::Registers.duty_bits(duty) << 6) | (volume << 12)
-  def square_setting(duty, volume) = self.class.square_setting(duty, volume)
+  # A voice's setting that reads back: a square voice's tone, and the volume.
+  def self.setting(tone, volume) = ((tone ? RubyGBA::Sound::Registers.duty_bits(tone) : 0) << 6) | (volume << 12)
+  def setting(tone, volume) = self.class.setting(tone, volume)
+  def square_setting(tone, volume) = setting(tone, volume)
 
-  SONG_SETTING = { "music.0": square_setting(:half, 12), "sfx.0": square_setting(:quarter, 9) }.freeze
+  SONG_TONES = { "music.0": :half, "sfx.0": :quarter }.freeze
+  SONG_SETTING = { "music.0": setting(:half, 12), "sfx.0": setting(:quarter, 9) }.freeze
 
   # THE TWO BACKENDS AGREE ABOUT WHO SOUNDED ON A SHARED VOICE, and when, one way round and the
   # other: the effect taking the first square voice and the song coming back after it, and the
@@ -296,27 +326,67 @@ class TestSoundEffects < Minitest::Test
     taken = song_and_effect(song_priority: 0, effect_priority: 68)
 
     assert_equal [[0, SONG_SETTING[:"music.0"]], [9, SONG_SETTING[:"sfx.0"]], [38, 0], [40, SONG_SETTING[:"music.0"]]],
-                 interpreted_changes(taken, SONG_SETTING, frames: 60)
-    assert_backends_share_the_voice(taken, SONG_SETTING)
-    assert_backends_share_the_voice(song_and_effect(song_priority: 80, effect_priority: 68), SONG_SETTING)
+                 interpreted_changes(taken, 1, SONG_TONES, frames: 60)
+    assert_backends_share_the_voice(taken, SONG_TONES)
+    assert_backends_share_the_voice(song_and_effect(song_priority: 80, effect_priority: 68), SONG_TONES)
+    assert_backends_share_the_voice(song_and_effect(song_priority: 0, effect_priority: 0), SONG_TONES) # a tie
   end
 
   def test_the_console_shares_the_noise_voice_the_way_the_interpreter_does
     program = song_and_effect(song_priority: 0, effect_priority: 68, plays: :noise)
-    settings = { "music.0": 12 << 12, "sfx.0": 9 << 12 }
+    tones = { "music.0": nil, "sfx.0": nil }
 
-    assert_equal [12 << 12, 9 << 12, 0, 12 << 12], interpreted_changes(program, settings, frames: 60).map(&:last),
+    assert_equal [12 << 12, 9 << 12, 0, 12 << 12], interpreted_changes(program, 4, tones, frames: 60).map(&:last),
                  "the effect takes the voice, is silenced at its end, and the song comes back"
-    assert_backends_share_the_voice(program, settings, register: NOISE)
+    assert_backends_share_the_voice(program, tones, channel: 4)
+  end
+
+  # THE HIT'S SHAPE: an effect on a square voice and the noise voice at once, over a song on both.
+  def test_the_console_shares_a_square_voice_and_the_noise_voice_at_once
+    notes = [Note.new(at: 0, key: :C4), Note.new(at: 20, key: :E4), Note.new(at: 40, key: :G4)]
+    tune = Score.new(tempo: 150, parts: [Part.new(notes: notes), Part.new(plays: :noise, notes: notes)])
+    hit_notes = [Note.new(at: 0, key: :C5), Note.new(at: 5, key: :D5)]
+    hit = Score.new(tempo: 150, priority: 68, parts: [Part.new(volume: 9, duty: :quarter, notes: hit_notes),
+                                                      Part.new(plays: :noise, volume: 9, notes: hit_notes)])
+    program = game([hit], tune: tune) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
+
+    assert_backends_share_the_voice(program, SONG_TONES)
+    assert_backends_share_the_voice(program, { "music.0": nil, "sfx.0": nil }, channel: 4)
+  end
+
+  # A SONG RANKED BETWEEN TWO EFFECTS, so the player walks the effects above it before the song's
+  # parts and the one below it after them. The higher one takes the first square voice from the
+  # song; the lower one, asked for while that is sounding, is silent there and heard on the second
+  # square voice, which nobody else wants.
+  def test_the_console_plays_effects_on_both_sides_of_the_songs_rank
+    tune = Score.new(tempo: 150, priority: 50, parts: [Part.new(notes: [
+      Note.new(at: 0, key: :C4), Note.new(at: 20, key: :E4), Note.new(at: 40, key: :G4),
+    ])])
+    high = Score.new(tempo: 150, priority: 90, parts: [Part.new(volume: 9, duty: :quarter, notes: [
+      Note.new(at: 0, key: :C5), Note.new(at: 5, key: :D5),
+    ])])
+    low = Score.new(tempo: 150, priority: 20, parts: [
+      Part.new(volume: 5, duty: :eighth, notes: [Note.new(at: 0, key: :C5)]),
+      Part.new(volume: 7, duty: :three_quarter, notes: [Note.new(at: 0, key: :E5)]),
+    ])
+    program = game([high, low], tune: tune) do |sfx, pass|
+      (pass == 10).then { sfx.play 0 }
+      (pass == 20).then { sfx.play 1 }
+    end
+    tones = { "music.0": :half, "sfx.0": :quarter, "sfx.1": { 1 => :eighth, 2 => :three_quarter } }
+
+    assert_equal [[0, setting(:three_quarter, 7)], [24, 0]], interpreted_changes(program, 2, tones, frames: 60)
+    assert_backends_share_the_voice(program, tones)
+    assert_backends_share_the_voice(program, tones, channel: 2)
   end
 
   # With no song at all, and asked for twice so it starts again.
   def test_the_console_plays_an_effect_once_and_starts_it_again
     program = game([every_ten_ticks(:C5, :E5)]) { |sfx, pass| ((pass == 3) | (pass == 8)).then { sfx.play 0 } }
-    settings = { "sfx.0": square_setting(:half, 12) }
+    tones = { "sfx.0": :half }
 
-    assert_equal [[0, settings[:"sfx.0"]], [39, 0]], interpreted_changes(program, settings, frames: 60)
-    assert_backends_share_the_voice(program, settings)
+    assert_equal [[0, setting(:half, 12)], [39, 0]], interpreted_changes(program, 1, tones, frames: 60)
+    assert_backends_share_the_voice(program, tones)
   end
 
   # By a number the game works out, turned into its place in the table: the quieter of the two,
@@ -330,10 +400,10 @@ class TestSoundEffects < Minitest::Test
       (pass == 40).then { which.set 2 }
       (pass == 41).then { sfx.play which }
     end
-    settings = { "sfx.0": square_setting(:half, 9), "sfx.1": square_setting(:half, 5) }
+    tones = { "sfx.0": :half, "sfx.1": :half }
 
-    assert_equal [[0, settings[:"sfx.1"]], [24, 0]], interpreted_changes(program, settings, frames: 60)
-    assert_backends_share_the_voice(program, settings)
+    assert_equal [[0, setting(:half, 5)], [24, 0]], interpreted_changes(program, 1, tones, frames: 60)
+    assert_backends_share_the_voice(program, tones)
   end
 
   # Two effects on one voice, of one priority, asked for on one frame: the one declared first.
@@ -346,11 +416,11 @@ class TestSoundEffects < Minitest::Test
         sfx.play 0
       end
     end
-    settings = { "sfx.0": square_setting(:half, 5), "sfx.1": square_setting(:half, 9) }
+    tones = { "sfx.0": :half, "sfx.1": :half }
 
-    assert_equal [[0, settings[:"sfx.0"]], [24, 0], [30, settings[:"sfx.1"]], [54, 0]],
-                 interpreted_changes(program, settings, frames: 60)
-    assert_backends_share_the_voice(program, settings)
+    assert_equal [[0, setting(:half, 5)], [24, 0], [30, setting(:half, 9)], [54, 0]],
+                 interpreted_changes(program, 1, tones, frames: 60)
+    assert_backends_share_the_voice(program, tones)
   end
 
   # A song holding one long note, and an effect over it from pass 10; the block says what else
@@ -372,8 +442,8 @@ class TestSoundEffects < Minitest::Test
     program = long_note_under_an_effect { |pass| (pass == 15).then { stop_music } }
 
     assert_equal [[0, SONG_SETTING[:"music.0"]], [9, SONG_SETTING[:"sfx.0"]], [43, 0]],
-                 interpreted_changes(program, SONG_SETTING, frames: 60)
-    assert_backends_share_the_voice(program, SONG_SETTING)
+                 interpreted_changes(program, 1, SONG_TONES, frames: 60)
+    assert_backends_share_the_voice(program, SONG_TONES)
   end
 
   # ...and a music volume moving while an effect sounds does not start the song's lost note again
@@ -382,8 +452,27 @@ class TestSoundEffects < Minitest::Test
     program = long_note_under_an_effect { |pass| (pass == 20).then { music_volume 50 } }
 
     assert_equal [[0, SONG_SETTING[:"music.0"]], [9, SONG_SETTING[:"sfx.0"]], [43, 0]],
-                 interpreted_changes(program, SONG_SETTING, frames: 60)
-    assert_backends_share_the_voice(program, SONG_SETTING)
+                 interpreted_changes(program, 1, SONG_TONES, frames: 60)
+    assert_backends_share_the_voice(program, SONG_TONES)
+  end
+
+  # --- what it costs ---
+
+  # THE PROFILE COUNTS IT, inside the routine that answers the display, which is where the player
+  # runs: a game whose effects are sounding spends more there than the same game with them silent.
+  def test_the_profile_counts_what_the_sound_effects_cost
+    interrupt_samples = lambda do |playing|
+      effects = Array.new(8) { |n| every_ten_ticks(:C5, :E5, :G5, priority: n) }
+      rom = RubyGBA.build("SFXCOST", code: "ZSFX", maker: "01", out: StringIO.new, err: StringIO.new) do
+        screen :bitmap
+        enable_sound
+        sfx = sound_effects :sfx, effects
+        game_loop { effects.size.times { |n| sfx.play n } if playing }
+      end
+      RubyGBA::Profiler.run(rom, frames: 30, picture: false).lines.find { |line| line.name == :__interrupt }.samples
+    end
+
+    assert_operator interrupt_samples.call(true), :>, interrupt_samples.call(false)
   end
 
   # --- what cannot be had, said plainly ---
@@ -421,28 +510,36 @@ class TestSoundEffects < Minitest::Test
     assert_match(/loop_from:/, build_error { sound_effects :sfx, looping })
   end
 
-  def test_an_effect_with_more_parts_than_it_has_voices_is_a_friendly_error
-    notes = [Note.new(at: 0, key: :C5)]
-    three = [Score.new(parts: [Part.new(notes: notes), Part.new(notes: notes), Part.new(notes: notes)])]
-    message = build_error { sound_effects :sfx, three }
-
-    assert_match(/0 of :sfx/, message)
-    assert_match(/2/, message)
-  end
-
-  # A warning about a note in an effect names the effect, and offers only what an effect can do.
-  def test_a_warning_about_an_effects_note_names_the_effect
-    low = [Score.new(parts: [Part.new(notes: [Note.new(at: 0, key: 30)])])]
+  # What the finished program's checks say about a game whose one effect is +score+.
+  def findings_for(score)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
       enable_sound
-      sfx = sound_effects :sfx, { rumble: low.first }
+      sfx = sound_effects :sfx, { rumble: score }
       game_loop { sfx.play :rumble }
     end
     b.emit_pending_functions
-    found = RubyGBA::IR::Guardrails::Validator.new.run(b.program, autofix: false).warnings
-                                              .find { |finding| finding.check == :square_note_too_low }
+    RubyGBA::IR::Guardrails::Validator.new.run(b.program, autofix: false).findings
+  end
+
+  # An effect with more parts than it has voices names the effect, and offers only voices an
+  # effect can play.
+  def test_an_effect_with_more_parts_than_it_has_voices_is_a_friendly_error
+    notes = [Note.new(at: 0, key: :C5)]
+    three = Score.new(parts: [Part.new(notes: notes), Part.new(notes: notes), Part.new(notes: notes)])
+    found = findings_for(three).find { |finding| finding.check == :song_too_many_parts }
+
+    assert found.error?
+    assert_match(/The sound effect :rumble of :sfx has 3 parts/, found.message)
+    assert_match(/A sound effect can have 2 of them at most/, found.message)
+    refute_match(/instrument|plays: :wave/, found.message)
+  end
+
+  # A warning about a note in an effect names the effect, and offers only what an effect can do.
+  def test_a_warning_about_an_effects_note_names_the_effect
+    low = Score.new(parts: [Part.new(notes: [Note.new(at: 0, key: 30)])])
+    found = findings_for(low).find { |finding| finding.check == :square_note_too_low }
 
     assert_match(/the sound effect :rumble of :sfx/, found.message)
     refute_match(/plays: :wave/, found.message)

@@ -23,7 +23,7 @@ module RubyGBA
           # message calls it. Kept together so a message and a limit cannot drift apart.
           LIMITS = {
             square: [Music::MAX_SQUARE_PARTS, "play the square wave",
-                     "the console has %<limit>d square-wave voices for music"],
+                     "the console has %<limit>d square-wave voices"],
             wave: [Music::MAX_WAVE_PARTS, "play the wave voice",
                    "the console has %<limit>d wave voice"],
             noise: [Music::MAX_NOISE_PARTS, "play the noise voice",
@@ -48,16 +48,19 @@ module RubyGBA
 
           def message(program, song, kind, counts)
             limit, does, because = LIMITS.fetch(kind)
+            one = SongWords.effect?(program, song) ? "A sound effect" : "A song"
             "#{SongWords.song_capitalized(program, song)} has #{counts.fetch(kind)} parts that " \
-              "#{does}. A song can have #{limit} of them at most, because " \
+              "#{does}. #{one} can have #{limit} of them at most, because " \
               "#{format(because, limit: limit)}. #{fixes(program, song, kind, counts)}"
           end
 
           # WHERE THE PARTS THAT DO NOT FIT CAN GO, one voice with room per sentence. The point
           # of naming them all is that the two the console plays itself cost NO mixer voice,
           # which is the thing an author has no way to know and the reason to reach for them.
+          # A sound effect plays only the square and noise voices, so only those are offered.
           def fixes(program, song, kind, counts)
-            room = LIMITS.keys.reject { |other| other == kind }
+            voices = SongWords.effect?(program, song) ? %i[square noise] : LIMITS.keys
+            room = voices.reject { |other| other == kind }
                          .select { |other| counts.fetch(other) < LIMITS.fetch(other).first }
             last = "To fix this, use fewer parts that #{LIMITS.fetch(kind)[1]}."
             return last if room.empty?

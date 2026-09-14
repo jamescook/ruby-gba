@@ -52,7 +52,8 @@ module RubyGBA
     # The symbols are written out rather than reached for, because this file is loaded long
     # before the backend that defines them. A test holds the two lists against each other.
     ROUTINES = { __frame: "the game loop",
-                 __interrupt: "the routine that answers the display and the timers, and plays the music",
+                 __interrupt: "the routine that answers the display and the timers, and plays the music " \
+                              "and the sound effects",
                  __divide_routine: "dividing",
                  __divide_fix_routine: "dividing numbers that hold a fraction",
                  __mix_routine: "mixing the sound that is playing" }.freeze

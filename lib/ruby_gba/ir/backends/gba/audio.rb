@@ -464,7 +464,7 @@ module RubyGBA
 
             @emitter.place_label(play)
             if plays_sound_effects? # ...the effects that outrank the tune
-              @primitives.load_var(EFFECT_STOP, MUSIC_RANK)
+              @primitives.load_var(EFFECT_OUTRANKS, MUSIC_RANK)
               emit_first_effect
               @emitter.emit(ASM.push(frame))
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
@@ -488,14 +488,14 @@ module RubyGBA
             if plays_sound_effects? # ...and the rest, carrying on from where the first run stopped
               @emitter.emit(ASM.pop(EFFECT_SLOT, EFFECT_ENTRY))
               @emitter.emit_load_data_address(base, MUSIC_SCORE)
-              @emitter.emit(ASM.load_immediate(EFFECT_STOP, 0))
+              @emitter.emit(ASM.load_immediate(EFFECT_OUTRANKS, 0))
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
               @emitter.emit_branch(:b, finished)
             end
             @emitter.place_label(done)
             if plays_sound_effects? # no tune: every effect
               @emitter.emit_load_data_address(base, MUSIC_SCORE)
-              @emitter.emit(ASM.load_immediate(EFFECT_STOP, 0))
+              @emitter.emit(ASM.load_immediate(EFFECT_OUTRANKS, 0))
               emit_first_effect
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
             end
@@ -503,11 +503,11 @@ module RubyGBA
           end
 
           # THE REGISTERS THE EFFECTS ROUTINE TAKES AND GIVES BACK: where in the table it starts and
-          # the effect's entry in the score, both handed back where it stopped, and the rank it
-          # stops at — it plays effects that outrank that, and no further.
+          # the effect's entry in the score, both handed back where it stopped, and a rank — it
+          # plays the effects that outrank that one, and stops at the first that does not.
           EFFECT_SLOT = 7
           EFFECT_ENTRY = 8
-          EFFECT_STOP = 11
+          EFFECT_OUTRANKS = 11
 
           def emit_first_effect
             @emitter.emit(ASM.load_immediate(EFFECT_SLOT, @effect_table))
@@ -515,7 +515,7 @@ module RubyGBA
           end
 
           # PLAY A RUN OF THE SOUND EFFECTS TABLE, from EFFECT_SLOT until an effect that does not
-          # outrank EFFECT_STOP or the end of the table; r2 holds the score. Emitted once, inside
+          # outrank EFFECT_OUTRANKS or the end of the table; r2 holds the score. Emitted once, inside
           # the screen's interrupt, and called from it.
           #
           # For each effect: asked for, it starts from its first frame; sounding and at its end, it
@@ -528,7 +528,7 @@ module RubyGBA
           # Uses r0, r1, r3-r5, r9, r10 and r12.
           def emit_sound_effects_routine
             e = @emitter
-            slot, entry, stop = EFFECT_SLOT, EFFECT_ENTRY, EFFECT_STOP
+            slot, entry, outranks = EFFECT_SLOT, EFFECT_ENTRY, EFFECT_OUTRANKS
             base, table_end, cursor, frame, rank, row = 2, 3, 4, 5, 9, 10
             walk = e.gensym
             out = e.gensym
@@ -538,7 +538,7 @@ module RubyGBA
             e.emit(ASM.cmp_reg(slot, table_end))
             e.emit_branch(:bcond, out, cond: :hs)
             e.emit(ASM.ldr_offset(rank, entry, EFFECT_RANK))
-            e.emit(ASM.cmp_reg(rank, stop))
+            e.emit(ASM.cmp_reg(rank, outranks))
             e.emit_branch(:bcond, out, cond: :le)              # not above the tune
 
             onward = e.gensym
@@ -571,9 +571,7 @@ module RubyGBA
               @primitives.load_var(ACC, self.class.voice_rank(lane.index))
               e.emit(ASM.cmp_reg(ACC, rank))
               e.emit_branch(:bcond, kept, cond: :ne)           # not its voice any more
-              emit_writes(console_note(lane, SILENCE, 0, 0))
-              e.emit(ASM.load_immediate(ACC, 0))
-              @primitives.store_var(ACC, self.class.voice_rank(lane.index))
+              emit_free_voice(lane)
               e.place_label(kept)
             end
             e.emit_branch(:b, onward)
@@ -588,7 +586,7 @@ module RubyGBA
               e.emit_branch(:bcond, skip, cond: :ne)           # not due
               e.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
               e.emit(ASM.str_offset(cursor, slot, EFFECT_CURSORS + (4 * number)))
-              emit_take_voice(lane, rank, row, skip)
+              emit_take_voice(lane: lane, rank: rank, row: row, dropped: skip)
               emit_console_note(lane, row)
               song_lane = @lanes.index(lane)
               forget_held_note(song_lane) if song_lane && holds_notes?(lane)
@@ -608,7 +606,7 @@ module RubyGBA
           # MAY THE NOTE IN +row+, OF RANK +rank+, SOUND ON +lane+'s VOICE? When whoever holds the
           # voice outranks it, on to +dropped+. Otherwise it holds the voice while it sounds, and a
           # rest — a row whose volume is 0 — lets it go.
-          def emit_take_voice(lane, rank, row, dropped)
+          def emit_take_voice(lane:, rank:, row:, dropped:)
             holder = self.class.voice_rank(lane.index)
             @primitives.load_var(ACC, holder)
             @emitter.emit(ASM.cmp_reg(ACC, rank))
@@ -618,6 +616,13 @@ module RubyGBA
             @emitter.emit(ASM.mov_reg(TMP, rank)) unless rank == TMP
             @emitter.emit(ASM.mov_imm_cond(:eq, TMP, 0))
             @primitives.store_var(TMP, holder)
+          end
+
+          # Silence +lane+'s voice, and nobody holds it.
+          def emit_free_voice(lane)
+            emit_writes(console_note(lane, SILENCE, 0, 0))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, self.class.voice_rank(lane.index))
           end
 
           # Wait for the vertical blank — the brief pause between drawn frames, the safe
@@ -802,9 +807,7 @@ module RubyGBA
               @emitter.emit(ASM.lsl_imm(ACC, ACC, IR::Tunes::RANK_SHIFT))
               @emitter.emit(ASM.cmp_imm(ACC, 0))
               @emitter.emit_branch(:bcond, kept, cond: :ne)
-              emit_writes(console_note(lane, SILENCE, 0, 0))
-              @emitter.emit(ASM.load_immediate(ACC, 0))
-              @primitives.store_var(ACC, self.class.voice_rank(lane.index)) # nobody holds it
+              emit_free_voice(lane)
               @emitter.place_label(kept)
             end
           end
@@ -970,7 +973,7 @@ module RubyGBA
               # silent here, and is heard again from its next note once the voice is free.
               dropped = @emitter.gensym
               @primitives.load_var(TMP, MUSIC_RANK)
-              emit_take_voice(lane, TMP, at, dropped)
+              emit_take_voice(lane: lane, rank: TMP, row: at, dropped: dropped)
               heard = @emitter.gensym
               @emitter.emit_branch(:b, heard)
               @emitter.place_label(dropped)

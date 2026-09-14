@@ -12,16 +12,7 @@ module RubyGBA
   # for again while it is still sounding, it starts again from its first note. A number the game
   # works out that names no effect plays nothing.
   class SoundEffectList
-    def initialize(builder, name, keys)
-      @builder = builder
-      @name = name
-      @keys = keys
-    end
-
-    attr_reader :name
-
-    # How many effects the list holds.
-    def count = @keys.length
+    include ScoreList
 
     # Play effect +which+: a name the list was given, a number counting from 0, or a number the
     # game works out as it runs. Returns self.
@@ -32,19 +23,6 @@ module RubyGBA
 
     private
 
-    def number(which)
-      case which
-      when Symbol
-        @keys.index(which) ||
-          raise(ArgumentError, "The sound effects :#{@name} have no effect #{which.inspect}. " \
-                               "They are #{@keys.map(&:inspect).join(', ')}.")
-      when Integer
-        return which if which.between?(0, count - 1)
-
-        raise ArgumentError, "The sound effects :#{@name} are #{count}, so there is no effect #{which}. " \
-                             "The effects are numbered from 0 to #{count - 1}."
-      else which
-      end
-    end
+    def entry = "sound effect"
   end
 end

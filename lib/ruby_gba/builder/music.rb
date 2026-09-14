@@ -120,7 +120,7 @@ module RubyGBA
       # `songs :music, { title: TITLE, forest: FOREST }`, then `music.play :forest`. Returns a
       # {RubyGBA::SongList}.
       def songs(name, scores)
-        keys, members = record_scores(name: name, scores: scores, verb: :songs)
+        keys, members = record_scores(name: name, scores: scores, verb: :songs, entry: "Song")
         record(Build.song_list(name, members))
         RubyGBA::SongList.new(self, name, keys)
       end
@@ -136,7 +136,10 @@ module RubyGBA
       # When an effect and the song, or two effects, want the same voice at once, the Score with
       # the higher `priority:` sounds on it. Returns a {RubyGBA::SoundEffectList}.
       def sound_effects(name, scores)
-        keys, members = record_scores(name: name, scores: scores, verb: :sound_effects)
+        keys, members = record_scores(name: name, scores: scores, verb: :sound_effects,
+                                      entry: "Sound effect") do |key, score|
+          check_sound_effect!(effect: "Sound effect #{key.inspect} of :#{name}", score: score)
+        end
         record(Build.sound_effect_list(name, members))
         RubyGBA::SoundEffectList.new(self, name, keys)
       end
@@ -159,29 +162,31 @@ module RubyGBA
 
       private
 
-      # A list of Scores handed to `songs` or `sound_effects` (+verb+, for the errors): each one
-      # recorded as a song node named for its place in the list. Returns the keys the list was
-      # given, and the names of the songs recorded.
-      def record_scores(name:, scores:, verb:)
+      # A list of Scores handed to `songs` or `sound_effects` (+verb+), each one recorded as a song
+      # node named for its place in the list. +entry+ is what one of them is called, for the
+      # errors, and the block, when given, is handed each Score to refuse before it is recorded.
+      # Returns the keys the list was given, and the names of the songs recorded.
+      def record_scores(name:, scores:, verb:, entry:)
         if @songs.key?(name) || @song_lists.key?(name)
           raise ArgumentError, "There is already a song named :#{name}. Use a different name."
         end
 
         entries = score_entries(name: name, scores: scores, verb: verb)
-        members = entries.map { |key, score| record_score(name: name, key: key, score: score, verb: verb) }
+        members = entries.map do |key, score|
+          unless score.is_a?(RubyGBA::Score)
+            raise ArgumentError, "#{entry} #{key.inspect} of :#{name} is #{score.inspect}, which is not a " \
+                                 "RubyGBA::Score. Give `#{verb}` a list of Scores, or a Hash of them by name."
+          end
+
+          yield key, score if block_given?
+          record_score(member: :"#{name}.#{key}", score: score)
+        end
         @song_lists[name] = members
         [entries.map(&:first), members]
       end
 
-      def record_score(name:, key:, score:, verb:)
-        unless score.is_a?(RubyGBA::Score)
-          raise ArgumentError, "#{key.inspect} of :#{name} is #{score.inspect}, which is not a " \
-                               "RubyGBA::Score. Give `#{verb}` a list of Scores, or a Hash of them by name."
-        end
-
-        member = :"#{name}.#{key}"
+      def record_score(member:, score:)
         song = score.to_song
-        check_sound_effect!(name: name, key: key, score: score, song: song) if verb == :sound_effects
         @songs[member] = score
         record(Build.song(member, voices: song[:voices], total_frames: song[:total_frames],
                                   loop_frame: song[:loop_frame], priority: song[:priority]))
@@ -190,32 +195,22 @@ module RubyGBA
 
       # Refuse a Score a sound effect cannot play. An effect plays the square wave and the noise
       # voice, which are the voices it shares with the song by priority, and it plays once, so it
-      # has no loop.
-      def check_sound_effect!(name:, key:, score:, song:)
-        effect = "Sound effect #{key.inspect} of :#{name}"
+      # has no loop. How many parts it may have on each is checked with a song's, on the finished
+      # program (Guardrails::Checks::SongTooManyParts).
+      def check_sound_effect!(effect:, score:)
         if score.loop_from
           raise ArgumentError, "#{effect} has `loop_from:`. A sound effect plays one time, and does not " \
                                "loop. Remove `loop_from:` from this Score."
         end
 
-        song[:voices].each_with_index do |part, number|
+        score.to_song[:voices].each_with_index do |part, number|
           kind = IR::Tunes.part_kind(part)
           next if %i[square noise].include?(kind)
 
-          what = kind == :wave ? "the wave voice" : "the recording #{part.instrument.inspect}"
-          raise ArgumentError, "#{effect} has a part that plays #{what} (part #{number}). A sound effect " \
+          voice = kind == :wave ? "the wave voice" : "the recording #{part.instrument.inspect}"
+          raise ArgumentError, "#{effect} has a part that plays #{voice} (part #{number}). A sound effect " \
                                "can play the square wave or the noise voice. For the square wave, remove " \
                                "`plays:` from this part. For the noise voice, use `plays: :noise`."
-        end
-
-        { square: [RubyGBA::Music::MAX_SQUARE_PARTS, "play the square wave", "square-wave voices"],
-          noise: [RubyGBA::Music::MAX_NOISE_PARTS, "play the noise voice", "noise voice"] }.each do |kind, (most, does, voices)|
-          count = song[:voices].count { |part| IR::Tunes.part_kind(part) == kind }
-          next if count <= most
-
-          raise ArgumentError, "#{effect} has #{count} parts that #{does}. A sound effect can have " \
-                               "#{most} of them at most, because the console has #{most} #{voices}. " \
-                               "To fix this, use fewer parts that #{does}."
         end
       end
 

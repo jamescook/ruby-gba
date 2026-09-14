@@ -13,25 +13,7 @@ module RubyGBA
   # note. A number the game works out that names no song leaves the music as it is — the same
   # as `show_map` with a number naming no map.
   class SongList
-    def initialize(builder, name, keys)
-      @builder = builder
-      @name = name
-      @keys = keys
-    end
-
-    attr_reader :name
-
-    # How many songs the list holds.
-    def count = @keys.length
-
-    # The number of a song the list was given by name (a Hash of Scores).
-    def number_of(key)
-      at = @keys.index(key)
-      return at if at
-
-      raise ArgumentError, "The song list :#{@name} has no song #{key.inspect}. " \
-                           "It has #{@keys.map(&:inspect).join(', ')}."
-    end
+    include ScoreList
 
     # Play song +which+: a name the list was given, a number counting from 0, or a number the
     # game works out as it runs. Returns self.
@@ -48,16 +30,6 @@ module RubyGBA
 
     private
 
-    def number(which)
-      case which
-      when Symbol then number_of(which)
-      when Integer
-        return which if which.between?(0, count - 1)
-
-        raise ArgumentError, "The song list :#{@name} has #{count} songs, so it has no song #{which}. " \
-                             "The songs are numbered from 0 to #{count - 1}."
-      else which
-      end
-    end
+    def entry = "song"
   end
 end

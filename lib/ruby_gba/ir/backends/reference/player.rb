@@ -27,6 +27,10 @@ module RubyGBA
           WAVE_CHANNEL = 3
           NOISE_CHANNEL = 4
 
+          # A sound effect sounding: how far into it, and each of its parts' next event. Both move
+          # on every frame it plays.
+          EffectRun = Struct.new(:frame, :cursors, keyword_init: true)
+
           def initialize(mixer:, log:)
             @mixer = mixer
             @log = log
@@ -143,12 +147,14 @@ module RubyGBA
 
               # A voice a sound effect holds with a higher rank: the part carries on in time,
               # silent here, and is heard again from its next note once the voice is free.
-              if channel && kind != :wave && !take_voice(channel, rank, frequency)
+              shared = channel && kind != :wave
+              if shared && !take_voice(channel, rank, sounds: sounds?(frequency, volume || part.volume))
                 @cursors[number] += 1
                 next
               end
 
               @log << [:note, @playing, frequency]
+              @log << [:voice, channel, @playing, frequency, volume || part.volume] if shared
               if channel && level
                 written = frequency.zero? ? 0 : volume || part.volume
                 kind == :noise ? log_loudness(channel, written) : hold(channel, written)
@@ -170,15 +176,20 @@ module RubyGBA
             @ranked_effects ||= IR::Tunes.effects_by_rank(@effects.map { |name| @songs.fetch(name) })
           end
 
+          # WHAT A VOICE A SOUND EFFECT CAN SHARE WAS SET TO — the square voices and the noise voice
+          # — is logged as [:voice, channel, who, frequency, volume] whenever the song or an effect
+          # writes it, and as a frequency and volume of 0 when an effect's end silences it. A tune
+          # that stops logs [:stop_music] instead.
+          #
           # ONE SOUND EFFECT'S FRAME. Asked for, it starts from its first note; at its end it lets
           # go of the voices it still holds, silencing them; and sounding, it plays whatever notes
           # are due, on the voices its rank lets it take.
           def effect_frame(name, rank, asked)
             song = @songs.fetch(name)
             if asked.include?(name)
-              @running[name] = { frame: 0, cursors: Array.new(song.voices.size, 0) }
+              @running[name] = EffectRun.new(frame: 0, cursors: Array.new(song.voices.size, 0))
               @log << [:sound_effect, name]
-            elsif @running.key?(name) && @running[name][:frame] >= song.total_frames
+            elsif @running.key?(name) && @running[name].frame >= song.total_frames
               finish_effect(name, rank)
             end
             run = @running[name] or return
@@ -187,17 +198,18 @@ module RubyGBA
             song.voices.each_with_index do |part, number|
               kind = IR::Tunes.part_kind(part)
               channel = console_channel(kind) { squares += 1 }
-              offset, frequency = part.events[run[:cursors][number]]
-              next unless offset == run[:frame]
+              offset, frequency, _instrument, volume = part.events[run.cursors[number]]
+              next unless offset == run.frame
 
-              run[:cursors][number] += 1
-              next unless take_voice(channel, rank, frequency)
+              run.cursors[number] += 1
+              next unless take_voice(channel, rank, sounds: sounds?(frequency, volume || part.volume))
 
               @sounding.delete(channel) # the song's note there, if it had one, is gone
               @log << [:note, name, frequency]
+              @log << [:voice, channel, name, frequency, volume || part.volume]
               console_voice(kind, part, frequency) if kind == :noise
             end
-            run[:frame] += 1
+            run.frame += 1
           end
 
           # An effect over: every voice it still holds goes quiet, and is free.
@@ -206,19 +218,22 @@ module RubyGBA
             @holders.select { |_, holder| holder == rank }.each_key do |channel|
               @holders[channel] = 0
               @log << [:note, name, 0]
+              @log << [:voice, channel, name, 0, 0]
               @log << [:noise, nil] if channel == NOISE_CHANNEL
             end
           end
 
           # MAY A NOTE OF THIS RANK SOUND ON +channel+? Yes when nobody holding it outranks it
-          # (IR::Tunes.song_rank) — and then it holds the voice while it sounds, where a rest lets
-          # it go.
-          def take_voice(channel, rank, frequency)
+          # (IR::Tunes.song_rank) — and then it holds the voice while it +sounds+, where a rest or
+          # a note at volume 0 lets it go.
+          def take_voice(channel, rank, sounds:)
             return false if @holders[channel] > rank
 
-            @holders[channel] = frequency.zero? ? 0 : rank
+            @holders[channel] = sounds ? rank : 0
             true
           end
+
+          def sounds?(frequency, volume) = frequency.positive? && volume.positive?
 
           # The tune the program asked for has changed, or it said stop: silence what was
           # playing and start the new one from its first frame. A voice a sound effect holds is

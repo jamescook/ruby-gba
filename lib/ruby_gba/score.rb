@@ -33,7 +33,7 @@ module RubyGBA
   #
   # PRIORITY decides who sounds when a sound effect and the song, or two sound effects, want
   # the same one of the console's voices at once: the higher number takes it (see
-  # IR::Tunes.rank). A cartridge's own sound engine carries one on every sequence, so a decoder
+  # IR::Tunes.song_rank). A cartridge's own sound engine carries one on every sequence, so a decoder
   # hands it straight over.
   Score = Data.define(:parts, :tempo, :ticks_per_beat, :length, :loop_from, :priority)
 
@@ -193,8 +193,9 @@ module RubyGBA
       def priority!(priority)
         return if priority.is_a?(Integer) && priority.between?(0, MOST_PRIORITY)
 
-        raise ArgumentError, "The Score has the priority #{priority.inspect}. A priority is a whole number " \
-                             "from 0 to #{MOST_PRIORITY}."
+        raise ArgumentError, "A Score has the priority #{priority.inspect}. A priority is a whole number " \
+                             "from 0 to #{MOST_PRIORITY}. Give `priority:` a number in that range, or " \
+                             "remove it for 0."
       end
 
       # The loop starts somewhere inside the song: at a tick from 0 up to its last one — and
