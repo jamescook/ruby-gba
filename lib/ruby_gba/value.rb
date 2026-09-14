@@ -367,6 +367,11 @@ module RubyGBA
 
     # --- mutation: record a statement (variable handles only) ---
 
+    # A number worked out on the spot is not somewhere a value can be kept, so neither a
+    # changing word nor its `!` form has anything to change.
+    NOT_A_VARIABLE = "only a variable can be changed (one from `var :name`), not an " \
+                     "expression — assign the expression to a variable first"
+
     # Assign a new value: a number, another variable, or an expression Value. A variable
     # that holds a fraction takes one, and a number written here is converted to match.
     def set!(value)
@@ -383,16 +388,17 @@ module RubyGBA
       mutate { @builder.sub!(@name, align!(amount, "subtract")) }
     end
 
-    # THE SAME THREE WITHOUT THE `!`, which used to change the variable. These three have no
-    # new-number meaning of their own — `set` answers no question at all, and a new number
-    # from adding is what `+` already is — so each says which word to write instead.
+    # THE SAME THREE WITHOUT THE `!`. These three have no new-number meaning of their own —
+    # `set` answers no question at all, and a new number from adding is what `+` already is —
+    # so each says which word to write instead (see {ChangingWord}).
     { set: nil, add: :+, sub: :- }.each do |word, operator|
       define_method(word) do |amount = nil|
-        instead = operator ? " To get a new number and keep the variable as it is, write " \
-                             "`#{spelled} #{operator} #{amount.inspect}`." : ""
+        raise ArgumentError, NOT_A_VARIABLE + at_dsl_line unless handle?
+
         raise ArgumentError,
-              "`#{spelled}.#{word}` does not change a variable. A word that changes a variable " \
-              "ends in `!`. To change it, write `#{spelled}.#{word}!`.#{instead}#{at_dsl_line}"
+              ChangingWord.refusal(written: "#{spelled}.#{word}", bang: "#{spelled}.#{word}!",
+                                   instead: ChangingWord.operator_advice(spelled, operator, amount),
+                                   at: at_dsl_line)
       end
     end
 
@@ -574,11 +580,8 @@ module RubyGBA
     # Run a mutation, returning self so calls chain — but only for a handle that
     # names a variable. Mutating an expression has nowhere to store the result.
     def mutate
-      unless @name
-        raise ArgumentError,
-              "only a variable can be changed (one from `var :name`), not an " \
-              "expression — assign the expression to a variable first"
-      end
+      raise ArgumentError, NOT_A_VARIABLE unless @name
+
       yield
       self
     end

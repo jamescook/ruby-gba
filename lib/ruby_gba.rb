@@ -27,6 +27,7 @@ require_relative "ruby_gba/evaluated_game" # the one place a game's block become
 require_relative "ruby_gba/game"
 require_relative "ruby_gba/author_source"
 require_relative "ruby_gba/scale"
+require_relative "ruby_gba/changing_word"
 require_relative "ruby_gba/value"
 require_relative "ruby_gba/condition"
 require_relative "ruby_gba/branch"

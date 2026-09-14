@@ -159,6 +159,49 @@ class TestDSLExpression < Minitest::Test
     assert_match(/`v - 1`/, sub.message)
   end
 
+  # ...and a variable added to another variable reads as the two names, on the handle and as
+  # a flat verb alike. Anything else puts the whole build in the message.
+  def test_the_message_names_a_variable_operand_rather_than_describing_it
+    handle = assert_raises(ArgumentError) { tree { var(:v, 0).add var(:step, 1) } }
+    flat = assert_raises(ArgumentError) { tree { var :step, 1; add :v, :step } }
+
+    assert_match(/`v \+ step`/, handle.message)
+    assert_match(/`v \+ step`/, flat.message)
+    assert_operator handle.message.length, :<, 300
+    assert_operator flat.message.length, :<, 300
+  end
+
+  # An operand with no name to be written by — a number worked out on the spot — leaves the
+  # advice out rather than describing itself, and so does an amount nobody gave.
+  def test_the_message_leaves_out_advice_it_cannot_write
+    worked_out = assert_raises(ArgumentError) { tree { v = var(:v, 0); v.add(v + 1) } }
+    nothing = assert_raises(ArgumentError) { tree { add :v } }
+
+    assert_match(/write `v\.add!`\.\z/, worked_out.message.sub(/ \(at .*\)\z/, ""))
+    assert_match(/write `add! :v`\.\z/, nothing.message)
+  end
+
+  # A pool field is a variable too, and its message names the field.
+  def test_a_pool_fields_word_without_its_bang_is_a_friendly_error
+    err = assert_raises(ArgumentError) do
+      tree do
+        sparks = pool :spark, x: 0, capacity: 4
+        sparks.each { |s| s.x.add 1 }
+      end
+    end
+
+    assert_match(/`x\.add` does not change a variable/, err.message)
+    assert_match(/write `x\.add!`/, err.message)
+    assert_match(/`x \+ 1`/, err.message)
+  end
+
+  # ...and an expression is not a variable at all, whichever of the two words it is given.
+  def test_changing_an_expression_says_it_is_not_a_variable
+    bare = assert_raises(ArgumentError) { tree { x = var(:x, 0); (x + 1).add 2 } }
+
+    assert_match(/only a variable can be changed/, bare.message)
+  end
+
   def test_unary_mutators_change_the_variable
     # d = -3; abs -> 3; +20 keeps the marker on-screen at x = 23.
     i = interpret do

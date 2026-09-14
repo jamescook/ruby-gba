@@ -141,18 +141,18 @@ module RubyGBA
         mirror_save(name)
       end
 
-      # EVERY FLAT VERB WITHOUT ITS `!`, each of which used to change the variable it names. A
-      # word without `!` never changes a variable, so each says which word does — and, where
-      # there is one, how to get the same number without changing anything.
+      # EVERY FLAT VERB WITHOUT ITS `!`. A word without `!` never changes a variable, so each
+      # says which word does — and, where there is one, how to get the same number without
+      # changing anything (see {ChangingWord}).
       #
       # A number is what `abs` and its four neighbours give back, on the variable's own handle;
       # for adding and subtracting it is what `+` and `-` already are; and `set` and `copy`
       # have no such form, since neither answers a question about a number.
-      NEW_NUMBERS = { abs: :abs, negate_abs: :negate_abs, negate: :flip, flip: :flip,
-                      clamp: :clamp, approach: :approach }.freeze
-      OPERATORS = { add: :+, sub: :-, add_var: :+, sub_var: :- }.freeze
+      CHANGING_HANDLE_WORDS = { abs: :abs, negate_abs: :negate_abs, negate: :flip, flip: :flip,
+                                clamp: :clamp, approach: :approach }.freeze
+      CHANGING_OPERATOR_WORDS = { add: :+, sub: :-, add_var: :+, sub_var: :- }.freeze
 
-      (NEW_NUMBERS.keys + OPERATORS.keys + %i[set copy]).each do |verb|
+      (CHANGING_HANDLE_WORDS.keys + CHANGING_OPERATOR_WORDS.keys + %i[set copy]).each do |verb|
         define_method(verb) do |name = nil, *rest|
           raise ArgumentError, changing_verb_message(verb, name, rest)
         end
@@ -241,25 +241,16 @@ module RubyGBA
       def changing_verb_message(verb, name, rest)
         written = [name, *rest].compact.map(&:inspect).join(", ")
         said = written.empty? ? "" : " #{written}"
-        "`#{verb}#{said}` does not change a variable. A word that changes a variable ends in " \
-          "`!`. To change it, write `#{verb}!#{said}`.#{new_number_advice(verb, name, rest)}"
+        ChangingWord.refusal(written: "#{verb}#{said}", bang: "#{verb}!#{said}",
+                             instead: new_number_advice(verb, name, rest))
       end
 
-      # A variable in the advice above reads as the handle it would be written as, not as the
-      # name the flat verb was given: `hp + 1`, not `:hp + 1`.
-      def as_written(operand) = operand.is_a?(Symbol) ? operand.to_s : operand.inspect
-
       def new_number_advice(verb, name, rest)
-        if (word = NEW_NUMBERS[verb])
-          handle = name.is_a?(Symbol) ? "the handle that `var :#{name}` gives you" : "the variable's handle"
-          " To get a new number and keep the variable as it is, use `.#{word}` on #{handle}."
-        elsif (operator = OPERATORS[verb])
-          " To get a new number and keep the variable as it is, write " \
-            "`#{as_written(name)} #{operator} #{as_written(rest.first)}` with the handles that " \
-            "`var` gives you."
-        else
-          ""
-        end
+        return ChangingWord.operator_advice(name, CHANGING_OPERATOR_WORDS[verb], rest.first, handles: true) unless CHANGING_HANDLE_WORDS.key?(verb)
+
+        handle = name.is_a?(Symbol) ? "the handle that `var :#{name}` gives you" : "the variable's handle"
+        " To get a new number and keep the variable as it is, use " \
+          "`.#{CHANGING_HANDLE_WORDS.fetch(verb)}` on #{handle}."
       end
 
       # A handle for a variable, carrying a fraction if that is what it holds. Every
