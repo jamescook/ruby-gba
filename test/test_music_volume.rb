@@ -4,9 +4,9 @@ require "test_helper"
 
 # HOW LOUD THE MUSIC PLAYS, moved while it plays.
 #
-# A part's volume is written into the song, and until now nothing could change it once the song
-# was built. `music_volume` scales every part of whatever song is playing — a settings screen's
-# music slider, and the level `fade_music_out` walks down to silence.
+# A part's volume is written into the song. `music_volume` scales every part of whatever song
+# is playing, while it plays — a settings screen's music slider, and the level `fade_music_out`
+# walks down to silence.
 class TestMusicVolume < Minitest::Test
   # A song holding one long note at volume 12 — on the first square voice, or on whichever voice
   # +plays+ names — and a game that runs +body+ on each pass with the pass number. The game names
@@ -75,13 +75,36 @@ class TestMusicVolume < Minitest::Test
     assert_equal (heard.keys.first...heard.keys.first + 4).to_a, heard.keys, "on four frames in a row"
   end
 
-  # Brought in, the music comes up from nothing to full over the frames it was given — the song
-  # playing now, or the one a game names in the same frame, which then starts silent.
+  # Brought in, the music comes up from where it is to full over the frames it was given —
+  # after a fade out, from nothing.
   def test_a_fade_in_brings_the_music_up_from_silence
-    program = held_note_game(named_once: true) { |pass| (pass == 10).then { fade_music_in frames: 5 } }
-    heard = loudness_by_frame(program, 30).reject { |frame, _| frame == 2 }
+    program = held_note_game(named_once: true) do |pass|
+      (pass == 5).then { fade_music_out frames: 2 }
+      (pass == 10).then { fade_music_in frames: 5 }
+    end
+    heard = loudness_by_frame(program, 30).select { |frame, _| frame > 10 }
 
-    assert_equal [[[1, 0]], [[1, 3]], [[1, 6]], [[1, 9]], [[1, 12]]], heard.values
+    assert_equal [[[1, 3]], [[1, 6]], [[1, 9]], [[1, 12]]], heard.values
+  end
+
+  # A fade in said while the music is fading out turns the fade round from where it is, rather
+  # than dropping to silence first and coming up from there.
+  def test_a_fade_in_during_a_fade_out_turns_round_where_it_is
+    program = held_note_game(named_once: true) do |pass|
+      (pass == 10).then { fade_music_out frames: 5 }
+      (pass == 12).then { fade_music_in }
+    end
+    heard = loudness_by_frame(program, 30).reject { |frame, _| frame == 2 }.values.flatten(1)
+
+    refute_includes heard, [1, 0], "it never went silent (#{heard.inspect})"
+    assert_equal [1, 12], heard.last, "and came back to full"
+  end
+
+  # ...and one said while the music is already at full has nothing to bring up.
+  def test_a_fade_in_at_full_volume_changes_nothing
+    program = held_note_game(named_once: true) { |pass| (pass == 10).then { fade_music_in } }
+
+    assert_equal({ 2 => [[1, 12]] }, loudness_by_frame(program, 30))
   end
 
   # A fade in said with no length comes up as fast as the last fade out went down.
@@ -93,6 +116,37 @@ class TestMusicVolume < Minitest::Test
     heard = loudness_by_frame(program, 30).select { |frame, _| frame > 15 }
 
     assert_equal [[[1, 6]], [[1, 12]]], heard.values
+  end
+
+  # THE TWO BACKENDS AGREE ON WHAT SOUNDED: over a whole fade out and back in, the volumes the
+  # console's first square voice is set to, one after another, are the volumes the interpreter
+  # logs, one after another — every step of the way, not only where it ends up.
+  def test_both_backends_step_through_the_same_volumes
+    program = held_note_game(named_once: true) do |pass|
+      (pass == 10).then { fade_music_out frames: 9 }
+      (pass == 30).then { fade_music_in frames: 9 }
+    end
+    interpreted = Reference.new.run(program, frames: 60).audio
+                           .select { |entry| entry[0] == :loudness && entry[1] == 1 }.map(&:last)
+    console = console_volumes(assemble_rom(program, name: "MUSSTEPS"), frames: 70)
+
+    assert_equal interpreted.chunk_while { |a, b| a == b }.map(&:first), console
+  end
+
+  # The volume the console's first square voice was set to, frame by frame, with a run of the
+  # same volume counted once.
+  def console_volumes(rom, frames:)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "volumes.gba")
+      rom.write(path)
+      probe = RubyGBA::Emulator.probe(path)
+      volumes = Array.new(frames) do
+        probe.step(1)
+        (probe.read32(RubyGBA::Constants::REG_SOUND1CNT_H) >> 12) & 0xF
+      end
+      probe.close
+      volumes.chunk_while { |a, b| a == b }.map(&:first).drop_while(&:zero?)
+    end
   end
 
   # ...and on the console, where it can be heard: loud, then silent, then loud again.
@@ -179,6 +233,25 @@ class TestMusicVolume < Minitest::Test
         play_song :tune
         (pass == 10).then { fade_music_out }
         (pass == 90).then { music_volume 100 }
+      end
+    end
+
+    refute_includes found, :music_faded_out_never_in
+  end
+
+  # ...and so does a volume the game works out, the way a settings slider says it.
+  def test_music_faded_out_and_turned_up_by_a_slider_is_not_flagged
+    found = warnings do
+      screen :bitmap
+      enable_sound
+      song(:tune) { note :C4, :whole }
+      pass = var :pass, 0
+      slider = var :slider, 80
+      game_loop do
+        pass.add 1
+        play_song :tune
+        (pass == 10).then { fade_music_out }
+        (pass == 90).then { music_volume slider }
       end
     end
 

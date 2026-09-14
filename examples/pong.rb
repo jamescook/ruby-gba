@@ -327,15 +327,19 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   # each screen stops the song once nobody can hear it, because a song plays until something
   # says otherwise: the tune belongs to the rally, and left alone it carries straight on
   # through GAME OVER and back onto the title, which sounds like the game never finished.
-  # Said every frame the screen is up, which costs a comparison — `stop_music` with nothing
-  # playing does nothing at all.
+  # Said every frame the screen is up, which costs reading the volume and a comparison —
+  # `stop_music` with nothing playing does nothing at all.
   scene :player_wins do
     clear_screen :black
     (music_volume == 0).then { stop_music }
     draw_text "YOU WIN!", :center, 60, :white
     draw_text "PRESS START", :center, 100, :gray
 
-    pressed(:start).then { state.set 0 }
+    # Leaving before the fade is over stops the song there, so the next game starts it again.
+    pressed(:start).then do
+      stop_music
+      state.set 0
+    end
   end
 
   scene :cpu_wins do
@@ -344,7 +348,10 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     draw_text "GAME OVER", :center, 60, :white
     draw_text "PRESS START", :center, 100, :gray
 
-    pressed(:start).then { state.set 0 }
+    pressed(:start).then do
+      stop_music
+      state.set 0
+    end
   end
 
   # --- Main loop ---

@@ -47,20 +47,18 @@ module RubyGBA
           start_music_fade(0.0, frames, duration)
         end
 
-        # Bring the music up from silence — the song playing now, or one named in the same
-        # frame, which then starts silent rather than at full for a moment.
+        # Bring the music back up to full — after a fade out, from silence.
         #
         #   fade_music_in                    # as fast as the last fade out went down
         #   fade_music_in frames: 10
         #
         # With no length it comes up at the speed the music last went down, so a fade out and a
-        # fade in are two words and no bookkeeping.
+        # fade in are two words and no bookkeeping. Said while a fade out runs, it turns round
+        # from where the music is; said with the music already at full, there is nothing to do.
         #
         # @param frames [Integer, nil] how long it takes, in frames
         # @param duration [Numeric, nil] how long it takes, in seconds
         def fade_music_in(frames: nil, duration: nil)
-          music_fade_state[:level].set 0.0
-          music_volume 0
           start_music_fade(FULL, frames, duration)
         end
 
@@ -81,9 +79,10 @@ module RubyGBA
         # heard rather than seen.
         #
         # `fade_music_out` writes the target 0 and `fade_music_in` writes the full amount, and
-        # nothing else writes the target at all. Turning the volume back up by hand counts too:
-        # the volume is declared with one write of the full level, so a second write of a level
-        # above nothing is the game's own `music_volume`.
+        # nothing else writes the target at all. Turning the volume back up by hand counts too,
+        # anywhere in the game: the volume is declared with one write of the full level, and the
+        # fade's own routine writes it as it walks, so any other write that is not a plain 0 is
+        # the game's own `music_volume` — a number, or one the game works out.
         class FadedOutNeverIn
           NAME = :music_faded_out_never_in
           PLAIN_NAME = "music faded out and never brought back"
@@ -98,12 +97,21 @@ module RubyGBA
             outs = targets.select { |node| written(node)&.zero? }
             return [] if outs.empty?
             return [] if targets.any? { |node| written(node)&.positive? }
-            return [] if writes_of(program, IR::Tunes::LEVEL).count { |node| written(node)&.positive? } > 1
+            return [] if turned_up_by_hand?(program)
 
             [IR::Guardrails::Finding.new(check: NAME, severity: :warning, message: MESSAGE, node: outs.last)]
           end
 
           private
+
+          # Nodes compare by their shape, and the game's `music_volume slider` is the same shape as
+          # the routine's own write — so the routine's writes are set aside by identity.
+          def turned_up_by_hand?(program)
+            walked = program.walk.select { |node| node.kind == :func && node.name == ROUTINE }
+                            .flat_map { |func| func.walk.to_a }.to_set.compare_by_identity
+            by_hand = writes_of(program, IR::Tunes::LEVEL).reject { |node| walked.include?(node) }
+            by_hand.count { |node| !written(node)&.zero? } > 1
+          end
 
           # Every write, the whole tree walked — a fade in under an `else` sits beside its `if`
           # rather than under it, and a walk of statements alone would miss it.
@@ -115,8 +123,12 @@ module RubyGBA
 
         private
 
+        # Point the ramp at a new target and set it running. A fade that is not already running
+        # starts from the volume the music is at now, which the game may have set by hand; one
+        # that is running carries on from its own, finer, level.
         def start_music_fade(target, frames, duration)
           state = music_fade_state
+          (state[:active] == 0).then { state[:level].set music_volume.to_f }
           state[:target].set target
           state[:step].set FULL / music_fade_frames(frames, duration) if frames || duration
           state[:active].set 1

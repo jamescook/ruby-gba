@@ -137,28 +137,45 @@ class TestPongTitle < Minitest::Test
   # the title unless the end screen says otherwise — which sounds like the game never
   # finished.
   #
-  # START, then the paddle is held at the top edge for the rest of the run: the cpu takes
-  # five points off a player who is not defending, which is a finished game in half the
-  # frames an even match would take — and then the half second the music takes to fade.
-  TO_THE_END = 960
+  # START, then the paddle is held at the top edge: the cpu takes five points off a player who
+  # is not defending, which is a finished game in half the frames an even match would take.
+  # Once it is over, the end screen is left alone for longer than the music takes to fade, then
+  # START goes back to the title and A starts the next game — enough frames for its music to
+  # begin.
+  TO_THE_NEXT_GAME = 1080
+  LINGER = 40 # frames on the end screen, past the half second the fade takes
 
-  # That game, played once for the tests that read it: it is most of this file's running time.
+  # That game, played once for every test that reads it: it is most of this file's running
+  # time. Returns the interpreter, how much had sounded when the game ended, and how much when
+  # START left the end screen.
   def finished_game
     self.class.instance_variable_get(:@finished_game) ||
-      self.class.instance_variable_set(:@finished_game, title(TO_THE_END) { |f| f < 3 ? [:a] : [:up] })
+      self.class.instance_variable_set(:@finished_game, play_to_the_next_game)
+  end
+
+  def play_to_the_next_game
+    i = Reference.new
+    over_at = over = left = nil
+    i.input_each_frame do |f|
+      next(f < 3 ? [:a] : [:up]) unless over_at || i[:state] == 3
+
+      over_at ||= f
+      over ||= i.audio.size
+      left ||= i.audio.size if f == over_at + LINGER
+      { over_at + LINGER => [:start], over_at + LINGER + 4 => [:a] }.fetch(f, [])
+    end
+    i.run(Pong.program, frames: TO_THE_NEXT_GAME)
+    [i, over, left]
   end
 
   def test_the_music_stops_when_the_game_is_over
-    i = finished_game
+    i, over, left = finished_game
 
-    assert_equal WIN_SCORE, i[:cpu_score], "the game really did finish"
-    assert_equal 3, i[:state], "on the screen that says so"
-
-    sounded = i.audio.select { |entry| %i[note stop_music].include?(entry[0]) }
-
-    refute_empty sounded.select { |entry| entry[0] == :note }, "the song was playing during the rally"
-    assert_equal :stop_music, sounded.last[0],
-                 "and the end screen silenced it, with nothing sounding since"
+    refute_nil left, "the game really did finish, and the end screen was left"
+    refute_empty i.audio.take(over).select { |entry| entry[0] == :note }, "the song was playing during the rally"
+    on_the_end_screen = i.audio[over...left].select { |entry| %i[note stop_music].include?(entry[0]) }
+    assert_equal :stop_music, on_the_end_screen.last&.first,
+                 "and the end screen silenced it, with nothing sounding since (#{on_the_end_screen.inspect})"
   end
 
   # ...and it does not stop dead: the music fades down as the game ends, and is stopped only
@@ -166,8 +183,8 @@ class TestPongTitle < Minitest::Test
   # the last time it was at full fall to nothing, and only then does the song stop. A rest sets
   # the voice to nothing too, so the falling is read off the notes that sounded.
   def test_the_music_fades_as_the_game_ends
-    i = finished_game
-    stop = i.audio.rindex { |entry| entry[0] == :stop_music }
+    i, _over, left = finished_game
+    stop = i.audio.take(left).rindex { |entry| entry[0] == :stop_music }
 
     refute_nil stop, "the music stopped"
     volumes = i.audio[0...stop].select { |entry| entry[0] == :loudness }.map(&:last)
@@ -177,6 +194,17 @@ class TestPongTitle < Minitest::Test
     assert_operator sounding.size, :>=, 3, "turned down over several frames (#{fading.inspect})"
     assert_equal sounding.sort.reverse, sounding, "falling all the way (#{fading.inspect})"
     assert_equal 0, fading.last, "down to nothing before the stop (#{fading.inspect})"
+  end
+
+  # ...and the next game brings its music back, from its first note and not from wherever the
+  # silent song had got to.
+  C4 = RubyGBA::Music::NOTE_FREQUENCIES[:C4]
+
+  def test_the_next_game_starts_its_music_from_the_top
+    i, _over, left = finished_game
+    notes = i.audio.drop(left).select { |entry| entry[0] == :note }
+
+    assert_equal [:note, :gameplay, C4], notes.first, "the next game's music opens on its first note"
   end
 
   # --- the difficulty screen, and where its cursor opens ---

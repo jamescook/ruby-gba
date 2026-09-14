@@ -40,7 +40,7 @@ module RubyGBA
             @frame = 0          # how far into that tune, in frames
             @events = []        # the events each of its parts is walking now
             @cursors = []       # each of its parts' next event
-            @sounding = {}      # square channel -> the written volume of the note it is on
+            @sounding = {}      # a voice holding a note -> that note's written volume (see #hold)
             @level = IR::Tunes::FULL_LEVEL # the music volume the notes sounding were set at
           end
 
@@ -183,9 +183,11 @@ module RubyGBA
             end
           end
 
-          # A note held on a console voice, at the music volume in force. A rest is a volume of 0.
-          # A drum hit is not held: it rings and fades by itself, so a new level waits for the
-          # next hit rather than striking this one again.
+          # A note held on a voice, at the music volume in force: a console voice by its channel,
+          # or a recorded part's mixer voice as [:mixer, lane], whose volume is a loudness out of
+          # IR::Tunes::MIX_FULL. A rest is a volume of 0. A drum hit is not held: it rings and
+          # fades by itself, so a new level waits for the next hit rather than striking this one
+          # again.
           def hold(channel, volume)
             @sounding[channel] = volume
             log_loudness(channel, volume)

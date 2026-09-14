@@ -579,10 +579,11 @@ module RubyGBA
             @primitives.store_var(ACC, self.class.music_note(number))
           end
 
-          # THE GAME HAS MOVED THE MUSIC VOLUME since the player last looked: every square lane
-          # holding a note starts it again at the new level, before any lane plays this frame's
-          # notes — which is the order the interpreter does it in. The level stays in its
-          # register for the notes this frame plays after it.
+          # THE GAME HAS MOVED THE MUSIC VOLUME since the player last looked: every lane holding a
+          # note sets it to the new level — a square lane by starting it again, the wave voice
+          # and a recorded part's mixer voice while they play — before any lane plays this
+          # frame's notes, which is the order the interpreter does it in. A drum hit is left to
+          # ring (see #holds_notes?).
           def emit_follow_the_level
             same = @emitter.gensym
             @primitives.load_var(LEVEL_REG, IR::Tunes::LEVEL)
@@ -663,7 +664,7 @@ module RubyGBA
           def emit_scaled_loudness(reg)
             @primitives.load_var(LEVEL_REG, IR::Tunes::LEVEL)
             @emitter.emit(ASM.mul(reg, LEVEL_REG, reg))
-            @emitter.emit(ASM.lsr_imm(reg, reg, 4))
+            @emitter.emit(ASM.lsr_imm(reg, reg, IR::Tunes::LEVEL_SHIFT))
           end
 
           # WRITE_REG = the square control in NOTE_REG with the volume in WORK_REG over its top
