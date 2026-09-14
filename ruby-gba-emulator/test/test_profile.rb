@@ -20,7 +20,7 @@ class TestRubyGBAEmulatorProfile < Minitest::Test
       screen :bitmap
       clear_screen :black
       var :x, 0
-      game_loop { repeat(passes) { add :x, 1 } }
+      game_loop { repeat(passes) { add! :x, 1 } }
     end
   end
 
@@ -39,7 +39,7 @@ class TestRubyGBAEmulatorProfile < Minitest::Test
       screen :bitmap
       clear_screen :black
       var :x, 0
-      game_loop { held(:left).then { repeat(500) { add :x, 1 } } }
+      game_loop { held(:left).then { repeat(500) { add! :x, 1 } } }
     end
   end
 
@@ -224,7 +224,7 @@ class TestRubyGBAEmulatorProfile < Minitest::Test
         screen :bitmap
         clear_screen :black
         var :x, 0
-        game_loop { repeat(passes) { add :x, 1 } }
+        game_loop { repeat(passes) { add! :x, 1 } }
       end.program
 
       counted = RubyGBA::Analyzer.measure_fps(program)

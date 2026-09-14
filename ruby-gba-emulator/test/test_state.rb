@@ -23,7 +23,7 @@ class TestRubyGBAEmulatorState < Minitest::Test
       screen :bitmap
       clear_screen :black
       var :x, 0
-      game_loop { add :x, bump }
+      game_loop { add! :x, bump }
     end
   end
 

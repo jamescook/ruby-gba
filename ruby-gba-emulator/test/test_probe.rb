@@ -88,7 +88,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
         var :x, 20
         game_loop do
           wait_vblank
-          held(:right).then { add :x, 2 }
+          held(:right).then { add! :x, 2 }
           clear_screen :black
           draw_rect_at :x, 78, 8, 8, :white
         end
@@ -247,8 +247,8 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
         high = save_var :high_score, 0
         s = var :s, 0
         game_loop do
-          s.set 7
-          (s > high).then { high.set s }
+          s.set! 7
+          (s > high).then { high.set! s }
         end
       end
       path = File.join(dir, "saver.gba")

@@ -175,6 +175,19 @@ module RubyGBA
       @core.bus_read8(address)
     end
 
+    # HOW MANY PASSES OF THE GAME LOOP the console managed in the frames it ran.
+    #
+    # Counted by the emulator, which reports the game reading the pad — once a pass, for a
+    # game loop. That is what lets a test line the two backends up on passes rather than on
+    # frames, without the cartridge being altered to count itself. A program with no game
+    # loop never reads the pad and answers 0.
+    #
+    # @return [Integer]
+    def passes
+      ensure_rendered!
+      @core.passes
+    end
+
     # Read a program variable's value from IWRAM, by name. Needs the variable-address
     # map from the backend that lowered the ROM — construct the Verifier with
     # `vars: backend.var_addresses`. This is how a test asserts what a program

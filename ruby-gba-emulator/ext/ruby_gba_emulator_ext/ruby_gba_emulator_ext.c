@@ -38,18 +38,25 @@ static VALUE cCore;
 static VALUE ra_empty_array; /* frozen [] returned by do_frame when nothing triggered */
 #endif
 
-/* No-op logger — prevents segfault when mGBA tries to log
- * without a logger configured (the default is NULL). */
-static void
-null_log(struct mLogger *logger, int category, enum mLogLevel level,
-         const char *format, va_list args)
-{
-    (void)logger; (void)category; (void)level;
-    (void)format; (void)args;
-}
+/* WHAT THE EMULATOR SAID WHILE THE GAME RAN.
+ *
+ * mGBA reports a bad read, an unmapped address or a register it does not implement as a log
+ * line. Those are exactly the things that leave a test staring at a blank screen with no
+ * idea why, so they are kept rather than dropped — the quiet ones (info, debug, and the
+ * "not implemented yet" notes) still are, or a normal run would bury the real complaint.
+ *
+ * mGBA's logger is set for the whole process, not per cartridge, so there is nowhere to
+ * hang this but a file-level pointer to whichever core is running. One core at a time is
+ * what this binding is for; a second one running at the same time would have its complaints
+ * filed against the first.
+ */
+#define LOG_LINES 64
+#define LOG_LINE_MAX 256
 
-static struct mLogger s_null_logger = {
-    .log = null_log,
+static void recording_log(struct mLogger *, int, enum mLogLevel, const char *, va_list);
+
+static struct mLogger s_recording_logger = {
+    .log = recording_log,
     .filter = NULL,
 };
 
@@ -157,7 +164,46 @@ struct mgba_core {
     int rewind_count;          /* number of valid snapshots */
     size_t rewind_state_size;  /* bytes per snapshot */
     void **rewind_slots;       /* array of rewind_capacity void* buffers */
+    /* What the core reported while it ran — see the callbacks below. */
+    int ev_passes;             /* times the game read the pad: once a pass, for a game loop */
+    int ev_crashed;            /* the core gave up on this cartridge */
+    int log_count;             /* complaints kept */
+    int log_dropped;           /* complaints past the cap */
+    char log_lines[LOG_LINES][LOG_LINE_MAX];
 };
+
+static struct mgba_core *s_logging_core = NULL;
+
+static void
+install_core_callbacks(struct mgba_core *mc);
+
+static void
+recording_log(struct mLogger *logger, int category, enum mLogLevel level,
+              const char *format, va_list args)
+{
+    struct mgba_core *mc = s_logging_core;
+    const char *name;
+    char *slot;
+    int used;
+
+    (void)logger;
+    if (!mc) return;
+    if (!(level & (mLOG_FATAL | mLOG_ERROR | mLOG_WARN | mLOG_GAME_ERROR))) return;
+
+    if (mc->log_count >= LOG_LINES) {
+        mc->log_dropped++;
+        return;
+    }
+
+    slot = mc->log_lines[mc->log_count];
+    name = mLogCategoryName(category);
+    used = snprintf(slot, LOG_LINE_MAX, "%s: ", name ? name : "?");
+    if (used < 0) used = 0;
+    if (used < LOG_LINE_MAX) {
+        vsnprintf(slot + used, (size_t)(LOG_LINE_MAX - used), format, args);
+    }
+    mc->log_count++;
+}
 
 static void
 mgba_rewind_free(struct mgba_core *mc)
@@ -293,6 +339,11 @@ mgba_core_initialize(int argc, VALUE *argv, VALUE self)
         rb_raise(rb_eRuntimeError, "mCore init failed");
     }
     mCoreInitConfig(core, NULL);
+
+    /* Ask the core to report what happens while it runs, rather than working it out
+     * afterwards from where the frame boundaries fell. */
+    mc->core = core;
+    install_core_callbacks(mc);
 
     /* 3. Get desired video dimensions */
     unsigned w, h;
@@ -431,8 +482,81 @@ mgba_core_run_frame(VALUE self)
 {
     struct mgba_core *mc = get_mgba_core(self);
     struct run_frame_args args = { .core = mc->core };
+    s_logging_core = mc;
     rb_thread_call_without_gvl(run_frame_nogvl, &args, RUBY_UBF_IO, NULL);
+    s_logging_core = NULL;
     return Qnil;
+}
+
+/* ---------------------------------------------------------- */
+/* WHAT THE CORE REPORTS WHILE A FRAME RUNS                    */
+/*                                                             */
+/* These fire inside mGBA, part-way through a frame, with      */
+/* Ruby's lock released — so they cannot call into Ruby. They  */
+/* only tally into the core's own struct, which Ruby reads     */
+/* once the frame has returned.                                */
+/*                                                             */
+/* "Keys read" is the useful one: a game loop reads the pad    */
+/* once a pass, so counting it is counting passes — which the  */
+/* framework has otherwise had to do by adding a counter to    */
+/* the cartridge and measuring a program nobody ships.         */
+/* ---------------------------------------------------------- */
+
+static void
+ev_keys_read(void *context)
+{
+    struct mgba_core *mc = context;
+    if (mc) mc->ev_passes++;
+}
+
+static void
+ev_crashed(void *context)
+{
+    struct mgba_core *mc = context;
+    if (mc) mc->ev_crashed = 1;
+}
+
+static void
+install_core_callbacks(struct mgba_core *mc)
+{
+    struct mCoreCallbacks cbs;
+
+    memset(&cbs, 0, sizeof(cbs));
+    cbs.context     = mc;
+    cbs.keysRead    = ev_keys_read;
+    cbs.coreCrashed = ev_crashed;
+    mc->core->addCoreCallbacks(mc->core, &cbs);
+}
+
+/* Core#passes — how many times the game has read the pad since the cartridge was loaded. */
+static VALUE
+mgba_core_passes(VALUE self)
+{
+    return INT2NUM(get_mgba_core(self)->ev_passes);
+}
+
+/* Core#crashed? — did the core give up on this cartridge? */
+static VALUE
+mgba_core_crashed_p(VALUE self)
+{
+    return get_mgba_core(self)->ev_crashed ? Qtrue : Qfalse;
+}
+
+/* Core#complaints — what the emulator said about this cartridge, worst kinds only. */
+static VALUE
+mgba_core_complaints(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    VALUE out = rb_ary_new_capa(mc->log_count);
+    int i;
+
+    for (i = 0; i < mc->log_count; i++) {
+        rb_ary_push(out, rb_str_new_cstr(mc->log_lines[i]));
+    }
+    if (mc->log_dropped > 0) {
+        rb_ary_push(out, rb_sprintf("... and %d more", mc->log_dropped));
+    }
+    return out;
 }
 
 /* --------------------------------------------------------- */
@@ -1909,7 +2033,7 @@ void
 Init_ruby_gba_emulator_ext(void)
 {
     /* Install no-op logger before any mGBA calls */
-    mLogSetDefaultLogger(&s_null_logger);
+    mLogSetDefaultLogger(&s_recording_logger);
 
     /* RubyGBAEmulator module */
     mRubyGBAEmulator = rb_define_module("RubyGBAEmulator");
@@ -1919,6 +2043,9 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_alloc_func(cCore, mgba_core_alloc);
 
     rb_define_method(cCore, "initialize",  mgba_core_initialize, -1);
+    rb_define_method(cCore, "passes",      mgba_core_passes, 0);
+    rb_define_method(cCore, "crashed?",    mgba_core_crashed_p, 0);
+    rb_define_method(cCore, "complaints",  mgba_core_complaints, 0);
     rb_define_method(cCore, "run_frame",   mgba_core_run_frame, 0);
     rb_define_method(cCore, "video_buffer", mgba_core_video_buffer, 0);
     rb_define_method(cCore, "video_buffer_argb", mgba_core_video_buffer_argb, 0);

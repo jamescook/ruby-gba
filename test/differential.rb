@@ -134,6 +134,13 @@ module Differential
 
   # The console's picture after +cf+ frames, and how many passes of the game loop it
   # managed in them — nil for a program with no loop to count.
+  # The console's picture, and how many passes of the game loop it managed.
+  #
+  # The passes are counted by adding a variable and an instruction to the game loop, so the
+  # console runs a program the interpreter never sees. The emulator can report the game
+  # READING THE PAD, which a game loop does once a pass — but that marks the START of a
+  # pass, and lining up pictures needs passes FINISHED, so the two disagree by one exactly
+  # when a run stops mid-pass. Until there is a signal for a pass ending, this stays.
   def console_picture(program, cf, name, keys)
     mask = keys.sum { |key| KEY_BITS.fetch(key) }
     counted = RubyGBA::Analyzer.instrument_frame_counter(program, PASSES)

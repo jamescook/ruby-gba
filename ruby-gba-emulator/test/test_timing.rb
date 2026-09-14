@@ -28,7 +28,7 @@ class TestRubyGBAEmulatorTiming < Minitest::Test
       var :x, 0
       game_loop do
         wait_vblank
-        repeat(500) { add :x, 1 }
+        repeat(500) { add! :x, 1 }
       end
     end
   end
@@ -138,7 +138,7 @@ class TestRubyGBAEmulatorTiming < Minitest::Test
       var :x, 0
       game_loop do
         wait_vblank
-        held(:left).then { repeat(500) { add :x, 1 } }
+        held(:left).then { repeat(500) { add! :x, 1 } }
       end
     end
   end
