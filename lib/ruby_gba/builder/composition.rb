@@ -135,7 +135,7 @@ module RubyGBA
         index = :"__pool_#{pool.name}_colors_fill"
         ensure_var(index)
         at_boot(Build.repeat(Build.int(pool.capacity), index,
-                             Build.list_push(pool.colors_list, Build.int(Build::OWN_COLORS))))
+                             Build.list_push(pool.colors_list, Build.int(Build::NO_RECOLOR))))
         pool.slot_objects.each_with_index do |node, slot|
           node.recolor = Build.list_get(pool.colors_list, Build.int(slot))
         end

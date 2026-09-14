@@ -688,7 +688,7 @@ module RubyGBA
 
       # Reserves the object; #present_objects is what actually draws it for a frame.
       def object(name, poses:, pose:, x:, y:, active:, angle: 0, scale: SCALE_ONE, layer: nil, scene: nil,
-                 recolor: OWN_COLORS, recolors: [])
+                 recolor: NO_RECOLOR, recolors: [])
         Nodes.build(:object, name: name, poses: poses, pose: wrap(pose),
                           x: wrap(x), y: wrap(y), active: wrap(active),
                           angle: wrap(angle), scale: wrap(scale),
@@ -698,7 +698,7 @@ module RubyGBA
 
       # The +recolor+ an object that is drawn in its own colours holds: a number that names
       # none of the other lists, since any such number means its own.
-      OWN_COLORS = -1
+      NO_RECOLOR = -1
 
       # Draw the named objects for this frame, on top of the background, in order
       # (later ones sit in front). Emitted once per frame at the moment it's safe to

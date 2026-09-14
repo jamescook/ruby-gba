@@ -96,7 +96,7 @@ module Shmup
     private
 
     # While the ship cannot be hit it pulses warm, and then it is its own colours again.
-    # The pulse steps every four frames, so `(frames >> 2) & 3` walks through the four
+    # The pulse steps every four frames, so `(@safe >> 2) & 3` walks through the four
     # lists and round again; the ship's picture is the same picture throughout.
     def glow_while_safe
       (@safe > 0).then do

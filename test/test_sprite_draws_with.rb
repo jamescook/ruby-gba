@@ -187,6 +187,29 @@ class TestSpriteDrawsWith < Minitest::Test
     assert_equal Color.resolve(:red), i.screen.pixel(81, 41)
   end
 
+  # A pool that reuses its oldest instance when full takes a different spawn path; the new
+  # instance still starts in its own colours.
+  def test_an_instance_that_takes_over_the_oldest_slot_starts_in_its_own_colors
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: SHIP, colors: OWN
+      colors :hurt, HURT
+      ships = pool :ship, x: 0, y: 0, capacity: 1, image: :ship, on_full: :recycle_oldest
+      ships.spawn x: 40, y: 40
+      frame = var :frame, 0
+      game_loop do
+        frame.add 1
+        (frame == 1).then { ships.each { |ship| ship.draw_with :hurt } }
+        (frame == 3).then { ships.spawn x: 80, y: 40 }
+      end
+    end
+    builder.emit_pending_functions
+    i = Reference.new.run(builder.program, frames: 5)
+
+    assert_equal Color.resolve(:red), i.screen.pixel(81, 41)
+  end
+
   def test_the_console_draws_a_pools_instances_the_same
     assert_backends_agree(pool_program, frames: 3)
     assert_backends_agree(pool_program(respawn_at: 3), frames: 5)
@@ -211,6 +234,42 @@ class TestSpriteDrawsWith < Minitest::Test
     end
 
     assert_match(/:hurt, which is not a list of colors/, error.message)
+  end
+
+  def test_a_sprite_with_no_list_can_still_be_told_its_own_colors
+    rom = built do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: SHIP
+      ship = sprite :ship, at: [40, 40]
+      game_loop { ship.draw_with :own }
+    end
+
+    assert_operator rom.size, :>, 0
+  end
+
+  def test_poses_given_different_lists_say_so
+    error = refused do
+      screen :tiled
+      image :left, width: 8, height: 8, data: SHIP, colors: OWN
+      image :right, width: 8, height: 8, data: SHIP, colors: [:transparent, :red, :green, :blue]
+      colors :hurt, [:transparent, :yellow, :white, :orange]
+      ship = sprite :ship, at: [40, 40], facing: { left: :left, right: :right }
+      game_loop { ship.draw_with :hurt }
+    end
+
+    assert_match(/different `colors:` lists/, error.message)
+  end
+
+  def test_showing_a_yes_or_no_test_is_a_friendly_error
+    error = refused do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: SHIP, colors: OWN
+      colors :hurt, HURT
+      ship = sprite :ship, at: [40, 40]
+      game_loop { ship.draw_with [:hurt, :hurt], showing: ship.x > 3 }
+    end
+
+    assert_match(/showing: needs a number/, error.message)
   end
 
   def test_a_sprite_whose_pictures_have_no_list_cannot_swap_colors

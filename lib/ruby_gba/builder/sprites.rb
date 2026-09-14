@@ -197,7 +197,7 @@ module RubyGBA
       def make_object_recolorable(object_node, colors_var)
         return unless object_node.recolor.kind == :int
 
-        at_boot(Build.set(colors_var, Build.int(Build::OWN_COLORS)))
+        at_boot(Build.set(colors_var, Build.int(Build::NO_RECOLOR)))
         ensure_var(colors_var)
         object_node.recolor = Build.var_ref(colors_var)
       end

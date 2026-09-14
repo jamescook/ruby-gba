@@ -2104,8 +2104,8 @@ module RubyGBA
           raise LoweringError,
                 "The sprites and the lists of colors they draw with need more than the " \
                 "#{PaletteBanks::BANKS} groups of colors the console holds for sprites. Each different list " \
-                "takes one group, and so does each sprite with different colors. To fix this, use fewer " \
-                "lists in `colors`, or give more sprites the same `colors:` list."
+                "takes one group, and so does each sprite with different colors. To fix this, tell sprites " \
+                "to draw_with fewer different lists, or give more sprites the same `colors:` list."
         end
 
         # The bank each of a sprite's other lists landed in, in the order the program counts

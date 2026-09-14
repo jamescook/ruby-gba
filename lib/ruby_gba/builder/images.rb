@@ -207,11 +207,16 @@ module RubyGBA
         lists = poses.map { |pose| @pictures.fetch(pose).colors }.uniq
         return lists.first if lists.length == 1 && lists.first
 
+        if lists.compact.length > 1
+          raise ArgumentError,
+                "#{subject} was told to draw_with other colors, but the pictures it shows were given " \
+                "different `colors:` lists. Another list of colors swaps the sprite's own colors by their " \
+                "places, so give every picture it shows the same `colors:` list."
+        end
         raise ArgumentError,
               "#{subject} was told to draw_with other colors, but its pictures have no `colors:` list. " \
               "Another list of colors swaps the sprite's own colors by their places in its list. " \
-              "Give each picture it shows the same `colors:` list, like " \
-              "`image :#{poses.first}, ..., colors: [:transparent, ...]`."
+              "To fix this, give each picture it shows the same `colors:` list with `image ..., colors:`."
       end
 
       def color_list_name!(name)

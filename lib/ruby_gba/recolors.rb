@@ -20,13 +20,14 @@ module RubyGBA
       @subject = subject # what the sprite is called in an error
       @poses = poses
       @names = []
+      @lists = []   # the colours of each of those, checked against the sprite as it was named
       @objects = []
     end
 
     # An object that is drawn with these lists from now on.
     def reads(node)
       @objects << node
-      node.recolors = lists
+      node.recolors = @lists
       self
     end
 
@@ -34,12 +35,12 @@ module RubyGBA
     # one list, one of a set picked by +showing+, or the sprite's own colours.
     def draw_with(choice, which, showing)
       names = group(which, showing)
-      return choice.set(IR::Build::OWN_COLORS) if names.nil?
+      return choice.set(IR::Build::NO_RECOLOR) if names.nil?
 
       start = place(names)
       return choice.set(start) if showing.nil?
 
-      pick(choice, names.length, start, showing)
+      pick(choice, count: names.length, start: start, showing: showing)
     end
 
     private
@@ -62,8 +63,8 @@ module RubyGBA
       end
       unless which.is_a?(Array) && !which.empty? && which.all?(Symbol)
         raise ArgumentError,
-              "#{@subject} draw_with needs the name of a list of colors, a list of those names, or " \
-              ":#{OWN}. Got #{which.inspect}."
+              "#{@subject} was told to draw_with #{which.inspect}. draw_with needs the name of a list of " \
+              "colors, a list of those names, or :#{OWN}."
       end
       return which unless showing.nil?
 
@@ -78,23 +79,26 @@ module RubyGBA
       return found if found
 
       at = @names.length
-      @builder.colors_to_draw_with(names, poses: @poses, subject: @subject) # checked before it is kept
+      @lists += @builder.colors_to_draw_with(names, poses: @poses, subject: @subject)
       @names.concat(names)
-      @objects.each { |node| node.recolors = lists }
+      @objects.each { |node| node.recolors = @lists }
       at
     end
-
-    def lists = @builder.colors_to_draw_with(@names, poses: @poses, subject: @subject)
 
     # One of a set of +count+ lists starting at +start+, picked by +showing+. A number
     # outside the set is the sprite's own colours, which is what a value that has run off
     # the end should look like.
-    def pick(choice, count, start, showing)
+    def pick(choice, count:, start:, showing:)
       fixed = Value.fixed_number(showing)
-      return choice.set(fixed.between?(0, count - 1) ? start + fixed : IR::Build::OWN_COLORS) if fixed
+      return choice.set(fixed.between?(0, count - 1) ? start + fixed : IR::Build::NO_RECOLOR) if fixed
 
       step = showing.is_a?(Symbol) ? Value.new(@builder, IR::Build.var_ref(showing), name: showing) : showing
-      ((step >= 0) & (step < count)).then { choice.set(step + start) }.else { choice.set(IR::Build::OWN_COLORS) }
+      unless step.respond_to?(:>=) && !step.is_a?(Condition)
+        raise ArgumentError,
+              "#{@subject} was told to draw_with a list picked by showing: #{step.class}. showing: needs a " \
+              "number, counting from 0, like showing: step."
+      end
+      ((step >= 0) & (step < count)).then { choice.set(step + start) }.else { choice.set(IR::Build::NO_RECOLOR) }
     end
   end
 end

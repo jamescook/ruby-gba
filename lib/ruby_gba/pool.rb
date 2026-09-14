@@ -185,8 +185,8 @@ module RubyGBA
     end
 
     # A pool never told to draw with other colours takes back the writes every spawn made
-    # just in case, so it is left exactly as it was before instances could be recoloured.
-    # Called once the whole program is built, when that is known.
+    # just in case, so it emits nothing for colours at all. Called once the whole program is
+    # built, when that is known.
     def settle_colors
       return if @recolors
 
@@ -351,7 +351,7 @@ module RubyGBA
       nodes << Build.list_set(facing_list, slot, Build.int(0)) if @art&.faces?
       nodes << Build.list_set(frame_list, slot, Build.int(0)) if @art&.animates?
       if spriteful?
-        reset = Build.list_set(colors_list, slot, Build.int(Build::OWN_COLORS))
+        reset = Build.list_set(colors_list, slot, Build.int(Build::NO_RECOLOR))
         color_resets << reset
         nodes << reset
       end
